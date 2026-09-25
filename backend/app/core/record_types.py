@@ -70,8 +70,8 @@ _UNSUPPORTED = RecordTypeCapabilities(
 
 # Mirrors chk_records_record_type. `map`, `service` and `collection` have no
 # dataset writer; they keep the vector answers that every "not raster" branch
-# gave them. A 3D Tiles tileset has none of these capabilities; it is served
-# by its own endpoints.
+# gave them. A 3D Tiles tileset and a COPC point cloud have none of these
+# capabilities; each is served by its own endpoints.
 _CAPABILITIES: dict[str, RecordTypeCapabilities] = {
     "vector_dataset": _GEOMETRY_DERIVED,
     "raster_dataset": _RASTER,
@@ -81,6 +81,7 @@ _CAPABILITIES: dict[str, RecordTypeCapabilities] = {
     "collection": _VECTOR,
     "table": _GEOMETRY_DERIVED,
     "tiles3d_dataset": _UNSUPPORTED,
+    "pointcloud_dataset": _UNSUPPORTED,
 }
 
 RECORD_TYPES: tuple[str, ...] = tuple(_CAPABILITIES)
@@ -93,6 +94,7 @@ DATASET_RECORD_TYPES: tuple[str, ...] = (
     "vrt_dataset",
     "table",
     "tiles3d_dataset",
+    "pointcloud_dataset",
 )
 
 

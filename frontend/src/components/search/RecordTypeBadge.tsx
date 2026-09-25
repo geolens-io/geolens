@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { Box, Combine, FolderOpen, Grid3X3, Layers, Table2 } from 'lucide-react';
+import { Box, ChartScatter, Combine, FolderOpen, Grid3X3, Layers, Table2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { recordTypeColors } from '@/lib/status-colors';
 
@@ -27,6 +27,10 @@ const TYPE_CONFIG = {
   tiles3d_dataset: {
     icon: Box,
     labelKey: 'card.tiles3d',
+  },
+  pointcloud_dataset: {
+    icon: ChartScatter,
+    labelKey: 'card.pointcloud',
   },
 } as const;
 

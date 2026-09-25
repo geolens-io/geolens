@@ -900,7 +900,7 @@ describe('DatasetMap record types', () => {
   });
 
   it('adds no vector source for an unknown record type when the tile config settles after load', () => {
-    loadThenSettleTileConfig('point_cloud_dataset');
+    loadThenSettleTileConfig('hologram_dataset');
 
     expect(fakeMap.addSource).not.toHaveBeenCalledWith(previewSourceId('cloud'), expect.anything());
   });
@@ -913,7 +913,7 @@ describe('DatasetMap record types', () => {
         tableName="cloud"
         geometryType="Point"
         datasetId="dataset-1"
-        recordType="point_cloud_dataset"
+        recordType="hologram_dataset"
         onMapReady={onMapReady}
       />,
     );
@@ -922,13 +922,13 @@ describe('DatasetMap record types', () => {
     expect(onMapReady).toHaveBeenCalled();
   });
 
-  it('adds no vector source for a 3D Tiles dataset when the tile config settles after load', () => {
-    loadThenSettleTileConfig('tiles3d_dataset');
+  it.each(['tiles3d_dataset', 'pointcloud_dataset'])('adds no vector source for a %s when the tile config settles after load', (recordType) => {
+    loadThenSettleTileConfig(recordType);
 
     expect(fakeMap.addSource).not.toHaveBeenCalledWith(previewSourceId('cloud'), expect.anything());
   });
 
-  it('adds no tile or overlay source for a 3D Tiles dataset and still reports ready', () => {
+  it.each(['tiles3d_dataset', 'pointcloud_dataset'])('adds no tile or overlay source for a %s and still reports ready', (recordType) => {
     const onMapReady = vi.fn();
     render(
       <DatasetMap
@@ -936,7 +936,7 @@ describe('DatasetMap record types', () => {
         tableName="cloud"
         geometryType="Point"
         datasetId="dataset-1"
-        recordType="tiles3d_dataset"
+        recordType={recordType}
         onMapReady={onMapReady}
       />,
     );

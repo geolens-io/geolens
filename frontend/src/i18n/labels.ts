@@ -37,6 +37,7 @@ const SOURCE_FORMAT_KEYS = {
   ogcapi_features: 'common:enums.sourceFormat.ogcapiFeatures',
   created: 'common:enums.sourceFormat.created',
   '3dtiles': 'common:enums.sourceFormat.tiles3d',
+  copc: 'common:enums.sourceFormat.copc',
 } as const;
 
 const BOUNDING_VOLUME_KEYS = {
@@ -73,6 +74,7 @@ const SOURCE_FORMAT_DEFAULTS = {
   ogcapi_features: 'OGC API Features',
   created: 'Created in GeoLens',
   '3dtiles': '3D Tiles',
+  copc: 'COPC',
 } as const;
 
 function resolveLabel(t: Translate, key: string, defaultValue: string): string {

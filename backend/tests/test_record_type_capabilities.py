@@ -54,7 +54,8 @@ _FRONTEND_SNAPSHOT = (
         ("service", _VECTOR),
         ("collection", _VECTOR),
         ("tiles3d_dataset", _NONE),
-        ("point_cloud_dataset", _NONE),
+        ("pointcloud_dataset", _NONE),
+        ("hologram_dataset", _NONE),
         (None, _NONE),
     ],
 )
@@ -74,9 +75,10 @@ def test_the_table_covers_exactly_the_checked_vocabulary() -> None:
     assert admitted == set(RECORD_TYPES)
 
 
-def test_a_tileset_counts_as_a_dataset() -> None:
-    """tiles3d_dataset is a dataset record type, and every dataset type is known."""
-    assert "tiles3d_dataset" in DATASET_RECORD_TYPES
+@pytest.mark.parametrize("record_type", ["tiles3d_dataset", "pointcloud_dataset"])
+def test_a_served_type_counts_as_a_dataset(record_type: str) -> None:
+    """Tilesets and point clouds are dataset record types, and every dataset type is known."""
+    assert record_type in DATASET_RECORD_TYPES
     assert set(DATASET_RECORD_TYPES) <= set(RECORD_TYPES)
 
 

@@ -314,7 +314,7 @@ describe('ReuploadDialog', () => {
   it('renders nothing for an unknown record type', () => {
     render(
       <ReuploadDialog
-        dataset={{ ...makeDataset(), record_type: 'point_cloud_dataset' as RecordType }}
+        dataset={{ ...makeDataset(), record_type: 'hologram_dataset' as RecordType }}
         open
         onOpenChange={vi.fn()}
       />,
@@ -323,10 +323,10 @@ describe('ReuploadDialog', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  it('renders nothing for a 3D Tiles dataset', () => {
+  it.each(['tiles3d_dataset', 'pointcloud_dataset'] as const)('renders nothing for a %s', (recordType) => {
     render(
       <ReuploadDialog
-        dataset={{ ...makeDataset(), record_type: 'tiles3d_dataset' }}
+        dataset={{ ...makeDataset(), record_type: recordType }}
         open
         onOpenChange={vi.fn()}
       />,

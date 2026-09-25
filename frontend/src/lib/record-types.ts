@@ -41,6 +41,7 @@ export const RECORD_TYPE_CAPABILITIES: Record<RecordType, RecordTypeCapabilities
   collection: VECTOR,
   table: VECTOR,
   tiles3d_dataset: UNSUPPORTED,
+  pointcloud_dataset: UNSUPPORTED,
 };
 
 /** Capabilities of `recordType`; an unknown or missing value has none. */

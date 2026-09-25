@@ -54,7 +54,10 @@ def _down_revision() -> str:
     return module.down_revision
 
 
-def _run_backfill() -> None:
+async def _run_backfill(session) -> None:
+    # Reaching 0069's predecessor runs every later migration's downgrade first,
+    # and their DDL waits on the locks this session's open read still holds.
+    await session.commit()
     for args in (("downgrade", _down_revision()), ("upgrade", "head")):
         result = run_alembic(*args)
         assert result.returncode == 0, (
@@ -132,7 +135,7 @@ async def test_a_raster_without_rows_gets_the_rows_ingest_writes(
         raster_asset_kwargs={**keys, "size_bytes": 7_340_032},
     )
     try:
-        _run_backfill()
+        await _run_backfill(test_db_session)
 
         expected = {
             row["key"]: tuple(row.get(c) for c in _COLUMNS)
@@ -191,7 +194,7 @@ async def test_vrts_by_reference_rasters_and_unmanaged_keys_get_no_rows(
         },
     )
     try:
-        _run_backfill()
+        await _run_backfill(test_db_session)
 
         assert await _rows(vrt.id) == {}
         assert await _rows(by_reference.id) == {}
@@ -214,9 +217,9 @@ async def test_an_existing_row_is_kept_on_every_run(test_db_session) -> None:
         {"d": raster.id},
     )
     try:
-        _run_backfill()
+        await _run_backfill(test_db_session)
         first = await _rows(raster.id)
-        _run_backfill()
+        await _run_backfill(test_db_session)
 
         assert await _rows(raster.id) == first
         assert first["data"] == (

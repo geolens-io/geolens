@@ -113,6 +113,7 @@
     "collection": "Colección",
     "table": "Tabla",
     "tiles3d": "3D Tiles",
+    "pointcloud": "Nube de puntos",
     "sourceCount_one": "{{count}} fuente",
     "sourceCount_other": "{{count}} fuentes",
     "autoDesc": {

@@ -98,14 +98,14 @@ describe('ExportButton', () => {
   });
 
   it('offers no export for an unknown record type', () => {
-    render(<ExportButton datasetId="ds-1" datasetName="test" recordType={'point_cloud_dataset' as RecordType} />);
+    render(<ExportButton datasetId="ds-1" datasetName="test" recordType={'hologram_dataset' as RecordType} />);
 
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 
-  it('offers no export for a 3D Tiles dataset', () => {
-    render(<ExportButton datasetId="ds-1" datasetName="test" recordType="tiles3d_dataset" />);
+  it.each(['tiles3d_dataset', 'pointcloud_dataset'] as const)('offers no export for a %s', (recordType) => {
+    render(<ExportButton datasetId="ds-1" datasetName="test" recordType={recordType} />);
 
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
     expect(screen.queryByRole('button')).not.toBeInTheDocument();

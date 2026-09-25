@@ -247,7 +247,7 @@ describe('AccessTab', () => {
   });
 
   it('offers no API snippet or export for an unknown record type', () => {
-    render(<AccessTab dataset={makeDataset({ record_type: 'point_cloud_dataset' as RecordType })} />);
+    render(<AccessTab dataset={makeDataset({ record_type: 'hologram_dataset' as RecordType })} />);
 
     expect(screen.queryByText('Access via API')).not.toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: 'Export format' })).not.toBeInTheDocument();

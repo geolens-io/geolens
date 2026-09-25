@@ -100,6 +100,7 @@ describe('recordTypeColors', () => {
         'vrt_dataset',
         'table',
         'tiles3d_dataset',
+        'pointcloud_dataset',
         'unknown',
       ])
     );
@@ -116,6 +117,11 @@ describe('recordTypeColors', () => {
   it('uses its own token for tiles3d, not the unknown fallback', () => {
     expect(recordTypeColors.tiles3d_dataset).toContain('type-tiles3d');
     expect(recordTypeColors.tiles3d_dataset).not.toBe(recordTypeColors.unknown);
+  });
+
+  it('uses its own token for point clouds, not the unknown fallback', () => {
+    expect(recordTypeColors.pointcloud_dataset).toContain('type-pointcloud');
+    expect(recordTypeColors.pointcloud_dataset).not.toBe(recordTypeColors.unknown);
   });
 });
 

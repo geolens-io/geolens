@@ -1,19 +1,16 @@
 """Shared alembic subprocess runner for migration tests.
 
-fix(#933): seven test files each carried their own ``_run_alembic`` copy, and
-none of them knew that migration ``0030_records_spatial_extent_type``
-deliberately REFUSES to downgrade while any ``catalog.records`` row holds a
-MULTIPOLYGON ``spatial_extent``. Any test that committed a seam-crossing
-extent therefore broke every migration test that later downgraded past 0030
-in the same xdist worker — and the failure surfaced in an unrelated file,
-reproducible only when both tests share a worker (each worker owns its own
-database, so a single-file run never shows it).
+Some migrations refuse to downgrade while rows would violate the older schema.
+A test that commits such a row breaks every migration test that later
+downgrades past it in the same xdist worker, and the failure shows up in an
+unrelated file only when both tests share a worker, since each worker owns its
+own database.
 
 This module is the one place that knows about refuse-to-coerce downgrades:
 
 - ``0030``: normalized automatically before every downgrade (see below).
 - ``0029_api_key_hardening``: refuses while any API key carries an expiry or
-  any user's ``key_epoch`` has been bumped (fix(#1016)). Also normalized
+  any user's ``key_epoch`` has been bumped. Also normalized
   automatically — see ``_API_KEY_STATE_NORMALIZATION`` for why this one is
   auto-cleaned while the two below are not.
 - ``0010_oauth_github_provider_type``: refuses while GitHub OAuth providers
@@ -29,6 +26,10 @@ This module is the one place that knows about refuse-to-coerce downgrades:
   test_tiles3d_branches, test_tiles3d_record_type_migration,
   test_catalog_projection, test_tileset_upload and test_tileset_quality_score)
   remove them themselves.
+- ``0070_pointcloud_record_type``: refuses while any record uses
+  ``pointcloud_dataset`` or any dataset uses ``copc``. Not auto-cleaned;
+  test_pointcloud_record_type and test_pointcloud_record_type_migration
+  remove their rows themselves.
 
 If a future migration gains a refuse-to-coerce downgrade, teach this module
 about it rather than adding cleanup to individual test files.

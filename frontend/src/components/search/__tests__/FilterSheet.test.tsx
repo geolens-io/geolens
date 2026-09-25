@@ -78,7 +78,7 @@ describe('FilterSheet date field accessible names (#1778)', () => {
   });
 });
 
-describe('FilterSheet 3D Tiles filter', () => {
+describe('FilterSheet 3D Tiles and point cloud filters', () => {
   afterEach(() => {
     facetCounts.record_type = {};
     useSearchStore.getState().resetFilters();
@@ -94,11 +94,22 @@ describe('FilterSheet 3D Tiles filter', () => {
     expect(screen.getByRole('radio', { name: /All/ })).toHaveTextContent('(5)');
   });
 
+  it('offers a Point cloud toggle, counted in All, when the catalog holds point clouds', () => {
+    facetCounts.record_type = { vector_dataset: 3, pointcloud_dataset: 2 };
+    render(<FilterSheet totalResults={5} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Filters/i }));
+
+    expect(screen.getByRole('radio', { name: /Point cloud/ })).toHaveTextContent('(2)');
+    expect(screen.getByRole('radio', { name: /All/ })).toHaveTextContent('(5)');
+  });
+
   it.each([
     ['vector_dataset', true],
     ['tiles3d_dataset', false],
+    ['pointcloud_dataset', false],
   ])('offers the geometry filter only for a type with vector tiles (%s)', (recordType, offered) => {
-    facetCounts.record_type = { vector_dataset: 3, tiles3d_dataset: 2 };
+    facetCounts.record_type = { vector_dataset: 3, tiles3d_dataset: 2, pointcloud_dataset: 1 };
     useSearchStore.getState().setFilter('record_type', recordType);
     render(<FilterSheet totalResults={5} />);
 

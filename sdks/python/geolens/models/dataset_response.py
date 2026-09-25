@@ -119,7 +119,8 @@ class DatasetResponse:
         updated_by (None | Unset | UUID):
         record_type (str | Unset): Record type: 'vector_dataset' (spatial features), 'raster_dataset' (single COG),
             'vrt_dataset' (VRT mosaic), 'table' (non-spatial tabular), 'map' (saved map), 'service' (catalogued remote
-            service), 'collection' (flat dataset group), 'tiles3d_dataset' (3D Tiles tileset). Default: 'vector_dataset'.
+            service), 'collection' (flat dataset group), 'tiles3d_dataset' (3D Tiles tileset), 'pointcloud_dataset' (COPC
+            point cloud). Default: 'vector_dataset'.
         raster (None | RasterMetadata | Unset): Raster-specific metadata (null for vectors)
         tileset (None | TilesetMetadata | Unset): 3D Tiles metadata on the dataset detail response; null for other
             record types and before a tileset is published
