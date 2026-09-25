@@ -449,8 +449,7 @@ def _member_read_errors(entry: str):
     except _CORRUPT_MEMBER_ERRORS as exc:
         raise UnsafeUploadError(
             f"The archive entry '{entry}' could not be read. The upload may be "
-            "corrupt, truncated, password-protected, or compressed with a "
-            "method this server does not support."
+            "corrupt, truncated or encrypted."
         ) from exc
 
 

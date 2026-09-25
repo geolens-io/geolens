@@ -740,15 +740,15 @@ def enterprise_edition(monkeypatch):
 
 @pytest.fixture
 def zip_member_reads(monkeypatch) -> list[str]:
-    """The names of the archive members read through ``zipfile``, in order."""
+    """The names of the archive members ``zipfile`` decompresses from, in order."""
     reads: list[str] = []
-    read = zipfile.ZipExtFile.read
+    read = zipfile.ZipExtFile._read1
 
-    def spy(self, n=-1):
+    def spy(self, n):
         reads.append(self.name)
         return read(self, n)
 
-    monkeypatch.setattr(zipfile.ZipExtFile, "read", spy)
+    monkeypatch.setattr(zipfile.ZipExtFile, "_read1", spy)
     return reads
 
 

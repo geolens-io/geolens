@@ -1366,6 +1366,28 @@ def test_a_member_neither_stored_nor_deflated_is_refused_unread(
     assert zip_member_reads == []
 
 
+def test_a_name_whose_first_entry_is_bzip2_is_refused_unread(
+    tmp_path, zip_member_reads
+):
+    """Every entry's method is checked, not only the one its name resolves to."""
+    from app.processing.ingest import validation
+
+    archive = tmp_path / "upload.zip"
+    body = '{"type":"FeatureCollection"}' * 20
+    with pytest.warns(UserWarning, match="Duplicate name"):
+        with zipfile.ZipFile(archive, "w") as z:
+            z.writestr("layer.geojson", body, compress_type=zipfile.ZIP_BZIP2)
+            z.writestr("layer.geojson", body, compress_type=zipfile.ZIP_DEFLATED)
+    with zipfile.ZipFile(archive) as opened:
+        assert opened.getinfo("layer.geojson").compress_type == zipfile.ZIP_DEFLATED
+
+    with pytest.raises(ValueError, match="compressed with bzip2"):
+        validation.validate_archive_safety(str(archive), "upload.zip")
+    with pytest.raises(UnsafeUploadError, match="compressed with bzip2"):
+        validation.validate_content_directives(str(archive), "upload.zip")
+    assert zip_member_reads == []
+
+
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     ("build", "detail"),

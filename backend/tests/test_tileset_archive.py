@@ -800,15 +800,21 @@ async def test_a_stored_archive_that_fails_a_check_is_refused(
         await inspect_stored_tileset(storage, "staging/job/frozen/t.zip")
 
 
-async def test_a_stored_archive_with_a_bzip2_entry_is_refused(
-    tmp_path: Path, storage
+@pytest.mark.parametrize(
+    "method", [zipfile.ZIP_BZIP2, zipfile.ZIP_LZMA], ids=["bzip2", "lzma"]
+)
+async def test_a_stored_archive_entry_neither_stored_nor_deflated_is_refused_unread(
+    tmp_path: Path, storage, zip_member_reads: list[str], method: int
 ) -> None:
     """The probe refuses an entry by its compression method, as a local read does."""
-    path = tileset_zip(tmp_path / "t.zip", compression=zipfile.ZIP_BZIP2)
+    path = tileset_zip(tmp_path / "t.zip", compression=method)
     await storage.put("staging/job/frozen/t.zip", io.BytesIO(Path(path).read_bytes()))
 
-    with pytest.raises(UnsafeUploadError, match="compressed with bzip2"):
+    with pytest.raises(
+        UnsafeUploadError, match=f"compressed with {zipfile.compressor_names[method]}"
+    ):
         await inspect_stored_tileset(storage, "staging/job/frozen/t.zip")
+    assert zip_member_reads == []
 
 
 @functools.cache
