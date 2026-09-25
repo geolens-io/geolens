@@ -480,17 +480,33 @@ async def can_download_raster_cog(
     dataset: Any,
     user: Identity | None,
     user_roles: set[str] | None = None,
+    *,
+    may_export: bool | None = None,
 ) -> bool:
     """Whether the COG download route would serve *dataset* to a caller who
     can already see it.
 
     The route's own gate, without raising: an anonymous caller only gets a
     public dataset, an authenticated one also needs the export capability.
+    ``may_export`` is that capability when the caller already resolved it
+    with :func:`can_export`.
     """
     if dataset.record.record_type != "raster_dataset":
         return False
     if user is None:
         return dataset.record.visibility == DatasetVisibility.PUBLIC.value
+    if may_export is None:
+        may_export = await can_export(db, user, user_roles)
+    return may_export
+
+
+async def can_export(
+    db: AsyncSession, user: Identity | None, user_roles: set[str] | None = None
+) -> bool:
+    """Whether *user* holds the export capability. It depends on the caller
+    alone, so a page of items resolves it once."""
+    if user is None:
+        return False
     if user_roles is None:
         user_roles = await get_user_roles(db, user)
     return await get_permission_extension().check_permission(

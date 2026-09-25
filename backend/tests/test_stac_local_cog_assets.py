@@ -13,6 +13,7 @@ import copy
 import pytest
 from httpx import AsyncClient
 
+import app.modules.catalog.authorization as authorization
 from app.modules.auth.permissions import DEFAULT_ROLE_PERMISSIONS
 from app.processing.raster.models import DatasetAsset
 
@@ -103,3 +104,28 @@ async def test_reader_without_export_gets_no_data_asset(
             headers=admin_auth_header,
         )
         assert resp.status_code == 200, resp.text
+
+
+async def test_a_page_resolves_the_export_capability_once(
+    client: AsyncClient, test_db_session, viewer_auth_header: dict, monkeypatch
+):
+    ids = [await _published_raster_with_assets(test_db_session) for _ in range(3)]
+    reads = 0
+    original = authorization.get_effective_permissions
+
+    async def _counting_read(db):
+        nonlocal reads
+        reads += 1
+        return await original(db)
+
+    monkeypatch.setattr(authorization, "get_effective_permissions", _counting_read)
+
+    resp = await client.get(
+        "/stac/search", params={"ids": ",".join(ids)}, headers=viewer_auth_header
+    )
+
+    assert resp.status_code == 200, resp.text
+    features = resp.json()["features"]
+    assert len(features) == 3
+    assert all("data" in feature["assets"] for feature in features)
+    assert reads == 1
