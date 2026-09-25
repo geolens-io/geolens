@@ -12,6 +12,7 @@ import {
   type UrlImportSession,
 } from '@/api/url-import-session';
 import { useJobStatus, useUploadConfig } from '@/components/import/hooks/use-ingest';
+import { describeFailureReason } from '@/lib/failure-reason';
 import type {
   CommitImportRequest,
   FilePreviewResponse,
@@ -304,7 +305,9 @@ export function UrlImportForm() {
     // form IS the feedback; an error toast would report their own click back
     // to them. Every other terminal status is a failure the form must explain.
     if (trackedJob.status !== 'cancelled') {
-      const msg = trackedJob.error_message || t('urlImport.downloadFailed');
+      const msg = trackedJob.error_message
+        ? describeFailureReason(trackedJob.error_message, t('common:errors.internalFailureReason'))
+        : t('urlImport.downloadFailed');
       setError(msg);
       toast.error(msg);
     }

@@ -1,4 +1,4 @@
-/** The File URL form imports a 3D Tiles archive: it sends the kind, previews the tileset and commits it in tileset mode. */
+/** The File URL form imports a 3D Tiles archive: it sends the kind, previews and commits the tileset, and shows a refusal's reason. */
 import { render, screen, waitFor } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { UrlImportForm } from '../UrlImportForm';
@@ -127,6 +127,34 @@ describe('UrlImportForm with a 3D Tiles archive', () => {
     await user.click(screen.getByRole('button', { name: 'commit-stub' }));
     await waitFor(() => expect(screen.getByTestId('job-progress')).toHaveTextContent('job-t'));
     expect(mockCommitImport).toHaveBeenCalledWith('job-t', { title: 'Campus' });
+  });
+
+  test('a refused archive shows the reason the download job stored', async () => {
+    const refusal = 'An entry in the archive has an absolute path. Every entry must sit below the archive root.';
+    mockUploadFromUrl.mockResolvedValue({ job_id: 'job-t', status: 'running' });
+    mockGetJobStatus.mockResolvedValue({ job_id: 'job-t', status: 'failed', error_message: refusal });
+    const user = userEvent.setup();
+    render(<UrlImportForm />);
+
+    await user.click(screen.getByRole('radio', { name: 'upload.kindTileset' }));
+    await submit(user, 'https://files.example.test/campus.3tz');
+
+    await waitFor(() => expect(screen.getByText(refusal)).toBeInTheDocument());
+    expect(screen.getByRole('radio', { name: 'upload.kindTileset' })).toBeChecked();
+  });
+
+  test('a download failure stored as the internal code shows the localized fallback', async () => {
+    mockUploadFromUrl.mockResolvedValue({ job_id: 'job-t', status: 'running' });
+    mockGetJobStatus.mockResolvedValue({ job_id: 'job-t', status: 'failed', error_message: 'internal_error' });
+    const user = userEvent.setup();
+    render(<UrlImportForm />);
+
+    await submit(user, 'https://files.example.test/campus.3tz');
+
+    await waitFor(() =>
+      expect(screen.getByText('common:errors.internalFailureReason')).toBeInTheDocument(),
+    );
+    expect(screen.queryByText('internal_error')).not.toBeInTheDocument();
   });
 
   test('a remount restores the kind its session was started with', async () => {
