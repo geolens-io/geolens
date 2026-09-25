@@ -1,12 +1,12 @@
-// A sync pass redraws a layer whose family or source changes.
+// A sync pass redraws a layer whose family or source changes, and adds back an extrusion its layer describes again.
 import type { MapLayerResponse } from '@/types/api';
 import { SAVED_LAYERS } from '@/test/fixtures/saved-layers';
 import { FIXTURE_TOKENS } from '@/test/fixtures/render-contexts';
 import { RecordingMap } from '@/test/recording-map';
 import { applyCopiedStyleToLayer, extractCopyableStyle } from '@/lib/builder/layer-style-clipboard';
-import { syncLayersToMap, toSyncInput, writeLayerToMap } from '../map-sync';
+import { prefixed, syncLayersToMap, toSyncInput, writeLayerToMap } from '../map-sync';
 
-const { point, polygon, heatmapByRamp, serverCluster, boundedCluster, symbolWithLeftoverClassification: symbol } = SAVED_LAYERS;
+const { point, polygon, extrusion, heatmapByRamp, serverCluster, boundedCluster, symbolWithLeftoverClassification: symbol } = SAVED_LAYERS;
 
 const CLUSTER_DATA = new Map<string, GeoJSON.FeatureCollection>([
   [boundedCluster.id, { type: 'FeatureCollection', features: [] }],
@@ -39,6 +39,10 @@ function pasted(target: MapLayerResponse, source: MapLayerResponse): MapLayerRes
 const labelledPoint = { ...point, label_config: { column: 'name' } };
 /** A point layer with more features than a cluster draws in the browser. */
 const manyPoints = { ...point, dataset_feature_count: 250_000 };
+const flat = (layer: MapLayerResponse): MapLayerResponse => ({
+  ...layer,
+  style_config: { ...layer.style_config, builder: { ...layer.style_config?.builder, heightColumn: undefined } },
+});
 
 const PASTES: [label: string, target: MapLayerResponse, source: MapLayerResponse][] = [
   ['a point to a heatmap', point, heatmapByRamp],
@@ -93,6 +97,35 @@ describe('writeLayerToMap after a family change', () => {
 
     sync([next]);
     expect(drawn(recording)).toEqual(drawn(syncedMap([next]).recording));
+    expect(recording.errors).toEqual([]);
+  });
+});
+
+describe('the extrusion of a layer whose height column returns', () => {
+  const extrusionId = prefixed('extrusion', extrusion.id);
+
+  it('comes back in the sync pass', () => {
+    const { recording, sync } = syncedMap([extrusion]);
+    sync([flat(extrusion)]);
+    expect(recording.layer(extrusionId)).toBeUndefined();
+
+    sync([extrusion]);
+
+    expect(drawn(recording)).toEqual(drawn(syncedMap([extrusion]).recording));
+    expect(recording.errors).toEqual([]);
+  });
+
+  it('comes back in a layer write, before the pass', () => {
+    const { recording, sync } = syncedMap([extrusion]);
+    writeLayerToMap(recording.map, toSyncInput(flat(extrusion)));
+    sync([flat(extrusion)]);
+    expect(recording.layer(extrusionId)).toBeUndefined();
+
+    writeLayerToMap(recording.map, toSyncInput(extrusion));
+    expect(recording.layer(extrusionId)).toEqual(syncedMap([extrusion]).recording.layer(extrusionId));
+
+    sync([extrusion]);
+    expect(drawn(recording)).toEqual(drawn(syncedMap([extrusion]).recording));
     expect(recording.errors).toEqual([]);
   });
 });
