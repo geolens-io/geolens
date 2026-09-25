@@ -1,26 +1,18 @@
-"""Catalog writes that publish a replaced raster, and the work that follows.
+"""Catalog writes that publish a replaced raster.
 
-fix(#1290): a pure extraction from ``tasks_raster_replace`` (crossed the
-1000-line ratchet threshold) — every function moved verbatim. The seam
-matches the task's own shape: ``tasks_raster_replace`` holds the pipeline
-(claim, validate, convert, verify, terminal cleanup deciding what the
-uploaded bytes were worth); this module holds what happens once those
-bytes are a COG worth publishing — the field swap, the asset-row upsert,
-the superseded-object reap, and the post-commit follow-ups. One produces
-an artifact; the other makes the catalog point at it.
+The raster strategy in ``tasks_raster_replace`` converts the upload and puts
+the new objects; this module makes the catalog point at them: the field swap,
+the kept original, the quota reservation and the asset-row upserts.
 """
 
 import uuid
 from datetime import datetime, timezone
 
 import structlog
-from sqlalchemy import func, select
+from sqlalchemy import func
 
-from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.dataset_origin import set_dataset_origin
 from app.platform.storage.titiler_url import resolve_current_storage_key
-from app.processing.ingest.tasks_common import cleanup_step
-from app.processing.ingest.tasks_raster_common import _cleanup_orphaned_storage_keys
 
 logger = structlog.get_logger(__name__)
 
@@ -546,108 +538,6 @@ async def _upsert_managed_asset_rows(
     )
 
 
-async def _run_post_swap_followups(
-    *,
-    dataset_uuid: uuid.UUID,
-    dataset_cls: type,
-    prior_physical_keys: list[str],
-    written_storage_keys: list[str],
-    job_id: str,
-    reap_superseded: bool,
-) -> None:
-    """Work that happens once the replacement is durably published.
-
-    Every step is optional and none may be confused with a failed replace, so
-    each is fenced on its own: a failed cache purge still lets the reap and
-    the embedding defer run. ``reap_superseded`` is False when the publish is
-    indeterminate, because the superseded keys may still be the live raster.
-
-    Reaping the superseded objects is safe only now: up to the commit every
-    exit left the previous COG both pointed at and present, past it the
-    pointer is durably elsewhere so those objects have no reader left. The
-    ``not in written`` filter makes re-uploading the identical file a no-op
-    rather than a self-inflicted delete.
-
-    "No reader left" is true of the DATABASE. An API process that served a
-    tile in the last minute may still hold this dataset in the tile
-    router's ``_resolve_raster_meta`` cache, whose entries carry the OLD
-    asset_uri. fix(#1329): that cache is keyed on the request's ``v``, so
-    the ``tile_cache_version`` bump this swap already made in the write
-    transaction IS the invalidation — the first request carrying the new
-    version misses in every API process and reads the new pointer, no
-    separate coordination channel needed (``regenerate_vrt`` and the STAC
-    moved-asset refresh bump the same counter). What's left is requests
-    still carrying the OLD ``v`` (a tab that hasn't refetched its tile
-    URL): those keep the pre-swap asset_uri until the entry expires
-    (``_RASTER_META_CACHE_TTL``, 60s), a bounded self-healing window. The
-    bumped ``tile_cache_version`` also changes the tile URL, so browser and
-    CDN caches roll over immediately.
-    """
-    from app.core.db import async_session
-    from sqlalchemy.orm import joinedload
-
-    async with cleanup_step("reupload_raster catalog cache", job_id=job_id):
-        await invalidate_catalog_cache()
-    if reap_superseded:
-        async with cleanup_step("reupload_raster superseded objects", job_id=job_id):
-            await _cleanup_orphaned_storage_keys(
-                [key for key in prior_physical_keys if key not in written_storage_keys],
-                job_id=job_id,
-            )
-    async with cleanup_step("reupload_raster embedding", job_id=job_id):
-        async with async_session() as embed_session:
-            embed_dataset = (
-                await embed_session.execute(
-                    select(dataset_cls)
-                    .options(joinedload(dataset_cls.record))
-                    .where(dataset_cls.id == dataset_uuid)
-                )
-            ).scalar_one_or_none()
-            if embed_dataset is not None:
-                from app.processing.embeddings.helpers import defer_embedding
-
-                await defer_embedding(embed_dataset)
-
-
-async def run_post_swap_followups_best_effort(
-    *,
-    dataset_uuid: uuid.UUID,
-    dataset_cls: type,
-    prior_physical_keys: list[str],
-    written_storage_keys: list[str],
-    job_id: str,
-    dataset_id: str,
-    reap_superseded: bool,
-) -> None:
-    """``_run_post_swap_followups`` with the caller's fence built in.
-
-    The swap is published, so a cache purge that can't reach Valkey, a reap
-    that can't reach storage or an embedding defer against a busy queue is
-    something to log and move on from, never a reason to fail the job.
-
-    The reap is the only deletion of the superseded COG and quicklooks, so
-    skipping it strands objects no row references and no quota counts. The
-    caller still skips it after an indeterminate publish: stranded objects
-    can be removed later, and a deleted live raster cannot be restored.
-    """
-    try:
-        await _run_post_swap_followups(
-            dataset_uuid=dataset_uuid,
-            dataset_cls=dataset_cls,
-            prior_physical_keys=prior_physical_keys,
-            written_storage_keys=written_storage_keys,
-            job_id=job_id,
-            reap_superseded=reap_superseded,
-        )
-    except Exception:  # broad: nothing after the commit may fail the job
-        structlog.get_logger().warning(
-            "raster_replace_post_swap_followup_failed",
-            job_id=job_id,
-            dataset_id=dataset_id,
-            exc_info=True,
-        )
-
-
 def _prior_asset_keys_to_reap(
     *,
     asset_uri: str | None,
@@ -666,6 +556,3 @@ def _prior_asset_keys_to_reap(
         for key in (asset_uri, quicklook_256_uri, quicklook_512_uri)
         if key
     ]
-
-
-# No legacy alias: the sibling tasks carry `app.ingest.tasks.*` aliases because

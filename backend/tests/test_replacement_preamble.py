@@ -339,7 +339,7 @@ async def test_the_worker_budget_ends_with_its_block(
 async def test_a_raster_replace_that_lost_its_job_puts_nothing(
     replace, storage, monkeypatch
 ) -> None:
-    """Phase 2 of a replace whose job the sweep failed writes no object."""
+    """A replace whose job the sweep failed before the hold raises and writes no object."""
     replacement = await replace("raster")
     real_stamp = tasks_raster_replace._stamp_progress
 
@@ -361,7 +361,8 @@ async def test_a_raster_replace_that_lost_its_job_puts_nothing(
     monkeypatch.setattr(storage, "put", puts)
     before = await _live_state(replacement)
 
-    await replacement.run()
+    with pytest.raises(StaleIngestAttempt):
+        await replacement.run()
 
     assert puts.await_count == 0
     job = await _fresh_scalar(
@@ -370,6 +371,125 @@ async def test_a_raster_replace_that_lost_its_job_puts_nothing(
     assert (job.status, job.error_message) == ("failed", "swept")
     assert await _live_state(replacement) == before
     assert _stored_keys(storage, replacement.dataset_id) == set(replacement.prior_keys)
+
+
+async def test_a_raster_replace_records_its_keys_before_its_first_put(
+    replace, storage, monkeypatch
+) -> None:
+    """The objects a raster replace puts are named on its job row, committed, before the first put."""
+    replacement = await replace("raster")
+    recorded: list[list[str]] = []
+    real_put = storage.put
+
+    async def _put(key, data):
+        if not recorded:
+            job = await _fresh_scalar(
+                select(IngestJob).where(IngestJob.id == replacement.job_id)
+            )
+            metadata = job.user_metadata or {}
+            recorded.append(list(metadata.get("unpublished_storage_keys", [])))
+        return await real_put(key, data)
+
+    monkeypatch.setattr(storage, "put", _put)
+    with _quiet_embedding():
+        await replacement.run()
+
+    await _assert_settled_published(replacement)
+    assert [key.rsplit("/", 1)[-1] for key in recorded[0]] == [
+        "source.cog.tif",
+        "quicklook_256.png",
+        "quicklook_512.png",
+    ]
+
+
+async def test_a_raster_replace_fetches_its_upload_with_the_run_claimed_and_free(
+    replace, monkeypatch
+) -> None:
+    """The job and run are running and the run row unlocked while the upload is fetched."""
+    from app.processing.ingest import service
+
+    replacement = await replace("raster")
+    seen: dict = {}
+    real_resolve = service.resolve_file_path
+
+    async def _resolve(file_path, job_id):
+        seen["job"] = await _fresh_scalar(
+            select(IngestJob.status).where(IngestJob.id == replacement.job_id)
+        )
+        async with db_module.async_session() as probe:
+            seen["run"] = await probe.scalar(
+                select(DatasetRefreshRun.status)
+                .where(DatasetRefreshRun.ingest_job_id == replacement.job_id)
+                .with_for_update(nowait=True)
+            )
+            await probe.rollback()
+        return await real_resolve(file_path, job_id)
+
+    monkeypatch.setattr(service, "resolve_file_path", _resolve)
+    with _quiet_embedding():
+        await replacement.run()
+
+    assert seen == {"job": "running", "run": "running"}
+
+
+async def test_a_refused_raster_upload_fails_its_job_notifies_and_returns(
+    replace, monkeypatch
+) -> None:
+    """A raster upload the worker refuses ends failed with its own reason, sends ingest_failed and returns."""
+    replacement = await replace("raster")
+    before = await _live_state(replacement)
+
+    async def _refuse(*args, **kwargs):
+        raise ValueError("File exceeds the maximum allowed size.")
+
+    monkeypatch.setattr(tasks_raster_replace, "_validate_upload_file_safety", _refuse)
+    sent = AsyncMock()
+    with patch("app.platform.notifications.events.emit_event_safe", new=sent):
+        await replacement.run()
+
+    job = await _fresh_scalar(
+        select(IngestJob).where(IngestJob.id == replacement.job_id)
+    )
+    assert (job.status, job.error_message) == (
+        "failed",
+        "File exceeds the maximum allowed size.",
+    )
+    run = await _fresh_scalar(
+        select(DatasetRefreshRun).where(
+            DatasetRefreshRun.ingest_job_id == replacement.job_id
+        )
+    )
+    assert (run.status, run.error_code) == ("failed", "validation_failed")
+    assert [call.kwargs["event_key"] for call in sent.await_args_list] == [
+        "ingest_failed"
+    ]
+    assert await _live_state(replacement) == before
+
+
+async def test_a_raster_progress_stamp_leaves_a_job_that_left_running(
+    replace,
+) -> None:
+    """A progress stamp writes nothing on a job a cancel already ended."""
+    replacement = await replace("raster")
+    async with db_module.async_session() as session:
+        job = await session.get(IngestJob, replacement.job_id)
+        attempt_id = job.attempt_id
+        job.status = "cancelled"
+        job.current_step = "queued"
+        await session.commit()
+
+    await tasks_raster_replace._stamp_progress(
+        replacement.job_id,
+        attempt_id,
+        phase="progress_write_validating",
+        step="validating",
+        progress=0.0,
+    )
+
+    job = await _fresh_scalar(
+        select(IngestJob).where(IngestJob.id == replacement.job_id)
+    )
+    assert (job.status, job.current_step) == ("cancelled", "queued")
 
 
 @pytest.mark.parametrize("kind", ["file", "service"])

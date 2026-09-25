@@ -217,14 +217,6 @@ class TestOneBudgetConstant:
             "one budget agree until one of them is retuned"
         )
 
-    def test_the_raster_replace_bracket_reads_the_shared_budget(self) -> None:
-        import app.processing.ingest.tasks_raster_replace as tasks_raster_replace
-
-        assert (
-            tasks_raster_replace.JOB_ERROR_WRITE_TIMEOUT_MS
-            is JOB_ERROR_WRITE_TIMEOUT_MS
-        ), "the replace tail no longer reads the shared budget"
-
 
 async def _admin_id(session) -> uuid.UUID:
     return (

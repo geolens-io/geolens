@@ -314,7 +314,7 @@ def test_every_phase2_site_requires_running() -> None:
     # (relative path, needle, minimum occurrences)
     expectations = [
         ("processing/ingest/tasks_raster.py", 'require_status="running"', 1),
-        ("processing/ingest/tasks_raster_replace.py", "hold_publishing_job(", 1),
+        ("processing/ingest/publication.py", "hold_publishing_job(", 2),
         ("processing/ingest/tasks_vector.py", 'require_status="running"', 2),
         ("processing/ingest/tasks_vrt.py", 'IngestJob.status == "running"', 2),
     ]

@@ -572,9 +572,7 @@ _STEPS = {
         "embedding": "app.processing.embeddings.helpers.defer_embedding",
     },
     "raster": {
-        "catalog cache": (
-            "app.processing.ingest.tasks_raster_swap.invalidate_catalog_cache"
-        ),
+        "catalog cache": "app.processing.ingest.publication.invalidate_catalog_cache",
         "embedding": "app.processing.embeddings.helpers.defer_embedding",
     },
     "postgis": {
@@ -622,8 +620,21 @@ async def replace(test_db_session, tmp_path, storage):
 
     yield _seed
     # Data tables outlive the test on the shared database unless dropped here.
+    # The record's delete cascades to the dataset and its runs, so a job or
+    # run a test leaves running never reaches a later test's unscoped sweep.
     async with db_module.async_session() as cleanup:
         for replacement in created:
+            await cleanup.execute(
+                text("DELETE FROM catalog.ingest_jobs WHERE id = :id"),
+                {"id": replacement.job_id},
+            )
+            await cleanup.execute(
+                text(
+                    "DELETE FROM catalog.records WHERE id = "
+                    "(SELECT record_id FROM catalog.datasets WHERE id = :id)"
+                ),
+                {"id": replacement.dataset_id},
+            )
             if replacement.live_table is not None:
                 await cleanup.execute(
                     text(
@@ -863,6 +874,31 @@ async def test_a_lost_acknowledgement_stands_down_as_published(
         assert replacement.upload.exists(), (
             "a publish observed only by the probe must not delete the upload"
         )
+
+
+@pytest.mark.parametrize("kind", ["file", "service", "raster"])
+async def test_a_cancel_after_the_publishing_commit_keeps_the_publication(
+    replace, kind: str
+) -> None:
+    """A cancel that lands in the post-commit steps leaves the replacement published."""
+    replacement = await replace(kind)
+    purging = asyncio.Event()
+
+    async def _stall(*args, **kwargs):
+        purging.set()
+        await asyncio.sleep(30)
+
+    with (
+        _quiet_embedding(),
+        patch("app.processing.ingest.publication.invalidate_catalog_cache", new=_stall),
+    ):
+        task = asyncio.create_task(replacement.run())
+        await asyncio.wait_for(purging.wait(), timeout=20)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    await _assert_settled_published(replacement)
 
 
 @pytest.mark.parametrize("kind", ["file", "service", "postgis"])

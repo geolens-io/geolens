@@ -30,8 +30,8 @@ from app.platform.catalog_locks import (
     lock_conflict_report,
     worker_lock_budget,
 )
+from app.platform.jobs import heartbeat
 from app.platform.jobs.heartbeat import (
-    JOB_ERROR_WRITE_TIMEOUT_MS,
     StaleIngestAttempt,
     arm_job_error_write_budget,
     attempt_scoped_staging_table,
@@ -283,6 +283,9 @@ class _Attempt:
     dataset_id: uuid.UUID
     heartbeat: asyncio.Task[None] | None = None
     staging_table: str = ""
+    # Set as the publishing commit returns, before anything else can raise or
+    # be cancelled, so cleanup never reaps what the commit published.
+    publication: PublicationCommit | None = None
 
 
 async def settle_replacement(
@@ -307,13 +310,12 @@ async def settle_replacement(
     if resolved is None:
         return
     attempt = _Attempt(*resolved, dataset_id=uuid.UUID(dataset_id))
-    publication: PublicationCommit | None = None
     failed = False
     try:
         if not await _claim(strategy, attempt):
             return
         await strategy.fetch()
-        publication, failed = await _publish(strategy, attempt)
+        failed = await _publish(strategy, attempt)
     except Exception as exc:  # broad: every failure before the commit is recorded once
         failed = True
         failure = strategy.classify(exc)
@@ -327,9 +329,9 @@ async def settle_replacement(
             await stop_ingest_job_heartbeat(attempt.heartbeat)
         async with cleanup_step(f"{strategy.task} staging table", job_id=job_id):
             await _drop_staging_table(attempt.staging_table)
-        await strategy.release(publication=publication, failed=failed)
+        await strategy.release(publication=attempt.publication, failed=failed)
 
-    if publication is not None:
+    if attempt.publication is not None:
         async with cleanup_step(f"{strategy.task} embedding", job_id=job_id):
             await _defer_embedding(attempt.dataset_id)
 
@@ -391,13 +393,11 @@ async def _claim(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
     return True
 
 
-async def _publish(
-    strategy: ReplacementStrategy, attempt: _Attempt
-) -> tuple[PublicationCommit | None, bool]:
+async def _publish(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
     """Stage and verify the candidate, then publish it or hold it back.
 
-    Returns how a publication committed, or None with ``True`` for a verdict
-    that held the candidate back.
+    Records a publication's commit on ``attempt``. Returns whether a verdict
+    held the candidate back.
     """
     from app.core.db import async_session
     from app.platform.extensions import get_processing_port
@@ -444,7 +444,7 @@ async def _publish(
                 await invalidate_catalog_cache()
             if landed and ended.confirmed and verdict.notify:
                 await _notify_failed(job_id, task=strategy.task, reason=verdict.reason)
-            return None, True
+            return True
 
         await strategy.install(session, dataset)
         await _take_catalog_rows(session, strategy, dataset)
@@ -465,7 +465,7 @@ async def _publish(
                 contacted_origin=published.contacted_origin,
             ),
         )
-        publication = await commit_publication(
+        attempt.publication = await commit_publication(
             session, job_id=job_id, attempt_id=attempt_id, task=strategy.task
         )
 
@@ -476,7 +476,7 @@ async def _publish(
         if published.live_table is not None:
             async with cleanup_step(f"{strategy.task} tile cache", job_id=str(job_id)):
                 await invalidate_tile_cache_for_table(published.live_table)
-    return publication, False
+    return False
 
 
 async def _take_catalog_rows(
@@ -565,7 +565,8 @@ async def _record_failure(
             # The pool checkout first, on its own deadline: `SET LOCAL` cannot
             # bound a wait for a connection.
             await asyncio.wait_for(
-                session.connection(), timeout=JOB_ERROR_WRITE_TIMEOUT_MS / 1000
+                session.connection(),
+                timeout=heartbeat.JOB_ERROR_WRITE_TIMEOUT_MS / 1000,
             )
             await arm_job_error_write_budget(session)
             landed = await _fail(

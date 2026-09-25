@@ -64,29 +64,26 @@ class TestRegisterBeforeWrite:
 
 
 class TestUnpublishedStorageKeys:
-    def test_both_raster_tails_record_their_keys_before_phase_2(self) -> None:
+    def test_the_first_ingest_tail_records_its_keys_before_phase_2(self) -> None:
         """The write has to precede the phase-2 session, not sit inside it.
 
         Phase 2's first statements dirty the ingest_jobs row, so a second
         session writing that row while phase 2 held it would block until phase
         2 ended, and phase 2 would be waiting on the write.
         """
-        for module in (
-            "processing/ingest/tasks_raster.py",
-            "processing/ingest/tasks_raster_replace.py",
-        ):
-            lines = _source(module).splitlines()
-            record = next(
-                (
-                    i
-                    for i, line in enumerate(lines)
-                    if "await record_unpublished_storage_keys(" in line
-                ),
-                None,
-            )
-            assert record is not None, f"{module} never records its keys"
-            phase2 = next(i for i, line in enumerate(lines) if 'phase="phase2"' in line)
-            assert record < phase2, f"{module} records its keys inside phase 2"
+        module = "processing/ingest/tasks_raster.py"
+        lines = _source(module).splitlines()
+        record = next(
+            (
+                i
+                for i, line in enumerate(lines)
+                if "await record_unpublished_storage_keys(" in line
+            ),
+            None,
+        )
+        assert record is not None, f"{module} never records its keys"
+        phase2 = next(i for i, line in enumerate(lines) if 'phase="phase2"' in line)
+        assert record < phase2, f"{module} records its keys inside phase 2"
 
     @pytest.mark.parametrize(
         "metadata,expected",
@@ -708,6 +705,12 @@ class TestAttemptScopedReplaceKeys:
 # own rather than riding the existing entry, which is the rule
 # `test_rule2_structural`'s allowlists follow for the same reason.
 PUT_SITES_WITH_ANOTHER_OWNER: dict[tuple[str, str], tuple[int, str]] = {
+    ("processing/ingest/tasks_raster_replace.py", "install"): (
+        3,
+        "the raster strategy's fetch records these three attempt-scoped keys "
+        "on the job row, and the settlement seam runs fetch to completion "
+        "before it calls install, so the stale-job reaper can name them",
+    ),
     ("processing/ingest/tasks_vrt.py", "regenerate_vrt"): (
         3,
         "generation-scoped keys, rebuilt from the durable VrtGeneration row by "
