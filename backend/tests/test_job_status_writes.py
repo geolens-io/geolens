@@ -25,12 +25,18 @@ _NOT_YET_IN_THE_LEDGER: dict[str, str] = {
     ),
 }
 
-# Helpers that write the ``values`` their caller composes: a caller's values are
-# judged at its call, and a helper passing its own parameter on is not.
+# Helpers that write the ``values`` their caller composes. A caller's values are
+# judged at its call; a function that hands a parameter of its own on as those
+# values counts as a write, except the heartbeat bodies below.
 _VALUES_HELPERS = frozenset(
     {"update_ingest_job_for_attempt", "require_ingest_job_update"}
 )
-_FORWARDING_BODY = "platform/jobs/heartbeat.py::update_ingest_job_for_attempt"
+_FORWARDING_BODIES = frozenset(
+    {
+        "platform/jobs/heartbeat.py::update_ingest_job_for_attempt",
+        "platform/jobs/heartbeat.py::require_ingest_job_update",
+    }
+)
 
 _STATEMENT_BUILDERS = frozenset({"update", "sa_update", "insert", "pg_insert"})
 _RAW_WRITE = re.compile(
@@ -212,7 +218,8 @@ def _status_writes(
     ``status`` (keyword, dict key or ``**``) on an update or insert that may
     target ``ingest_jobs``; ``.status =`` or ``setattr(..., "status", ...)`` on a
     name bound to an IngestJob; a ``values`` dict with a ``status`` key passed
-    to one of ``_VALUES_HELPERS``; or raw SQL that sets the status.
+    to one of ``_VALUES_HELPERS``, or a parameter handed on to one as its
+    ``values``; or raw SQL that sets the status.
 
     A name holds a job when it is bound to ``IngestJob(...)``, a ``select(IngestJob)``,
     ``session.get(IngestJob, ...)`` or a call annotated to return one, or is read out
@@ -251,8 +258,20 @@ def _status_writes(
             if isinstance(target, ast.Name)
         }
         jobs = _job_names(scope, returns_a_job)
+        params = (
+            {
+                arg.arg
+                for arg in (
+                    *scope.args.posonlyargs,
+                    *scope.args.args,
+                    *scope.args.kwonlyargs,
+                )
+            }
+            if isinstance(scope, _Function)
+            else set()
+        )
         for node in _own_nodes(scope):
-            if _writes_status(node, bindings, returns, jobs):
+            if _writes_status(node, bindings, returns, jobs, params - bindings.keys()):
                 writes.append((name, node.lineno))
     return writes
 
@@ -262,6 +281,7 @@ def _writes_status(
     bindings: dict[str, ast.expr],
     returns: dict[str, list[ast.expr]],
     jobs: set[str],
+    params: set[str],
 ) -> bool:
     if isinstance(node, ast.Call):
         callee = _callee(node)
@@ -276,6 +296,8 @@ def _writes_status(
             )
         if callee in _VALUES_HELPERS:
             values = next((k.value for k in node.keywords if k.arg == "values"), None)
+            if isinstance(values, ast.Name) and values.id in params:
+                return True
             return values is not None and _names_status(values, bindings, returns)
         return (
             callee == "setattr"
@@ -320,7 +342,7 @@ def _allowed(module: str, function: str) -> bool:
         module == _LEDGER
         or module in _NOT_YET_IN_THE_LEDGER
         or f"{module}::{function}" in _NOT_YET_IN_THE_LEDGER
-        or f"{module}::{function}" == _FORWARDING_BODY
+        or f"{module}::{function}" in _FORWARDING_BODIES
     )
 
 
@@ -345,7 +367,7 @@ def test_every_entry_still_waiting_writes_a_status() -> None:
     }
     stale = sorted(set(_NOT_YET_IN_THE_LEDGER) - found)
     assert not stale, stale
-    assert _FORWARDING_BODY in found
+    assert _FORWARDING_BODIES <= found
 
 
 def test_the_scan_reads_the_tree_and_finds_the_ledgers_writes() -> None:
@@ -486,6 +508,10 @@ _SHAPES = {
     ),
     "helper values annotated name": (
         "async def f(s, i, a, st):\n    values: dict = {'status': st}\n"
+        "    await update_ingest_job_for_attempt(s, i, a, values=values)\n"
+    ),
+    "helper values forwarded from a parameter": (
+        "async def f(s, i, a, values):\n"
         "    await update_ingest_job_for_attempt(s, i, a, values=values)\n"
     ),
     "helper values from a function": (
