@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from types import SimpleNamespace
 from datetime import datetime, timezone
 
 import anyio
@@ -641,6 +642,24 @@ class TestOwnerTransitions:
         await test_db_session.commit()
 
         assert (await _row(test_db_session, job_id)).status == sources[0]
+
+    @pytest.mark.parametrize("move", sorted(_OWNER_MOVES))
+    async def test_a_missing_attempt_matches_only_a_row_with_none(
+        self, test_db_session, move
+    ):
+        """A missing attempt is fenced like any other: it matches only a row with none."""
+        sources, target, call = _OWNER_MOVES[move]
+        job = await _job(test_db_session, status=sources[0])
+        job_id = job.id
+        unset = SimpleNamespace(id=job_id, attempt_id=None)
+
+        assert await call(test_db_session, unset) is False
+        await _set(test_db_session, job_id, attempt_id=None)
+        assert await call(test_db_session, job) is False
+        assert await call(test_db_session, unset)
+        await test_db_session.commit()
+
+        assert (await _row(test_db_session, job_id)).status == target
 
     async def test_claim_starts_the_lease(self, test_db_session):
         """claim stamps the start and the lease in the same write."""

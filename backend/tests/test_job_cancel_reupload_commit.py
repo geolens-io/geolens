@@ -1,21 +1,14 @@
-"""Cancel racing POST /datasets/{id}/reupload/{job_id}/commit (#1709 r4 P1).
+"""Cancel racing POST /datasets/{id}/reupload/{job_id}/commit.
 
-Second class member distinct from the pre-committed-side-state table: a
-commit-phase handler that READS the job as pending and later flushes
-dependent state without a fence. ``reupload_commit`` merges metadata,
-inserts the ``DatasetRefreshRun`` (Decision 4b — the admission gate), and
-commits; a cancel CAS landing between the pending read and that commit used
-to leave a pending run bound to a cancelled job. The queued task's claim
-fence fails instantly, nothing ever finalizes the run, and it holds
-``uq_refresh_runs_one_active`` against every refresh until the stale-run
-sweep — a successful cancel that leaves the dataset reporting busy.
-
-The fix is a fence, not loser-reconciliation: a same-value CAS on the
-job's (pending, attempt_id) pair executed in the SAME transaction that
-flushes the run, immediately before commit. A committed cancel makes it
-match zero rows and the whole request — run row included — rolls back into
-a 409. The other serialization needs no code: once the commit lands, a
-cancel finalizes the job AND the run together via
+``reupload_commit`` reads the job as pending, merges metadata, inserts the
+``DatasetRefreshRun`` that takes the dataset's admission slot, and commits. A
+cancel landing between that read and the commit would leave a pending run
+bound to a cancelled job, holding ``uq_refresh_runs_one_active`` until the
+stale-run sweep. So the request takes the ledger's hold on the job just before
+it commits, in the transaction that flushes the run, and compares the held
+row's attempt with the one it read. A committed cancel, or a new attempt, fails
+that check, and the whole request, run row included, rolls back into a 409.
+Once the commit lands, a cancel ends the job and its run together through
 ``cancel_active_run_for_job``.
 """
 
@@ -59,9 +52,10 @@ async def _seed_committable_reupload(session):
     return dataset, job
 
 
-def _cancelling_create_pending_run(session_factory):
-    """Wrap the real create_pending_run: first commit the exact write the
-    cancel endpoint's CAS performs, on a SEPARATE session, then proceed.
+def _racing_create_pending_run(session_factory, **values):
+    """Wrap the real create_pending_run: first commit ``values`` onto the
+    pending job, by default the write a cancel makes, on a SEPARATE session,
+    then proceed.
 
     The flip runs on its own connection and commits immediately —
     the concurrent cancel, made deterministic. It must run BEFORE the real
@@ -78,7 +72,12 @@ def _cancelling_create_pending_run(session_factory):
                     IngestJob.id == kwargs["ingest_job_id"],
                     IngestJob.status == "pending",
                 )
-                .values(status="cancelled", error_message="Cancelled by user")
+                .values(
+                    **(
+                        values
+                        or {"status": "cancelled", "error_message": "Cancelled by user"}
+                    )
+                )
             )
             await side_session.commit()
         return await create_pending_run(session, **kwargs)
@@ -99,7 +98,7 @@ class TestCommitFenceLosesToCancel:
 
         with patch(
             "app.modules.catalog.datasets.api.router_reupload.create_pending_run",
-            side_effect=_cancelling_create_pending_run(async_session),
+            side_effect=_racing_create_pending_run(async_session),
         ):
             resp = await client.post(
                 f"/datasets/{dataset.id}/reupload/{job.id}/commit",
@@ -154,6 +153,39 @@ class TestCommitFenceLosesToCancel:
         )
         await test_db_session.commit()
         assert run.status == "pending"
+
+    async def test_a_new_attempt_on_the_job_also_409s(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """A job that gains a new attempt while it stays pending fails the commit's attempt check."""
+        from app.core.db import async_session
+
+        dataset, job = await _seed_committable_reupload(test_db_session)
+
+        with patch(
+            "app.modules.catalog.datasets.api.router_reupload.create_pending_run",
+            side_effect=_racing_create_pending_run(
+                async_session, attempt_id=uuid.uuid4()
+            ),
+        ):
+            resp = await client.post(
+                f"/datasets/{dataset.id}/reupload/{job.id}/commit",
+                json={},
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 409, resp.text
+        detail = resp.json()["detail"]
+        assert detail["code"] == "job_conflict"
+        assert detail["status"] == "pending"
+        runs = (
+            await test_db_session.execute(
+                select(DatasetRefreshRun.id).where(
+                    DatasetRefreshRun.dataset_id == dataset.id
+                )
+            )
+        ).all()
+        assert runs == []
 
 
 class TestCommitWinsThenCancel:
