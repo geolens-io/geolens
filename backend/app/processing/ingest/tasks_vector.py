@@ -481,7 +481,8 @@ async def ingest_file(
                     reason=FixedReason(
                         "Missing CRS: no coordinate system detected. "
                         "Ensure the file includes CRS information "
-                        "(e.g., .prj file for Shapefiles)."
+                        "(e.g., .prj file for Shapefiles).",
+                        code="missing_crs",
                     ),
                 )
                 await session.commit()

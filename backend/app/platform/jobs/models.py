@@ -246,6 +246,8 @@ class IngestJob(Base):
     source_url: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     source_layer: Mapped[str | None] = mapped_column(String(500), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The code of a fixed reason in ``error_message``; NULL for free text.
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     user_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

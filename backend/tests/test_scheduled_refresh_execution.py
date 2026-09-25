@@ -119,6 +119,7 @@ async def test_expired_unclaimed_scheduled_run_releases_active_reservation(
     persisted_job = await test_db_session.get(IngestJob, job_id)
     assert persisted_job is not None
     assert persisted_job.status == "failed"
+    assert persisted_job.error_code == "scheduled_claim_expired"
     assert persisted_job.completed_at is not None
 
     assert (
@@ -200,7 +201,10 @@ async def test_keyed_execution_has_a_wall_clock_timeout(
     persisted_job = await test_db_session.get(IngestJob, job_id)
     assert persisted_job is not None
     assert persisted_job.status == "failed"
-    assert persisted_job.error_message == _TIMED_OUT
+    assert (persisted_job.error_message, persisted_job.error_code) == (
+        _TIMED_OUT,
+        "scheduled_execution_timeout",
+    )
     assert persisted_job.completed_at is not None
     assert published is False
     assert _events(notifications) == ["ingest_failed"]

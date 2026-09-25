@@ -1732,6 +1732,7 @@ class TestMaterializeWorker:
         await test_db_session.refresh(job)
         assert job.status == "failed"
         assert "worker shut down" in (job.error_message or "")
+        assert job.error_code == "analysis_worker_shutdown"
 
     async def test_cancel_cleanup_releases_working_sessions_row_lock(
         self,
@@ -1772,6 +1773,7 @@ class TestMaterializeWorker:
         await test_db_session.refresh(job)
         assert job.status == "failed"
         assert "worker shut down" in (job.error_message or "")
+        assert job.error_code == "analysis_worker_shutdown"
 
     async def test_dissolve_materialize_single_feature(
         self,

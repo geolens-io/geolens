@@ -235,7 +235,8 @@ async def _fail_cancelled_job(
             uuid.UUID(job_id),
             attempt_id,
             reason=FixedReason(
-                "The worker shut down before this analysis finished. Run it again."
+                "The worker shut down before this analysis finished. Run it again.",
+                code="analysis_worker_shutdown",
             ),
             task_name="analysis_cancelled",
             budget_ms=CANCEL_WRITE_BUDGET_MS,

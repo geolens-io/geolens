@@ -15,6 +15,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import joinedload
 
 import app.core.db as db_module
+from app.core.failure_reason import FixedReason
 from app.core.db.sqlstate import is_lock_conflict
 from app.core.service_tokens import register_credential_secret
 from app.core.url_redaction import REDACTED_SECRET
@@ -404,7 +405,11 @@ class TestCancel:
 
         row = await _row(test_db_session, job_id)
         if active:
-            assert (row.status, row.error_message) == ("cancelled", "Cancelled by user")
+            assert (row.status, row.error_message, row.error_code) == (
+                "cancelled",
+                "Cancelled by user",
+                USER_CANCELLED_ERROR_CODE,
+            )
             assert row.completed_at is not None
         else:
             assert (row.status, row.error_message, row.completed_at) == (
@@ -448,6 +453,7 @@ class TestRetry:
             test_db_session,
             status=status,
             error_message="boom",
+            error_code="boom",
             started_at=failed_at,
             heartbeat_at=failed_at,
             completed_at=failed_at,
@@ -468,7 +474,11 @@ class TestRetry:
         row = await _row(test_db_session, job_id)
         if status == "failed":
             assert (row.status, row.attempt_id) == ("pending", job.attempt_id)
-            assert (row.error_message, row.started_at) == (None, None)
+            assert (row.error_message, row.error_code, row.started_at) == (
+                None,
+                None,
+                None,
+            )
             assert (row.heartbeat_at, row.completed_at) == (None, None)
             assert row.user_metadata["kept"] is True
             assert row.user_metadata["staged_at"]
@@ -747,6 +757,8 @@ class TestOwnerTransitions:
             ("stage", {"status": "complete"}),
             ("complete", {"completed_at": None}),
             ("fail", {"error_message": "raw"}),
+            ("fail", {"error_code": "raw"}),
+            ("end_stale", {"status": "cancelled"}),
             ("stage", {"attempt_id": uuid.uuid4()}),
             ("complete", {"id": uuid.uuid4()}),
         ],
@@ -767,10 +779,42 @@ class TestOwnerTransitions:
             "fail": lambda: ledger.fail(
                 test_db_session, job_id, attempt_id, reason=_REASON, values=values
             ),
+            "end_stale": lambda: ledger.end_stale(
+                test_db_session,
+                job_id,
+                attempt_id,
+                expect="running",
+                still_stale=(),
+                status="failed",
+                code="worker_lost",
+                reason=_REASON,
+                values=values,
+            ),
         }
 
         with pytest.raises(ValueError, match="the ledger writes"):
             await calls[move]()
+
+    async def test_restore_clears_the_interrupted_reason(self, test_db_session):
+        """restore returns an interrupted fan-out parent to pending without its reason or code."""
+        job = await _job(
+            test_db_session,
+            status="failed",
+            error_message="interrupted",
+            error_code="dispatch_interrupted",
+            user_metadata={FAN_OUT_INTERRUPTED_METADATA_KEY: True},
+        )
+        job_id = job.id
+
+        assert await ledger.restore(test_db_session, job_id, job.attempt_id)
+        await test_db_session.commit()
+
+        row = await _row(test_db_session, job_id)
+        assert (row.status, row.error_message, row.error_code) == (
+            "pending",
+            None,
+            None,
+        )
 
 
 class TestComplete:
@@ -858,6 +902,28 @@ class TestFail:
             "internal_error"
         )
         assert (await _row(test_db_session, silent[0])).error_message is None
+
+    async def test_stores_a_fixed_reasons_code_beside_it(self, test_db_session):
+        """fail stores a fixed reason's code with its text, and no code for free text."""
+        jobs = [await _job(test_db_session, status="running") for _ in range(3)]
+        fixed, free, library = [(job.id, job.attempt_id) for job in jobs]
+
+        await ledger.fail(
+            test_db_session, *fixed, reason=FixedReason("Gone.", code="gone")
+        )
+        await ledger.fail(test_db_session, *free, reason=_REASON)
+        await ledger.fail(test_db_session, *library, reason=OSError("refused"))
+        assert jobs[0].error_code == "gone", "the instance was not told"
+        await test_db_session.commit()
+
+        rows = [
+            await _row(test_db_session, job_id) for job_id, _ in (fixed, free, library)
+        ]
+        assert [(row.error_message, row.error_code) for row in rows] == [
+            ("Gone.", "gone"),
+            (_REASON, None),
+            ("internal_error", None),
+        ]
 
 
 class TestAnOwnersLinkedWrite:

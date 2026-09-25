@@ -55,7 +55,22 @@ def is_composed_exception(exc: BaseException) -> bool:
 
 
 class FixedReason(str):
-    """A reason written here as a literal, which no redaction pass rewrites."""
+    """A reason written here as a literal, which no redaction pass rewrites.
+
+    ``code`` names it for a client that shows it in the reader's language.
+    """
+
+    code: str
+
+    def __new__(cls, text: str, *, code: str) -> FixedReason:
+        reason = super().__new__(cls, text)
+        reason.code = code
+        return reason
+
+
+def failure_code(reason: object) -> str | None:
+    """The code of a fixed reason, or None for free text."""
+    return reason.code if isinstance(reason, FixedReason) else None
 
 
 def redact_failure_reason(reason: str | BaseException) -> str:

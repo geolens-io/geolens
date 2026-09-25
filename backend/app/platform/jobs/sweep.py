@@ -30,6 +30,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import MAX_PRESIGNED_URL_LIFETIME_SECONDS, settings
+from app.core.failure_reason import FixedReason
 from app.core.tiles3d import (
     UNPUBLISHED_TILESET_ATTEMPTS_FIELD,
     is_tileset_attempt_prefix,
@@ -67,9 +68,10 @@ FAN_OUT_CHILDLESS_GRACE_SECONDS = 300
 
 # fix(#1709): never advertise retry here. Generic retry re-queues the parent
 # as ONE default-layer import and is refused on the marker; re-upload is the path.
-FAN_OUT_DISPATCH_INTERRUPTED_MESSAGE = (
+FAN_OUT_DISPATCH_INTERRUPTED_MESSAGE = FixedReason(
     "Fan-out dispatch was interrupted before any layer was queued. "
-    "Re-upload the file to import its layers."
+    "Re-upload the file to import its layers.",
+    code="dispatch_interrupted",
 )
 
 
@@ -93,8 +95,12 @@ def stale_pending_cutoff_seconds(*, completion_bound: bool) -> int:
 
 
 # fix(#1235): no hour in the message; the timeout is configurable.
-STALE_PENDING_UNBOUND_MESSAGE = "Stale: pending too long (never queued)"
-STALE_PENDING_BOUND_MESSAGE = "Stale: upload completed but never committed"
+STALE_PENDING_UNBOUND_MESSAGE = FixedReason(
+    "Stale: pending too long (never queued)", code="stale_never_queued"
+)
+STALE_PENDING_BOUND_MESSAGE = FixedReason(
+    "Stale: upload completed but never committed", code="stale_never_committed"
+)
 
 
 def stale_pending_clauses(now: datetime, *, completion_bound: bool) -> tuple:
@@ -131,7 +137,9 @@ def stale_pending_clauses(now: datetime, *, completion_bound: bool) -> tuple:
 
 # fix(#1556): an upload nobody ever committed settles `cancelled`, not `failed`.
 # `cancelled` is already in the status CHECK, the admin literal and openapi.json.
-ABANDONED_UPLOAD_MESSAGE = "Abandoned: upload was never completed"
+ABANDONED_UPLOAD_MESSAGE = FixedReason(
+    "Abandoned: upload was never completed", code="upload_abandoned"
+)
 
 
 def abandoned_upload():
@@ -1179,8 +1187,11 @@ async def purge_terminal_job_tokens(db: AsyncSession) -> None:
     await db.commit()
 
 
-def _stale_running_message(lease_seconds: float) -> str:
-    return f"Stale: running for over {int(lease_seconds) // 60} minutes"
+def _stale_running_message(lease_seconds: float) -> FixedReason:
+    return FixedReason(
+        f"Stale: running for over {int(lease_seconds) // 60} minutes",
+        code="worker_lost",
+    )
 
 
 def _childless_fan_out_parent():

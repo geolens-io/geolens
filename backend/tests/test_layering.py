@@ -1312,10 +1312,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/platform/config_ops/service.py": 1175,
     # One settlement pass, its precheck and its reapers serve startup recovery, the
     # lifespan sweep, admin cleanup, the job status poll and manifest expiry.
-    "backend/app/platform/jobs/sweep.py": 1742,
+    "backend/app/platform/jobs/sweep.py": 1753,
     # Refresh admission, claim fencing, terminal transitions and the job-scoped
     # abandoned-run sweep stay domain-neutral.
-    "backend/app/platform/refresh/service.py": 1156,
+    "backend/app/platform/refresh/service.py": 1159,
     # Central settings and boot-validation debt; split by configuration domain before
     # raising.
     "backend/app/core/config.py": 1498,
@@ -1333,7 +1333,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_raster_replace.py": 617,
     # File/service tasks share publication fencing, heartbeat phases and failure
     # cleanup.
-    "backend/app/processing/ingest/tasks_vector.py": 1160,
+    "backend/app/processing/ingest/tasks_vector.py": 1161,
     # GDAL environments, timeouts, reaping and error sanitization share one process
     # boundary.
     "backend/app/processing/ingest/ogr.py": 1351,
@@ -1354,7 +1354,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/datasets/domain/schemas.py": 1637,
     # Analysis validation, bounded execution and fenced registration share one task
     # lifecycle.
-    "backend/app/processing/analysis/tasks.py": 1400,
+    "backend/app/processing/analysis/tasks.py": 1401,
     # Maps API router debt; split endpoint families before raising.
     "backend/app/modules/catalog/maps/router.py": 1507,
     # Native search and OGC Records share visibility, query parsing and pagination.
