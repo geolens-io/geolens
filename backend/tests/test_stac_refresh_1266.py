@@ -3044,8 +3044,9 @@ class TestWorker:
         assert refreshed.origin_uri == _ASSET
         run = await _run_for(dataset.id)
         assert run.status == "failed"
-        assert run.error_code == tasks_stac_refresh._ERROR_CODE_BLOCKED_BY_POLICY
-        assert run.error_message == tasks_stac_refresh._BLOCKED_BY_POLICY_MESSAGE
+        assert run.error_code == "source_blocked_by_policy"
+        assert "try again" not in run.error_message.lower()
+        assert "origin.test" not in run.error_message
 
     async def test_a_moved_asset_the_policy_refuses_stores_the_refusal_message(
         self, client, admin_auth_header, test_db_session, stac_transport
@@ -3074,10 +3075,11 @@ class TestWorker:
         assert refreshed.origin_uri == _ASSET
         run = await _run_for(dataset.id)
         assert run.status == "failed"
-        assert run.error_code == tasks_stac_refresh._ERROR_CODE_BLOCKED_BY_POLICY
-        assert run.error_message == tasks_stac_refresh._BLOCKED_BY_POLICY_MESSAGE
+        assert run.error_code == "source_blocked_by_policy"
+        assert "try again" not in run.error_message.lower()
+        assert "origin.test" not in run.error_message
 
-    async def test_a_timeout_still_stores_the_generic_unreachable_message(
+    async def test_a_5xx_still_stores_the_generic_unreachable_message(
         self, client, admin_auth_header, test_db_session, stac_transport
     ) -> None:
         """A 5xx is inconclusive, not a policy refusal, so the ordinary
@@ -3095,8 +3097,8 @@ class TestWorker:
 
         run = await _run_for(dataset.id)
         assert run.status == "failed"
-        assert run.error_code == tasks_stac_refresh._ERROR_CODE_INACCESSIBLE
-        assert run.error_message == tasks_stac_refresh._UNREACHABLE_MESSAGE
+        assert run.error_code == "source_inaccessible"
+        assert run.error_message.endswith("Try again.")
 
     async def test_a_rebind_during_the_fetch_discards_the_answer(
         self, client, admin_auth_header, test_db_session, stac_transport
