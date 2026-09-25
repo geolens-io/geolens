@@ -99,36 +99,72 @@ UNREAPED_ARTIFACT_FIELDS = (
     PUBLISH_FOLLOWUPS_FIELD,
 )
 
-# Door and worker state the admin job list leaves out. The presigned staging
-# key and upload id are internal object paths, and no screen reads the rest.
-INTERNAL_METADATA_KEYS = frozenset(
+# The user_metadata keys the admin job list shows: what the user supplied at
+# upload, commit or in a manifest, the job's request and its outcome. Any other
+# key, including one added later, is door or worker state and is left out.
+PUBLIC_METADATA_KEYS = frozenset(
     {
-        *UNREAPED_ARTIFACT_FIELDS,
-        FAN_OUT_INTERRUPTED_METADATA_KEY,
-        URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY,
-        COMMIT_ATTEMPTED_METADATA_KEY,
-        STAGING_REAPED_MARKER,
-        STAGING_REAPED_FINAL_MARKER,
-        MANIFEST_STAGE_METADATA_KEY,
-        MANIFEST_FINGERPRINT_METADATA_KEY,
-        TILESET_UNPACKED_BYTES_FIELD,
-        "presigned",
-        "s3_key",
-        "upload_id",
-        "multipart",
-        "expected_size",
-        "staged_at",
-        "service_auth_required",
+        # Commit and upload fields.
+        "title",
+        "summary",
+        "tags",
+        "visibility",
+        "temporal_start",
+        "temporal_end",
+        "file_type",
+        "vrt_type",
+        "layer_name",
+        "srid_override",
+        "geom_column",
+        "x_column",
+        "y_column",
+        "compression",
+        "nodata_override",
+        "resampling",
+        "strict_cog",
+        # The request that created the job.
+        "analysis",
+        "dataset_id",
+        "reupload",
+        "refresh",
+        "origin_kind",
+        "verification_policy",
+        "service_type",
+        "layer_id",
+        "object_id_field",
+        "geometry_type",
+        "source_type",
+        "fan_out_parent_id",
+        "all_layers",
+        EMBEDDING_BACKFILL_METADATA_KEY,
+        # What a manifest's author wrote.
+        "record_status",
+        "manifest_key",
+        "manifest_source_type",
+        "manifest_source_uri",
+        "manifest_publication_intent",
+        "manifest_tags",
+        "manifest_organization",
+        "manifest_license",
+        "manifest_attribution",
+        "manifest_bbox",
+        # The outcome.
+        "warnings",
+        "rows_failed",
+        "temporal_parse_errors",
+        "collision_warning",
+        "archive_failed",
+        "archive_error",
     }
 )
 
 
 def public_job_metadata(metadata: dict[str, Any] | None) -> dict[str, Any] | None:
-    """The job's metadata without worker state, or None when nothing else is left."""
+    """The job's public metadata keys, or None when it has none."""
     kept = {
         key: value
         for key, value in (metadata or {}).items()
-        if key not in INTERNAL_METADATA_KEYS
+        if key in PUBLIC_METADATA_KEYS
     }
     return kept or None
 

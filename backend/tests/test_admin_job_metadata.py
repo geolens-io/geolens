@@ -1,4 +1,4 @@
-"""The admin job list shows a job's own metadata and leaves worker bookkeeping out."""
+"""The admin job list shows a job's public metadata keys and nothing else."""
 
 import ast
 import uuid
@@ -10,24 +10,33 @@ from httpx import AsyncClient
 from sqlalchemy import delete, select
 
 from app.core.config import settings
-
 from app.platform.jobs import models
 from app.platform.jobs.models import (
     EMBEDDING_BACKFILL_METADATA_KEY,
-    INTERNAL_METADATA_KEYS,
+    PUBLIC_METADATA_KEYS,
     IngestJob,
+    public_job_metadata,
 )
 from app.platform.jobs.sweep import _carries_unreaped_artifacts
+from app.processing.ingest import schemas as ingest_schemas
+from app.processing.ingest import tasks_vector
 from tests.factories import get_user_id
+from tests.test_refresh_gate_1269 import _runs_ordered
+from tests.test_refresh_pagination_1675 import (
+    _arcgis_dataset,
+    _dispatch_refresh,
+    _execute_with_fake,
+    _fake_ogr2ogr,
+)
 
-# Spelled out rather than read from INTERNAL_METADATA_KEYS, so a key dropped
-# from that set fails here instead of disappearing from both sides.
 ARTIFACT_RECORDS = {
     "unpublished_storage_keys": [f"rasters/{uuid.uuid4()}/attempts/a/b"],
     "unpublished_tileset_attempts": [f"tiles3d/{uuid.uuid4()}/{uuid.uuid4()}/"],
     "analysis_out_table": ["analysis_out_1"],
-    "publish_followups": "ingest_raster",
+    "publish_followups": {"task": "ingest_raster", "attempt_id": str(uuid.uuid4())},
 }
+# Every key the code writes as door or worker state, with a sample value. The
+# written-key scan below requires each key it finds to be here or public.
 BOOKKEEPING = {
     **ARTIFACT_RECORDS,
     "fan_out_interrupted": True,
@@ -45,6 +54,8 @@ BOOKKEEPING = {
     "expected_size": 4096,
     "staged_at": "2026-09-25T00:00:00+00:00",
     "service_auth_required": True,
+    "accepted_refresh_run_id": str(uuid.uuid4()),
+    "accepted_refresh_fingerprint": "sha256:4567",
 }
 USER_METADATA = {
     "title": "Campus",
@@ -60,50 +71,7 @@ USER_METADATA = {
     "all_layers": [{"name": "roads", "feature_count": 1, "field_count": 2}],
     "fan_out_parent_id": str(uuid.uuid4()),
 }
-
-# Job-metadata keys defined in models.py that stay visible to the admin.
-KEPT_KEYS = {EMBEDDING_BACKFILL_METADATA_KEY}
-
-# Keys the code writes into user_metadata that are the user's or describe the
-# job's outcome or request, so the admin list keeps them.
-PUBLIC_KEYS = {
-    "all_layers",
-    "analysis",
-    "archive_error",
-    "archive_failed",
-    "collision_warning",
-    "dataset_id",
-    EMBEDDING_BACKFILL_METADATA_KEY,
-    "fan_out_parent_id",
-    "file_type",
-    "geometry_type",
-    "layer_id",
-    "layer_name",
-    "manifest_attribution",
-    "manifest_bbox",
-    "manifest_key",
-    "manifest_license",
-    "manifest_organization",
-    "manifest_publication_intent",
-    "manifest_source_type",
-    "manifest_source_uri",
-    "manifest_tags",
-    "object_id_field",
-    "origin_kind",
-    "record_status",
-    "refresh",
-    "reupload",
-    "service_type",
-    "source_type",
-    "srid_override",
-    "summary",
-    "temporal_parse_errors",
-    "title",
-    "verification_policy",
-    "visibility",
-    "vrt_type",
-    "warnings",
-}
+UNKNOWN = {"some_new_worker_state": {"attempt": 3}}
 BACKEND_APP = Path(__file__).resolve().parents[1] / "app"
 
 
@@ -128,13 +96,15 @@ async def _listed_metadata(client: AsyncClient, headers: dict, filename: str):
     return job["user_metadata"]
 
 
-async def test_the_admin_job_list_leaves_worker_bookkeeping_out(
+async def test_the_admin_job_list_shows_only_public_keys(
     client: AsyncClient, admin_auth_header: dict, test_db_session
 ) -> None:
-    """Every bookkeeping key is left out, and the job's own keys come back unchanged."""
+    """Bookkeeping and unknown keys are left out; public keys come back unchanged."""
     filename = f"jmeta{uuid.uuid4().hex[:10]}"
     job_id = await _job(
-        test_db_session, filename=filename, metadata={**USER_METADATA, **BOOKKEEPING}
+        test_db_session,
+        filename=filename,
+        metadata={**USER_METADATA, **BOOKKEEPING, **UNKNOWN},
     )
     try:
         listed = await _listed_metadata(client, admin_auth_header, filename)
@@ -145,12 +115,14 @@ async def test_the_admin_job_list_leaves_worker_bookkeeping_out(
     assert listed == USER_METADATA
 
 
-async def test_a_job_with_only_bookkeeping_lists_no_metadata(
+async def test_a_job_with_no_public_keys_lists_no_metadata(
     client: AsyncClient, admin_auth_header: dict, test_db_session
 ) -> None:
-    """A job whose metadata is all bookkeeping lists null, so the panel shows nothing."""
+    """A job with only bookkeeping and unknown keys lists null, so the panel shows nothing."""
     filename = f"jmeta{uuid.uuid4().hex[:10]}"
-    job_id = await _job(test_db_session, filename=filename, metadata=BOOKKEEPING)
+    job_id = await _job(
+        test_db_session, filename=filename, metadata={**BOOKKEEPING, **UNKNOWN}
+    )
     try:
         listed = await _listed_metadata(client, admin_auth_header, filename)
     finally:
@@ -186,8 +158,8 @@ async def test_the_retention_check_reads_every_artifact_record(test_db_session) 
     assert kept == set(filenames.values())
 
 
-def test_every_job_metadata_key_is_internal_or_kept() -> None:
-    """Each key name models.py defines is either bookkeeping or on the kept list."""
+def test_every_key_name_models_defines_is_classified() -> None:
+    """Each job-metadata key name models.py defines is public or listed as bookkeeping."""
     names = {
         value
         for name, value in vars(models).items()
@@ -195,8 +167,30 @@ def test_every_job_metadata_key_is_internal_or_kept() -> None:
         and name.endswith(("_METADATA_KEY", "_FIELD", "_MARKER"))
     }
 
-    assert names - INTERNAL_METADATA_KEYS == KEPT_KEYS
-    assert set(BOOKKEEPING) == INTERNAL_METADATA_KEYS
+    assert names <= PUBLIC_METADATA_KEYS | set(BOOKKEEPING)
+    assert not PUBLIC_METADATA_KEYS & set(BOOKKEEPING)
+    assert set(USER_METADATA) <= PUBLIC_METADATA_KEYS
+
+
+def test_every_commit_field_is_public() -> None:
+    """Each field a commit request persists into the job's metadata is public."""
+    fields = {
+        field
+        for model in (
+            ingest_schemas.VectorCommitRequest,
+            ingest_schemas.RasterCommitRequest,
+            ingest_schemas.TilesetCommitRequest,
+            ingest_schemas.ServiceCommitRequest,
+        )
+        for field in model.model_fields
+    } - {"token", "auth"}
+
+    assert fields <= PUBLIC_METADATA_KEYS
+
+
+def test_an_unknown_key_is_left_out() -> None:
+    """A key nobody has classified yet does not reach the admin list."""
+    assert public_job_metadata({"title": "Campus", **UNKNOWN}) == {"title": "Campus"}
 
 
 def _written_metadata_keys() -> dict[str, str]:
@@ -246,7 +240,11 @@ def _written_metadata_keys() -> dict[str, str]:
         for node in ast.walk(tree):
             keys: list[ast.expr | None] = []
             if isinstance(node, ast.Dict) and _is_job_metadata(node, parents.get(node)):
-                keys = node.keys
+                keys = [
+                    key
+                    for spread in [node, *_spread_literals(node)]
+                    for key in spread.keys
+                ]
             elif _called_name(node) == "jsonb_build_object" and not (
                 _called_name(parents.get(node)) == "jsonb_build_object"
             ):
@@ -270,6 +268,21 @@ def _written_metadata_keys() -> dict[str, str]:
                 elif isinstance(key, ast.Name) and isinstance(names.get(key.id), str):
                     found.setdefault(names[key.id], f"{where}:{key.lineno}")
     return found
+
+
+def _spread_literals(node: ast.Dict):
+    """Dict literals a ``**`` spread in ``node`` supplies, such as a conditional one.
+
+    A call's arguments are left out: what a function builds is its own.
+    """
+    pending = [value for key, value in zip(node.keys, node.values) if key is None]
+    while pending:
+        current = pending.pop()
+        if isinstance(current, ast.Call):
+            continue
+        if isinstance(current, ast.Dict):
+            yield current
+        pending.extend(ast.iter_child_nodes(current))
 
 
 def _called_name(node: ast.AST) -> str:
@@ -299,18 +312,22 @@ def _is_job_metadata(node: ast.Dict, parent: ast.AST | None) -> bool:
 
 
 def test_every_metadata_key_the_code_writes_is_classified() -> None:
-    """A key written into user_metadata is bookkeeping the list hides or a key it keeps."""
+    """Each key written into user_metadata is public or listed as bookkeeping."""
     found = _written_metadata_keys()
 
     unclassified = {
         key: where
         for key, where in found.items()
-        if key not in INTERNAL_METADATA_KEYS | PUBLIC_KEYS
+        if key not in PUBLIC_METADATA_KEYS | set(BOOKKEEPING)
     }
     assert unclassified == {}
-    assert {"s3_key_reaped", "s3_key", "manifest_fingerprint", "manifest_tags"} <= set(
-        found
-    )
+    assert {
+        "s3_key_reaped",
+        "s3_key",
+        "manifest_fingerprint",
+        "manifest_tags",
+        "accepted_refresh_run_id",
+    } <= set(found)
 
 
 async def test_a_manifest_job_lists_its_author_keys_without_its_fingerprint(
@@ -396,3 +413,53 @@ async def test_a_manifest_job_lists_its_author_keys_without_its_fingerprint(
         "manifest_attribution": "City GIS Office",
     }
     assert listed["manifest_source_uri"] == stored["manifest_source_uri"]
+
+
+async def test_a_refresh_accepting_a_blocked_run_lists_no_acceptance_state(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+) -> None:
+    """A refresh that accepts a blocked run lists its request, not the acceptance it carries."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
+    dataset.feature_count = 10
+    await test_db_session.commit()
+    dataset_id = dataset.id
+
+    async def _empty_layer(source_url, layer_id, token):
+        return 0, 1000, True, "FID"
+
+    monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _empty_layer)
+    fake = _fake_ogr2ogr([], lambda i: 0)
+    await _execute_with_fake(
+        await _dispatch_refresh(client, admin_auth_header, dataset_id), fake
+    )
+    (blocked,) = await _runs_ordered(test_db_session, dataset_id)
+    assert blocked.status == "blocked"
+    blocked_id = str(blocked.id)
+
+    accepted = await _dispatch_refresh(
+        client,
+        admin_auth_header,
+        dataset_id,
+        body={"accept_blocked_run_id": blocked_id},
+    )
+    job_id = uuid.UUID(accepted["job_id"])
+    test_db_session.expire_all()
+    stored = (await test_db_session.get(IngestJob, job_id)).user_metadata
+    resp = await client.get(
+        "/admin/jobs/", params={"limit": 200}, headers=admin_auth_header
+    )
+    (listed,) = [
+        job["user_metadata"] for job in resp.json()["jobs"] if job["id"] == str(job_id)
+    ]
+    # Settled like any other refresh, so no pending job is left for a later sweep.
+    await _execute_with_fake(accepted, fake)
+
+    assert stored["accepted_refresh_run_id"] == blocked_id
+    assert "accepted_refresh_fingerprint" in stored
+    assert not {"accepted_refresh_run_id", "accepted_refresh_fingerprint"} & set(listed)
+    assert {name: listed[name] for name in ("reupload", "refresh", "dataset_id")} == {
+        "reupload": True,
+        "refresh": True,
+        "dataset_id": str(dataset_id),
+    }
