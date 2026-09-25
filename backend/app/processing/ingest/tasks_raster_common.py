@@ -16,7 +16,7 @@ from enum import StrEnum
 from typing import Any
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.platform.dataset_origin import set_dataset_origin
 from app.processing.raster.cog import check_cog_compliance, extract_raster_metadata
@@ -396,104 +396,113 @@ async def publish_commit_landed(
     job_uuid: uuid.UUID,
     attempt_uuid: uuid.UUID,
     *,
+    xid: str | None,
     job_id: str,
     task: str,
 ) -> bool:
-    """Did the publishing commit durably land, despite the raise?
+    """Whether a publishing commit that raised may have landed.
 
-    fix(#1778): applies #1708's reasoning to the raster and VRT publish
-    tails. A commit whose acknowledgement is lost — a dropped connection, or
-    the ``asyncio.CancelledError`` a cancel delivers (a BaseException the
-    tails' ``except Exception`` never sees but their ``finally`` still runs
-    through) — may still have been applied by PostgreSQL. Each tail sets its
-    "published" flag on the line after that await, so a lost ack left the
-    flag false and the terminal cleanup deleted the exact object keys the
-    committed row had just been pointed at: the objects survive in the
-    bucket but nothing points at them, and every tile request, download and
-    STAC asset 404s until an operator lists the prefix by hand.
+    A commit whose acknowledgement is lost, to a dropped connection or a
+    cancellation, may still have been applied, and reaping the objects it
+    published would leave the dataset naming bytes that no longer exist. So
+    only a probe that reads the transaction aborted returns False. A commit it
+    reads as landed or still in progress, or cannot read at all, returns True:
+    an object kept by mistake can still be removed, a deleted one can't be
+    restored.
 
-    So decide by OBSERVATION, not the await's outcome: read the job row back
-    on a FRESH session (the publishing session is mid-failure) and ask
-    whether this attempt's terminal write is there. ``status == 'complete'``
-    for this exact ``attempt_id`` is the shared signal, because every tail
-    stamps it in the SAME transaction as the pointer swap — seeing it means
-    the swap is durable, and no other attempt could have produced it since
-    the attempt token is fresh per attempt and each task is ``retry=0``.
-
-    A probe that itself fails returns True — standing down. The asymmetry is
-    #1708's: standing down on a false positive leaves objects an operator or
-    sweep can still remove, while proceeding on a false negative deletes the
-    live raster.
-
-    A caller that gets True stands DOWN, returning normally rather than
-    re-raising into its failure handler — gating only the orphaned-key
-    cleanup was not enough, because the handler still entered writes about a
-    job that succeeded (``regenerate_vrt`` reloaded the now ``completed``
-    ``VrtGeneration`` and stamped it ``failed``, which both ``get_vrt_status``
-    and the stale-generation sweep then read as an unhealthy asset). Nothing
-    is lost by returning: the terminal write is durable, and the only work
-    skipped is the post-commit best-effort block those tails already treat
-    as unfailable.
-
-    The caller must NOT set ``final_status`` from this: that string also
-    decides whether the uploader's staged original may be deleted, and
-    standing down there would turn a probe failure into a second, worse
-    deletion.
+    A caller that gets True stands down, returning instead of re-raising into a
+    failure handler that would write about a job that may have succeeded. It
+    must not read True as success for anything that deletes, such as the
+    uploader's staged original.
     """
     observation = await observe_publish_commit(
-        job_uuid, attempt_uuid, job_id=job_id, task=task
+        job_uuid, attempt_uuid, xid=xid, job_id=job_id, task=task
     )
     return observation is not PublishObservation.NOT_LANDED
 
 
 class PublishObservation(StrEnum):
-    """What the job row says about a commit whose acknowledgement was lost."""
+    """What the probe says about a commit whose acknowledgement was lost."""
 
     LANDED = "landed"
     NOT_LANDED = "not_landed"
-    # The probe itself failed, so the commit may or may not have landed.
+    # Still committing, not known, or the probe failed: the commit may land yet.
     UNKNOWN = "unknown"
+
+
+# A publishing transaction's id, noted with the transaction it belongs to.
+_PUBLISHING_XID = "publishing_xid"
+
+_XACT_STATUS = text("SELECT pg_xact_status(CAST(:xid AS text)::xid8)")
+
+
+async def note_publishing_xid(session) -> None:
+    """Note the id of ``session``'s transaction for the probe after its commit.
+
+    Costs a round trip, so callers run it before the transaction's first row lock.
+    """
+    xid = await session.scalar(text("SELECT pg_current_xact_id()::text"))
+    session.info[_PUBLISHING_XID] = (session.sync_session.get_transaction(), xid)
+
+
+def publishing_xid(session) -> str | None:
+    """The id noted for ``session``'s current transaction, or None."""
+    noted = session.info.get(_PUBLISHING_XID)
+    if noted is None or noted[0] is not session.sync_session.get_transaction():
+        return None
+    return noted[1]
 
 
 async def observe_publish_commit(
     job_uuid: uuid.UUID,
     attempt_uuid: uuid.UUID,
     *,
+    xid: str | None,
     job_id: str,
     task: str,
     ended: str = "complete",
 ) -> PublishObservation:
-    """Read this attempt's job row on a fresh session after a lost acknowledgement.
+    """Ask PostgreSQL, on a fresh session, whether transaction ``xid`` committed.
 
-    ``ended`` for this exact attempt means the commit landed. A probe that
-    fails reports ``UNKNOWN`` rather than guessing either way.
+    ``pg_xact_status`` reads a transaction that is still committing, such as
+    one waiting on a synchronous standby, as in progress, where a snapshot of
+    the job row would not show it yet. Aborted is ``NOT_LANDED``. Committed is
+    ``LANDED`` only while this attempt's job reads ``ended``: a failover can
+    lose a commit and reissue its id, so a committed id whose job disagrees is
+    not this commit's. Anything else, and a probe that fails, is ``UNKNOWN``.
     """
     # fix(#909)-style late bind so tests' engine patching is honored.
     import app.core.db as db_module
 
     from app.platform.jobs.models import IngestJob
 
+    log = structlog.get_logger()
+    if xid is None:
+        log.warning("publish_commit_probe_without_xid", job_id=job_id, task=task)
+        return PublishObservation.UNKNOWN
+    status = None
     try:
         async with db_module.async_session() as probe:
-            status = (
-                await probe.execute(
+            outcome = await probe.scalar(_XACT_STATUS, {"xid": xid})
+            if outcome == "committed":
+                status = await probe.scalar(
                     select(IngestJob.status).where(
                         IngestJob.id == job_uuid,
                         IngestJob.attempt_id == attempt_uuid,
                     )
                 )
-            ).scalar_one_or_none()
     except BaseException:
-        structlog.get_logger().warning(
-            "publish_commit_probe_failed", job_id=job_id, task=task
-        )
+        log.warning("publish_commit_probe_failed", job_id=job_id, task=task)
         return PublishObservation.UNKNOWN
-    if status != ended:
+    if outcome == "aborted":
         return PublishObservation.NOT_LANDED
-    structlog.get_logger().warning(
-        "publish_commit_ack_lost_but_landed", job_id=job_id, task=task
+    if outcome == "committed" and status == ended:
+        log.warning("publish_commit_ack_lost_but_landed", job_id=job_id, task=task)
+        return PublishObservation.LANDED
+    log.warning(
+        "publish_commit_outcome_unknown", job_id=job_id, task=task, outcome=outcome
     )
-    return PublishObservation.LANDED
+    return PublishObservation.UNKNOWN
 
 
 def absorb_cancellation(exc: BaseException) -> None:

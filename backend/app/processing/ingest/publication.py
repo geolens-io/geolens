@@ -58,7 +58,9 @@ from app.processing.ingest.tasks_common import (
 from app.processing.ingest.tasks_raster_common import (
     PublishObservation,
     absorb_cancellation,
+    note_publishing_xid,
     observe_publish_commit,
+    publishing_xid,
 )
 
 if TYPE_CHECKING:
@@ -184,10 +186,10 @@ class PublicationCommit(StrEnum):
     """How a publishing commit is known to have landed."""
 
     ACKNOWLEDGED = "acknowledged"
-    # The acknowledgement was lost; a probe read this attempt's job complete.
+    # The acknowledgement was lost; PostgreSQL reports the transaction committed.
     OBSERVED = "observed"
-    # The acknowledgement was lost and the probe failed: the old data may
-    # still be the live data.
+    # The acknowledgement was lost and the transaction is still in progress, or
+    # its outcome can't be read: the old data may still be the live data.
     INDETERMINATE = "indeterminate"
 
     @property
@@ -206,14 +208,15 @@ async def commit_publication(
 ) -> PublicationCommit:
     """Commit the transaction that ends this attempt's job ``ended``.
 
-    When the acknowledgement is lost, a probe of the job row decides: a commit
-    it reads as landed, or cannot read at all, is returned rather than raised,
-    and a cancellation that lost the acknowledgement is absorbed so the caller
-    goes on to its post-commit steps. Re-raises when the probe reads that the
-    commit did not land. Every replacement path ends its job in that
-    transaction, which is what the probe reads. Callers delete superseded data
-    only when the result is ``confirmed``.
+    The transaction's job row was taken by ``hold_publishing_job``. When the
+    acknowledgement is lost, PostgreSQL's record of the transaction decides: a
+    commit it reports committed, still in progress, or cannot report is
+    returned rather than raised, and a cancellation that lost the
+    acknowledgement is absorbed so the caller goes on to its post-commit steps.
+    Re-raises when the transaction aborted. Callers delete superseded data only
+    when the result is ``confirmed``.
     """
+    xid = publishing_xid(session)
     try:
         await session.commit()
     except (
@@ -221,7 +224,7 @@ async def commit_publication(
         asyncio.CancelledError,
     ) as exc:  # broad: a lost acknowledgement can surface as any error
         observation = await observe_publish_commit(
-            job_id, attempt_id, job_id=str(job_id), task=task, ended=ended
+            job_id, attempt_id, xid=xid, job_id=str(job_id), task=task, ended=ended
         )
         if observation is PublishObservation.NOT_LANDED:
             raise
@@ -237,10 +240,13 @@ async def hold_publishing_job(
 ) -> IngestJob:
     """Lock this attempt's running job row, the first row a publication takes.
 
-    Waits at most ``WORKER_LOCK_TIMEOUT``, and raises ``CatalogLockConflict``
-    after a rollback when the wait fails. Raises ``StaleIngestAttempt``,
-    having written nothing, when the attempt no longer owns a running job.
+    Notes the transaction's id first, while no row is locked, for
+    ``commit_publication``'s probe. Waits at most ``WORKER_LOCK_TIMEOUT``, and
+    raises ``CatalogLockConflict`` after a rollback when the wait fails. Raises
+    ``StaleIngestAttempt``, having written nothing, when the attempt no longer
+    owns a running job.
     """
+    await note_publishing_xid(session)
     async with worker_lock_budget(session):
         job = await hold(session, job_id, expect="running", attempt_id=attempt_id)
     if job is None:

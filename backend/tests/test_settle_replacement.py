@@ -33,6 +33,8 @@ from app.processing.ingest.publication import (
     PublicationCommit,
     Published,
     Verdict,
+    commit_publication,
+    hold_publishing_job,
     settle_replacement,
 )
 from app.processing.raster.models import RasterAsset
@@ -395,10 +397,15 @@ async def _cancel(seed: _Seed) -> None:
 
 
 class _FailingCommit:
-    """Fail the publishing commit before it lands; the probe then reads it as not landed."""
+    """Fail the publishing commit before it lands.
 
-    def __init__(self, job_id: uuid.UUID) -> None:
+    ``aborted`` rolls the transaction back first, so the probe reads it aborted;
+    otherwise it stays open while the probe runs, so it reads in progress.
+    """
+
+    def __init__(self, job_id: uuid.UUID, *, aborted: bool = True) -> None:
         self.job_id = job_id
+        self.aborted = aborted
         self.failed = False
 
     def installed(self):
@@ -410,6 +417,8 @@ class _FailingCommit:
             if not outer.failed:
                 if (await session.execute(own_status)).scalar() == "complete":
                     outer.failed = True
+                    if outer.aborted:
+                        await session.rollback()
                     raise ConnectionResetError("the connection dropped before COMMIT")
             return await real_commit(session, *args, **kwargs)
 
@@ -465,6 +474,85 @@ async def test_a_failure_before_the_commit_leaves_live_data_as_it_was(
     assert state["staging_left"] == 0
     assert fake.released == (None, True)
     assert _events(notifications) == ["ingest_failed"]
+
+
+async def test_a_commit_still_in_progress_keeps_the_publication_and_records_no_failure(
+    seed, notifications
+) -> None:
+    """A publishing commit PostgreSQL still reports in progress is indeterminate, not a failure."""
+    fake = _Fake(seed)
+    commit = _FailingCommit(seed.job_id, aborted=False)
+    with commit.installed():
+        await _settle(fake)
+
+    assert commit.failed
+    assert fake.released == (PublicationCommit.INDETERMINATE, False)
+    state = await _state(seed)
+    # The transaction left open rolls back when its session closes; the stale
+    # sweep settles the job from there.
+    assert (state["job"], state["run"][0], state["live"]) == (
+        "running",
+        "running",
+        "before",
+    )
+    assert _events(notifications) == []
+
+
+async def _publish_losing(seed: _Seed, lose: str | None, failure: BaseException):
+    """Hold, complete and commit the seed's job, losing the acknowledgement as ``lose`` says."""
+    async with db_module.async_session() as session:
+        await session.execute(
+            update(IngestJob)
+            .where(IngestJob.id == seed.job_id)
+            .values(status="running")
+        )
+        await session.commit()
+        await hold_publishing_job(session, seed.job_id, seed.attempt_id)
+        await session.execute(
+            update(IngestJob)
+            .where(IngestJob.id == seed.job_id)
+            .values(status="complete")
+        )
+        real_commit = session.commit
+
+        async def _lost() -> None:
+            if lose == "committed":
+                await real_commit()
+            elif lose == "aborted":
+                await session.rollback()
+            raise failure
+
+        if lose is not None:
+            session.commit = _lost
+        try:
+            return await commit_publication(
+                session, job_id=seed.job_id, attempt_id=seed.attempt_id, task="t"
+            )
+        finally:
+            await session.rollback()
+
+
+@pytest.mark.parametrize(
+    ("lose", "expected"),
+    [
+        (None, PublicationCommit.ACKNOWLEDGED),
+        ("committed", PublicationCommit.OBSERVED),
+        ("in progress", PublicationCommit.INDETERMINATE),
+    ],
+)
+@pytest.mark.parametrize("failure", [ConnectionResetError, asyncio.CancelledError])
+async def test_a_lost_acknowledgement_is_settled_by_the_transaction_outcome(
+    seed, lose, expected, failure
+) -> None:
+    """Committed is observed and in progress is indeterminate, whatever the job row shows yet."""
+    assert await _publish_losing(seed, lose, failure("lost")) is expected
+
+
+@pytest.mark.parametrize("failure", [ConnectionResetError, asyncio.CancelledError])
+async def test_an_aborted_publishing_transaction_re_raises(seed, failure) -> None:
+    """An aborted transaction did not land, so the caller's failure path runs."""
+    with pytest.raises(failure):
+        await _publish_losing(seed, "aborted", failure("lost"))
 
 
 async def test_a_cancel_that_wins_rolls_the_publication_back_and_writes_nothing(

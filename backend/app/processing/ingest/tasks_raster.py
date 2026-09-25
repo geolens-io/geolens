@@ -47,6 +47,7 @@ from app.processing.ingest.tasks_raster_common import (
     create_raster_dataset,
     extract_source_raster_metadata,
     publish_commit_landed,
+    publishing_xid,
     record_unpublished_storage_keys,
 )
 from app.processing.ingest.tasks_common import (
@@ -672,6 +673,7 @@ async def ingest_raster(
                     "progress": 1.0,
                 },
             )
+            xid = publishing_xid(session)
             try:
                 await session.commit()
             except BaseException as exc:
@@ -680,7 +682,11 @@ async def ingest_raster(
                 # acknowledgement left the reap below deleting the COG and
                 # quicklooks the committed RasterAsset had just been pointed at.
                 if not await publish_commit_landed(
-                    job_uuid, attempt_uuid, job_id=job_id, task="ingest_raster"
+                    job_uuid,
+                    attempt_uuid,
+                    xid=xid,
+                    job_id=job_id,
+                    task="ingest_raster",
                 ):
                     raise
                 # fix(#1778): stand down rather than re-raise —
