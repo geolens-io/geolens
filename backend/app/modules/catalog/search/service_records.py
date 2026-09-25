@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 from datetime import datetime, timezone
+from urllib.parse import urlencode
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -15,7 +16,11 @@ import structlog
 from app.core.config import settings
 from app.core.raster_bands import band_display_name, stac_band_nodata
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES, capabilities
-from app.core.tile_scope import republished_tile_url, tile_template_query
+from app.core.tile_scope import (
+    republished_tile_url,
+    tile_template_params,
+    tile_template_query,
+)
 from app.core.tiles3d import TILESET_MEDIA_TYPE, tileset_path
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.modules.catalog.datasets.domain.source_freshness import (
@@ -31,7 +36,7 @@ from app.modules.catalog.search.record_metadata import (
 )
 from app.modules.catalog.sources.provenance import derive_last_edited
 from app.platform.dataset_origin import classify_origin, project_unknown
-from app.standards.distributions import is_publishable_url
+from app.standards.distributions import cog_download_path, is_publishable_url
 from app.standards.ogc.utils import build_url
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -82,8 +87,12 @@ def build_assets(
     storage_backend: str = "local",
     storage_provider: "StorageProvider | None" = None,
     public_app_url: str | None = None,
+    cog_download: bool = False,
 ) -> dict:
     """Build a modality-aware unified assets dict for a dataset.
+
+    ``cog_download``: the caller may use the COG download route, so a local
+    raster's ``data`` asset can point at it.
 
     fix(#315): the raster/VRT ``raster_tiles`` asset uses ``public_app_url``
     (nginx-rewritten to the tile proxy), not ``/api``; every other
@@ -171,10 +180,52 @@ def build_assets(
         storage_backend=storage_backend,
         public_api_url=public_api_url,
         storage_provider=storage_provider,
+        local_routes=_local_raster_asset_routes(
+            dataset,
+            record_type,
+            record_status,
+            storage_backend,
+            cog_download=cog_download,
+        ),
     )
     assets.update(stac_built)
 
     return assets
+
+
+def _local_raster_asset_routes(
+    dataset: Dataset,
+    record_type: str,
+    record_status: str,
+    storage_backend: str,
+    *,
+    cog_download: bool,
+) -> dict[str, str] | None:
+    """API routes serving a published raster's stored files on local storage.
+
+    A local storage key has no URL of its own, but these routes serve the
+    same files behind the dataset's access checks. VRTs have no single COG.
+    The quicklook URLs carry the tile cache-key params: that route is cached
+    publicly, and a replaced raster must not show the old images.
+    """
+    if not (
+        storage_backend == "local"
+        and record_status == "published"
+        and record_type == "raster_dataset"
+    ):
+        return None
+    version = tile_template_params(
+        getattr(dataset, "tile_cache_version", None),
+        getattr(dataset, "publication_version", None),
+    )
+    quicklook = f"/datasets/{dataset.id}/quicklook?"
+    routes = {
+        "thumbnail": quicklook + urlencode({"size": 256, **version}),
+        "overview": quicklook + urlencode({"size": 512, **version}),
+    }
+    if cog_download:
+        routes["data"] = cog_download_path(dataset.id)
+    return routes
 
 
 def _build_stac_assets(
@@ -184,6 +235,7 @@ def _build_stac_assets(
     storage_backend: str = "local",
     public_api_url: str = "",
     storage_provider: "StorageProvider | None" = None,
+    local_routes: dict[str, str] | None = None,
 ) -> dict:
     if not asset_rows:
         return {}
@@ -206,9 +258,10 @@ def _build_stac_assets(
             public_api_url=public_api_url,
             storage_provider=storage_provider,
         )
-        # GAP-031: resolve_asset_url returns None when no safe authorized URL
-        # exists (e.g. local-storage proxy path that has no backend route).
-        # Skip the asset entry rather than publishing a dead/colliding href.
+        if resolved_href is None and local_routes and row["key"] in local_routes:
+            resolved_href = build_url(local_routes[row["key"]], base_url=public_api_url)
+        # No safe authorized URL (e.g. a local key with no serving route):
+        # skip the entry rather than publish a dead /assets/{key} href.
         if resolved_href is None:
             continue
         entry: dict = {"href": resolved_href}

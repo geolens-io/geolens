@@ -36,6 +36,7 @@ from app.modules.auth.dependencies import (
 )
 from app.modules.catalog.authorization import (
     apply_visibility_filter,
+    can_download_raster_cog,
     get_user_roles,
     visible_lineage_summaries,
     visible_lineage_summary,
@@ -312,6 +313,7 @@ async def _dataset_to_stac_item(
         storage_backend=settings.storage_provider,
         storage_provider=storage,
         public_app_url=public_app_url,
+        cog_download=await can_download_raster_cog(db, dataset, user, user_roles),
     )
 
     # Look up collection membership if not provided

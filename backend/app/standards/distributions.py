@@ -10,7 +10,8 @@ method whatsoever.
 This module decides what a feed may publish: ``is_publishable_url``
 rejects internal pointers (only http(s) or root-relative API paths
 pass); ``published_distributions`` adds, for the raster family, the
-tile template the product serves anonymously — derived per request
+tile template the product serves anonymously (plus the COG download for a
+public, published raster) — derived per request
 since it lives at the APP origin, nginx-rewritten to the tile proxy, and
 carries the tile cache-key params, values a stored row can't hold. A 3D
 Tiles dataset gets its tileset.json the same way, with no stored row.
@@ -43,6 +44,8 @@ RASTER_TILES_DISTRIBUTION_TYPE = "raster_tiles"
 TILESET_DISTRIBUTION_TYPE = "tiles3d"
 
 _RASTER_TILES_MEDIA_TYPE = "image/png"
+
+_COG_MEDIA_TYPE = "image/tiff; application=geotiff; profile=cloud-optimized"
 
 _PUBLISHABLE_SCHEMES = frozenset({"http", "https"})
 
@@ -95,23 +98,15 @@ def raster_tiles_path(dataset: Dataset) -> str:
     )
 
 
+def cog_download_path(dataset_id: object) -> str:
+    """A raster dataset's COG download route, relative to the API root."""
+    return f"/datasets/{dataset_id}/download/cog"
+
+
 def _raster_tiles_distribution(
     dataset: Dataset, *, app_base_url: str
 ) -> PublishedDistribution:
-    """The one raster access surface these feeds can honestly advertise.
-
-    Deliberately NOT joined by a ``/datasets/{id}/download/cog`` entry
-    (#1469): ``_resolve_download_user`` 401s a caller with neither
-    credentials nor a download-scoped ``?token=``, and minting one needs
-    a separate POST no generic DCAT client will make — publishing it as
-    ``dcat:downloadURL`` would advertise a link that fails anonymous
-    harvesters. The tile template has no such gate (see
-    ``TestRasterAuthCheck::test_auth_check_returns_open_path_for_public_raster``).
-
-    Keeps the surface exactly equal to ``build_assets``, which
-    advertises ``raster_tiles`` and no COG download for the same
-    datasets.
-    """
+    """The raster access surface every raster-family dataset can advertise."""
     return PublishedDistribution(
         distribution_type=RASTER_TILES_DISTRIBUTION_TYPE,
         format="png",
@@ -119,6 +114,38 @@ def _raster_tiles_distribution(
         title="Raster Tiles",
         description=None,
         media_type=_RASTER_TILES_MEDIA_TYPE,
+    )
+
+
+def _cog_download_distribution(
+    dataset: Dataset, *, api_base_url: str
+) -> PublishedDistribution:
+    """The COG download, advertised only where an anonymous harvester can use it.
+
+    A feed has one URL per distribution and no per-caller variant, so the
+    link is published for public, published rasters only: the route serves
+    those without credentials and 404s or 403s the rest. VRTs have no single
+    COG to download, and a STAC import's COG is not served by GeoLens.
+    """
+    return PublishedDistribution(
+        distribution_type="download",
+        format="cog",
+        url=api_base_url + cog_download_path(dataset.id),
+        title="Cloud-Optimized GeoTIFF",
+        description=None,
+        media_type=_COG_MEDIA_TYPE,
+    )
+
+
+def _anonymous_cog_download(dataset: Dataset) -> bool:
+    record = dataset.record
+    return (
+        record.record_type == "raster_dataset"
+        and record.visibility == "public"
+        and record.record_status == "published"
+        # A STAC import's COG stays at its origin, which the route redirects
+        # to and which may require credentials.
+        and dataset.source_format != "stac"
     )
 
 
@@ -153,6 +180,10 @@ def published_distributions(
 
     if is_raster_family(record.record_type):
         entries.append(_raster_tiles_distribution(dataset, app_base_url=app_base_url))
+        if _anonymous_cog_download(dataset):
+            entries.append(
+                _cog_download_distribution(dataset, api_base_url=api_base_url)
+            )
     elif record.record_type == "tiles3d_dataset":
         entries.append(_tileset_distribution(dataset, api_base_url=api_base_url))
 

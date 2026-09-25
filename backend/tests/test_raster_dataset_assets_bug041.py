@@ -13,12 +13,14 @@ enterprise overlay.
 
 These tests pin:
   - the row builder produces the correct stable keys / hrefs / media types, and
-  - those rows make the previously-dead read path surface assets (verified on
-    S3-published storage; local storage still omits them per GAP-031).
+  - those rows make the previously-dead read path surface assets: presigned
+    hrefs on S3, the download and quicklook routes on local storage.
 """
 
 import inspect
 import uuid
+
+import pytest
 
 from app.modules.catalog.search.service import build_assets
 from app.processing.ingest import tasks_raster as _tasks_raster
@@ -120,15 +122,47 @@ class TestReadPathNowLive:
         assert assets["data"]["href"].startswith("https://s3.example.com/")
         assert "source.cog.tif" in assets["data"]["href"]
 
-    def test_local_storage_still_omits_per_gap031(self):
-        """On local storage the rows resolve to None and are omitted (GAP-031).
-
-        Populating the table must NOT regress GAP-031: local-storage hrefs have
-        no safe proxy URL, so the read path skips them — only computed
-        raster_tiles remain.
-        """
+    def _local_assets(
+        self, *, record_type="raster_dataset", status="published", cog_download=True
+    ):
         ds_id = "00000000-0000-0000-0000-0000000000bb"
         ds = _make_raster_dataset(ds_id)
+        ds.record.record_type = record_type
+        rows = _build_dataset_asset_rows(
+            dataset_id=uuid.UUID(ds_id),
+            cog_key="rasters/x/abc/source.cog.tif",
+            ql256_key="rasters/x/abc/quicklook_256.png",
+            ql512_key="rasters/x/abc/quicklook_512.png",
+            cog_size=4096,
+            is_manifest_vrt=record_type == "vrt_dataset",
+        )
+        return ds_id, build_assets(
+            ds,
+            "http://localhost:8080/api",
+            stac_asset_rows=rows,
+            record_status=status,
+            storage_backend="local",
+            cog_download=cog_download,
+        )
+
+    def test_local_storage_published_raster_points_at_the_serving_routes(self):
+        """A local key has no URL of its own; the download and quicklook routes serve it."""
+        ds_id, assets = self._local_assets()
+        api = f"http://localhost:8080/api/datasets/{ds_id}"
+        assert "raster_tiles" in assets
+        assert assets["data"]["href"] == f"{api}/download/cog"
+        assert assets["data"]["type"].endswith("profile=cloud-optimized")
+        assert assets["data"]["roles"] == ["data"]
+        assert assets["thumbnail"]["href"] == f"{api}/quicklook?size=256&pv=0"
+        assert assets["overview"]["href"] == f"{api}/quicklook?size=512&pv=0"
+        assert not [a for a in assets.values() if "/assets/" in a["href"]]
+
+    def test_quicklooks_carry_the_tile_cache_versions(self):
+        """The quicklook route is cached publicly; a replacement rolls its URL."""
+        ds_id = "00000000-0000-0000-0000-0000000000cc"
+        ds = _make_raster_dataset(ds_id)
+        ds.tile_cache_version = 3
+        ds.publication_version = 2
         rows = _build_dataset_asset_rows(
             dataset_id=uuid.UUID(ds_id),
             cog_key="rasters/x/abc/source.cog.tif",
@@ -144,10 +178,22 @@ class TestReadPathNowLive:
             record_status="published",
             storage_backend="local",
         )
-        assert "raster_tiles" in assets
+        assert assets["thumbnail"]["href"].endswith("quicklook?size=256&v=3&pv=2")
+
+    def test_local_storage_without_cog_download_omits_only_data(self):
+        """A caller the download route would refuse gets the quicklooks only."""
+        _, assets = self._local_assets(cog_download=False)
         assert "data" not in assets
-        assert "thumbnail" not in assets
-        assert "overview" not in assets
+        assert {"raster_tiles", "thumbnail", "overview"} <= set(assets)
+
+    @pytest.mark.parametrize(
+        ("record_type", "status"),
+        [("raster_dataset", "draft"), ("vrt_dataset", "published")],
+    )
+    def test_local_storage_omits_unpublished_and_vrt_rows(self, record_type, status):
+        """Unpublished rasters and VRTs (no single COG) keep only raster_tiles."""
+        _, assets = self._local_assets(record_type=record_type, status=status)
+        assert set(assets) == {"raster_tiles"}
 
 
 class TestIngestWritePathPortResolution:
