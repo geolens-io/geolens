@@ -6,7 +6,7 @@ from __future__ import annotations
 import inspect
 import io
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -45,9 +45,10 @@ from app.processing.ingest import router as ingest_router
 from app.processing.ingest.tasks import ingest_pointcloud, task_app
 from app.processing.raster.models import DatasetAsset
 from tests.factories import create_user
-from tests.pointcloud_files import copc
+from tests.pointcloud_files import copc, copc_nodes, scrambled
 
 _CLOUD = copc()
+_DECODE_FAILED = "The point cloud's points don't decode as its header describes."
 
 
 @pytest.fixture
@@ -129,8 +130,8 @@ async def run_queued(queued: list) -> None:
     await task.func(**kwargs)
 
 
-async def publish(client, headers, queued, data: bytes = _CLOUD) -> str:
-    """Upload, preview, commit and run the worker; returns the job id."""
+async def committed_upload(client, headers, data: bytes = _CLOUD) -> str:
+    """Upload, preview and commit; returns the job id."""
     uploaded = await upload(client, headers, data)
     assert uploaded.status_code == 201, uploaded.text
     job_id = uploaded.json()["job_id"]
@@ -138,6 +139,12 @@ async def publish(client, headers, queued, data: bytes = _CLOUD) -> str:
     assert previewed.status_code == 200, previewed.text
     committed = await commit(client, headers, job_id)
     assert committed.status_code == 202, committed.text
+    return job_id
+
+
+async def publish(client, headers, queued, data: bytes = _CLOUD) -> str:
+    """Upload, preview, commit and run the worker; returns the job id."""
+    job_id = await committed_upload(client, headers, data)
     await run_queued(queued)
     return job_id
 
@@ -522,6 +529,44 @@ async def test_a_file_that_changed_since_the_door_is_refused_before_the_copy(
     assert await pointcloud_objects() == []
 
 
+# --- Every node, in the worker -------------------------------------------
+
+
+async def test_a_point_cloud_of_several_nodes_publishes(
+    client: AsyncClient, test_db_session, uploader, queued
+) -> None:
+    """The worker decodes each node of a sound file and publishes it as uploaded."""
+    data = copc_nodes()
+
+    job_id = await publish(client, uploader[0], queued, data)
+
+    job = await load_job(test_db_session, job_id)
+    assert job.status == "complete", job.error_message
+    dataset = await test_db_session.get(Dataset, job.dataset_id)
+    key = pointcloud_attempt_key(job.dataset_id, job.attempt_id)
+    assert dataset.pointcloud_point_count == 370
+    assert await storage_provider.get_storage().get(key) == data
+
+
+async def test_a_damaged_node_below_the_top_is_refused_before_the_copy(
+    client: AsyncClient, test_db_session, uploader, queued
+) -> None:
+    """The doors pass it on its top node; the worker refuses it before naming or copying a key."""
+    job_id = await committed_upload(
+        client, uploader[0], copc_nodes(last_chunk=scrambled)
+    )
+    staged = Path((await load_job(test_db_session, job_id)).file_path)
+
+    with pytest.raises(CodedUploadError):
+        await run_queued(queued)
+
+    job = await load_job(test_db_session, job_id)
+    assert (job.status, job.error_message) == ("failed", _DECODE_FAILED)
+    assert UNPUBLISHED_STORAGE_KEYS_FIELD not in job.user_metadata
+    assert await pointcloud_objects() == []
+    assert staged.exists()
+
+
 # --- Presigned doors on S3 -----------------------------------------------
 
 
@@ -586,6 +631,39 @@ async def test_a_presigned_point_cloud_publishes_from_s3(
     assert await s3_storage.list(pointcloud_prefix(job.dataset_id)) == [key]
     assert await s3_storage.get(key) == _CLOUD
     assert await s3_storage.list(f"staging/{job_id}/") == []
+
+
+@pytest.mark.parametrize("damaged", [False, True], ids=["published", "refused"])
+async def test_a_stored_point_cloud_is_decoded_from_a_download_that_is_removed(
+    client: AsyncClient,
+    test_db_session,
+    uploader,
+    queued,
+    s3_storage,
+    tmp_path,
+    damaged,
+) -> None:
+    """The worker decodes every node from a local copy of the object, then removes the copy."""
+    headers, _ = uploader
+    data = copc_nodes(last_chunk=scrambled if damaged else None)
+    body, completed = await presigned_upload(client, headers, s3_storage, data)
+    assert completed.status_code == 200, completed.text
+    job_id = body["job_id"]
+    previewed = await client.post(f"/ingest/preview/{job_id}", headers=headers)
+    assert previewed.status_code == 200, previewed.text
+    assert (await commit(client, headers, job_id)).status_code == 202
+
+    with pytest.raises(CodedUploadError) if damaged else nullcontext():
+        await run_queued(queued)
+
+    job = await load_job(test_db_session, job_id)
+    stored = await s3_storage.list("pointclouds/")
+    if damaged:
+        assert (job.status, job.error_message, stored) == ("failed", _DECODE_FAILED, [])
+    else:
+        assert job.status == "complete", job.error_message
+        assert stored == [pointcloud_attempt_key(job.dataset_id, job.attempt_id)]
+    assert not any((tmp_path / "staging").iterdir())
 
 
 async def test_a_refused_point_cloud_is_dropped_at_presigned_complete(

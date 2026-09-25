@@ -30,7 +30,7 @@ from app.platform.storage.titiler_url import resolve_current_storage_key
 from app.processing.ingest.metadata_quality import compute_quality_score
 from app.processing.ingest.pointcloud import (
     PointCloud,
-    inspect_staged_pointcloud,
+    inspect_every_node,
     staged_source,
 )
 from app.processing.ingest.publish_followups import (
@@ -201,7 +201,8 @@ async def ingest_pointcloud(
     """Background task: check a staged COPC file again and publish it.
 
     1. Claim the attempt and start the heartbeat.
-    2. Check the file again: its header, hierarchy, top node and CRS.
+    2. Check the file again, from a local copy when it sits in storage: its
+       header, hierarchy and CRS, and every node's points.
     3. Name the attempt's key on the job row, then copy the file to it.
     4. In one transaction, reserve the quota and create the Record, the
        Dataset with its extent and facts, and the pointer row, and complete
@@ -216,6 +217,7 @@ async def ingest_pointcloud(
     if resolved is None:
         return
     job_uuid, attempt_uuid = resolved
+    original_file_path = file_path
     owned_staging_key: str | None = None
     attempt_key: str | None = None
     # Set by the publishing commit and nothing else: it decides whether the
@@ -241,7 +243,10 @@ async def ingest_pointcloud(
             user_metadata: dict = dict(job.user_metadata or {})
             source_filename: str | None = job.source_filename
 
-        cloud = await inspect_staged_pointcloud(file_path)
+        from app.processing.ingest.service import resolve_file_path
+
+        file_path = await resolve_file_path(file_path, job_id)
+        cloud = await inspect_every_node(file_path)
         await refuse_before_the_copy(uuid.UUID(user_id), cloud)
         dataset_id = uuid.uuid4()
         attempt_key = pointcloud_attempt_key(dataset_id, attempt_uuid)
@@ -255,7 +260,7 @@ async def ingest_pointcloud(
             task=_TASK,
         ):
             return
-        await store_pointcloud(file_path, attempt_key)
+        await store_pointcloud(original_file_path, attempt_key)
 
         async with _job_phase_session(
             job_uuid,
@@ -353,8 +358,11 @@ async def ingest_pointcloud(
 
                 await get_storage().delete(resolve_current_storage_key(attempt_key))
         async with cleanup_step("ingest_pointcloud local file", job_id=job_id):
-            # The staged original goes only once published, since a retry needs it.
-            if final_status == "complete" and Path(file_path).is_absolute():
+            # A copy downloaded from storage always goes; the staged original
+            # only once published, since a retry needs it.
+            if file_path != original_file_path or (
+                final_status == "complete" and Path(original_file_path).is_absolute()
+            ):
                 Path(file_path).unlink(missing_ok=True)
         async with cleanup_step(
             "ingest_pointcloud presigned staging object", job_id=job_id
@@ -365,7 +373,7 @@ async def ingest_pointcloud(
         async with cleanup_step("ingest_pointcloud downloaded source", job_id=job_id):
             await reap_downloaded_staging_source(
                 job_id,
-                original_file_path=file_path,
+                original_file_path=original_file_path,
                 final_status=final_status,
                 failed_source_replayable=True,
             )

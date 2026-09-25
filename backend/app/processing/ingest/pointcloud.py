@@ -1,10 +1,11 @@
 """Check an uploaded COPC point cloud before anything stores or serves it.
 
 A point cloud never reaches GDAL. Its header, VLRs and octree hierarchy are
-parsed here with ``struct`` under fixed bounds, and lazrs decodes one node to
-show the chunks decode as declared. Every check reads a local file: the staged
-upload, or a sparse probe holding only the ranges the checks read from an
-object in storage.
+parsed here with ``struct`` under fixed bounds, and lazrs decodes nodes to
+show the chunks decode as declared: the top node at the upload doors, every
+node in the worker before the copy. Every check reads a local file: the staged
+upload, a copy the worker downloads, or a sparse probe holding only the ranges
+the doors' checks read from an object in storage.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Callable
+from typing import BinaryIO, Callable
 
 import lazrs
 import numpy as np
@@ -46,7 +47,7 @@ MAX_RECORDS = 1024
 # 1 km lidar tile of 39 million points has 1,680 nodes.
 MAX_HIERARCHY_ENTRIES = 250_000
 MAX_DEPTH = 24
-# Both the compressed and the decoded size of the one node decoded.
+# Both the compressed and the decoded size of each node decoded.
 MAX_DECODE_BYTES = 64 * 1024 * 1024
 MAX_WKT_BYTES = 64 * 1024
 # lazrs builds four 256-symbol models, about 9.6 KB, per extra byte before it
@@ -136,8 +137,9 @@ class _Layout:
     header: _Header
     laszip: bytes
     wkt: bytes
-    # The shallowest node holding points, as (offset, byte size, point count).
-    node: tuple[int, int, int]
+    # Every node holding points, as (offset, byte size, point count), the
+    # shallowest first.
+    nodes: list[tuple[int, int, int]]
     # The per-layer sizes a chunk's header lists, one per LASzip layer.
     layers: int
 
@@ -282,8 +284,8 @@ def _check_laszip(data: bytes, header: _Header) -> int:
 
 def _walk(
     read: Read, header: _Header, root: tuple[int, int], hierarchy: range
-) -> tuple[int, int, int]:
-    """Check every hierarchy page and return the shallowest node holding points.
+) -> list[tuple[int, int, int]]:
+    """Check every hierarchy page and return each node holding points, shallowest first.
 
     A page is read once at most, from inside the hierarchy record; a node's
     points lie inside the point data; and the nodes' counts sum to the header's.
@@ -292,7 +294,7 @@ def _walk(
     seen_pages: set[tuple[int, int]] = set()
     seen_keys: set[tuple[int, int, int, int]] = set()
     entries = total = 0
-    shallowest: tuple[int, int, int, int] | None = None
+    nodes: list[tuple[int, int, int, int]] = []
     while pages:
         page = pages.pop()
         offset, size = page
@@ -348,14 +350,15 @@ def _walk(
                     reason="node_range",
                 )
             total += count
-            if shallowest is None or depth < shallowest[0]:
-                shallowest = (depth, node_offset, node_size, count)
-    if shallowest is None or total != header.point_count:
+            nodes.append((depth, node_offset, node_size, count))
+    if not nodes or total != header.point_count:
         raise _invalid(
             "The hierarchy's point counts don't add up to the header's.",
             reason="point_count",
         )
-    return shallowest[1:]
+    # Stable, so the top node is the first one found at the least depth.
+    nodes.sort(key=lambda node: node[0])
+    return [node[1:] for node in nodes]
 
 
 def _read_layout(read: Read, size: int) -> _Layout:
@@ -381,13 +384,13 @@ def _read_layout(read: Read, size: int) -> _Layout:
         raise _refusal("pointcloud_no_crs", _NO_CRS, reason="wkt_limit")
     root = struct.unpack_from("<QQ", read(vlrs[0][1] + 40, 16))
     hierarchy_offset, hierarchy_length = found[_COPC_HIERARCHY]
-    node = _walk(
+    nodes = _walk(
         read,
         header,
         root,
         range(hierarchy_offset, hierarchy_offset + hierarchy_length),
     )
-    return _Layout(header, laszip, read(wkt_offset, wkt_length), node, layers)
+    return _Layout(header, laszip, read(wkt_offset, wkt_length), nodes, layers)
 
 
 def _check_chunk(chunk: bytes, layout: _Layout, count: int) -> None:
@@ -410,13 +413,13 @@ def _check_chunk(chunk: bytes, layout: _Layout, count: int) -> None:
         )
 
 
-def _decode(read: Read, layout: _Layout) -> None:
+def _decode(read: Read, layout: _Layout, node: tuple[int, int, int]) -> None:
     """Decode one node with lazrs and check its points sit inside the header's bounds."""
     header = layout.header
-    offset, size, count = layout.node
+    offset, size, count = node
     if max(size, count * header.record_length) > MAX_DECODE_BYTES:
         raise _invalid(
-            "The octree's top node exceeds the "
+            "A node of the octree exceeds the "
             f"{MAX_DECODE_BYTES // 1024**2} MB decode limit.",
             reason="decode_limit",
             limit_mb=MAX_DECODE_BYTES // 1024**2,
@@ -537,23 +540,29 @@ def _crs_facts(
     return srid, vertical, tuple(bbox)
 
 
-def inspect_pointcloud(path: str) -> PointCloud:
-    """Check a COPC file on local disk; a refusal is a ``CodedUploadError``."""
+def _reader(source: BinaryIO) -> Read:
+    """``Read`` over an open file, refusing a range that runs past its end."""
+
+    def read(offset: int, length: int) -> bytes:
+        source.seek(offset)
+        data = source.read(length)
+        if len(data) != length:
+            raise _invalid(_TRUNCATED, reason="short_read")
+        return data
+
+    return read
+
+
+def _inspect(path: str) -> tuple[PointCloud, _Layout]:
+    """``inspect_pointcloud``, with the layout it read."""
     size = os.path.getsize(path)
     with open(path, "rb") as source:
-
-        def read(offset: int, length: int) -> bytes:
-            source.seek(offset)
-            data = source.read(length)
-            if len(data) != length:
-                raise _invalid(_TRUNCATED, reason="short_read")
-            return data
-
+        read = _reader(source)
         layout = _read_layout(read, size)
-        _decode(read, layout)
+        _decode(read, layout, layout.nodes[0])
     header = layout.header
     srid, vertical, bbox = _crs_facts(layout.wkt, header)
-    return PointCloud(
+    cloud = PointCloud(
         point_count=header.point_count,
         point_format=header.point_format,
         srid=srid,
@@ -563,6 +572,29 @@ def inspect_pointcloud(path: str) -> PointCloud:
         z_max=header.maxs[2],
         size_bytes=size,
     )
+    return cloud, layout
+
+
+def inspect_pointcloud(path: str) -> PointCloud:
+    """Check a COPC file on local disk, decoding its top node; a refusal is a ``CodedUploadError``."""
+    return _inspect(path)[0]
+
+
+def _decode_node(path: str, layout: _Layout, node: tuple[int, int, int]) -> None:
+    with open(path, "rb") as source:
+        _decode(_reader(source), layout, node)
+
+
+async def inspect_every_node(path: str) -> PointCloud:
+    """``inspect_pointcloud``, then every other node holding points decoded as the top one is.
+
+    lazrs holds the GIL while it decodes, so each node gets a thread call of
+    its own and the event loop runs between nodes.
+    """
+    cloud, layout = await asyncio.to_thread(_inspect, path)
+    for node in layout.nodes[1:]:
+        await asyncio.to_thread(_decode_node, path, layout, node)
+    return cloud
 
 
 def _layout_of(path: str) -> _Layout:
@@ -603,7 +635,7 @@ async def inspect_stored_pointcloud(storage: StorageProvider, key: str) -> Point
             and evlr_bytes <= MAX_EVLR_BLOCK_BYTES
         ):
             await _copy_range(storage, key, probe, header.evlr_start, evlr_bytes)
-        offset, length, _ = (await asyncio.to_thread(_layout_of, probe)).node
+        offset, length, _ = (await asyncio.to_thread(_layout_of, probe)).nodes[0]
         if length <= MAX_DECODE_BYTES:
             await _copy_range(storage, key, probe, offset, length)
         return await asyncio.to_thread(inspect_pointcloud, probe)

@@ -16,6 +16,9 @@ SCALE = 0.01
 
 _RECORD_LENGTHS = {6: 30, 7: 36, 8: 38}
 _VARIABLE_CHUNKS = 0xFFFFFFFF
+# A format 6 chunk opens with its first point raw, its point count and nine
+# layer sizes; the compressed layers follow.
+_CHUNK_HEADER = 30 + 4 + 4 * 9
 
 
 @dataclass(frozen=True)
@@ -53,6 +56,20 @@ def records(count: int, point_format: int = 6, extra_bytes: int = 0) -> bytes:
     return bytes(out)
 
 
+def compressed_chunk(
+    points: bytes, point_format: int = 6, extra_bytes: int = 0
+) -> bytes:
+    """``points`` compressed as the one LAZ chunk a COPC node holds."""
+    laz_vlr = lazrs.LazVlr.new_for_compression(point_format, extra_bytes)
+    compressed = lazrs.compress_points(laz_vlr, points, False)
+    return compressed[8 : struct.unpack_from("<q", compressed)[0]]
+
+
+def scrambled(chunk: bytes) -> bytes:
+    """A format 6 chunk with its compressed layers inverted under an intact header."""
+    return chunk[:_CHUNK_HEADER] + bytes(b ^ 0xFF for b in chunk[_CHUNK_HEADER:])
+
+
 def copc(
     *,
     count: int = 100,
@@ -81,13 +98,11 @@ def copc(
     laszip_data = bytearray(laz_vlr.record_data())
     struct.pack_into("<I", laszip_data, 12, _VARIABLE_CHUNKS)
     laszip_data = bytes(laszip(bytes(laszip_data)) if laszip else laszip_data)
-    compressed_points = lazrs.compress_points(
-        laz_vlr,
+    chunk_bytes = compressed_chunk(
         points if points is not None else records(count, point_format, extra_bytes),
-        False,
+        point_format,
+        extra_bytes,
     )
-    table_offset = struct.unpack_from("<q", compressed_points)[0]
-    chunk_bytes = compressed_points[8:table_offset]
     if chunk:
         chunk_bytes = chunk(chunk_bytes)
 
@@ -165,4 +180,39 @@ def copc(
         + chunk_bytes
         + padding
         + b"".join(evlrs)
+    )
+
+
+def copc_nodes(
+    counts: tuple[int, ...] = (120, 150),
+    *,
+    last_chunk: Callable[[bytes], bytes] | None = None,
+    count_error: int = 0,
+    size_error: int = 0,
+) -> bytes:
+    """A 100-point root node and a node below it per count, laid out after it.
+
+    The last node below the root may carry one fault: ``last_chunk`` rewrites
+    its compressed bytes, and ``count_error`` and ``size_error`` shift the point
+    count and byte size its hierarchy entry states. The header's point count is
+    the entries' sum.
+    """
+    chunks = [compressed_chunk(records(count)) for count in counts]
+    if last_chunk:
+        chunks[-1] = last_chunk(chunks[-1])
+
+    def pages(layout: Layout) -> list[list[tuple[int, ...]]]:
+        entries = [root_entry(layout)]
+        offset = layout.chunk_offset + layout.chunk_size
+        for i, (count, data) in enumerate(zip(counts, chunks)):
+            entries.append((1, i & 1, i >> 1 & 1, i >> 2, offset, len(data), count))
+            offset += len(data)
+        *key, offset, size, count = entries[-1]
+        entries[-1] = (*key, offset, size + size_error, count + count_error)
+        return [entries]
+
+    return copc(
+        padding=b"".join(chunks),
+        pages=pages,
+        header_point_count=100 + sum(counts) + count_error,
     )

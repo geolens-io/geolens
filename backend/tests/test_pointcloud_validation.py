@@ -1,4 +1,4 @@
-"""A COPC upload is checked from its header, VLRs, hierarchy and top node alone."""
+"""A COPC upload is checked from its header, VLRs, hierarchy and top node, and the worker decodes every node."""
 
 from __future__ import annotations
 
@@ -24,10 +24,18 @@ from app.platform.storage.s3 import S3StorageProvider
 from app.processing.ingest import pointcloud as pointcloud_module
 from app.processing.ingest.pointcloud import (
     MAX_EXTRA_BYTES,
+    inspect_every_node,
     inspect_pointcloud,
     inspect_stored_pointcloud,
 )
-from tests.pointcloud_files import Layout, copc, records, root_entry
+from tests.pointcloud_files import (
+    Layout,
+    copc,
+    copc_nodes,
+    records,
+    root_entry,
+    scrambled,
+)
 
 
 def write(tmp_path: Path, data: bytes, name: str = "cloud.copc.laz") -> str:
@@ -616,3 +624,70 @@ async def test_the_probe_skips_a_node_past_the_decode_bound(
         await inspect_stored_pointcloud(counting, "staging/job/frozen/c.laz")
 
     assert counting.bytes_read < 8 * 1024 < big
+
+
+# --- The worker decodes every node ---------------------------------------
+
+
+def _decoded_chunks(monkeypatch) -> list[int]:
+    """The size of each chunk that reaches lazrs, which still decodes it."""
+    sizes: list[int] = []
+    decompress = lazrs.decompress_points_with_chunk_table
+
+    def _decompress(chunk, *args):
+        sizes.append(len(chunk))
+        return decompress(chunk, *args)
+
+    monkeypatch.setattr(
+        pointcloud_module.lazrs, "decompress_points_with_chunk_table", _decompress
+    )
+    return sizes
+
+
+async def test_every_node_of_a_point_cloud_is_decoded(tmp_path, monkeypatch) -> None:
+    """Each node holding points reaches lazrs, and the facts match the top node check's."""
+    path = write(tmp_path, copc_nodes())
+    top_node_only = inspect_pointcloud(path)
+    decoded = _decoded_chunks(monkeypatch)
+
+    cloud = await inspect_every_node(path)
+
+    assert cloud == top_node_only
+    assert (cloud.point_count, len(decoded)) == (370, 3)
+
+
+@pytest.mark.parametrize(
+    ("data", "decoded"),
+    [
+        pytest.param(copc_nodes(last_chunk=scrambled), 3, id="scrambled-layers"),
+        pytest.param(copc_nodes(count_error=-1), 2, id="count-differs"),
+        pytest.param(copc_nodes(size_error=-1), 2, id="size-differs"),
+    ],
+)
+async def test_a_damaged_node_below_the_top_passes_the_door_and_not_the_worker(
+    tmp_path, monkeypatch, data, decoded
+) -> None:
+    """The door passes it on its top node; the worker refuses it, a disagreeing header before lazrs."""
+    path = write(tmp_path, data)
+    inspect_pointcloud(path)
+    chunks = _decoded_chunks(monkeypatch)
+
+    with pytest.raises(CodedUploadError) as refusal:
+        await inspect_every_node(path)
+
+    assert (refusal.value.code, len(chunks)) == ("pointcloud_decode_failed", decoded)
+
+
+async def test_a_node_below_the_top_past_the_decode_bound_is_refused(
+    tmp_path, monkeypatch
+) -> None:
+    """Every node is held to the decode bound, not only the top one."""
+    path = write(tmp_path, copc_nodes(counts=(120, 150)))
+    monkeypatch.setattr(pointcloud_module, "MAX_DECODE_BYTES", 150 * 30 - 1)
+    inspect_pointcloud(path)
+    chunks = _decoded_chunks(monkeypatch)
+
+    with pytest.raises(CodedUploadError, match="decode limit") as refusal:
+        await inspect_every_node(path)
+
+    assert (refusal.value.code, len(chunks)) == ("pointcloud_invalid", 2)
