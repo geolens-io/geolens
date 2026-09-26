@@ -15,6 +15,7 @@ no cache keeps it under the page's URL.
 
 import asyncio
 import contextlib
+import time
 import uuid
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
@@ -39,6 +40,9 @@ TILE_ROUTES = [
     "/tiles/data.{table}/0/0/0.pbf",
     "/tiles/clusters/data.{table}/0/0/0.pbf",
 ]
+
+# Time bounds here are hang guards: CI load can stretch any wait severalfold.
+_HANG_GUARD = 30  # seconds
 
 
 async def _seed(session, tmp_path):
@@ -393,20 +397,20 @@ async def _registered_dataset(session):
 
 @contextlib.contextmanager
 def _counting_row_reads(table_name: str):
-    """Count the SELECTs naming ``table_name`` that reach the database.
+    """Record when each SELECT naming ``table_name`` reaches the database.
 
-    Counted at the engine, because a forced re-read runs on a session of its
-    own rather than the one the caller passed in.
+    Recorded at the engine, so reads count whichever request's session runs
+    them.
     """
     import app.core.db as db_module
 
-    reads: list[str] = []
+    reads: list[float] = []
 
     def on_execute(conn, cursor, statement, parameters, context, executemany):
         if statement.lstrip().upper().startswith("SELECT") and table_name in str(
             parameters
         ):
-            reads.append(statement)
+            reads.append(time.monotonic())
 
     engine = db_module.engine.sync_engine
     event.listen(engine, "before_cursor_execute", on_execute)
@@ -438,50 +442,57 @@ async def _meta_for_request(
         )
 
 
-def _age_forced_reread(cache_key: str) -> None:
-    """Put the key's last forced re-read past its interval."""
-    with tile_router._dataset_cache_lock:
-        claimed_at = tile_router._forced_rereads[cache_key]
-        tile_router._forced_rereads[cache_key] = (
-            claimed_at - tile_router._FORCED_REREAD_INTERVAL
-        )
-
-
-async def test_an_unreached_version_re_reads_the_row_once_per_interval(
-    test_db_session,
+async def test_an_unreached_version_re_reads_the_row_at_most_once_per_interval(
+    test_db_session, monkeypatch
 ):
+    """Each of these requests waits for a read of its own, an interval apart.
+
+    No row reaches the version, and a read that started before a request
+    arrived cannot answer it, so every request in the sequence needs the next
+    interval's read.
+    """
+    interval = 0.2
+    monkeypatch.setattr(tile_router, "_FORCED_REREAD_INTERVAL", interval)
     table = (await _registered_dataset(test_db_session)).table_name
     try:
         await tile_router._resolve_dataset_meta(table, test_db_session)
         with _counting_row_reads(table) as reads:
-            for _ in range(20):
-                await tile_router._resolve_dataset_meta(
+            for _ in range(4):
+                meta = await tile_router._resolve_dataset_meta(
                     table, test_db_session, _UNREACHED_VERSION
                 )
-            assert len(reads) == 1
+                assert meta.tile_cache_version == 1
 
-            _age_forced_reread(table)
-            for _ in range(20):
-                await tile_router._resolve_dataset_meta(
-                    table, test_db_session, _UNREACHED_VERSION
-                )
-            assert len(reads) == 2
+        assert len(reads) == 4
+        gaps = [later - earlier for earlier, later in zip(reads, reads[1:])]
+        assert min(gaps) >= 0.8 * interval, gaps
     finally:
         tile_router._evict_dataset_meta(table)
 
 
-async def test_concurrent_requests_for_an_unreached_version_share_one_re_read(
+async def test_concurrent_requests_for_an_unreached_version_share_each_read(
     test_db_session,
 ):
+    """Five requests share one read.
+
+    They arrive inside the interval the priming read opened, and a read that
+    began before they arrived cannot answer them, so they share the next one.
+    """
     table = (await _registered_dataset(test_db_session)).table_name
     try:
         await tile_router._resolve_dataset_meta(table, test_db_session)
         with _counting_row_reads(table) as reads:
-            metas = await asyncio.gather(
-                *(_meta_for_request(table, _UNREACHED_VERSION) for _ in range(5))
+            started = time.monotonic()
+            metas = await asyncio.wait_for(
+                asyncio.gather(
+                    *(_meta_for_request(table, _UNREACHED_VERSION) for _ in range(5))
+                ),
+                timeout=_HANG_GUARD,
             )
-        assert len(reads) == 1
+            elapsed = time.monotonic() - started
         assert [meta.tile_cache_version for meta in metas] == [1] * 5
+        assert len(reads) == 1
+        assert elapsed < tile_router._FORCED_REREAD_INTERVAL + 10
     finally:
         tile_router._evict_dataset_meta(table)
 
@@ -498,7 +509,7 @@ async def test_tiles_fanned_out_after_a_swap_all_get_the_new_snapshot(
         with _counting_row_reads(table) as reads:
             metas = await asyncio.wait_for(
                 asyncio.gather(*(_meta_for_request(table, "2") for _ in range(5))),
-                timeout=10,
+                timeout=_HANG_GUARD,
             )
         keys = {
             _generation_table_key(
@@ -540,14 +551,16 @@ async def test_a_cancelled_request_leaves_its_re_read_to_the_others(
         monkeypatch.setattr(tile_router, "_read_dataset_meta", read_once_released)
         with _counting_row_reads(table) as reads:
             leader = asyncio.create_task(_meta_for_request(table, "2"))
-            await asyncio.wait_for(entered.wait(), timeout=5)
+            await asyncio.wait_for(entered.wait(), timeout=_HANG_GUARD)
             followers = [
                 asyncio.create_task(_meta_for_request(table, "2")) for _ in range(4)
             ]
             await asyncio.sleep(0)
             leader.cancel()
             release.set()
-            metas = await asyncio.wait_for(asyncio.gather(*followers), timeout=5)
+            metas = await asyncio.wait_for(
+                asyncio.gather(*followers), timeout=_HANG_GUARD
+            )
 
         assert leader.cancelled()
         assert [meta.tile_cache_version for meta in metas] == [2] * 4
@@ -584,11 +597,14 @@ async def test_a_failed_re_read_fails_every_waiting_request_alike(test_db_sessio
 
 
 async def test_a_forced_re_read_checks_out_no_connection_of_its_own(
-    test_db_session,
+    test_db_session, monkeypatch
 ):
     """The claimant reads on the connection its request already holds."""
     import app.core.db as db_module
 
+    # Claimed at once: a request that first waited out the priming read's
+    # interval would have given its connection back.
+    monkeypatch.setattr(tile_router, "_FORCED_REREAD_INTERVAL", 0.0)
     dataset = await _registered_dataset(test_db_session)
     table = dataset.table_name
     checkouts: list[object] = []
@@ -651,7 +667,7 @@ async def test_an_authenticated_forced_re_read_completes_on_a_one_connection_poo
                     params={"_v": "2"},
                     headers=admin_auth_header,
                 ),
-                timeout=15,
+                timeout=_HANG_GUARD,
             )
 
         assert resp.status_code == 200, resp.text
@@ -717,8 +733,6 @@ async def test_a_tile_older_than_the_page_is_not_cached_under_its_url(
     from app.platform.catalog_locks import bump_tile_cache_version_atomic
 
     monkeypatch.setitem(ext_mod._extensions, "data_serving", _CdnServing())
-    # Long enough that no request below can outlive the claim by accident.
-    monkeypatch.setattr(tile_router, "_FORCED_REREAD_INTERVAL", 3600.0)
     _, dataset, _ = await _seed(test_db_session, tmp_path)
     table = dataset.table_name
     url = route.format(table=table)
@@ -733,26 +747,79 @@ async def test_a_tile_older_than_the_page_is_not_cached_under_its_url(
                 test_db_session, dataset_cls=Dataset, dataset_id=dataset.id
             )
             await test_db_session.commit()
-            in_claim_window = await client.get(url, params={"_v": "2"})
-
-            _age_forced_reread(table)
-            caught_up = await client.get(url, params={"_v": "2"})
+            # Inside the interval the first read opened, so it waits for the next.
+            after_the_swap = await client.get(url, params={"_v": "2"})
             unversioned = await client.get(url)
             older = await client.get(url, params={"_v": "1"})
 
-        for resp in (
-            current,
-            ahead_of_row,
-            in_claim_window,
-            caught_up,
-            unversioned,
-            older,
-        ):
+        for resp in (current, ahead_of_row, after_the_swap, unversioned, older):
             assert resp.status_code == 200, resp.text
         assert ahead_of_row.headers["cache-control"] == "no-store"
-        assert in_claim_window.headers["cache-control"] == "no-store"
-        for resp in (current, caught_up, unversioned, older):
+        for resp in (current, after_the_swap, unversioned, older):
             assert resp.headers["cache-control"] == _CDN_POLICY
+    finally:
+        tile_router._evict_dataset_meta(table)
+        await _drop_table(test_db_session, table)
+
+
+@pytest.mark.usefixtures("_init_tile_pool_for_tests")
+async def test_a_second_edit_inside_the_interval_is_served_fresh_by_another_worker(
+    client: AsyncClient, test_db_session, tmp_path
+):
+    """Two edits less than an interval apart, reloaded on a worker that saw neither.
+
+    Each edit changes the rows and commits a new tile_cache_version from
+    another worker, so nothing reaches this worker's snapshot or tile bytes.
+    The first reload re-reads the row. The second arrives inside the interval
+    that read opened and must still get the second edit's tile, not the first
+    edit's snapshot and its cached bytes.
+    """
+    from app.modules.catalog.datasets.domain.models import Dataset
+    from app.platform.catalog_locks import bump_tile_cache_version_atomic
+
+    _, dataset, _ = await _seed(test_db_session, tmp_path)
+    table = dataset.table_name
+    url = f"/tiles/data.{table}/0/0/0.pbf"
+    this_worker_tiles = InMemoryTileCacheProvider()
+
+    async def edit_on_another_worker(point: str, name: str) -> None:
+        await test_db_session.execute(
+            text(
+                f'INSERT INTO "data"."{table}" (geom, geom_4326, name) VALUES '
+                f"(ST_SetSRID({point}, 4326), ST_SetSRID({point}, 4326), '{name}')"
+            )
+        )
+        await bump_tile_cache_version_atomic(
+            test_db_session, dataset_cls=Dataset, dataset_id=dataset.id
+        )
+        await test_db_session.commit()
+
+    try:
+        with patch.object(
+            tile_router, "get_tile_cache", return_value=this_worker_tiles
+        ):
+            primed = await client.get(url, params={"_v": "1"})
+            await edit_on_another_worker("ST_MakePoint(2.35, 48.85)", "Paris")
+            first_reload = await client.get(url, params={"_v": "2"})
+            await edit_on_another_worker("ST_MakePoint(13.40, 52.52)", "Berlin")
+            second_reload = await asyncio.wait_for(
+                client.get(url, params={"_v": "3"}), timeout=_HANG_GUARD
+            )
+            with tile_router._dataset_cache_lock:
+                served_version = tile_router._dataset_cache[table][1].tile_cache_version
+
+        with patch.object(tile_router, "get_tile_cache", return_value=None):
+            tile_router._evict_dataset_meta(table)
+            second_edit_tile = await client.get(url)
+
+        for resp in (primed, first_reload, second_reload, second_edit_tile):
+            assert resp.status_code == 200, resp.text
+        assert second_reload.content == second_edit_tile.content, (
+            "the second reload was served the first edit's cached tile"
+        )
+        assert second_reload.content != first_reload.content
+        assert served_version == 3
+        assert second_reload.headers["cache-control"].startswith("public")
     finally:
         tile_router._evict_dataset_meta(table)
         await _drop_table(test_db_session, table)

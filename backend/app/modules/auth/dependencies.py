@@ -13,6 +13,7 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import set_committed_value
 
 from app.core.config import settings
 from app.core.dependencies import get_db
@@ -289,7 +290,9 @@ async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
                 .values(last_used_at=now)
             )
             await side_session.commit()
-        api_key_obj.last_used_at = now
+        # Recorded as already committed: a pending change here would be
+        # written again by any later commit on `db`, maybe over a newer bump.
+        set_committed_value(api_key_obj, "last_used_at", now)
     # fix(#875): least-privilege scope enforced HERE — the one chokepoint
     # every API-key lane passes through (header, deprecated query, every
     # optional-user router). Must RAISE, not return None, or a scope
