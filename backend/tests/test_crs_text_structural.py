@@ -95,6 +95,10 @@ CONSTANT_ARGUMENT = {(COG_INFO, "_georeferencing"): "_CRS84_URI"}
 RASTERIO_SITES: dict[tuple[str, str], tuple[int, str]] = {
     ("core/geo.py", "_parse_crs"): (1, "reached only from ALLOWED_SITES"),
     ("core/geo.py", "_proj_knows_epsg"): (1, "from_epsg on an integer code"),
+    ("core/geo.py", "crs_facts_for_epsg"): (
+        2,
+        "from_epsg on a validated integer code, which reads only the PROJ database",
+    ),
     (COG_INFO, "_georeferencing"): (2, "from_epsg on a code, the pinned CRS84 parse"),
     (PROBE, "_crs_same"): (2, _CHILD),
     (PROBE, "_category"): (6, _CHILD),
@@ -554,8 +558,14 @@ def test_the_scan_ignores_what_is_not_a_crs_text_parse(source):
         "def f(path):\n    with gdal_safe_open_env():\n        return rasterio.open(path)\n",
         "from rasterio.crs import CRS\ndef f(a):\n"
         "    return CRS.from_epsg(4326) == a.crs_wkt\n",
+        "from rasterio.crs import CRS\ndef f(code):\n    return CRS.from_epsg(code)\n",
     ],
-    ids=["warp-on-stored-text", "open-under-the-safe-env", "compare-with-text"],
+    ids=[
+        "warp-on-stored-text",
+        "open-under-the-safe-env",
+        "compare-with-text",
+        "from-epsg-outside-its-helper",
+    ],
 )
 def test_rasterio_outside_an_allowed_function_is_seen(source):
     assert rasterio_sites(scan({"modules/x.py": source})) == Counter(

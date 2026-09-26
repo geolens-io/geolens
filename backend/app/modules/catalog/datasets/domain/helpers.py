@@ -28,7 +28,7 @@ from app.modules.catalog.sources.provenance import (
     derive_last_edited,
     resolve_actor,
 )
-from app.core.geo import extent_to_bbox
+from app.core.geo import extent_to_bbox, raster_crs_facts
 from app.platform.dataset_origin import classify_origin, project_unknown
 
 
@@ -107,7 +107,7 @@ def _build_raster_metadata(
 
     return RasterMetadata(
         epsg=raster_asset.epsg,
-        crs_is_geographic=raster_asset.crs_is_geographic,
+        crs_is_geographic=raster_crs_facts(raster_asset)["crs_is_geographic"],
         res_x=raster_asset.res_x,
         res_y=raster_asset.res_y,
         band_count=raster_asset.band_count,

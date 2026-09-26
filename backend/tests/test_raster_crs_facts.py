@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -12,11 +13,12 @@ import rasterio.crs
 from sqlalchemy import select
 
 from app.core import geo
-from app.core.geo import crs_columns, wkt_crs_facts
+from app.core.geo import crs_columns, raster_crs_facts, wkt_crs_facts
 from app.platform.jobs.models import IngestJob
 from app.processing.raster import probe
 from app.processing.raster.models import RasterAsset
 from app.processing.raster.validation import compare_crs
+from app.processing.tiles.router import _DEFAULT_RASTER_MAXZOOM
 
 from tests.factories import create_raster_dataset, get_user_id
 from tests.test_raster_probe import _geotiff, _stalling_child
@@ -73,8 +75,9 @@ def crs_parses(monkeypatch) -> list[str]:
     return attempts
 
 
-async def _nad83_raster(session):
+async def _nad83_raster(session, *, stored_facts: bool = True, epsg: int | None = 4269):
     admin_id = await get_user_id(session, "admin")
+    facts = _NAD83_FACTS if stored_facts else {}
     return await create_raster_dataset(
         session,
         created_by=admin_id,
@@ -82,8 +85,8 @@ async def _nad83_raster(session):
         srid=4269,
         create_raster_asset=True,
         raster_asset_kwargs={
-            "epsg": 4269,
-            **crs_columns({"crs_wkt": _NAD83_WKT, **_NAD83_FACTS}),
+            "epsg": epsg,
+            **crs_columns({"crs_wkt": _NAD83_WKT, **facts}),
             "res_x": _RES,
             "res_y": _RES,
             "width": 21600,
@@ -140,6 +143,61 @@ class TestRequestsReadStoredFacts:
         assert batch.json()["tokens"][dataset_id]["maxzoom"] == 7
 
         assert crs_parses == []
+
+
+class TestRowsTheRepairHasNotReached:
+    async def test_a_row_with_an_epsg_code_reads_that_codes_facts(
+        self, client, admin_auth_header, test_db_session, crs_parses
+    ):
+        dataset = await _nad83_raster(test_db_session, stored_facts=False)
+        dataset_id = str(dataset.id)
+
+        detail = await client.get(f"/datasets/{dataset_id}", headers=admin_auth_header)
+        assert detail.json()["raster"]["crs_is_geographic"] is True
+        record = await client.get(
+            f"/collections/datasets/items/{dataset_id}", headers=admin_auth_header
+        )
+        assert record.json()["properties"]["crs_is_geographic"] is True
+        token = await client.get(f"/tiles/token/{dataset_id}/")
+        assert token.json()["maxzoom"] == 7
+        batch = await client.post("/tiles/tokens/", json={"dataset_ids": [dataset_id]})
+        assert batch.json()["tokens"][dataset_id]["maxzoom"] == 7
+        assert crs_parses == []
+
+    def test_stac_gsd_converts_by_the_epsg_code(self):
+        asset = RasterAsset(epsg=2263, res_x=10.0, res_y=-10.0)
+
+        assert asset.to_stac_properties()["gsd"] == pytest.approx(3.048006, rel=1e-4)
+
+    async def test_a_row_with_only_crs_text_gets_the_default_maxzoom(
+        self, client, test_db_session, crs_parses
+    ):
+        dataset = await _nad83_raster(test_db_session, stored_facts=False, epsg=None)
+
+        token = await client.get(f"/tiles/token/{dataset.id}/")
+
+        assert token.json()["maxzoom"] == _DEFAULT_RASTER_MAXZOOM
+        assert crs_parses == []
+
+    def test_stored_facts_win_over_the_epsg_code(self):
+        stored = {
+            "crs_is_geographic": False,
+            "crs_has_degree_unit": False,
+            "crs_metres_per_unit": 1.0,
+        }
+
+        assert raster_crs_facts(SimpleNamespace(epsg=4326, **stored)) == stored
+
+    def test_missing_facts_come_from_the_epsg_code(self):
+        row = SimpleNamespace(epsg=4269, **dict.fromkeys(_NAD83_FACTS))
+
+        assert raster_crs_facts(row) == _NAD83_FACTS
+
+    @pytest.mark.parametrize("epsg", [None, "4269", True, 0, -4269, 999999999])
+    def test_without_a_usable_code_the_facts_stay_unknown(self, epsg):
+        row = SimpleNamespace(epsg=epsg, **dict.fromkeys(_NAD83_FACTS))
+
+        assert raster_crs_facts(row) == dict.fromkeys(_NAD83_FACTS)
 
 
 class TestWritersStoreTheFacts:

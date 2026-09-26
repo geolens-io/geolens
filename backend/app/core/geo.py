@@ -674,6 +674,9 @@ def wkt_crs_facts(crs_wkt: str | None) -> dict:
     return crs_facts_of(_parse_crs(crs_wkt), crs_wkt)
 
 
+CRS_FACT_COLUMNS = ("crs_is_geographic", "crs_has_degree_unit", "crs_metres_per_unit")
+
+
 def crs_columns(meta: dict) -> dict:
     """A raster's CRS text and the facts derived from it, as ``raster_assets`` columns.
 
@@ -681,10 +684,38 @@ def crs_columns(meta: dict) -> dict:
     """
     return {
         "crs_wkt": meta.get("crs_wkt"),
-        "crs_is_geographic": meta.get("crs_is_geographic"),
-        "crs_has_degree_unit": meta.get("crs_has_degree_unit"),
-        "crs_metres_per_unit": meta.get("crs_metres_per_unit"),
+        **{column: meta.get(column) for column in CRS_FACT_COLUMNS},
     }
+
+
+@lru_cache(maxsize=256)
+def crs_facts_for_epsg(epsg: int) -> dict:
+    """:func:`crs_facts_of` for an EPSG code, read from the PROJ database.
+
+    Only a positive integer is looked up; anything else has no facts.
+    """
+    if not isinstance(epsg, int) or isinstance(epsg, bool) or epsg <= 0:
+        return crs_facts_of(None, None)
+    from rasterio.crs import CRS
+    from rasterio.errors import CRSError
+
+    try:
+        crs = CRS.from_epsg(epsg)
+    except CRSError:
+        return crs_facts_of(None, None)
+    return crs_facts_of(crs, crs.to_wkt(version="WKT2_2019"))
+
+
+def raster_crs_facts(raster: object) -> dict:
+    """A raster row's stored CRS facts or, while none are stored, its EPSG code's.
+
+    The facts of a row stored before they existed stay NULL until the worker's
+    repair job fills them; its EPSG code answers for it meanwhile.
+    """
+    stored = {column: getattr(raster, column, None) for column in CRS_FACT_COLUMNS}
+    if any(value is not None for value in stored.values()):
+        return stored
+    return dict(crs_facts_for_epsg(getattr(raster, "epsg", None)))
 
 
 def pixel_size_from_affine(

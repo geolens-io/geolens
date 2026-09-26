@@ -18,7 +18,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
-from app.core.geo import crs_columns
+from app.core.geo import crs_columns, raster_crs_facts
 
 # fix(#1778): shared with the OGC Records serializer, which cannot import from
 # `app.processing` (CATPORT-02/04). See the module docstring for the two
@@ -140,10 +140,9 @@ class RasterAsset(Base):
             # serializer instead keeps the CRS-unit value, because it ships a
             # companion `crs_is_geographic` flag that STAC has no room for
             # (fix(#569)).
-            if self.crs_metres_per_unit is not None:
-                props["gsd"] = (
-                    min(abs(self.res_x), abs(self.res_y)) * self.crs_metres_per_unit
-                )
+            metres_per_unit = raster_crs_facts(self)["crs_metres_per_unit"]
+            if metres_per_unit is not None:
+                props["gsd"] = min(abs(self.res_x), abs(self.res_y)) * metres_per_unit
 
         # Bands (STAC Raster Extension v1.1 format)
         if self.band_info:
