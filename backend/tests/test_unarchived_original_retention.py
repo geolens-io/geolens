@@ -1,11 +1,12 @@
-"""The retention purge keeps an unarchived original's job and staged upload."""
+"""The purge keeps the job and upload of a published original that never archived."""
 
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.core.config import settings
+from app.modules.catalog.datasets.domain.models import Dataset
 from app.platform.jobs.models import IngestJob
 from app.platform.jobs.sweep import fail_stale_jobs
 from tests.factories import create_dataset, get_user_id
@@ -86,3 +87,44 @@ async def test_the_purge_keeps_an_unarchived_original_and_its_upload(
         if archive_failed
         else "an archived upload goes with its purged rows"
     )
+
+
+@pytest.mark.parametrize(
+    ("status", "delete_dataset"),
+    [("complete", True), ("failed", False)],
+    ids=["dataset_deleted", "failed"],
+)
+async def test_the_purge_takes_a_flagged_job_with_no_live_version(
+    test_db_session, tmp_path, monkeypatch, status, delete_dataset
+):
+    monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path))
+    monkeypatch.setattr(settings, "ingest_jobs_retention_days", 30)
+    user_id = await get_user_id(test_db_session, "admin")
+    dataset = await create_dataset(
+        test_db_session, created_by=user_id, name="No live version"
+    )
+    upload = tmp_path / "unarchived.geojson"
+    upload.write_text("{}")
+    old = datetime.now(timezone.utc) - timedelta(days=90)
+    job = IngestJob(
+        dataset_id=dataset.id,
+        status=status,
+        created_at=old,
+        completed_at=old,
+        file_path=str(upload),
+        user_metadata={"archive_failed": True},
+    )
+    test_db_session.add(job)
+    await test_db_session.commit()
+    job_id = job.id
+    if delete_dataset:
+        await test_db_session.execute(delete(Dataset).where(Dataset.id == dataset.id))
+        await test_db_session.commit()
+
+    await fail_stale_jobs(test_db_session)
+
+    kept = await test_db_session.scalar(
+        select(IngestJob.id).where(IngestJob.id == job_id)
+    )
+    assert kept is None
+    assert not upload.exists()

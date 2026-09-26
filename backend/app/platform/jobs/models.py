@@ -11,6 +11,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    and_,
     func,
     or_,
     text,
@@ -280,11 +281,16 @@ class IngestJob(Base):
 
 
 def holds_unarchived_original():
-    """Predicate: the row records that its original never reached ``originals/``.
+    """Predicate: the row published an original that never reached ``originals/``.
 
-    Its staged upload may then be the only copy of that original.
+    Its staged upload may then be that original's only copy. A failed job never
+    published one, and deleting the dataset clears ``dataset_id``.
     """
-    return IngestJob.user_metadata["archive_failed"].astext.is_not(None)
+    return and_(
+        IngestJob.status == "complete",
+        IngestJob.dataset_id.is_not(None),
+        IngestJob.user_metadata["archive_failed"].astext.is_not(None),
+    )
 
 
 def needs_staged_input():
