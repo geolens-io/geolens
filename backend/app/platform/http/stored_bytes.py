@@ -6,10 +6,11 @@ share it.
 """
 
 from collections.abc import AsyncIterator, Mapping
-from contextlib import aclosing
+from typing import Any
 
 from fastapi import HTTPException, Request, Response, status
 from fastapi.responses import StreamingResponse
+from starlette.types import Receive, Scope, Send
 
 from app.platform.http.ranges import (
     RANGE_UNSATISFIABLE,
@@ -31,17 +32,40 @@ class StoredObjectUnreadable(Exception):
 
 
 async def _chained(first: bytes, rest: AsyncIterator[bytes]) -> AsyncIterator[bytes]:
-    # Closing this generator on a client disconnect closes the storage stream too.
-    async with aclosing(rest):
-        yield first
-        async for chunk in rest:
-            yield chunk
+    yield first
+    async for chunk in rest:
+        yield chunk
+
+
+class _StoredBytesResponse(StreamingResponse):
+    """Streams a stored object and closes its storage stream however the response ends.
+
+    Starlette never closes a body iterator it has not started, so a client gone
+    before the status line would leave the stream the first read opened holding
+    a file or connection until garbage collection.
+    """
+
+    def __init__(
+        self, first: bytes, stream: AsyncIterator[bytes], **kwargs: Any
+    ) -> None:
+        super().__init__(_chained(first, stream), **kwargs)
+        self._stream = stream
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            await self._stream.aclose()
 
 
 async def _opened(
-    storage: StorageProvider, key: str, stream: AsyncIterator[bytes], expected: int
-) -> AsyncIterator[bytes]:
-    """``stream`` with its first chunk already read.
+    storage: StorageProvider,
+    key: str,
+    stream: AsyncIterator[bytes],
+    expected: int,
+    **response: Any,
+) -> Response:
+    """The response for ``stream``, with its first chunk already read.
 
     A read that fails once the status line is sent can only cut the body short,
     so the first one happens while the caller can still answer with a status.
@@ -59,7 +83,11 @@ async def _opened(
             raise await _missing_or_unreadable(storage, key) from None
     except Exception as exc:  # broad: each store raises its own errors, and the caller maps them to one status
         raise StoredObjectUnreadable from exc
-    return _chained(first, stream)
+    try:
+        return _StoredBytesResponse(first, stream, **response)
+    except BaseException:  # broad: cleanup only; the raise below keeps the failure
+        await stream.aclose()
+        raise
 
 
 async def _missing_or_unreadable(storage: StorageProvider, key: str) -> Exception:
@@ -185,13 +213,11 @@ async def serve_stored_bytes(
     if byte_range is not None:
         # One ranged read: no byte outside the window is fetched.
         start, end = byte_range
-        return StreamingResponse(
-            await _opened(
-                storage,
-                key,
-                storage.get_range_stream(key, start, end - start + 1),
-                end - start + 1,
-            ),
+        return await _opened(
+            storage,
+            key,
+            storage.get_range_stream(key, start, end - start + 1),
+            end - start + 1,
             status_code=status.HTTP_206_PARTIAL_CONTENT,
             media_type=media_type,
             headers={
@@ -200,8 +226,11 @@ async def serve_stored_bytes(
                 "Content-Length": str(end - start + 1),
             },
         )
-    return StreamingResponse(
-        await _opened(storage, key, storage.get_stream(key), total_bytes),
+    return await _opened(
+        storage,
+        key,
+        storage.get_stream(key),
+        total_bytes,
         media_type=media_type,
         headers={**representation, "Content-Length": str(total_bytes)},
     )
