@@ -295,6 +295,26 @@ class TestVrtSourcesCompareCrsInTheChild:
         assert code == "crs_unverified"
         assert flagged in {asset_id for _, asset_id in sources}
 
+    @pytest.mark.parametrize(
+        "raised",
+        [
+            OSError(24, "Too many open files"),
+            UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte"),
+        ],
+    )
+    def test_a_child_that_cannot_run_leaves_the_comparison_unverified(
+        self, monkeypatch, raised
+    ):
+        def _fail(*args, **kwargs):
+            raise raised
+
+        monkeypatch.setattr(probe.subprocess, "run", _fail)
+
+        assert compare_crs([_UTM_18N_WKT2, _UTM_19N_WKT2]) == {
+            _UTM_18N_WKT2: True,
+            _UTM_19N_WKT2: None,
+        }
+
     def test_identical_text_starts_no_child(self, monkeypatch):
         def _no_child(*args, **kwargs):
             raise AssertionError("a probe child was started")

@@ -135,6 +135,35 @@ class TestTheParentBoundsTheChild:
         assert "secret" not in repr(exc_info.value)
         assert "child-only" not in str(exc_info.value)
 
+    @pytest.mark.parametrize(
+        ("raised", "category"),
+        [
+            (OSError(24, "Too many open files"), "spawn"),
+            (
+                UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte"),
+                "undecodable",
+            ),
+        ],
+    )
+    def test_a_child_that_cannot_start_or_be_read_is_an_internal_failure(
+        self, monkeypatch, raised, category
+    ) -> None:
+        def _fail(*args, **kwargs):
+            raise raised
+
+        monkeypatch.setattr(probe.subprocess, "run", _fail)
+
+        with structlog.testing.capture_logs() as captured:
+            with pytest.raises(probe.RasterProbeError) as exc_info:
+                probe.crs_facts("GEOGCRS[...]")
+
+        assert exc_info.value.kind == "internal"
+        (event,) = [e for e in captured if e["event"] == "raster probe failed"]
+        assert (event["category"], event["exception"]) == (
+            category,
+            type(raised).__name__,
+        )
+
     def test_the_child_runs_under_the_clamps_with_proj_offline(
         self, monkeypatch, tmp_path
     ) -> None:

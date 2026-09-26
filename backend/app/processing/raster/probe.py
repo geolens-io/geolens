@@ -144,6 +144,16 @@ def _run(op: str, *args: str, stdin: str | None = None, timeout: float) -> Any:
     except subprocess.TimeoutExpired:
         logger.warning("raster probe failed", op=op, category="timeout")
         raise RasterProbeError("timeout", timeout=timeout) from None
+    except (OSError, UnicodeDecodeError) as exc:
+        # The child couldn't start, or its reply wasn't text: the failure is
+        # ours, not the raster's.
+        logger.warning(
+            "raster probe failed",
+            op=op,
+            category="spawn" if isinstance(exc, OSError) else "undecodable",
+            exception=type(exc).__name__,
+        )
+        raise RasterProbeError("internal", timeout=timeout) from None
     try:
         reply = json.loads(done.stdout)
     except ValueError:
