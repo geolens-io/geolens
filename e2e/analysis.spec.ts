@@ -125,7 +125,11 @@ test.describe('builder analysis tools', () => {
     await page.getByRole('button', { name: 'Close panel' }).click();
     await page.locator('header nav').getByRole('link', { name: 'Maps' }).click();
     await expect(page).toHaveURL(/\/maps$/);
-    await expect(page.getByTestId('analysis-panel')).toBeHidden();
+    // The URL changes first: the router navigates in a transition, which
+    // keeps MapBuilderPage mounted until the lazy MapsPage chunk loads.
+    await expect(
+      page.getByRole('heading', { name: 'Maps', level: 1, exact: true }),
+    ).toBeVisible();
 
     // Resolve the id for cleanup BEFORE any assertion that can fail — a failed
     // attempt used to leak one output dataset (the catalog count climbed
