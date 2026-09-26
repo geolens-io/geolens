@@ -137,6 +137,12 @@
     "subtext": "GeoLens will detect geometry, CRS, and schema before committing to the catalog. Batches up to {{max}} files.",
     "dropHere": "Drop files here",
     "unsupportedType": "This file type is not supported",
+    "rejectionReason": {
+      "fileInvalidType": "File type must be one of: {{types}}",
+      "fileTooLarge": "File is larger than the {{size}} MB limit",
+      "fileTooSmall": "File is smaller than the minimum size",
+      "tooManyFiles": "Up to {{max}} files per batch"
+    },
     "sizeLimit": "Max 500 MB per file",
     "sizeLimitDynamic": "Max {{size}} MB per file",
     "batchLimit": "Up to {{max}} files per batch",

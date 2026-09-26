@@ -118,6 +118,12 @@
     "instructions": "Glissez-déposez des fichiers ici, ou",
     "dropHere": "Déposez les fichiers ici",
     "unsupportedType": "Ce type de fichier n'est pas pris en charge",
+    "rejectionReason": {
+      "fileInvalidType": "Le type de fichier doit être l'un des suivants : {{types}}",
+      "fileTooLarge": "Le fichier dépasse la limite de {{size}} Mo",
+      "fileTooSmall": "Le fichier est plus petit que la taille minimale",
+      "tooManyFiles": "Jusqu'à {{max}} fichiers par lot"
+    },
     "sizeLimit": "500 Mo maximum par fichier",
     "sizeLimitDynamic": "{{size}} Mo maximum par fichier",
     "batchLimit": "Jusqu'à {{max}} fichiers par lot",

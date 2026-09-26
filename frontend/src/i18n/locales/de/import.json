@@ -118,6 +118,12 @@
     "instructions": "Dateien hierher ziehen oder",
     "dropHere": "Dateien hier ablegen",
     "unsupportedType": "Dieser Dateityp wird nicht unterstützt",
+    "rejectionReason": {
+      "fileInvalidType": "Der Dateityp muss einer der folgenden sein: {{types}}",
+      "fileTooLarge": "Die Datei überschreitet das Limit von {{size}} MB",
+      "fileTooSmall": "Die Datei ist kleiner als die Mindestgröße",
+      "tooManyFiles": "Bis zu {{max}} Dateien pro Stapel"
+    },
     "sizeLimit": "Maximal 500 MB pro Datei",
     "sizeLimitDynamic": "Maximal {{size}} MB pro Datei",
     "batchLimit": "Bis zu {{max}} Dateien pro Stapel",

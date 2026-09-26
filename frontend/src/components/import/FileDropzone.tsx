@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react';
-import { useDropzone, type FileRejection } from 'react-dropzone';
+import { useDropzone, ErrorCode, type FileError, type FileRejection } from 'react-dropzone';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Upload } from 'lucide-react';
@@ -75,12 +75,34 @@ export function FileDropzone({ onFilesAccepted, allowedExtensions, maxSizeMb, re
     return groupByKind(allowedExtensions, tileset ? 'tiles3d' : undefined);
   }, [allowedExtensions, tileset]);
 
+  // react-dropzone's own FileError.message is English-only. rejectAll's
+  // validator (below) already builds a translated file-invalid-type message;
+  // every other code is the library's own built-in check, mapped here.
+  const rejectionReason = useCallback((error: FileError): string => {
+    switch (error.code) {
+      case ErrorCode.FileInvalidType:
+        return rejectAll
+          ? t('dropzone.unsupportedType')
+          : t('dropzone.rejectionReason.fileInvalidType', { types: allowedExtensions?.join(', ') ?? '' });
+      case ErrorCode.FileTooLarge:
+        return maxSizeMb != null
+          ? t('dropzone.rejectionReason.fileTooLarge', { size: maxSizeMb })
+          : error.message;
+      case ErrorCode.FileTooSmall:
+        return t('dropzone.rejectionReason.fileTooSmall');
+      case ErrorCode.TooManyFiles:
+        return t('dropzone.rejectionReason.tooManyFiles', { max: effectiveMaxFiles });
+      default:
+        return error.message;
+    }
+  }, [t, rejectAll, allowedExtensions, maxSizeMb, effectiveMaxFiles]);
+
   const onDropRejected = useCallback((rejections: FileRejection[]) => {
     for (const { file, errors } of rejections) {
-      const reason = errors.map((e) => e.message).join(', ');
+      const reason = errors.map(rejectionReason).join(', ');
       toast.error(t('dropzone.fileRejected', { filename: file.name, reason }));
     }
-  }, [t]);
+  }, [t, rejectionReason]);
 
   const { getRootProps, getInputProps, isDragActive, isDragReject } =
     useDropzone({

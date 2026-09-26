@@ -118,6 +118,12 @@
     "instructions": "Arrastre y suelte archivos aquí, o",
     "dropHere": "Suelte los archivos aquí",
     "unsupportedType": "Este tipo de archivo no es compatible",
+    "rejectionReason": {
+      "fileInvalidType": "El tipo de archivo debe ser uno de: {{types}}",
+      "fileTooLarge": "El archivo supera el límite de {{size}} MB",
+      "fileTooSmall": "El archivo es menor que el tamaño mínimo",
+      "tooManyFiles": "Hasta {{max}} archivos por lote"
+    },
     "sizeLimit": "Máximo 500 MB por archivo",
     "sizeLimitDynamic": "Máximo {{size}} MB por archivo",
     "batchLimit": "Hasta {{max}} archivos por lote",
