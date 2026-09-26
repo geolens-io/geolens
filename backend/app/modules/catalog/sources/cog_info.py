@@ -139,6 +139,16 @@ def reconcile_epsg(probe: dict, declared: int | None) -> int | None:
     return declared
 
 
+def _nodata_of(info: dict) -> float | None:
+    """The scalar nodata value from a raw ``/cog/info`` reply, if it has one.
+
+    Titiler has no "nodata" key: "Nodata" carries the value in
+    nodata_value, while "Mask"/"Alpha"/"None" mean the asset has no scalar
+    nodata to store.
+    """
+    return info.get("nodata_value") if info.get("nodata_type") == "Nodata" else None
+
+
 async def fetch_cog_info(url: str) -> dict | None:
     """Fetch COG metadata + statistics from Titiler for a remote asset URL.
 
@@ -170,6 +180,7 @@ async def fetch_cog_info(url: str) -> dict | None:
 
             band_count = info.get("count", 1)
             dtype = info.get("dtype")
+            nodata = _nodata_of(info)
 
             band_info = []
             try:
@@ -220,7 +231,7 @@ async def fetch_cog_info(url: str) -> dict | None:
                 "dtype": dtype,
                 "width": info.get("width"),
                 "height": info.get("height"),
-                "nodata": info.get("nodata"),
+                "nodata": nodata,
                 "band_info": band_info or None,
                 **_georeferencing(info),
                 **geotransform,
@@ -228,6 +239,34 @@ async def fetch_cog_info(url: str) -> dict | None:
     except Exception as exc:  # broad: httpx/JSON errors vary, degrade to None
         logger.debug(
             "Failed to fetch COG info from Titiler",
+            url=url,
+            error=redact_exception_text(exc),
+        )
+        return None
+
+
+async def fetch_cog_nodata(url: str) -> float | None:
+    """The scalar nodata Titiler's ``/cog/info`` reports, or None.
+
+    One header read, none of ``fetch_cog_info``'s statistics or transform
+    calls. None covers both a failed read and an asset with no scalar
+    nodata (Mask/Alpha, or none at all) — either way the caller leaves its
+    stored value as it was. The caller validates the URL first, as for
+    ``fetch_cog_info``.
+    """
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(15.0, connect=5.0)
+        ) as client:
+            info_resp = await client.get(
+                build_titiler_cog_url("info", query={"url": url})
+            )
+            if info_resp.status_code != 200:
+                return None
+            return _nodata_of(info_resp.json())
+    except Exception as exc:  # broad: httpx/JSON errors vary, degrade to None
+        logger.debug(
+            "Failed to fetch COG nodata from Titiler",
             url=url,
             error=redact_exception_text(exc),
         )

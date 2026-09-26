@@ -436,6 +436,48 @@ async def _repoint_remote_asset(
     )
 
 
+async def _stored_nodata_is_missing(dataset_id: uuid.UUID) -> bool:
+    """Whether this dataset's remote raster row still has no nodata.
+
+    Read in its own short session — the catalog locks the write step takes
+    afterward must not wait behind it. True for a row with none yet, so
+    ``fetch()`` knows the repair read is worth asking for at all; a dataset
+    without any remote raster row reads the same way and repairs nothing.
+    """
+    from app.core.db import async_session
+    from app.processing.raster.models import RasterAsset
+
+    async with async_session() as session:
+        nodata = await session.scalar(
+            select(RasterAsset.nodata).where(
+                RasterAsset.dataset_id == dataset_id,
+                RasterAsset.storage_backend == "remote",
+            )
+        )
+    return nodata is None
+
+
+async def _repair_remote_nodata(
+    session: Any, dataset_uuid: uuid.UUID, nodata: str
+) -> None:
+    """Backfill nodata alone, for the asset ``fetch()`` did not re-describe.
+
+    Scoped like ``_repoint_remote_asset``: a remote row only. Every other
+    structural column is left as it was — an unmoved asset was not
+    re-probed for anything else.
+    """
+    from app.processing.raster.models import RasterAsset
+
+    await session.execute(
+        update(RasterAsset)
+        .where(
+            RasterAsset.dataset_id == dataset_uuid,
+            RasterAsset.storage_backend == "remote",
+        )
+        .values(nodata=nodata)
+    )
+
+
 async def _upsert_origin_data_asset(
     session: Any,
     dataset_uuid: uuid.UUID,
@@ -504,6 +546,7 @@ class _StacRefresh:
     def prepare(self, job, dataset, staging_table: str) -> None:
         self.bound = _binding(dataset)
         self.origin_ref = dataset.origin_ref
+        self.dataset_id = dataset.id
 
     async def fetch(self) -> None:
         from app.platform.extensions import get_processing_port
@@ -520,6 +563,9 @@ class _StacRefresh:
         self.credential = _claimed_credential(
             await resolve_worker_credential(None, self.credential_ref)
         )
+        # Read in its own short session, closed before the write step takes
+        # any catalog lock.
+        repair_nodata = await _stored_nodata_is_missing(self.dataset_id)
         self.resolution = await get_processing_port().resolve_stac_binding(
             item_href=self.item_href,
             item_id=self.item_id,
@@ -530,6 +576,7 @@ class _StacRefresh:
             # The address the caller submitted at import, the one value the
             # catalog never chose: the credential is only sent under it.
             catalog_origin=self.catalog_url,
+            repair_nodata=repair_nodata,
         )
         if not self.resolution.resolved:
             raise _failure_for(self.resolution)
@@ -611,6 +658,10 @@ class _StacRefresh:
                 dataset.record.spatial_extent = func.ST_GeomFromText(
                     bbox_to_extent_wkt(west, south, east, north), 4326
                 )
+        elif resolution.repaired_nodata is not None:
+            # The one column fetch() asked to have repaired, for an asset
+            # not re-described above.
+            await _repair_remote_nodata(session, dataset.id, resolution.repaired_nodata)
         # Unconditional: an unchanged answer rewrites the same values, and a
         # dataset imported before the row existed gets it.
         await _upsert_origin_data_asset(
@@ -627,14 +678,15 @@ class _StacRefresh:
         # The only refresh for a STAC origin, so it dates the column whether
         # or not anything moved.
         dataset.last_refreshed_at = datetime.now(timezone.utc)
-        # No data moved and a raster has no rows or schema. Only a moved
-        # asset changes the tiles and the raster facts the embedding reads.
+        # A moved asset changes the tiles and the embedding's inputs; a
+        # repaired nodata alone changes only what a tile renders, so it
+        # bumps the tile version without asking for a re-embed.
         return Published(
             dataset_version_id=None,
             feature_count=None,
             schema_diff=None,
             contacted_origin=True,
-            tiles_changed=moved,
+            tiles_changed=moved or resolution.repaired_nodata is not None,
             reembed=moved,
         )
 

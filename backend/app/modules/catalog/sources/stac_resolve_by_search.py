@@ -58,6 +58,7 @@ async def _resolve_by_search(
     asset_key: str | None,
     credential: ServiceCredential | None = None,
     catalog_origin: str | None = None,
+    repair_nodata: bool = False,
 ) -> StacResolution:
     """Look the item up by identity after its own URL stopped resolving.
 
@@ -121,6 +122,7 @@ async def _resolve_by_search(
         asset_key=asset_key,
         credential=credential,
         catalog_origin=catalog_origin,
+        repair_nodata=repair_nodata,
     )
 
 
