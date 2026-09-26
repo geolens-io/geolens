@@ -214,6 +214,29 @@ class TestTheParentBoundsTheChild:
         with pytest.raises(PointCloudDecodeError):
             inspect_pointcloud(_write(tmp_path, copc()))
 
+    @pytest.mark.skipif(
+        sys.platform == "darwin", reason="macOS doesn't enforce RLIMIT_DATA"
+    )
+    def test_a_decode_past_the_memory_limit_fails_in_the_child(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """An allocation past the child's memory limit fails in lazrs, which refuses the file."""
+        from app.processing.ingest.pointcloud_decode import DECODE_DATA_BYTES
+
+        _decoder_with(
+            monkeypatch,
+            "lazrs.decompress_points_with_chunk_table = "
+            f"lambda *args: bytearray({2 * DECODE_DATA_BYTES})",
+        )
+
+        with capture_logs() as logs:
+            with pytest.raises(UnsafeUploadError) as refusal:
+                inspect_pointcloud(_write(tmp_path, copc()))
+
+        assert refusal.value.code == "pointcloud_decode_failed"
+        (refused,) = [e for e in logs if e["event"] == "Point cloud refused"]
+        assert refused["reason"] == "decode"
+
     def test_the_child_decodes_with_path_alone(self, monkeypatch, tmp_path) -> None:
         """The child sees no setting and no secret, and still answers."""
         envs: list[dict[str, str]] = []

@@ -12,8 +12,10 @@ from __future__ import annotations
 import io
 import json
 import os
+import re
 import resource
 import sys
+from pathlib import Path
 
 import lazrs
 import numpy as np
@@ -28,6 +30,12 @@ from app.processing.ingest.pointcloud import (
     _read_layout,
     _reader,
 )
+
+
+# The memory a decode may add to what the child holds once its modules are
+# loaded: twice the most the largest node the caps allow took on Linux, under a
+# hierarchy of the most entries the caps allow (284 MiB).
+DECODE_DATA_BYTES = 640 * 1024**2
 
 
 class _Refused(Exception):
@@ -140,8 +148,22 @@ def decode_file(path: str, *, every: bool) -> tuple[list[float], list[float]]:
 
 
 def _limit(cpu_seconds: int) -> None:
-    """Cap this process's CPU time, so a decode past it dies of SIGXCPU."""
+    """Cap this process's CPU time and memory: a decode past them dies of SIGXCPU or can't allocate."""
     resource.setrlimit(resource.RLIMIT_CPU, (cpu_seconds, cpu_seconds + 1))
+    in_use = _data_bytes()
+    if in_use is not None:
+        cap = in_use + DECODE_DATA_BYTES
+        resource.setrlimit(resource.RLIMIT_DATA, (cap, cap))
+
+
+def _data_bytes() -> int | None:
+    """What Linux counts against RLIMIT_DATA for this process, or None on a system that doesn't."""
+    try:
+        status = Path("/proc/self/status").read_text()
+    except OSError:
+        return None
+    match = re.search(r"^VmData:\s+(\d+) kB$", status, re.MULTILINE)
+    return int(match.group(1)) * 1024 if match else None
 
 
 def main(argv: list[str]) -> int:
