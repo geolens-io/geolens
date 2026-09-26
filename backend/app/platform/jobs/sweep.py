@@ -47,10 +47,11 @@ from app.platform.jobs.models import (
     FAN_OUT_INTERRUPTED_METADATA_KEY,
     STAGING_REAPED_FINAL_MARKER,
     STAGING_REAPED_MARKER,
-    STATUSES_NEEDING_STAGED_INPUT,
     UNPUBLISHED_STORAGE_KEYS_FIELD,
     UNREAPED_ARTIFACT_FIELDS,
     IngestJob,
+    holds_unarchived_original,
+    needs_staged_input,
     owned_presigned_staging_key,
 )
 from app.platform.jobs.ledger import Outcome, end_stale, run_stale_passes
@@ -1562,6 +1563,7 @@ async def fail_stale_jobs(
             IngestJob.id.not_in(latest_complete_ids),
             IngestJob.id.not_in(latest_manifest_ids),
             not_(presigned_url_may_still_be_live),
+            not_(holds_unarchived_original()),
         ]
         # fix(#1778): a row still naming an unreaped artifact is not
         # purged; it IS the pending-reap record. One DELETE .. RETURNING
@@ -1588,14 +1590,12 @@ async def fail_stale_jobs(
                 retention_days=settings.ingest_jobs_retention_days,
             )
 
-        # #434 r3-r5: this purge is the retention policy for staged files.
-        # Reap only paths no surviving row NEEDS (pending/running reads it,
-        # failed keeps it for retry); complete rows keep the row, not the file.
+        # This purge is the retention policy for staged files: a path goes
+        # only once no surviving row still needs it.
         if deleted_paths:
             survivors = await db.execute(
                 select(IngestJob.file_path).where(
-                    IngestJob.file_path.in_(deleted_paths),
-                    IngestJob.status.in_(STATUSES_NEEDING_STAGED_INPUT),
+                    IngestJob.file_path.in_(deleted_paths), needs_staged_input()
                 )
             )
             deleted_paths -= set(survivors.scalars())

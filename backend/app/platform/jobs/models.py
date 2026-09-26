@@ -11,7 +11,9 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    and_,
     func,
+    or_,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -275,4 +277,29 @@ class IngestJob(Base):
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
+    )
+
+
+def holds_unarchived_original():
+    """Predicate: the row published an original that never reached ``originals/``.
+
+    Its staged upload may then be that original's only copy. A failed job never
+    published one, and deleting the dataset clears ``dataset_id``.
+    """
+    return and_(
+        IngestJob.status == "complete",
+        IngestJob.dataset_id.is_not(None),
+        IngestJob.user_metadata["archive_failed"].astext.is_not(None),
+    )
+
+
+def needs_staged_input():
+    """Predicate: the row still needs the staged file its ``file_path`` names.
+
+    Pending and running rows read it, a failed row may retry from it, and a row
+    holding an unarchived original keeps that original's only copy in it.
+    """
+    return or_(
+        IngestJob.status.in_(STATUSES_NEEDING_STAGED_INPUT),
+        holds_unarchived_original(),
     )
