@@ -30,7 +30,7 @@ it.each(['2', 'Thu, 01 Jan 2026 00:00:02 GMT'])('honors Retry-After %s and prese
   expect(fetcher).toHaveBeenCalledTimes(1);
   await vi.advanceTimersByTimeAsync(1);
   expect((await result).cacheControl).toBe('public, max-age=60');
-  expect(fetcher).toHaveBeenLastCalledWith(url, expect.objectContaining({ headers: request.headers, signal: controller.signal }));
+  expect(fetcher).toHaveBeenLastCalledWith(url, expect.objectContaining({ headers: request.headers, signal: expect.any(AbortSignal) }));
 });
 
 it('preserves the strong ETag for MapLibre tile revalidation', async () => {
@@ -112,4 +112,90 @@ it('routes the configured cross-origin tile CDN through retry with embed credent
     embedToken: 'token',
     getTileConfig: () => ({ cdn_base_url: 'https://tiles.example' }),
   })(url)).toEqual({ url: `geolens-tile://${url}`, headers: { 'X-Embed-Token': 'token' } });
+});
+
+it.each([0, 10])('drains sixty visible tiles with %s server slots initially occupied', async (initialLoad) => {
+  let serverActive = initialLoad;
+  let rejected = 0;
+  if (initialLoad > 0) setTimeout(() => { serverActive = 0; }, 1000);
+  vi.stubGlobal('fetch', vi.fn(async () => {
+    if (serverActive >= 10) {
+      rejected++;
+      return new Response('', { status: 429, headers: { 'Retry-After': '2' } });
+    }
+    serverActive++;
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    serverActive--;
+    return new Response('tile');
+  }));
+
+  const results = Promise.allSettled(Array.from({ length: 60 }, (_, index) =>
+    tileRetryProtocol({ ...request, url: `${request.url}&tile=${index}` }, new AbortController()),
+  ));
+  await vi.runAllTimersAsync();
+
+  if (initialLoad > 0) expect(rejected).toBeGreaterThan(0);
+  expect((await results).filter((result) => result.status === 'fulfilled')).toHaveLength(60);
+  expect(serverActive).toBe(0);
+});
+
+function holdTileFetches() {
+  const fetcher = vi.fn((_url: string, options: RequestInit) => new Promise<Response>((_resolve, reject) => {
+    const signal = options.signal!;
+    signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+  }));
+  vi.stubGlobal('fetch', fetcher);
+  return fetcher;
+}
+
+it('removes a canceled queued tile and admits the next live tile when capacity frees', async () => {
+  const fetcher = holdTileFetches();
+  const controllers = Array.from({ length: 8 }, () => new AbortController());
+  const results = controllers.map((controller, index) =>
+    tileRetryProtocol({ ...request, url: `${request.url}&tile=${index}` }, controller).catch((error: unknown) => error),
+  );
+  await vi.advanceTimersByTimeAsync(0);
+  expect(fetcher).toHaveBeenCalledTimes(6);
+  controllers[6].abort();
+  await expect(results[6]).resolves.toMatchObject({ name: 'AbortError' });
+  controllers[0].abort();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(fetcher).toHaveBeenCalledTimes(7);
+  expect(fetcher).toHaveBeenLastCalledWith(`${url}&tile=7`, expect.anything());
+  controllers.forEach((controller) => controller.abort());
+  await Promise.all(results);
+
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('next tile')));
+  await expect(tileRetryProtocol(request, new AbortController())).resolves.toHaveProperty('data');
+});
+
+it('bounds queue size and returns canceled queue capacity immediately', async () => {
+  const fetcher = holdTileFetches();
+  const controllers = Array.from({ length: 518 }, () => new AbortController());
+  const results = controllers.map((controller) => tileRetryProtocol(request, controller).catch((error: unknown) => error));
+  await vi.advanceTimersByTimeAsync(0);
+  expect(fetcher).toHaveBeenCalledTimes(6);
+  await expect(tileRetryProtocol(request, new AbortController())).rejects.toMatchObject({ status: 429, url });
+  controllers[6].abort();
+  await results[6];
+  const replacement = new AbortController();
+  const replacementResult = tileRetryProtocol(request, replacement).catch((error: unknown) => error);
+  replacement.abort();
+  await expect(replacementResult).resolves.toMatchObject({ name: 'AbortError' });
+  controllers.forEach((controller) => controller.abort());
+  await Promise.all(results);
+});
+
+it('bounds queue and active waits with distinct timeout errors', async () => {
+  const fetcher = holdTileFetches();
+  const results = Array.from({ length: 7 }, () =>
+    tileRetryProtocol(request, new AbortController()).catch((error: unknown) => error),
+  );
+  await vi.advanceTimersByTimeAsync(120_000);
+  await expect(results[6]).resolves.toMatchObject({ status: 504, statusText: 'Tile request queue timed out', url });
+  expect(fetcher).toHaveBeenCalledTimes(6);
+  await vi.advanceTimersByTimeAsync(480_000);
+  for (const result of results.slice(0, 6)) {
+    await expect(result).resolves.toMatchObject({ status: 504, statusText: 'Tile request timed out', url });
+  }
 });

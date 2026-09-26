@@ -1,7 +1,53 @@
 import { AJAXError, type AddProtocolAction } from 'maplibre-gl';
 
+// Keep one browser below the default ten-render server budget.
+const MAX_CONCURRENT_TILES = 6;
+const MAX_PENDING_TILES = 512;
+const MAX_QUEUE_WAIT_MS = 120_000;
+// Match the API proxy's read timeout; the pool's per-command timeout is not a render deadline.
+const MAX_REQUEST_TIME_MS = 600_000;
 const MAX_RETRIES = 2;
+let activeTiles = 0;
+const pendingTiles = new Set<() => void>();
 const MAX_RETRY_DELAY_MS = 10_000;
+
+function releaseTileSlot(): void {
+  const next = pendingTiles.values().next().value;
+  if (next) next();
+  else activeTiles--;
+}
+
+function acquireTileSlot(url: string, signal: AbortSignal): Promise<() => void> {
+  signal.throwIfAborted();
+  if (activeTiles < MAX_CONCURRENT_TILES) {
+    activeTiles++;
+    return Promise.resolve(releaseTileSlot);
+  }
+  if (pendingTiles.size >= MAX_PENDING_TILES) {
+    return Promise.reject(new AJAXError(429, 'Tile request queue is full', url, new Blob()));
+  }
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      pendingTiles.delete(start);
+      clearTimeout(timer);
+      signal.removeEventListener('abort', abort);
+    };
+    const start = () => {
+      cleanup();
+      resolve(releaseTileSlot);
+    };
+    const abort = () => {
+      cleanup();
+      reject(signal.reason);
+    };
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new AJAXError(504, 'Tile request queue timed out', url, new Blob()));
+    }, MAX_QUEUE_WAIT_MS);
+    pendingTiles.add(start);
+    signal.addEventListener('abort', abort, { once: true });
+  });
+}
 
 function retryDelay(value: string | null): number {
   if (value === null) return 2000;
@@ -25,8 +71,7 @@ function waitForRetry(delay: number, signal: AbortSignal): Promise<void> {
   });
 }
 
-/** Fetch a vector tile, honoring short 429 cooldowns and MapLibre cancellation. */
-export const tileRetryProtocol: AddProtocolAction = async (request, controller) => {
+const fetchTile: AddProtocolAction = async (request, controller) => {
   const url = request.url.slice('geolens-tile://'.length);
   for (let attempt = 0; ; attempt++) {
     controller.signal.throwIfAborted();
@@ -52,5 +97,25 @@ export const tileRetryProtocol: AddProtocolAction = async (request, controller) 
     }
     // A small jitter spreads the next wave across maps sharing the same cooldown.
     await waitForRetry(Math.max(250, delay) + Math.random() * 250, controller.signal);
+  }
+};
+
+/** Schedule a tile within bounded capacity, preserving cooldowns and cancellation. */
+export const tileRetryProtocol: AddProtocolAction = async (request, controller) => {
+  const url = request.url.slice('geolens-tile://'.length);
+  const release = await acquireTileSlot(url, controller.signal);
+  const activeController = new AbortController();
+  const abort = () => activeController.abort(controller.signal.reason);
+  const timeout = setTimeout(() => {
+    activeController.abort(new AJAXError(504, 'Tile request timed out', url, new Blob()));
+  }, MAX_REQUEST_TIME_MS);
+  try {
+    controller.signal.throwIfAborted();
+    controller.signal.addEventListener('abort', abort, { once: true });
+    return await fetchTile(request, activeController);
+  } finally {
+    clearTimeout(timeout);
+    controller.signal.removeEventListener('abort', abort);
+    release();
   }
 };
