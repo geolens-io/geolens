@@ -73,26 +73,51 @@ class RepairOutcome:
     skipped: bool = False
 
 
-def _answers(wkts: list[str]) -> list[dict | None]:
-    """The facts of each text, or None where the child gave none."""
+def _timeout(deadline: float) -> float:
+    """The run's remaining time, capped at a probe's own timeout.
+
+    The cap leaves time to ask one text at a time after a whole batch stalls.
+    """
+    return min(deadline - _clock(), probe.CRS_FACTS_TIMEOUT_SECONDS)
+
+
+def _cut_short(exc: probe.RasterProbeError, timeout: float) -> bool:
+    """A timeout the run's budget shortened says nothing about the text."""
+    return exc.kind == "timeout" and timeout < probe.CRS_FACTS_TIMEOUT_SECONDS
+
+
+def _answers(wkts: list[str], deadline: float) -> list[dict | None]:
+    """The facts of each text, or None where the child gave none.
+
+    Stops when the run's time runs out, so the list may be shorter than
+    ``wkts``; the texts past its end were not asked.
+    """
+    timeout = _timeout(deadline)
+    if timeout <= 0:
+        return []
     try:
-        return probe.crs_facts_many(wkts)
-    except probe.RasterProbeError:
+        return probe.crs_facts_many(wkts, timeout=timeout)
+    except probe.RasterProbeError as exc:
         if len(wkts) == 1:
-            return [None]
+            return [] if _cut_short(exc, timeout) else [None]
     # One text can stall the whole batch; asking one at a time isolates it.
     answers: list[dict | None] = []
     for wkt in wkts:
+        timeout = _timeout(deadline)
+        if timeout <= 0:
+            break
         try:
-            answers.append(probe.crs_facts(wkt))
-        except probe.RasterProbeError:
+            answers.append(probe.crs_facts(wkt, timeout=timeout))
+        except probe.RasterProbeError as exc:
+            if _cut_short(exc, timeout):
+                break
             answers.append(None)
     return answers
 
 
-def _control_passes() -> bool:
+def _control_passes(deadline: float) -> bool:
     try:
-        answer = probe.crs_facts_many([_CONTROL_WKT])
+        answer = probe.crs_facts_many([_CONTROL_WKT], timeout=_timeout(deadline))
     except probe.RasterProbeError as exc:
         logger.warning("crs_facts_repair_skipped", reason=exc.kind)
         return False
@@ -136,7 +161,7 @@ async def repair_missing_crs_facts(
         if not digests:
             continue
         if not checked:
-            if not await asyncio.to_thread(_control_passes):
+            if not await asyncio.to_thread(_control_passes, deadline):
                 outcome.skipped = True
                 return outcome
             checked = True
@@ -146,7 +171,7 @@ async def repair_missing_crs_facts(
                 break
             batch = digests[start : start + BATCH_TEXTS]
             answers = await asyncio.to_thread(
-                _answers, [pending[digest][0] for digest in batch]
+                _answers, [pending[digest][0] for digest in batch], deadline
             )
             async with async_session() as session:
                 for digest, facts in zip(batch, answers):

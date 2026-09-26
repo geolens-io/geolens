@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import inspect
+import json
+import sys
+import time
 import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -25,6 +28,7 @@ from tests.alembic_helpers import (
     run_alembic,
 )
 from tests.factories import create_dataset, create_raster_dataset, get_user_id
+from tests.test_raster_probe import _stand_in
 
 pytestmark = pytest.mark.anyio
 
@@ -285,6 +289,72 @@ class TestRepairJob:
             assert await _filled() == 2
         finally:
             await _delete(ids)
+
+
+class TestRunBudget:
+    async def test_a_run_ends_on_time_when_every_probe_stalls(
+        self, test_db_session, monkeypatch
+    ):
+        monkeypatch.setattr(tasks_crs_facts, "_backoff", {})
+        ids = [await _seed(test_db_session, wkt) for wkt in (_WGS84, _FEET, _GRADS)]
+        control = json.dumps([tasks_crs_facts._CONTROL_WKT])
+        reply = json.dumps({"result": [tasks_crs_facts._CONTROL_FACTS]})
+        # Answers the control at once and stalls on every other request.
+        _stand_in(
+            monkeypatch,
+            "import sys, time\n"
+            f"if sys.stdin.read() == {control!r}:\n"
+            f"    print({reply!r})\n"
+            "    sys.exit(0)\n"
+            "time.sleep(60)\n",
+        )
+        monkeypatch.setattr(probe, "CRS_FACTS_TIMEOUT_SECONDS", 2)
+        try:
+            started = time.monotonic()
+            outcome = await tasks_crs_facts.repair_missing_crs_facts(
+                run_texts=10_000, run_seconds=4
+            )
+            elapsed = time.monotonic() - started
+
+            assert elapsed < 4 + 1.5, f"a 4 s run took {elapsed:.1f} s"
+            # Probes the budget cut short blame no text.
+            assert outcome.unanswered == []
+            assert tasks_crs_facts._backoff == {}
+            assert set((await _stored(ids)).values()) == {(None, None, None)}
+        finally:
+            await _delete(ids)
+
+    async def test_a_text_that_stalls_its_batch_is_found_and_backed_off(
+        self, test_db_session, monkeypatch
+    ):
+        monkeypatch.setattr(tasks_crs_facts, "_backoff", {})
+        stalls = await _seed(test_db_session, _GRADS)
+        answers = await _seed(test_db_session, _FEET)
+        # Stalls on anything naming the grads CRS; the real child answers the rest.
+        script = (
+            "import io, sys, time\n"
+            "data = sys.stdin.read()\n"
+            "if 'NTF (Paris)' in data:\n"
+            "    time.sleep(60)\n"
+            "sys.stdin = io.StringIO(data)\n"
+            "from app.processing.raster import probe\n"
+            "sys.exit(probe.main(sys.argv[1:]))\n"
+        )
+        monkeypatch.setattr(
+            probe, "_command", lambda op, *args: [sys.executable, "-c", script, op]
+        )
+        monkeypatch.setattr(probe, "CRS_FACTS_TIMEOUT_SECONDS", 2)
+        try:
+            await tasks_crs_facts.repair_missing_crs_facts(
+                run_texts=10_000, run_seconds=20
+            )
+
+            stored = await _stored([stalls, answers])
+            assert stored[answers] == _expected(_FEET)
+            assert stored[stalls] == (None, None, None)
+            assert list(tasks_crs_facts._backoff.values())[0][0] == 1
+        finally:
+            await _delete([stalls, answers])
 
 
 class TestScheduling:
