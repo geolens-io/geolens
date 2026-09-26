@@ -6,10 +6,14 @@ tile key that stayed the same across the swap kept serving the pre-swap bytes
 for the whole ``tile_cache_ttl``. The vector and cluster keys now carry the
 dataset's ``tile_cache_version``, which the swap rolls, so the API stops
 reading the old entries once it re-reads the dataset row.
+
+A page that has already read the new state says so in ``_v``, and the API
+re-reads the row for it at once instead of when its 60 s snapshot expires.
 """
 
 import contextlib
 import uuid
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -182,6 +186,23 @@ async def _drop_table(session, table_name: str) -> None:
     await session.commit()
 
 
+async def _page_state(client, admin_auth_header, session, dataset_id, spelling):
+    """The ``_v`` a product page would send for the dataset as it stands now.
+
+    The builder and viewer send the tile cache version from their layer
+    response; the dataset page sends the ``updated_at`` of its dataset response.
+    """
+    if spelling == "tile_cache_version":
+        version = await session.scalar(
+            text("SELECT tile_cache_version FROM catalog.datasets WHERE id = :id"),
+            {"id": dataset_id},
+        )
+        return str(version)
+    resp = await client.get(f"/datasets/{dataset_id}", headers=admin_auth_header)
+    assert resp.status_code == 200, resp.text
+    return resp.json()["updated_at"]
+
+
 @pytest.mark.usefixtures("_init_tile_pool_for_tests")
 @pytest.mark.parametrize("route", TILE_ROUTES)
 async def test_a_swap_the_worker_cannot_purge_is_served_once_the_row_is_re_read(
@@ -221,6 +242,132 @@ async def test_a_swap_the_worker_cannot_purge_is_served_once_the_row_is_re_read(
     finally:
         tile_router._evict_dataset_meta(table)
         await _drop_table(test_db_session, table)
+
+
+@pytest.mark.usefixtures("_init_tile_pool_for_tests")
+@pytest.mark.parametrize("spelling", ["tile_cache_version", "updated_at"])
+@pytest.mark.parametrize("route", TILE_ROUTES)
+async def test_a_page_that_read_the_swap_gets_the_new_tiles_at_once(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    tmp_path,
+    monkeypatch,
+    route: str,
+    spelling: str,
+):
+    admin_id, dataset, job = await _seed(test_db_session, tmp_path)
+    table = dataset.table_name
+    url = route.format(table=table)
+    api_cache = InMemoryTileCacheProvider()
+    try:
+        old_state = await _page_state(
+            client, admin_auth_header, test_db_session, dataset.id, spelling
+        )
+        with patch.object(tile_router, "get_tile_cache", return_value=api_cache):
+            before = await client.get(url, params={"_v": old_state})
+            assert before.status_code == 200, before.text
+
+            await _reupload_in_the_worker(admin_id, dataset, job, monkeypatch)
+            new_state = await _page_state(
+                client, admin_auth_header, test_db_session, dataset.id, spelling
+            )
+            assert new_state != old_state
+
+            # A page still showing the old state costs no re-read.
+            unrefreshed_page = await client.get(url, params={"_v": old_state})
+            refreshed_page = await client.get(url, params={"_v": new_state})
+
+        with patch.object(tile_router, "get_tile_cache", return_value=None):
+            tile_router._evict_dataset_meta(table)
+            uncached = await client.get(url)
+
+        assert unrefreshed_page.content == before.content
+        assert refreshed_page.status_code == 200, refreshed_page.text
+        assert refreshed_page.content != before.content, (
+            "a page that had read the new state was served the pre-swap tile"
+        )
+        assert refreshed_page.content == uncached.content
+    finally:
+        tile_router._evict_dataset_meta(table)
+        await _drop_table(test_db_session, table)
+
+
+@pytest.mark.usefixtures("_init_tile_pool_for_tests")
+async def test_asking_for_a_version_before_it_exists_does_not_pin_the_old_snapshot(
+    client: AsyncClient, test_db_session, tmp_path, monkeypatch
+):
+    """A snapshot is only ever kept for a ``_v`` it is at least as new as.
+
+    Were the pre-swap snapshot stored against the ``_v`` that asked for it, a
+    request naming the next version ahead of the swap would hand every later
+    request for that version the pre-swap tiles until the snapshot expired.
+    """
+    admin_id, dataset, job = await _seed(test_db_session, tmp_path)
+    table = dataset.table_name
+    url = f"/tiles/data.{table}/0/0/0.pbf"
+    api_cache = InMemoryTileCacheProvider()
+    try:
+        with patch.object(tile_router, "get_tile_cache", return_value=api_cache):
+            early = await client.get(url, params={"_v": "2"})
+            assert early.status_code == 200, early.text
+
+            await _reupload_in_the_worker(admin_id, dataset, job, monkeypatch)
+            after = await client.get(url, params={"_v": "2"})
+
+        assert after.status_code == 200, after.text
+        assert after.content != early.content
+    finally:
+        tile_router._evict_dataset_meta(table)
+        await _drop_table(test_db_session, table)
+
+
+_SNAPSHOT_AT = datetime(2026, 9, 25, 12, 0, tzinfo=timezone.utc)
+
+
+def _snapshot() -> tile_router._DatasetMeta:
+    return tile_router._DatasetMeta(
+        dataset_id=uuid.uuid4(),
+        record_id=uuid.uuid4(),
+        table_name="roads",
+        visibility="public",
+        record_status="published",
+        created_by=uuid.uuid4(),
+        record_type="vector_dataset",
+        geometry_type="Point",
+        column_info=[],
+        tile_cache_ttl=None,
+        tile_columns=None,
+        publication_version=0,
+        tile_cache_version=3,
+        updated_at=_SNAPSHOT_AT,
+    )
+
+
+@pytest.mark.parametrize(
+    "raw,newer",
+    [
+        (None, False),
+        ("4", True),
+        ("3", False),
+        ("2", False),
+        ("2026-09-25T12:00:01Z", True),
+        ("2026-09-25T14:00:01+02:00", True),
+        ("2026-09-25T12:00:00Z", False),
+        ("2026-09-25T11:59:59.999999+00:00", False),
+        # Feature editing busts with Date.now(): too long for a version, and
+        # a timestamp with no zone even where it parses as one.
+        ("1790000000000", False),
+        ("2026092512000", False),
+        ("2026-09-25T12:00:01", False),
+        ("2099-01-01", False),
+        ("latest", False),
+        ("", False),
+        ("9" * 65, False),
+    ],
+)
+def test_only_a_newer_state_in_either_spelling_forces_a_re_read(raw, newer):
+    assert tile_router._client_saw_newer_state(raw, _snapshot()) is newer
 
 
 def test_the_content_version_is_its_own_key_after_the_table_segment():

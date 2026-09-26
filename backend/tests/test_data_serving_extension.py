@@ -5,6 +5,7 @@ from __future__ import annotations
 import gzip
 import json
 import uuid
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -295,6 +296,7 @@ async def test_hosted_tile_endpoints_share_cache_policy_and_limit_only_db_misses
         tile_columns=None,
         publication_version=0,
         tile_cache_version=1,
+        updated_at=datetime.now(timezone.utc),
     )
     cache = SimpleNamespace(
         get=AsyncMock(return_value=gzip.compress(b"cached-mvt") if cache_hit else None),

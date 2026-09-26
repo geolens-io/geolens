@@ -6,6 +6,7 @@ import math
 import threading
 import time
 import uuid
+from datetime import datetime
 from typing import Any, Literal, NamedTuple
 from urllib.parse import parse_qs, urlencode
 
@@ -233,6 +234,7 @@ class _DatasetMeta(NamedTuple):
     # `record_status` beside it and no staler.
     publication_version: int
     tile_cache_version: int
+    updated_at: datetime
 
 
 # Bounded LRU so a long-lived tile worker cannot grow one entry per
@@ -1622,18 +1624,47 @@ def _validate_tile_coordinates(z: int, x: int, y: int) -> None:
         )
 
 
-async def _resolve_dataset_meta(table_name: str, db: AsyncSession) -> _DatasetMeta:
+# The product's own tile URLs carry the dataset state their page last read:
+# the builder and viewer send `tile_cache_version`, the dataset page its
+# record's `updated_at`.
+_CLIENT_STATE_PARAM = "_v"
+
+
+def _client_saw_newer_state(raw: str | None, meta: _DatasetMeta) -> bool:
+    """Whether a request's ``_v`` names a newer dataset state than ``meta``.
+
+    A worker-side swap cannot evict this process's snapshot, and the first
+    request for the new tiles usually comes from the page that just read the
+    new state. A value that is not newer, or is neither spelling, leaves the
+    snapshot to its TTL.
+    """
+    if raw is None or len(raw) > 64:
+        return False
+    version = _meta_cache_version_segment(raw)
+    if version is not None:
+        return int(version) > meta.tile_cache_version
+    try:
+        seen = datetime.fromisoformat(raw)
+    except ValueError:
+        return False
+    return seen.tzinfo is not None and seen > meta.updated_at
+
+
+async def _resolve_dataset_meta(
+    table_name: str, db: AsyncSession, client_state: str | None = None
+) -> _DatasetMeta:
     """Look up dataset metadata with a short in-memory cache.
 
     In ``multi_tenant`` the cache key is ``{tid}:{table_name}`` and the
     query adds a ``tenant_id`` filter, closing the cross-dataset authz leak
     on the data plane. In ``single_tenant`` the key is the bare
-    ``table_name``, byte-identical to pre-1209.
+    ``table_name``.
 
-    fix(#2007): the tile cache key is derived from THIS snapshot, the same one
-    that decides visibility and record_status, so it can never be staler than
-    the authorization that admitted the request. Re-reading the counter alone
-    would leave that decision on the stale row and fix nothing.
+    The tile cache key is derived from THIS snapshot, the same one that
+    decides visibility and record_status, so it can never be staler than the
+    authorization that admitted the request. Re-reading the counter alone
+    would leave that decision on the stale row and fix nothing, so a
+    ``client_state`` newer than the cached snapshot re-reads the whole row.
     """
     now = time.monotonic()
 
@@ -1646,7 +1677,9 @@ async def _resolve_dataset_meta(table_name: str, db: AsyncSession) -> _DatasetMe
         cached_entry = _dataset_cache.get(cache_key)
         if cached_entry is not None:
             ts, cached_meta = cached_entry
-            if now - ts < _DATASET_CACHE_TTL:
+            if now - ts < _DATASET_CACHE_TTL and not _client_saw_newer_state(
+                client_state, cached_meta
+            ):
                 return cached_meta
 
     from app.modules.catalog.datasets.domain.models import Dataset as DatasetORM
@@ -1683,6 +1716,7 @@ async def _resolve_dataset_meta(table_name: str, db: AsyncSession) -> _DatasetMe
         tile_columns=dataset.tile_columns,
         publication_version=dataset.publication_version or 0,
         tile_cache_version=dataset.tile_cache_version or 1,
+        updated_at=dataset.record.updated_at,
     )
     with _dataset_cache_lock:
         _dataset_cache[cache_key] = (now, meta)
@@ -1707,7 +1741,9 @@ async def _resolve_dataset_meta_for_serving(
     IDs, and this exit is exactly the case where there is no id to authorize.
     """
     try:
-        return await _resolve_dataset_meta(table_name, db)
+        return await _resolve_dataset_meta(
+            table_name, db, request.query_params.get(_CLIENT_STATE_PARAM)
+        )
     except HTTPException as exc:
         capability_declined(request, user, exc)
 
