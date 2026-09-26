@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import uuid
+from pathlib import Path
 
 import pytest
+from alembic.operations import Operations
+from alembic.runtime.migration import MigrationContext
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -163,6 +167,14 @@ _RELEASE_THE_BACKFILL = [
 ]
 
 
+async def _record_of(dataset_id: str) -> uuid.UUID:
+    [(record_id,)] = await fresh_query(
+        "SELECT record_id FROM catalog.datasets WHERE id = CAST(:id AS uuid)",
+        {"id": dataset_id},
+    )
+    return record_id
+
+
 async def _backfill_is_waiting() -> bool:
     rows = await fresh_query(
         "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() "
@@ -180,10 +192,7 @@ async def test_readers_never_wait_behind_the_backfill() -> None:
         down = run_alembic("downgrade", _PREVIOUS)
         assert down.returncode == 0, down.stderr
         dataset_id = await _point_cloud(str(uuid.uuid4()))
-        [(record_id,)] = await fresh_query(
-            "SELECT record_id FROM catalog.datasets WHERE id = CAST(:id AS uuid)",
-            {"id": dataset_id},
-        )
+        record_id = await _record_of(dataset_id)
         for statement in _HOLD_THE_BACKFILL:
             await fresh_query(statement)
 
@@ -218,5 +227,81 @@ async def test_readers_never_wait_behind_the_backfill() -> None:
             await upgrade
         for statement in _RELEASE_THE_BACKFILL:
             await fresh_query(statement)
+        await engine.dispose()
+        await _remove_rows_and_restore_head()
+
+
+async def test_a_held_row_lock_fails_the_backfill_fast_and_a_rerun_succeeds() -> None:
+    """The backfill gives up on a row lock after its timeout, and the next upgrade fills the attempt."""
+    attempt = uuid.uuid4()
+    engine = create_async_engine(settings.test_database_url)
+    upgrade = None
+    try:
+        down = run_alembic("downgrade", _PREVIOUS)
+        assert down.returncode == 0, down.stderr
+        dataset_id = await _point_cloud(str(attempt))
+        record_id = await _record_of(dataset_id)
+        for statement in _HOLD_THE_BACKFILL:
+            await fresh_query(statement)
+
+        async with engine.connect() as holder:
+            await holder.begin()
+            await holder.execute(
+                text("SELECT 1 FROM catalog.records WHERE id = :id FOR UPDATE"),
+                {"id": record_id},
+            )
+            upgrade = asyncio.create_task(
+                asyncio.to_thread(run_alembic, "upgrade", "heads")
+            )
+            finished, _ = await asyncio.wait({upgrade}, timeout=40)
+            await holder.rollback()
+        failed = await upgrade
+        assert finished, "the backfill kept waiting on the held row lock"
+        assert failed.returncode != 0
+        assert "lock timeout" in failed.stderr
+
+        for statement in _RELEASE_THE_BACKFILL:
+            await fresh_query(statement)
+        rerun = run_alembic("upgrade", "heads")
+        assert rerun.returncode == 0, rerun.stderr
+        assert await _attempt_of(dataset_id) == attempt
+    finally:
+        if upgrade is not None and not upgrade.done():
+            await upgrade
+        for statement in _RELEASE_THE_BACKFILL:
+            await fresh_query(statement)
+        await engine.dispose()
+        await _remove_rows_and_restore_head()
+
+
+def _upgrade_0074_in_one_session(connection) -> tuple[str, str]:
+    """``lock_timeout`` before 0074's upgrade and after it, on the connection a run shares."""
+    path = (
+        Path(__file__).resolve().parents[1]
+        / "alembic"
+        / "versions"
+        / "0074_pointcloud_attempt_id.py"
+    )
+    spec = importlib.util.spec_from_file_location("migration_0074", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    context = MigrationContext.configure(connection)
+    with context.begin_transaction():
+        before = connection.execute(text("SHOW lock_timeout")).scalar_one()
+        with Operations.context(context):
+            migration.upgrade()
+        return before, connection.execute(text("SHOW lock_timeout")).scalar_one()
+
+
+async def test_the_backfill_timeout_ends_with_the_backfill() -> None:
+    """A migration that runs after 0074 in the same run sees the lock timeout it started with."""
+    engine = create_async_engine(settings.test_database_url)
+    try:
+        down = run_alembic("downgrade", _PREVIOUS)
+        assert down.returncode == 0, down.stderr
+        async with engine.connect() as connection:
+            before, after = await connection.run_sync(_upgrade_0074_in_one_session)
+        assert after == before
+    finally:
         await engine.dispose()
         await _remove_rows_and_restore_head()
