@@ -435,6 +435,25 @@ class TestPostExpirySweep:
     forever. This pass runs once per job, after the URL can no longer be used.
     """
 
+    @pytest.fixture(autouse=True)
+    async def _reap_jobs_this_class_commits(self, test_db_session):
+        """Delete the ``ingest_jobs`` rows this class's tests commit.
+
+        A backdated row is left reaped but not final, so every later
+        post-expiry sweep on this worker would delete its key again.
+        """
+        self._created_job_ids: list = []
+        yield
+        if self._created_job_ids:
+            from sqlalchemy import delete
+
+            from app.platform.jobs.models import IngestJob
+
+            await test_db_session.execute(
+                delete(IngestJob).where(IngestJob.id.in_(self._created_job_ids))
+            )
+            await test_db_session.commit()
+
     @staticmethod
     def _outcome(**overrides):
         from app.platform.jobs.router import StaleCleanupOutcome
@@ -502,6 +521,7 @@ class TestPostExpirySweep:
             )
         )
         await test_db_session.commit()
+        self._created_job_ids.append(job.id)
         return job, staging_key
 
     async def test_a_recreated_object_past_the_deadline_is_swept_once(
@@ -952,6 +972,7 @@ class TestPostExpirySweep:
         test_db_session.add(parent)
         await test_db_session.commit()
         await test_db_session.refresh(parent)
+        self._created_job_ids.append(parent.id)
         parent_staging_key = f"staging/{parent.id}/roads.geojson"
         await test_db_session.execute(
             update(IngestJob)
@@ -975,6 +996,7 @@ class TestPostExpirySweep:
         test_db_session.add(child)
         await test_db_session.commit()
         await test_db_session.refresh(child)
+        self._created_job_ids.append(child.id)
         await test_db_session.execute(
             update(IngestJob)
             .where(IngestJob.id == child.id)
