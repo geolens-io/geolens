@@ -3,8 +3,10 @@ attempt's copy is reaped by the job sweep."""
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import io
+import threading
 import uuid
 from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta, timezone
@@ -682,6 +684,56 @@ async def test_a_stored_point_cloud_is_decoded_from_a_download_that_is_removed(
         assert job.status == "complete", job.error_message
         assert stored == [pointcloud_attempt_key(job.dataset_id, job.attempt_id)]
     assert not any((tmp_path / "staging").iterdir())
+
+
+class _CopyHeldInAThread:
+    """The configured storage, whose copy runs in a thread held until released."""
+
+    def __init__(self, storage) -> None:
+        self._storage = storage
+        self.started = threading.Event()
+        self.release = threading.Event()
+        self.finished = threading.Event()
+
+    def __getattr__(self, name):
+        return getattr(self._storage, name)
+
+    async def copy(self, src_key: str, dst_key: str) -> None:
+        def _copy() -> None:
+            self.started.set()
+            self.release.wait(timeout=30)
+            self._storage.client.copy_object(
+                Bucket=self._storage.bucket,
+                Key=dst_key,
+                CopySource={"Bucket": self._storage.bucket, "Key": src_key},
+            )
+            self.finished.set()
+
+        await asyncio.to_thread(_copy)
+
+
+async def test_a_copy_cancelled_midway_lands_before_the_cleanup_removes_it(
+    client: AsyncClient, test_db_session, uploader, queued, s3_storage, monkeypatch
+) -> None:
+    """The cancel waits for the copy's thread, so the cleanup deletes what it wrote."""
+    headers, _ = uploader
+    body, completed = await presigned_upload(client, headers, s3_storage)
+    assert completed.status_code == 200, completed.text
+    assert (await commit(client, headers, body["job_id"])).status_code == 202
+    held = _CopyHeldInAThread(s3_storage)
+    monkeypatch.setattr(storage_provider, "_storage", held)
+
+    worker = asyncio.create_task(run_queued(queued))
+    assert await asyncio.to_thread(held.started.wait, 30)
+    worker.cancel()
+    # Long enough for a worker that stopped waiting to finish its cleanup first.
+    await asyncio.wait({worker}, timeout=2)
+    held.release.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await worker
+    assert await asyncio.to_thread(held.finished.wait, 30)
+    assert await s3_storage.list("pointclouds/") == []
 
 
 async def test_a_refused_point_cloud_is_dropped_at_presigned_complete(

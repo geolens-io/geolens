@@ -12,7 +12,7 @@ from pathlib import Path
 
 # The internal dataset_assets key of a point cloud. Its href points at the
 # live upload attempt's file and its size_bytes is what the storage quota
-# counts. It is never published: clients reach the file by its route.
+# counts. It is never published.
 POINTCLOUD_ASSET_KEY = "pointcloud"
 
 # The media type Planetary Computer's STAC gives COPC assets; the COPC

@@ -9,6 +9,7 @@ import structlog
 from sqlalchemy import func
 from sqlalchemy.exc import DBAPIError
 
+from app.core.async_io import await_draining
 from app.core.db.tenant_session import tenant_task
 from app.core.geo import bbox_to_extent_wkt
 from app.core.pointcloud import (
@@ -67,8 +68,10 @@ async def store_pointcloud(file_path: str, attempt_key: str) -> None:
     target = resolve_current_storage_key(attempt_key)
     is_local, source = staged_source(file_path)
     if not is_local:
-        await storage.copy(source, target)
+        # Cleanup deletes the key, so a cancelled copy must land before it runs.
+        await await_draining(storage.copy(source, target))
         return
+    # Every adapter's put already drains its thread when cancelled.
     with open(source, "rb") as data:
         await storage.put(target, data)
 
