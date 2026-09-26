@@ -1634,6 +1634,80 @@ describe('#2297 public confirm defers to the server publish check', () => {
     expect(screen.queryByTestId('share-publish-blocked-error')).not.toBeInTheDocument();
     expect(screen.queryByText('Map A secret')).not.toBeInTheDocument();
   });
+
+  it('ignores a publish rejection for map A that lands after mapId changes to map B', async () => {
+    const user = userEvent.setup();
+    let rejectMapAPublish: (err: unknown) => void = () => {};
+    const publishMapFn = vi.fn().mockReturnValue(
+      new Promise((_resolve, reject) => {
+        rejectMapAPublish = reject;
+      }),
+    );
+    const { rerender } = setup({
+      mapId: 'map-a',
+      visibility: 'private',
+      hasShareToken: false,
+      hasNonPublic: false,
+      publishMapFn,
+    });
+
+    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+    const makePublicButton = await screen.findByRole('button', { name: /^make public$/i });
+    await waitFor(() => expect(makePublicButton).toBeEnabled());
+    await user.click(makePublicButton);
+    await waitFor(() => expect(publishMapFn).toHaveBeenCalled());
+
+    // Map A's PUT is still in flight when the dialog moves to map B.
+    rerender(
+      <ShareDialog mapId="map-b" visibility="private" open onOpenChange={vi.fn()} />,
+    );
+
+    const detail = {
+      message: 'Cannot set visibility to public: map contains non-public datasets',
+      datasets: 'Map A secret',
+    };
+    await act(async () => {
+      rejectMapAPublish(new ApiError(translateApiErrorDetail(detail, 400), 400, detail));
+    });
+
+    expect(screen.queryByTestId('share-publish-blocked-error')).not.toBeInTheDocument();
+    expect(screen.queryByText('Map A secret')).not.toBeInTheDocument();
+  });
+
+  it('ignores a publish success for map A that lands after mapId changes to map B', async () => {
+    const user = userEvent.setup();
+    let resolveMapAPublish: (value: unknown) => void = () => {};
+    const publishMapFn = vi.fn().mockReturnValue(
+      new Promise((resolve) => {
+        resolveMapAPublish = resolve;
+      }),
+    );
+    const { rerender } = setup({
+      mapId: 'map-a',
+      visibility: 'private',
+      hasShareToken: false,
+      hasNonPublic: false,
+      publishMapFn,
+    });
+
+    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+    const makePublicButton = await screen.findByRole('button', { name: /^make public$/i });
+    await waitFor(() => expect(makePublicButton).toBeEnabled());
+    await user.click(makePublicButton);
+    await waitFor(() => expect(publishMapFn).toHaveBeenCalled());
+
+    rerender(
+      <ShareDialog mapId="map-b" visibility="private" open onOpenChange={vi.fn()} />,
+    );
+
+    // A late success must not toast on B's behalf or clear B's share state
+    // as though B's own visibility had just changed.
+    await act(async () => {
+      resolveMapAPublish({});
+    });
+
+    expect(vi.mocked(toast.success)).not.toHaveBeenCalled();
+  });
 });
 
 /* ------------------------------------------------------------------ */
