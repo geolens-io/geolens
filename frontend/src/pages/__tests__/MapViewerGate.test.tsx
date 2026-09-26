@@ -4,6 +4,7 @@ import { MapViewerGate } from '../MapViewerGate';
 import { useAuthStore } from '@/stores/auth-store';
 import { useMapAccess } from '@/hooks/use-maps';
 import { useDocumentTitle } from '@/hooks/use-document-title';
+import { ApiError } from '@/api/client';
 import type { UserResponse } from '@/types/api';
 
 // Mimics the real MapBuilderPage: it owns a more specific title once it
@@ -174,6 +175,47 @@ describe('MapViewerGate', () => {
     renderRoute('/maps/map-1?preview=viewer');
 
     expect(await screen.findByTestId('public-map-page')).toBeInTheDocument();
+  });
+
+  it('falls through to the public viewer instead of the retry prompt when the access check 404s', async () => {
+    mockedUseMapAccess.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      error: new ApiError('Not Found', 404),
+    } as never);
+    useAuthStore.setState({
+      token: 'token',
+      refreshToken: 'refresh',
+      expiresAt: Date.now() + 900_000,
+      user: mockUser({ roles: ['editor'] }),
+    });
+
+    renderRoute();
+
+    expect(await screen.findByTestId('public-map-page')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('keeps the retry prompt when the access check fails with a 500', () => {
+    mockedUseMapAccess.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      error: new ApiError('Internal Server Error', 500),
+    } as never);
+    useAuthStore.setState({
+      token: 'token',
+      refreshToken: 'refresh',
+      expiresAt: Date.now() + 900_000,
+      user: mockUser({ roles: ['editor'] }),
+    });
+
+    renderRoute();
+
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+    expect(screen.queryByTestId('public-map-page')).not.toBeInTheDocument();
   });
 
   describe('optimistic builder-chunk warmup (#1778)', () => {
