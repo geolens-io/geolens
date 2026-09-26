@@ -18,6 +18,7 @@ to tests/test_vrt_staged_mutation_1327.py).
 """
 
 import asyncio
+import json
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -297,21 +298,25 @@ class TestAddSource:
             mock_asset = _make_mock_asset(status="ready")
             mock_db = _build_mock_db_for_validation_failure(mock_asset)
 
-            # Simulate validate_sources returning an error
-            mock_error = MagicMock(spec=SourceValidationError)
-            mock_error.model_dump.return_value = {
-                "code": "CRS_MISMATCH",
-                "message": "CRS mismatch",
-            }
+            error = SourceValidationError(
+                source_id=uuid.uuid4(),
+                code="crs_unverified",
+                message="CRS could not be compared with the reference source",
+                field="crs_wkt",
+            )
 
             with patch(
-                "app.processing.ingest.router.validate_sources",
-                return_value=[mock_error],
+                "app.processing.ingest.router.validate_sources_async",
+                new=AsyncMock(return_value=[error]),
             ):
                 with pytest.raises(HTTPException) as exc_info:
                     await add_vrt_source(dataset_id, mock_request, mock_user, mock_db)
 
             assert exc_info.value.status_code == 422
+            # The detail is the response body, so it must already be JSON.
+            assert json.loads(json.dumps(exc_info.value.detail)) == [
+                error.model_dump(mode="json")
+            ]
             # fix(#1327): a rejected request stages nothing. Validation still
             # runs synchronously and still runs BEFORE the generation exists,
             # so an incompatible source leaves no intent behind for a task to
@@ -350,7 +355,10 @@ class TestAddSource:
             )
 
             with (
-                patch("app.processing.ingest.router.validate_sources", return_value=[]),
+                patch(
+                    "app.processing.ingest.router.validate_sources_async",
+                    new=AsyncMock(return_value=[]),
+                ),
                 patch(
                     "app.processing.ingest.router.regenerate_vrt_staged"
                 ) as mock_task,
@@ -393,7 +401,10 @@ class TestAddSource:
             )
 
             with (
-                patch("app.processing.ingest.router.validate_sources", return_value=[]),
+                patch(
+                    "app.processing.ingest.router.validate_sources_async",
+                    new=AsyncMock(return_value=[]),
+                ),
                 patch(
                     "app.processing.ingest.router.regenerate_vrt_staged"
                 ) as mock_task,
@@ -685,7 +696,10 @@ class TestMutationSerialization:
             )
 
             with (
-                patch("app.processing.ingest.router.validate_sources", return_value=[]),
+                patch(
+                    "app.processing.ingest.router.validate_sources_async",
+                    new=AsyncMock(return_value=[]),
+                ),
                 patch(
                     "app.processing.ingest.router.regenerate_vrt_staged"
                 ) as mock_task,

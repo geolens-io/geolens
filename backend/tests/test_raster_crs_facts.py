@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import time
 import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import rasterio
@@ -13,10 +14,12 @@ from sqlalchemy import select
 from app.core import geo
 from app.core.geo import crs_columns, wkt_crs_facts
 from app.platform.jobs.models import IngestJob
+from app.processing.raster import probe
 from app.processing.raster.models import RasterAsset
+from app.processing.raster.validation import compare_crs
 
 from tests.factories import create_raster_dataset, get_user_id
-from tests.test_raster_probe import _geotiff
+from tests.test_raster_probe import _geotiff, _stalling_child
 from tests.test_raster_replace_1221 import raster_storage as raster_storage
 
 pytestmark = pytest.mark.anyio
@@ -26,6 +29,11 @@ pytestmark = pytest.mark.anyio
 _NAD83_WKT = rasterio.crs.CRS.from_epsg(4269).to_wkt(version="WKT2_2019")
 _NAD83_FACTS = wkt_crs_facts(_NAD83_WKT)
 _RES = 1.0 / 60.0
+
+_UTM_18N = rasterio.crs.CRS.from_epsg(32618)
+_UTM_18N_WKT1 = _UTM_18N.to_wkt()
+_UTM_18N_WKT2 = _UTM_18N.to_wkt(version="WKT2_2019")
+_UTM_19N_WKT2 = rasterio.crs.CRS.from_epsg(32619).to_wkt(version="WKT2_2019")
 
 
 @pytest.fixture
@@ -190,4 +198,116 @@ class TestWritersStoreTheFacts:
         assert {column: getattr(asset, column) for column in crs_columns({})} == {
             "crs_wkt": _NAD83_WKT,
             **_NAD83_FACTS,
+        }
+
+
+async def _vrt_source(session, crs_wkt: str) -> tuple[str, str]:
+    """A mosaic-compatible raster source: its dataset id and raster asset id."""
+    dataset = await create_raster_dataset(
+        session,
+        created_by=await get_user_id(session, "admin"),
+        name=f"VRT CRS source {uuid.uuid4().hex[:8]}",
+        visibility="private",
+        create_raster_asset=True,
+        raster_asset_kwargs={
+            "crs_wkt": crs_wkt,
+            "dtype": "uint8",
+            "band_count": 1,
+            "res_x": 10.0,
+            "res_y": 10.0,
+            "width": 100,
+            "height": 100,
+            "is_rotated": False,
+        },
+    )
+    asset_id = await session.scalar(
+        select(RasterAsset.id).where(RasterAsset.dataset_id == dataset.id)
+    )
+    return str(dataset.id), str(asset_id)
+
+
+async def _create_vrt(client, headers, sources: list[tuple[str, str]]):
+    task = MagicMock()
+    task.defer_async = AsyncMock(return_value=None)
+    with patch("app.processing.ingest.tasks.ingest_vrt", task):
+        return await client.post(
+            "/ingest/vrt/create",
+            json={
+                "source_dataset_ids": [dataset_id for dataset_id, _ in sources],
+                "vrt_type": "mosaic",
+                "resolution_strategy": "finest",
+                "title": f"CRS VRT {uuid.uuid4().hex[:6]}",
+            },
+            headers=headers,
+        )
+
+
+class TestVrtSourcesCompareCrsInTheChild:
+    async def test_the_same_crs_in_other_text_is_accepted(
+        self, client, admin_auth_header, test_db_session, crs_parses
+    ):
+        sources = [
+            await _vrt_source(test_db_session, _UTM_18N_WKT1),
+            await _vrt_source(test_db_session, _UTM_18N_WKT2),
+        ]
+
+        resp = await _create_vrt(client, admin_auth_header, sources)
+
+        assert resp.status_code == 202, resp.text
+        assert crs_parses == []
+
+    async def test_a_different_crs_is_a_mismatch(
+        self, client, admin_auth_header, test_db_session
+    ):
+        sources = [
+            await _vrt_source(test_db_session, _UTM_18N_WKT2),
+            await _vrt_source(test_db_session, _UTM_19N_WKT2),
+        ]
+
+        resp = await _create_vrt(client, admin_auth_header, sources)
+
+        assert resp.status_code == 422, resp.text
+        # Either source can be the reference: the lookup doesn't keep request order.
+        ((code, flagged),) = [
+            (e["code"], e["source_id"]) for e in resp.json()["detail"]
+        ]
+        assert code == "crs_mismatch"
+        assert flagged in {asset_id for _, asset_id in sources}
+
+    async def test_a_comparison_that_stalls_is_refused_as_unverified(
+        self, client, admin_auth_header, test_db_session, monkeypatch, tmp_path
+    ):
+        sources = [
+            await _vrt_source(test_db_session, _UTM_18N_WKT1),
+            await _vrt_source(test_db_session, _UTM_18N_WKT2),
+        ]
+        _stalling_child(monkeypatch, tmp_path)
+        monkeypatch.setattr(probe, "CRS_FACTS_TIMEOUT_SECONDS", 1)
+
+        started = time.monotonic()
+        resp = await _create_vrt(client, admin_auth_header, sources)
+
+        assert time.monotonic() - started < 5
+        assert resp.status_code == 422, resp.text
+        ((code, flagged),) = [
+            (e["code"], e["source_id"]) for e in resp.json()["detail"]
+        ]
+        assert code == "crs_unverified"
+        assert flagged in {asset_id for _, asset_id in sources}
+
+    def test_identical_text_starts_no_child(self, monkeypatch):
+        def _no_child(*args, **kwargs):
+            raise AssertionError("a probe child was started")
+
+        monkeypatch.setattr(probe, "_run", _no_child)
+
+        assert compare_crs([_UTM_18N_WKT2, None, _UTM_18N_WKT2]) == {
+            _UTM_18N_WKT2: True
+        }
+
+    def test_text_the_child_cannot_read_is_unverified(self):
+        assert compare_crs([_UTM_18N_WKT2, "NOT A CRS", _UTM_18N_WKT1]) == {
+            _UTM_18N_WKT2: True,
+            "NOT A CRS": None,
+            _UTM_18N_WKT1: True,
         }

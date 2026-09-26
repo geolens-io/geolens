@@ -270,6 +270,7 @@
     "uploadZipNestedArchive": "L'archive contient une archive imbriquée, ce qui n'est pas pris en charge.",
     "uploadZipTooManyEntries": "L'archive contient plus de {{max_entries}} entrées.",
     "sourceValidationCrsMismatch": "Le système de référence de coordonnées de la source {{source}} ne correspond pas aux autres sources.",
+    "sourceValidationCrsUnverified": "Le système de référence de coordonnées de la source {{source}} n'a pas pu être comparé à celui des autres sources.",
     "sourceValidationBandCountMismatch": "Le nombre de bandes de la source {{source}} ne correspond pas aux autres sources.",
     "sourceValidationSingleBandRequired": "La source {{source}} comporte plus d'une bande ; les sources en pile de bandes doivent être monobandes.",
     "sourceValidationDtypeMismatch": "Le type de données des pixels de la source {{source}} ne correspond pas aux autres sources.",

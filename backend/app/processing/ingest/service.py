@@ -908,7 +908,7 @@ async def create_vrt_job(
 
     from app.processing.ingest.tasks import ingest_vrt
     from app.processing.raster.models import RasterAsset
-    from app.processing.raster.validation import validate_sources
+    from app.processing.raster.validation import validate_sources_async
 
     _port = get_processing_port()
     Dataset = _port.get_dataset_orm_class()
@@ -956,11 +956,11 @@ async def create_vrt_job(
     user_roles = await get_user_roles(db, user)
     await check_datasets_access_bulk(db, request.source_dataset_ids, user, user_roles)
 
-    errors = validate_sources(request.vrt_type, list(found_assets))
+    errors = await validate_sources_async(request.vrt_type, list(found_assets))
     if errors:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=[e.model_dump() for e in errors],
+            detail=[e.model_dump(mode="json") for e in errors],
         )
 
     job = await create_ingest_job(db, f"vrt_{request.vrt_type}", "", user.id)

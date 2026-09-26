@@ -363,15 +363,16 @@ describe('API error localization boundary', () => {
     );
   });
 
-  // fix(#1390): the VRT source-compatibility 422 (`validate_sources` in
+  // The VRT source-compatibility 422 (`validate_sources` in
   // backend/app/processing/raster/validation.py) returns an array of
   // SourceValidationError objects (source_id/code/message/field/severity),
-  // not the Pydantic loc/type/ctx shape below. All 8 VAL codes must map to a
+  // not the Pydantic loc/type/ctx shape below. Every VAL code must map to a
   // per-code string that carries the offending source_id as context.
   it('maps every SourceValidationError code from a VRT validation 422', () => {
     const sourceId = '11111111-1111-1111-1111-111111111111';
     const cases: Array<[string, string]> = [
       ['crs_mismatch', 'errors.sourceValidationCrsMismatch'],
+      ['crs_unverified', 'errors.sourceValidationCrsUnverified'],
       ['band_count_mismatch', 'errors.sourceValidationBandCountMismatch'],
       ['single_band_required', 'errors.sourceValidationSingleBandRequired'],
       ['dtype_mismatch', 'errors.sourceValidationDtypeMismatch'],

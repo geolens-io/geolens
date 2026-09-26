@@ -100,6 +100,20 @@ def crs_facts(wkt: str, *, timeout: float | None = None) -> dict:
     return _run("crs-facts", stdin=wkt, timeout=timeout or CRS_FACTS_TIMEOUT_SECONDS)
 
 
+def crs_matches(
+    reference: str, others: list[str], *, timeout: float | None = None
+) -> list[bool | None]:
+    """Whether each CRS text in ``others`` names the same CRS as ``reference``.
+
+    None marks a text PROJ refused.
+    """
+    return _run(
+        "crs-same",
+        stdin=json.dumps([reference, *others]),
+        timeout=timeout or CRS_FACTS_TIMEOUT_SECONDS,
+    )
+
+
 def _command(op: str, *args: str) -> list[str]:
     return [sys.executable, "-m", __name__, op, *args]
 
@@ -197,6 +211,21 @@ def _crs_facts() -> dict:
     return wkt_crs_facts(sys.stdin.read())
 
 
+def _crs_same() -> list[bool | None]:
+    from rasterio.crs import CRS
+    from rasterio.errors import CRSError
+
+    reference, *others = json.loads(sys.stdin.read())
+    reference_crs = CRS.from_wkt(reference)
+    matches: list[bool | None] = []
+    for wkt in others:
+        try:
+            matches.append(reference_crs.equals(CRS.from_wkt(wkt)))
+        except CRSError:
+            matches.append(None)
+    return matches
+
+
 def _category(exc: Exception) -> str:
     """ "open", "invalid" (GDAL or PROJ refused the raster) or "internal"."""
     from rasterio import errors
@@ -225,6 +254,8 @@ def main(argv: list[str]) -> int:
                 result = _quicklook(args[0], args[1])
             elif op == "crs-facts":
                 result = _crs_facts()
+            elif op == "crs-same":
+                result = _crs_same()
             else:
                 raise ValueError(op)
     except Exception as exc:  # broad: every failure reaches the parent as a category

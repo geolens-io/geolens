@@ -398,6 +398,7 @@
     "uploadZipNestedArchive": "压缩包中包含嵌套压缩包，系统不支持此类内容。",
     "uploadZipTooManyEntries": "压缩包中的条目数量超过了 {{max_entries}} 个。",
     "sourceValidationCrsMismatch": "数据源 {{source}} 的坐标参考系统与其他数据源不匹配。",
+    "sourceValidationCrsUnverified": "无法将数据源 {{source}} 的坐标参考系统与其他数据源进行比较。",
     "sourceValidationBandCountMismatch": "数据源 {{source}} 的波段数与其他数据源不匹配。",
     "sourceValidationSingleBandRequired": "数据源 {{source}} 包含多个波段；波段堆叠的数据源必须为单波段。",
     "sourceValidationDtypeMismatch": "数据源 {{source}} 的像素数据类型与其他数据源不匹配。",

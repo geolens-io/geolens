@@ -9,15 +9,13 @@ Called by the VRT creation and add-source endpoints.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from typing import Any
 
 from pydantic import BaseModel
 
-try:
-    import rasterio
-except ImportError:  # pragma: no cover
-    rasterio = None  # type: ignore[assignment]
+from app.processing.raster.probe import RasterProbeError, crs_matches
 
 
 class SourceValidationError(BaseModel):
@@ -30,29 +28,50 @@ class SourceValidationError(BaseModel):
     severity: str = "error"
 
 
-def _check_crs(sources: list[Any]) -> list[SourceValidationError]:
+def compare_crs(crs_wkts: list[str | None]) -> dict[str, bool | None]:
+    """Whether each stored CRS text names the reference source's CRS, keyed by text.
+
+    The reference is the first known text. Identical text is the same CRS
+    without asking PROJ; any other text is compared in the raster probe child,
+    since PROJ may open files named in it. None marks text it couldn't compare.
+    """
+    known = [wkt for wkt in crs_wkts if wkt is not None]
+    if not known:
+        return {}
+    reference = known[0]
+    others = list(dict.fromkeys(wkt for wkt in known if wkt != reference))
+    if not others:
+        return {reference: True}
+    try:
+        matches = crs_matches(reference, others)
+    except RasterProbeError:
+        return {reference: True, **dict.fromkeys(others)}
+    return {reference: True, **dict(zip(others, matches))}
+
+
+def _check_crs(
+    sources: list[Any], same_crs: dict[str, bool | None]
+) -> list[SourceValidationError]:
     """VAL-01: All sources must share the same CRS.
 
     Reference = first source with a non-None crs_wkt.
     Sources with crs_wkt=None are skipped.
     """
     errors: list[SourceValidationError] = []
-
-    # Find reference source (first with a known CRS)
-    ref_crs = None
-    for src in sources:
-        if src.crs_wkt is not None:
-            ref_crs = rasterio.CRS.from_wkt(src.crs_wkt)
-            break
-
-    if ref_crs is None:
-        return errors  # nothing to compare
-
     for src in sources[1:]:
         if src.crs_wkt is None:
             continue
-        src_crs = rasterio.CRS.from_wkt(src.crs_wkt)
-        if not ref_crs.equals(src_crs):
+        same = same_crs.get(src.crs_wkt)
+        if same is None:
+            errors.append(
+                SourceValidationError(
+                    source_id=src.id,
+                    code="crs_unverified",
+                    message="CRS could not be compared with the reference source",
+                    field="crs_wkt",
+                )
+            )
+        elif not same:
             errors.append(
                 SourceValidationError(
                     source_id=src.id,
@@ -235,12 +254,26 @@ def _check_grid_alignment(sources: list[Any]) -> list[SourceValidationError]:
     return errors
 
 
-def validate_sources(vrt_type: str, sources: list[Any]) -> list[SourceValidationError]:
+async def validate_sources_async(
+    vrt_type: str, sources: list[Any]
+) -> list[SourceValidationError]:
+    """:func:`validate_sources`, comparing CRSs in a thread off the event loop."""
+    same_crs = await asyncio.to_thread(compare_crs, [src.crs_wkt for src in sources])
+    return validate_sources(vrt_type, sources, same_crs)
+
+
+def validate_sources(
+    vrt_type: str,
+    sources: list[Any],
+    same_crs: dict[str, bool | None] | None = None,
+) -> list[SourceValidationError]:
     """Validate candidate sources for VRT creation.
 
     Args:
         vrt_type: "mosaic" or "band_stack"
         sources: list of RasterAsset (or compatible objects) to validate
+        same_crs: :func:`compare_crs` of the sources' CRS text, computed here
+            when not given
 
     Returns:
         list of SourceValidationError — empty list means all sources compatible.
@@ -252,11 +285,13 @@ def validate_sources(vrt_type: str, sources: list[Any]) -> list[SourceValidation
     """
     if len(sources) < 2:
         return []
+    if same_crs is None:
+        same_crs = compare_crs([src.crs_wkt for src in sources])
 
     errors: list[SourceValidationError] = []
 
     # Checks that apply to both vrt_types
-    errors.extend(_check_crs(sources))
+    errors.extend(_check_crs(sources, same_crs))
     errors.extend(_check_dtype(sources))
     errors.extend(_check_nodata_consistency(sources))
     errors.extend(_check_rotation(sources))
