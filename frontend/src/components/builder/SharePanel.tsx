@@ -1081,6 +1081,65 @@ export function ShareDialog({
     [layers, pendingVisibility],
   );
 
+  // validate_public_visibility (server) decides whether the map can go
+  // public; isLayerHiddenFromMapAudience above only guesses from cached
+  // layer fields and can disagree with it. 'error' must stay distinct from
+  // an eligible result — a request that never got an answer is not the
+  // server saying yes.
+  type PublicEligibility =
+    | { status: 'checking' }
+    | { status: 'error' }
+    | { status: 'resolved'; nonPublicDatasets: string[] };
+  const [publicEligibility, setPublicEligibility] = useState<PublicEligibility>({ status: 'checking' });
+  const publicEligibilityRequestId = useRef(0);
+  const isCheckingPublicEligibility = publicEligibility.status === 'checking';
+  const publicEligibilityFailed = publicEligibility.status === 'error';
+  const isPublicBlocked =
+    publicEligibility.status === 'resolved' && publicEligibility.nonPublicDatasets.length > 0;
+  const isPublicEligible =
+    publicEligibility.status === 'resolved' && publicEligibility.nonPublicDatasets.length === 0;
+  // Deduplicated — the server names one dataset per non-public layer, so two
+  // layers on the same dataset, or a shared title, would otherwise repeat.
+  const blockedDatasets =
+    publicEligibility.status === 'resolved'
+      ? [...new Set(publicEligibility.nonPublicDatasets)]
+      : [];
+
+  // BuilderDialogs.tsx keys ShareDialog on mapId, so a map switch remounts
+  // this component and resets its state; publishRequestId only has to
+  // arbitrate same-map races (a retry, a rapid re-click) below.
+  const publishRequestId = useRef(0);
+
+  // A remount discards this instance's state, not an already-running PUT's
+  // toast — that isn't state a remount resets. Lets the orphaned call
+  // notice it should skip it.
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    // StrictMode runs setup, cleanup, then setup again on mount; without
+    // this line the cleanup's false is never undone by the second setup.
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  // Guards a stale response — including a retry's — from landing after a newer request.
+  function checkPublicEligibility() {
+    const requestId = ++publicEligibilityRequestId.current;
+    setPublicEligibility({ status: 'checking' });
+    checkMapVisibility(mapId)
+      .then((check) => {
+        if (publicEligibilityRequestId.current === requestId) {
+          setPublicEligibility({ status: 'resolved', nonPublicDatasets: check.non_public_datasets });
+        }
+      })
+      .catch(() => {
+        if (publicEligibilityRequestId.current === requestId) {
+          setPublicEligibility({ status: 'error' });
+        }
+      });
+  }
+
   function handleVisibilitySelect(newVisibility: MapVisibility) {
     if (newVisibility === visibility) return;
     // fix(#1831): a fresh attempt clears any stale refusal from a previous one.
@@ -1091,6 +1150,7 @@ export function ShareDialog({
     // Private↔internal keeps the original one-click behavior.
     if (newVisibility === 'public' || visibility === 'public') {
       setPendingVisibility(newVisibility);
+      if (newVisibility === 'public') checkPublicEligibility();
       return;
     }
     void handleVisibilityChange(newVisibility);
@@ -1105,8 +1165,12 @@ export function ShareDialog({
   async function handleVisibilityChange(newVisibility: MapVisibility) {
     if (newVisibility === visibility) return;
     setPublishBlocked(null);
+    // A newer attempt on this same map makes an earlier PUT's response
+    // stale once it lands (a mapId change instead remounts the dialog).
+    const requestId = ++publishRequestId.current;
     try {
       await publishMap.mutateAsync({ id: mapId, visibility: newVisibility });
+      if (!isMountedRef.current || publishRequestId.current !== requestId) return;
       if (newVisibility === 'public') {
         toast.success(t('toasts.mapNowPublic'));
       } else if (newVisibility === 'internal') {
@@ -1118,6 +1182,7 @@ export function ShareDialog({
         tokens.clearSharedState();
       }
     } catch (err) {
+      if (!isMountedRef.current || publishRequestId.current !== requestId) return;
       // fix(#1831): the mutation never touched `visibility` on failure (the
       // toggle only follows the server response above), so the previous
       // value is already what's on screen — nothing to snap back here. What
@@ -1318,16 +1383,47 @@ export function ShareDialog({
               if (!dialogOpen) setPendingVisibility(null);
             }}
           >
-            <AlertDialogContent>
+            {/* Bounded independently of the list below — a short viewport
+                (phone landscape, high zoom) can otherwise push Cancel past
+                the screen while the modal blocks page scroll. */}
+            <AlertDialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
               {pendingVisibility === 'public' ? (
                 <>
                   <AlertDialogHeader>
-                    <AlertDialogTitle>{t('share.makePublicConfirmTitle')}</AlertDialogTitle>
+                    <AlertDialogTitle>
+                      {isPublicBlocked
+                        ? t('share.makePublicBlockedTitle')
+                        : t('share.makePublicConfirmTitle')}
+                    </AlertDialogTitle>
                     <AlertDialogDescription>
-                      {t('share.makePublicConfirmDescription')}
+                      {isPublicBlocked
+                        ? t('share.makePublicBlockedIntro')
+                        : publicEligibilityFailed
+                          ? t('share.makePublicCheckFailed')
+                          : t('share.makePublicConfirmDescription')}
                     </AlertDialogDescription>
                   </AlertDialogHeader>
-                  {pendingAudienceHiddenLayers.length > 0 && (
+                  {isPublicBlocked && (
+                    <div className="space-y-2">
+                      {/* Up to 200 titles of up to 500 characters each — bounded
+                          independently of the dialog's own height. */}
+                      <ul
+                        data-testid="share-blocked-datasets-list"
+                        aria-label={t('share.makePublicBlockedIntro')}
+                        className="max-h-40 list-disc space-y-1 overflow-y-auto rounded-md border border-border bg-muted/20 py-2 ps-8 pe-3 text-xs text-foreground"
+                      >
+                        {blockedDatasets.map((name) => (
+                          <li key={name} className="break-words">
+                            {name}
+                          </li>
+                        ))}
+                      </ul>
+                      <p className="text-xs text-muted-foreground">
+                        {t('share.makePublicBlockedRemedy')}
+                      </p>
+                    </div>
+                  )}
+                  {isPublicEligible && pendingAudienceHiddenLayers.length > 0 && (
                     <div
                       data-testid="share-confirm-audience-hidden-warning"
                       className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-foreground"
@@ -1343,9 +1439,22 @@ export function ShareDialog({
                   )}
                   <AlertDialogFooter>
                     <AlertDialogCancel>{t('share.visibilityConfirmCancel')}</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleConfirmVisibilityChange}>
-                      {t('share.makePublicConfirmAction')}
-                    </AlertDialogAction>
+                    {publicEligibilityFailed && (
+                      <Button type="button" variant="outline" onClick={checkPublicEligibility}>
+                        {t('share.makePublicCheckRetry')}
+                      </Button>
+                    )}
+                    {!isPublicBlocked && !publicEligibilityFailed && (
+                      <AlertDialogAction
+                        onClick={handleConfirmVisibilityChange}
+                        disabled={isCheckingPublicEligibility}
+                      >
+                        {isCheckingPublicEligibility && (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin me-1.5" aria-hidden="true" />
+                        )}
+                        {t('share.makePublicConfirmAction')}
+                      </AlertDialogAction>
+                    )}
                   </AlertDialogFooter>
                 </>
               ) : (

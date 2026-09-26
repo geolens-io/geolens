@@ -1,6 +1,11 @@
+import { StrictMode } from 'react';
 import type { ComponentProps } from 'react';
 import userEvent from '@testing-library/user-event';
-import { fireEvent, render, screen, waitFor } from '@/test/test-utils';
+import { act, fireEvent, render, screen, waitFor, within } from '@/test/test-utils';
+// React only double-invokes an effect's setup/cleanup on mount when
+// StrictMode is the render root itself; the project's render() always
+// wraps a `wrapper` around it, which defeats that. Used bare below.
+import { render as renderUnderStrictMode } from '@testing-library/react';
 import { checkMapVisibility } from '@/api/maps';
 import { ApiError } from '@/api/client';
 import { translateApiErrorDetail } from '@/lib/error-map';
@@ -111,6 +116,8 @@ function setup({
   canSetPublic = true,
   forceActiveEmbedToken = false,
   lockOriginsAfterCreate = null,
+  mapId = 'map-1',
+  strictMode = false,
 }: {
   enterprise?: boolean;
   hasShareToken?: boolean;
@@ -143,6 +150,10 @@ function setup({
    *  domain-locked PREVIEW, since createEmbed() skips when a token already
    *  exists and the raw token is available only at creation. */
   lockOriginsAfterCreate?: string[] | null;
+  mapId?: string;
+  /** Renders under React.StrictMode, which double-invokes effect setup and
+   *  cleanup on mount — the app's real runtime configuration in dev. */
+  strictMode?: boolean;
 } = {}) {
   const createShareToken = vi.fn().mockResolvedValue({
     token: 'share-token',
@@ -256,19 +267,28 @@ function setup({
     non_public_datasets: hasNonPublic ? ['Private dataset'] : [],
   });
 
-  render(
+  // BuilderDialogs.tsx keys ShareDialog on mapId (a map switch must remount
+  // it); mirrored here so a rerender with a new mapId behaves the same way.
+  const dialog = (
     <ShareDialog
-      mapId="map-1"
+      key={mapId}
+      mapId={mapId}
       visibility={visibility}
       open
       onOpenChange={vi.fn()}
       hasUnsavedChanges={hasUnsavedChanges}
       saveStatus={saveStatus}
       layers={layers}
-    />,
+    />
   );
+  // Bare: see the renderUnderStrictMode import comment above. Every hook
+  // ShareDialog calls is mocked above, so no real query/router/tooltip
+  // context is ever touched.
+  const { rerender } = strictMode
+    ? renderUnderStrictMode(<StrictMode>{dialog}</StrictMode>)
+    : render(dialog);
 
-  return { createShareToken, createEmbedToken: createEmbedToken as ReturnType<typeof vi.fn>, updateEmbedTokenFn, updateShareTokenFn, publishMapFn };
+  return { createShareToken, createEmbedToken: createEmbedToken as ReturnType<typeof vi.fn>, updateEmbedTokenFn, updateShareTokenFn, publishMapFn, rerender };
 }
 
 describe('ShareDialog edition gates', () => {
@@ -1276,22 +1296,11 @@ describe('fix(#778) public-boundary visibility confirmation', () => {
     vi.clearAllMocks();
   });
 
-  const privateLayer = {
-    id: 'layer-1',
-    dataset_id: 'ds-1',
-    dataset_name: 'Secret parcels',
-    display_name: null,
-    dataset_visibility: 'private',
-    dataset_status: 'published',
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } as any;
-
   it('private→public opens the confirm dialog and only mutates on confirm', async () => {
     const user = userEvent.setup();
     const { publishMapFn } = setup({
       visibility: 'private',
       hasShareToken: false,
-      layers: [privateLayer],
     });
 
     await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
@@ -1299,14 +1308,12 @@ describe('fix(#778) public-boundary visibility confirmation', () => {
     // Dialog is open, nothing has mutated yet.
     const dialog = await screen.findByRole('alertdialog');
     expect(publishMapFn).not.toHaveBeenCalled();
-    // The audience-hidden layer list is surfaced inside the dialog body,
-    // computed against the TARGET (public) visibility.
-    expect(screen.getByTestId('share-confirm-audience-hidden-warning')).toHaveTextContent(
-      'Secret parcels',
-    );
     expect(dialog).toHaveTextContent(/make this map public\?/i);
 
-    await user.click(screen.getByRole('button', { name: /^make public$/i }));
+    // The action waits on the server's own publish-eligibility check.
+    const makePublicButton = await screen.findByRole('button', { name: /^make public$/i });
+    await waitFor(() => expect(makePublicButton).toBeEnabled());
+    await user.click(makePublicButton);
 
     await waitFor(() => {
       expect(publishMapFn).toHaveBeenCalledOnce();
@@ -1382,6 +1389,438 @@ describe('fix(#778) public-boundary visibility confirmation', () => {
     // The other choices stay usable.
     expect(screen.getByRole('radio', { name: /only you/i })).toBeEnabled();
     expect(screen.getByRole('radio', { name: /all team members/i })).toBeEnabled();
+  });
+});
+
+describe('#2297 public confirm defers to the server publish check', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const privateLayer = {
+    id: 'layer-1',
+    dataset_id: 'ds-1',
+    dataset_name: 'Secret parcels',
+    display_name: null,
+    dataset_visibility: 'private',
+    dataset_status: 'published',
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any;
+
+  it('blocks Make public, names the datasets, and swaps the heading when the server would refuse', async () => {
+    const user = userEvent.setup();
+    const { publishMapFn } = setup({
+      visibility: 'private',
+      hasShareToken: false,
+      hasNonPublic: true,
+      layers: [privateLayer],
+    });
+
+    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+
+    const dialog = await screen.findByRole('alertdialog');
+    await waitFor(() => {
+      expect(dialog).toHaveTextContent('Private dataset');
+    });
+    expect(dialog).toHaveTextContent(/this map can't be public yet/i);
+    expect(screen.queryByRole('button', { name: /^make public$/i })).not.toBeInTheDocument();
+    // Superseded by the message above — showing both would say the map can't
+    // go public AND will go public with the layer merely hidden.
+    expect(screen.queryByTestId('share-confirm-audience-hidden-warning')).not.toBeInTheDocument();
+    expect(publishMapFn).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: /^cancel$/i }));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  it('bounds this confirm dialog to the viewport height so Cancel stays reachable on a short screen', async () => {
+    const user = userEvent.setup();
+    setup({
+      visibility: 'private',
+      hasShareToken: false,
+      hasNonPublic: false,
+    });
+
+    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+
+    const dialog = await screen.findByRole('alertdialog');
+    expect(dialog.className).toEqual(expect.stringContaining('max-h-[calc(100dvh-2rem)]'));
+    expect(dialog.className).toEqual(expect.stringContaining('overflow-y-auto'));
+  });
+
+  it('deduplicates a long blocked-dataset list and scroll-bounds it, keeping Cancel and the remedy outside it', async () => {
+    const user = userEvent.setup();
+    const longTitle = 'A'.repeat(500);
+    // 50 rows collapsing to 2 unique titles — the server names one per
+    // non-public layer, so duplicates and a 500-char title are both realistic.
+    const rawNames = Array.from({ length: 50 }, (_, i) =>
+      i % 2 === 0 ? longTitle : 'Duplicate name',
+    );
+    const { publishMapFn } = setup({
+      visibility: 'private',
+      hasShareToken: false,
+      hasNonPublic: true,
+    });
+    mockedCheckMapVisibility.mockResolvedValue({ has_non_public: true, non_public_datasets: rawNames });
+
+    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+
+    const dialog = await screen.findByRole('alertdialog');
+    await waitFor(() => {
+      expect(dialog).toHaveTextContent(longTitle);
+    });
+
+    const list = screen.getByTestId('share-blocked-datasets-list');
+    expect(list.className).toEqual(expect.stringContaining('max-h-40'));
+    expect(list.className).toEqual(expect.stringContaining('overflow-y-auto'));
+    const items = within(list).getAllByRole('listitem');
+    expect(items).toHaveLength(2);
+    expect(items.every((item) => item.className.includes('break-words'))).toBe(true);
+
+    const cancelButton = screen.getByRole('button', { name: /^cancel$/i });
+    expect(list).not.toContainElement(cancelButton);
+    const remedy = screen.getByText(/remove those layers and save the map/i);
+    expect(list).not.toContainElement(remedy);
+
+    expect(publishMapFn).not.toHaveBeenCalled();
+  });
+
+  it('shows an error with Retry when the check fails, and enables Make public once a retry succeeds', async () => {
+    const user = userEvent.setup();
+    const { publishMapFn } = setup({
+      visibility: 'private',
+      hasShareToken: false,
+    });
+    mockedCheckMapVisibility.mockReset();
+    mockedCheckMapVisibility.mockRejectedValueOnce(new Error('network error'));
+    mockedCheckMapVisibility.mockResolvedValueOnce({ has_non_public: false, non_public_datasets: [] });
+
+    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+
+    const dialog = await screen.findByRole('alertdialog');
+    await waitFor(() => {
+      expect(dialog).toHaveTextContent(/couldn't check whether this map can be public/i);
+    });
+    // A failed check must not read as an eligible one.
+    expect(screen.queryByRole('button', { name: /^make public$/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^cancel$/i })).toBeInTheDocument();
+    expect(publishMapFn).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: /^retry$/i }));
+
+    const makePublicButton = await screen.findByRole('button', { name: /^make public$/i });
+    await waitFor(() => expect(makePublicButton).toBeEnabled());
+    expect(screen.queryByRole('button', { name: /^retry$/i })).not.toBeInTheDocument();
+
+    await user.click(makePublicButton);
+    await waitFor(() => {
+      expect(publishMapFn).toHaveBeenCalledWith({ id: 'map-1', visibility: 'public' });
+    });
+  });
+
+  it('keeps an accessible name on Make public while the eligibility check is pending', async () => {
+    const user = userEvent.setup();
+    setup({
+      visibility: 'private',
+      hasShareToken: false,
+    });
+    let resolveCheck: (value: { has_non_public: boolean; non_public_datasets: string[] }) => void =
+      () => {};
+    mockedCheckMapVisibility.mockReset();
+    mockedCheckMapVisibility.mockReturnValue(
+      new Promise((resolve) => {
+        resolveCheck = resolve;
+      }),
+    );
+
+    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+    await screen.findByRole('alertdialog');
+
+    // The check has not resolved yet — a spinner alone would leave the
+    // button with no accessible name for a screen reader.
+    const pendingButton = screen.getByRole('button', { name: /make public/i });
+    expect(pendingButton).toBeDisabled();
+
+    resolveCheck({ has_non_public: false, non_public_datasets: [] });
+    await waitFor(() => expect(pendingButton).toBeEnabled());
+  });
+
+  it('leaves all datasets public unaffected: Make public still offered', async () => {
+    const user = userEvent.setup();
+    const { publishMapFn } = setup({
+      visibility: 'private',
+      hasShareToken: false,
+      hasNonPublic: false,
+    });
+
+    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+    await screen.findByRole('alertdialog');
+
+    const makePublicButton = await screen.findByRole('button', { name: /^make public$/i });
+    await waitFor(() => expect(makePublicButton).toBeEnabled());
+    await user.click(makePublicButton);
+
+    await waitFor(() => {
+      expect(publishMapFn).toHaveBeenCalledWith({ id: 'map-1', visibility: 'public' });
+    });
+  });
+
+  it('leaves All team members unaffected by a non-public layer', async () => {
+    const user = userEvent.setup();
+    const { publishMapFn } = setup({
+      visibility: 'private',
+      hasShareToken: false,
+      hasNonPublic: true,
+      layers: [privateLayer],
+    });
+
+    await user.click(screen.getByRole('radio', { name: /all team members/i }));
+
+    await waitFor(() => {
+      expect(publishMapFn).toHaveBeenCalledWith({ id: 'map-1', visibility: 'internal' });
+    });
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(mockedCheckMapVisibility).not.toHaveBeenCalled();
+  });
+
+  it('invalidates an in-flight check when mapId changes, so a late answer cannot cross maps', async () => {
+    const user = userEvent.setup();
+    let resolveMapACheck: (value: { has_non_public: boolean; non_public_datasets: string[] }) => void =
+      () => {};
+    mockedCheckMapVisibility.mockReset();
+    mockedCheckMapVisibility.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveMapACheck = resolve;
+      }),
+    );
+    const { rerender } = setup({
+      mapId: 'map-a',
+      visibility: 'private',
+      hasShareToken: false,
+    });
+
+    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+    await screen.findByRole('alertdialog');
+
+    // The Share dialog stays mounted (e.g. router reuse on Back) while
+    // navigating to another map before map A's check has answered.
+    rerender(
+      <ShareDialog key="map-b" mapId="map-b" visibility="private" open onOpenChange={vi.fn()} />,
+    );
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+
+    // Map A's late "blocked" answer must not resurrect the confirmation or
+    // leak its dataset name onto map B.
+    await act(async () => {
+      resolveMapACheck({ has_non_public: true, non_public_datasets: ['Map A secret'] });
+    });
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(screen.queryByText('Map A secret')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^make public$/i })).not.toBeInTheDocument();
+  });
+
+  it('clears a publish refusal from map A when mapId changes to map B', async () => {
+    const user = userEvent.setup();
+    const detail = {
+      message: 'Cannot set visibility to public: map contains non-public datasets',
+      datasets: 'Map A secret',
+    };
+    const publishMapFn = vi
+      .fn()
+      .mockRejectedValue(new ApiError(translateApiErrorDetail(detail, 400), 400, detail));
+    const { rerender } = setup({
+      mapId: 'map-a',
+      visibility: 'private',
+      hasShareToken: false,
+      hasNonPublic: false,
+      publishMapFn,
+    });
+
+    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+    const makePublicButton = await screen.findByRole('button', { name: /^make public$/i });
+    await waitFor(() => expect(makePublicButton).toBeEnabled());
+    await user.click(makePublicButton);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('share-publish-blocked-error')).toHaveTextContent('Map A secret');
+    });
+
+    rerender(
+      <ShareDialog key="map-b" mapId="map-b" visibility="private" open onOpenChange={vi.fn()} />,
+    );
+
+    expect(screen.queryByTestId('share-publish-blocked-error')).not.toBeInTheDocument();
+    expect(screen.queryByText('Map A secret')).not.toBeInTheDocument();
+  });
+
+  it('ignores a publish rejection for map A that lands after mapId changes to map B', async () => {
+    const user = userEvent.setup();
+    let rejectMapAPublish: (err: unknown) => void = () => {};
+    const publishMapFn = vi.fn().mockReturnValue(
+      new Promise((_resolve, reject) => {
+        rejectMapAPublish = reject;
+      }),
+    );
+    const { rerender } = setup({
+      mapId: 'map-a',
+      visibility: 'private',
+      hasShareToken: false,
+      hasNonPublic: false,
+      publishMapFn,
+    });
+
+    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+    const makePublicButton = await screen.findByRole('button', { name: /^make public$/i });
+    await waitFor(() => expect(makePublicButton).toBeEnabled());
+    await user.click(makePublicButton);
+    await waitFor(() => expect(publishMapFn).toHaveBeenCalled());
+
+    // Map A's PUT is still in flight when the dialog moves to map B.
+    rerender(
+      <ShareDialog key="map-b" mapId="map-b" visibility="private" open onOpenChange={vi.fn()} />,
+    );
+
+    const detail = {
+      message: 'Cannot set visibility to public: map contains non-public datasets',
+      datasets: 'Map A secret',
+    };
+    await act(async () => {
+      rejectMapAPublish(new ApiError(translateApiErrorDetail(detail, 400), 400, detail));
+    });
+
+    expect(screen.queryByTestId('share-publish-blocked-error')).not.toBeInTheDocument();
+    expect(screen.queryByText('Map A secret')).not.toBeInTheDocument();
+  });
+
+  it('ignores a publish success for map A that lands after mapId changes to map B', async () => {
+    const user = userEvent.setup();
+    let resolveMapAPublish: (value: unknown) => void = () => {};
+    const publishMapFn = vi.fn().mockReturnValue(
+      new Promise((resolve) => {
+        resolveMapAPublish = resolve;
+      }),
+    );
+    const { rerender } = setup({
+      mapId: 'map-a',
+      visibility: 'private',
+      hasShareToken: false,
+      hasNonPublic: false,
+      publishMapFn,
+    });
+
+    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+    const makePublicButton = await screen.findByRole('button', { name: /^make public$/i });
+    await waitFor(() => expect(makePublicButton).toBeEnabled());
+    await user.click(makePublicButton);
+    await waitFor(() => expect(publishMapFn).toHaveBeenCalled());
+
+    rerender(
+      <ShareDialog key="map-b" mapId="map-b" visibility="private" open onOpenChange={vi.fn()} />,
+    );
+
+    // A late success must not toast on B's behalf or clear B's share state
+    // as though B's own visibility had just changed.
+    await act(async () => {
+      resolveMapAPublish({});
+    });
+
+    expect(vi.mocked(toast.success)).not.toHaveBeenCalled();
+  });
+
+  it('does not let a stale unpublish result for map A populate map B share state', async () => {
+    const user = userEvent.setup();
+    let resolveMapAPublish: (value: unknown) => void = () => {};
+    const publishMapFn = vi.fn().mockReturnValue(
+      new Promise((resolve) => {
+        resolveMapAPublish = resolve;
+      }),
+    );
+    const { rerender } = setup({
+      mapId: 'map-a',
+      visibility: 'public',
+      hasShareToken: false,
+      publishMapFn,
+    });
+
+    // Map A creates and holds a raw share token.
+    await user.click(screen.getByRole('button', { name: /generate share link/i }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /copy link/i })).toBeInTheDocument();
+    });
+
+    // A's own unpublish PUT is still in flight when the dialog moves to
+    // (public) map B.
+    await user.click(screen.getByRole('radio', { name: /only you/i }));
+    await screen.findByRole('alertdialog');
+    await user.click(screen.getByRole('button', { name: /stop public sharing/i }));
+    await waitFor(() => expect(publishMapFn).toHaveBeenCalled());
+
+    rerender(
+      <ShareDialog key="map-b" mapId="map-b" visibility="public" open onOpenChange={vi.fn()} />,
+    );
+    // Map B is a fresh instance with no token of its own yet.
+    expect(screen.getByRole('button', { name: /generate share link/i })).toBeInTheDocument();
+
+    await act(async () => {
+      resolveMapAPublish({});
+    });
+
+    // A's late unpublish result must not populate B's share section.
+    expect(screen.queryByRole('button', { name: /copy link/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /generate share link/i })).toBeInTheDocument();
+  });
+});
+
+// main.tsx renders the app under React.StrictMode, which in development runs
+// an effect's setup, its cleanup, then setup again on mount — real behavior
+// the tests above never exercise since they don't opt into StrictMode.
+describe('StrictMode: mount must leave isMountedRef true', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('still confirms a successful visibility change', async () => {
+    const user = userEvent.setup();
+    const publishMapFn = vi.fn().mockResolvedValue({});
+    setup({
+      strictMode: true,
+      visibility: 'private',
+      hasShareToken: false,
+      publishMapFn,
+    });
+
+    await user.click(screen.getByRole('radio', { name: /all team members/i }));
+
+    await waitFor(() => {
+      expect(publishMapFn).toHaveBeenCalledWith({ id: 'map-1', visibility: 'internal' });
+    });
+    expect(vi.mocked(toast.success)).toHaveBeenCalled();
+  });
+
+  it('still shows a publish refusal inline', async () => {
+    const user = userEvent.setup();
+    const detail = {
+      message: 'Cannot set visibility to public: map contains non-public datasets',
+      datasets: 'Large Lakes',
+    };
+    const publishMapFn = vi
+      .fn()
+      .mockRejectedValue(new ApiError(translateApiErrorDetail(detail, 400), 400, detail));
+    setup({
+      strictMode: true,
+      visibility: 'private',
+      hasShareToken: false,
+      publishMapFn,
+    });
+
+    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+    const makePublicButton = await screen.findByRole('button', { name: /^make public$/i });
+    await waitFor(() => expect(makePublicButton).toBeEnabled());
+    await user.click(makePublicButton);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('share-publish-blocked-error')).toHaveTextContent('Large Lakes');
+    });
   });
 });
 
