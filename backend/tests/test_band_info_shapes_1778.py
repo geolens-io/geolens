@@ -23,11 +23,28 @@ class TestBandInfoShapes:
         bands = _stac_bands([{"dtype": "uint8", "nodata": "unknown"}])
         assert bands == [{"data_type": "uint8"}]
 
-    def test_a_remotely_described_cog_publishes_no_empty_bands(self) -> None:
+    def test_a_remotely_described_cog_publishes_its_statistics(self) -> None:
         """``fetch_cog_info`` writes ``{min, max, mean}`` and nothing else."""
-        assert (
-            _stac_bands([{"min": 0, "max": 255, "mean": 12.5} for _ in range(3)]) == []
-        )
+        bands = _stac_bands([{"min": 0, "max": 255, "mean": 12.5}], dtype="uint8")
+        assert bands == [
+            {
+                "data_type": "uint8",
+                "statistics": {"minimum": 0, "maximum": 255, "mean": 12.5},
+            }
+        ]
+
+    def test_a_band_with_no_field_is_left_out(self) -> None:
+        assert _stac_bands([{"min": None, "max": None}, {"dtype": "uint8"}]) == [
+            {"data_type": "uint8"}
+        ]
+
+    @pytest.mark.parametrize(
+        ("dtype", "data_type"),
+        [("float32", "float32"), ("complex64", "cfloat32"), ("bool", None)],
+    )
+    def test_a_data_type_takes_the_extensions_name(self, dtype, data_type) -> None:
+        bands = _stac_bands([{"dtype": dtype, "color_interp": "Gray"}])
+        assert bands[0].get("data_type") == data_type
 
     def test_the_ogc_records_serializer_reports_the_band_name(self) -> None:
         """``color_interp`` is the key the local producer writes; nothing
@@ -78,10 +95,13 @@ def _ogc_bands(band_info: list[dict]) -> list[dict]:
     return _ogc_record(band_info)["properties"].get("raster:bands", [])
 
 
-def _stac_bands(band_info: list[dict]) -> list[dict]:
+def _stac_bands(band_info: list[dict], dtype: str | None = None) -> list[dict]:
     from app.standards.stac.serializer import ogc_record_to_stac_item
 
     item = ogc_record_to_stac_item(
-        _ogc_record(band_info), stac_api_url="https://example.test/stac"
+        _ogc_record(band_info),
+        stac_api_url="https://example.test/stac",
+        band_info=band_info,
+        dtype=dtype,
     )
     return item["properties"].get("raster:bands", [])

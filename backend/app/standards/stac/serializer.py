@@ -5,7 +5,7 @@ Pure dict restructuring -- no database queries.
 
 from __future__ import annotations
 
-from app.core.raster_bands import stac_band_nodata
+from app.core.raster_bands import band_display_name, stac_band_nodata
 from app.standards.ogc.utils import normalize_language_tag
 
 # Conformance class URIs for the GeoLens STAC API
@@ -27,6 +27,34 @@ STAC_LANGUAGE_EXTENSION_URI = (
 
 # STAC extension properties copied from OGC record properties unchanged
 _STAC_EXTENSION_PROPS = ("proj:shape",)
+
+# The raster extension's band data types. rasterio and Titiler name the complex
+# ones after numpy.
+_DATA_TYPES = frozenset(
+    {
+        *(f"int{bits}" for bits in (8, 16, 32, 64)),
+        *(f"uint{bits}" for bits in (8, 16, 32, 64)),
+        *(f"float{bits}" for bits in (16, 32, 64)),
+        "cint16",
+        "cint32",
+        "cfloat32",
+        "cfloat64",
+    }
+)
+_NUMPY_COMPLEX_TYPES = {
+    "complex_int16": "cint16",
+    "complex64": "cfloat32",
+    "complex128": "cfloat64",
+}
+# band_info's statistics keys, as fetch_cog_info takes them from Titiler, and
+# their names in the raster extension's statistics object.
+_STATISTICS = {
+    "min": "minimum",
+    "max": "maximum",
+    "mean": "mean",
+    "std": "stddev",
+    "valid_percent": "valid_percent",
+}
 
 _RTL_LANGS = {"ar", "fa", "he", "ur"}
 
@@ -121,20 +149,48 @@ def _normalize_extension_uris(values: list[str]) -> list[str]:
     return normalized
 
 
-def _stac_bands(bands: object) -> list[dict]:
-    """The record's ``raster:bands`` as the raster extension's Band objects.
+def _stac_data_type(dtype: object) -> str | None:
+    if not isinstance(dtype, str):
+        return None
+    data_type = _NUMPY_COMPLEX_TYPES.get(dtype, dtype)
+    return data_type if data_type in _DATA_TYPES else None
 
-    The record keeps an unknown nodata as None, which a Band doesn't allow, so
-    it is dropped, and so is a band left with no field, since a Band needs one.
+
+def _is_number(value: object) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _stac_bands(band_info: object, dtype: str | None) -> list[dict]:
+    """A raster's stored band_info as the raster extension's Band objects.
+
+    Read from band_info rather than the record's bands, which carry neither the
+    statistics a remote COG's bands hold nor its dtype. ``dtype`` is the
+    raster's, for bands without their own. A nodata the extension doesn't
+    allow is left out, and so is a band with no field, since a Band needs one.
     """
     stac_bands = []
-    for band in bands if isinstance(bands, list) else []:
+    for band in band_info if isinstance(band_info, list) else []:
         if not isinstance(band, dict):
             continue
-        stac_band = {key: value for key, value in band.items() if key != "nodata"}
+        stac_band: dict = {}
+        name = band_display_name(band)
+        if name:
+            stac_band["name"] = name
+        data_type = _stac_data_type(band.get("dtype") or dtype)
+        if data_type:
+            stac_band["data_type"] = data_type
         nodata = stac_band_nodata(band.get("nodata"))
         if nodata is not None:
             stac_band["nodata"] = nodata
+        statistics = {
+            stac_key: band[key]
+            for key, stac_key in _STATISTICS.items()
+            if _is_number(band.get(key))
+        }
+        if statistics:
+            stac_band["statistics"] = statistics
+        if band.get("description"):
+            stac_band["description"] = band["description"]
         if stac_band:
             stac_bands.append(stac_band)
     return stac_bands
@@ -164,6 +220,8 @@ def ogc_record_to_stac_item(
     stac_api_url: str,
     derived_from_id: str | None = None,
     crs_metres_per_unit: float | None = None,
+    band_info: list | None = None,
+    dtype: str | None = None,
 ) -> dict:
     """Transform an OGC Record Feature dict into a STAC 1.0 Item dict.
 
@@ -179,6 +237,9 @@ def ogc_record_to_stac_item(
         The raster CRS's metres per unit. The record's ``gsd`` is in CRS units
         and STAC's is in metres, so without this (a geographic or unknown CRS)
         the item has no ``gsd``.
+    band_info, dtype:
+        The raster's stored band_info and dtype, which ``raster:bands`` is
+        built from.
     """
     props = record["properties"]
 
@@ -220,7 +281,7 @@ def ogc_record_to_stac_item(
             stac_props[key] = props[key]
     if props.get("gsd") is not None and crs_metres_per_unit is not None:
         stac_props["gsd"] = props["gsd"] * crs_metres_per_unit
-    bands = _stac_bands(props.get("raster:bands"))
+    bands = _stac_bands(band_info, dtype)
     if bands:
         stac_props["raster:bands"] = bands
 

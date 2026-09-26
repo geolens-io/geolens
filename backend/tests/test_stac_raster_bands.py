@@ -9,7 +9,9 @@ from tests.factories import create_raster_dataset, get_user_id
 pytestmark = pytest.mark.anyio
 
 
-async def _raster(session, band_info: list[dict], nodata: str | None) -> str:
+async def _raster(
+    session, band_info: list[dict], nodata: str | None, dtype: str | None = None
+) -> str:
     dataset = await create_raster_dataset(
         session,
         created_by=await get_user_id(session, "admin"),
@@ -19,6 +21,7 @@ async def _raster(session, band_info: list[dict], nodata: str | None) -> str:
             "band_count": len(band_info),
             "band_info": band_info,
             "nodata": nodata,
+            "dtype": dtype,
         },
     )
     return str(dataset.id)
@@ -54,14 +57,22 @@ async def test_a_band_without_nodata_has_no_nodata_key(
     assert record.json()["properties"]["raster:bands"][0]["nodata"] is None
 
 
-async def test_statistics_only_bands_of_a_remote_cog_are_left_out(
-    client, admin_auth_header, test_db_session
+@pytest.mark.parametrize("count", [1, 3], ids=["one-band", "three-bands"])
+async def test_a_remote_cogs_bands_carry_their_statistics_and_data_type(
+    client, admin_auth_header, test_db_session, count
 ):
-    band_info = [{"min": 0, "max": 255, "mean": 12.5} for _ in range(3)]
-    dataset_id = await _raster(test_db_session, band_info, None)
+    # fetch_cog_info's band_info: Titiler's statistics, and no nodata.
+    band_info = [{"min": 0, "max": 255, "mean": 12.5 + band} for band in range(count)]
+    dataset_id = await _raster(test_db_session, band_info, None, dtype="uint8")
 
     for bands in await _published_bands(client, admin_auth_header, dataset_id):
-        assert bands is None
+        assert bands == [
+            {
+                "data_type": "uint8",
+                "statistics": {"minimum": 0, "maximum": 255, "mean": 12.5 + band},
+            }
+            for band in range(count)
+        ]
 
 
 @pytest.mark.parametrize(
