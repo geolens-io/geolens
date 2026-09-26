@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 import uuid
 from types import SimpleNamespace
@@ -36,6 +37,8 @@ _UTM_18N = rasterio.crs.CRS.from_epsg(32618)
 _UTM_18N_WKT1 = _UTM_18N.to_wkt()
 _UTM_18N_WKT2 = _UTM_18N.to_wkt(version="WKT2_2019")
 _UTM_19N_WKT2 = rasterio.crs.CRS.from_epsg(32619).to_wkt(version="WKT2_2019")
+# Truncated, so PROJ refuses it, but a keyword sniff still calls it geographic.
+_TRUNCATED = 'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84"'
 
 
 @pytest.fixture
@@ -287,7 +290,9 @@ class TestWritersStoreTheFacts:
         }
 
 
-async def _vrt_source(session, crs_wkt: str) -> tuple[str, str]:
+async def _vrt_source(
+    session, crs_wkt: str, facts: dict | None = None
+) -> tuple[str, str]:
     """A mosaic-compatible raster source: its dataset id and raster asset id."""
     dataset = await create_raster_dataset(
         session,
@@ -297,6 +302,7 @@ async def _vrt_source(session, crs_wkt: str) -> tuple[str, str]:
         create_raster_asset=True,
         raster_asset_kwargs={
             "crs_wkt": crs_wkt,
+            **(facts or {}),
             "dtype": "uint8",
             "band_count": 1,
             "res_x": 10.0,
@@ -426,9 +432,62 @@ class TestVrtSourcesCompareCrsInTheChild:
 
         monkeypatch.setattr(probe, "_run", _no_child)
 
-        assert compare_crs([_UTM_18N_WKT2, None, _UTM_18N_WKT2]) == {
-            _UTM_18N_WKT2: True
-        }
+        assert compare_crs(
+            [_UTM_18N_WKT2, None, _UTM_18N_WKT2], parsed={_UTM_18N_WKT2}
+        ) == {_UTM_18N_WKT2: True}
+
+    async def test_identical_text_with_stored_facts_starts_no_child(
+        self, client, admin_auth_header, test_db_session, monkeypatch
+    ):
+        facts = wkt_crs_facts(_UTM_18N_WKT2)
+        sources = [
+            await _vrt_source(test_db_session, _UTM_18N_WKT2, facts) for _ in "ab"
+        ]
+
+        def _no_child(*args, **kwargs):
+            raise AssertionError("a probe child was started")
+
+        monkeypatch.setattr(probe, "_run", _no_child)
+
+        resp = await _create_vrt(client, admin_auth_header, sources)
+
+        assert resp.status_code == 202, resp.text
+
+    async def test_identical_text_without_stored_facts_is_read_once(
+        self, client, admin_auth_header, test_db_session, monkeypatch
+    ):
+        sources = [await _vrt_source(test_db_session, _UTM_18N_WKT2) for _ in "ab"]
+        calls = []
+        run = probe._run
+
+        def _counting(op, *args, **kwargs):
+            calls.append((op, json.loads(kwargs["stdin"])))
+            return run(op, *args, **kwargs)
+
+        monkeypatch.setattr(probe, "_run", _counting)
+
+        resp = await _create_vrt(client, admin_auth_header, sources)
+
+        assert resp.status_code == 202, resp.text
+        assert calls == [("crs-same", [_UTM_18N_WKT2])]
+
+    @pytest.mark.parametrize(
+        "crs_wkt", ["definitely-not-WKT", _TRUNCATED], ids=["garbage", "truncated"]
+    )
+    async def test_identical_unreadable_text_is_unverified(
+        self, client, admin_auth_header, test_db_session, crs_wkt
+    ):
+        # What ingest or the repair job stores: no facts for the garbage, a
+        # sniffed crs_is_geographic for the truncated text.
+        facts = wkt_crs_facts(crs_wkt)
+        sources = [await _vrt_source(test_db_session, crs_wkt, facts) for _ in "ab"]
+
+        resp = await _create_vrt(client, admin_auth_header, sources)
+
+        assert resp.status_code == 422, resp.text
+        assert sorted((e["code"], e["source_id"]) for e in resp.json()["detail"]) == (
+            sorted(("crs_unverified", asset_id) for _, asset_id in sources)
+        )
 
     def test_text_the_child_cannot_read_is_unverified(self):
         assert compare_crs([_UTM_18N_WKT2, "NOT A CRS", _UTM_18N_WKT1]) == {

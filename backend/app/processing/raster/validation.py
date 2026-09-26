@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Collection
 from typing import Any
 
 from pydantic import BaseModel
@@ -28,17 +29,22 @@ class SourceValidationError(BaseModel):
     severity: str = "error"
 
 
-def compare_crs(crs_wkts: list[str | None]) -> dict[str, bool | None]:
+def compare_crs(
+    crs_wkts: list[str | None], *, parsed: Collection[str] = ()
+) -> dict[str, bool | None]:
     """Whether each stored CRS text names the reference CRS, keyed by text.
 
-    The reference is the first text PROJ can read. Identical text is the same
-    CRS without asking PROJ; differing texts are compared in the raster probe
-    child, since PROJ may open files named in them. None marks a text PROJ
-    refused, or every text when the child gave no answer.
+    The reference is the first text PROJ can read. Texts are compared in the
+    raster probe child, since PROJ may open files named in them, unless every
+    source shares one text in ``parsed``, which PROJ read when its facts were
+    stored. None marks a text PROJ refused, or every text when the child gave
+    no answer.
     """
     distinct = list(dict.fromkeys(wkt for wkt in crs_wkts if wkt is not None))
-    if len(distinct) < 2:
-        return dict.fromkeys(distinct, True)
+    if not distinct:
+        return {}
+    if len(distinct) == 1 and distinct[0] in parsed:
+        return {distinct[0]: True}
     try:
         return dict(zip(distinct, crs_matches(distinct)))
     except RasterProbeError:
@@ -251,11 +257,32 @@ def _check_grid_alignment(sources: list[Any]) -> list[SourceValidationError]:
     return errors
 
 
+def _parsed_crs_texts(sources: list[Any]) -> set[str]:
+    """The sources' CRS texts whose stored facts show PROJ parsed them.
+
+    ``crs_is_geographic`` can come from a keyword sniff of text PROJ refused;
+    the other two facts need its parse.
+    """
+    return {
+        src.crs_wkt
+        for src in sources
+        if src.crs_wkt is not None
+        and (
+            getattr(src, "crs_has_degree_unit", None) is not None
+            or getattr(src, "crs_metres_per_unit", None) is not None
+        )
+    }
+
+
 async def validate_sources_async(
     vrt_type: str, sources: list[Any]
 ) -> list[SourceValidationError]:
     """:func:`validate_sources`, with the CRS comparison run in a thread."""
-    same_crs = await asyncio.to_thread(compare_crs, [src.crs_wkt for src in sources])
+    same_crs = await asyncio.to_thread(
+        compare_crs,
+        [src.crs_wkt for src in sources],
+        parsed=_parsed_crs_texts(sources),
+    )
     return validate_sources(vrt_type, sources, same_crs)
 
 
