@@ -38,7 +38,7 @@ from sqlalchemy.orm import joinedload
 
 from app.modules.catalog.datasets.api import router_refresh
 from app.modules.catalog.datasets.domain.models import Dataset
-from app.modules.catalog.sources import stac_resolve
+from app.modules.catalog.sources import stac_resolve, stac_resolve_taxonomy
 from app.modules.catalog.sources.adapters.stac import pick_data_asset
 from app.modules.catalog.sources.origin_probe import DETAIL_CODES
 from app.platform.security import SSRFError, SSRFResolutionError
@@ -498,6 +498,9 @@ def test_the_health_words_are_the_ones_the_api_already_describes() -> None:
     assert stac_resolve._WITHDRAWN.detail in DETAIL_CODES
     assert stac_resolve._ASSET_GONE.health in SOURCE_HEALTH_VALUES
     assert stac_resolve._ASSET_GONE.detail in DETAIL_CODES
+    assert (
+        tasks_stac_refresh._CRS_UNIDENTIFIED == stac_resolve_taxonomy.CRS_UNIDENTIFIED
+    )
 
 
 def test_stored_failure_text_is_composed_here_and_carries_no_origin_words() -> None:
@@ -3450,3 +3453,101 @@ async def test_the_probe_path_still_never_mutates_a_pointer(
     assert await _asset_uri(dataset.id) == _ASSET
     assert probed.last_refreshed_at == before_refreshed
     assert await _run_for(dataset.id) is None
+
+
+class TestProbedCrsOfAMovedAsset:
+    """What Titiler reads off a moved asset decides whether it is adopted.
+
+    Titiler's ``/cog/info`` JSON is mocked, so the real probe parses it; the
+    autouse ``cog_info`` stub is replaced with the real ``fetch_cog_info``.
+    """
+
+    async def _refresh(
+        self, client, headers, session, stac_transport, monkeypatch, crs
+    ):
+        from app.modules.catalog.sources.cog_info import fetch_cog_info
+        from tests.test_cog_info import _TITILER_INFO, _install
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_info",
+            fetch_cog_info,
+        )
+        _install(monkeypatch, {**_TITILER_INFO, "crs": crs})
+        install, _ = stac_transport
+        install(
+            {
+                _ITEM: (200, _item_doc(asset_href=_MOVED_ASSET)),
+                _MOVED_ASSET: (206, None),
+            }
+        )
+        admin_id = await get_user_id(session, "admin")
+        dataset = await _stac_dataset(session, created_by=admin_id)
+        payload = await _dispatch(client, headers, dataset.id)
+        return dataset, payload
+
+    async def test_a_crs_titiler_cannot_code_is_not_adopted(
+        self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
+    ) -> None:
+        """The item declares EPSG:32633; the asset's own CRS is unknown, so
+        neither it nor the declaration is stored."""
+        from tests.test_cog_info import _UTM_21N_WKT
+
+        dataset, payload = await self._refresh(
+            client,
+            admin_auth_header,
+            test_db_session,
+            stac_transport,
+            monkeypatch,
+            _UTM_21N_WKT,
+        )
+        with pytest.raises(Exception):
+            await _execute(test_db_session, payload)
+
+        refreshed = await _reload(dataset.id)
+        assert refreshed.origin_uri == _ASSET
+        assert await _asset_uri(dataset.id) == _ASSET
+        run = await _run_for(dataset.id)
+        assert run.status == "failed"
+        assert run.error_code == "stac_refresh_failed"
+        assert run.error_message == (
+            "The STAC item now names an asset whose CRS has no EPSG code and "
+            "isn't OGC CRS84, which GeoLens doesn't support for remote COGs. The "
+            "dataset keeps its previous asset until the source is reprojected to "
+            "an EPSG CRS (gdalwarp's -t_srs option does this) and refreshed again."
+        )
+
+    @pytest.mark.parametrize(
+        "crs",
+        [
+            "http://www.opengis.net/def/crs/OGC/0/CRS84",
+            "http://www.opengis.net/def/crs/OGC/1.3/CRS84",
+        ],
+    )
+    async def test_a_crs84_asset_is_adopted_as_crs84(
+        self,
+        client,
+        admin_auth_header,
+        test_db_session,
+        stac_transport,
+        monkeypatch,
+        crs,
+    ) -> None:
+        """Main's CRS84 WKT, longitude first, with no EPSG code borrowed from
+        the item's declared EPSG:32633."""
+        from tests.test_cog_info import _MAIN_CRS84_WKT
+
+        dataset, payload = await self._refresh(
+            client,
+            admin_auth_header,
+            test_db_session,
+            stac_transport,
+            monkeypatch,
+            crs,
+        )
+        await _execute(test_db_session, payload)
+
+        assert await _asset_uri(dataset.id) == _MOVED_ASSET
+        described = await _raster_asset(dataset.id)
+        assert described.crs_wkt == _MAIN_CRS84_WKT[crs]
+        assert described.epsg is None
+        assert (await _reload(dataset.id)).srid is None

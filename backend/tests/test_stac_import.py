@@ -1528,3 +1528,96 @@ class TestStacImportContactSemantics:
         assert detail.status_code == 200
         assert detail.json()["last_checked_at"] is None
         assert detail.json()["source_health"] == "unknown"
+
+
+class TestStacImportProbedCrs:
+    """The CRS Titiler reads off the asset decides what the import stores.
+
+    Titiler's own ``/cog/info`` JSON is mocked, so the real probe parses it.
+    """
+
+    async def _import(self, client, headers, monkeypatch, *, crs: str, epsg: int):
+        from tests.test_cog_info import _TITILER_INFO, _install
+
+        _install(monkeypatch, {**_TITILER_INFO, "crs": crs})
+        href = f"https://example.com/data/{uuid.uuid4().hex[:8]}.tif"
+        resp = await client.post(
+            "/services/stac/import",
+            json={
+                "url": "https://stac.example.com/v1",
+                "items": [
+                    {
+                        "id": f"test-item-{uuid.uuid4().hex[:8]}",
+                        "collection": "dem-collection",
+                        "title": "Probed CRS STAC Import",
+                        "data_asset_href": href,
+                        "bbox": [-1, -1, 1, 1],
+                        "epsg": epsg,
+                    }
+                ],
+                "visibility": "private",
+            },
+            headers=headers,
+        )
+        assert resp.status_code == 200
+        return resp.json(), href
+
+    async def test_a_crs_titiler_cannot_code_refuses_the_item(
+        self, client, admin_auth_header, mock_stac_ssrf, test_db_session, monkeypatch
+    ):
+        """The declared EPSG may name a different projection, so it is not used."""
+        from tests.test_cog_info import _UTM_21N_WKT
+
+        data, href = await self._import(
+            client, admin_auth_header, monkeypatch, crs=_UTM_21N_WKT, epsg=32633
+        )
+
+        assert (data["created"], data["errors"]) == (0, 1)
+        assert data["results"][0]["status"] == "error"
+        assert data["results"][0]["error"] == (
+            "GeoLens imports remote COGs whose CRS has an EPSG code or is OGC "
+            "CRS84, and this item's asset has neither. Reproject the file to an "
+            "EPSG CRS, for example with gdalwarp -t_srs EPSG:<code>, and import "
+            "it again."
+        )
+        stored = await test_db_session.scalar(
+            text("SELECT count(*) FROM catalog.datasets WHERE source_url = :u"),
+            {"u": href},
+        )
+        assert stored == 0
+
+    @pytest.mark.parametrize(
+        "crs",
+        [
+            "http://www.opengis.net/def/crs/OGC/0/CRS84",
+            "http://www.opengis.net/def/crs/OGC/1.3/CRS84",
+        ],
+    )
+    async def test_a_crs84_asset_is_stored_as_crs84(
+        self,
+        client,
+        admin_auth_header,
+        mock_stac_ssrf,
+        test_db_session,
+        monkeypatch,
+        crs,
+    ):
+        """Main's CRS84 WKT, longitude first, and no EPSG code on either row."""
+        from tests.test_cog_info import _MAIN_CRS84_WKT
+
+        data, _href = await self._import(
+            client, admin_auth_header, monkeypatch, crs=crs, epsg=4326
+        )
+
+        assert data["created"] == 1
+        row = (
+            await test_db_session.execute(
+                text(
+                    "SELECT ra.crs_wkt, ra.epsg, d.srid FROM catalog.raster_assets ra"
+                    " JOIN catalog.datasets d ON d.id = ra.dataset_id"
+                    " WHERE d.id = :did"
+                ).bindparams(did=uuid.UUID(data["results"][0]["dataset_id"]))
+            )
+        ).one()
+        assert row.crs_wkt == _MAIN_CRS84_WKT[crs]
+        assert (row.epsg, row.srid) == (None, None)

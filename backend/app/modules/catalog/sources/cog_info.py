@@ -7,55 +7,78 @@ moved asset href rather than carry over stale band/dtype/nodata/statistics.
 
 from __future__ import annotations
 
+import re
+
 import httpx
 import structlog
 
+from app.core.crs_uri import parse_crs_uri
 from app.core.geo import pixel_size_from_affine
 from app.core.url_redaction import redact_exception_text
 from app.platform.storage.titiler_url import build_titiler_cog_url
 
 logger = structlog.get_logger(__name__)
 
+_BARE_EPSG = re.compile(r"^EPSG:(\d{1,9})$")
+
+# OGC:CRS84 is WGS 84 with longitude first, which EPSG:4326 is not, so it has
+# no EPSG code. Its WKT is built from our copy of the URI Titiler reports for
+# it, never from Titiler's text. rio-tiler writes version 0 for an authority
+# with no version, so that is the form Titiler reports. The others are every
+# form parse_crs_uri would otherwise turn into 4326.
+_CRS84_URI = "http://www.opengis.net/def/crs/OGC/0/CRS84"
+_CRS84_REFERENCES = frozenset(
+    {
+        _CRS84_URI,
+        "http://www.opengis.net/def/crs/OGC/1.3/CRS84",
+        "http://www.opengis.net/def/crs/OGC/1.3/CRS84/",
+        "https://www.opengis.net/def/crs/OGC/1.3/CRS84",
+        "https://www.opengis.net/def/crs/OGC/1.3/CRS84/",
+        "urn:ogc:def:crs:OGC:1.3:CRS84",
+    }
+)
+
+
+def _authority_epsg(value: str) -> int | None:
+    """The code of an ``EPSG:<n>`` or OGC URI/URN CRS reference, else None."""
+    if match := _BARE_EPSG.match(value):
+        return int(match.group(1))
+    return parse_crs_uri(value)
+
 
 def _georeferencing(info: dict) -> dict:
     """``crs_wkt``/``epsg`` from Titiler's raw ``/cog/info`` reply.
 
-    fix(#1334): Titiler's ``crs`` is an OGC CRS URI, which GDAL's parser
-    accepts directly, round-tripping through the same ``rasterio.crs.CRS``
-    other ingest paths use. fix(#1376): WKT2_2019 explicitly, matching
-    STAC's ``proj:wkt2`` (rasterio defaults to WKT1_GDAL) and migration 0041.
+    Titiler reports an OGC CRS URI when PROJ matches the file's CRS to an
+    authority code, and the file's own WKT otherwise. Only an EPSG or CRS84
+    reference is read, and its WKT2_2019 text (STAC's ``proj:wkt2``) comes
+    from the registry, so the API never parses CRS text a remote file
+    supplied. Any other CRS sets ``crs_unidentified``: the asset has one,
+    GeoLens can't say which, and callers refuse it rather than take the
+    item's declared code.
 
-    fix(#1334): both keys are derived from the SAME parsed CRS
-    object on purpose. Titiler's probe reads the CURRENT bytes and is
-    ground truth; the STAC item's ``proj:code``/``proj:epsg`` is only the
-    publisher's claim. Deriving both from one object keeps the exported
-    ``proj:wkt2``/``proj:code`` from ever contradicting each other.
-
-    fix(#1334/#1375 review): ``res_x``/``res_y`` are NOT derived here —
-    this payload carries no affine transform, so bounds/pixel-count would
-    silently inflate resolution for a rotated/sheared raster. They come
-    from ``_geotransform`` instead.
-
-    Failures degrade to None rather than raising — descriptive UI metadata,
-    not something a failed probe should abort over.
+    Titiler reads the asset's current bytes, so its CRS outranks the item's
+    declared ``proj:code``; both keys come from the one reference, so the
+    exported ``proj:wkt2`` and ``proj:code`` cannot disagree.
+    ``res_x``/``res_y`` come from ``_geotransform``, since this reply carries
+    no affine transform.
     """
-    crs_wkt = None
-    epsg = None
     crs_value = info.get("crs")
-    if isinstance(crs_value, str) and crs_value:
-        try:
-            from rasterio.crs import CRS
+    if not isinstance(crs_value, str) or not crs_value:
+        return {"crs_wkt": None, "epsg": None}
+    try:
+        from rasterio.crs import CRS
 
-            parsed = CRS.from_user_input(crs_value)
-            crs_wkt = parsed.to_wkt(version="WKT2_2019")
-            epsg = parsed.to_epsg()
-        except (
-            Exception
-        ):  # broad: an unfamiliar CRS string should not fail the whole probe
-            crs_wkt = None
-            epsg = None
-
-    return {"crs_wkt": crs_wkt, "epsg": epsg}
+        if crs_value in _CRS84_REFERENCES:
+            crs84 = CRS.from_user_input(_CRS84_URI)
+            return {"crs_wkt": crs84.to_wkt(version="WKT2_2019"), "epsg": None}
+        epsg = _authority_epsg(crs_value)
+        if epsg is not None:
+            crs_wkt = CRS.from_epsg(epsg).to_wkt(version="WKT2_2019")
+            return {"crs_wkt": crs_wkt, "epsg": epsg}
+    except Exception:  # broad: a reference PROJ doesn't know is unidentified
+        pass
+    return {"crs_wkt": None, "epsg": None, "crs_unidentified": True}
 
 
 def _geotransform(item: dict) -> dict:
@@ -102,17 +125,14 @@ def _geotransform(item: dict) -> dict:
 
 
 def reconcile_epsg(probe: dict, declared: int | None) -> int | None:
-    """The EPSG to store: the probe's, when it established any CRS at all.
+    """The EPSG to store: the probe's, when it reported any CRS at all.
 
-    fix(#1334): "no EPSG" and "no CRS at all" are different
-    questions — falling back to ``declared`` on a bare ``epsg is None``
-    also fires for an exotic CRS PROJ can't map to an authority code, and
-    would pair the probed (real) WKT with a declared code that may name a
-    different projection. ``declared`` is trustworthy only when the probe
-    established NOTHING (no ``crs_wkt`` at all); anything else the probe
-    established must be kept, not patched over.
+    "No EPSG" and "no CRS" are different answers. A CRS84 asset has no EPSG
+    code, and one Titiler reported but GeoLens couldn't identify may be any
+    projection, so neither may borrow ``declared``. That is trustworthy only
+    when the probe reported no CRS.
     """
-    if probe.get("crs_wkt") is not None:
+    if probe.get("crs_wkt") is not None or probe.get("crs_unidentified"):
         return probe.get("epsg")
     return declared
 

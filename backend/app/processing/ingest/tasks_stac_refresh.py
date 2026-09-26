@@ -67,6 +67,9 @@ _NOT_FOUND = "not_found"
 # An `inaccessible` detail, mirrored for the same reason as the two above: it
 # selects the refusal diagnosis instead of the generic unreachable one.
 _BLOCKED_BY_POLICY = "blocked_by_policy"
+# The resolver's refusal of an asset whose CRS it can't identify, mirrored
+# for the same reason: it selects its own message.
+_CRS_UNIDENTIFIED = "crs_unidentified"
 
 _ERROR_CODE_MISSING = "source_missing"
 _ERROR_CODE_INACCESSIBLE = "source_inaccessible"
@@ -180,6 +183,12 @@ _BLOCKED_BY_POLICY_MESSAGE = (
     "STAC item or its asset, because this instance's outbound-address "
     "policy refuses it. Nothing was changed."
 )
+_CRS_UNIDENTIFIED_MESSAGE = (
+    "The STAC item now names an asset whose CRS has no EPSG code and isn't "
+    "OGC CRS84, which GeoLens doesn't support for remote COGs. The dataset "
+    "keeps its previous asset until the source is reprojected to an EPSG CRS "
+    "(gdalwarp's -t_srs option does this) and refreshed again."
+)
 
 
 def _binding(dataset: Any) -> tuple:
@@ -254,6 +263,15 @@ def _failure_for(resolution: Any) -> StacRefreshError:
             error_code=_ERROR_CODE_BLOCKED_BY_POLICY,
             health=None,
             detail=resolution.detail,
+            contacted=resolution.contacted,
+        )
+    if getattr(resolution, "refusal", None) == _CRS_UNIDENTIFIED:
+        # A fact about this asset, not the origin, so no health is written.
+        return StacRefreshError(
+            _CRS_UNIDENTIFIED_MESSAGE,
+            error_code=_ERROR_CODE_GENERIC,
+            health=None,
+            detail=None,
             contacted=resolution.contacted,
         )
     return StacRefreshError(
