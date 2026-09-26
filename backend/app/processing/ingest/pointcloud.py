@@ -19,6 +19,7 @@ import tempfile
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+from time import monotonic
 from types import SimpleNamespace
 from typing import BinaryIO, Callable
 
@@ -51,6 +52,10 @@ MAX_DECODE_BYTES = 64 * 1024 * 1024
 # The most a node may decode to, as a multiple of its stored size. Real lidar
 # tiles measure near ten, so a node far past it only multiplies decode work.
 MAX_DECODE_RATIO = 64
+# The worker's budget for decoding a whole file: a floor, or a second per MB
+# of the file when that is longer, so no file holds the raster queue for long.
+DECODE_FLOOR_SECONDS = 60
+DECODE_SECONDS_PER_MB = 1
 MAX_WKT_BYTES = 64 * 1024
 # lazrs builds four 256-symbol models, about 9.6 KB, per extra byte before it
 # reads a point, so the extra bytes a record may carry are bounded too.
@@ -625,10 +630,21 @@ async def inspect_every_node(path: str) -> PointCloud:
     """``inspect_pointcloud``, then every other node holding points decoded as the top one is.
 
     lazrs holds the GIL while it decodes, so each node gets a thread call of
-    its own and the event loop runs between nodes.
+    its own and the event loop runs between nodes. Between nodes the time
+    spent is checked against the file's decode budget.
     """
+    started = monotonic()
     cloud, layout = await asyncio.to_thread(_inspect, path)
+    budget = max(
+        DECODE_FLOOR_SECONDS, cloud.size_bytes * DECODE_SECONDS_PER_MB // 1024**2
+    )
     for node in layout.nodes[1:]:
+        if monotonic() - started > budget:
+            raise _invalid(
+                f"The point cloud takes more than {budget} seconds to decode.",
+                reason="decode_time",
+                limit=budget,
+            )
         await asyncio.to_thread(_decode_node, path, layout, node)
     return cloud
 

@@ -792,3 +792,43 @@ async def test_a_node_below_the_top_past_the_decode_bound_is_refused(
         await inspect_every_node(path)
 
     assert (refusal.value.code, len(chunks)) == ("pointcloud_invalid", 2)
+
+
+class _Clock:
+    """A monotonic clock that moves a fixed step each time it is read."""
+
+    def __init__(self, step: float) -> None:
+        self.now, self.step = 0.0, step
+
+    def __call__(self) -> float:
+        self.now += self.step
+        return self.now
+
+
+async def test_a_decode_past_its_time_budget_is_refused_between_nodes(
+    tmp_path, monkeypatch
+) -> None:
+    """Once the file's decode budget is spent, no further node is decoded."""
+    floor = pointcloud_module.DECODE_FLOOR_SECONDS
+    path = write(tmp_path, copc_nodes())
+    monkeypatch.setattr(pointcloud_module, "monotonic", _Clock(floor * 2 / 3))
+    chunks = _decoded_chunks(monkeypatch)
+
+    with pytest.raises(UnsafeUploadError) as refusal:
+        await inspect_every_node(path)
+
+    assert refusal_detail(refusal.value) == {
+        "code": "pointcloud_invalid",
+        "message": f"The point cloud takes more than {floor} seconds to decode.",
+        "limit": floor,
+    }
+    assert len(chunks) == 2
+
+
+async def test_a_decode_within_its_time_budget_passes(tmp_path, monkeypatch) -> None:
+    """A file whose nodes decode inside its budget passes the check."""
+    floor = pointcloud_module.DECODE_FLOOR_SECONDS
+    path = write(tmp_path, copc_nodes())
+    monkeypatch.setattr(pointcloud_module, "monotonic", _Clock(floor / 3))
+
+    assert (await inspect_every_node(path)).point_count == 370
