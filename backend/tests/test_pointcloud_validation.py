@@ -430,8 +430,9 @@ def test_a_chunk_whose_header_disagrees_is_refused_before_lazrs(
     [
         lambda at: (1, 0, 0, 0, at.chunk_offset, at.chunk_size, at.count),
         lambda at: (1, 0, 0, 0, at.chunk_offset + 1, at.chunk_size - 1, at.count),
+        lambda at: (1, 0, 0, 0, at.chunk_offset - 4, 60, at.count),
     ],
-    ids=["same-chunk", "inside-another"],
+    ids=["same-chunk", "inside-another", "listed-in-reverse"],
 )
 async def test_nodes_whose_points_overlap_are_refused_before_lazrs(
     tmp_path, monkeypatch, second
@@ -450,6 +451,26 @@ async def test_nodes_whose_points_overlap_are_refused_before_lazrs(
         "pointcloud_invalid",
         [],
     )
+
+
+async def test_disjoint_nodes_listed_out_of_offset_order_pass(tmp_path) -> None:
+    """A hierarchy may list nodes in any order, and disjoint ones pass the overlap check."""
+    deeper = compressed_chunk(records(50))
+    data = copc(
+        padding=deeper,
+        pages=lambda at: [
+            [
+                (1, 0, 0, 0, at.chunk_offset + at.chunk_size, len(deeper), 50),
+                root_entry(at),
+            ]
+        ],
+        header_point_count=150,
+    )
+    path = write(tmp_path, data)
+
+    door, worker = inspect_pointcloud(path), await inspect_every_node(path)
+
+    assert (door.point_count, worker.point_count) == (150, 150)
 
 
 def _byte14_items(*sizes: int):

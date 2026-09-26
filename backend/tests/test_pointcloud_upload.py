@@ -31,6 +31,7 @@ from app.core.pointcloud import (
 )
 from app.core.upload_errors import UnsafeUploadError
 from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.platform.jobs.heartbeat import stop_ingest_job_heartbeat
 from app.platform.jobs.models import UNPUBLISHED_STORAGE_KEYS_FIELD, IngestJob
 from app.platform.jobs.sweep import (
     fail_stale_jobs,
@@ -734,6 +735,29 @@ async def test_a_copy_cancelled_midway_lands_before_the_cleanup_removes_it(
         await worker
     assert await asyncio.to_thread(held.finished.wait, 30)
     assert await s3_storage.list("pointclouds/") == []
+
+
+async def test_a_second_cancel_in_the_cleanup_still_removes_the_download(
+    client: AsyncClient, uploader, queued, s3_storage, tmp_path, monkeypatch
+) -> None:
+    """The downloaded copy goes before any cleanup step that a cancel can stop."""
+    headers, _ = uploader
+    body, completed = await presigned_upload(client, headers, s3_storage)
+    assert completed.status_code == 200, completed.text
+    assert (await commit(client, headers, body["job_id"])).status_code == 202
+
+    async def _stopped_then_cancelled(task) -> None:
+        await stop_ingest_job_heartbeat(task)
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(
+        "app.processing.ingest.tasks_pointcloud.stop_ingest_job_heartbeat",
+        _stopped_then_cancelled,
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.create_task(run_queued(queued))
+    assert not any((tmp_path / "staging").iterdir())
 
 
 async def test_a_refused_point_cloud_is_dropped_at_presigned_complete(

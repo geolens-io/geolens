@@ -353,6 +353,14 @@ async def ingest_pointcloud(
             final_status = "failed"
         raise
     finally:
+        async with cleanup_step("ingest_pointcloud local file", job_id=job_id):
+            # First, since it never awaits, so a second cancel can't skip it. A
+            # copy downloaded from storage always goes; the staged original
+            # only once published, since a retry needs it.
+            if file_path != original_file_path or (
+                final_status == "complete" and Path(original_file_path).is_absolute()
+            ):
+                Path(file_path).unlink(missing_ok=True)
         async with cleanup_step("ingest_pointcloud heartbeat", job_id=job_id):
             await stop_ingest_job_heartbeat(heartbeat_task)
         async with cleanup_step("ingest_pointcloud unpublished copy", job_id=job_id):
@@ -360,13 +368,6 @@ async def ingest_pointcloud(
                 from app.platform.storage import get_storage
 
                 await get_storage().delete(resolve_current_storage_key(attempt_key))
-        async with cleanup_step("ingest_pointcloud local file", job_id=job_id):
-            # A copy downloaded from storage always goes; the staged original
-            # only once published, since a retry needs it.
-            if file_path != original_file_path or (
-                final_status == "complete" and Path(original_file_path).is_absolute()
-            ):
-                Path(file_path).unlink(missing_ok=True)
         async with cleanup_step(
             "ingest_pointcloud presigned staging object", job_id=job_id
         ):
