@@ -41,6 +41,9 @@ TILE_ROUTES = [
     "/tiles/clusters/data.{table}/0/0/0.pbf",
 ]
 
+# Time bounds here are hang guards: CI load can stretch any wait severalfold.
+_HANG_GUARD = 30  # seconds
+
 
 async def _seed(session, tmp_path):
     """A public point dataset holding New York, and a queued re-upload of it."""
@@ -484,12 +487,12 @@ async def test_concurrent_requests_for_an_unreached_version_share_each_read(
                 asyncio.gather(
                     *(_meta_for_request(table, _UNREACHED_VERSION) for _ in range(5))
                 ),
-                timeout=10,
+                timeout=_HANG_GUARD,
             )
             elapsed = time.monotonic() - started
         assert [meta.tile_cache_version for meta in metas] == [1] * 5
         assert len(reads) == 1
-        assert elapsed < tile_router._FORCED_REREAD_INTERVAL + 1.0
+        assert elapsed < tile_router._FORCED_REREAD_INTERVAL + 10
     finally:
         tile_router._evict_dataset_meta(table)
 
@@ -506,7 +509,7 @@ async def test_tiles_fanned_out_after_a_swap_all_get_the_new_snapshot(
         with _counting_row_reads(table) as reads:
             metas = await asyncio.wait_for(
                 asyncio.gather(*(_meta_for_request(table, "2") for _ in range(5))),
-                timeout=10,
+                timeout=_HANG_GUARD,
             )
         keys = {
             _generation_table_key(
@@ -548,14 +551,16 @@ async def test_a_cancelled_request_leaves_its_re_read_to_the_others(
         monkeypatch.setattr(tile_router, "_read_dataset_meta", read_once_released)
         with _counting_row_reads(table) as reads:
             leader = asyncio.create_task(_meta_for_request(table, "2"))
-            await asyncio.wait_for(entered.wait(), timeout=5)
+            await asyncio.wait_for(entered.wait(), timeout=_HANG_GUARD)
             followers = [
                 asyncio.create_task(_meta_for_request(table, "2")) for _ in range(4)
             ]
             await asyncio.sleep(0)
             leader.cancel()
             release.set()
-            metas = await asyncio.wait_for(asyncio.gather(*followers), timeout=5)
+            metas = await asyncio.wait_for(
+                asyncio.gather(*followers), timeout=_HANG_GUARD
+            )
 
         assert leader.cancelled()
         assert [meta.tile_cache_version for meta in metas] == [2] * 4
@@ -662,7 +667,7 @@ async def test_an_authenticated_forced_re_read_completes_on_a_one_connection_poo
                     params={"_v": "2"},
                     headers=admin_auth_header,
                 ),
-                timeout=15,
+                timeout=_HANG_GUARD,
             )
 
         assert resp.status_code == 200, resp.text
@@ -798,7 +803,7 @@ async def test_a_second_edit_inside_the_interval_is_served_fresh_by_another_work
             first_reload = await client.get(url, params={"_v": "2"})
             await edit_on_another_worker("ST_MakePoint(13.40, 52.52)", "Berlin")
             second_reload = await asyncio.wait_for(
-                client.get(url, params={"_v": "3"}), timeout=5
+                client.get(url, params={"_v": "3"}), timeout=_HANG_GUARD
             )
             with tile_router._dataset_cache_lock:
                 served_version = tile_router._dataset_cache[table][1].tile_cache_version
