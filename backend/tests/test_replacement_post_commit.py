@@ -1110,21 +1110,16 @@ async def test_a_superseded_publish_never_overwrites_the_live_versions_archive(
             await session.commit()
 
 
+@pytest.mark.parametrize("in_storage", [False, True], ids=["local", "storage"])
 async def test_an_archive_the_sweep_cannot_write_keeps_the_upload(
-    replace, storage, monkeypatch
+    replace, storage, monkeypatch, in_storage: bool
 ) -> None:
-    """A file upload whose original can't be archived stays, and the job says the archive failed."""
-    replacement = await replace("file")
-    lost = _LostAcknowledgement(replacement.job_id, ConnectionResetError("dropped"))
-    with (
-        _quiet_embedding(),
-        patch(
-            "app.processing.ingest.publication.observe_publish_commit",
-            new=AsyncMock(return_value=PublishObservation.UNKNOWN),
-        ),
-        patch("app.processing.ingest.publication.run_publish_followups", AsyncMock()),
-        lost.installed(),
-    ):
+    """A file upload whose original can't be archived stays, and the job says the archive failed.
+
+    The client's presigned key goes all the same, since the archive never reads it.
+    """
+    replacement = await replace("file", in_storage=in_storage)
+    with _landed_unseen(replacement.job_id):
         await replacement.run()
 
     real_put = storage.put
@@ -1137,7 +1132,8 @@ async def test_an_archive_the_sweep_cannot_write_keeps_the_upload(
     monkeypatch.setattr(storage, "put", _put)
     await run_owed_publish_followups()
 
-    assert replacement.upload.exists(), "the upload went though nothing archived it"
+    kept = replacement.staged_keys[:1] or [str(replacement.upload)]
+    assert await _upload_left(replacement, storage) == kept
     metadata = await _fresh_scalar(
         select(IngestJob.user_metadata).where(IngestJob.id == replacement.job_id)
     )

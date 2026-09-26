@@ -160,17 +160,16 @@ async def _reap_staged_upload(
 ) -> None:
     """Delete a published job's staged upload, as its task's cleanup does; never raises.
 
-    With ``archive_key`` and a live dataset, the upload's original is archived
-    first and the upload kept when it can't be. ``file_path`` is a local file
-    when ``resolve_file_path`` would read it as one, and is unlinked only inside
-    the upload staging directory. A ``staging/`` path is also deleted from storage.
+    The client's presigned key goes whatever the archive does, since the
+    archive reads only ``file_path``. With ``archive_key`` and a live dataset,
+    the upload's original is archived next and ``file_path`` kept when it
+    can't be. ``file_path`` is a local file when ``resolve_file_path`` would
+    read it as one, and is unlinked only inside the upload staging directory.
+    A ``staging/`` path is also deleted from storage.
     """
     from app.core.tenancy import is_multi_tenant
 
     job_id = str(job_uuid)
-    if file_path and archive_key and dataset_id is not None:
-        if not await _archive_upload(job_uuid, file_path, dataset_id, archive_key):
-            return
     await reap_presigned_staging_object(
         job_id,
         owned_presigned_staging_key(job_uuid, user_metadata, file_path),
@@ -178,6 +177,9 @@ async def _reap_staged_upload(
     )
     if not file_path:
         return
+    if archive_key and dataset_id is not None:
+        if not await _archive_upload(job_uuid, file_path, dataset_id, archive_key):
+            return
     async with cleanup_step("staged upload", job_id=job_id):
         path = Path(file_path)
         if path.exists() and (path.is_absolute() or not is_multi_tenant()):
