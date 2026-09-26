@@ -11,7 +11,14 @@ from typing import Literal
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    HttpUrl,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -88,6 +95,14 @@ def _data_asset_import_refusal(
     failure ``_validate_stac_http_url`` would otherwise raise for the same
     input. The `max_length=4096` check mirrors that field's ``Field``
     constraint, which pydantic enforces before any field_validator runs.
+
+    ``HttpUrl`` also enforces its OWN, tighter length ceiling internally,
+    independently of the field's 4096 cap, so an href in between comes back
+    from ``_validate_stac_http_url`` as pydantic's ``url_too_long`` error
+    rather than the field's ``string_too_long`` one the length check above
+    catches. Read off the raised error's type rather than hardcoding a
+    second length here, so this keeps matching ``HttpUrl`` even if a future
+    pydantic release changes that ceiling.
     """
     if href is None:
         return None
@@ -97,7 +112,11 @@ def _data_asset_import_refusal(
         return "credentials"
     try:
         _validate_stac_http_url(href)
-    except ValueError:
+    except ValueError as exc:
+        if isinstance(exc, ValidationError) and any(
+            error["type"] == "url_too_long" for error in exc.errors()
+        ):
+            return "too_long"
         return "not_http"
     return None
 

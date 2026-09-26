@@ -438,6 +438,31 @@ class TestStacSearchAssetEligibility:
         assert resp.status_code == 200
         assert resp.json()["items"][0]["data_asset_import_refusal"] == "too_long"
 
+    async def test_flags_an_asset_between_httpurls_and_the_fields_length_ceiling(
+        self, client: AsyncClient, admin_auth_header: dict, mock_stac_ssrf
+    ):
+        # Under the field's 4096-char cap but over HttpUrl's own, tighter
+        # 2083-char ceiling: /import's validator refuses this via HttpUrl
+        # itself (pydantic error type url_too_long), not the field's own
+        # length constraint — the reason must still read as too_long, not
+        # a scheme problem.
+        prefix = "https://example.com/"
+        href = prefix + "a" * (2100 - len(prefix))
+        assert len(href) == 2100
+        resp = await self._search_one(client, admin_auth_header, href)
+        assert resp.status_code == 200
+        assert resp.json()["items"][0]["data_asset_import_refusal"] == "too_long"
+
+    async def test_does_not_flag_an_asset_at_httpurls_own_length_ceiling(
+        self, client: AsyncClient, admin_auth_header: dict, mock_stac_ssrf
+    ):
+        prefix = "https://example.com/"
+        href = prefix + "a" * (2083 - len(prefix))
+        assert len(href) == 2083
+        resp = await self._search_one(client, admin_auth_header, href)
+        assert resp.status_code == 200
+        assert resp.json()["items"][0]["data_asset_import_refusal"] is None
+
     async def test_does_not_flag_a_plain_https_asset(
         self, client: AsyncClient, admin_auth_header: dict, mock_stac_ssrf
     ):
