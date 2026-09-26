@@ -393,9 +393,9 @@ class _FileReupload:
     ) -> None:
         # A cancelled archive must not skip the cleanup after it.
         try:
-            # The archive key is named after the file, so after an unconfirmed
-            # publish it could overwrite the original of the version still live;
-            # the follow-ups archive it once the publish is visible.
+            # An unconfirmed publish may not have landed, and an archive made for
+            # it would outlive a version that never went live; the follow-ups
+            # archive the upload once the publish is visible.
             if publication is not None and publication.confirmed:
                 async with cleanup_step("reupload_file archive", job_id=self.job_id):
                     await self._archive()
@@ -410,8 +410,9 @@ class _FileReupload:
 
     async def _clean_up(self, final_status: str) -> None:
         # A publish seen only through the probe is "pending", which keeps the
-        # upload for the follow-ups. The local file goes on success, and on
-        # failure only when it was a download or an unsafe upload.
+        # upload for the follow-ups, and so does one whose original didn't
+        # archive, the upload being its only copy. Otherwise the local file goes
+        # on success, and on failure only when unsafe; a download always goes.
         async with cleanup_step("reupload_file local file", job_id=self.job_id):
             if (
                 (final_status == "complete" and not self.archive_failed)
