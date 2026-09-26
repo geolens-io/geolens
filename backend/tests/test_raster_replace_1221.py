@@ -1875,6 +1875,58 @@ class TestCrsAssignmentContract:
         with pytest.raises(ValueError, match="Provide a CRS override"):
             resolve_crs_assignment(crs_wkt=None, srid_override=None)
 
+    def test_the_refusal_carries_its_own_code_into_raster_ingest(self) -> None:
+        from app.processing.ingest.tasks_raster import _raster_ingest_failure_reason
+        from app.processing.raster.cog import MissingRasterCrsError
+
+        reason = _raster_ingest_failure_reason(
+            MissingRasterCrsError(
+                "Missing CRS: raster has no coordinate reference system."
+            )
+        )
+        assert reason.code == "missing_crs_raster"
+        assert "Missing CRS" in reason
+
+    def test_an_unrelated_exception_keeps_its_own_text_in_raster_ingest(self) -> None:
+        from app.processing.ingest.tasks_raster import _raster_ingest_failure_reason
+
+        exc = RuntimeError("gdal exploded")
+        assert _raster_ingest_failure_reason(exc) is exc
+
+    def test_the_refusal_carries_its_own_code_into_raster_replace(self) -> None:
+        from app.processing.ingest.tasks_raster_replace import _RasterReplace
+        from app.processing.raster.cog import MissingRasterCrsError
+
+        strategy = _RasterReplace(
+            job_id=str(uuid.uuid4()),
+            dataset_id=str(uuid.uuid4()),
+            file_path="/tmp/fake.tif",
+            user_id=str(uuid.uuid4()),
+        )
+        failure = strategy.classify(
+            MissingRasterCrsError(
+                "Missing CRS: raster has no coordinate reference system."
+            )
+        )
+        assert failure.error_code == "missing_crs_raster"
+        assert failure.reason is not None
+        assert failure.reason.code == "missing_crs_raster"
+
+    def test_an_unrelated_exception_keeps_the_generic_code_in_raster_replace(
+        self,
+    ) -> None:
+        from app.processing.ingest.tasks_raster_replace import _RasterReplace
+
+        strategy = _RasterReplace(
+            job_id=str(uuid.uuid4()),
+            dataset_id=str(uuid.uuid4()),
+            file_path="/tmp/fake.tif",
+            user_id=str(uuid.uuid4()),
+        )
+        failure = strategy.classify(RuntimeError("gdal exploded"))
+        assert failure.error_code == "raster_refresh_failed"
+        assert failure.reason is None
+
     def test_both_raster_tails_use_the_shared_resolver(self) -> None:
         import ast
         import inspect

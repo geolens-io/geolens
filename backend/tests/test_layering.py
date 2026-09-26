@@ -1304,7 +1304,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Shared ingest finalization carries verification, bounded ArcGIS requests and lifecycle context.
     "backend/app/processing/ingest/tasks_common.py": 1716,
     # The file and service strategies: retrieval, staging, verification and cleanup.
-    "backend/app/processing/ingest/tasks_reupload.py": 1214,
+    "backend/app/processing/ingest/tasks_reupload.py": 1221,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection.
     "backend/app/modules/catalog/datasets/api/router_refresh.py": 1397,
@@ -1315,7 +1315,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/platform/jobs/sweep.py": 1753,
     # Refresh admission, claim fencing, terminal transitions and the job-scoped
     # abandoned-run sweep stay domain-neutral.
-    "backend/app/platform/refresh/service.py": 1159,
+    "backend/app/platform/refresh/service.py": 1160,
     # Central settings and boot-validation debt; split by configuration domain before
     # raising.
     "backend/app/core/config.py": 1498,
@@ -1330,13 +1330,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # VRT creation and regeneration share publication and superseded-object cleanup.
     "backend/app/processing/ingest/tasks_vrt.py": 1661,
     # The raster strategy: conversion, read-back, object puts and their cleanup.
-    "backend/app/processing/ingest/tasks_raster_replace.py": 617,
+    "backend/app/processing/ingest/tasks_raster_replace.py": 624,
     # File/service tasks share publication fencing, heartbeat phases and failure
     # cleanup.
     "backend/app/processing/ingest/tasks_vector.py": 1161,
     # GDAL environments, timeouts, reaping and error sanitization share one process
     # boundary.
-    "backend/app/processing/ingest/ogr.py": 1361,
+    "backend/app/processing/ingest/ogr.py": 1369,
     # Archive and GDAL content validation remain centralized at the upload security
     # boundary.
     "backend/app/processing/ingest/validation.py": 1199,

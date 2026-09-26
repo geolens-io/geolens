@@ -75,9 +75,10 @@ ADMITTED_CLAIM_EXPIRED_ERROR_MESSAGE = FixedReason(
 )
 
 ABANDONED_ERROR_CODE = "abandoned"
-ABANDONED_ERROR_MESSAGE = (
+ABANDONED_ERROR_MESSAGE = FixedReason(
     "The refresh task was never picked up by a worker, or the worker "
-    "disappeared before recording an outcome."
+    "disappeared before recording an outcome.",
+    code=ABANDONED_ERROR_CODE,
 )
 
 # feat(#1677): an explicit user cancel, distinct from the sweep's `abandoned`

@@ -5,7 +5,7 @@ import uuid
 import structlog
 from sqlalchemy.exc import DBAPIError
 
-from app.core.failure_reason import redact_failure_reason
+from app.core.failure_reason import FixedReason, redact_failure_reason
 from app.core.db.tenant_session import tenant_task
 from app.platform.jobs import ledger
 from app.platform.jobs.heartbeat import (
@@ -16,6 +16,7 @@ from app.platform.jobs.heartbeat import (
     stop_ingest_job_heartbeat,
 )
 from app.processing.raster.cog import (
+    MissingRasterCrsError,
     _scratch_dir,
     check_and_prepare_cog,
     cog_preserves_source,
@@ -62,6 +63,18 @@ from app.processing.ingest.tasks_staging import (
     reap_downloaded_staging_source,
     reap_presigned_staging_object,
 )
+
+
+def _raster_ingest_failure_reason(exc: BaseException) -> str | BaseException:
+    """The job's stored reason for a raster-ingest failure.
+
+    A missing CRS is a stable reason a client can localize, not an
+    exception's own text; the raster text differs from the vector gate's,
+    so it carries its own code.
+    """
+    if isinstance(exc, MissingRasterCrsError):
+        return FixedReason(str(exc), code="missing_crs_raster")
+    return exc
 
 
 @task_app.task(queue="raster", retry=0, aliases=["app.ingest.tasks.ingest_raster"])
@@ -735,7 +748,8 @@ async def ingest_raster(
                 err_session,
                 _err_job,
             ):
-                await ledger.fail(err_session, job_uuid, attempt_uuid, reason=exc)
+                reason = _raster_ingest_failure_reason(exc)
+                await ledger.fail(err_session, job_uuid, attempt_uuid, reason=reason)
                 await err_session.commit()
         except DBAPIError as write_failure:
             # fix(#1950): swallowed so the `raise` below re-raises the ingest

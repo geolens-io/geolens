@@ -10,6 +10,7 @@ import structlog
 from sqlalchemy import select, text
 
 from app.core.db.tenant_session import tenant_task
+from app.core.failure_reason import FixedReason
 from app.core.upload_errors import geometry_loss_refusal
 from app.core.url_redaction import scrub_secret_from_exception
 from app.platform.catalog_locks import (
@@ -162,7 +163,7 @@ async def _detect_reupload_crs(
 
     Returns (ogrinfo result dict, effective_srid).
     """
-    from app.processing.ingest.ogr import IngestionError, run_ogrinfo
+    from app.processing.ingest.ogr import MissingCrsError, run_ogrinfo
     from app.processing.ingest.tasks_common import check_missing_crs
 
     info = await run_ogrinfo(
@@ -179,7 +180,7 @@ async def _detect_reupload_crs(
         srid_override=srid_override,
     )
     if missing_crs:
-        raise IngestionError(missing_crs)
+        raise MissingCrsError(missing_crs)
 
     _assert_geometry_survives(
         record_type=record_type,
@@ -366,8 +367,14 @@ class _FileReupload:
         )
 
     def classify(self, exc: BaseException) -> Failure:
+        from app.processing.ingest.ogr import MissingCrsError
+
         if self.refused:
             return Failure("validation_failed", refused=True)
+        if isinstance(exc, MissingCrsError):
+            return Failure(
+                "missing_crs", reason=FixedReason(str(exc), code="missing_crs")
+            )
         return Failure(_file_refresh_error_code(exc))
 
     async def release(

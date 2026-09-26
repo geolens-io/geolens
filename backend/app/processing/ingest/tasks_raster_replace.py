@@ -33,10 +33,12 @@ import structlog
 from sqlalchemy import select
 
 from app.core.db.tenant_session import tenant_task
+from app.core.failure_reason import FixedReason
 from app.platform.catalog_locks import CATALOG_LOCK_CONFLICT_CODE, CatalogLockConflict
 from app.platform.jobs.heartbeat import StaleIngestAttempt
 from app.platform.jobs.models import owned_presigned_staging_key
 from app.processing.raster.cog import (
+    MissingRasterCrsError,
     _scratch_dir,
     check_and_prepare_cog,
     cog_preserves_source,
@@ -499,6 +501,11 @@ class _RasterReplace:
     def classify(self, exc: BaseException) -> Failure:
         if self.refused:
             return Failure("validation_failed", refused=True)
+        if isinstance(exc, MissingRasterCrsError):
+            return Failure(
+                "missing_crs_raster",
+                reason=FixedReason(str(exc), code="missing_crs_raster"),
+            )
         return Failure(_raster_refresh_error_code(exc))
 
     async def release(
