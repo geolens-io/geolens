@@ -1842,7 +1842,7 @@ async def test_asset_without_media_type_omits_type_key(
     admin_auth_header: dict,
     test_db_session,
 ):
-    """(#2326) STAC allows an asset with no ``type``, and both the STAC
+    """STAC allows an asset with no ``type``, and both the STAC
     import and STAC refresh paths store such an asset with
     ``DatasetAsset.media_type=None``. ``OGCAsset.type`` used to be a
     required str, so any OGC Records response including that asset (search,
