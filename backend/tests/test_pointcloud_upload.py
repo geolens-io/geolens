@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import io
+import itertools
 import threading
 import uuid
 from contextlib import contextmanager, nullcontext
@@ -545,7 +546,7 @@ async def test_a_file_that_changed_since_the_door_is_refused_before_the_copy(
         await run_queued(queued)
 
     job = await load_job(test_db_session, job_id)
-    assert job.status == "failed"
+    assert (job.status, job.error_code) == ("failed", "pointcloud_no_crs")
     assert "coordinate reference system" in job.error_message
     assert await pointcloud_objects() == []
 
@@ -582,10 +583,32 @@ async def test_a_damaged_node_below_the_top_is_refused_before_the_copy(
         await run_queued(queued)
 
     job = await load_job(test_db_session, job_id)
-    assert (job.status, job.error_message) == ("failed", _DECODE_FAILED)
+    assert (job.status, job.error_message, job.error_code) == (
+        "failed",
+        _DECODE_FAILED,
+        "pointcloud_decode_failed",
+    )
     assert UNPUBLISHED_STORAGE_KEYS_FIELD not in job.user_metadata
     assert await pointcloud_objects() == []
     assert staged.exists()
+
+
+async def test_a_decode_past_its_budget_fails_the_job_with_its_code(
+    client: AsyncClient, test_db_session, uploader, queued, monkeypatch
+) -> None:
+    """The worker records the decode budget's refusal with its point cloud code."""
+    job_id = await committed_upload(client, uploader[0], copc_nodes())
+    monkeypatch.setattr(
+        "app.processing.ingest.pointcloud.monotonic", itertools.count(step=100).__next__
+    )
+
+    with pytest.raises(UnsafeUploadError, match="seconds to decode"):
+        await run_queued(queued)
+
+    job = await load_job(test_db_session, job_id)
+    assert (job.status, job.error_code) == ("failed", "pointcloud_invalid")
+    assert job.error_message == "The point cloud takes more than 60 seconds to decode."
+    assert await pointcloud_objects() == []
 
 
 # --- Presigned doors on S3 -----------------------------------------------

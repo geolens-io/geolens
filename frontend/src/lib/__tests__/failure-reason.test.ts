@@ -35,6 +35,18 @@ describe('describeFailureReason', () => {
     );
   });
 
+  it("shows a point cloud refusal the worker stored in the reader's language", async () => {
+    await changeTestLanguage('fr');
+
+    expect(
+      describeFailureReason(
+        "The point cloud's points don't decode as its header describes.",
+        'Something went wrong',
+        'pointcloud_decode_failed',
+      ),
+    ).toBe("Les points du nuage de points ne se décodent pas comme l'indique son en-tête.");
+  });
+
   it('keeps the stored reason for a code with no fixed sentence', () => {
     const composed = 'Rejected before execution: source_changed.';
     expect(describeFailureReason(composed, 'Something went wrong', 'source_changed')).toBe(composed);

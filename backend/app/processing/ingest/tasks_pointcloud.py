@@ -11,12 +11,14 @@ from sqlalchemy.exc import DBAPIError
 
 from app.core.async_io import await_draining
 from app.core.db.tenant_session import tenant_task
+from app.core.failure_reason import FixedReason, redact_failure_reason
 from app.core.geo import bbox_to_extent_wkt
 from app.core.pointcloud import (
     POINTCLOUD_ASSET_KEY,
     POINTCLOUD_MEDIA_TYPE,
     pointcloud_attempt_key,
 )
+from app.core.upload_errors import UnsafeUploadError
 from app.platform.dataset_origin import set_dataset_origin
 from app.platform.jobs import ledger
 from app.platform.jobs.heartbeat import (
@@ -168,10 +170,27 @@ async def create_pointcloud_dataset(
     return record, dataset
 
 
+def _job_failure_reason(exc: Exception) -> Exception | FixedReason:
+    """A point cloud refusal as a fixed reason whose code the job keeps; else ``exc``."""
+    if not isinstance(exc, UnsafeUploadError):
+        return exc
+    text = redact_failure_reason(exc)
+    if exc.code == "pointcloud_not_copc":
+        return FixedReason(text, code="pointcloud_not_copc")
+    if exc.code == "pointcloud_no_crs":
+        return FixedReason(text, code="pointcloud_no_crs")
+    if exc.code == "pointcloud_invalid":
+        return FixedReason(text, code="pointcloud_invalid")
+    if exc.code == "pointcloud_decode_failed":
+        return FixedReason(text, code="pointcloud_decode_failed")
+    return exc
+
+
 async def _record_failure(
     job_uuid: uuid.UUID, attempt_uuid: uuid.UUID, exc: Exception, *, job_id: str
 ) -> None:
     """Fail the attempt's job, and send ``ingest_failed`` once that lands."""
+    reason = _job_failure_reason(exc)
     try:
         async with _job_phase_session(
             job_uuid,
@@ -179,7 +198,7 @@ async def _record_failure(
             attempt_id=attempt_uuid,
             lock_and_statement_timeout_ms=JOB_ERROR_WRITE_TIMEOUT_MS,
         ) as (session, _job):
-            await ledger.fail(session, job_uuid, attempt_uuid, reason=exc)
+            await ledger.fail(session, job_uuid, attempt_uuid, reason=reason)
             await session.commit()
     except DBAPIError as write_failure:
         # Swallowed so the caller re-raises the ingest failure, not a timeout.
