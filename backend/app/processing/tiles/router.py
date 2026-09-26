@@ -1630,12 +1630,12 @@ def _validate_tile_coordinates(z: int, x: int, y: int) -> None:
 _CLIENT_STATE_PARAM = "_v"
 
 # A caller chooses its own `_v`, so a newer one re-reads a snapshot at most once
-# per interval for each cache key. The re-read runs as its own task on its own
-# session: requests arriving while it runs await its result, and one that is
-# cancelled or disconnects leaves it running for the others.
+# per interval for each cache key. The request that claims the re-read runs it
+# on its own session, needing no connection beyond the one it already holds,
+# and requests arriving meanwhile wait on the future it publishes.
 _FORCED_REREAD_INTERVAL = 1.0  # seconds
 _forced_rereads: LRUCache[str, float] = LRUCache(maxsize=256)
-_rereads_in_flight: dict[str, asyncio.Task[_DatasetMeta]] = {}
+_rereads_in_flight: dict[str, asyncio.Future[_DatasetMeta | None]] = {}
 
 
 def _client_saw_newer_state(raw: str | None, meta: _DatasetMeta) -> bool:
@@ -1700,31 +1700,40 @@ async def _read_dataset_meta(
     )
 
 
-async def _reread_dataset_meta(
-    cache_key: str, table_name: str, tid: str | None, now: float
+async def _lead_reread(
+    reread: asyncio.Future[_DatasetMeta | None],
+    cache_key: str,
+    table_name: str,
+    db: AsyncSession,
+    tid: str | None,
+    now: float,
 ) -> _DatasetMeta:
-    """Run a forced re-read on its own session and store what it reads.
+    """Run a claimed re-read on the claimant's session and publish the result.
 
-    It can outlive the request that started it, so it cannot borrow that
-    request's session, which closes when the request ends.
+    A failed read hands every waiting request the same error. A cancelled one
+    publishes ``None``, so a waiting request takes the read over instead of
+    inheriting the cancellation.
     """
-    from app.core.db import async_session
-
-    async with async_session() as db:
+    try:
         meta = await _read_dataset_meta(db, table_name, tid)
+    except BaseException as exc:  # release the waiters however the read ends
+        with _dataset_cache_lock:
+            if _rereads_in_flight.get(cache_key) is reread:
+                del _rereads_in_flight[cache_key]
+        if isinstance(exc, Exception):
+            reread.set_exception(exc)
+            # The claimant raises it too, so a future nobody waited on must
+            # not be logged as never retrieved.
+            reread.exception()
+        else:
+            reread.set_result(None)
+        raise
     with _dataset_cache_lock:
         _dataset_cache[cache_key] = (now, meta)
-    return meta
-
-
-def _forget_reread(cache_key: str, reread: asyncio.Task[_DatasetMeta]) -> None:
-    with _dataset_cache_lock:
         if _rereads_in_flight.get(cache_key) is reread:
             del _rereads_in_flight[cache_key]
-    if not reread.cancelled():
-        # Each waiting request raises the error itself; this only stops a read
-        # whose requests all went away from being logged as never retrieved.
-        reread.exception()
+    reread.set_result(meta)
+    return meta
 
 
 async def _resolve_dataset_meta(
@@ -1742,43 +1751,47 @@ async def _resolve_dataset_meta(
     authorization that admitted the request. Re-reading the counter alone
     would leave that decision on the stale row and fix nothing, so a
     ``client_state`` newer than the cached snapshot re-reads the whole row.
-    Each cache key allows one such re-read per ``_FORCED_REREAD_INTERVAL``.
-    Requests arriving while it runs wait for its result, and a later one in
-    the interval is served whatever snapshot the cache then holds.
+    Each cache key allows one such re-read per ``_FORCED_REREAD_INTERVAL``,
+    run by the request that claims it on that request's own session. Requests
+    arriving while it runs wait for its result, taking the read over if its
+    claimant is cancelled, and a later request in the interval is served
+    whatever snapshot the cache then holds.
     """
-    now = time.monotonic()
-
     # Fail before consulting even the in-memory cache: an unresolved request
     # must never reuse a single-tenant bare-key entry after a mode transition.
     tid = _require_tile_tenant_context()
     cache_key = f"{tid}:{table_name}" if tid is not None else table_name
 
-    reread = None
-    with _dataset_cache_lock:
-        cached_entry = _dataset_cache.get(cache_key)
-        if cached_entry is not None:
-            ts, cached_meta = cached_entry
-            if now - ts < _DATASET_CACHE_TTL:
-                if not _client_saw_newer_state(client_state, cached_meta):
+    taking_over = False
+    while True:
+        now = time.monotonic()
+        claimed = None
+        with _dataset_cache_lock:
+            cached_entry = _dataset_cache.get(cache_key)
+            if cached_entry is None or now - cached_entry[0] >= _DATASET_CACHE_TTL:
+                break
+            cached_meta = cached_entry[1]
+            if not _client_saw_newer_state(client_state, cached_meta):
+                return cached_meta
+            reread = _rereads_in_flight.get(cache_key)
+            if reread is None:
+                claimed_at = _forced_rereads.get(cache_key)
+                if (
+                    not taking_over
+                    and claimed_at is not None
+                    and now - claimed_at < _FORCED_REREAD_INTERVAL
+                ):
                     return cached_meta
-                reread = _rereads_in_flight.get(cache_key)
-                if reread is None:
-                    claimed_at = _forced_rereads.get(cache_key)
-                    if (
-                        claimed_at is not None
-                        and now - claimed_at < _FORCED_REREAD_INTERVAL
-                    ):
-                        return cached_meta
-                    _forced_rereads[cache_key] = now
-                    reread = asyncio.create_task(
-                        _reread_dataset_meta(cache_key, table_name, tid, now)
-                    )
-                    reread.add_done_callback(
-                        lambda task: _forget_reread(cache_key, task)
-                    )
-                    _rereads_in_flight[cache_key] = reread
-    if reread is not None:
-        return await asyncio.shield(reread)
+                _forced_rereads[cache_key] = now
+                reread = claimed = asyncio.get_running_loop().create_future()
+                _rereads_in_flight[cache_key] = reread
+        if claimed is not None:
+            return await _lead_reread(claimed, cache_key, table_name, db, tid, now)
+        meta = await asyncio.shield(reread)
+        if meta is not None:
+            return meta
+        # Its claimant was cancelled, so take the read over.
+        taking_over = True
 
     meta = await _read_dataset_meta(db, table_name, tid)
     with _dataset_cache_lock:

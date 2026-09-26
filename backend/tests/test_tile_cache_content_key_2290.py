@@ -519,21 +519,23 @@ async def test_tiles_fanned_out_after_a_swap_all_get_the_new_snapshot(
 async def test_a_cancelled_request_leaves_its_re_read_to_the_others(
     test_db_session, monkeypatch
 ):
-    """Cancelling the request that started a re-read strands nobody waiting on it."""
+    """A waiting request takes over the read its cancelled claimant started."""
     dataset = await _registered_dataset(test_db_session)
     table = dataset.table_name
     try:
         await tile_router._resolve_dataset_meta(table, test_db_session)
         await _bump_tile_cache_version(test_db_session, dataset.id)
 
-        # Holds the re-read open, so the cancel lands while it is in flight.
+        # Holds each read open, so the cancel lands while the first is in flight.
         entered, release = asyncio.Event(), asyncio.Event()
         read = tile_router._read_dataset_meta
+        started: list[str] = []
 
-        async def read_once_released(*args, **kwargs):
+        async def read_once_released(db, table_name, tid):
+            started.append(table_name)
             entered.set()
             await release.wait()
-            return await read(*args, **kwargs)
+            return await read(db, table_name, tid)
 
         monkeypatch.setattr(tile_router, "_read_dataset_meta", read_once_released)
         with _counting_row_reads(table) as reads:
@@ -549,6 +551,8 @@ async def test_a_cancelled_request_leaves_its_re_read_to_the_others(
 
         assert leader.cancelled()
         assert [meta.tile_cache_version for meta in metas] == [2] * 4
+        # The claimant's read never reached the database; one follower's did.
+        assert started == [table, table]
         assert len(reads) == 1
     finally:
         tile_router._evict_dataset_meta(table)
@@ -577,6 +581,87 @@ async def test_a_failed_re_read_fails_every_waiting_request_alike(test_db_sessio
         assert len(reads) == 1
     finally:
         tile_router._evict_dataset_meta(table)
+
+
+async def test_a_forced_re_read_checks_out_no_connection_of_its_own(
+    test_db_session,
+):
+    """The claimant reads on the connection its request already holds."""
+    import app.core.db as db_module
+
+    dataset = await _registered_dataset(test_db_session)
+    table = dataset.table_name
+    checkouts: list[object] = []
+
+    def on_checkout(dbapi_connection, connection_record, connection_proxy):
+        checkouts.append(connection_record)
+
+    try:
+        await tile_router._resolve_dataset_meta(table, test_db_session)
+        await _bump_tile_cache_version(test_db_session, dataset.id)
+        async with db_module.async_session() as request_session:
+            # Identity resolution has already put this session on a connection.
+            await request_session.execute(text("SELECT 1"))
+            pool = db_module.engine.sync_engine.pool
+            event.listen(pool, "checkout", on_checkout)
+            try:
+                meta = await tile_router._resolve_dataset_meta(
+                    table, request_session, "2"
+                )
+            finally:
+                event.remove(pool, "checkout", on_checkout)
+        assert meta.tile_cache_version == 2
+        assert checkouts == []
+    finally:
+        tile_router._evict_dataset_meta(table)
+
+
+@pytest.mark.usefixtures("_init_tile_pool_for_tests")
+async def test_an_authenticated_forced_re_read_completes_on_a_one_connection_pool(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, tmp_path, monkeypatch
+):
+    """Bearer resolution holds the request's only connection for the whole request."""
+    import app.core.db as db_module
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from app.api.main import app
+    from app.core.config import settings
+    from app.core.dependencies import get_db
+
+    _, dataset, _ = await _seed(test_db_session, tmp_path)
+    table = dataset.table_name
+    one_connection = create_async_engine(
+        settings.test_database_url, pool_size=1, max_overflow=0, pool_timeout=2
+    )
+    sessions = async_sessionmaker(one_connection, expire_on_commit=False)
+
+    async def get_db_on_one_connection():
+        async with sessions() as session:
+            yield session
+
+    try:
+        await tile_router._resolve_dataset_meta(table, test_db_session)
+        await _bump_tile_cache_version(test_db_session, dataset.id)
+        monkeypatch.setitem(app.dependency_overrides, get_db, get_db_on_one_connection)
+        monkeypatch.setattr(db_module, "async_session", sessions)
+        with patch.object(tile_router, "get_tile_cache", return_value=None):
+            resp = await asyncio.wait_for(
+                client.get(
+                    f"/tiles/data.{table}/0/0/0.pbf",
+                    params={"_v": "2"},
+                    headers=admin_auth_header,
+                ),
+                timeout=15,
+            )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.headers["cache-control"].startswith("public")
+        with tile_router._dataset_cache_lock:
+            assert tile_router._dataset_cache[table][1].tile_cache_version == 2
+    finally:
+        await one_connection.dispose()
+        tile_router._evict_dataset_meta(table)
+        await _drop_table(test_db_session, table)
 
 
 _CDN_POLICY = "public, max-age=60, s-maxage=86400"
