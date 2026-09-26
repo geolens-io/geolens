@@ -190,6 +190,8 @@
       "running": "Running",
       "complete": "Complete",
       "failed": "Failed",
+      "cancelled": "Cancelled",
+      "fannedOut": "Fanned out",
       "allUsers": "All Users",
       "user": "User",
       "status": "Status",

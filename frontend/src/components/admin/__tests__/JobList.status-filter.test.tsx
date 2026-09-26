@@ -60,6 +60,14 @@ describe('JobList status filter from the URL (#1185)', () => {
     expect(statusFilter()).toHaveTextContent('Failed');
   });
 
+  it('queries the cancelled jobs when the route carries ?status=cancelled', () => {
+    render(<JobList />, { route: '/admin/jobs?status=cancelled' });
+
+    expect(mockUseAdminJobs).toHaveBeenCalled();
+    expect(lastQuery()?.status).toBe('cancelled');
+    expect(statusFilter()).toHaveTextContent('Cancelled');
+  });
+
   it('queries every job when the route carries no status', () => {
     render(<JobList />, { route: '/admin/jobs' });
 
@@ -85,6 +93,16 @@ describe('JobList status filter from the URL (#1185)', () => {
 
     expect(lastQuery()?.status).toBe('running');
     expect(statusFilter()).toHaveTextContent('Running');
+  });
+
+  it('lists Cancelled and Fanned out among the status options', async () => {
+    const user = userEvent.setup();
+    render(<JobList />, { route: '/admin/jobs' });
+
+    await user.click(statusFilter());
+
+    expect(await screen.findByRole('option', { name: 'Cancelled' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Fanned out' })).toBeInTheDocument();
   });
 
   it('clears the status filter back to all statuses', async () => {

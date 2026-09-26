@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { describeFailureReason } from '@/lib/failure-reason';
 import { useLocation, useSearchParams } from 'react-router';
 import { ChevronDown, ChevronRight } from 'lucide-react';
@@ -49,7 +50,24 @@ const STATUS_OPTIONS = [
   { value: 'running', labelKey: 'jobs.filters.running' },
   { value: 'complete', labelKey: 'jobs.filters.complete' },
   { value: 'failed', labelKey: 'jobs.filters.failed' },
+  { value: 'cancelled', labelKey: 'jobs.filters.cancelled' },
+  { value: 'fanned_out', labelKey: 'jobs.filters.fannedOut' },
 ];
+
+// Reuses the import panel's status labels rather than adding a second copy:
+// `import` is one of the namespaces every locale bundle loads eagerly
+// (src/i18n/resources.ts), so it is available here without a dedicated fetch.
+function jobStatusLabel(t: TFunction<'admin'>, status: string): string {
+  switch (status) {
+    case 'pending': return t('import:jobProgress.status.pending');
+    case 'running': return t('import:jobProgress.status.running');
+    case 'complete': return t('import:jobProgress.status.complete');
+    case 'failed': return t('import:jobProgress.status.failed');
+    case 'cancelled': return t('import:jobProgress.status.cancelled');
+    case 'fanned_out': return t('import:jobProgress.status.fannedOut');
+    default: return t('import:jobProgress.status.unknown', { status });
+  }
+}
 
 function formatDuration(startedAt: string | null, completedAt: string | null): string {
   if (!startedAt || !completedAt) return '-';
@@ -421,7 +439,7 @@ export function JobList() {
                             variant="outline"
                             className={`text-xs ${jobStatusColors[job.status] ?? 'bg-muted text-muted-foreground border-border'}`}
                           >
-                            {job.status}
+                            {jobStatusLabel(t, job.status)}
                           </Badge>
                         </TableCell>
                         <TableCell>

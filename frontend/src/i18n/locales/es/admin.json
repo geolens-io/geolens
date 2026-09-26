@@ -190,6 +190,8 @@
       "running": "En ejecución",
       "complete": "Completado",
       "failed": "Fallido",
+      "cancelled": "Cancelado",
+      "fannedOut": "Distribuido",
       "allUsers": "Todos los usuarios",
       "user": "Usuario",
       "status": "Estado",

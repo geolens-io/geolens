@@ -190,6 +190,8 @@
       "running": "运行中",
       "complete": "已完成",
       "failed": "失败",
+      "cancelled": "已取消",
+      "fannedOut": "已分发",
       "allUsers": "全部用户",
       "user": "用户",
       "status": "状态",
