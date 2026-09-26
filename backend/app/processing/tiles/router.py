@@ -6,8 +6,9 @@ import math
 import threading
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import datetime
-from typing import Any, Literal, NamedTuple
+from typing import Any, Literal, NamedTuple, TypeVar
 from urllib.parse import parse_qs, urlencode
 
 import httpx
@@ -638,12 +639,11 @@ def _cache_key_version_mismatch(values: list[str], current: int) -> bool:
 
 
 def _meta_cache_version_segment(raw: str | None) -> str | None:
-    """Normalize a request's ``v`` into a raster meta cache-key segment.
+    """Normalize a request's ``v`` into a ``tile_cache_version`` string, or None.
 
     ``tile_cache_version`` is a small monotonic integer, so only a short ASCII
-    digit run is accepted. Anything else returns None, which puts the caller
-    back on the unversioned key, where staleness is bounded by the 60s TTL
-    instead, never on an error.
+    digit run is accepted. Anything else returns None, which serves the
+    request the cached snapshot, stale by at most its TTL, never an error.
     """
     if raw is None or not (0 < len(raw) <= 10):
         return None
@@ -652,39 +652,10 @@ def _meta_cache_version_segment(raw: str | None) -> str | None:
     return raw
 
 
-async def _resolve_raster_meta(
-    db: AsyncSession,
-    dataset_id: uuid.UUID,
-    requested_version: str | None = None,
+async def _read_raster_meta(
+    db: AsyncSession, dataset_id: uuid.UUID, tenant_id: str | None
 ) -> _RasterMeta:
-    """Look up raster dataset/asset metadata with a short in-memory cache.
-
-    The cached snapshot INCLUDES the access-control fields, so a visibility
-    or status change takes effect only after the entry expires, at most
-    ``_RASTER_META_CACHE_TTL`` seconds. Multi-tenant cache keys carry the
-    resolved tenant UUID and filter ``tenant_id`` explicitly; an unresolved
-    tenant fails before either.
-
-    Raises HTTPException(404) when the dataset is missing, is not a raster,
-    or has no raster asset.
-    """
-    tenant_id = _require_tile_tenant_context()
-    base_key = f"{tenant_id}:{dataset_id}" if tenant_id is not None else str(dataset_id)
-    # fix(#1329): LOOK UP under the REQUEST's `v`. The row's version reaches
-    # this function only through the snapshot below, so it is exactly as stale
-    # as the `asset_uri` it would guard; the STORE is under the row's version.
-    version_segment = _meta_cache_version_segment(requested_version)
-    cache_key = (
-        f"{base_key}:v{version_segment}" if version_segment is not None else base_key
-    )
-    now = time.monotonic()
-    with _raster_meta_cache_lock:
-        cached_entry = _raster_meta_cache.get(cache_key)
-        if cached_entry is not None:
-            ts, cached_meta = cached_entry
-            if now - ts < _RASTER_META_CACHE_TTL:
-                return cached_meta
-
+    """Read the raster metadata snapshot for ``dataset_id``, or raise 404."""
     tenant_filter = (
         "\n              AND d.tenant_id = :tenant_id" if tenant_id is not None else ""
     )
@@ -733,7 +704,7 @@ async def _resolve_raster_meta(
             status_code=status.HTTP_404_NOT_FOUND, detail="No raster asset"
         )
 
-    meta = _RasterMeta(
+    return _RasterMeta(
         visibility=row["visibility"],
         record_status=row["record_status"],
         created_by=row["created_by"],
@@ -748,17 +719,42 @@ async def _resolve_raster_meta(
         tile_cache_version=row["tile_cache_version"] or 1,
         publication_version=row["publication_version"] or 0,
     )
-    # fix(#1329): the write key comes from the SNAPSHOT's own version. Under
-    # the requested one, `v=N+1` against a row at N parks the CURRENT snapshot
-    # on that key, and it survives the swap for a full TTL.
-    store_key = (
-        f"{base_key}:v{meta.tile_cache_version}"
-        if version_segment is not None
-        else base_key
+
+
+async def _resolve_raster_meta(
+    db: AsyncSession,
+    dataset_id: uuid.UUID,
+    requested_version: str | None = None,
+) -> _RasterMeta:
+    """Look up raster dataset/asset metadata with a short in-memory cache.
+
+    The cached snapshot INCLUDES the access-control fields, so a visibility
+    or status change takes effect only after the entry expires, at most
+    ``_RASTER_META_CACHE_TTL`` seconds. Multi-tenant cache keys carry the
+    resolved tenant UUID and filter ``tenant_id`` explicitly; an unresolved
+    tenant fails before either.
+
+    Each dataset has one snapshot. A ``requested_version`` newer than it
+    re-reads the row as ``_cached_snapshot`` describes, so a replace is picked
+    up by the first request that names its version; an equal, older or
+    unreadable one is served the snapshot.
+
+    Raises HTTPException(404) when the dataset is missing, is not a raster,
+    or has no raster asset.
+    """
+    tenant_id = _require_tile_tenant_context()
+    cache_key = (
+        f"{tenant_id}:{dataset_id}" if tenant_id is not None else str(dataset_id)
     )
-    with _raster_meta_cache_lock:
-        _raster_meta_cache[store_key] = (now, meta)
-    return meta
+    version = _meta_cache_version_segment(requested_version)
+    return await _cached_snapshot(
+        _RASTER_SNAPSHOTS,
+        cache_key,
+        names_newer=lambda meta: (
+            version is not None and int(version) > meta.tile_cache_version
+        ),
+        read=lambda: _read_raster_meta(db, dataset_id, tenant_id),
+    )
 
 
 def _tile_signature_authorizes(
@@ -1629,13 +1625,44 @@ def _validate_tile_coordinates(z: int, x: int, y: int) -> None:
 # record's `updated_at`.
 _CLIENT_STATE_PARAM = "_v"
 
-# A caller chooses its own `_v`, so a newer one re-reads a snapshot at most once
-# per interval for each cache key. The request that claims the re-read runs it
-# on its own session, needing no connection beyond the one it already holds,
-# and requests arriving meanwhile wait on the future it publishes.
+# A caller chooses its own version param (`_v` for vector tiles, `v` for
+# raster), so one newer than the cached snapshot re-reads it at most once per
+# interval for each cache key. The request that claims the re-read runs it on
+# its own session, needing no connection beyond the one it already holds, and
+# requests arriving meanwhile wait on the future it publishes.
 _FORCED_REREAD_INTERVAL = 1.0  # seconds
 _forced_rereads: LRUCache[str, float] = LRUCache(maxsize=256)
 _rereads_in_flight: dict[str, asyncio.Future[_DatasetMeta | None]] = {}
+_raster_forced_rereads: LRUCache[str, float] = LRUCache(maxsize=256)
+_raster_rereads_in_flight: dict[str, asyncio.Future[_RasterMeta | None]] = {}
+
+_Snapshot = TypeVar("_Snapshot")
+
+
+class _Snapshots(NamedTuple):
+    """A metadata cache with the claims and in-flight reads bounding its refreshes."""
+
+    entries: LRUCache
+    lock: Any
+    ttl: int
+    claims: LRUCache
+    in_flight: dict
+
+
+_VECTOR_SNAPSHOTS = _Snapshots(
+    _dataset_cache,
+    _dataset_cache_lock,
+    _DATASET_CACHE_TTL,
+    _forced_rereads,
+    _rereads_in_flight,
+)
+_RASTER_SNAPSHOTS = _Snapshots(
+    _raster_meta_cache,
+    _raster_meta_cache_lock,
+    _RASTER_META_CACHE_TTL,
+    _raster_forced_rereads,
+    _raster_rereads_in_flight,
+)
 
 
 def _client_saw_newer_state(raw: str | None, meta: _DatasetMeta) -> bool:
@@ -1701,13 +1728,12 @@ async def _read_dataset_meta(
 
 
 async def _lead_reread(
-    reread: asyncio.Future[_DatasetMeta | None],
-    cache_key: str,
-    table_name: str,
-    db: AsyncSession,
-    tid: str | None,
+    snapshots: _Snapshots,
+    key: str,
+    reread: asyncio.Future[Any],
+    read: Callable[[], Awaitable[_Snapshot]],
     now: float,
-) -> _DatasetMeta:
+) -> _Snapshot:
     """Run a claimed re-read on the claimant's session and publish the result.
 
     A failed read hands every waiting request the same error. A cancelled one
@@ -1715,11 +1741,11 @@ async def _lead_reread(
     inheriting the cancellation.
     """
     try:
-        meta = await _read_dataset_meta(db, table_name, tid)
+        snapshot = await read()
     except BaseException as exc:  # release the waiters however the read ends
-        with _dataset_cache_lock:
-            if _rereads_in_flight.get(cache_key) is reread:
-                del _rereads_in_flight[cache_key]
+        with snapshots.lock:
+            if snapshots.in_flight.get(key) is reread:
+                del snapshots.in_flight[key]
         if isinstance(exc, Exception):
             reread.set_exception(exc)
             # The claimant raises it too, so a future nobody waited on must
@@ -1728,12 +1754,65 @@ async def _lead_reread(
         else:
             reread.set_result(None)
         raise
-    with _dataset_cache_lock:
-        _dataset_cache[cache_key] = (now, meta)
-        if _rereads_in_flight.get(cache_key) is reread:
-            del _rereads_in_flight[cache_key]
-    reread.set_result(meta)
-    return meta
+    with snapshots.lock:
+        snapshots.entries[key] = (now, snapshot)
+        if snapshots.in_flight.get(key) is reread:
+            del snapshots.in_flight[key]
+    reread.set_result(snapshot)
+    return snapshot
+
+
+async def _cached_snapshot(
+    snapshots: _Snapshots,
+    key: str,
+    *,
+    names_newer: Callable[[_Snapshot], bool],
+    read: Callable[[], Awaitable[_Snapshot]],
+) -> _Snapshot:
+    """Return the snapshot cached for ``key``, reading it when missing or stale.
+
+    A snapshot younger than the TTL is served unless ``names_newer`` says the
+    request has already seen a newer state. Each key allows one such forced
+    re-read per ``_FORCED_REREAD_INTERVAL``, run by the request that claims it
+    through its own ``read``, so on its own session. Requests arriving while
+    it runs wait for its result, taking the read over if its claimant is
+    cancelled, and a later request in the interval is served whatever
+    snapshot the cache then holds.
+    """
+    taking_over = False
+    while True:
+        now = time.monotonic()
+        claimed = None
+        with snapshots.lock:
+            cached = snapshots.entries.get(key)
+            if cached is None or now - cached[0] >= snapshots.ttl:
+                break
+            if not names_newer(cached[1]):
+                return cached[1]
+            reread = snapshots.in_flight.get(key)
+            if reread is None:
+                claimed_at = snapshots.claims.get(key)
+                if (
+                    not taking_over
+                    and claimed_at is not None
+                    and now - claimed_at < _FORCED_REREAD_INTERVAL
+                ):
+                    return cached[1]
+                snapshots.claims[key] = now
+                reread = claimed = asyncio.get_running_loop().create_future()
+                snapshots.in_flight[key] = reread
+        if claimed is not None:
+            return await _lead_reread(snapshots, key, claimed, read, now)
+        snapshot = await asyncio.shield(reread)
+        if snapshot is not None:
+            return snapshot
+        # Its claimant was cancelled, so take the read over.
+        taking_over = True
+
+    snapshot = await read()
+    with snapshots.lock:
+        snapshots.entries[key] = (now, snapshot)
+    return snapshot
 
 
 async def _resolve_dataset_meta(
@@ -1750,53 +1829,19 @@ async def _resolve_dataset_meta(
     decides visibility and record_status, so it can never be staler than the
     authorization that admitted the request. Re-reading the counter alone
     would leave that decision on the stale row and fix nothing, so a
-    ``client_state`` newer than the cached snapshot re-reads the whole row.
-    Each cache key allows one such re-read per ``_FORCED_REREAD_INTERVAL``,
-    run by the request that claims it on that request's own session. Requests
-    arriving while it runs wait for its result, taking the read over if its
-    claimant is cancelled, and a later request in the interval is served
-    whatever snapshot the cache then holds.
+    ``client_state`` newer than the cached snapshot re-reads the whole row,
+    as ``_cached_snapshot`` describes.
     """
     # Fail before consulting even the in-memory cache: an unresolved request
     # must never reuse a single-tenant bare-key entry after a mode transition.
     tid = _require_tile_tenant_context()
     cache_key = f"{tid}:{table_name}" if tid is not None else table_name
-
-    taking_over = False
-    while True:
-        now = time.monotonic()
-        claimed = None
-        with _dataset_cache_lock:
-            cached_entry = _dataset_cache.get(cache_key)
-            if cached_entry is None or now - cached_entry[0] >= _DATASET_CACHE_TTL:
-                break
-            cached_meta = cached_entry[1]
-            if not _client_saw_newer_state(client_state, cached_meta):
-                return cached_meta
-            reread = _rereads_in_flight.get(cache_key)
-            if reread is None:
-                claimed_at = _forced_rereads.get(cache_key)
-                if (
-                    not taking_over
-                    and claimed_at is not None
-                    and now - claimed_at < _FORCED_REREAD_INTERVAL
-                ):
-                    return cached_meta
-                _forced_rereads[cache_key] = now
-                reread = claimed = asyncio.get_running_loop().create_future()
-                _rereads_in_flight[cache_key] = reread
-        if claimed is not None:
-            return await _lead_reread(claimed, cache_key, table_name, db, tid, now)
-        meta = await asyncio.shield(reread)
-        if meta is not None:
-            return meta
-        # Its claimant was cancelled, so take the read over.
-        taking_over = True
-
-    meta = await _read_dataset_meta(db, table_name, tid)
-    with _dataset_cache_lock:
-        _dataset_cache[cache_key] = (now, meta)
-    return meta
+    return await _cached_snapshot(
+        _VECTOR_SNAPSHOTS,
+        cache_key,
+        names_newer=lambda meta: _client_saw_newer_state(client_state, meta),
+        read=lambda: _read_dataset_meta(db, table_name, tid),
+    )
 
 
 async def _resolve_dataset_meta_for_serving(

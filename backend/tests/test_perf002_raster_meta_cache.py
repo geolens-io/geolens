@@ -6,10 +6,11 @@ Verifies:
   - _raster_meta_cache is populated after the first call.
   - Authorization is still evaluated per request: a caller who is denied access
     does not inherit a cached allow decision from a previous authorized caller.
-  - fix(#1329): the cache key carries the request's `v` (tile_cache_version), so
-    a pointer swap that bumps the version is missed by every api process on the
-    first request that carries the new value — while an absent or malformed `v`
-    keeps the pre-#1329 unversioned key and its 60s-bounded staleness.
+  - Each dataset has one snapshot, and a request whose `v` (tile_cache_version)
+    is newer than it re-reads the row, so a pointer swap that bumps the version
+    is picked up by every api process on the first request that carries the
+    new value. An absent, equal, older or malformed `v` is served the snapshot,
+    with its 60s-bounded staleness.
 """
 
 import uuid
@@ -243,10 +244,12 @@ def _forget(*cache_keys: str) -> None:
 
 
 class TestRasterMetaCacheVersionKey:
-    """fix(#1329): the request's `v` partitions the per-process meta cache."""
+    """The request's `v` decides whether the dataset's one snapshot is new enough."""
 
-    async def test_cache_key_includes_requested_version(self, test_db_session):
-        """A request carrying `v` is cached under a version-scoped key."""
+    async def test_a_versioned_request_shares_the_dataset_snapshot(
+        self, test_db_session
+    ):
+        """A request carrying `v` is cached as the dataset's one snapshot."""
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _create_public_raster(test_db_session, created_by=admin_id)
 
@@ -258,10 +261,10 @@ class TestRasterMetaCacheVersionKey:
 
         assert isinstance(meta, _RasterMeta)
         with _raster_meta_cache_lock:
-            assert versioned_key in _raster_meta_cache
-            # The unversioned key is NOT written, so a request carrying a
-            # different `v` can never be served this entry.
-            assert bare_key not in _raster_meta_cache
+            assert bare_key in _raster_meta_cache
+            # Nothing is filed under the version a request names, so naming one
+            # can never select an entry of its own.
+            assert versioned_key not in _raster_meta_cache
 
     async def test_bumped_version_misses_the_pre_swap_entry(self, test_db_session):
         """The bump alone invalidates: no TTL expiry, no coordination channel."""
@@ -373,14 +376,14 @@ class TestRasterMetaCacheVersionKey:
     async def test_future_version_request_cannot_pre_warm_the_next_key(
         self, client, test_db_session
     ):
-        """fix(#1329 codex P1): a predictable future `v` cannot poison a swap.
+        """A predictable future `v` cannot poison a swap.
 
         The counter is public and increments by one, so an anonymous caller on
         a public raster can ask for the version the next swap will produce. If
-        the entry were filed under the value the request asked for, that call
-        would park the CURRENT snapshot on the key the swap is about to make
-        legitimate, and the swap would land on an occupied key. Filing it under
-        the snapshot's own version is what makes that impossible.
+        the snapshot were filed under the value the request asked for, that call
+        would park the CURRENT snapshot where the post-swap request looks.
+        Keeping one snapshot per dataset, with a newer `v` re-reading it, is
+        what makes that impossible.
         """
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _create_public_raster(test_db_session, created_by=admin_id)
@@ -398,10 +401,10 @@ class TestRasterMetaCacheVersionKey:
         # (#1372) — which defends nginx only, hence the key rule below.
         assert primed.headers["X-GeoLens-Cache-Status"] == "private"
 
-        # It was filed under the row's own version, so the key the swap is
-        # about to make legitimate is still empty.
+        # It was kept as the row's own snapshot, not filed under the version
+        # the request named.
         with _raster_meta_cache_lock:
-            assert f"{dataset_id}:v1" in _raster_meta_cache
+            assert _raster_meta_cache[str(dataset_id)][1].tile_cache_version == 1
             assert f"{dataset_id}:v2" not in _raster_meta_cache
 
         new_uri = await _swap_raster_pointer(test_db_session, dataset_id)
