@@ -366,7 +366,9 @@ class _FileReupload:
             contacted_origin=False,
             live_table=dataset.table_name,
             reaps_staged_upload=True,
-            upload_archive_key=original_archive_key(dataset.id, self.file_path),
+            upload_archive_key=original_archive_key(
+                dataset.id, self.file_path, self._archive_name()
+            ),
         )
 
     def classify(self, exc: BaseException) -> Failure:
@@ -434,6 +436,13 @@ class _FileReupload:
                 self.job_id, self.owned_staging_key, final_status=final_status
             )
 
+    def _archive_name(self) -> str:
+        # The job id makes the key this upload's alone, so an object already
+        # there is its archive and never another version's.
+        from app.processing.ingest.service import safe_upload_basename
+
+        return f"{self.job_id}_{safe_upload_basename(self.source_filename)}"
+
     async def _archive(self) -> None:
         from app.core.db import async_session
         from app.platform.jobs.models import IngestJob
@@ -447,6 +456,7 @@ class _FileReupload:
                     dataset_id=self.dataset_uuid,
                     file_path=self.file_path,
                     log_message="Failed to archive re-uploaded file to storage",
+                    archive_name=self._archive_name(),
                 )
 
 

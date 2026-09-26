@@ -150,6 +150,53 @@ async def _assert_live_row(table: str, name: str) -> None:
     assert rows == [name], f"the live table holds {rows}, not the replacement"
 
 
+async def _fake_ogr2ogr(file_path, staging_table, db_conn_str, **kwargs):
+    import app.core.db as db_module
+
+    async with db_module.async_session() as staging_session:
+        await _create_point_table(staging_session, staging_table, "after")
+        await staging_session.commit()
+
+
+async def _run_file_reupload(
+    job: IngestJob, dataset_id: uuid.UUID, admin_id: uuid.UUID, file_path: str
+) -> None:
+    with ExitStack() as stack:
+        stack.enter_context(
+            patch(
+                "app.processing.ingest.tasks_reupload._validate_upload_file_safety",
+                new=AsyncMock(),
+            )
+        )
+        stack.enter_context(
+            patch(
+                "app.processing.ingest.ogr.run_ogrinfo",
+                new=AsyncMock(
+                    return_value={
+                        "srid": 4326,
+                        "geometry_type": "Point",
+                        "layer_name": "update",
+                        "feature_count": 1,
+                        "columns": [{"name": "name", "type": "String"}],
+                    }
+                ),
+            )
+        )
+        stack.enter_context(
+            patch(
+                "app.processing.ingest.ogr.run_ogr2ogr",
+                new=AsyncMock(side_effect=_fake_ogr2ogr),
+            )
+        )
+        await reupload_file.func(
+            job_id=str(job.id),
+            dataset_id=str(dataset_id),
+            file_path=file_path,
+            user_id=str(admin_id),
+            attempt_id=str(job.attempt_id),
+        )
+
+
 async def _file_replacement(
     session: AsyncSession,
     tmp_path: Path,
@@ -188,48 +235,8 @@ async def _file_replacement(
     )
     file_path = job.file_path
 
-    async def _fake_ogr2ogr(file_path, staging_table, db_conn_str, **kwargs):
-        import app.core.db as db_module
-
-        async with db_module.async_session() as staging_session:
-            await _create_point_table(staging_session, staging_table, "after")
-            await staging_session.commit()
-
     async def run() -> None:
-        with ExitStack() as stack:
-            stack.enter_context(
-                patch(
-                    "app.processing.ingest.tasks_reupload._validate_upload_file_safety",
-                    new=AsyncMock(),
-                )
-            )
-            stack.enter_context(
-                patch(
-                    "app.processing.ingest.ogr.run_ogrinfo",
-                    new=AsyncMock(
-                        return_value={
-                            "srid": 4326,
-                            "geometry_type": "Point",
-                            "layer_name": "update",
-                            "feature_count": 1,
-                            "columns": [{"name": "name", "type": "String"}],
-                        }
-                    ),
-                )
-            )
-            stack.enter_context(
-                patch(
-                    "app.processing.ingest.ogr.run_ogr2ogr",
-                    new=AsyncMock(side_effect=_fake_ogr2ogr),
-                )
-            )
-            await reupload_file.func(
-                job_id=str(job.id),
-                dataset_id=str(dataset.id),
-                file_path=file_path,
-                user_id=str(admin_id),
-                attempt_id=str(job.attempt_id),
-            )
+        await _run_file_reupload(job, dataset.id, admin_id, file_path)
 
     async def assert_published() -> None:
         await _assert_live_row(table, "after")
@@ -1011,6 +1018,96 @@ async def test_a_publish_that_landed_unseen_is_cleaned_up_by_the_sweep(
         assert await _archived(replacement, storage) == [uploaded], (
             "the upload went without its original being archived"
         )
+
+
+async def _archives(replacement: _Replacement, storage) -> dict[str, bytes]:
+    """Every original archived under the replacement's dataset, by key."""
+    keys = await storage.list(f"originals/{replacement.dataset_id}/")
+    return {key: await storage.get(key) for key in keys}
+
+
+@contextmanager
+def _landed_unseen(job_id: uuid.UUID) -> Iterator[None]:
+    """A publish that lands while the task can tell neither that nor its end."""
+    lost = _LostAcknowledgement(job_id, ConnectionResetError("dropped"))
+    with (
+        _quiet_embedding(),
+        patch(
+            "app.processing.ingest.publication.observe_publish_commit",
+            new=AsyncMock(return_value=PublishObservation.UNKNOWN),
+        ),
+        patch("app.processing.ingest.publication.run_publish_followups", AsyncMock()),
+        lost.installed(),
+    ):
+        yield
+
+
+async def test_an_earlier_archive_under_the_uploads_filename_is_not_taken_for_it(
+    replace, storage
+) -> None:
+    """The sweep archives a publish's own upload, whatever an earlier version left under its filename."""
+    replacement = await replace("file")
+    uploaded = replacement.upload.read_bytes()
+    earlier = f"originals/{replacement.dataset_id}/{replacement.upload.name}"
+    await storage.put(earlier, b"an earlier version")
+    with _landed_unseen(replacement.job_id):
+        await replacement.run()
+
+    await run_owed_publish_followups()
+    assert await _upload_left(replacement, storage) == []
+    archives = await _archives(replacement, storage)
+    assert archives.pop(earlier) == b"an earlier version"
+    assert list(archives.values()) == [uploaded], (
+        "the upload went without its own original archived"
+    )
+
+
+async def test_a_superseded_publish_never_overwrites_the_live_versions_archive(
+    replace, storage, test_db_session
+) -> None:
+    """An upload whose publish was superseded is cleaned up without touching the newer version's archive."""
+    import app.core.db as db_module
+
+    first = await replace("file")
+    with _landed_unseen(first.job_id):
+        await first.run()
+
+    # A second replacement of the same dataset, under the same filename.
+    admin_id = await get_user_id(test_db_session, "admin")
+    second_upload = Path(settings.upload_staging_dir) / "second" / first.upload.name
+    second_upload.parent.mkdir()
+    second_upload.write_text('{"type":"FeatureCollection","features":[],"v":2}')
+    second_bytes = second_upload.read_bytes()
+    second = await _seed_job_and_run(
+        test_db_session,
+        dataset_id=first.dataset_id,
+        created_by=admin_id,
+        origin_kind="upload",
+        source_filename=first.upload.name,
+        file_path=str(second_upload),
+        user_metadata={"reupload": True, "dataset_id": str(first.dataset_id)},
+    )
+    try:
+        with _quiet_embedding():
+            await _run_file_reupload(
+                second, first.dataset_id, admin_id, str(second_upload)
+            )
+        live_archive = await _archives(first, storage)
+        assert list(live_archive.values()) == [second_bytes]
+
+        await run_owed_publish_followups()
+        assert await _upload_left(first, storage) == []
+        for key, content in live_archive.items():
+            assert await storage.get(key) == content, (
+                "a superseded upload overwrote the live version's archive"
+            )
+    finally:
+        async with db_module.async_session() as session:
+            await session.execute(
+                text("DELETE FROM catalog.ingest_jobs WHERE id = :id"),
+                {"id": second.id},
+            )
+            await session.commit()
 
 
 async def test_an_archive_the_sweep_cannot_write_keeps_the_upload(

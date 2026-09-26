@@ -112,8 +112,9 @@ async def _archive_upload(
 ) -> bool:
     """Whether ``archive_key`` holds the upload's original, archiving it now if not.
 
-    Reads the upload the way its task did, through ``resolve_file_path``, but
-    never a local file outside the upload staging directory.
+    ``archive_key`` names this upload alone, so an object already there is its
+    archive. Reads the upload the way its task did, through
+    ``resolve_file_path``, but never a local file outside the staging directory.
     """
     import app.core.db as db_module
     from app.platform.storage import get_storage
