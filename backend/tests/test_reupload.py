@@ -2338,6 +2338,8 @@ class TestSourcelessCommitDoesNotReserve:
         assert count == 0
 
 
+# The real staging pipeline grants the cluster-wide reader role.
+@pytest.mark.xdist_group("tenancy_global_state")
 class TestArchiveRunsAfterTheSwapCommit:
     """A re-upload archives the original file after the swap commits."""
 
