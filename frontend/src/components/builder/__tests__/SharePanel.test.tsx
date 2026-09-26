@@ -1498,6 +1498,33 @@ describe('#2297 public confirm defers to the server publish check', () => {
     });
   });
 
+  it('keeps an accessible name on Make public while the eligibility check is pending', async () => {
+    const user = userEvent.setup();
+    setup({
+      visibility: 'private',
+      hasShareToken: false,
+    });
+    let resolveCheck: (value: { has_non_public: boolean; non_public_datasets: string[] }) => void =
+      () => {};
+    mockedCheckMapVisibility.mockReset();
+    mockedCheckMapVisibility.mockReturnValue(
+      new Promise((resolve) => {
+        resolveCheck = resolve;
+      }),
+    );
+
+    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+    await screen.findByRole('alertdialog');
+
+    // The check has not resolved yet — a spinner alone would leave the
+    // button with no accessible name for a screen reader.
+    const pendingButton = screen.getByRole('button', { name: /make public/i });
+    expect(pendingButton).toBeDisabled();
+
+    resolveCheck({ has_non_public: false, non_public_datasets: [] });
+    await waitFor(() => expect(pendingButton).toBeEnabled());
+  });
+
   it('leaves all datasets public unaffected: Make public still offered', async () => {
     const user = userEvent.setup();
     const { publishMapFn } = setup({

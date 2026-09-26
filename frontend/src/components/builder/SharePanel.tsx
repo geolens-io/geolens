@@ -1426,11 +1426,10 @@ export function ShareDialog({
                         onClick={handleConfirmVisibilityChange}
                         disabled={isCheckingPublicEligibility}
                       >
-                        {isCheckingPublicEligibility ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-                        ) : (
-                          t('share.makePublicConfirmAction')
+                        {isCheckingPublicEligibility && (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin me-1.5" aria-hidden="true" />
                         )}
+                        {t('share.makePublicConfirmAction')}
                       </AlertDialogAction>
                     )}
                   </AlertDialogFooter>
