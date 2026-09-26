@@ -1,4 +1,4 @@
-import type { AddProtocolAction } from 'maplibre-gl';
+import { AJAXError, type AddProtocolAction } from 'maplibre-gl';
 
 const MAX_RETRIES = 2;
 const MAX_RETRY_DELAY_MS = 10_000;
@@ -47,10 +47,7 @@ export const tileRetryProtocol: AddProtocolAction = async (request, controller) 
     const delay = retryDelay(response.headers.get('Retry-After'));
     await response.body?.cancel();
     if (response.status !== 429 || attempt >= MAX_RETRIES || delay > MAX_RETRY_DELAY_MS) {
-      throw Object.assign(new Error(`Tile request failed (${response.status})`), {
-        status: response.status,
-        url,
-      });
+      throw new AJAXError(response.status, response.statusText, url, new Blob());
     }
     // A small jitter spreads the next wave across maps sharing the same cooldown.
     await waitForRetry(Math.max(250, delay) + Math.random() * 250, controller.signal);

@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { AJAXError } from 'maplibre-gl';
 import { tileRetryProtocol } from '../tile-retry-protocol';
 import { buildTileTransformRequest } from '../tile-utils';
+
+vi.unmock('maplibre-gl');
 
 const url = 'https://tiles.example/tiles/data.roads/0/0/0.pbf?sig=signature';
 const request = { url: `geolens-tile://${url}`, headers: { 'X-Embed-Token': 'test-token' } };
@@ -42,7 +45,9 @@ it('stops after two retries', async () => {
 it.each([401, 403, 404, 503])('does not retry %s', async (status) => {
   const fetcher = vi.fn().mockResolvedValue(new Response('', { status }));
   vi.stubGlobal('fetch', fetcher);
-  await expect(tileRetryProtocol(request, new AbortController())).rejects.toMatchObject({ status });
+  const error = await tileRetryProtocol(request, new AbortController()).catch((error: unknown) => error);
+  expect(error).toBeInstanceOf(AJAXError);
+  expect(error).toMatchObject({ status, url });
   expect(fetcher).toHaveBeenCalledTimes(1);
 });
 

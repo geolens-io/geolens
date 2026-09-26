@@ -2166,7 +2166,6 @@ async def _acquire_and_serve_tile(
     cache_ttl: int,
     base_headers: dict[str, str],
     cols_cache_key: str = "",
-    tenant_sem: Any = None,
     mode: str = "vector",
     log_event: str = "tile_access",
     log_extra: dict | None = None,
@@ -2175,13 +2174,12 @@ async def _acquire_and_serve_tile(
 
     Both the vector and cluster endpoints supply a ``query_callable`` (async
     ``(pool, conn) -> bytes | None``) plus a cache key; this owns the
-    shared scaffold: bounded tile-pool acquire, optional per-tenant
-    semaphore (no-op when ``tenant_sem`` is None), the single-connection
+    shared scaffold: bounded tile-pool acquire, a single-connection
     transaction with per-tenant role/search_path bind, error mapping
     (timeout -> 429, broad Exception -> 503), empty-tile caching (-> 204),
     gzip offload, cache write, usage event, and the ETag/304 response.
 
-    Callers keep their own cache-hit short-circuit and cold-rehydrate seam.
+    Callers own cache hits, tenant/global admission and cold rehydration.
     """
     try:
         pool = get_tile_pool()
@@ -2197,21 +2195,8 @@ async def _acquire_and_serve_tile(
             detail="Tile service unavailable",
         )
 
-    # FAIR-01: per-tenant semaphore acquisition (cloud only; no-op when None).
-    _sem_acquired = False
-    if tenant_sem is not None:
-        try:
-            _sem_acquired = await asyncio.wait_for(tenant_sem.acquire(), timeout=10.0)
-            if not _sem_acquired:
-                raise asyncio.TimeoutError
-        except asyncio.TimeoutError:
-            raise tile_busy_error(
-                "Tile concurrency limit reached for tenant, please retry"
-            )
-
-    # DP-02 (Phase 1209-03): acquire ONE connection and open a transaction so
-    # SET LOCAL ROLE + SET LOCAL search_path survive for the tile query
-    # (PgBouncer transaction-mode: SET LOCAL is valid within one txn; T-1209-10).
+    # SET LOCAL role and schema bindings must share the query transaction to
+    # survive PgBouncer transaction pooling.
     try:
         # fix(#1926): bounded, so an exhausted pool sheds through the 429 below
         # rather than parking the request until the client gives up.
@@ -2245,10 +2230,6 @@ async def _acquire_and_serve_tile(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Tile service unavailable",
         )
-    finally:
-        # FAIR-01: always release the per-tenant semaphore (cloud only).
-        if _sem_acquired and tenant_sem is not None:
-            tenant_sem.release()
 
     if tile_data is None:
         # Cache empty tiles to avoid repeated PostGIS queries for sparse datasets.
@@ -2407,7 +2388,11 @@ async def cluster_tile_endpoint(
                 _serving_tile_headers(cache_scope, cache_ttl, _cluster_cache_control),
             )
 
-    with tile_render_slot():
+    tenant_sem = _cluster_limiter if is_multi_tenant() else None
+    if tenant_sem is not None:
+        # Authorization is complete; quota waits must not retain an API connection.
+        await db.rollback()
+    async with tile_render_slot(tenant_sem):
         # Recheck catalog registration before cold storage or rendering acts on
         # cached authorization; byte-cache hits need no database round trip.
         await _assert_dataset_still_registered(
@@ -2442,8 +2427,6 @@ async def cluster_tile_endpoint(
                 schema=_schema,
             )
 
-        _cluster_tenant_sem = _cluster_limiter if is_multi_tenant() else None
-
         # The same tenant concurrency budget governs vector and cluster DB reads.
         return await _acquire_and_serve_tile(
             request=request,
@@ -2460,7 +2443,6 @@ async def cluster_tile_endpoint(
             base_headers=_serving_tile_headers(
                 cache_scope, cache_ttl, _cluster_cache_control
             ),
-            tenant_sem=_cluster_tenant_sem,
             mode="cluster",
             log_event="cluster_tile_access",
             log_extra={
@@ -2595,7 +2577,11 @@ async def tile_endpoint(
                 _serving_tile_headers(cache_scope, cache_ttl, _tile_cache_control),
             )
 
-    with tile_render_slot():
+    tenant_sem = _tile_serving_limiter if is_multi_tenant() else None
+    if tenant_sem is not None:
+        # Authorization is complete; quota waits must not retain an API connection.
+        await db.rollback()
+    async with tile_render_slot(tenant_sem):
         # Recheck catalog registration before cold storage or rendering acts on
         # cached authorization; byte-cache hits need no database round trip.
         await _assert_dataset_still_registered(
@@ -2612,11 +2598,6 @@ async def tile_endpoint(
         )
         if _cold_result is not None:
             return _cold_result
-
-        # Per-tenant concurrency budget from the registered serving extension: it
-        # caps concurrent tile DB connections per tenant so one tenant cannot starve
-        # others of pool connections. The Community default returns None.
-        _tenant_sem = _tile_serving_limiter if is_multi_tenant() else None
 
         # The shared serving helper binds the tenant role and schema in the
         # query transaction so SET LOCAL survives PgBouncer transaction pooling.
@@ -2657,7 +2638,6 @@ async def tile_endpoint(
             cache_ttl=cache_ttl,
             base_headers=_response_headers,
             cols_cache_key=cols_cache_key,
-            tenant_sem=_tenant_sem,
             mode="vector",
             log_event="tile_access",
             log_extra={
