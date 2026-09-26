@@ -754,6 +754,69 @@ async def test_a_tile_older_than_the_page_is_not_cached_under_its_url(
         await _drop_table(test_db_session, table)
 
 
+@pytest.mark.usefixtures("_init_tile_pool_for_tests")
+async def test_a_second_edit_inside_the_interval_is_served_fresh_by_another_worker(
+    client: AsyncClient, test_db_session, tmp_path
+):
+    """Two edits less than an interval apart, reloaded on a worker that saw neither.
+
+    Each edit changes the rows and commits a new tile_cache_version from
+    another worker, so nothing reaches this worker's snapshot or tile bytes.
+    The first reload re-reads the row. The second arrives inside the interval
+    that read opened and must still get the second edit's tile, not the first
+    edit's snapshot and its cached bytes.
+    """
+    from app.modules.catalog.datasets.domain.models import Dataset
+    from app.platform.catalog_locks import bump_tile_cache_version_atomic
+
+    _, dataset, _ = await _seed(test_db_session, tmp_path)
+    table = dataset.table_name
+    url = f"/tiles/data.{table}/0/0/0.pbf"
+    this_worker_tiles = InMemoryTileCacheProvider()
+
+    async def edit_on_another_worker(point: str, name: str) -> None:
+        await test_db_session.execute(
+            text(
+                f'INSERT INTO "data"."{table}" (geom, geom_4326, name) VALUES '
+                f"(ST_SetSRID({point}, 4326), ST_SetSRID({point}, 4326), '{name}')"
+            )
+        )
+        await bump_tile_cache_version_atomic(
+            test_db_session, dataset_cls=Dataset, dataset_id=dataset.id
+        )
+        await test_db_session.commit()
+
+    try:
+        with patch.object(
+            tile_router, "get_tile_cache", return_value=this_worker_tiles
+        ):
+            primed = await client.get(url, params={"_v": "1"})
+            await edit_on_another_worker("ST_MakePoint(2.35, 48.85)", "Paris")
+            first_reload = await client.get(url, params={"_v": "2"})
+            await edit_on_another_worker("ST_MakePoint(13.40, 52.52)", "Berlin")
+            second_reload = await asyncio.wait_for(
+                client.get(url, params={"_v": "3"}), timeout=5
+            )
+            with tile_router._dataset_cache_lock:
+                served_version = tile_router._dataset_cache[table][1].tile_cache_version
+
+        with patch.object(tile_router, "get_tile_cache", return_value=None):
+            tile_router._evict_dataset_meta(table)
+            second_edit_tile = await client.get(url)
+
+        for resp in (primed, first_reload, second_reload, second_edit_tile):
+            assert resp.status_code == 200, resp.text
+        assert second_reload.content == second_edit_tile.content, (
+            "the second reload was served the first edit's cached tile"
+        )
+        assert second_reload.content != first_reload.content
+        assert served_version == 3
+        assert second_reload.headers["cache-control"].startswith("public")
+    finally:
+        tile_router._evict_dataset_meta(table)
+        await _drop_table(test_db_session, table)
+
+
 def test_the_content_version_is_its_own_key_after_the_table_segment():
     dataset_id = uuid.uuid4()
     before = _generation_table_key("roads", dataset_id, 0, 1)
