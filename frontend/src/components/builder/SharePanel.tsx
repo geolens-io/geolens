@@ -1098,8 +1098,12 @@ export function ShareDialog({
     publicEligibility.status === 'resolved' && publicEligibility.nonPublicDatasets.length > 0;
   const isPublicEligible =
     publicEligibility.status === 'resolved' && publicEligibility.nonPublicDatasets.length === 0;
+  // Deduplicated — the server names one dataset per non-public layer, so two
+  // layers on the same dataset, or a shared title, would otherwise repeat.
   const blockedDatasets =
-    publicEligibility.status === 'resolved' ? publicEligibility.nonPublicDatasets : [];
+    publicEligibility.status === 'resolved'
+      ? [...new Set(publicEligibility.nonPublicDatasets)]
+      : [];
 
   // Guards a stale response — including a retry's — from landing after a newer request.
   function checkPublicEligibility() {
@@ -1367,14 +1371,32 @@ export function ShareDialog({
                     </AlertDialogTitle>
                     <AlertDialogDescription>
                       {isPublicBlocked
-                        ? t('share.makePublicBlockedDescription', {
-                            datasets: blockedDatasets.join(', '),
-                          })
+                        ? t('share.makePublicBlockedIntro')
                         : publicEligibilityFailed
                           ? t('share.makePublicCheckFailed')
                           : t('share.makePublicConfirmDescription')}
                     </AlertDialogDescription>
                   </AlertDialogHeader>
+                  {isPublicBlocked && (
+                    <div className="space-y-2">
+                      {/* Up to 200 titles of up to 500 characters each — bounded
+                          independently of the dialog's own height. */}
+                      <ul
+                        data-testid="share-blocked-datasets-list"
+                        aria-label={t('share.makePublicBlockedIntro')}
+                        className="max-h-40 list-disc space-y-1 overflow-y-auto rounded-md border border-border bg-muted/20 py-2 ps-8 pe-3 text-xs text-foreground"
+                      >
+                        {blockedDatasets.map((name) => (
+                          <li key={name} className="break-words">
+                            {name}
+                          </li>
+                        ))}
+                      </ul>
+                      <p className="text-xs text-muted-foreground">
+                        {t('share.makePublicBlockedRemedy')}
+                      </p>
+                    </div>
+                  )}
                   {isPublicEligible && pendingAudienceHiddenLayers.length > 0 && (
                     <div
                       data-testid="share-confirm-audience-hidden-warning"

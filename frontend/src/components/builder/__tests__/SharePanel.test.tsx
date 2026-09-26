@@ -1,6 +1,6 @@
 import type { ComponentProps } from 'react';
 import userEvent from '@testing-library/user-event';
-import { fireEvent, render, screen, waitFor } from '@/test/test-utils';
+import { fireEvent, render, screen, waitFor, within } from '@/test/test-utils';
 import { checkMapVisibility } from '@/api/maps';
 import { ApiError } from '@/api/client';
 import { translateApiErrorDetail } from '@/lib/error-map';
@@ -1411,6 +1411,43 @@ describe('#2297 public confirm defers to the server publish check', () => {
 
     await user.click(screen.getByRole('button', { name: /^cancel$/i }));
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  it('deduplicates a long blocked-dataset list and scroll-bounds it, keeping Cancel and the remedy outside it', async () => {
+    const user = userEvent.setup();
+    const longTitle = 'A'.repeat(500);
+    // 50 rows collapsing to 2 unique titles — the server names one per
+    // non-public layer, so duplicates and a 500-char title are both realistic.
+    const rawNames = Array.from({ length: 50 }, (_, i) =>
+      i % 2 === 0 ? longTitle : 'Duplicate name',
+    );
+    const { publishMapFn } = setup({
+      visibility: 'private',
+      hasShareToken: false,
+      hasNonPublic: true,
+    });
+    mockedCheckMapVisibility.mockResolvedValue({ has_non_public: true, non_public_datasets: rawNames });
+
+    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+
+    const dialog = await screen.findByRole('alertdialog');
+    await waitFor(() => {
+      expect(dialog).toHaveTextContent(longTitle);
+    });
+
+    const list = screen.getByTestId('share-blocked-datasets-list');
+    expect(list.className).toEqual(expect.stringContaining('max-h-40'));
+    expect(list.className).toEqual(expect.stringContaining('overflow-y-auto'));
+    const items = within(list).getAllByRole('listitem');
+    expect(items).toHaveLength(2);
+    expect(items.every((item) => item.className.includes('break-words'))).toBe(true);
+
+    const cancelButton = screen.getByRole('button', { name: /^cancel$/i });
+    expect(list).not.toContainElement(cancelButton);
+    const remedy = screen.getByText(/remove those layers and save the map/i);
+    expect(list).not.toContainElement(remedy);
+
+    expect(publishMapFn).not.toHaveBeenCalled();
   });
 
   it('shows an error with Retry when the check fails, and enables Make public once a retry succeeds', async () => {
