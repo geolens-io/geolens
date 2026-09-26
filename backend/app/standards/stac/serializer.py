@@ -5,6 +5,7 @@ Pure dict restructuring -- no database queries.
 
 from __future__ import annotations
 
+from app.core.raster_bands import stac_band_nodata
 from app.standards.ogc.utils import normalize_language_tag
 
 # Conformance class URIs for the GeoLens STAC API
@@ -24,13 +25,8 @@ STAC_LANGUAGE_EXTENSION_URI = (
     "https://stac-extensions.github.io/language/v1.0.0/schema.json"
 )
 
-# STAC extension properties that should be copied from OGC record properties
-_STAC_EXTENSION_PROPS = (
-    "proj:code",
-    "proj:wkt2",
-    "proj:shape",
-    "raster:bands",
-)
+# STAC extension properties copied from OGC record properties unchanged
+_STAC_EXTENSION_PROPS = ("proj:shape",)
 
 _RTL_LANGS = {"ar", "fa", "he", "ur"}
 
@@ -125,6 +121,25 @@ def _normalize_extension_uris(values: list[str]) -> list[str]:
     return normalized
 
 
+def _stac_bands(bands: object) -> list[dict]:
+    """The record's ``raster:bands`` as the raster extension's Band objects.
+
+    The record keeps an unknown nodata as None, which a Band doesn't allow, so
+    it is dropped, and so is a band left with no field, since a Band needs one.
+    """
+    stac_bands = []
+    for band in bands if isinstance(bands, list) else []:
+        if not isinstance(band, dict):
+            continue
+        stac_band = {key: value for key, value in band.items() if key != "nodata"}
+        nodata = stac_band_nodata(band.get("nodata"))
+        if nodata is not None:
+            stac_band["nodata"] = nodata
+        if stac_band:
+            stac_bands.append(stac_band)
+    return stac_bands
+
+
 def _projection_code(properties: dict) -> str | None:
     """Return a Projection Extension v2 code, accepting legacy input safely."""
     value = properties.get("proj:code")
@@ -201,10 +216,13 @@ def ogc_record_to_stac_item(
         stac_props["proj:code"] = proj_code
 
     for key in _STAC_EXTENSION_PROPS:
-        if key != "proj:code" and key in props:
+        if key in props:
             stac_props[key] = props[key]
     if props.get("gsd") is not None and crs_metres_per_unit is not None:
         stac_props["gsd"] = props["gsd"] * crs_metres_per_unit
+    bands = _stac_bands(props.get("raster:bands"))
+    if bands:
+        stac_props["raster:bands"] = bands
 
     if any(key.startswith("proj:") for key in stac_props):
         _append_unique(stac_extensions, STAC_PROJECTION_EXTENSION_URI)

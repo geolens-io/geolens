@@ -19,6 +19,16 @@ class TestBandInfoShapes:
         bands = _stac_bands([{"dtype": "float32", "nodata": sentinel}])
         assert bands[0]["nodata"] == sentinel.lower()
 
+    def test_an_unparseable_nodata_is_dropped(self) -> None:
+        bands = _stac_bands([{"dtype": "uint8", "nodata": "unknown"}])
+        assert bands == [{"data_type": "uint8"}]
+
+    def test_a_remotely_described_cog_publishes_no_empty_bands(self) -> None:
+        """``fetch_cog_info`` writes ``{min, max, mean}`` and nothing else."""
+        assert (
+            _stac_bands([{"min": 0, "max": 255, "mean": 12.5} for _ in range(3)]) == []
+        )
+
     def test_the_ogc_records_serializer_reports_the_band_name(self) -> None:
         """``color_interp`` is the key the local producer writes; nothing
         writes the ``name`` this serializer used to read."""

@@ -59,7 +59,7 @@ def _georeferencing(info: dict) -> dict:
 
     Titiler reads the asset's current bytes, so its CRS outranks the item's
     declared ``proj:code``; both keys come from the one reference, so the
-    exported ``proj:wkt2`` and ``proj:code`` cannot disagree.
+    stored ``crs_wkt`` and ``epsg`` cannot disagree.
     ``res_x``/``res_y`` come from ``_geotransform``, since this reply carries
     no affine transform.
     """
