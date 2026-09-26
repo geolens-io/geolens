@@ -20,10 +20,10 @@ import structlog
 
 from app.processing.ingest.pointcloud import (
     Read,
-    _check_node,
     _chunk_table_frame,
     _Layout,
     _Node,
+    _node_fault,
     _read_layout,
     _reader,
 )
@@ -68,7 +68,9 @@ def _decode(read: Read, layout: _Layout, node: _Node) -> tuple[np.ndarray, np.nd
     Each corner also carries X wrapped into [-180, 180) and into [0, 360).
     """
     header = layout.header
-    _check_node(read, layout, node)
+    fault = _node_fault(read, layout, node)
+    if fault:
+        raise _Refused(fault)
     offset, size, count = node.offset, node.size, node.count
     chunk = read(offset, size)
     points = bytearray(count * header.record_length)

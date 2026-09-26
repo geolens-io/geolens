@@ -10,9 +10,9 @@ from an object in storage.
 
 lazrs holds the GIL while it decodes, and a decode that never returned would
 hold its thread for good, so ``pointcloud_decode`` decodes in a child process
-killed at a deadline, once every check that needs no decoder has passed here.
-That child imports this module with only ``PATH`` set, so settings, storage
-and schemas load inside the functions that use them.
+killed at a deadline, once the file's layout and top node pass the checks
+here. That child imports this module with only ``PATH`` set, so settings,
+storage and schemas load inside the functions that use them.
 """
 
 from __future__ import annotations
@@ -222,9 +222,17 @@ def _decode_failed(*, reason: str) -> UnsafeUploadError:
     )
 
 
-# The refusal for each check only the decoder can make, by the name the decode
-# child reports it under; the child's reply carries the name alone.
+# The refusal for each check the decode child can report, by the name it
+# reports it under; the child's reply carries the name alone.
 _DECODE_REFUSALS: dict[str, Callable[[], UnsafeUploadError]] = {
+    "decode_limit": lambda: _invalid(
+        "A node of the octree exceeds the "
+        f"{MAX_DECODE_BYTES // 1024**2} MB decode limit.",
+        reason="decode_limit",
+        limit_mb=MAX_DECODE_BYTES // 1024**2,
+    ),
+    "chunk_size": lambda: _decode_failed(reason="chunk_size"),
+    "chunk_header": lambda: _decode_failed(reason="chunk_header"),
     "chunk_table": lambda: _invalid(_CHUNK_TABLE, reason="chunk_table"),
     "decode": lambda: _decode_failed(reason="decode"),
     "decode_bounds": lambda: _decode_failed(reason="decode_bounds"),
@@ -617,30 +625,26 @@ def _chunk_table_frame(read: Read, layout: _Layout, size: int) -> tuple[int, int
     return span
 
 
-def _check_node(read: Read, layout: _Layout, node: _Node) -> None:
-    """Refuse a node past the decode limit, or whose chunk header would size lazrs's buffers past its chunk.
+def _node_fault(read: Read, layout: _Layout, node: _Node) -> str | None:
+    """The check a node fails before it may be decoded, as a ``_DECODE_REFUSALS`` name, or None.
 
-    A layered chunk opens with its first point stored raw, its point count and
-    one byte size per layer, and lazrs allocates each layer from that size
-    before reading it. The count must match the hierarchy's and the sizes must
-    add up to the chunk.
+    A node must fit the decode limit. A layered chunk opens with its first
+    point stored raw, its point count and one byte size per layer, and lazrs
+    allocates each layer from that size before reading it, so the count must
+    match the hierarchy's and the sizes must add up to the chunk.
     """
     record_length = layout.header.record_length
     if max(node.size, node.count * record_length) > MAX_DECODE_BYTES:
-        raise _invalid(
-            "A node of the octree exceeds the "
-            f"{MAX_DECODE_BYTES // 1024**2} MB decode limit.",
-            reason="decode_limit",
-            limit_mb=MAX_DECODE_BYTES // 1024**2,
-        )
+        return "decode_limit"
     fixed = record_length + 4 + 4 * layout.layers
     if node.size < fixed:
-        raise _decode_failed(reason="chunk_size")
+        return "chunk_size"
     head = read(node.offset, fixed)
     points = struct.unpack_from("<I", head, record_length)[0]
     sizes = struct.unpack_from(f"<{layout.layers}I", head, record_length + 4)
     if points != node.count or fixed + sum(sizes) != node.size:
-        raise _decode_failed(reason="chunk_header")
+        return "chunk_header"
+    return None
 
 
 def _parse_wkt(text: str) -> list:
@@ -834,8 +838,12 @@ def _inspect(
         read = _reader(source)
         layout = _read_layout(read, size)
         _chunk_table_frame(read, layout, size)
-        for node in layout.nodes if every else layout.nodes[:1]:
-            _check_node(read, layout, node)
+        # The child checks each node again before decoding it, under its
+        # deadline; the top one is checked here too, so a door can refuse it
+        # without starting a child.
+        fault = _node_fault(read, layout, layout.nodes[0])
+    if fault:
+        raise _DECODE_REFUSALS[fault]()
     header = layout.header
     srid, vertical, bbox = _crs_facts(layout.wkt, header.mins, header.maxs)
     if every:

@@ -707,10 +707,10 @@ def test_the_child_checks_a_chunk_header_again_before_lazrs(
     path = write(tmp_path, copc(chunk=lambda chunk: patched(chunk, 30, "<I", 99)))
     decoded = _decoded_chunks(monkeypatch)
 
-    with pytest.raises(UnsafeUploadError) as refusal:
+    with pytest.raises(pointcloud_decode._Refused) as refused:
         pointcloud_decode.decode_file(path, every=False)
 
-    assert (refusal.value.code, decoded) == ("pointcloud_decode_failed", [])
+    assert (refused.value.args, decoded) == (("chunk_header",), [])
 
 
 @pytest.mark.parametrize(
@@ -1380,19 +1380,44 @@ async def test_a_damaged_node_below_the_top_passes_the_door_and_not_the_worker(
     assert (refusal.value.code, len(chunks)) == ("pointcloud_decode_failed", decoded)
 
 
-async def test_a_node_below_the_top_past_the_decode_bound_is_refused(
+def test_a_node_below_the_top_past_the_decode_bound_is_refused(
     tmp_path, monkeypatch
 ) -> None:
     """Every node is held to the decode bound, not only the top one."""
     path = write(tmp_path, copc_nodes(counts=(120, 150)))
     monkeypatch.setattr(pointcloud_module, "MAX_DECODE_BYTES", 150 * 30 - 1)
     inspect_pointcloud(path)
-    children = _children(monkeypatch)
+    chunks = _decoded_chunks(monkeypatch)
 
+    with pytest.raises(pointcloud_decode._Refused) as refused:
+        pointcloud_decode.decode_file(path, every=True)
     with pytest.raises(UnsafeUploadError, match="decode limit") as refusal:
-        await inspect_every_node(path)
+        pointcloud_module._corners_of({"refused": refused.value.args[0]})
 
-    assert (refusal.value.code, children) == ("pointcloud_invalid", [])
+    assert (refusal.value.code, len(chunks)) == ("pointcloud_invalid", 2)
+
+
+async def test_the_worker_leaves_the_checks_below_the_top_node_to_the_child(
+    tmp_path, monkeypatch
+) -> None:
+    """The parent checks only the top node; the child checks the rest under its deadline."""
+    path = write(tmp_path, copc_nodes(count_error=-1))
+    checked: list[int] = []
+    fault = pointcloud_module._node_fault
+
+    def _checked(read, layout, node):
+        checked.append(node.depth)
+        return fault(read, layout, node)
+
+    monkeypatch.setattr(pointcloud_module, "_node_fault", _checked)
+
+    with capture_logs() as logs:
+        with pytest.raises(UnsafeUploadError) as refusal:
+            await inspect_every_node(path)
+
+    assert (refusal.value.code, checked) == ("pointcloud_decode_failed", [0])
+    refused = [log["reason"] for log in logs if log["event"] == "Point cloud refused"]
+    assert refused == ["chunk_header"]
 
 
 async def test_a_decode_past_its_time_budget_is_refused(tmp_path, monkeypatch) -> None:
