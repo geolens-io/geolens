@@ -301,6 +301,9 @@ async def test_the_backfill_timeout_ends_with_the_backfill() -> None:
         assert down.returncode == 0, down.stderr
         async with engine.connect() as connection:
             before, after = await connection.run_sync(_upgrade_0074_in_one_session)
+        assert before != "5s", (
+            "precondition: the session starts without the backfill's timeout"
+        )
         assert after == before
     finally:
         await engine.dispose()
