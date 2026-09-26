@@ -105,21 +105,29 @@ async def test_an_unreached_v_re_reads_the_row_at_most_once_per_interval(
 
     No row reaches the version, and a read that started before a request
     arrived cannot answer it, so every request in the sequence needs the next
-    interval's read.
+    interval's read. The throttle decides with its own clock and stamps the
+    cache entry with that same value before the statement runs, so the gap is
+    measured on the stamp: timing the statement instead flakes, since a
+    connection checkout can push one read's statement later than the next
+    one's and shrink the measured gap below what the throttle actually kept.
     """
     interval = 0.2
     monkeypatch.setattr(tile_router, "_FORCED_REREAD_INTERVAL", interval)
     dataset = await _public_raster(test_db_session)
+    cache_key = str(dataset.id)
     try:
         assert (await _auth_check(client, dataset.id)).status_code == 200
+        stamps: list[float] = []
         with _counting_raster_reads(dataset.id) as reads:
             for _ in range(4):
                 resp = await _auth_check(client, dataset.id, _UNREACHED_VERSION)
                 assert resp.status_code == 200, resp.text
                 assert resp.headers["X-GeoLens-Cache-Status"] == "private"
+                with tile_router._raster_meta_cache_lock:
+                    stamps.append(tile_router._raster_meta_cache[cache_key][0])
 
         assert len(reads) == 4
-        gaps = [later - earlier for earlier, later in zip(reads, reads[1:])]
+        gaps = [later - earlier for earlier, later in zip(stamps, stamps[1:])]
         assert min(gaps) >= 0.8 * interval, gaps
     finally:
         _forget(dataset.id)
