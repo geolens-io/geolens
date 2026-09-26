@@ -1360,7 +1360,10 @@ export function ShareDialog({
               if (!dialogOpen) setPendingVisibility(null);
             }}
           >
-            <AlertDialogContent>
+            {/* Bounded independently of the list below — a short viewport
+                (phone landscape, high zoom) can otherwise push Cancel past
+                the screen while the modal blocks page scroll. */}
+            <AlertDialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
               {pendingVisibility === 'public' ? (
                 <>
                   <AlertDialogHeader>

@@ -1413,6 +1413,21 @@ describe('#2297 public confirm defers to the server publish check', () => {
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
 
+  it('bounds this confirm dialog to the viewport height so Cancel stays reachable on a short screen', async () => {
+    const user = userEvent.setup();
+    setup({
+      visibility: 'private',
+      hasShareToken: false,
+      hasNonPublic: false,
+    });
+
+    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+
+    const dialog = await screen.findByRole('alertdialog');
+    expect(dialog.className).toEqual(expect.stringContaining('max-h-[calc(100dvh-2rem)]'));
+    expect(dialog.className).toEqual(expect.stringContaining('overflow-y-auto'));
+  });
+
   it('deduplicates a long blocked-dataset list and scroll-bounds it, keeping Cancel and the remedy outside it', async () => {
     const user = userEvent.setup();
     const longTitle = 'A'.repeat(500);
