@@ -372,8 +372,12 @@ class _FileReupload:
         if self.refused:
             return Failure("validation_failed", refused=True)
         if isinstance(exc, MissingCrsError):
+            # Its own code: check_missing_crs's text ends with the SRID
+            # override remedy, which the vector gate's missing_crs sentence
+            # does not carry.
             return Failure(
-                "missing_crs", reason=FixedReason(str(exc), code="missing_crs")
+                "missing_crs_reupload",
+                reason=FixedReason(str(exc), code="missing_crs_reupload"),
             )
         return Failure(_file_refresh_error_code(exc))
 

@@ -13,6 +13,7 @@ import { probeService } from '@/api/ingest';
 import { getDataset } from '@/api/datasets';
 import { ApiError } from '@/api/client';
 import { queryKeys } from '@/lib/query-keys';
+import { changeTestLanguage } from '@/test/i18n';
 import { ReuploadDialog } from '../ReuploadDialog';
 import type { DatasetResponse, ProbeResponse, RecordType, ReuploadPreviewResponse } from '@/types/api';
 
@@ -1621,6 +1622,43 @@ describe('ReuploadDialog raster reupload', () => {
 
     expect(await screen.findByText('Re-upload job failed.')).toBeInTheDocument();
     expect(screen.queryByText('internal_error')).not.toBeInTheDocument();
+  });
+
+  // #2311 review: check_missing_crs's text ends with the SRID-override
+  // remedy, which the vector import gate's missing_crs sentence does not
+  // carry -- missing_crs_reupload is its own code so that remedy survives
+  // translation instead of being replaced by the vector gate's shorter one.
+  it('renders the SRID-override remedy for a re-upload missing-CRS failure, in de', async () => {
+    // Switched before the interaction, not after: the dialog computes and
+    // stores the localized error once, when the job status effect fires --
+    // a later language change would not re-render stale stored text. So the
+    // UI is driven in German throughout, not through openFileSource/the
+    // English "Confirm Re-Upload" label the other tests here use.
+    await changeTestLanguage('de');
+    const user = userEvent.setup();
+    mockUseJobStatus.mockReturnValue({
+      data: {
+        status: 'failed',
+        error_code: 'missing_crs_reupload',
+        error_message:
+          'Missing CRS: no coordinate system detected. Ensure the file includes CRS information (e.g., .prj file for Shapefiles) or provide an SRID override.',
+      },
+    } as unknown as ReturnType<typeof useJobStatus>);
+    renderRasterDialog();
+
+    await user.click(screen.getByRole('button', { name: 'Datei' }));
+    expect(screen.getByTestId('reupload-file-dropzone')).toBeInTheDocument();
+    await dropFile('ortho.tif');
+    await screen.findByRole('button', { name: 'Erneutes Hochladen bestätigen' });
+    await user.click(screen.getByRole('button', { name: 'Erneutes Hochladen bestätigen' }));
+
+    expect(
+      await screen.findByText(
+        'CRS fehlt: Es wurde kein Koordinatensystem erkannt. Stellen Sie sicher, dass die Datei CRS-Informationen enthält (z. B. eine .prj-Datei bei Shapefiles), oder geben Sie eine SRID-Überschreibung an.',
+      ),
+    ).toBeInTheDocument();
+
+    await changeTestLanguage('en');
   });
 
   it('still shows a composed failure message verbatim', async () => {

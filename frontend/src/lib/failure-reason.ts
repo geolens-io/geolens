@@ -25,6 +25,7 @@ const FIXED_FAILURE_CODE_KEYS: Record<string, `errors.${string}`> = {
   dispatch_interrupted: 'errors.jobFailureDispatchInterrupted',
   missing_crs: 'errors.jobFailureMissingCrs',
   missing_crs_raster: 'errors.jobFailureMissingCrsRaster',
+  missing_crs_reupload: 'errors.jobFailureMissingCrsReupload',
   scheduled_claim_expired: 'errors.jobFailureScheduledClaimExpired',
   scheduled_execution_timeout: 'errors.jobFailureScheduledExecutionTimeout',
   scheduled_job_missing: 'errors.jobFailureScheduledJobMissing',

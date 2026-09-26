@@ -97,8 +97,11 @@ async def test_a_reupload_with_no_detectable_crs_stores_its_code(
     mock_load.assert_not_awaited()
     await test_db_session.refresh(job)
     assert job.status == "failed"
-    assert job.error_code == "missing_crs"
+    # Its own code: this text's SRID-override remedy is not the vector
+    # gate's, so `missing_crs`'s translation would drop it.
+    assert job.error_code == "missing_crs_reupload"
     assert "Missing CRS" in (job.error_message or "")
+    assert "SRID override" in (job.error_message or "")
 
 
 async def test_an_srid_override_lets_the_same_reupload_proceed(
