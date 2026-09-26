@@ -80,7 +80,7 @@ async def test_an_exhausted_pool_sheds_the_request_with_429(monkeypatch):
         await pool.close()
 
     assert raised.value.status_code == 429
-    assert raised.value.headers == {"Retry-After": "2"}
+    assert raised.value.headers["Retry-After"] == "2"
 
 
 async def test_the_handler_asks_for_the_configured_bound(monkeypatch):
@@ -93,6 +93,10 @@ async def test_the_handler_asks_for_the_configured_bound(monkeypatch):
 
     assert pool.timeout == TILE_POOL_ACQUIRE_TIMEOUT_SECONDS
     assert raised.value.status_code == 429
+    assert raised.value.headers["Retry-After"] == "2"
+    assert raised.value.headers["Access-Control-Allow-Origin"] == "*"
+    assert raised.value.headers["Access-Control-Expose-Headers"] == "Retry-After"
+    assert raised.value.headers["Cache-Control"] == "no-store"
 
 
 async def test_the_command_timeout_is_a_separate_bound(monkeypatch):

@@ -59,22 +59,13 @@ export interface TileTransformRequestOptions {
 }
 
 /**
- * chore(#835): the single `map.setTransformRequest` callback builder shared by
- * BuilderMap, ViewerMap, and DatasetMap. The three copies had drifted — the
- * viewer's missing raster Bearer (fixed in #819) was this drift biting.
+ * Resolve site-relative URLs and attach credentials only to first-party requests.
+ * Embed viewers never use the signed-in session, even without an embed token.
+ * Other first-party raster requests use the session JWT.
+ * First-party vector/cluster tiles use the registered protocol's bounded 429 retry.
  *
- * Behavior: absolutify relative URLs, then attach exactly one credential:
- * - `X-Embed-Token` on first-party requests when `embedToken` is set
- *   (fix(#394) SH-02/B-022: the header is a credential — never send it to
- *   third-party basemap sprite/glyph/tile CDNs),
- * - otherwise `Authorization: Bearer <jwt>` on first-party `/raster-tiles/`
- *   requests (raster tiles carry no signed URL, unlike vector tiles — #819),
- *   except on the embed viewer surface (fix(#1778): `isEmbedViewer()` stays
- *   out of the signed-in session entirely, so a raster tile must never carry
- *   the viewer's own JWT even when no `embedToken` was supplied).
- *
- * NOTE (react-maplibre v8): the `transformRequest` PROP is ignored after
- * mount — each map must wire this via `onLoad` + `map.setTransformRequest()`.
+ * React MapLibre ignores changes to the transformRequest prop after mount, so
+ * each map installs this callback with setTransformRequest in its load handler.
  */
 export function buildTileTransformRequest(
   options: TileTransformRequestOptions = {},
@@ -99,7 +90,15 @@ export function buildTileTransformRequest(
       const token = useAuthStore.getState().token;
       if (token) headers.Authorization = `Bearer ${token}`;
     }
-    return Object.keys(headers).length > 0 ? { url: absUrl, headers } : { url: absUrl };
+    const requestUrl =
+      !isThirdPartyTileUrl(url, tileConfig) &&
+      /^https?:/.test(absUrl) &&
+      /\/tiles\/(?:clusters\/)?data\.[^/]+\/\d+\/\d+\/\d+\.pbf$/.test(
+        new URL(absUrl).pathname,
+      )
+        ? `geolens-tile://${absUrl}`
+        : absUrl;
+    return Object.keys(headers).length > 0 ? { url: requestUrl, headers } : { url: requestUrl };
   };
 }
 

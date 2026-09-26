@@ -15,6 +15,8 @@ describe('maplibre-worker pmtiles protocol registration', () => {
 
     expect(Protocol).toHaveBeenCalled();
     expect(maplibregl.addProtocol).toHaveBeenCalledWith('pmtiles', expect.any(Function));
+    const { tileRetryProtocol } = await import('../tile-retry-protocol');
+    expect(maplibregl.addProtocol).toHaveBeenCalledWith('geolens-tile', tileRetryProtocol);
     expect(maplibregl.setWorkerUrl).toHaveBeenCalled();
   });
 

@@ -267,7 +267,7 @@ describe('buildTileTransformRequest', () => {
   it('absolutifies relative URLs', () => {
     const transform = buildTileTransformRequest();
     expect(transform('/api/tiles/data.roads/1/2/3.pbf')).toEqual({
-      url: `${window.location.origin}/api/tiles/data.roads/1/2/3.pbf`,
+      url: `geolens-tile://${window.location.origin}/api/tiles/data.roads/1/2/3.pbf`,
     });
   });
 
@@ -322,7 +322,7 @@ describe('buildTileTransformRequest', () => {
   it('attaches X-Embed-Token to first-party requests on the embed surface', () => {
     const transform = buildTileTransformRequest({ embedToken: 'embed-tok' });
     expect(transform('/api/tiles/data.roads/1/2/3.pbf')).toEqual({
-      url: `${window.location.origin}/api/tiles/data.roads/1/2/3.pbf`,
+      url: `geolens-tile://${window.location.origin}/api/tiles/data.roads/1/2/3.pbf`,
       headers: { 'X-Embed-Token': 'embed-tok' },
     });
   });

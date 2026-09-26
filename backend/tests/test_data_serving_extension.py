@@ -249,6 +249,10 @@ async def test_rejected_tile_limiter_never_queries_or_releases(
         )
 
     assert exc_info.value.status_code == 429
+    assert exc_info.value.headers["Retry-After"] == "2"
+    assert exc_info.value.headers["Access-Control-Allow-Origin"] == "*"
+    assert exc_info.value.headers["Access-Control-Expose-Headers"] == "Retry-After"
+    assert exc_info.value.headers["Cache-Control"] == "no-store"
     assert limiter.acquired == 1
     assert limiter.released == 0
     assert pool.acquire_count == 0

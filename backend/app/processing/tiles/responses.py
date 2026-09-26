@@ -4,7 +4,21 @@ from __future__ import annotations
 
 import hashlib
 
-from fastapi import Request, Response, status
+from fastapi import HTTPException, Request, Response, status
+
+
+def tile_busy_error(detail: str = "Tile service busy, please retry") -> HTTPException:
+    """Return a non-cacheable rejection whose cooldown is visible cross-origin."""
+    return HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail=detail,
+        headers={
+            "Retry-After": "2",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Expose-Headers": "Retry-After",
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 def _tile_headers(cache_scope: str, cache_ttl: int) -> dict[str, str]:
