@@ -73,7 +73,8 @@ def run_child(
         ) from None
     try:
         reply = json.loads(done.stdout)
-    except ValueError:
+    except (ValueError, RecursionError):
+        # RecursionError: JSON nested deeper than the parser's stack.
         reply = None
     if done.returncode == 0 and isinstance(reply, dict) and "result" in reply:
         return reply["result"]
@@ -82,7 +83,7 @@ def run_child(
     category, exception = reply.get("error"), reply.get("exception")
     if done.returncode < 0:
         category, exception = "killed", None
-    elif category not in reported:
+    elif not isinstance(category, str) or category not in reported:
         # No verdict: the child died before it could give one, as a failed
         # import or an interpreter crash does. Its traceback ends with the
         # exception's class name.

@@ -6,7 +6,6 @@ from __future__ import annotations
 import asyncio
 import inspect
 import io
-import itertools
 import threading
 import uuid
 from contextlib import contextmanager, nullcontext
@@ -650,16 +649,14 @@ async def test_a_decode_past_its_budget_fails_the_job_with_its_code(
 ) -> None:
     """The worker records the decode budget's refusal with its point cloud code."""
     job_id = await committed_upload(client, uploader[0], copc_nodes())
-    monkeypatch.setattr(
-        "app.processing.ingest.pointcloud.monotonic", itertools.count(step=100).__next__
-    )
+    monkeypatch.setattr("app.processing.ingest.pointcloud.DECODE_FLOOR_SECONDS", 0)
 
     with pytest.raises(UnsafeUploadError, match="seconds to decode"):
         await run_queued(queued)
 
     job = await load_job(test_db_session, job_id)
     assert (job.status, job.error_code) == ("failed", "pointcloud_invalid")
-    assert job.error_message == "The point cloud takes more than 60 seconds to decode."
+    assert job.error_message == "The point cloud takes more than 0 seconds to decode."
     assert await pointcloud_objects() == []
 
 
