@@ -140,12 +140,9 @@ async def _repair_nodata_if_unmoved(
 ) -> str | None:
     """The nodata-only backfill for an asset that did NOT move, or None.
 
-    A moved asset gets a full re-describe from ``fetch_cog_info`` above,
-    which already reads nodata correctly; this exists only for the asset
-    that stayed put, whose stored nodata a pre-fix import or refresh could
-    have left NULL. An SSRF refusal here only skips the repair — the asset
-    didn't move, so the rest of the resolution is unaffected and still
-    worth adopting.
+    Runs only when the asset stayed put. An SSRF refusal here only skips
+    the repair; the rest of the resolution is unaffected and still worth
+    adopting.
     """
     if moved or not repair_nodata:
         return None
@@ -177,11 +174,8 @@ async def _resolve_from_item(
     One reading of one document, used by both paths, so the direct fetch and
     the re-search cannot reach different verdicts about the same shape.
 
-    ``repair_nodata`` asks for a nodata-only backfill when the asset turns
-    out NOT to have moved (a moved one gets a full re-describe below, which
-    already reads nodata correctly). The caller sets it only when its own
-    stored value is still missing, since the read is worth paying for once,
-    not on every refresh thereafter.
+    ``repair_nodata`` asks for a nodata-only backfill when the asset did
+    not move. The caller sets it only while its stored value is missing.
 
     fix(#1764): the two reads this gate makes of its own go to addresses THIS
     DOCUMENT named, so each is gated on ``catalog_origin`` — the self link

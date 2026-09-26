@@ -563,10 +563,8 @@ class _StacRefresh:
         self.credential = _claimed_credential(
             await resolve_worker_credential(None, self.credential_ref)
         )
-        # feat: worth asking for a nodata repair only while the row still has
-        # none — once filled, later refreshes ask nothing extra of Titiler.
-        # Read in its own short session, closed well before the write step
-        # takes any catalog lock.
+        # Read in its own short session, closed before the write step takes
+        # any catalog lock.
         repair_nodata = await _stored_nodata_is_missing(self.dataset_id)
         self.resolution = await get_processing_port().resolve_stac_binding(
             item_href=self.item_href,
@@ -661,8 +659,8 @@ class _StacRefresh:
                     bbox_to_extent_wkt(west, south, east, north), 4326
                 )
         elif resolution.repaired_nodata is not None:
-            # feat: the one column fetch() asked to have repaired, for an
-            # asset that did not move and so was not re-described above.
+            # The one column fetch() asked to have repaired, for an asset
+            # not re-described above.
             await _repair_remote_nodata(session, dataset.id, resolution.repaired_nodata)
         # Unconditional: an unchanged answer rewrites the same values, and a
         # dataset imported before the row existed gets it.
@@ -680,11 +678,9 @@ class _StacRefresh:
         # The only refresh for a STAC origin, so it dates the column whether
         # or not anything moved.
         dataset.last_refreshed_at = datetime.now(timezone.utc)
-        # No data moved and a raster has no rows or schema. A moved asset
-        # changes the tiles and the raster facts the embedding reads; a
-        # repaired nodata alone changes what a tile renders (the fallback a
-        # DEM's real nodata replaces) but not the embedding's own inputs, so
-        # it bumps the tile version without asking for a re-embed.
+        # A moved asset changes the tiles and the embedding's inputs; a
+        # repaired nodata alone changes only what a tile renders, so it
+        # bumps the tile version without asking for a re-embed.
         return Published(
             dataset_version_id=None,
             feature_count=None,

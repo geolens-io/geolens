@@ -246,23 +246,13 @@ async def fetch_cog_info(url: str) -> dict | None:
 
 
 async def fetch_cog_nodata(url: str) -> float | None:
-    """Titiler's nodata alone, from ``/cog/info`` — a repair-only read.
+    """The scalar nodata Titiler's ``/cog/info`` reports, or None.
 
-    An asset that has not moved gets no re-describe from ``fetch_cog_info``,
-    so a nodata gap from before this module read nodata correctly would
-    otherwise never close. This is the cheapest call that can answer the
-    question on its own: one header read, none of ``fetch_cog_info``'s
-    statistics or transform calls.
-
-    Returns None on any failure, or when the asset has no scalar nodata to
-    report (a Mask/Alpha channel, or none at all) — either way, the caller
-    leaves the row as it was, the same contract as ``fetch_cog_info``'s
-    absent keys.
-
-    SEC-OBSV-02 (#1927): same dual SSRF gate as ``fetch_cog_info`` — Gate 1
-    is the caller's ``validate_url_for_ssrf`` before this, Gate 2 is
-    Titiler's own CPL_VSIL_CURL_ALLOWED_EXTENSIONS clamp, reached through
-    the same URL builder.
+    One header read, none of ``fetch_cog_info``'s statistics or transform
+    calls. None covers both a failed read and an asset with no scalar
+    nodata (Mask/Alpha, or none at all) — either way the caller leaves its
+    stored value as it was. The caller validates the URL first, as for
+    ``fetch_cog_info``.
     """
     try:
         async with httpx.AsyncClient(
