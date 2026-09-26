@@ -630,12 +630,12 @@ async def test_an_archive_already_made_is_not_made_again(
     try:
         left = await _stage_upload(raster_storage, job_id, "storage")
         key = await _owe_archive(job_id, dataset_id, "upload.tif")
-        await raster_storage.put(key, b"archived by the task")
+        await raster_storage.put(key, b"staged")
         with _storage_calls(raster_storage) as calls:
             assert await run_publish_followups(job_id) is True
 
         assert calls["put"] == []
-        assert await raster_storage.get(key) == b"archived by the task"
+        assert await raster_storage.get(key) == b"staged"
         assert await left() == []
     finally:
         await _drop(test_db_session, job_id, record_id)
