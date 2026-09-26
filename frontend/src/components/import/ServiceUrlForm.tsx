@@ -729,7 +729,7 @@ export function ServiceUrlForm() {
                 {probeResult.url}
               </h3>
               <p className="font-mono text-mini text-muted-foreground tracking-wide">
-                {t('serviceUrl.layersAvailable', { count: probeResult.layers.length, defaultValue: `${probeResult.layers.length} layers available` })}
+                {t('serviceUrl.layersAvailable', { count: probeResult.layers.length })}
               </p>
             </div>
           </div>
