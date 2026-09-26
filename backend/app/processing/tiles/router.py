@@ -754,6 +754,7 @@ async def _resolve_raster_meta(
             version is not None and int(version) > meta.tile_cache_version
         ),
         read=lambda: _read_raster_meta(db, dataset_id, tenant_id),
+        release=lambda: db.commit(),
     )
 
 
@@ -1768,6 +1769,7 @@ async def _cached_snapshot(
     *,
     names_newer: Callable[[_Snapshot], bool],
     read: Callable[[], Awaitable[_Snapshot]],
+    release: Callable[[], Awaitable[object]],
 ) -> _Snapshot:
     """Return the snapshot cached for ``key``, reading it when missing or stale.
 
@@ -1775,9 +1777,12 @@ async def _cached_snapshot(
     request has already seen a newer state. Each key allows one such forced
     re-read per ``_FORCED_REREAD_INTERVAL``, run by the request that claims it
     through its own ``read``, so on its own session. Requests arriving while
-    it runs wait for its result, taking the read over if its claimant is
-    cancelled, and a later request in the interval is served whatever
-    snapshot the cache then holds.
+    it runs ``release`` their session's connection, so waiters cannot hold
+    every one the claimant might need, then wait for its result, taking the
+    read over if its claimant is cancelled. A later request in the interval
+    is served whatever snapshot the cache then holds, so a version named
+    before it commits keeps its first requests after the commit on the old
+    snapshot until the interval ends, sent uncacheable by the version check.
     """
     taking_over = False
     while True:
@@ -1803,6 +1808,7 @@ async def _cached_snapshot(
                 snapshots.in_flight[key] = reread
         if claimed is not None:
             return await _lead_reread(snapshots, key, claimed, read, now)
+        await release()
         snapshot = await asyncio.shield(reread)
         if snapshot is not None:
             return snapshot
@@ -1841,6 +1847,7 @@ async def _resolve_dataset_meta(
         cache_key,
         names_newer=lambda meta: _client_saw_newer_state(client_state, meta),
         read=lambda: _read_dataset_meta(db, table_name, tid),
+        release=lambda: db.commit(),
     )
 
 

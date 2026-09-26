@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import event
+from sqlalchemy import event, text
 
 from app.processing.tiles import router as tile_router
 
@@ -263,3 +263,89 @@ async def test_an_authenticated_forced_re_read_completes_on_a_one_connection_poo
     finally:
         await one_connection.dispose()
         _forget(dataset.id)
+
+
+async def _vector_case(session):
+    """A registered vector dataset, how to resolve it, and how to advance it."""
+    from tests.test_tile_cache_content_key_2290 import (
+        _bump_tile_cache_version,
+        _registered_dataset,
+    )
+
+    dataset = await _registered_dataset(session)
+    table = dataset.table_name
+
+    async def resolve(db, version=None):
+        return await tile_router._resolve_dataset_meta(table, db, version)
+
+    async def advance():
+        await _bump_tile_cache_version(session, dataset.id)
+
+    def forget():
+        tile_router._evict_dataset_meta(table)
+
+    return table, tile_router._rereads_in_flight, resolve, advance, forget
+
+
+async def _raster_case(session):
+    """A public raster, how to resolve it, and how to replace it."""
+    dataset = await _public_raster(session)
+
+    async def resolve(db, version=None):
+        return await tile_router._resolve_raster_meta(db, dataset.id, version)
+
+    async def advance():
+        await _swap_raster_pointer(session, dataset.id)
+
+    def forget():
+        _forget(dataset.id)
+
+    return (
+        str(dataset.id),
+        tile_router._raster_rereads_in_flight,
+        resolve,
+        advance,
+        forget,
+    )
+
+
+async def _claimed(in_flight: dict, key: str) -> None:
+    while key not in in_flight:
+        await asyncio.sleep(0.01)
+
+
+@pytest.mark.parametrize("case", [_vector_case, _raster_case], ids=["vector", "raster"])
+async def test_a_waiter_holding_the_only_connection_lets_the_claimant_read(
+    test_db_session, case
+):
+    """An authenticated waiter must not sit on the connection its claimant needs.
+
+    The waiter's identity lookup has taken the pool's only connection when an
+    anonymous request, holding none, claims the re-read and needs one to run it.
+    """
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from app.core.config import settings
+
+    key, in_flight, resolve, advance, forget = await case(test_db_session)
+    one_connection = create_async_engine(
+        settings.test_database_url, pool_size=1, max_overflow=0, pool_timeout=2
+    )
+    sessions = async_sessionmaker(one_connection, expire_on_commit=False)
+    waiter_session, claimant_session = sessions(), sessions()
+    try:
+        await resolve(test_db_session)
+        await advance()
+        await waiter_session.execute(text("SELECT 1"))
+
+        claimant = asyncio.create_task(resolve(claimant_session, "2"))
+        await asyncio.wait_for(_claimed(in_flight, key), timeout=5)
+        waiter = asyncio.create_task(resolve(waiter_session, "2"))
+        metas = await asyncio.wait_for(asyncio.gather(claimant, waiter), timeout=10)
+
+        assert [meta.tile_cache_version for meta in metas] == [2, 2]
+    finally:
+        await waiter_session.close()
+        await claimant_session.close()
+        await one_connection.dispose()
+        forget()
