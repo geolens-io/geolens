@@ -118,20 +118,9 @@ test.describe('builder analysis tools', () => {
     };
     expect(jobId).toBeTruthy();
 
-    // Leave the builder while the browser still believes the job is running.
-    // Tracking is global (AnalysisJobWatcher in RootLayout), so completion has
-    // to surface here. Client-side navigation, not page.goto: a hard reload is
-    // a different scenario (the store rehydrates) and is not what #682 covers.
-    await page.getByRole('button', { name: 'Close panel' }).click();
-    await page.locator('header nav').getByRole('link', { name: 'Maps' }).click();
-    await expect(page).toHaveURL(/\/maps$/);
-    await expect(page.getByTestId('analysis-panel')).toBeHidden();
-
-    // Resolve the id for cleanup BEFORE any assertion that can fail — a failed
-    // attempt used to leak one output dataset (the catalog count climbed
-    // 3 → 4 → 5 across the three retries). This runs Node-side, so it sees the
-    // true terminal status while the browser is still masked and has therefore
-    // not toasted yet.
+    // Resolve the output's id before any assertion that can fail, so a failed
+    // attempt still cleans it up. This polls from Node, outside the page.route
+    // mask, so the browser still sees the job as running.
     for (let attempt = 0; attempt < 30; attempt++) {
       const res = await fetch(`${BASE_URL}/api/jobs/${jobId}`, { headers });
       if (res.ok) {
@@ -145,6 +134,19 @@ test.describe('builder analysis tools', () => {
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
     expect(createdDatasetId).toBeTruthy();
+
+    // Leave the builder while the browser still believes the job is running.
+    // Tracking is global (AnalysisJobWatcher in RootLayout), so completion has
+    // to surface here. Client-side navigation, not page.goto: a hard reload is
+    // a different scenario (the store rehydrates) that this test doesn't cover.
+    await page.getByRole('button', { name: 'Close panel' }).click();
+    await page.locator('header nav').getByRole('link', { name: 'Maps' }).click();
+    await expect(page).toHaveURL(/\/maps$/);
+    // The URL changes first: the router navigates in a transition, which
+    // keeps MapBuilderPage mounted until the lazy MapsPage chunk loads.
+    await expect(
+      page.getByRole('heading', { name: 'Maps', level: 1, exact: true }),
+    ).toBeVisible();
 
     // Scope to the toast: the finished dataset also lands in the catalog list
     // behind it (which is the query invalidation doing its job).
