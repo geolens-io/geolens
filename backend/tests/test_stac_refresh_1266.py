@@ -3457,7 +3457,16 @@ class TestProbedCrsOfAMovedAsset:
     """
 
     async def _refresh(
-        self, client, headers, session, stac_transport, monkeypatch, crs
+        self,
+        client,
+        headers,
+        session,
+        stac_transport,
+        monkeypatch,
+        crs,
+        *,
+        nodata_type: str | None = None,
+        nodata_value: float | None = None,
     ):
         from app.modules.catalog.sources.cog_info import fetch_cog_info
         from tests.test_cog_info import _TITILER_INFO, _install
@@ -3466,7 +3475,10 @@ class TestProbedCrsOfAMovedAsset:
             "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_info",
             fetch_cog_info,
         )
-        _install(monkeypatch, {**_TITILER_INFO, "crs": crs})
+        info = {**_TITILER_INFO, "crs": crs}
+        if nodata_type is not None:
+            info = {**info, "nodata_type": nodata_type, "nodata_value": nodata_value}
+        _install(monkeypatch, info)
         install, _ = stac_transport
         install(
             {
@@ -3550,3 +3562,22 @@ class TestProbedCrsOfAMovedAsset:
         ) == (True, True, None)
         assert described.epsg is None
         assert (await _reload(dataset.id)).srid is None
+
+    async def test_a_moved_assets_nodata_value_is_stored(
+        self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
+    ) -> None:
+        dataset, payload = await self._refresh(
+            client,
+            admin_auth_header,
+            test_db_session,
+            stac_transport,
+            monkeypatch,
+            "http://www.opengis.net/def/crs/EPSG/0/32621",
+            nodata_type="Nodata",
+            nodata_value=0.0,
+        )
+        await _execute(test_db_session, payload)
+
+        assert await _asset_uri(dataset.id) == _MOVED_ASSET
+        described = await _raster_asset(dataset.id)
+        assert described.nodata == "0.0"

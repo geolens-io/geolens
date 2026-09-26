@@ -170,6 +170,14 @@ async def fetch_cog_info(url: str) -> dict | None:
 
             band_count = info.get("count", 1)
             dtype = info.get("dtype")
+            # Titiler has no "nodata" key: "Nodata" carries the value in
+            # nodata_value, while "Mask"/"Alpha"/"None" mean the asset has
+            # no scalar nodata to store.
+            nodata = (
+                info.get("nodata_value")
+                if info.get("nodata_type") == "Nodata"
+                else None
+            )
 
             band_info = []
             try:
@@ -220,7 +228,7 @@ async def fetch_cog_info(url: str) -> dict | None:
                 "dtype": dtype,
                 "width": info.get("width"),
                 "height": info.get("height"),
-                "nodata": info.get("nodata"),
+                "nodata": nodata,
                 "band_info": band_info or None,
                 **_georeferencing(info),
                 **geotransform,
