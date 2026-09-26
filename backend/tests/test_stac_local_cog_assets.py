@@ -9,6 +9,7 @@ Requirements: the test database (``set -a && source ../.env.test && set +a``).
 """
 
 import copy
+import uuid
 
 import pytest
 from httpx import AsyncClient
@@ -129,3 +130,25 @@ async def test_a_page_resolves_the_export_capability_once(
     assert len(features) == 3
     assert all("data" in feature["assets"] for feature in features)
     assert reads == 1
+
+
+async def test_a_page_without_rasters_skips_the_export_capability(
+    client: AsyncClient, viewer_auth_header: dict, monkeypatch
+):
+    reads = 0
+    original = authorization.get_effective_permissions
+
+    async def _counting_read(db):
+        nonlocal reads
+        reads += 1
+        return await original(db)
+
+    monkeypatch.setattr(authorization, "get_effective_permissions", _counting_read)
+
+    resp = await client.get(
+        "/stac/search", params={"ids": str(uuid.uuid4())}, headers=viewer_auth_header
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["features"] == []
+    assert reads == 0

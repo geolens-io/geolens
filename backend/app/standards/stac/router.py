@@ -1082,7 +1082,9 @@ async def get_collection_items(
     lineage_map = await visible_lineage_summaries(
         db, [d.record for d in datasets], user, user_roles or set()
     )
-    may_export = await can_export(db, user, user_roles)
+    may_export = any(
+        d.record.record_type == "raster_dataset" for d in datasets
+    ) and await can_export(db, user, user_roles)
 
     features = []
     coll_id_str = str(collection_id)
@@ -1576,7 +1578,9 @@ async def _execute_search(
     lineage_map = await visible_lineage_summaries(
         db, [d.record for d in datasets], user, user_roles or set()
     )
-    may_export = await can_export(db, user, user_roles)
+    may_export = any(
+        d.record.record_type == "raster_dataset" for d in datasets
+    ) and await can_export(db, user, user_roles)
 
     features = []
     for dataset in datasets:
