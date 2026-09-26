@@ -78,6 +78,13 @@ def _reads_one_small_range(request: Request) -> bool:
         200: {"description": f"The whole COPC file, as {POINTCLOUD_MEDIA_TYPE}"},
         206: {"description": "One byte range of the COPC file"},
         304: {"description": "The caller already holds this version of the file"},
+        401: {
+            **PROBLEM_RESPONSE,
+            "description": (
+                "A credential was supplied and could not be resolved (expired, "
+                "revoked or malformed); a read with none is anonymous"
+            ),
+        },
         404: NOT_FOUND_RESPONSE,
         412: PRECONDITION_FAILED_RESPONSE,
         416: {

@@ -18175,6 +18175,10 @@ export type GetPointcloudFileDatasetsDatasetIdCopcAttemptIdNameCopcLazGetData = 
 
 export type GetPointcloudFileDatasetsDatasetIdCopcAttemptIdNameCopcLazGetErrors = {
     /**
+     * A credential was supplied and could not be resolved (expired, revoked or malformed); a read with none is anonymous
+     */
+    401: ProblemDetail;
+    /**
      * Not found
      */
     404: ProblemDetail;

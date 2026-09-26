@@ -24484,6 +24484,15 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description A credential was supplied and could not be resolved (expired, revoked or malformed); a read with none is anonymous */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
             /** @description Not found */
             404: {
                 headers: {

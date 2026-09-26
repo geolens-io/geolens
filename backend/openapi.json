@@ -35401,6 +35401,16 @@
           "304": {
             "description": "The caller already holds this version of the file"
           },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A credential was supplied and could not be resolved (expired, revoked or malformed); a read with none is anonymous"
+          },
           "404": {
             "content": {
               "application/problem+json": {
