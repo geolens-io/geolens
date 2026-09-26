@@ -181,6 +181,21 @@ describe('JobProgress cancelled state', () => {
 
     expect(onReset).toHaveBeenCalledTimes(1);
   });
+
+  // The stale sweep settles an upload nobody ever committed as `cancelled`,
+  // not `failed`, with error_code: 'upload_abandoned' -- the generic
+  // "cancelled" line above hid that from the abandoned-upload case too.
+  it('shows the fixed reason for a cancelled job that carries a code', () => {
+    mockUseJobStatus.mockReturnValue({
+      data: cancelledJob({ error_code: 'upload_abandoned' }),
+      isLoading: false,
+    });
+
+    render(<JobProgress jobId="job-1" onReset={vi.fn()} />);
+
+    expect(screen.getByText('Abandoned: upload was never completed')).toBeInTheDocument();
+    expect(screen.queryByText('This job was cancelled.')).not.toBeInTheDocument();
+  });
 });
 
 // fix(#1778): a failing GET /jobs/{id} used to fall into the isLoading/!job

@@ -21,7 +21,7 @@ import structlog
 from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.failure_reason import redact_failure_reason
+from app.core.failure_reason import FixedReason, redact_failure_reason
 from app.core.db.tenant_session import current_tenant_var, tenant_task
 from app.platform.jobs.heartbeat import (
     claim_job_attempt_and_start_heartbeat,
@@ -50,21 +50,26 @@ logger = structlog.stdlib.get_logger(__name__)
 # it can carry provider payloads, asyncpg internals and file paths, and the
 # job row is readable through /jobs/{id} (RES-2, same reasoning the inline
 # route applied to its 502 body).
-BACKFILL_FAILED_MESSAGE = "Embedding backfill failed. See server logs for details."
+BACKFILL_FAILED_MESSAGE = FixedReason(
+    "Embedding backfill failed. See server logs for details.", code="backfill_failed"
+)
 
 # fix(#1556): the row read moved inside the guarded exit, so a run that never
 # claimed the row reaches it — and "could not record its outcome" would then
 # describe work that never began.
-CANCELLED_MESSAGE = (
+CANCELLED_MESSAGE = FixedReason(
     "Embedding backfill was cancelled by a worker shutdown. Records it had "
     "already reached carry their new vectors and the rest are unchanged; "
-    "re-run to finish the remainder."
+    "re-run to finish the remainder.",
+    code="backfill_worker_shutdown",
 )
-START_FAILED_MESSAGE = (
-    "Embedding backfill could not start. Nothing was changed; re-run it."
+START_FAILED_MESSAGE = FixedReason(
+    "Embedding backfill could not start. Nothing was changed; re-run it.",
+    code="backfill_start_failed",
 )
-SETTLE_FAILED_MESSAGE = (
-    "Embedding backfill could not record its outcome. See server logs for details."
+SETTLE_FAILED_MESSAGE = FixedReason(
+    "Embedding backfill could not record its outcome. See server logs for details.",
+    code="backfill_settle_failed",
 )
 
 # Audit outcome for a run whose fate could not be written to its job row —
@@ -497,9 +502,10 @@ async def _recover_unsettled(
         )
 
 
-UNDISPATCHED_RUN_MESSAGE = (
+UNDISPATCHED_RUN_MESSAGE = FixedReason(
     "Embedding backfill was cancelled before it could be queued. "
-    "Nothing was deleted; start the backfill again."
+    "Nothing was deleted; start the backfill again.",
+    code="backfill_not_queued",
 )
 
 

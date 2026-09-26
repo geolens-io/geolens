@@ -31,7 +31,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
 
-from app.core.failure_reason import FixedReason, redact_failure_reason
+from app.core.failure_reason import FixedReason, failure_code, redact_failure_reason
 from app.platform.jobs.models import (
     ACTIVE_STATUSES,
     FAN_OUT_INTERRUPTED_METADATA_KEY,
@@ -43,7 +43,7 @@ from app.platform.jobs.models import (
 VRT_REGENERATE_JOB_FILENAME = "vrt_regenerate"
 
 # What a user's cancel stores on the job, and on a VRT generation it releases.
-_CANCEL_REASON = FixedReason("Cancelled by user")
+_CANCEL_REASON = FixedReason("Cancelled by user", code="user_cancelled")
 
 # The job's columns an owner's hook reads when an end lands.
 _END_COLUMNS = ("dataset_id", "source_filename", "user_metadata", "created_by")
@@ -51,7 +51,7 @@ _END_COLUMNS = ("dataset_id", "source_filename", "user_metadata", "created_by")
 # The columns a transition writes itself or fences on. Neither a transition's
 # ``values`` nor heartbeat's fenced update may name them.
 OWNED_COLUMNS = frozenset(
-    {"status", "error_message", "completed_at", "attempt_id", "id"}
+    {"status", "error_message", "error_code", "completed_at", "attempt_id", "id"}
 )
 
 
@@ -332,6 +332,7 @@ async def restore(
             "status": "pending",
             "completed_at": None,
             "error_message": None,
+            "error_code": None,
             "user_metadata": IngestJob.user_metadata.op("-")(
                 literal(FAN_OUT_INTERRUPTED_METADATA_KEY, String)
             ),
@@ -387,13 +388,16 @@ async def fail(
 ) -> bool:
     """Move this attempt's job to ``failed``, then run ``linked``.
 
-    ``reason`` is stored redacted, and None stores none. ``values`` are further
+    ``reason`` is stored redacted, and None stores none. A ``FixedReason``
+    also stores its code in ``error_code``. ``values`` are further
     columns the end writes, and ``require`` further predicates the row must
     still meet. A miss returns False and writes nothing. Does not commit.
     """
+    stored = None if reason is None else redact_failure_reason(reason)
     written = {
         "status": "failed",
-        "error_message": None if reason is None else redact_failure_reason(reason),
+        "error_message": stored,
+        "error_code": failure_code(stored),
         "completed_at": datetime.now(timezone.utc),
         **_extra(values),
     }
@@ -583,8 +587,13 @@ async def _end(
     """
     reason = redact_failure_reason(reason)
     now = datetime.now(timezone.utc)
-    written = {"status": status, "error_message": reason, "completed_at": now}
-    written.update(values or {})
+    written = {
+        "status": status,
+        "error_message": reason,
+        "error_code": failure_code(reason),
+        "completed_at": now,
+        **_extra(values),
+    }
     linked: dict[str, uuid.UUID] = {}
     async with session.begin_nested():
         ended = (
@@ -659,6 +668,7 @@ async def retry(session: AsyncSession, job: IngestJob) -> Outcome:
                 status="pending",
                 attempt_id=uuid.uuid4(),
                 error_message=None,
+                error_code=None,
                 started_at=None,
                 heartbeat_at=None,
                 completed_at=None,
@@ -673,6 +683,7 @@ async def retry(session: AsyncSession, job: IngestJob) -> Outcome:
                 IngestJob.status,
                 IngestJob.attempt_id,
                 IngestJob.error_message,
+                IngestJob.error_code,
                 IngestJob.started_at,
                 IngestJob.heartbeat_at,
                 IngestJob.completed_at,

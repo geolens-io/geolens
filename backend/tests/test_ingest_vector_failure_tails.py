@@ -347,3 +347,36 @@ class TestACleanupFailureCannotSwallowTheFailureWrite:
             "error aborts the transaction, and every statement after it on "
             "that session raises until a rollback."
         )
+
+
+async def test_a_layer_with_no_crs_fails_with_its_code(
+    test_db_session, tmp_path, monkeypatch
+) -> None:
+    """A spatial layer with no CRS and no override fails its job under missing_crs."""
+    source = tmp_path / "points.gpkg"
+    source.write_bytes(b"")
+    admin_id = await _admin_id(test_db_session)
+    job = await _queue_upload(test_db_session, file_path=str(source), user_id=admin_id)
+    job_id = job.id
+
+    async def _no_crs(*args, **kwargs):
+        return {"srid": None, "geometry_type": "Point"}
+
+    monkeypatch.setattr(
+        "app.processing.ingest.tasks_vector._validate_upload_file_safety", AsyncMock()
+    )
+    monkeypatch.setattr("app.processing.ingest.ogr.run_ogrinfo", _no_crs)
+    try:
+        await ingest_file.func(
+            job_id=str(job_id),
+            file_path=str(source),
+            user_id=str(admin_id),
+            attempt_id=str(job.attempt_id),
+        )
+
+        test_db_session.expire_all()
+        finished = await test_db_session.get(IngestJob, job_id)
+        assert (finished.status, finished.error_code) == ("failed", "missing_crs")
+        assert (finished.error_message or "").startswith("Missing CRS")
+    finally:
+        await _drop_job(test_db_session, job_id)

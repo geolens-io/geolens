@@ -563,6 +563,18 @@
             "description": "Error details if the job failed.",
             "title": "Error Message"
           },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stable code for a fixed failure reason, so a client can show it in the reader's language; `error_message` keeps its English text. Null when the reason is free text.",
+            "title": "Error Code"
+          },
           "can_retry": {
             "description": "Whether the failed job can be retried with its retained source.",
             "title": "Can Retry",
@@ -8524,6 +8536,18 @@
               }
             ],
             "title": "Error Message"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stable code for a fixed failure reason, so a client can show it in the reader's language; `error_message` keeps its English text. Null when the reason is free text.",
+            "title": "Error Code"
           },
           "can_retry": {
             "title": "Can Retry",

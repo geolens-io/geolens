@@ -79,7 +79,8 @@ async def test_expired_attempt_cannot_renew_or_finalize_retried_job(test_db_sess
 
 
 @pytest.mark.parametrize(
-    "column", ["status", "error_message", "completed_at", "attempt_id", "id"]
+    "column",
+    ["status", "error_message", "error_code", "completed_at", "attempt_id", "id"],
 )
 async def test_the_fenced_update_refuses_a_column_the_ledger_owns(column):
     """A fenced update naming a status, reason, completion time or fence column raises before any statement."""

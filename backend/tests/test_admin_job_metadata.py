@@ -134,6 +134,36 @@ async def test_a_job_with_no_public_keys_lists_no_metadata(
     assert listed is None
 
 
+async def test_the_admin_job_list_returns_a_fixed_reasons_code(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+) -> None:
+    """A job ended with a fixed reason lists its code beside the English text."""
+    filename = f"jmeta{uuid.uuid4().hex[:10]}"
+    job = IngestJob(
+        status="cancelled",
+        created_by=await get_user_id(test_db_session, "admin"),
+        source_filename=filename,
+        error_message="Cancelled by user",
+        error_code="user_cancelled",
+    )
+    test_db_session.add(job)
+    await test_db_session.commit()
+    try:
+        resp = await client.get(
+            "/admin/jobs/", params={"search": filename}, headers=admin_auth_header
+        )
+    finally:
+        await test_db_session.execute(delete(IngestJob).where(IngestJob.id == job.id))
+        await test_db_session.commit()
+
+    assert resp.status_code == 200, resp.text
+    (listed,) = resp.json()["jobs"]
+    assert (listed["error_message"], listed["error_code"]) == (
+        "Cancelled by user",
+        "user_cancelled",
+    )
+
+
 async def test_the_retention_check_reads_every_artifact_record(test_db_session) -> None:
     """A row naming any one artifact record is kept by the purge; a row naming none is not."""
     filenames = {key: f"jmeta{uuid.uuid4().hex[:10]}" for key in ARTIFACT_RECORDS}

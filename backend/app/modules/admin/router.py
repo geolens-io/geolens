@@ -848,6 +848,7 @@ async def list_admin_jobs(
             source_filename=job.source_filename,
             dataset_id=job.dataset_id,
             error_message=job.error_message,
+            error_code=job.error_code,
             can_retry=can_retry,
             retry_reason=retry_reason,
             user_metadata=public_job_metadata(job.user_metadata),

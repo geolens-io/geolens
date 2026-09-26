@@ -146,7 +146,9 @@ class DatasetDeleted(Exception):
 _DATASET_DELETED = Failure(
     "dataset_deleted",
     notify=False,
-    reason=FixedReason("The dataset was deleted while this job was running."),
+    reason=FixedReason(
+        "The dataset was deleted while this job was running.", code="dataset_deleted"
+    ),
 )
 
 
@@ -667,7 +669,10 @@ async def _record_failure(
 # A keyed refresh whose attempt ran past its execution limit.
 _TIMED_OUT = Failure(
     "scheduled_execution_timeout",
-    reason=FixedReason("The admitted refresh exceeded its execution time limit."),
+    reason=FixedReason(
+        "The admitted refresh exceeded its execution time limit.",
+        code="scheduled_execution_timeout",
+    ),
 )
 
 

@@ -505,6 +505,7 @@ async def test_a_failed_run_marks_the_job_failed_without_leaking_the_error(
     job = await _load_job(test_db_session, job_id)
     assert job.status == "failed"
     assert job.error_message == backfill_jobs.BACKFILL_FAILED_MESSAGE
+    assert job.error_code == "backfill_failed"
     assert secret not in (job.error_message or "")
 
     status_resp = await client.get(f"/jobs/{job_id}", headers=admin_auth_header)
@@ -2040,6 +2041,7 @@ async def test_a_lost_ack_on_the_dispatch_settle_still_closes_the_trail(
         "the undispatched run never reached a terminal row"
     )
     assert stranded.error_message == backfill_jobs.UNDISPATCHED_RUN_MESSAGE
+    assert stranded.error_code == "backfill_not_queued"
 
     terminal = await _terminal_audit_entries(
         client, admin_auth_header, str(stranded.id)
@@ -2401,6 +2403,7 @@ async def test_a_failed_startup_read_settles_the_row_it_could_not_read(
         "the run that could not read its row is still holding the slot"
     )
     assert settled.error_message == backfill_jobs.START_FAILED_MESSAGE
+    assert settled.error_code == "backfill_start_failed"
 
     terminal = await _terminal_audit_entries(client, admin_auth_header, job_id)
     assert len(terminal) == 1, terminal

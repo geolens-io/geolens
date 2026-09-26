@@ -6,6 +6,7 @@ from typing import Any, TypeVar, TYPE_CHECKING
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..types import UNSET, Unset
 
 from ..models.admin_job_response_status import AdminJobResponseStatus
 from ..models.admin_job_response_status import check_admin_job_response_status
@@ -44,6 +45,8 @@ class AdminJobResponse:
         started_at (datetime.datetime | None): Timestamp when the worker began processing the job.
         completed_at (datetime.datetime | None): Timestamp when the job finished (success or failure).
         created_at (datetime.datetime): Timestamp when the job was queued.
+        error_code (None | str | Unset): Stable code for a fixed failure reason, so a client can show it in the reader's
+            language; `error_message` keeps its English text. Null when the reason is free text.
     """
 
     id: UUID
@@ -59,6 +62,7 @@ class AdminJobResponse:
     started_at: datetime.datetime | None
     completed_at: datetime.datetime | None
     created_at: datetime.datetime
+    error_code: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -116,6 +120,12 @@ class AdminJobResponse:
 
         created_at = self.created_at.isoformat()
 
+        error_code: None | str | Unset
+        if isinstance(self.error_code, Unset):
+            error_code = UNSET
+        else:
+            error_code = self.error_code
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -135,6 +145,8 @@ class AdminJobResponse:
                 "created_at": created_at,
             }
         )
+        if error_code is not UNSET:
+            field_dict["error_code"] = error_code
 
         return field_dict
 
@@ -258,6 +270,15 @@ class AdminJobResponse:
 
         created_at = isoparse(d.pop("created_at"))
 
+        def _parse_error_code(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        error_code = _parse_error_code(d.pop("error_code", UNSET))
+
         admin_job_response = cls(
             id=id,
             status=status,
@@ -272,6 +293,7 @@ class AdminJobResponse:
             started_at=started_at,
             completed_at=completed_at,
             created_at=created_at,
+            error_code=error_code,
         )
 
         admin_job_response.additional_properties = d

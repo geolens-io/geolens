@@ -474,7 +474,8 @@ def _redacted_job_status(job: IngestJob) -> JobStatusResponse:
       because a FAILED run's filename never reaches the dataset row — this
       is the only door it reaches a stranger through. Nulled unconditionally
       so the rule stays decidable from the job row alone.
-    - ``error_message``: the field refresh-runs redacts by name.
+    - ``error_message`` / ``error_code``: the fields refresh-runs redacts by
+      name.
     - ``warning_message`` / ``warnings``: name source columns, including
       ORIGINAL names a renaming ingest never publishes (the ``schema_diff``
       class).
@@ -495,6 +496,7 @@ def _redacted_job_status(job: IngestJob) -> JobStatusResponse:
         dataset_id=job.dataset_id,
         source_filename=None,
         error_message=None,
+        error_code=None,
         can_retry=False,
         retry_reason=None,
         warning_message=None,
@@ -591,6 +593,7 @@ async def _job_to_status_response(
         dataset_id=job.dataset_id,
         source_filename=job.source_filename,
         error_message=job.error_message,
+        error_code=job.error_code,
         can_retry=can_retry,
         retry_reason=retry_reason,
         warning_message=warning_message,

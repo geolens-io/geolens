@@ -69,8 +69,9 @@ SCHEDULED_CLAIM_DEADLINE_SECONDS = 30 * 60
 ADMITTED_EXPIRY_BATCH_SIZE = 100
 
 ADMITTED_CLAIM_EXPIRED_ERROR_CODE = "scheduled_claim_expired"
-ADMITTED_CLAIM_EXPIRED_ERROR_MESSAGE = (
-    "Scheduled refresh was not claimed before its deadline."
+ADMITTED_CLAIM_EXPIRED_ERROR_MESSAGE = FixedReason(
+    "Scheduled refresh was not claimed before its deadline.",
+    code=ADMITTED_CLAIM_EXPIRED_ERROR_CODE,
 )
 
 ABANDONED_ERROR_CODE = "abandoned"
@@ -84,7 +85,9 @@ ABANDONED_ERROR_MESSAGE = (
 # "the task is provably gone and nobody reported an outcome"; this means
 # "a person asked in-flight work to stop".
 USER_CANCELLED_ERROR_CODE = "user_cancelled"
-USER_CANCELLED_ERROR_MESSAGE = FixedReason("Cancelled by user.")
+USER_CANCELLED_ERROR_MESSAGE = FixedReason(
+    "Cancelled by user.", code=USER_CANCELLED_ERROR_CODE
+)
 
 
 def redact_run_error(message: str | BaseException) -> str:

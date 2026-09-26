@@ -183,17 +183,36 @@ async def test_every_caller_settles_the_same_rows(test_db_session, settle) -> No
 
     for row in (*jobs.values(), run, generation, asset):
         await session.refresh(row)
-    assert {name: (job.status, job.error_message) for name, job in jobs.items()} == {
-        "stale running": ("failed", _STALE_RUNNING),
-        "queued running": ("running", None),
-        "live running": ("running", None),
-        "dispatched pending": ("failed", STALE_PENDING_UNBOUND_MESSAGE),
-        "abandoned upload": ("cancelled", ABANDONED_UPLOAD_MESSAGE),
-        "bound pending": ("failed", STALE_PENDING_BOUND_MESSAGE),
-        "young pending": ("pending", None),
-        "childless fan-out": ("failed", FAN_OUT_DISPATCH_INTERRUPTED_MESSAGE),
-        "refresh": ("failed", STALE_PENDING_UNBOUND_MESSAGE),
-        "vrt regeneration": ("failed", _STALE_RUNNING),
+    assert {
+        name: (job.status, job.error_message, job.error_code)
+        for name, job in jobs.items()
+    } == {
+        "stale running": ("failed", _STALE_RUNNING, "worker_lost"),
+        "queued running": ("running", None, None),
+        "live running": ("running", None, None),
+        "dispatched pending": (
+            "failed",
+            STALE_PENDING_UNBOUND_MESSAGE,
+            "stale_never_queued",
+        ),
+        "abandoned upload": (
+            "cancelled",
+            ABANDONED_UPLOAD_MESSAGE,
+            "upload_abandoned",
+        ),
+        "bound pending": (
+            "failed",
+            STALE_PENDING_BOUND_MESSAGE,
+            "stale_never_committed",
+        ),
+        "young pending": ("pending", None, None),
+        "childless fan-out": (
+            "failed",
+            FAN_OUT_DISPATCH_INTERRUPTED_MESSAGE,
+            "dispatch_interrupted",
+        ),
+        "refresh": ("failed", STALE_PENDING_UNBOUND_MESSAGE, "stale_never_queued"),
+        "vrt regeneration": ("failed", _STALE_RUNNING, "worker_lost"),
     }
     assert (run.status, run.error_code) == ("cancelled", ABANDONED_ERROR_CODE)
     assert (generation.status, asset.status) == ("failed", "ready")

@@ -81,6 +81,12 @@ class JobStatusResponse(BaseModel):
     dataset_id: uuid.UUID | None
     source_filename: str | None
     error_message: str | None
+    error_code: str | None = Field(
+        default=None,
+        description="Stable code for a fixed failure reason, so a client can show "
+        "it in the reader's language; `error_message` keeps its English text. "
+        "Null when the reason is free text.",
+    )
     # Computed by ``_job_to_status_response``; required in OpenAPI so
     # generated clients match the hand-maintained frontend boundary type.
     can_retry: bool

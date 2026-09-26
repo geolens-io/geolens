@@ -11,7 +11,7 @@ import {
 import { useJobStatus, useUploadConfig } from '@/components/import/hooks/use-ingest';
 import { queryKeys } from '@/lib/query-keys';
 import { buildAcceptMap, deriveFormatBadges } from '@/lib/file-utils';
-import { describeFailureReason } from '@/lib/failure-reason';
+import { describeFailureReason, fixedFailureReason } from '@/lib/failure-reason';
 import { SchemaDiffView } from './SchemaDiffView';
 import {
   Dialog,
@@ -268,7 +268,7 @@ export function ReuploadDialog({
     } else if (jobData.status === 'failed') {
       const reason = jobData.error_message;
       const message = reason
-        ? describeFailureReason(reason, t('reupload.jobFailed'))
+        ? describeFailureReason(reason, t('reupload.jobFailed'), jobData.error_code)
         : t('reupload.jobFailed');
       setError(
         sourceType === 'service_url'
@@ -280,9 +280,9 @@ export function ReuploadDialog({
       // fix(#1677): cancel is a reachable terminal status now. With no branch
       // here the dialog sat on the tracking spinner forever — polling had
       // already stopped, so nothing would ever move it again. No retry
-      // guidance: the run was cancelled deliberately, not by a failure the
-      // user should work around.
-      setError(t('reupload.jobCancelled'));
+      // guidance: a deliberate cancel and a sweep-abandoned upload both just
+      // start over, not retry a specific attempt.
+      setError(fixedFailureReason(jobData.error_code) ?? t('reupload.jobCancelled'));
       setStep('error');
     }
   }, [step, jobData, dataset.id, queryClient, sourceType, isRaster, onReplaceComplete, appendRetryGuidance, t]);

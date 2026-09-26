@@ -306,7 +306,11 @@ export function UrlImportForm() {
     // to them. Every other terminal status is a failure the form must explain.
     if (trackedJob.status !== 'cancelled') {
       const msg = trackedJob.error_message
-        ? describeFailureReason(trackedJob.error_message, t('common:errors.internalFailureReason'))
+        ? describeFailureReason(
+            trackedJob.error_message,
+            t('common:errors.internalFailureReason'),
+            trackedJob.error_code,
+          )
         : t('urlImport.downloadFailed');
       setError(msg);
       toast.error(msg);

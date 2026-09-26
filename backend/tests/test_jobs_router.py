@@ -223,6 +223,7 @@ class TestGetJobStatus:
         assert resp.status_code == 200
         assert resp.json()["status"] == "failed"
         assert resp.json()["error_message"] == "Stale: running for over 60 minutes"
+        assert resp.json()["error_code"] == "worker_lost"
 
     async def test_get_job_auto_fails_analysis_job_at_materialize_lease(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
@@ -839,6 +840,7 @@ class TestGetJobStatusByDataset:
             error_message="ogr2ogr failed reading /srv/private-staging/parcels.gdb",
         )
         job.dataset_id = dataset.id
+        job.error_code = "worker_lost"
         job.progress = 0.5
         job.current_step = "ogr2ogr"
         job.rows_processed = 120
@@ -893,6 +895,7 @@ class TestGetJobStatusByDataset:
 
         # Redacted: every field enumerated on _redacted_job_status.
         assert data["error_message"] is None
+        assert data["error_code"] is None
         assert data["source_filename"] is None
         assert data["warning_message"] is None
         assert data["warnings"] == []
@@ -945,6 +948,7 @@ class TestGetJobStatusByDataset:
             data["error_message"]
             == "ogr2ogr failed reading /srv/private-staging/parcels.gdb"
         )
+        assert data["error_code"] == "worker_lost"
         assert data["source_filename"] == "quarterly-internal-extract.geojson"
         assert data["warnings"][0]["kind"] == "reserved_rename"
         assert data["rows_failed"] == 7

@@ -47,6 +47,8 @@ class JobStatusResponse:
         started_at (datetime.datetime | None):
         completed_at (datetime.datetime | None):
         created_at (datetime.datetime):
+        error_code (None | str | Unset): Stable code for a fixed failure reason, so a client can show it in the reader's
+            language; `error_message` keeps its English text. Null when the reason is free text.
         warning_message (None | str | Unset):
         warnings (list[DbfTruncationCollisionWarning | MercatorClipWarning | ReservedRenameWarning] | Unset):
         progress (float | None | Unset):
@@ -67,6 +69,7 @@ class JobStatusResponse:
     started_at: datetime.datetime | None
     completed_at: datetime.datetime | None
     created_at: datetime.datetime
+    error_code: None | str | Unset = UNSET
     warning_message: None | str | Unset = UNSET
     warnings: (
         list[
@@ -122,6 +125,12 @@ class JobStatusResponse:
             completed_at = self.completed_at
 
         created_at = self.created_at.isoformat()
+
+        error_code: None | str | Unset
+        if isinstance(self.error_code, Unset):
+            error_code = UNSET
+        else:
+            error_code = self.error_code
 
         warning_message: None | str | Unset
         if isinstance(self.warning_message, Unset):
@@ -191,6 +200,8 @@ class JobStatusResponse:
                 "created_at": created_at,
             }
         )
+        if error_code is not UNSET:
+            field_dict["error_code"] = error_code
         if warning_message is not UNSET:
             field_dict["warning_message"] = warning_message
         if warnings is not UNSET:
@@ -295,6 +306,15 @@ class JobStatusResponse:
         completed_at = _parse_completed_at(d.pop("completed_at"))
 
         created_at = isoparse(d.pop("created_at"))
+
+        def _parse_error_code(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        error_code = _parse_error_code(d.pop("error_code", UNSET))
 
         def _parse_warning_message(data: object) -> None | str | Unset:
             if data is None:
@@ -423,6 +443,7 @@ class JobStatusResponse:
             started_at=started_at,
             completed_at=completed_at,
             created_at=created_at,
+            error_code=error_code,
             warning_message=warning_message,
             warnings=warnings,
             progress=progress,

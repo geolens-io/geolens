@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { INTERNAL_FAILURE_REASON } from '@/lib/failure-reason';
+import { INTERNAL_FAILURE_REASON, fixedFailureReason } from '@/lib/failure-reason';
 import { useMutation } from '@tanstack/react-query';
 import { TerraDraw, TerraDrawPolygonMode } from 'terra-draw';
 import { TerraDrawMapLibreGLAdapter } from 'terra-draw-maplibre-gl-adapter';
@@ -1925,7 +1925,7 @@ export function AnalysisPanel({
                       job.error_message !== INTERNAL_FAILURE_REASON
                       ? t('analysisTools.jobFailedDetail', {
                           defaultValue: 'Analysis job failed: {{message}}',
-                          message: job.error_message,
+                          message: fixedFailureReason(job.error_code) ?? job.error_message,
                         })
                       : t('analysisTools.jobFailed', {
                           defaultValue: 'Analysis job failed',
@@ -1939,9 +1939,10 @@ export function AnalysisPanel({
                         // query state, so it outlives the watcher's store
                         // clear rather than disappearing with it.
                         job.status === 'cancelled'
-                        ? t('analysisTools.jobCancelled', {
-                            defaultValue: 'Analysis run cancelled',
-                          })
+                        ? (fixedFailureReason(job.error_code) ??
+                            t('analysisTools.jobCancelled', {
+                              defaultValue: 'Analysis run cancelled',
+                            }))
                         : job.current_step === 'registering'
                         ? t('analysisTools.jobSaving', {
                             defaultValue: 'Saving the dataset…',

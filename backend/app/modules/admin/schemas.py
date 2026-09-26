@@ -229,6 +229,12 @@ class AdminJobResponse(BaseModel):
         description="ID of the dataset created by this job, if completed successfully."
     )
     error_message: str | None = Field(description="Error details if the job failed.")
+    error_code: str | None = Field(
+        default=None,
+        description="Stable code for a fixed failure reason, so a client can show "
+        "it in the reader's language; `error_message` keeps its English text. "
+        "Null when the reason is free text.",
+    )
     can_retry: bool = Field(
         description="Whether the failed job can be retried with its retained source."
     )

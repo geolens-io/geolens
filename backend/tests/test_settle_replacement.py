@@ -1006,9 +1006,10 @@ async def test_a_dataset_deleted_during_the_attempt_ends_its_job_quietly(
 
     async with db_module.async_session() as session:
         job = await session.get(IngestJob, seed.job_id)
-    assert (job.status, job.error_message) == (
+    assert (job.status, job.error_message, job.error_code) == (
         "failed",
         "The dataset was deleted while this job was running.",
+        "dataset_deleted",
     )
     assert _events(notifications) == []
 
