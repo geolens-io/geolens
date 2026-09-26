@@ -1624,9 +1624,9 @@ describe('ReuploadDialog raster reupload', () => {
     expect(screen.queryByText('internal_error')).not.toBeInTheDocument();
   });
 
-  // #2311 review: check_missing_crs's text ends with the SRID-override
-  // remedy, which the vector import gate's missing_crs sentence does not
-  // carry -- missing_crs_reupload is its own code so that remedy survives
+  // check_missing_crs's text ends with the SRID-override remedy, which the
+  // vector import gate's missing_crs sentence does not carry --
+  // missing_crs_reupload is its own code so that remedy survives
   // translation instead of being replaced by the vector gate's shorter one.
   it('renders the SRID-override remedy for a re-upload missing-CRS failure, in de', async () => {
     // Switched before the interaction, not after: the dialog computes and

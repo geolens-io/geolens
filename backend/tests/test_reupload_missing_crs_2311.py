@@ -1,4 +1,4 @@
-"""A file re-upload with no detectable CRS carries a stable code (#2311)."""
+"""A file re-upload with no detectable CRS carries a stable code."""
 
 from __future__ import annotations
 

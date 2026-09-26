@@ -858,8 +858,8 @@ describe('SourcePanel', () => {
     expect(screen.queryByText('An unexpected error occurred')).not.toBeInTheDocument();
   });
 
-  // #2311: the refresh-run API's error_code was not passed through, so a
-  // scheduled refresh's coded reason always showed its stored English text.
+  // A scheduled refresh's coded reason must show in the reader's language,
+  // not its stored English sentence.
   it('renders the translated reason for a coded refresh-run failure, in es', async () => {
     await changeTestLanguage('es');
 
@@ -904,10 +904,10 @@ describe('SourcePanel', () => {
     await changeTestLanguage('en');
   });
 
-  // #2311 review: the sweep settles an abandoned run as `cancelled`, the
-  // same terminal status a deliberate user cancel lands in. Gating the
-  // reason line on `status === 'failed'` made an abandoned run read exactly
-  // like a user's own click, with the new abandoned translation never shown.
+  // The sweep settles an abandoned run as `cancelled`, the same terminal
+  // status a deliberate user cancel lands in, so each needs its own reason
+  // shown -- not just a failed run's -- or an abandoned run reads exactly
+  // like a user's own click.
   it("renders each cancelled run's own translated reason, styled as muted rather than an error", () => {
     vi.mocked(useDatasetRefreshRuns).mockReturnValue({
       data: {
