@@ -1,19 +1,24 @@
 """No code under ``backend/app`` hands CRS text to PROJ outside the raster probe child.
 
-PROJ may open files named in CRS text, and stored CRS text comes from uploaded
-files, so it is parsed only in the bounded probe child. This finds every
-reference to a PROJ text parser or a ``core.geo`` WKT helper, resolving names
-through each module's imports so an alias, a module alias, a relative import
-or a ``getattr`` with a literal name is still seen. The sites must match
-``ALLOWED_SITES`` exactly, by count, and the probe functions holding one must
-be reachable only from the child's ``main``.
+PROJ may open files named in CRS text, so stored and uploaded CRS text is read
+only in the bounded probe child. Names resolve through each module's imports,
+so aliases, module aliases, relative imports and ``getattr`` with a literal
+name are all seen. Each rule is exact both ways, by count:
+
+- every PROJ text parser or ``core.geo`` WKT helper is at an ``ALLOWED_SITES`` entry;
+- every ``rasterio`` reference is in a ``RASTERIO_SITES`` function;
+- ``CHILD_FUNCTIONS`` are reached only from each other, and the child's ``main``
+  only from its ``__main__`` guard;
+- ``cog._wgs84_bbox``, which hands its CRS to ``transform_bounds``, is called
+  only from ``WGS84_BBOX_CALLERS``;
+- nothing uses ``pyproj`` or ``osgeo``.
 
 Known limits: a parser that arrives with no import trace (a parameter, a dict
-value, a factory's return), one imported with ``importlib`` or ``__import__``,
-and one fetched by ``getattr`` with a computed name are not seen, nor is a
-star import. ``rasterio.open`` and ``rasterio.warp`` read a file's or a CRS
-object's CRS rather than text; ``test_rule2_structural.py`` covers the opens.
-A local variable that shadows an imported name can raise a false alarm.
+value, a factory's return, ``importlib``, ``__import__``), a computed
+``getattr`` name and a star import are not seen. Text standing in for a CRS
+object inside an allowed function (``crs == text``, or text handed to
+``_wgs84_bbox``) is not seen. A local variable that shadows an imported name
+can raise a false alarm.
 """
 
 from __future__ import annotations
@@ -51,16 +56,19 @@ PARSERS = frozenset(
         )
     }
 )
-# Every use of these is a PROJ entry point, and app/ uses neither.
-FORBIDDEN_ROOTS = ("pyproj", "osgeo.osr")
+FORBIDDEN_ROOTS = ("pyproj", "osgeo")
 
-_WKT_HELPER = "a core.geo WKT helper, which only the allowed sites may reach"
+PROBE = "processing/raster/probe.py"
+COG = "processing/raster/cog.py"
+QUICKLOOK = "processing/raster/quicklook.py"
+VRT = "processing/raster/vrt.py"
+COG_INFO = "modules/catalog/sources/cog_info.py"
+_CHILD = "runs only in the probe child"
+_WKT_HELPER = "a core.geo WKT helper; only these sites may reach it"
+
 # (module under app/, enclosing function, parser) -> (count, why it is safe)
 ALLOWED_SITES: dict[tuple[str, str, str], tuple[int, str]] = {
-    ("core/geo.py", "_parse_crs", f"{_CRS_CLASS}.from_wkt"): (
-        1,
-        "the one WKT parse, reached only through the helpers below",
-    ),
+    ("core/geo.py", "_parse_crs", f"{_CRS_CLASS}.from_wkt"): (1, "the one WKT parse"),
     ("core/geo.py", "wkt_is_geographic", "app.core.geo._parse_crs"): (1, _WKT_HELPER),
     ("core/geo.py", "wkt_has_degree_unit", "app.core.geo._parse_crs"): (
         1,
@@ -71,38 +79,68 @@ ALLOWED_SITES: dict[tuple[str, str, str], tuple[int, str]] = {
         _WKT_HELPER,
     ),
     ("core/geo.py", "wkt_crs_facts", "app.core.geo._parse_crs"): (1, _WKT_HELPER),
-    ("processing/raster/probe.py", "_metadata", "app.core.geo.wkt_crs_facts"): (
+    (PROBE, "_metadata", "app.core.geo.wkt_crs_facts"): (1, _CHILD),
+    (PROBE, "_crs_facts", "app.core.geo.wkt_crs_facts"): (1, _CHILD),
+    (PROBE, "_crs_facts_many", "app.core.geo.wkt_crs_facts"): (1, _CHILD),
+    (PROBE, "_crs_same", f"{_CRS_CLASS}.from_wkt"): (1, _CHILD),
+    (COG_INFO, "_georeferencing", f"{_CRS_CLASS}.from_user_input"): (
         1,
-        "a probe child op",
+        "parses only the module's own CRS84 URI constant",
     ),
-    ("processing/raster/probe.py", "_crs_facts", "app.core.geo.wkt_crs_facts"): (
-        1,
-        "a probe child op",
-    ),
-    ("processing/raster/probe.py", "_crs_facts_many", "app.core.geo.wkt_crs_facts"): (
-        1,
-        "a probe child op",
-    ),
-    ("processing/raster/probe.py", "_crs_same", f"{_CRS_CLASS}.from_wkt"): (
-        1,
-        "a probe child op",
-    ),
-    (
-        "modules/catalog/sources/cog_info.py",
-        "_georeferencing",
-        f"{_CRS_CLASS}.from_user_input",
-    ): (1, "parses only the module's own CRS84 URI constant"),
 }
 # (module, function) -> the module-level string constant its parse must take.
-CONSTANT_ARGUMENT = {
-    ("modules/catalog/sources/cog_info.py", "_georeferencing"): "_CRS84_URI",
+CONSTANT_ARGUMENT = {(COG_INFO, "_georeferencing"): "_CRS84_URI"}
+
+# (module under app/, enclosing function) -> (rasterio references, why it is safe)
+RASTERIO_SITES: dict[tuple[str, str], tuple[int, str]] = {
+    ("core/geo.py", "_parse_crs"): (1, "reached only from ALLOWED_SITES"),
+    ("core/geo.py", "_proj_knows_epsg"): (1, "from_epsg on an integer code"),
+    (COG_INFO, "_georeferencing"): (2, "from_epsg on a code, the pinned CRS84 parse"),
+    (PROBE, "_crs_same"): (2, _CHILD),
+    (PROBE, "_category"): (6, _CHILD),
+    (COG, "extract_raster_metadata"): (1, _CHILD),
+    (COG, "check_cog_compliance"): (1, _CHILD),
+    (COG, "_predictor_supported"): (1, _CHILD),
+    (COG, "_wgs84_bbox"): (2, "transforms the CRS of a WGS84_BBOX_CALLERS caller"),
+    (QUICKLOOK, "generate_quicklook"): (3, _CHILD),
+    (VRT, "gdal_safe_open_env"): (1, _CHILD),
 }
 
-PROBE_MODULE = "processing/raster/probe.py"
-CHILD_MAIN = "main"
-CHILD_OPS = frozenset(
-    {"_inspect", "_metadata", "_crs_facts", "_crs_facts_many", "_crs_same"}
+CHILD_MAIN = (PROBE, "main")
+CHILD_FUNCTIONS = frozenset(
+    {
+        CHILD_MAIN,
+        *(
+            (PROBE, name)
+            for name in (
+                "_inspect",
+                "_metadata",
+                "_quicklook",
+                "_crs_facts",
+                "_crs_facts_many",
+                "_crs_same",
+                "_category",
+            )
+        ),
+        *(
+            (COG, name)
+            for name in (
+                "extract_raster_metadata",
+                "check_cog_compliance",
+                "_predictor_supported",
+            )
+        ),
+        (QUICKLOOK, "generate_quicklook"),
+        (VRT, "gdal_safe_open_env"),
+    }
 )
+_MAIN_GUARD = "__main__"
+
+WGS84_BBOX = (COG, "_wgs84_bbox")
+# (module under app/, enclosing function) -> (references, why its CRS isn't text)
+WGS84_BBOX_CALLERS: dict[tuple[str, str], tuple[int, str]] = {
+    (COG, "extract_raster_metadata"): (1, _CHILD),
+}
 
 
 @dataclass(frozen=True)
@@ -190,8 +228,23 @@ def _resolve(node: ast.AST, names: dict[str, set[str]]) -> set[str]:
     return resolved
 
 
+def _is_main_guard(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.If)
+        and isinstance(node.test, ast.Compare)
+        and isinstance(node.test.left, ast.Name)
+        and node.test.left.id == "__name__"
+        and len(node.test.comparators) == 1
+        and isinstance(node.test.comparators[0], ast.Constant)
+        and node.test.comparators[0].value == "__main__"
+    )
+
+
 def scan(sources: dict[str, str]) -> list[Ref]:
-    """Every outermost name reference that resolves, keyed by module and function."""
+    """Every outermost name reference that resolves, keyed by module and function.
+
+    Module-level code inside ``if __name__ == "__main__":`` is keyed ``__main__``.
+    """
     refs: list[Ref] = []
     for rel, source in sources.items():
         tree = ast.parse(source)
@@ -209,6 +262,8 @@ def scan(sources: dict[str, str]) -> list[Ref]:
         def visit(node: ast.AST, scope: tuple[str, ...]) -> None:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 scope = (*scope, node.name)
+            elif not scope and _is_main_guard(node):
+                scope = (_MAIN_GUARD,)
             candidate = (
                 isinstance(node, (ast.Name, ast.Attribute))
                 and isinstance(node.ctx, ast.Load)
@@ -230,15 +285,19 @@ def scan(sources: dict[str, str]) -> list[Ref]:
     return refs
 
 
+def _under(name: str, prefix: str) -> bool:
+    return name == prefix or name.startswith(f"{prefix}.")
+
+
 def parser_target(ref: Ref) -> str | None:
-    """The parser a reference reaches, or None when it reaches none."""
+    """The parser or forbidden library a reference reaches, or None."""
     for parser in PARSERS:
-        if ref.name == parser or ref.name.startswith(f"{parser}."):
+        if _under(ref.name, parser):
             return parser
     if ref.call is not None and ref.name == _CRS_CLASS:
         return f"{_CRS_CLASS}()"
     for root in FORBIDDEN_ROOTS:
-        if ref.name == root or ref.name.startswith(f"{root}."):
+        if _under(ref.name, root):
             return root
     return None
 
@@ -248,6 +307,12 @@ def parser_sites(refs: list[Ref]) -> Counter:
         (ref.module, ref.function, target)
         for ref in refs
         if (target := parser_target(ref)) is not None
+    )
+
+
+def rasterio_sites(refs: list[Ref]) -> Counter:
+    return Counter(
+        (ref.module, ref.function) for ref in refs if _under(ref.name, "rasterio")
     )
 
 
@@ -284,16 +349,39 @@ def constant_argument_violations(sources: dict[str, str], refs: list[Ref]) -> li
     return violations
 
 
-def child_op_violations(refs: list[Ref]) -> list[str]:
-    """References to a probe child op from outside the child's own functions."""
-    ops = {f"app.processing.raster.probe.{op}" for op in CHILD_OPS}
-    allowed = {CHILD_MAIN, *CHILD_OPS}
-    return [
-        f"{ref.module}:{ref.function} reaches {ref.name}"
+def child_reach_violations(refs: list[Ref]) -> list[str]:
+    """References to a child function from anywhere the child doesn't run."""
+    dotted = {
+        f"{_module_name(module)}.{function}": (module, function)
+        for module, function in CHILD_FUNCTIONS
+    }
+    violations = []
+    for ref in refs:
+        target = next(
+            (site for name, site in dotted.items() if _under(ref.name, name)), None
+        )
+        if target is None:
+            continue
+        caller = (ref.module, ref.function.split(".")[0])
+        if target == CHILD_MAIN:
+            allowed = caller == (PROBE, _MAIN_GUARD)
+        else:
+            allowed = caller in CHILD_FUNCTIONS
+        if not allowed:
+            violations.append(f"{ref.module}:{ref.function} reaches {ref.name}")
+    return violations
+
+
+def bbox_caller_differences(refs: list[Ref]) -> tuple[dict, dict]:
+    """Callers of ``_wgs84_bbox`` that aren't pinned, and pins it lacks, by count."""
+    name = f"{_module_name(WGS84_BBOX[0])}.{WGS84_BBOX[1]}"
+    found = Counter(
+        (ref.module, ref.function.split(".")[0])
         for ref in refs
-        if ref.name in ops
-        and (ref.module != PROBE_MODULE or ref.function.split(".")[0] not in allowed)
-    ]
+        if _under(ref.name, name)
+    )
+    expected = Counter({site: count for site, (count, _) in WGS84_BBOX_CALLERS.items()})
+    return dict(found - expected), dict(expected - found)
 
 
 @pytest.fixture(scope="module")
@@ -309,24 +397,42 @@ def app_refs(app_sources) -> list[Ref]:
     return scan(app_sources)
 
 
+def _differences(found: Counter, expected: Counter) -> str:
+    return f"not allowed: {dict(found - expected)}; missing: {dict(expected - found)}"
+
+
 def test_every_crs_text_parse_is_an_allowed_site(app_refs):
     found = parser_sites(app_refs)
     expected = Counter({site: count for site, (count, _) in ALLOWED_SITES.items()})
 
-    assert found == expected, (
-        f"not allowed: {dict(found - expected)}; missing: {dict(expected - found)}"
-    )
+    assert found == expected, _differences(found, expected)
 
 
 def test_the_pinned_site_parses_only_its_constant(app_sources, app_refs):
     assert constant_argument_violations(app_sources, app_refs) == []
 
 
-def test_probe_child_ops_are_reached_only_from_the_childs_main(app_refs):
-    assert child_op_violations(app_refs) == []
-    assert {
-        function for module, function, _ in ALLOWED_SITES if module == PROBE_MODULE
-    } <= CHILD_OPS
+def test_every_rasterio_reference_is_in_an_allowed_function(app_refs):
+    found = rasterio_sites(app_refs)
+    expected = Counter({site: count for site, (count, _) in RASTERIO_SITES.items()})
+
+    assert found == expected, _differences(found, expected)
+
+
+def test_child_functions_are_reached_only_from_the_child(app_refs):
+    assert child_reach_violations(app_refs) == []
+
+
+def test_the_bbox_transform_is_called_only_by_its_pinned_callers(app_refs):
+    assert bbox_caller_differences(app_refs) == ({}, {})
+
+
+def test_every_site_said_to_run_in_the_child_is_a_child_function():
+    said = {(m, f) for (m, f, _), (_, why) in ALLOWED_SITES.items() if why == _CHILD}
+    said |= {site for site, (_, why) in RASTERIO_SITES.items() if why == _CHILD}
+    said |= {site for site, (_, why) in WGS84_BBOX_CALLERS.items() if why == _CHILD}
+
+    assert said <= CHILD_FUNCTIONS
 
 
 # Rejected twins: each is a parse the scan must see.
@@ -409,7 +515,13 @@ def test_probe_child_ops_are_reached_only_from_the_childs_main(app_refs):
             "modules/x.py",
             "from osgeo import osr\ndef f(t):\n    osr.SpatialReference().ImportFromWkt(t)\n",
             "f",
-            "osgeo.osr",
+            "osgeo",
+        ),
+        (
+            "modules/x.py",
+            "from osgeo import gdal\ndef f(path):\n    return gdal.Open(path)\n",
+            "f",
+            "osgeo",
         ),
     ],
 )
@@ -432,7 +544,93 @@ def test_the_scan_ignores_what_is_not_a_crs_text_parse(source):
     assert parser_sites(scan({"modules/x.py": source})) == Counter()
 
 
-_COG_INFO = "modules/catalog/sources/cog_info.py"
+# Rejected twins: rasterio outside an allowed function, however it is reached.
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from rasterio.warp import transform_bounds\ndef f(a):\n"
+        "    return transform_bounds(a.crs_wkt, 'EPSG:4326', 0, 0, 1, 1)\n",
+        "import rasterio\nfrom app.processing.raster.vrt import gdal_safe_open_env\n"
+        "def f(path):\n    with gdal_safe_open_env():\n        return rasterio.open(path)\n",
+        "from rasterio.crs import CRS\ndef f(a):\n"
+        "    return CRS.from_epsg(4326) == a.crs_wkt\n",
+    ],
+    ids=["warp-on-stored-text", "open-under-the-safe-env", "compare-with-text"],
+)
+def test_rasterio_outside_an_allowed_function_is_seen(source):
+    assert rasterio_sites(scan({"modules/x.py": source})) == Counter(
+        {("modules/x.py", "f"): 1}
+    )
+
+
+@pytest.mark.parametrize(
+    ("module", "source", "violations"),
+    [
+        (
+            "modules/x.py",
+            "from app.processing.raster.cog import extract_raster_metadata\n"
+            "def f(path):\n    return extract_raster_metadata(path)\n",
+            1,
+        ),
+        (
+            "modules/x.py",
+            "from app.processing.raster.probe import main\n"
+            "def f():\n    return main(['crs-facts'])\n",
+            1,
+        ),
+        (
+            PROBE,
+            "def main(argv):\n    return 0\nmain([])\n",
+            1,
+        ),
+        (
+            PROBE,
+            "import sys\ndef main(argv):\n    return 0\n"
+            "if __name__ == '__main__':\n    sys.exit(main(sys.argv[1:]))\n",
+            0,
+        ),
+        (
+            PROBE,
+            "from app.processing.raster.cog import extract_raster_metadata\n"
+            "def _metadata(path):\n    return extract_raster_metadata(path)\n",
+            0,
+        ),
+    ],
+    ids=[
+        "cog-read-from-a-handler",
+        "main-from-a-handler",
+        "main-outside-its-guard",
+        "main-in-its-guard",
+        "cog-read-from-a-child-op",
+    ],
+)
+def test_a_child_function_reached_from_outside_the_child_is_rejected(
+    module, source, violations
+):
+    assert len(child_reach_violations(scan({module: source}))) == violations
+
+
+@pytest.mark.parametrize(
+    ("module", "function", "expected"),
+    [
+        ("modules/x.py", "f", {("modules/x.py", "f"): 1}),
+        (COG, "extract_raster_metadata", {}),
+    ],
+    ids=["a-handler-with-stored-text", "the-childs-metadata-read"],
+)
+def test_the_bbox_transform_rejects_a_caller_it_does_not_pin(
+    module, function, expected
+):
+    source = (
+        "from types import SimpleNamespace\n"
+        "from app.processing.raster.cog import _wgs84_bbox\n"
+        f"def {function}(asset, bounds):\n"
+        "    return _wgs84_bbox(SimpleNamespace(crs=asset.crs_wkt, bounds=bounds))\n"
+    )
+
+    unpinned, _ = bbox_caller_differences(scan({module: source}))
+
+    assert unpinned == expected
 
 
 @pytest.mark.parametrize(
@@ -452,26 +650,6 @@ def test_the_pinned_site_rejects_anything_but_a_literal_constant(
         "def _georeferencing(crs_value):\n"
         f"    return CRS.from_user_input({argument})\n"
     )
-    sources = {_COG_INFO: source}
+    sources = {COG_INFO: source}
 
     assert len(constant_argument_violations(sources, scan(sources))) == violations
-
-
-@pytest.mark.parametrize(
-    ("module", "function", "violations"),
-    [
-        (PROBE_MODULE, "main", 0),
-        (PROBE_MODULE, "_inspect", 0),
-        ("modules/x.py", "main", 1),
-    ],
-)
-def test_a_child_op_reached_from_outside_the_child_is_rejected(
-    module, function, violations
-):
-    source = (
-        "from app.processing.raster.probe import _metadata\n"
-        f"def {function}(path):\n"
-        "    return _metadata(path)\n"
-    )
-
-    assert len(child_op_violations(scan({module: source}))) == violations
