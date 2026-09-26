@@ -65,6 +65,11 @@ def _parse_response(
 
         return response_422
 
+    if response.status_code == 429:
+        response_429 = ProblemDetail.from_dict(response.json())
+
+        return response_429
+
     if response.status_code == 500:
         response_500 = ProblemDetail.from_dict(response.json())
 
@@ -115,10 +120,13 @@ def sync_detailed(
     view the dataset can read the file. The response carries a strong ETag and
     honours ``Range``, ``If-Range``, ``If-Match`` and ``If-None-Match``; a
     malformed byte range, or one naming no byte of the file, answers 416.
-    Through the bundled web server a page on any origin can read the file,
-    with header credentials or none; the API alone allows only the origins in
-    ``CORS_ALLOWED_ORIGINS``. A private, missing or replaced point cloud
-    answers 404, and a storage failure answers 502.
+    One byte range of up to 16 MiB is not rate limited; any other read of the
+    file, such as one without ``Range``, counts against a per-client limit of
+    10 a minute and answers 429 past it. Through the bundled web server a page
+    on any origin can read the file, with header credentials or none; the API
+    alone allows only the origins in ``CORS_ALLOWED_ORIGINS``. A private,
+    missing or replaced point cloud answers 404, and a storage failure answers
+    502.
 
     Args:
         dataset_id (UUID):
@@ -164,10 +172,13 @@ def sync(
     view the dataset can read the file. The response carries a strong ETag and
     honours ``Range``, ``If-Range``, ``If-Match`` and ``If-None-Match``; a
     malformed byte range, or one naming no byte of the file, answers 416.
-    Through the bundled web server a page on any origin can read the file,
-    with header credentials or none; the API alone allows only the origins in
-    ``CORS_ALLOWED_ORIGINS``. A private, missing or replaced point cloud
-    answers 404, and a storage failure answers 502.
+    One byte range of up to 16 MiB is not rate limited; any other read of the
+    file, such as one without ``Range``, counts against a per-client limit of
+    10 a minute and answers 429 past it. Through the bundled web server a page
+    on any origin can read the file, with header credentials or none; the API
+    alone allows only the origins in ``CORS_ALLOWED_ORIGINS``. A private,
+    missing or replaced point cloud answers 404, and a storage failure answers
+    502.
 
     Args:
         dataset_id (UUID):
@@ -208,10 +219,13 @@ async def asyncio_detailed(
     view the dataset can read the file. The response carries a strong ETag and
     honours ``Range``, ``If-Range``, ``If-Match`` and ``If-None-Match``; a
     malformed byte range, or one naming no byte of the file, answers 416.
-    Through the bundled web server a page on any origin can read the file,
-    with header credentials or none; the API alone allows only the origins in
-    ``CORS_ALLOWED_ORIGINS``. A private, missing or replaced point cloud
-    answers 404, and a storage failure answers 502.
+    One byte range of up to 16 MiB is not rate limited; any other read of the
+    file, such as one without ``Range``, counts against a per-client limit of
+    10 a minute and answers 429 past it. Through the bundled web server a page
+    on any origin can read the file, with header credentials or none; the API
+    alone allows only the origins in ``CORS_ALLOWED_ORIGINS``. A private,
+    missing or replaced point cloud answers 404, and a storage failure answers
+    502.
 
     Args:
         dataset_id (UUID):
@@ -255,10 +269,13 @@ async def asyncio(
     view the dataset can read the file. The response carries a strong ETag and
     honours ``Range``, ``If-Range``, ``If-Match`` and ``If-None-Match``; a
     malformed byte range, or one naming no byte of the file, answers 416.
-    Through the bundled web server a page on any origin can read the file,
-    with header credentials or none; the API alone allows only the origins in
-    ``CORS_ALLOWED_ORIGINS``. A private, missing or replaced point cloud
-    answers 404, and a storage failure answers 502.
+    One byte range of up to 16 MiB is not rate limited; any other read of the
+    file, such as one without ``Range``, counts against a per-client limit of
+    10 a minute and answers 429 past it. Through the bundled web server a page
+    on any origin can read the file, with header credentials or none; the API
+    alone allows only the origins in ``CORS_ALLOWED_ORIGINS``. A private,
+    missing or replaced point cloud answers 404, and a storage failure answers
+    502.
 
     Args:
         dataset_id (UUID):

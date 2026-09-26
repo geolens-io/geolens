@@ -2038,10 +2038,13 @@ export interface paths {
          *     view the dataset can read the file. The response carries a strong ETag and
          *     honours ``Range``, ``If-Range``, ``If-Match`` and ``If-None-Match``; a
          *     malformed byte range, or one naming no byte of the file, answers 416.
-         *     Through the bundled web server a page on any origin can read the file,
-         *     with header credentials or none; the API alone allows only the origins in
-         *     ``CORS_ALLOWED_ORIGINS``. A private, missing or replaced point cloud
-         *     answers 404, and a storage failure answers 502.
+         *     One byte range of up to 16 MiB is not rate limited; any other read of the
+         *     file, such as one without ``Range``, counts against a per-client limit of
+         *     10 a minute and answers 429 past it. Through the bundled web server a page
+         *     on any origin can read the file, with header credentials or none; the API
+         *     alone allows only the origins in ``CORS_ALLOWED_ORIGINS``. A private,
+         *     missing or replaced point cloud answers 404, and a storage failure answers
+         *     502.
          */
         get: operations["get_pointcloud_file_datasets__dataset_id__copc__attempt_id___name__copc_laz_get"];
         put?: never;
@@ -24511,6 +24514,17 @@ export interface operations {
             /** @description Validation error */
             422: {
                 headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
                     [name: string]: unknown;
                 };
                 content: {

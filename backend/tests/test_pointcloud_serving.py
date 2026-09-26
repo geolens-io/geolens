@@ -606,36 +606,59 @@ async def test_the_route_answers_get_and_head_only(
     _assert_sandboxed(resp)
 
 
-async def test_the_route_is_exempt_from_the_per_ip_limit(
+_OVER_THE_LIMIT = {
+    "no-range": {},
+    "open-range": {"Range": "bytes=0-"},
+    "range-over-16-mib": {"Range": f"bytes=0-{16 * 1024 * 1024}"},
+    "several-ranges": {"Range": "bytes=0-1,4-5"},
+    "other-unit": {"Range": "items=0-9"},
+    "stale-if-range": {"Range": "bytes=0-9", "If-Range": '"stale"'},
+}
+
+
+async def test_only_one_small_range_escapes_the_whole_file_limit(
     client: AsyncClient, make_pointcloud, storage, monkeypatch
 ) -> None:
-    """With a one-per-second global limit, a burst of range reads is all served while another route refuses."""
+    """Past the per-client budget every read that can stream more than one small range is 429; small ranges and HEAD are not."""
+    from app.modules.catalog.datasets.api.router_pointcloud import _WHOLE_FILE_LIMIT
     from app.platform import ratelimit
+    from tests.test_ogc_features_filter import _freeze_rate_limit_window
 
-    dataset_id, attempt = await _published(make_pointcloud, storage)
+    _freeze_rate_limit_window(monkeypatch)
+    # The route's own limit replaces the global one, which would refuse the
+    # second read of each burst below.
     monkeypatch.setattr(ratelimit, "get_cached_global_rate_limit", lambda: 1)
+    budget = int(_WHOLE_FILE_LIMIT.split("/")[0])
+    dataset_id, attempt = await _published(make_pointcloud, storage)
+    url = _url(dataset_id, attempt)
     ratelimit.limiter.enabled = True
     ratelimit.limiter._storage.reset()
     try:
-        reads = [
-            (
-                await client.get(
-                    _url(dataset_id, attempt), headers={"Range": f"bytes={i}-{i}"}
-                )
-            ).status_code
-            for i in range(5)
+        small = [
+            (await client.get(url, headers={"Range": f"bytes={i}-{i + 9}"})).status_code
+            for i in range(budget * 2)
         ]
-        others = [
-            (await client.get(f"/datasets/{dataset_id}")).status_code for _ in range(3)
-        ]
+        whole = [await client.get(url) for _ in range(budget + 1)]
+        refused = {
+            name: (await client.get(url, headers=headers)).status_code
+            for name, headers in _OVER_THE_LIMIT.items()
+        }
+        suffix = await client.get(url, headers={"Range": "bytes=-100"})
+        bound = await client.get(
+            url, headers={"Range": "bytes=0-9", "If-Range": f'"{attempt}"'}
+        )
+        head = await client.head(url)
     finally:
         ratelimit.limiter.enabled = False
         ratelimit.limiter._storage.reset()
 
-    assert reads == [206] * 5
-    assert 429 in others, (
-        "precondition: the limit is live for a route that isn't exempt"
-    )
+    assert small == [206] * (budget * 2)
+    assert [resp.status_code for resp in whole] == [200] * budget + [429]
+    assert refused == dict.fromkeys(_OVER_THE_LIMIT, 429)
+    assert suffix.status_code == bound.status_code == 206
+    assert head.status_code == 200
+    assert int(whole[-1].headers["retry-after"]) > 0
+    _assert_sandboxed(whole[-1])
 
 
 @pytest.fixture(params=["local", "s3"])
