@@ -38,6 +38,7 @@ from app.platform.storage.local import LocalStorageProvider
 from app.processing.ingest import pointcloud as pointcloud_module
 from app.processing.ingest.pointcloud import (
     PointCloudDecodeError,
+    PointCloudDecodeTimeout,
     inspect_pointcloud,
     staged_pointcloud_metadata,
 )
@@ -55,15 +56,16 @@ def _write(tmp_path: Path, data: bytes) -> str:
 
 
 def _stand_in(monkeypatch, script: str) -> None:
-    """Replace the decode child with ``python -c <script> top|every <path>``."""
+    """Replace the decode child with ``python -c <script> top|every <cpu> <path>``."""
     monkeypatch.setattr(
         pointcloud_module,
         "_decoder_command",
-        lambda every, path: [
+        lambda every, cpu_seconds, path: [
             sys.executable,
             "-c",
             script,
             "every" if every else "top",
+            str(cpu_seconds),
             path,
         ],
     )
@@ -96,6 +98,17 @@ def _stalled_decoder(monkeypatch, tmp_path: Path) -> Path:
     return pid_file
 
 
+def _burning_decoder(monkeypatch) -> None:
+    """The real decode child, whose lazrs decode spins on the CPU and never returns."""
+    _decoder_with(
+        monkeypatch,
+        "def _burn(*args):\n"
+        "    while True:\n"
+        "        pass\n"
+        "lazrs.decompress_points_with_chunk_table = _burn",
+    )
+
+
 def _assert_gone(pid_file: Path) -> None:
     with pytest.raises(ProcessLookupError):
         os.kill(int(pid_file.read_text()), 0)
@@ -113,24 +126,42 @@ def _kill_once_decoding(pid_file: Path, signum: int) -> None:
 
 
 class TestTheParentBoundsTheChild:
-    def test_a_decode_that_never_returns_is_stopped_at_the_deadline(
+    def test_a_decode_that_blocks_is_stopped_at_the_deadline(
         self, monkeypatch, tmp_path
     ) -> None:
+        """A child with CPU time to spare that the deadline stops says nothing about the file."""
         pid_file = _stalled_decoder(monkeypatch, tmp_path)
         monkeypatch.setattr(pointcloud_module, "TOP_NODE_DECODE_SECONDS", 2)
+
+        started = time.monotonic()
+        with pytest.raises(PointCloudDecodeTimeout) as stopped:
+            inspect_pointcloud(_write(tmp_path, copc()))
+        elapsed = time.monotonic() - started
+
+        assert elapsed < 6, f"the door waited {elapsed:.1f}s past a 2s deadline"
+        assert str(stopped.value) == (
+            "Decoding the point cloud took longer than 2 seconds, so it was stopped."
+        )
+        _assert_gone(pid_file)
+
+    def test_a_decode_that_spins_dies_of_its_cpu_limit(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """A child that uses up its CPU time is refused before the deadline, as the file's fault."""
+        _burning_decoder(monkeypatch)
+        monkeypatch.setattr(pointcloud_module, "TOP_NODE_DECODE_SECONDS", 6)
 
         started = time.monotonic()
         with pytest.raises(UnsafeUploadError) as refusal:
             inspect_pointcloud(_write(tmp_path, copc()))
         elapsed = time.monotonic() - started
 
-        assert elapsed < 6, f"the door waited {elapsed:.1f}s past a 2s deadline"
+        assert elapsed < 6, f"the child spun {elapsed:.1f}s, past its 2s of CPU time"
         assert refusal_detail(refusal.value) == {
             "code": "pointcloud_invalid",
             "message": "The point cloud takes more than 2 seconds to decode.",
             "limit": 2,
         }
-        _assert_gone(pid_file)
 
     def test_a_decode_that_crashes_the_child_is_refused_as_undecodable(
         self, monkeypatch, tmp_path
@@ -286,6 +317,24 @@ async def _pending_job(session, path: str) -> IngestJob:
     return job
 
 
+async def test_the_doors_answer_503_to_a_decode_the_server_stopped(
+    client: AsyncClient, admin_auth_header, test_db_session, monkeypatch, tmp_path
+) -> None:
+    """The preview and the upload door let the client retry, since the file isn't at fault."""
+    path = _write(tmp_path, copc())
+    job = await _pending_job(test_db_session, path)
+    _stalled_decoder(monkeypatch, tmp_path)
+    monkeypatch.setattr(pointcloud_module, "TOP_NODE_DECODE_SECONDS", 1)
+
+    resp = await client.post(f"/ingest/preview/{job.id}", headers=admin_auth_header)
+    with pytest.raises(HTTPException) as upload:
+        await staged_pointcloud_metadata(path, "pointcloud")
+
+    retry = "Checking the point cloud took too long. Try again."
+    assert (resp.status_code, resp.json()["detail"]) == (503, retry)
+    assert (upload.value.status_code, upload.value.detail) == (503, retry)
+
+
 async def test_the_preview_answers_with_our_text_only(
     client: AsyncClient, admin_auth_header, test_db_session, monkeypatch, tmp_path
 ) -> None:
@@ -318,8 +367,10 @@ async def test_ingest_fails_the_job_with_our_text_only(
     if child == "stalls":
         _stalled_decoder(monkeypatch, tmp_path)
         monkeypatch.setattr(pointcloud_module, "DECODE_FLOOR_SECONDS", 1)
-        raised = UnsafeUploadError
-        expected = "The point cloud takes more than 1 seconds to decode."
+        raised = PointCloudDecodeTimeout
+        expected = (
+            "Decoding the point cloud took longer than 1 seconds, so it was stopped."
+        )
     else:
         _stand_in(monkeypatch, f"print({_CHILD_TEXT!r})")
         raised = PointCloudDecodeError
@@ -336,10 +387,11 @@ async def test_ingest_fails_the_job_with_our_text_only(
     assert time.monotonic() - started < 6
 
     await test_db_session.refresh(job)
-    assert (job.status, job.dataset_id, job.error_message) == (
+    assert (job.status, job.dataset_id, job.error_message, job.error_code) == (
         "failed",
         None,
         expected,
+        None,
     )
 
 
@@ -394,9 +446,34 @@ async def test_a_decode_past_the_deadline_keeps_the_presigned_upload(
 
     assert (failure.value.status_code, failure.value.detail) == (
         503,
-        "Checking the point cloud took too long. Complete the upload again to retry.",
+        "Checking the point cloud took too long. Try again.",
     )
     assert await storage.exists(job.user_metadata["s3_key"])
+    assert not await storage.exists(frozen)
+
+
+async def test_a_decode_that_spins_refuses_the_presigned_upload(
+    monkeypatch, tmp_path
+) -> None:
+    """A child that uses up its CPU time refuses the file, and both objects go."""
+    from app.processing.ingest.presigned import admit_presigned_pointcloud
+
+    storage, job, frozen = await _presigned_upload(monkeypatch, tmp_path)
+    _burning_decoder(monkeypatch)
+    monkeypatch.setattr(pointcloud_module, "TOP_NODE_DECODE_SECONDS", 6)
+
+    with pytest.raises(HTTPException) as refusal:
+        await admit_presigned_pointcloud(storage, job, frozen_key=frozen)
+
+    assert (refusal.value.status_code, refusal.value.detail) == (
+        422,
+        {
+            "code": "pointcloud_invalid",
+            "message": "The point cloud takes more than 2 seconds to decode.",
+            "limit": 2,
+        },
+    )
+    assert not await storage.exists(job.user_metadata["s3_key"])
     assert not await storage.exists(frozen)
 
 

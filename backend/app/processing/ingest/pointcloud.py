@@ -256,16 +256,20 @@ _CRASH_SIGNALS = frozenset({"SIGSEGV", "SIGBUS", "SIGABRT", "SIGILL", "SIGFPE"})
 class PointCloudDecodeError(Exception):
     """A decode that failed for a reason of the server's, not of the file's."""
 
-    def __init__(self) -> None:
-        super().__init__("Decoding the point cloud failed unexpectedly.")
+    def __init__(
+        self, message: str = "Decoding the point cloud failed unexpectedly."
+    ) -> None:
+        super().__init__(message)
 
 
-class PointCloudDecodeTimeout(UnsafeUploadError):
-    """The refusal of a decode stopped at its deadline.
+class PointCloudDecodeTimeout(PointCloudDecodeError):
+    """A decode its deadline stopped with CPU time to spare: the host was busy, or the child blocked."""
 
-    It says the decode took too long here, not that the content is invalid,
-    so a door that deletes the upload on a refusal can let the client retry.
-    """
+    def __init__(self, seconds: int) -> None:
+        super().__init__(
+            f"Decoding the point cloud took longer than {seconds} seconds, "
+            "so it was stopped."
+        )
 
 
 def _read_header(data: bytes, size: int) -> _Header:
@@ -768,9 +772,10 @@ def _reader(source: BinaryIO) -> Read:
     return read
 
 
-def _decoder_command(every: bool, path: str) -> list[str]:
+def _decoder_command(every: bool, cpu_seconds: int, path: str) -> list[str]:
     module = "app.processing.ingest.pointcloud_decode"
-    return [sys.executable, "-m", module, "every" if every else "top", path]
+    nodes = "every" if every else "top"
+    return [sys.executable, "-m", module, nodes, str(cpu_seconds), path]
 
 
 def _decoded_corners(
@@ -779,30 +784,35 @@ def _decoded_corners(
     """The low and high corners of the decoded points, from a child killed at ``timeout`` seconds.
 
     Each corner is X, Y and Z, then X wrapped into [-180, 180) and into
-    [0, 360). A child that runs out of time is refused as too slow to decode,
-    and one a crash signal ends as undecodable. Any other failure, such as a
-    SIGKILL from the OOM killer, is a ``PointCloudDecodeError``.
+    [0, 360). A child that uses up its CPU time is refused as too slow to
+    decode, and one a crash signal ends as undecodable. The deadline stopping
+    a child with CPU time to spare is a ``PointCloudDecodeTimeout``, and any
+    other failure, such as a SIGKILL from the OOM killer, a
+    ``PointCloudDecodeError``.
     """
+    # A third of the deadline: a decode spinning on its input dies of SIGXCPU
+    # long before the deadline, which then stops only a starved or blocked child.
+    cpu_seconds = max(1, timeout // 3)
     try:
         result = run_child(
-            _decoder_command(every, os.path.abspath(path)),
+            _decoder_command(every, cpu_seconds, os.path.abspath(path)),
             env={"PATH": os.environ.get("PATH", os.defpath)},
             timeout=timeout,
             reported=("internal",),
         )
     except ChildFailure as failure:
         logger.warning("Point cloud decode failed", **failure.details)
-        if failure.category == "timeout":
-            raise _logged(
-                PointCloudDecodeTimeout(
-                    f"The point cloud takes more than {timeout} seconds to decode.",
-                    code="pointcloud_invalid",
-                    values={"limit": timeout},
-                ),
+        signal_name = failure.details.get("signal")
+        if signal_name == "SIGXCPU":
+            raise _invalid(
+                f"The point cloud takes more than {cpu_seconds} seconds to decode.",
                 reason="decode_time",
+                limit=cpu_seconds,
             ) from None
-        if failure.details.get("signal") in _CRASH_SIGNALS:
+        if signal_name in _CRASH_SIGNALS:
             raise _decode_failed(reason="decode_crash") from None
+        if failure.category == "timeout":
+            raise PointCloudDecodeTimeout(timeout) from None
         raise PointCloudDecodeError() from None
     return _corners_of(result)
 
@@ -885,6 +895,19 @@ def inspect_pointcloud(path: str) -> PointCloud:
     return _publishable(_inspect(path, every=False)[0])
 
 
+async def _at_a_door(func: Callable[[str], PointCloud], path: str) -> PointCloud:
+    """``func(path)`` in a thread, a decode the server stopped raising a retriable 503."""
+    from fastapi import HTTPException, status
+
+    try:
+        return await asyncio.to_thread(func, path)
+    except PointCloudDecodeTimeout as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Checking the point cloud took too long. Try again.",
+        ) from exc
+
+
 async def inspect_every_node(path: str) -> PointCloud:
     """``inspect_pointcloud``, with every node holding points decoded as the top one is.
 
@@ -948,7 +971,7 @@ async def inspect_stored_pointcloud(storage: StorageProvider, key: str) -> Point
         span = _chunk_table_span(layout, struct.unpack("<q", field)[0], size)
         if span:
             await _copy_range(storage, key, probe, *span)
-        return await asyncio.to_thread(inspect_pointcloud, probe)
+        return await _at_a_door(inspect_pointcloud, probe)
     finally:
         if handle >= 0:
             os.close(handle)
@@ -974,7 +997,7 @@ async def inspect_staged_pointcloud(file_path: str) -> PointCloud:
 
     is_local, source = staged_source(file_path)
     if is_local:
-        return await asyncio.to_thread(inspect_pointcloud, source)
+        return await _at_a_door(inspect_pointcloud, source)
     return await inspect_stored_pointcloud(get_storage(), source)
 
 
@@ -1008,7 +1031,7 @@ async def staged_pointcloud_metadata(path: str, kind: str | None) -> dict:
     """What a point cloud upload's job row binds, once its file passes every check."""
     if kind != POINTCLOUD_FILE_TYPE:
         return {}
-    await asyncio.to_thread(inspect_pointcloud, path)
+    await _at_a_door(inspect_pointcloud, path)
     return {"file_type": POINTCLOUD_FILE_TYPE}
 
 

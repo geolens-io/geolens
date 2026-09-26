@@ -12,6 +12,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import resource
 import sys
 
 import lazrs
@@ -138,6 +139,11 @@ def decode_file(path: str, *, every: bool) -> tuple[list[float], list[float]]:
     return low.tolist(), high.tolist()
 
 
+def _limit(cpu_seconds: int) -> None:
+    """Cap this process's CPU time, so a decode past it dies of SIGXCPU."""
+    resource.setrlimit(resource.RLIMIT_CPU, (cpu_seconds, cpu_seconds + 1))
+
+
 def main(argv: list[str]) -> int:
     try:
         nodes, path = argv
@@ -157,4 +163,6 @@ def main(argv: list[str]) -> int:
 if __name__ == "__main__":
     # The reply is the only thing on stdout.
     structlog.configure(logger_factory=structlog.PrintLoggerFactory(sys.stderr))
-    sys.exit(main(sys.argv[1:]))
+    nodes, cpu_seconds, path = sys.argv[1:]
+    _limit(int(cpu_seconds))
+    sys.exit(main([nodes, path]))

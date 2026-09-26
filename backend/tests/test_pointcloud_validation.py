@@ -47,7 +47,7 @@ from tests.pointcloud_files import (
     scrambled,
     two_ends,
 )
-from tests.test_pointcloud_decode_child import _stalled_decoder
+from tests.test_pointcloud_decode_child import _burning_decoder
 
 
 def write(tmp_path: Path, data: bytes, name: str = "cloud.copc.laz") -> str:
@@ -1421,9 +1421,9 @@ async def test_the_worker_leaves_the_checks_below_the_top_node_to_the_child(
 
 
 async def test_a_decode_past_its_time_budget_is_refused(tmp_path, monkeypatch) -> None:
-    """A decode still running once the file's budget is spent is stopped and refused."""
-    _stalled_decoder(monkeypatch, tmp_path)
-    monkeypatch.setattr(pointcloud_module, "DECODE_FLOOR_SECONDS", 1)
+    """A decode that uses up its share of the file's budget in CPU time is refused."""
+    _burning_decoder(monkeypatch)
+    monkeypatch.setattr(pointcloud_module, "DECODE_FLOOR_SECONDS", 3)
 
     with pytest.raises(UnsafeUploadError) as refusal:
         await inspect_every_node(write(tmp_path, copc_nodes()))
@@ -1436,14 +1436,21 @@ async def test_a_decode_past_its_time_budget_is_refused(tmp_path, monkeypatch) -
 
 
 async def test_a_decode_within_its_time_budget_passes(tmp_path, monkeypatch) -> None:
-    """The worker gives its one child the file's budget, and the door its own deadline."""
+    """The worker gives its one child the file's budget, and the door its own deadline.
+
+    Each child may spend a third of its deadline in CPU time.
+    """
     path = write(tmp_path, copc_nodes())
     children = _children(monkeypatch)
 
     inspect_pointcloud(path)
     assert (await inspect_every_node(path)).point_count == 370
 
-    assert [(argv[-2], kwargs["timeout"]) for argv, kwargs in children] == [
-        ("top", pointcloud_module.TOP_NODE_DECODE_SECONDS),
-        ("every", pointcloud_module.DECODE_FLOOR_SECONDS),
+    door, worker = (
+        pointcloud_module.TOP_NODE_DECODE_SECONDS,
+        pointcloud_module.DECODE_FLOOR_SECONDS,
+    )
+    assert [(argv[-3:-1], kwargs["timeout"]) for argv, kwargs in children] == [
+        (["top", str(door // 3)], door),
+        (["every", str(worker // 3)], worker),
     ]
