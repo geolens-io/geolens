@@ -53,6 +53,7 @@ from app.platform.jobs.models import (
     STAGING_REAPED_FINAL_MARKER,
     STATUSES_NEEDING_STAGED_INPUT,
     IngestJob,
+    needs_staged_input,
 )
 from app.platform.storage.provider import StoredObject
 from app.platform.storage.titiler_url import resolve_current_storage_key
@@ -217,14 +218,12 @@ def _reference_clause(job_id: uuid.UUID | None, logical_keys: set[str]):
 
 
 def _can_still_consume():
-    """Predicate: this row can still read the staged input it points at.
+    """Predicate: this row still needs the staged input it points at.
 
-    fix(#1249): unconditional was wrong — a fan-out child stays
-    ``complete`` forever, so its inherited ``file_path`` would answer "still
-    referenced" forever and the leaked parent object could never be
-    repaired. Same line the retention purge's survivor query draws.
+    A complete fan-out child names its parent's upload forever, so naming a key
+    is not enough. Same line the retention purge's survivor query draws.
     """
-    return IngestJob.status.in_(STATUSES_NEEDING_STAGED_INPUT)
+    return needs_staged_input()
 
 
 def _owner_still_manages():
@@ -234,22 +233,22 @@ def _owner_still_manages():
     so the question is "is anything still going to act on this key". Exactly
     two things do:
 
-    - The task tails and the retention purge, while the row can still consume
-      the bytes (``_can_still_consume``).
+    - The task tails and the retention purge, while the row is pending, running
+      or failed.
     - ``_sweep_expired_presigned_staging``, while the row carries an ``s3_key``
       it has not yet finalized.
 
-    fix(#1249): existence alone was a permanent shield, and it
-    shielded the exact leak this change closes — a PUT landing after the
-    post-expiry sweep's final delete recreates an object every row-driven
-    reaper is finished with.
+    Existence alone is no shield: a PUT that lands after the post-expiry
+    sweep's final delete recreates an object every row-driven reaper is done
+    with. A row holding an unarchived original keeps only the key its
+    ``file_path`` names, through ``_can_still_consume``.
 
     The ``s3_key IS NOT NULL`` half matters as much as the marker half: a
     job that never presigned has no such key, so treating a missing marker
     as "not yet finalized" would shield those rows forever instead.
     """
     return or_(
-        _can_still_consume(),
+        IngestJob.status.in_(STATUSES_NEEDING_STAGED_INPUT),
         and_(
             IngestJob.user_metadata["s3_key"].astext.is_not(None),
             IngestJob.user_metadata[STAGING_REAPED_FINAL_MARKER].astext.is_(None),

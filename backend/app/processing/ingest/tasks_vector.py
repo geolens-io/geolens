@@ -346,6 +346,7 @@ def _should_unlink_staging(
     original_file_path: str,
     final_status: str,
     is_fan_out_child: bool,
+    archive_failed: bool = False,
 ) -> bool:
     """Decide whether the local staging file should be unlinked on task exit.
 
@@ -358,14 +359,15 @@ def _should_unlink_staging(
         fan-out child: NEVER unlink — siblings read the same file; the staging
         retention policy reaps it later.
       - Shared local-staging file of a non-fan-out job: unlink only on success;
-        keep on failure so a retry can re-read it.
+        keep on failure so a retry can re-read it, and when ``archive_failed``
+        leaves it the original's only copy.
     """
     is_private_s3_download = file_path != original_file_path
     if is_private_s3_download:
         return True
     if is_fan_out_child:
         return False
-    return final_status == "complete"
+    return final_status == "complete" and not archive_failed
 
 
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.ingest_file"])
@@ -405,6 +407,8 @@ async def ingest_file(
     job_uuid, attempt_uuid = resolved
     original_file_path = file_path
     final_status: str = "pending"
+    # Set when the original fails to archive, leaving the upload its only copy.
+    archive_failed = False
     staging_table_name = ""
     heartbeat_task: asyncio.Task[None] | None = None
 
@@ -666,7 +670,7 @@ async def ingest_file(
             )
 
             # Archive the original file to the storage provider.
-            await _archive_original_file(
+            archive_failed = not await _archive_original_file(
                 session,
                 job=job,
                 dataset_id=dataset.id,
@@ -770,22 +774,24 @@ async def ingest_file(
                 original_file_path=original_file_path,
                 final_status=final_status,
                 is_fan_out_child=is_fan_out_child,
+                archive_failed=archive_failed,
             ):
                 Path(file_path).unlink(missing_ok=True)
 
         # Shared with the reupload tail — after a
         # presigned completion this reaps the FROZEN copy the job is bound to.
         async with cleanup_step("ingest_file downloaded source", job_id=job_id):
-            await reap_downloaded_staging_source(
-                job_id,
-                original_file_path=original_file_path,
-                final_status=final_status,
-                # Ordinary imports: a failed job stays retryable while its
-                # source exists (_retry_capability), so retain on failure and
-                # let the stale purge own it.
-                failed_source_replayable=True,
-                is_fan_out_child=is_fan_out_child,
-            )
+            if not archive_failed:
+                await reap_downloaded_staging_source(
+                    job_id,
+                    original_file_path=original_file_path,
+                    final_status=final_status,
+                    # Ordinary imports: a failed job stays retryable while its
+                    # source exists (_retry_capability), so retain on failure
+                    # and let the stale purge own it.
+                    failed_source_replayable=True,
+                    is_fan_out_child=is_fan_out_child,
+                )
 
         # Sweep the presigned staging key too. The block
         # above only reaps `original_file_path`, which after a presigned
