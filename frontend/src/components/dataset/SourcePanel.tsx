@@ -445,6 +445,7 @@ function RefreshRunHistory({
                   {describeFailureReason(
                     run.error_message,
                     t('common:errors.internalFailureReason'),
+                    run.error_code,
                   )}
                 </p>
               )}

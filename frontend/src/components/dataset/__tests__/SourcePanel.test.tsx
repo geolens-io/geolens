@@ -8,6 +8,7 @@ import {
 } from '@/components/dataset/hooks/use-dataset';
 import { useVrtGenerations, useVrtSources, useVrtStatus } from '@/components/import/hooks/use-vrt';
 import { useAuthStore } from '@/stores/auth-store';
+import { changeTestLanguage } from '@/test/i18n';
 import { SourcePanel } from '../SourcePanel';
 import type { DatasetRefreshRunResponse, DatasetResponse, VrtSourceHealth } from '@/types/api';
 
@@ -855,6 +856,52 @@ describe('SourcePanel', () => {
       ),
     ).toBeInTheDocument();
     expect(screen.queryByText('An unexpected error occurred')).not.toBeInTheDocument();
+  });
+
+  // #2311: the refresh-run API's error_code was not passed through, so a
+  // scheduled refresh's coded reason always showed its stored English text.
+  it('renders the translated reason for a coded refresh-run failure, in es', async () => {
+    await changeTestLanguage('es');
+
+    vi.mocked(useDatasetRefreshRuns).mockReturnValue({
+      data: {
+        runs: [
+          {
+            id: 'run-1',
+            dataset_id: 'dataset-1',
+            dataset_version_id: null,
+            ingest_job_id: 'job-1',
+            origin_kind: 'service',
+            trigger: 'api',
+            status: 'failed',
+            triggered_by: 'user-1',
+            triggered_by_username: 'jdoe',
+            started_at: '2026-08-05T00:00:00Z',
+            claimed_at: '2026-08-05T00:00:01Z',
+            finished_at: '2026-08-05T00:01:00Z',
+            feature_count_before: 1200,
+            feature_count_after: null,
+            schema_diff: null,
+            error_code: 'scheduled_execution_timeout',
+            error_message: 'The admitted refresh exceeded its execution time limit.',
+          },
+        ],
+        total: 1,
+      } satisfies { runs: DatasetRefreshRunResponse[]; total: number },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useDatasetRefreshRuns>);
+
+    render(<SourcePanel dataset={makeDataset()} />);
+
+    expect(
+      screen.getByText('La actualización admitida superó su tiempo máximo de ejecución.'),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText('The admitted refresh exceeded its execution time limit.'),
+    ).not.toBeInTheDocument();
+
+    await changeTestLanguage('en');
   });
 
   it('shows verification evidence and offers an exact blocked-run retry', async () => {

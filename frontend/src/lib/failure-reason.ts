@@ -14,6 +14,7 @@ export const INTERNAL_FAILURE_REASON = 'internal_error';
  * code by `backend/tests/test_job_failure_codes.py`.
  */
 const FIXED_FAILURE_CODE_KEYS: Record<string, `errors.${string}`> = {
+  abandoned: 'errors.jobFailureRefreshAbandoned',
   analysis_worker_shutdown: 'errors.jobFailureAnalysisWorkerShutdown',
   backfill_failed: 'errors.jobFailureBackfillFailed',
   backfill_not_queued: 'errors.jobFailureBackfillNotQueued',
@@ -23,8 +24,10 @@ const FIXED_FAILURE_CODE_KEYS: Record<string, `errors.${string}`> = {
   dataset_deleted: 'errors.jobFailureDatasetDeleted',
   dispatch_interrupted: 'errors.jobFailureDispatchInterrupted',
   missing_crs: 'errors.jobFailureMissingCrs',
+  missing_crs_raster: 'errors.jobFailureMissingCrsRaster',
   scheduled_claim_expired: 'errors.jobFailureScheduledClaimExpired',
   scheduled_execution_timeout: 'errors.jobFailureScheduledExecutionTimeout',
+  scheduled_job_missing: 'errors.jobFailureScheduledJobMissing',
   stale_never_committed: 'errors.jobFailureStaleNeverCommitted',
   stale_never_queued: 'errors.jobFailureStaleNeverQueued',
   upload_abandoned: 'errors.jobFailureUploadAbandoned',
