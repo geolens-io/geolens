@@ -23,6 +23,7 @@ from app.modules.catalog.datasets.domain.models import (
     RecordKeyword,
     RecordTranslation,
 )
+from app.processing.raster.models import RasterAsset
 
 from tests.factories import get_user_id
 
@@ -138,13 +139,16 @@ async def _create_dcat_raster_dataset(
     storage_key: str | None = None,
     visibility: str = "public",
     record_status: str = "published",
+    create_raster_asset: bool = True,
 ) -> Dataset:
     """Insert a raster-family Record + Dataset shaped like the ingest tails.
 
     ``storage_key`` models the row ``tasks_raster``/``tasks_vrt``/the swap
     write: ``url`` is the object-storage KEY of the COG, with no title and no
     media type. Left None for the STAC-import shape, which writes no
-    distribution row at all.
+    distribution row at all. ``create_raster_asset`` models the RasterAsset
+    row every upload writes; on by default since that is the normal case,
+    off to model an incomplete or pre-backfill upload that never got one.
     """
     record = Record(
         title=name,
@@ -169,6 +173,15 @@ async def _create_dcat_raster_dataset(
     )
     session.add(dataset)
     await session.flush()
+
+    if create_raster_asset:
+        session.add(
+            RasterAsset(
+                dataset_id=dataset.id,
+                asset_uri=f"rasters/{dataset.id}/abc123/source.cog.tif",
+                storage_backend="local",
+            )
+        )
 
     if storage_key is not None:
         session.add(
@@ -1078,6 +1091,109 @@ async def test_dcat_public_raster_advertises_the_cog_download(
         resp = await client.get(path, headers=admin_auth_header)
         assert resp.status_code == 200, path
         assert cog_url in _access_urls(resp.json(), key), path
+
+
+@pytest.mark.anyio
+async def test_dcat_public_raster_without_asset_omits_the_cog_url(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """The download route 404s without a RasterAsset row (an incomplete or
+    pre-backfill upload), so every profile must omit the link while keeping
+    the tile template, which needs no such row."""
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    ds = await _create_dcat_raster_dataset(
+        session,
+        created_by=admin_id,
+        name="Public COG missing asset",
+        storage_key=_STORAGE_KEY,
+        create_raster_asset=False,
+    )
+    cog_path = f"/datasets/{ds.id}/download/cog"
+
+    for path, key in (
+        (f"/datasets/{ds.id}/dcat/", "dcat:accessURL"),
+        (f"/datasets/{ds.id}/dcat-us/3.0/", "accessURL"),
+        (f"/datasets/{ds.id}/geodcat-ap/", "dcat:accessURL"),
+    ):
+        resp = await client.get(path, headers=admin_auth_header)
+        assert resp.status_code == 200, path
+        urls = _access_urls(resp.json(), key)
+        assert urls, f"{path} published no access URLs at all"
+        assert not [u for u in urls if u.endswith(cog_path)], path
+        assert any("/raster-tiles/" in u for u in urls), path
+
+
+@pytest.mark.anyio
+async def test_dcat_catalog_feed_resolves_raster_assets_once_per_page(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    monkeypatch,
+):
+    """A page of several rasters costs one RasterAsset query, not one per
+    dataset -- see _dcat_raster_asset_presence in router_export.py."""
+    import app.modules.catalog.datasets.api.router_export as router_export
+
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    for i in range(3):
+        await _create_dcat_raster_dataset(
+            session, created_by=admin_id, name=f"Bulk raster {i}"
+        )
+
+    calls = 0
+    original = router_export._raster_asset_dataset_ids
+
+    async def _counting(db, dataset_ids):
+        nonlocal calls
+        calls += 1
+        return await original(db, dataset_ids)
+
+    monkeypatch.setattr(router_export, "_raster_asset_dataset_ids", _counting)
+
+    resp = await client.get("/datasets/dcat/", headers=admin_auth_header)
+    assert resp.status_code == 200, resp.text
+    assert calls == 1
+
+
+@pytest.mark.anyio
+async def test_dcat_catalog_feed_excludes_ineligible_ids_from_the_asset_lookup(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    monkeypatch,
+):
+    """A STAC-sourced raster can never advertise the COG link (its bytes
+    aren't served by GeoLens), so its id must never reach the RasterAsset
+    query -- only an eligible sibling's does."""
+    import app.modules.catalog.datasets.api.router_export as router_export
+
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    eligible = await _create_dcat_raster_dataset(
+        session, created_by=admin_id, name="Eligible raster"
+    )
+    ineligible = await _create_dcat_raster_dataset(
+        session, created_by=admin_id, name="STAC raster", source_format="stac"
+    )
+
+    seen: list[set] = []
+    original = router_export._raster_asset_dataset_ids
+
+    async def _capturing(db, dataset_ids):
+        seen.append(set(dataset_ids))
+        return await original(db, dataset_ids)
+
+    monkeypatch.setattr(router_export, "_raster_asset_dataset_ids", _capturing)
+
+    resp = await client.get("/datasets/dcat/", headers=admin_auth_header)
+    assert resp.status_code == 200, resp.text
+    assert len(seen) == 1
+    assert eligible.id in seen[0]
+    assert ineligible.id not in seen[0]
 
 
 @pytest.mark.anyio

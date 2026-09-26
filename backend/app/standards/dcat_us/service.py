@@ -46,6 +46,7 @@ def record_to_dcat_us3(
     include_context: bool = True,
     catalog_contact_email: str | None = None,
     lineage_summary: str | None = None,
+    has_raster_asset: bool = False,
 ) -> dict:
     """Serialize a GeoLens dataset to the DCAT-US Schema v3.0 profile.
 
@@ -53,7 +54,8 @@ def record_to_dcat_us3(
     than off the record — fix(#1103): an analysis output's lineage names
     datasets an anonymous requester may not see. ``app_base_url`` is the
     public APP base URL, where the raster tile template is served
-    (fix(#1469)).
+    (fix(#1469)). ``has_raster_asset`` gates the COG download distribution
+    the same way.
     """
     record = dataset.record
     result: dict = {}
@@ -120,7 +122,10 @@ def record_to_dcat_us3(
         result["theme"] = [_concept(theme) for theme in record.theme_category]
 
     distributions = published_distributions(
-        dataset, api_base_url=base_url, app_base_url=app_base_url
+        dataset,
+        api_base_url=base_url,
+        app_base_url=app_base_url,
+        has_raster_asset=has_raster_asset,
     )
     if distributions:
         result["distribution"] = [
@@ -143,6 +148,7 @@ def catalog_to_dcat_us3(
     app_base_url: str,
     catalog_contact_email: str | None = None,
     lineage_by_record_id: Mapping[uuid.UUID, str | None] | None = None,
+    has_raster_asset_by_id: Mapping[uuid.UUID, bool] | None = None,
 ) -> dict:
     """Serialize visible datasets to a DCAT-US 3.0 Catalog document.
 
@@ -153,6 +159,7 @@ def catalog_to_dcat_us3(
     """
     now = datetime.now(timezone.utc).isoformat()
     lineage = lineage_by_record_id or {}
+    raster_assets = has_raster_asset_by_id or {}
     entries = [
         record_to_dcat_us3(
             ds,
@@ -161,6 +168,7 @@ def catalog_to_dcat_us3(
             include_context=False,
             catalog_contact_email=catalog_contact_email,
             lineage_summary=lineage.get(ds.record_id),
+            has_raster_asset=raster_assets.get(ds.id, False),
         )
         for ds in datasets
     ]

@@ -253,6 +253,7 @@ def record_to_dcat(
     include_context: bool = True,
     preferred_languages: Sequence[str] | None = None,
     lineage_summary: str | None = None,
+    has_raster_asset: bool = False,
 ) -> dict:
     """Serialize a Dataset (with loaded record relationships) to DCAT 3 JSON-LD.
 
@@ -262,7 +263,8 @@ def record_to_dcat(
     ``lineage_summary`` (``dcterms:provenance``) arrives already
     access-checked by the caller — fix(#1103): not read off the record,
     since an analysis output's lineage names datasets an anonymous
-    requester may not see. Omitted when absent.
+    requester may not see. Omitted when absent. ``has_raster_asset``
+    gates the COG download distribution the same way.
     """
     record = dataset.record
     result: dict = {}
@@ -342,7 +344,10 @@ def record_to_dcat(
         result["dcat:contactPoint"] = [_contact_to_dcat(c) for c in record.contacts]
 
     distributions = published_distributions(
-        dataset, api_base_url=base_url, app_base_url=app_base_url
+        dataset,
+        api_base_url=base_url,
+        app_base_url=app_base_url,
+        has_raster_asset=has_raster_asset,
     )
     if distributions:
         result["dcat:distribution"] = [_distribution_to_dcat(d) for d in distributions]
@@ -430,6 +435,7 @@ def catalog_to_dcat(
     app_base_url: str,
     preferred_languages: Sequence[str] | None = None,
     lineage_by_record_id: Mapping[uuid.UUID, str | None] | None = None,
+    has_raster_asset_by_id: Mapping[uuid.UUID, bool] | None = None,
 ) -> dict:
     """Serialize a list of visible datasets to a DCAT 3 Catalog JSON-LD dict.
 
@@ -445,6 +451,7 @@ def catalog_to_dcat(
         A DCAT Catalog dict with nested dataset entries (without individual @context).
     """
     lineage = lineage_by_record_id or {}
+    raster_assets = has_raster_asset_by_id or {}
     entries = [
         record_to_dcat(
             ds,
@@ -453,6 +460,7 @@ def catalog_to_dcat(
             include_context=False,
             preferred_languages=preferred_languages,
             lineage_summary=lineage.get(ds.record_id),
+            has_raster_asset=raster_assets.get(ds.id, False),
         )
         for ds in datasets
     ]
