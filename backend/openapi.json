@@ -19981,7 +19981,7 @@
         "flows": {
           "password": {
             "scopes": {},
-            "tokenUrl": "/auth/login"
+            "tokenUrl": "/api/auth/login"
           }
         },
         "type": "oauth2"
