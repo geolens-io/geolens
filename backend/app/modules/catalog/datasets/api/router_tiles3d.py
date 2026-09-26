@@ -11,17 +11,14 @@ from contextlib import aclosing
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import StreamingResponse
-from fastapi.routing import APIRoute
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.datastructures import MutableHeaders
-from starlette.exceptions import HTTPException as StarletteHTTPException
-from starlette.types import Message, Receive, Scope, Send
 
 from app.core.dependencies import get_db
 from app.core.identity import Identity
 from app.core.tiles3d import tileset_prefix
 from app.modules.auth.dependencies import get_optional_user
 from app.modules.catalog.authorization import check_dataset_access_or_anonymous
+from app.modules.catalog.datasets.api.sandboxed_route import SandboxedRoute
 from app.modules.catalog.datasets.domain.service import get_dataset, get_tileset_href
 from app.platform.ratelimit import limiter
 from app.platform.storage import get_storage
@@ -29,14 +26,6 @@ from app.platform.storage.titiler_url import resolve_current_storage_key
 from app.standards.ogc.errors import BAD_GATEWAY_RESPONSE, NOT_FOUND_RESPONSE
 
 logger = structlog.stdlib.get_logger(__name__)
-
-# Tileset files are uploaded bytes. Served from the API origin as HTML, SVG or
-# script they would run there, so nothing a browser renders gets through.
-_SANDBOX_HEADERS = {
-    "Content-Security-Policy": "default-src 'none'; sandbox",
-    "X-Content-Type-Options": "nosniff",
-    "Vary": "Authorization, X-Api-Key",
-}
 
 _CONTENT_TYPES = {
     ".json": "application/json",
@@ -55,30 +44,7 @@ _OCTET_STREAM = "application/octet-stream"
 _ATTEMPT_ENTRY = re.compile(r"[A-Za-z0-9_-]+/tileset\.json")
 
 
-class _SandboxedRoute(APIRoute):
-    """Puts the sandbox headers on every answer the route gives, errors included."""
-
-    async def handle(self, scope: Scope, receive: Receive, send: Send) -> None:
-        async def sandboxed(message: Message) -> None:
-            if message["type"] == "http.response.start":
-                headers = MutableHeaders(scope=message)
-                headers.update(_SANDBOX_HEADERS)
-                headers.setdefault("Cache-Control", "private, no-store")
-            await send(message)
-
-        try:
-            await super().handle(scope, receive, sandboxed)
-        except StarletteHTTPException as exc:
-            # A refused method is raised before the route sends anything itself.
-            exc.headers = {
-                **(exc.headers or {}),
-                **_SANDBOX_HEADERS,
-                "Cache-Control": "private, no-store",
-            }
-            raise
-
-
-router = APIRouter(prefix="/datasets", tags=["Datasets"], route_class=_SandboxedRoute)
+router = APIRouter(prefix="/datasets", tags=["Datasets"], route_class=SandboxedRoute)
 
 
 def _not_found() -> HTTPException:
