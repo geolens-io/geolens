@@ -10352,7 +10352,7 @@ export type StacItemSummary = {
      *
      * Why /import would refuse this item's data asset, based on its URL alone, or null if the href passes import's format, length and credential checks. 'not_http' for a scheme other than http/https, such as s3://; 'credentials' for a URL carrying a credential query parameter GeoLens won't store; 'too_long' for a URL over the length import allows. Import also checks each asset's host, and can still refuse a null item there as a per-item failure that leaves the rest of the batch importing.
      */
-    data_asset_import_refusal: 'not_http' | 'credentials' | 'too_long' | null;
+    data_asset_import_refusal?: 'not_http' | 'credentials' | 'too_long' | null;
     /**
      * Thumbnail Href
      *

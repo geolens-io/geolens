@@ -17750,7 +17750,6 @@
         "required": [
           "id",
           "title",
-          "data_asset_import_refusal",
           "asset_count"
         ],
         "title": "StacItemSummary",

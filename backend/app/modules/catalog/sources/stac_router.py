@@ -284,6 +284,12 @@ class StacItemSummary(BaseModel):
     )
     data_asset_import_refusal: Literal["not_http", "credentials", "too_long"] | None = (
         Field(
+            # Optional, not required: a generated SDK client raises on any
+            # field a required-but-nullable schema promises but an older
+            # server never sends. The web app ships bundled with its own
+            # API and always gets this field; the SDK, CLI and MCP can run
+            # ahead of an older GeoLens server that predates this check.
+            default=None,
             description=(
                 "Why /import would refuse this item's data asset, based on its "
                 "URL alone, or null if the href passes import's format, length "

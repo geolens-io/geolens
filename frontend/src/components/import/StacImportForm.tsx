@@ -77,6 +77,11 @@ function assetAvailability(
   item: Pick<StacItemSummary, 'data_asset_href' | 'data_asset_import_refusal'>,
 ): AssetAvailability {
   if (!item.data_asset_href) return { importable: false, reason: 'no_asset' };
+  // Absent (the field's own type allows undefined) is treated the same as
+  // null — importable — rather than as an unknown, disable-it default. The
+  // only way this app's own API omits the field is a server too old to
+  // have it yet, and disabling every item against that server would break
+  // imports that work today for a check it hasn't heard of.
   if (!item.data_asset_import_refusal) return { importable: true };
   const availability: AssetAvailability = {
     importable: false,
