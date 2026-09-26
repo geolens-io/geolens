@@ -251,6 +251,19 @@ def _two_levels_down(pages) -> bytes:
     return copc(padding=deeper, pages=layout, header_point_count=150)
 
 
+def _sibling_on_a_referenced_page() -> bytes:
+    """A root page naming the page of cell (1,1,0,0), which holds cell (1,0,0,0)."""
+    sibling = compressed_chunk(records(50, span=500))
+    return copc(
+        padding=sibling,
+        pages=lambda at: [
+            [root_entry(at), (1, 1, 0, 0, at.page_offset + 64, 32, -1)],
+            [(1, 0, 0, 0, at.chunk_offset + at.chunk_size, len(sibling), 50)],
+        ],
+        header_point_count=150,
+    )
+
+
 @pytest.mark.parametrize(
     ("data", "message"),
     [
@@ -331,7 +344,16 @@ def _two_levels_down(pages) -> bytes:
             copc(pages=_pages(root_entry)), "malformed or repeated", id="repeated"
         ),
         pytest.param(
-            copc(pages=lambda at: child_page(at, [root_entry(at)])),
+            copc(
+                pages=lambda at: [
+                    [
+                        root_entry(at),
+                        (2, 0, 0, 0, 0, 0, 0),
+                        (1, 0, 0, 0, at.page_offset + 96, 32, -1),
+                    ],
+                    [(2, 0, 0, 0, 0, 0, 0)],
+                ]
+            ),
             "malformed or repeated",
             id="repeated-on-another-page",
         ),
@@ -345,8 +367,47 @@ def _two_levels_down(pages) -> bytes:
         ),
         pytest.param(
             _two_levels_down(lambda at, node: [[root_entry(at), node]]),
-            "parent is missing",
+            "can't be found from the hierarchy's root",
             id="missing-parent",
+        ),
+        pytest.param(
+            _two_levels_down(
+                lambda at, node: [
+                    [
+                        root_entry(at),
+                        (1, 0, 0, 0, at.page_offset + 96, 32, -1),
+                        (2, 0, 0, 0, at.page_offset + 128, 32, -1),
+                    ],
+                    [(1, 0, 0, 0, 0, 0, 0)],
+                    [node],
+                ]
+            ),
+            "can't be found from the hierarchy's root",
+            id="named-from-the-wrong-page",
+        ),
+        pytest.param(
+            _sibling_on_a_referenced_page(),
+            "outside its subtree",
+            id="sibling-on-a-referenced-page",
+        ),
+        pytest.param(
+            copc(
+                pages=lambda at: [
+                    [root_entry(at), (1, 1, 0, 0, at.page_offset + 64, 64, -1)],
+                    [(1, 1, 0, 0, 0, 0, 0), (1, 0, 0, 0, 0, 0, 0)],
+                ]
+            ),
+            "outside its subtree",
+            id="stray-entry-on-a-referenced-page",
+        ),
+        pytest.param(
+            copc(
+                pages=_pages(
+                    lambda at: (1, 0, 0, 0, 0, 32, -1), lambda at: (1, 0, 0, 0, 0, 0, 0)
+                )
+            ),
+            "malformed or repeated",
+            id="key-twice-on-a-page",
         ),
         pytest.param(
             copc(pages=_pages(lambda at: (1, 0, 0, 0, 0, 0, -2))),
@@ -370,6 +431,14 @@ def test_a_damaged_point_cloud_is_refused_as_invalid(tmp_path, data, message) ->
             id="empty-parent",
         ),
         pytest.param(lambda at, node: child_page(at, [node]), id="page-parent"),
+        pytest.param(
+            lambda at, node: [
+                [root_entry(at), (1, 0, 0, 0, at.page_offset + 64, 64, -1)],
+                [(1, 0, 0, 0, 0, 0, 0), (2, 0, 0, 0, at.page_offset + 128, 32, -1)],
+                [node],
+            ],
+            id="two-page-chain",
+        ),
     ],
 )
 async def test_a_node_reached_through_an_empty_entry_or_a_page_passes(

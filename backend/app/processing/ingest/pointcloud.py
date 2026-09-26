@@ -86,6 +86,9 @@ _TABLE_ENTRY_BYTES = 32
 _COPC_INFO = (b"copc", 1)
 _COPC_HIERARCHY = (b"copc", 1000)
 _ROOT_KEY = (0, 0, 0, 0)
+# A node's key, as (depth, x, y, z), and a hierarchy page, as (offset, size).
+_Key = tuple[int, int, int, int]
+_Page = tuple[int, int]
 _LASZIP = (b"laszip encoded", 22204)
 _WKT = (b"LASF_Projection", 2112)
 
@@ -348,25 +351,26 @@ def _walk(
 ) -> list[_Node]:
     """Check every hierarchy page and return each node holding points, shallowest first.
 
-    A page is read once at most, from inside the hierarchy record; each node's
-    points lie inside the point data, overlap no other node's and decode to at
-    most ``MAX_DECODE_RATIO`` times their stored size; the nodes' counts sum
-    to the header's; and each node is reachable from the root.
+    A page is read once at most, from inside the hierarchy record, and lists a
+    key once at most; a page a reference names lists only that reference's
+    node and nodes below it. Each node's points lie inside the point data,
+    overlap no other node's and decode to at most ``MAX_DECODE_RATIO`` times
+    their stored size; the nodes' counts sum to the header's; and a reader
+    looking a node up by its key from the root page finds it.
     """
-    pages = [root]
-    seen_pages: set[tuple[int, int]] = set()
-    seen_keys: set[tuple[int, int, int, int]] = set()
-    present: set[tuple[int, int, int, int]] = set()
+    pages: list[tuple[_Page, _Key]] = [(root, _ROOT_KEY)]
+    seen_keys: set[_Key] = set()
+    listings: dict[_Page, dict[_Key, tuple[int, int, int]]] = {}
     entries = total = 0
     nodes: list[_Node] = []
     while pages:
-        page = pages.pop()
+        page, top = pages.pop()
         offset, size = page
-        if page in seen_pages:
+        if page in listings:
             raise _invalid(
                 "A hierarchy page is referenced more than once.", reason="page_cycle"
             )
-        seen_pages.add(page)
+        listing = listings[page] = {}
         if (
             size <= 0
             or size % _ENTRY.size
@@ -394,9 +398,18 @@ def _walk(
                     reason="node_key",
                 )
             key = (depth, x, y, z)
-            present.add(key)
+            if not _below(key, top):
+                raise _invalid(
+                    "A hierarchy page lists a node outside its subtree.",
+                    reason="page_subtree",
+                )
+            if key in listing:
+                raise _invalid(
+                    "A hierarchy entry is malformed or repeated.", reason="node_entry"
+                )
+            listing[key] = (node_offset, node_size, count)
             if count == -1:
-                pages.append((node_offset, node_size))
+                pages.append(((node_offset, node_size), key))
                 continue
             if count < -1 or key in seen_keys:
                 raise _invalid(
@@ -428,7 +441,65 @@ def _walk(
             "The hierarchy's point counts don't add up to the header's.",
             reason="point_count",
         )
-    _check_reachable(nodes, present)
+    _check_lookups(nodes, listings, root)
+    _check_overlap(nodes)
+    # Stable, so the top node is the first one found at the least depth.
+    nodes.sort(key=lambda node: node.depth)
+    return nodes
+
+
+def _below(key: _Key, top: _Key) -> bool:
+    """Whether ``key`` is ``top`` or a node inside ``top``'s cell."""
+    levels = key[0] - top[0]
+    return levels >= 0 and all(c >> levels == t for c, t in zip(key[1:], top[1:]))
+
+
+def _parent(key: _Key) -> _Key:
+    depth, x, y, z = key
+    return depth - 1, x >> 1, y >> 1, z >> 1
+
+
+def _check_lookups(
+    nodes: list[_Node],
+    listings: dict[_Page, dict[_Key, tuple[int, int, int]]],
+    root: _Page,
+) -> None:
+    """Refuse a node that a reader looking it up by its key from the root page misses.
+
+    The reader looks up each of the node's ancestors in turn, root first, on
+    the page it has reached. A page reference moves it to the page named, and
+    any other entry keeps it where it is. A reference to the node itself names
+    the page holding the node's entry, which the lookup must end at.
+    """
+    if _ROOT_KEY not in listings[root]:
+        raise _invalid("The hierarchy has no root node.", reason="no_root")
+    # The page a key's children are looked up on, or None if the key is missed.
+    below: dict[_Key, _Page | None] = {}
+
+    def children_page(key: _Key) -> _Page | None:
+        if key not in below:
+            page = root if key == _ROOT_KEY else children_page(_parent(key))
+            entry = None if page is None else listings[page].get(key)
+            if entry is not None and entry[2] == -1:
+                page = entry[:2]
+            below[key] = None if entry is None else page
+        return below[key]
+
+    for node in nodes:
+        key = (node.depth, node.x, node.y, node.z)
+        page = root if key == _ROOT_KEY else children_page(_parent(key))
+        entry = None if page is None else listings[page].get(key)
+        while entry is not None and entry[2] == -1:
+            entry = listings[entry[:2]].get(key)
+        if entry != (node.offset, node.size, node.count):
+            raise _invalid(
+                "A node can't be found from the hierarchy's root.",
+                reason="node_unreachable",
+            )
+
+
+def _check_overlap(nodes: list[_Node]) -> None:
+    """Refuse two nodes whose chunks share bytes."""
     # A chunk two nodes share would be decoded once for each of them.
     by_offset = sorted(nodes, key=lambda node: node.offset)
     for before, after in zip(by_offset, by_offset[1:]):
@@ -437,34 +508,6 @@ def _walk(
                 "Two nodes' points overlap in the file's point data.",
                 reason="node_overlap",
             )
-    # Stable, so the top node is the first one found at the least depth.
-    nodes.sort(key=lambda node: node.depth)
-    return nodes
-
-
-def _check_reachable(
-    nodes: list[_Node], present: set[tuple[int, int, int, int]]
-) -> None:
-    """Refuse a node that a reader walking down from the root never reaches.
-
-    A reader reaches a node only through an entry for each of its ancestors,
-    and an empty entry or a page reference is such an entry too.
-    """
-    if _ROOT_KEY not in present:
-        raise _invalid("The hierarchy has no root node.", reason="no_root")
-    reachable = {_ROOT_KEY}
-    for node in nodes:
-        key, chain = (node.depth, node.x, node.y, node.z), []
-        while key not in reachable:
-            if key not in present:
-                raise _invalid(
-                    "A node's parent is missing from the hierarchy.",
-                    reason="node_parent",
-                )
-            chain.append(key)
-            depth, x, y, z = key
-            key = (depth - 1, x >> 1, y >> 1, z >> 1)
-        reachable.update(chain)
 
 
 def _read_layout(read: Read, size: int) -> _Layout:
