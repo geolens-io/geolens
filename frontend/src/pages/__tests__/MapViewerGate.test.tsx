@@ -177,7 +177,7 @@ describe('MapViewerGate', () => {
     expect(await screen.findByTestId('public-map-page')).toBeInTheDocument();
   });
 
-  it('falls through to the public viewer instead of the retry prompt when the access check 404s', async () => {
+  it('shows the not-found state instead of the retry prompt when the access check 404s', () => {
     mockedUseMapAccess.mockReturnValue({
       data: undefined,
       isLoading: false,
@@ -193,7 +193,47 @@ describe('MapViewerGate', () => {
 
     renderRoute();
 
-    expect(await screen.findByTestId('public-map-page')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /map not found/i })).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('builder-page')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('public-map-page')).not.toBeInTheDocument();
+  });
+
+  // React Query keeps a query's previous data across a failed refetch: a user
+  // who had can_edit: true cached from before a map was deleted or hidden
+  // still has isError: true alongside that stale data. The not-found state
+  // must win regardless, or the deleted map's builder renders anyway.
+  it('shows the not-found state, not the builder, when a refetch 404s but can_edit: true is still cached', async () => {
+    mockedUseMapAccess.mockReturnValue({
+      data: { can_view: true, can_edit: true },
+      isLoading: false,
+      isError: false,
+      error: null,
+    } as never);
+    useAuthStore.setState({
+      token: 'token',
+      refreshToken: 'refresh',
+      expiresAt: Date.now() + 900_000,
+      user: mockUser({ roles: ['editor'] }),
+    });
+
+    const { rerender } = renderRoute();
+    expect(await screen.findByTestId('builder-page')).toBeInTheDocument();
+
+    mockedUseMapAccess.mockReturnValue({
+      data: { can_view: true, can_edit: true },
+      isLoading: false,
+      isError: true,
+      error: new ApiError('Not Found', 404),
+    } as never);
+    rerender(
+      <Routes>
+        <Route path="/maps/:id" element={<MapViewerGate />} />
+      </Routes>,
+    );
+
+    expect(screen.getByRole('heading', { name: /map not found/i })).toBeInTheDocument();
+    expect(screen.queryByTestId('builder-page')).not.toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 

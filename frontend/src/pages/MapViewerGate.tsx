@@ -5,6 +5,7 @@ import { LoadingState } from '@/components/layout/LoadingState';
 import { ErrorState } from '@/components/layout/ErrorState';
 import { AppErrorBoundary } from '@/components/error';
 import { ApiError } from '@/api/client';
+import { MapUnavailableState } from '@/components/map/MapUnavailableState';
 import { useMapAccess } from '@/hooks/use-maps';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { useTranslation } from 'react-i18next';
@@ -89,12 +90,16 @@ export function MapViewerGate() {
     return <LoadingState />;
   }
 
-  // A failed check offers a retry rather than guessing, so an editor is never
-  // silently downgraded to the viewer. A 404 is how the API denies a map it
-  // won't show, so it goes to the viewer, whose own request shows not-found.
+  // A failed check offers a retry so an editor is never silently downgraded.
+  // A 404 is final for a missing or hidden map, and it has to win over the
+  // last good access data React Query keeps across a failed refetch.
   const isAccessCheckNotFound =
     accessQuery.error instanceof ApiError && accessQuery.error.status === 404;
-  if (shouldCheckAccess && accessQuery.isError && !isAccessCheckNotFound) {
+  if (shouldCheckAccess && accessQuery.isError && isAccessCheckNotFound) {
+    return <MapUnavailableState error={accessQuery.error} mapId={id} />;
+  }
+
+  if (shouldCheckAccess && accessQuery.isError) {
     return (
       <div className="flex flex-1 items-center justify-center p-6">
         <ErrorState
