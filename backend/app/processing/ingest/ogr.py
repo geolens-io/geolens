@@ -639,7 +639,13 @@ def _extract_common_layer_metadata(
     srid, geometry_type, layer_name, feature_count, columns, all_layers.
 
     ``columns`` is a list of ``{"name": str, "type": str}`` mirroring the
-    field definitions from the target layer. Populating it in the shared
+    field definitions from the target layer, plus ``"subtype"`` when GDAL
+    reports one (e.g. Integer/Boolean, Integer/Int16, Real/Float32,
+    String/JSON). The PostgreSQL driver stores these subtypes as a
+    narrower column type than the bare OGR type, so schema-diff
+    comparisons need the subtype to avoid reporting a false type change.
+
+    Populating ``columns`` in the shared
     helper (rather than only in ``run_ogrinfo_preview``) lets shapefile
     ingest reuse the DBF-collision detector without spawning a second
     ogrinfo subprocess (PERF-1).
@@ -669,7 +675,11 @@ def _extract_common_layer_metadata(
     srid = extract_srid_from_json(coord_system or {})
 
     columns = [
-        {"name": f.get("name", ""), "type": f.get("type", "")}
+        {
+            "name": f.get("name", ""),
+            "type": f.get("type", ""),
+            **({"subtype": f["subType"]} if f.get("subType") else {}),
+        }
         for f in target_layer.get("fields", [])
     ]
 

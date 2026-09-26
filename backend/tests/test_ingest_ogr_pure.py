@@ -452,6 +452,36 @@ class TestExtractCommonLayerMetadata:
             {"name": "AREA_ACRES", "type": "Real"},
         ]
 
+    def test_columns_carry_subtype_when_gdal_reports_one(self):
+        """`ogrinfo -json` reports a GeoJSON boolean property as
+        ``{"type": "Integer", "subType": "Boolean"}``; the subtype must
+        survive so a reupload diff can tell it apart from a plain Integer
+        column of the same bare OGR type.
+        """
+        data = {
+            "layers": [
+                {
+                    "name": "cities",
+                    "featureCount": 1,
+                    "geometryFields": [{"type": "Point"}],
+                    "fields": [
+                        {
+                            "name": "is_capital",
+                            "type": "Integer",
+                            "subType": "Boolean",
+                            "width": 1,
+                        },
+                        {"name": "population", "type": "Integer"},
+                    ],
+                }
+            ]
+        }
+        _, meta = _extract_common_layer_metadata(data, None)
+        assert meta["columns"] == [
+            {"name": "is_capital", "type": "Integer", "subtype": "Boolean"},
+            {"name": "population", "type": "Integer"},
+        ]
+
     def test_columns_empty_when_target_layer_has_no_fields(self):
         data = {
             "layers": [

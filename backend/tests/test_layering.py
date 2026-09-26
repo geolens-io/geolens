@@ -1189,7 +1189,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/maps/service_diff.py": 400,
         "backend/app/modules/catalog/maps/service_shared.py": 400,
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 657,
-        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 512,
+        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 546,
         "backend/app/modules/catalog/datasets/domain/service_query.py": 439,
         "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 513,
         # Chat splits retain tool execution and result-serialization workflows.
@@ -1326,7 +1326,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # semantics.
     "backend/app/processing/embeddings/backfill.py": 933,
     # Reupload preview, compatibility and staged commit share an endpoint lifecycle.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1511,
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1527,
     # VRT creation and regeneration share publication and superseded-object cleanup.
     "backend/app/processing/ingest/tasks_vrt.py": 1661,
     # The raster strategy: conversion, read-back, object puts and their cleanup.
@@ -1336,7 +1336,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_vector.py": 1161,
     # GDAL environments, timeouts, reaping and error sanitization share one process
     # boundary.
-    "backend/app/processing/ingest/ogr.py": 1351,
+    "backend/app/processing/ingest/ogr.py": 1361,
     # Archive and GDAL content validation remain centralized at the upload security
     # boundary.
     "backend/app/processing/ingest/validation.py": 1199,

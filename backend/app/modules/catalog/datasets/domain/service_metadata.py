@@ -48,9 +48,43 @@ _TYPE_EQUIVALENCES = {
     "float": "double precision",
 }
 
+# GDAL field subtypes the PostgreSQL driver stores as a narrower column
+# type than the bare OGR type would suggest, keyed by (type, subtype)
+# lowercased: Integer/Boolean -> boolean, Integer/Int16 -> smallint,
+# Real/Float32 -> real, String/JSON -> json.
+_SUBTYPE_TYPE_EQUIVALENCES = {
+    ("integer", "boolean"): "boolean",
+    ("integer", "int16"): "smallint",
+    ("real", "float32"): "real",
+    ("string", "json"): "json",
+}
 
-def _normalize_col_type(col_type: str) -> str:
-    return _TYPE_EQUIVALENCES.get(col_type.lower(), col_type.lower())
+
+def _normalize_col_type(column: dict) -> str:
+    """Normalize one column's reported type for case-insensitive comparison.
+
+    Which vocabulary a value is in depends on the value, not on whether it
+    is the "old" or "new" argument: a reupload preview diffs a PostgreSQL
+    type against an OGR type, but the post-swap drift recompute diffs two
+    PostgreSQL types. Every attribute column's PostgreSQL type reaching
+    this diff is lowercase (a PostGIS geometry column would report the
+    non-lowercase ``USER-DEFINED``, but ``column_info`` excludes those
+    before they get here). Every OGR type name starts with a capital
+    letter, so a lowercase value is already canonical and returned as-is,
+    while a capitalized one maps to the PostgreSQL type ogr2ogr would
+    create for it, honoring a GDAL subtype the driver stores narrower
+    than the bare type.
+    """
+    raw_type = column["type"]
+    base_type = raw_type.lower()
+    if raw_type == base_type:
+        return base_type
+    subtype = column.get("subtype")
+    if subtype:
+        mapped = _SUBTYPE_TYPE_EQUIVALENCES.get((base_type, subtype.lower()))
+        if mapped is not None:
+            return mapped
+    return _TYPE_EQUIVALENCES.get(base_type, base_type)
 
 
 def compute_schema_diff(
@@ -63,7 +97,9 @@ def compute_schema_diff(
 
     Column matching is case-insensitive (ogr2ogr lowercases on import,
     but remote sources report original case). Type comparison normalizes
-    common OGR-to-PostgreSQL type mappings (e.g. String ↔ character varying).
+    common OGR-to-PostgreSQL type mappings (e.g. String ↔ character varying),
+    including GDAL field subtypes that store as a narrower column type
+    (e.g. Integer/Boolean ↔ boolean).
     """
     old_by_lower = {c["name"].lower(): c for c in old_columns}
     new_by_lower = {c["name"].lower(): c for c in new_columns}
@@ -83,11 +119,16 @@ def compute_schema_diff(
             {
                 "name": new_by_lower[n]["name"],
                 "old_type": old_by_lower[n]["type"],
-                "new_type": new_by_lower[n]["type"],
+                # The raw type reads as an unrelated label ("integer" next
+                # to "Integer" for a mapped subtype, or "String" for a
+                # CSV's actual "character varying"). Report the type the
+                # import will actually store, using the same normalization
+                # the comparison above uses.
+                "new_type": _normalize_col_type(new_by_lower[n]),
             }
             for n in sorted(old_keys & new_keys)
-            if _normalize_col_type(old_by_lower[n]["type"])
-            != _normalize_col_type(new_by_lower[n]["type"])
+            if _normalize_col_type(old_by_lower[n])
+            != _normalize_col_type(new_by_lower[n])
         ],
         "row_count_old": old_feature_count,
         "row_count_new": new_feature_count,
