@@ -370,6 +370,22 @@ async def test_a_pointer_without_a_usable_size_serves_nothing(
     assert storage.read == []
 
 
+async def test_a_pointer_with_no_valid_storage_key_serves_nothing(
+    client: AsyncClient, make_pointcloud, storage, monkeypatch
+) -> None:
+    """A pointer whose storage key the store refuses answers 404 without a storage read."""
+    dataset_id, attempt = await _published(make_pointcloud, storage)
+
+    def refuse(asset_uri: str) -> str:
+        raise ValueError("not a storage key")
+
+    monkeypatch.setattr(pointcloud_access, "resolve_current_storage_key", refuse)
+    resp = await client.get(_url(dataset_id, attempt))
+
+    assert resp.status_code == 404
+    assert storage.read == []
+
+
 async def test_a_point_cloud_without_a_pointer_serves_nothing(
     client: AsyncClient, make_pointcloud, storage
 ) -> None:
