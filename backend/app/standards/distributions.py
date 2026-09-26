@@ -137,10 +137,17 @@ def _cog_download_distribution(
     )
 
 
-def _anonymous_cog_download(dataset: Dataset) -> bool:
+def _anonymous_cog_download(dataset: Dataset, *, has_raster_asset: bool) -> bool:
+    """Whether an anonymous COG download link may be advertised for *dataset*.
+
+    ``has_raster_asset`` is the caller's per-page bulk answer to whether the
+    download route's RasterAsset row exists -- the route 404s without one, so
+    an incomplete or pre-backfill upload must not advertise the link either.
+    """
     record = dataset.record
     return (
-        record.record_type == "raster_dataset"
+        has_raster_asset
+        and record.record_type == "raster_dataset"
         and record.visibility == "public"
         and record.record_status == "published"
         # A STAC import's COG stays at its origin, which the route redirects
@@ -168,19 +175,22 @@ def published_distributions(
     *,
     api_base_url: str,
     app_base_url: str,
+    has_raster_asset: bool = False,
 ) -> list[PublishedDistribution]:
     """Every distribution a catalog feed should publish for *dataset*.
 
     Stored rows that resolve for a consumer, plus the derived raster or
     tileset access surface. Requires ``dataset.record.distributions`` to be
-    loaded.
+    loaded. ``has_raster_asset`` gates the COG download entry and defaults
+    closed; the caller resolves it once per page (see the dcat/dcat_us/
+    geodcat_ap catalog serializers).
     """
     record = dataset.record
     entries: list[PublishedDistribution] = []
 
     if is_raster_family(record.record_type):
         entries.append(_raster_tiles_distribution(dataset, app_base_url=app_base_url))
-        if _anonymous_cog_download(dataset):
+        if _anonymous_cog_download(dataset, has_raster_asset=has_raster_asset):
             entries.append(
                 _cog_download_distribution(dataset, api_base_url=api_base_url)
             )

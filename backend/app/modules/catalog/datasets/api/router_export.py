@@ -275,6 +275,29 @@ async def _visible_record_lineage(
     return (await _visible_lineage(db, [dataset], user))[dataset.record_id]
 
 
+async def _dcat_raster_asset_presence(
+    db: AsyncSession, datasets: list[DatasetModel]
+) -> dict[uuid.UUID, bool]:
+    """Per-page bulk answer to "does this dataset have the RasterAsset row
+    the download route requires", keyed by dataset id.
+
+    One bulk lookup instead of one per dataset, mirroring _visible_lineage.
+    Only raster_dataset rows can carry that row at all.
+    """
+    raster_ids = [ds.id for ds in datasets if ds.record.record_type == "raster_dataset"]
+    if not raster_ids:
+        return {}
+    found = await get_catalog_port().list_raster_assets(db, raster_ids)
+    return {dataset_id: True for dataset_id in found}
+
+
+async def _dcat_dataset_has_raster_asset(
+    db: AsyncSession, dataset: DatasetModel
+) -> bool:
+    """One dataset's answer. See _dcat_raster_asset_presence."""
+    return (await _dcat_raster_asset_presence(db, [dataset])).get(dataset.id, False)
+
+
 async def _get_dcat_dataset_for_export(
     db: AsyncSession,
     dataset_id: uuid.UUID,
@@ -320,6 +343,7 @@ async def get_dcat_catalog(
         app_base_url=app_base_url,
         preferred_languages=preferred_languages,
         lineage_by_record_id=await _visible_lineage(db, datasets, user),
+        has_raster_asset_by_id=await _dcat_raster_asset_presence(db, datasets),
     )
     completeness = _catalog_completeness(
         datasets,
@@ -357,6 +381,7 @@ async def validate_dcat3_catalog(
         base_url,
         app_base_url=app_base_url,
         lineage_by_record_id=await _visible_lineage(db, datasets, user),
+        has_raster_asset_by_id=await _dcat_raster_asset_presence(db, datasets),
     )
     report = validate_dcat3(catalog, "Catalog")
     report.update(
@@ -394,6 +419,7 @@ async def get_dcat_us3_catalog(
         app_base_url=app_base_url,
         catalog_contact_email=settings.dcat_contact_email,
         lineage_by_record_id=await _visible_lineage(db, datasets, user),
+        has_raster_asset_by_id=await _dcat_raster_asset_presence(db, datasets),
     )
     fallback_fields = [
         dcat_us3_fallback_fields(dataset, settings.dcat_contact_email)
@@ -433,6 +459,7 @@ async def validate_dcat_us3_catalog(
         app_base_url=app_base_url,
         catalog_contact_email=settings.dcat_contact_email,
         lineage_by_record_id=await _visible_lineage(db, datasets, user),
+        has_raster_asset_by_id=await _dcat_raster_asset_presence(db, datasets),
     )
     report = validate_dcat_us3(catalog, "Catalog")
     fallback_fields = [
@@ -462,6 +489,7 @@ async def get_geodcat_ap_catalog(
         base_url,
         app_base_url=app_base_url,
         lineage_by_record_id=await _visible_lineage(db, datasets, user),
+        has_raster_asset_by_id=await _dcat_raster_asset_presence(db, datasets),
     )
     completeness = _catalog_completeness(
         datasets,
@@ -497,6 +525,7 @@ async def validate_geodcat_ap_catalog(
         base_url,
         app_base_url=app_base_url,
         lineage_by_record_id=await _visible_lineage(db, datasets, user),
+        has_raster_asset_by_id=await _dcat_raster_asset_presence(db, datasets),
     )
     report = validate_geodcat_ap(catalog, "Catalog")
     report.update(
@@ -532,6 +561,7 @@ async def validate_dcat3_record(
         base_url,
         app_base_url=app_base_url,
         lineage_summary=await _visible_record_lineage(db, dataset, user),
+        has_raster_asset=await _dcat_dataset_has_raster_asset(db, dataset),
     )
     report = validate_dcat3(dcat, "Dataset")
     fallback_fields = dcat_fallback_fields(dataset)
@@ -563,6 +593,7 @@ async def get_dcat_record(
         app_base_url=app_base_url,
         preferred_languages=preferred_languages,
         lineage_summary=await _visible_record_lineage(db, dataset, user),
+        has_raster_asset=await _dcat_dataset_has_raster_asset(db, dataset),
     )
     fallback_fields = dcat_fallback_fields(dataset, preferred_languages)
     return JSONResponse(
@@ -597,6 +628,7 @@ async def validate_dcat_us3_record(
         app_base_url=app_base_url,
         catalog_contact_email=settings.dcat_contact_email,
         lineage_summary=await _visible_record_lineage(db, dataset, user),
+        has_raster_asset=await _dcat_dataset_has_raster_asset(db, dataset),
     )
     report = validate_dcat_us3(dcat, "Dataset")
     fallback_fields = dcat_us3_fallback_fields(dataset, settings.dcat_contact_email)
@@ -634,6 +666,7 @@ async def get_dcat_us3_record(
         app_base_url=app_base_url,
         catalog_contact_email=settings.dcat_contact_email,
         lineage_summary=await _visible_record_lineage(db, dataset, user),
+        has_raster_asset=await _dcat_dataset_has_raster_asset(db, dataset),
     )
     fallback_fields = dcat_us3_fallback_fields(dataset, settings.dcat_contact_email)
     _ensure_conformant_dcat_us3(dcat, "Dataset")
@@ -669,6 +702,7 @@ async def validate_geodcat_ap_record(
         base_url,
         app_base_url=app_base_url,
         lineage_summary=await _visible_record_lineage(db, dataset, user),
+        has_raster_asset=await _dcat_dataset_has_raster_asset(db, dataset),
     )
     report = validate_geodcat_ap(geodcat, "Dataset")
     fallback_fields = geodcat_ap_fallback_fields(dataset)
@@ -701,6 +735,7 @@ async def get_geodcat_ap_record(
         base_url,
         app_base_url=app_base_url,
         lineage_summary=await _visible_record_lineage(db, dataset, user),
+        has_raster_asset=await _dcat_dataset_has_raster_asset(db, dataset),
     )
     fallback_fields = geodcat_ap_fallback_fields(dataset)
 

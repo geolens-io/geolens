@@ -94,6 +94,7 @@ def record_to_geodcat_ap(
     app_base_url: str,
     include_context: bool = True,
     lineage_summary: str | None = None,
+    has_raster_asset: bool = False,
 ) -> dict:
     """Serialize a GeoLens dataset to GeoDCAT-AP 2.0.0 JSON-LD.
 
@@ -104,7 +105,8 @@ def record_to_geodcat_ap(
     ``lineage_summary`` (``dcterms:provenance``) arrives already
     access-checked by the caller — fix(#1103): not read off the record,
     since an analysis output's lineage names datasets an anonymous
-    requester may not see.
+    requester may not see. ``has_raster_asset`` gates the COG download
+    distribution the same way.
     """
     record = dataset.record
     result: dict = {}
@@ -175,7 +177,10 @@ def record_to_geodcat_ap(
     _apply_responsible_parties(result, record.contacts)
 
     distributions = published_distributions(
-        dataset, api_base_url=base_url, app_base_url=app_base_url
+        dataset,
+        api_base_url=base_url,
+        app_base_url=app_base_url,
+        has_raster_asset=has_raster_asset,
     )
     if distributions:
         result["dcat:distribution"] = [
@@ -216,6 +221,7 @@ def catalog_to_geodcat_ap(
     *,
     app_base_url: str,
     lineage_by_record_id: Mapping[uuid.UUID, str | None] | None = None,
+    has_raster_asset_by_id: Mapping[uuid.UUID, bool] | None = None,
 ) -> dict:
     """Serialize a list of visible datasets to a GeoDCAT-AP Catalog JSON-LD dict.
 
@@ -231,6 +237,7 @@ def catalog_to_geodcat_ap(
         A GeoDCAT-AP Catalog dict with nested entries (no per-entry @context).
     """
     lineage = lineage_by_record_id or {}
+    raster_assets = has_raster_asset_by_id or {}
     entries = [
         record_to_geodcat_ap(
             ds,
@@ -238,6 +245,7 @@ def catalog_to_geodcat_ap(
             app_base_url=app_base_url,
             include_context=False,
             lineage_summary=lineage.get(ds.record_id),
+            has_raster_asset=raster_assets.get(ds.id, False),
         )
         for ds in datasets
     ]

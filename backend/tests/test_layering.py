@@ -1370,8 +1370,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ai/service.py": 994,
     # Record children share ownership, ordering and publication-version invariants.
     "backend/app/modules/catalog/records/service.py": 877,
-    # Export formats share visibility, lineage and private-artifact authorization.
-    "backend/app/modules/catalog/datasets/api/router_export.py": 1484,
+    # Export formats share visibility, lineage, raster-asset presence and
+    # private-artifact authorization.
+    "backend/app/modules/catalog/datasets/api/router_export.py": 1519,
     # Artifact selection, atomic publication, range reads and eviction share one cache
     # protocol.
     "backend/app/processing/export/artifact_cache.py": 559,
