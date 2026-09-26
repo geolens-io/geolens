@@ -139,6 +139,16 @@ def reconcile_epsg(probe: dict, declared: int | None) -> int | None:
     return declared
 
 
+def _nodata_of(info: dict) -> float | None:
+    """The scalar nodata value from a raw ``/cog/info`` reply, if it has one.
+
+    Titiler has no "nodata" key: "Nodata" carries the value in
+    nodata_value, while "Mask"/"Alpha"/"None" mean the asset has no scalar
+    nodata to store.
+    """
+    return info.get("nodata_value") if info.get("nodata_type") == "Nodata" else None
+
+
 async def fetch_cog_info(url: str) -> dict | None:
     """Fetch COG metadata + statistics from Titiler for a remote asset URL.
 
@@ -170,14 +180,7 @@ async def fetch_cog_info(url: str) -> dict | None:
 
             band_count = info.get("count", 1)
             dtype = info.get("dtype")
-            # Titiler has no "nodata" key: "Nodata" carries the value in
-            # nodata_value, while "Mask"/"Alpha"/"None" mean the asset has
-            # no scalar nodata to store.
-            nodata = (
-                info.get("nodata_value")
-                if info.get("nodata_type") == "Nodata"
-                else None
-            )
+            nodata = _nodata_of(info)
 
             band_info = []
             try:
@@ -236,6 +239,44 @@ async def fetch_cog_info(url: str) -> dict | None:
     except Exception as exc:  # broad: httpx/JSON errors vary, degrade to None
         logger.debug(
             "Failed to fetch COG info from Titiler",
+            url=url,
+            error=redact_exception_text(exc),
+        )
+        return None
+
+
+async def fetch_cog_nodata(url: str) -> float | None:
+    """Titiler's nodata alone, from ``/cog/info`` — a repair-only read.
+
+    An asset that has not moved gets no re-describe from ``fetch_cog_info``,
+    so a nodata gap from before this module read nodata correctly would
+    otherwise never close. This is the cheapest call that can answer the
+    question on its own: one header read, none of ``fetch_cog_info``'s
+    statistics or transform calls.
+
+    Returns None on any failure, or when the asset has no scalar nodata to
+    report (a Mask/Alpha channel, or none at all) — either way, the caller
+    leaves the row as it was, the same contract as ``fetch_cog_info``'s
+    absent keys.
+
+    SEC-OBSV-02 (#1927): same dual SSRF gate as ``fetch_cog_info`` — Gate 1
+    is the caller's ``validate_url_for_ssrf`` before this, Gate 2 is
+    Titiler's own CPL_VSIL_CURL_ALLOWED_EXTENSIONS clamp, reached through
+    the same URL builder.
+    """
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(15.0, connect=5.0)
+        ) as client:
+            info_resp = await client.get(
+                build_titiler_cog_url("info", query={"url": url})
+            )
+            if info_resp.status_code != 200:
+                return None
+            return _nodata_of(info_resp.json())
+    except Exception as exc:  # broad: httpx/JSON errors vary, degrade to None
+        logger.debug(
+            "Failed to fetch COG nodata from Titiler",
             url=url,
             error=redact_exception_text(exc),
         )

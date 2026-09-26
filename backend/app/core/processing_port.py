@@ -402,6 +402,9 @@ class ProcessingPort(Protocol):
     # feat(#1764): ``credential`` is the ``ServiceCredential`` a credentialed
     # refresh claimed for this attempt, and ``catalog_origin`` the catalog
     # address it was given for; a read steered elsewhere is made anonymously.
+    # feat: ``repair_nodata`` asks for a nodata-only backfill when the
+    # asset turns out not to have moved — the caller's own stored value is
+    # still missing, and a moved asset's full re-describe already reads it.
     async def resolve_stac_binding(
         self,
         *,
@@ -412,6 +415,7 @@ class ProcessingPort(Protocol):
         asset_key: str | None,
         credential: Any = None,
         catalog_origin: str | None = None,
+        repair_nodata: bool = False,
     ) -> Any: ...
 
     # Preserves joinedload semantics for metadata_service._build_dataset_context.

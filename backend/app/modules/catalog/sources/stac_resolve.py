@@ -74,6 +74,7 @@ async def resolve_stac_binding(
     asset_key: str | None = None,
     credential: ServiceCredential | None = None,
     catalog_origin: str | None = None,
+    repair_nodata: bool = False,
 ) -> StacResolution:
     """Ask the publisher where this dataset's asset lives now.
 
@@ -86,6 +87,12 @@ async def resolve_stac_binding(
     anonymously (``credential_for_read``). Defaults to the stored item URL's
     origin, which is what the door validated and cannot drift, since an
     off-origin self link is no longer adopted.
+
+    ``repair_nodata`` reaches only the direct path's resolution: a stored
+    item_href that still resolves. The by-search fallback means the ITEM
+    moved, a rarer case this repair does not chase; the caller's own
+    stored value stays missing until an ordinary refresh finds the item at
+    its stored address again.
     """
     if catalog_origin is None:
         catalog_origin = item_href
@@ -134,6 +141,7 @@ async def resolve_stac_binding(
             asset_key=asset_key,
             credential=credential,
             catalog_origin=catalog_origin,
+            repair_nodata=repair_nodata,
         )
     if result.health == MISSING:
         return await _resolve_by_search(

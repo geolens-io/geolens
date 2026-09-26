@@ -528,6 +528,7 @@ class DefaultProcessingPort:
         asset_key,
         credential=None,
         catalog_origin=None,
+        repair_nodata=False,
     ):
         from app.modules.catalog.sources.stac_resolve import resolve_stac_binding
 
@@ -539,6 +540,7 @@ class DefaultProcessingPort:
             asset_key=asset_key,
             credential=credential,
             catalog_origin=catalog_origin,
+            repair_nodata=repair_nodata,
         )
 
     # Preserves the joinedload semantics metadata_service._build_dataset_context
