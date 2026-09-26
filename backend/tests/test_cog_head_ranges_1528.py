@@ -2166,30 +2166,31 @@ async def test_a_matching_if_match_still_serves_the_range(
 
 
 async def test_if_match_is_evaluated_before_if_none_match(
-    client: AsyncClient, admin_auth_header: dict, test_db_session, local_cog
+    client: AsyncClient, admin_auth_header: dict, local_cog
 ):
     """RFC 9110 section 13.2.2 fixes the order, and the order is observable.
 
-    A client holding an old copy can send both: ``If-Match`` naming the version
-    it wants to act on, ``If-None-Match`` naming the copy it has cached — here
-    the same stale tag. Evaluating If-None-Match first answers 304, telling the
-    client its stale copy is current. Evaluating If-Match first answers 412,
-    which is the truth: the representation moved.
+    ``If-Match`` names a version that is not the stored one, and
+    ``If-None-Match`` names the stored one. Evaluating If-None-Match first
+    answers 304; evaluating If-Match first answers 412, since the version the
+    client asked to act on is not the one stored.
     """
     dataset, raster_asset = local_cog
-    stale = f'"{raster_asset.sha256}"'
-
-    await _complete_a_replacement(test_db_session, raster_asset, _REPLACEMENT_BYTES)
+    current = f'"{raster_asset.sha256}"'
 
     resp = await client.get(
         f"/datasets/{dataset.id}/download/cog",
-        headers={**admin_auth_header, "If-Match": stale, "If-None-Match": stale},
+        headers={
+            **admin_auth_header,
+            "If-Match": '"another-version"',
+            "If-None-Match": current,
+        },
     )
 
     assert resp.status_code == 412, (
-        f"got {resp.status_code}. A 304 here tells a client whose copy is out "
-        f"of date that it is current, which is the more expensive lie: it stops "
-        f"asking."
+        f"got {resp.status_code}. A 304 here means If-None-Match was evaluated "
+        f"before If-Match, and the client is told a version it did not ask for "
+        f"is current."
     )
 
 
