@@ -203,6 +203,7 @@ describe('StacImportForm credential block', () => {
           data_asset_type: null,
           data_asset_key: 'data',
           data_asset_size_bytes: null,
+          data_asset_import_refusal: null,
           thumbnail_href: null,
           asset_count: 1,
         },

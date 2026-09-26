@@ -74,6 +74,34 @@ def _validate_optional_stac_http_url(v: str | None) -> str | None:
     return None if v is None else _validate_stac_http_url(v)
 
 
+def _data_asset_import_refusal(
+    href: str | None,
+) -> Literal["not_http", "credentials", "too_long"] | None:
+    """Why ``/import``'s own ``StacImportItem.data_asset_href`` field would
+    refuse *href*, or ``None`` if it would be accepted.
+
+    Search is the one place that can tell the caller before an item is
+    ticked, rather than after the whole batch 422s on submit — but only if
+    this predicts the SAME field exactly. ``has_url_credentials`` is checked
+    first, ahead of ``_validate_stac_http_url`` (which also runs it) so a
+    credentialed URL is labelled ``credentials`` rather than the URL-parse
+    failure ``_validate_stac_http_url`` would otherwise raise for the same
+    input. The `max_length=4096` check mirrors that field's ``Field``
+    constraint, which pydantic enforces before any field_validator runs.
+    """
+    if href is None:
+        return None
+    if len(href) > 4096:
+        return "too_long"
+    if has_url_credentials(href):
+        return "credentials"
+    try:
+        _validate_stac_http_url(href)
+    except ValueError:
+        return "not_http"
+    return None
+
+
 router = APIRouter(
     prefix="/services/stac",
     tags=["STAC Import"],
@@ -232,6 +260,20 @@ class StacItemSummary(BaseModel):
     data_asset_size_bytes: int | None = Field(
         default=None,
         description="Size of the primary data asset in bytes (from STAC file:size). None when not in manifest.",
+    )
+    data_asset_import_refusal: Literal["not_http", "credentials", "too_long"] | None = (
+        Field(
+            default=None,
+            description=(
+                "Why importing this item's data asset would fail, or null if it "
+                "would be accepted. 'not_http' when the asset is published on a "
+                "scheme other than http/https, such as s3://; 'credentials' when "
+                "its URL carries a credential query parameter GeoLens will not "
+                "store; 'too_long' when the URL is over 4096 characters. Lets a "
+                "client grey out the item before it is ticked, rather than "
+                "after the whole import batch is refused."
+            ),
+        )
     )
     thumbnail_href: str | None = Field(
         default=None, description="Thumbnail URL if available."
@@ -491,7 +533,15 @@ async def stac_search(
         )
 
     return StacSearchResponse(
-        items=[StacItemSummary(**item) for item in result["items"]],
+        items=[
+            StacItemSummary(
+                **item,
+                data_asset_import_refusal=_data_asset_import_refusal(
+                    item.get("data_asset_href")
+                ),
+            )
+            for item in result["items"]
+        ],
         matched=result["matched"],
         returned=result["returned"],
     )

@@ -17712,6 +17712,23 @@
             "description": "Size of the primary data asset in bytes (from STAC file:size). None when not in manifest.",
             "title": "Data Asset Size Bytes"
           },
+          "data_asset_import_refusal": {
+            "anyOf": [
+              {
+                "enum": [
+                  "not_http",
+                  "credentials",
+                  "too_long"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why importing this item's data asset would fail, or null if it would be accepted. 'not_http' when the asset is published on a scheme other than http/https, such as s3://; 'credentials' when its URL carries a credential query parameter GeoLens will not store; 'too_long' when the URL is over 4096 characters. Lets a client grey out the item before it is ticked, rather than after the whole import batch is refused.",
+            "title": "Data Asset Import Refusal"
+          },
           "thumbnail_href": {
             "anyOf": [
               {

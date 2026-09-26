@@ -1,14 +1,22 @@
 /**
  * STAC items whose data asset GeoLens can't fetch — a catalog that publishes
  * an item's only asset as `s3://...` (Earth Search's Copernicus DEM and
- * similar collections) rather than an http(s) URL, or omits a data asset
- * entirely.
+ * similar collections) rather than an http(s) URL, one signed with a
+ * credential GeoLens won't store, one too long to store, or no asset at all.
+ *
+ * Eligibility comes from the search response's own
+ * `data_asset_import_refusal` field — the search endpoint's prediction of
+ * what `/import`'s own validator would refuse — not from re-deriving the
+ * rule client-side, so the two can never drift apart.
  *
  * Tests cover:
- *   1. An s3:// item renders disabled with a reason; select-all skips it; an
- *      https:// item in the same list stays selectable.
+ *   1. An item flagged `not_http` renders disabled with a reason; select-all
+ *      skips it; a plain https:// item in the same list stays selectable.
  *   2. An item with no data asset at all is disabled the same way.
- *   3. A refused import (the scheme check, expressed as a 422) shows its
+ *   3. An item flagged `credentials` (a signed https:// href) is disabled,
+ *      and a submitted import carries only the valid items.
+ *   4. An item flagged `too_long` is disabled with its own reason.
+ *   5. A refused import (the scheme check, expressed as a 422) shows its
  *      reason next to the Import action, not below the item list.
  */
 import { render, screen, waitFor, within } from '@testing-library/react';
@@ -76,6 +84,7 @@ function makeItem(overrides: Partial<StacItemSummary> & { id: string }): StacIte
     data_asset_type: 'image/tiff; application=geotiff; profile=cloud-optimized',
     data_asset_key: 'data',
     data_asset_size_bytes: null,
+    data_asset_import_refusal: null,
     thumbnail_href: null,
     asset_count: 1,
     ...overrides,
@@ -140,7 +149,11 @@ describe('StacImportForm — items whose data asset GeoLens cannot fetch', () =>
   test('an s3:// item is disabled with a reason; select-all skips it; an https:// item stays selectable', async () => {
     const items: StacItemSummary[] = [
       makeItem({ id: 'readable-item', data_asset_href: 'https://example.com/data.tif' }),
-      makeItem({ id: 's3-item', data_asset_href: 's3://copernicus-dem-90m/tile.tif' }),
+      makeItem({
+        id: 's3-item',
+        data_asset_href: 's3://copernicus-dem-90m/tile.tif',
+        data_asset_import_refusal: 'not_http',
+      }),
     ];
 
     const user = await driveToItemsStep(items);
@@ -181,6 +194,67 @@ describe('StacImportForm — items whose data asset GeoLens cannot fetch', () =>
     const describedById = noAssetCheckbox.getAttribute('aria-describedby');
     expect(describedById).toBeTruthy();
     expect(document.getElementById(describedById!)).toHaveTextContent('stac.noCogAsset');
+  });
+
+  test('a signed https item is flagged by the server; select-all skips it and only valid items are imported', async () => {
+    const items: StacItemSummary[] = [
+      makeItem({ id: 'plain-item', data_asset_href: 'https://example.com/data.tif' }),
+      makeItem({
+        id: 'signed-item',
+        data_asset_href: 'https://example.com/data.tif?X-Amz-Signature=abc123',
+        data_asset_import_refusal: 'credentials',
+      }),
+    ];
+    mockImportStacItems.mockResolvedValue({
+      created: 1,
+      skipped: 0,
+      errors: 0,
+      results: [{ item_id: 'plain-item', dataset_id: 'ds-1', status: 'created', error: null }],
+    });
+
+    const user = await driveToItemsStep(items);
+    const [selectAll, plainCheckbox, signedCheckbox] = screen.getAllByRole('checkbox');
+
+    expect(plainCheckbox).toBeEnabled();
+    expect(signedCheckbox).toBeDisabled();
+    const describedById = signedCheckbox.getAttribute('aria-describedby');
+    expect(describedById).toBeTruthy();
+    expect(document.getElementById(describedById!)).toHaveTextContent(
+      'stac.assetHasCredentials',
+    );
+
+    // Select-all must skip the signed item too.
+    await user.click(selectAll);
+    expect(plainCheckbox).toBeChecked();
+    expect(signedCheckbox).not.toBeChecked();
+
+    await user.click(screen.getByRole('button', { name: /stac.importItems/i }));
+    await waitFor(() => screen.getByText('stac.confirm.title'));
+    await user.click(screen.getByRole('button', { name: /stac\.confirm\.confirmImport/i }));
+
+    await waitFor(() => expect(mockImportStacItems).toHaveBeenCalledTimes(1));
+    // startStacImport(url, items, ...) — items is the second positional arg.
+    const submittedItems = mockImportStacItems.mock.calls[0][1];
+    expect(submittedItems).toHaveLength(1);
+    expect(submittedItems[0].id).toBe('plain-item');
+  });
+
+  test('an item flagged too_long by the server is disabled with its own reason', async () => {
+    const items: StacItemSummary[] = [
+      makeItem({
+        id: 'overlong-item',
+        data_asset_href: `https://example.com/${'a'.repeat(4090)}.tif`,
+        data_asset_import_refusal: 'too_long',
+      }),
+    ];
+
+    await driveToItemsStep(items);
+
+    const [, checkbox] = screen.getAllByRole('checkbox');
+    expect(checkbox).toBeDisabled();
+    const describedById = checkbox.getAttribute('aria-describedby');
+    expect(describedById).toBeTruthy();
+    expect(document.getElementById(describedById!)).toHaveTextContent('stac.assetHrefTooLong');
   });
 
   test('a refused import shows its reason next to the Import action, not below the item list', async () => {

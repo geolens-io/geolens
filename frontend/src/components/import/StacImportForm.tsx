@@ -61,26 +61,51 @@ type Step =
 
 interface AssetAvailability {
   importable: boolean;
-  /** The href's scheme, lowercase and without the trailing colon. Present
-   * whenever there IS an href, so an unimportable item can be told apart
-   * from one with no data asset at all. */
+  /** Unset when importable. 'no_asset' has no href at all; the other three
+   * mirror the search endpoint's own `data_asset_import_refusal` — the
+   * server's prediction of what `/import`'s `StacImportItem` validator
+   * (stac_router.py) would refuse, so the client screens out exactly what
+   * the door would reject rather than a separate, driftable guess. */
+  reason?: 'no_asset' | 'not_http' | 'credentials' | 'too_long';
+  /** The href's scheme, lowercase and without the trailing colon — display
+   * only, for the 'not_http' reason's message. Parsing it here decides
+   * nothing: `data_asset_import_refusal` already did. */
   scheme?: string;
 }
 
-/**
- * Whether a search result's asset href is one this wizard can offer to
- * import: present, and on the http/https scheme the import door's own
- * `StacImportItem` validator (stac_router.py) accepts. A catalog that
- * publishes only `s3://` (or similar) hrefs would otherwise let the item be
- * ticked and fail at submit time, past the point the user could act on it.
- */
-function assetAvailability(href: string | null | undefined): AssetAvailability {
-  if (!href) return { importable: false };
-  try {
-    const scheme = new URL(href).protocol.replace(/:$/, '');
-    return { importable: scheme === 'http' || scheme === 'https', scheme };
-  } catch {
-    return { importable: false };
+function assetAvailability(
+  item: Pick<StacItemSummary, 'data_asset_href' | 'data_asset_import_refusal'>,
+): AssetAvailability {
+  if (!item.data_asset_href) return { importable: false, reason: 'no_asset' };
+  if (!item.data_asset_import_refusal) return { importable: true };
+  const availability: AssetAvailability = {
+    importable: false,
+    reason: item.data_asset_import_refusal,
+  };
+  if (item.data_asset_import_refusal === 'not_http') {
+    try {
+      availability.scheme = new URL(item.data_asset_href).protocol.replace(/:$/, '');
+    } catch {
+      // Unparsable is display-only fallout; data_asset_import_refusal already decided.
+    }
+  }
+  return availability;
+}
+
+/** The reason text for a disabled item's row, one per `AssetAvailability.reason`. */
+function assetUnavailableReasonText(
+  t: (key: string, opts?: Record<string, unknown>) => string,
+  availability: AssetAvailability,
+): string {
+  switch (availability.reason) {
+    case 'not_http':
+      return t('stac.unsupportedAssetScheme', { scheme: availability.scheme ?? '' });
+    case 'credentials':
+      return t('stac.assetHasCredentials');
+    case 'too_long':
+      return t('stac.assetHrefTooLong');
+    default:
+      return t('stac.noCogAsset');
   }
 }
 
@@ -124,7 +149,7 @@ export function StacImportForm() {
   const items = searchResult.items;
   const matchedCount = searchResult.matched;
   const selectableItems = useMemo(
-    () => items.filter((i) => assetAvailability(i.data_asset_href).importable),
+    () => items.filter((i) => assetAvailability(i).importable),
     [items],
   );
 
@@ -739,7 +764,7 @@ export function StacImportForm() {
             </p>
           )}
           {items.map((item) => {
-            const availability = assetAvailability(item.data_asset_href);
+            const availability = assetAvailability(item);
             const isSelected = selectedItems.has(item.id);
             const reasonId = `stac-asset-reason-${item.id}`;
 
@@ -799,9 +824,7 @@ export function StacImportForm() {
                     id={reasonId}
                     className="max-w-[10rem] shrink-0 text-right font-mono text-2xs text-muted-foreground"
                   >
-                    {availability.scheme
-                      ? t('stac.unsupportedAssetScheme', { scheme: availability.scheme })
-                      : t('stac.noCogAsset')}
+                    {assetUnavailableReasonText(t, availability)}
                   </span>
                 )}
               </label>

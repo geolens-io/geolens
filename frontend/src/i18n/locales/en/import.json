@@ -186,6 +186,8 @@
     "assetCount_other": "{{count}} assets",
     "noCogAsset": "No COG asset",
     "unsupportedAssetScheme": "Published at an {{scheme}}:// address GeoLens can't read",
+    "assetHasCredentials": "Uses a signed or credential-bearing URL, which GeoLens doesn't store",
+    "assetHrefTooLong": "Its address is too long for GeoLens to store",
     "catalogHelp": "Browse and import raster datasets from public STAC catalogs like",
     "matchedTotal": "({{count}} total)",
     "confirm": {

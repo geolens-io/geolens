@@ -2210,6 +2210,9 @@ export interface StacItemSummary {
   data_asset_type: string | null;
   data_asset_key: string | null;
   data_asset_size_bytes: number | null; // EW-05: STAC file:size extension
+  // Why /import would refuse this item's asset, or null if it would be
+  // accepted; null also when there is no asset at all (data_asset_href null).
+  data_asset_import_refusal: 'not_http' | 'credentials' | 'too_long' | null;
   thumbnail_href: string | null;
   asset_count: number;
 }

@@ -371,6 +371,92 @@ class TestStacSearch:
             assert resp.status_code == 502
 
 
+class TestStacSearchAssetEligibility:
+    """`data_asset_import_refusal` predicts /import's own StacImportItem
+    validation, so a caller can screen an item out before ticking it rather
+    than after the whole batch 422s (#2296)."""
+
+    async def _search_one(self, client, admin_auth_header, data_asset_href):
+        with patch(
+            "app.modules.catalog.sources.stac_router.search_stac_items",
+            new_callable=AsyncMock,
+        ) as mock:
+            mock.return_value = {
+                "items": [
+                    {
+                        "id": "item-001",
+                        "collection": "dem-collection",
+                        "bbox": None,
+                        "datetime": None,
+                        "datetime_start": None,
+                        "datetime_end": None,
+                        "title": "Item",
+                        "epsg": None,
+                        "gsd": None,
+                        "cloud_cover": None,
+                        "data_asset_href": data_asset_href,
+                        "data_asset_type": None,
+                        "thumbnail_href": None,
+                        "asset_count": 1,
+                    },
+                ],
+                "matched": 1,
+                "returned": 1,
+            }
+            return await client.post(
+                "/services/stac/search",
+                json={"url": "https://stac.example.com/v1"},
+                headers=admin_auth_header,
+            )
+
+    async def test_flags_a_non_http_asset(
+        self, client: AsyncClient, admin_auth_header: dict, mock_stac_ssrf
+    ):
+        resp = await self._search_one(
+            client, admin_auth_header, "s3://copernicus-dem-90m/tile.tif"
+        )
+        assert resp.status_code == 200
+        assert resp.json()["items"][0]["data_asset_import_refusal"] == "not_http"
+
+    async def test_flags_a_credentialed_asset(
+        self, client: AsyncClient, admin_auth_header: dict, mock_stac_ssrf
+    ):
+        resp = await self._search_one(
+            client,
+            admin_auth_header,
+            "https://example.com/data.tif?X-Amz-Signature=abc123",
+        )
+        assert resp.status_code == 200
+        assert resp.json()["items"][0]["data_asset_import_refusal"] == "credentials"
+
+    async def test_flags_an_overlong_asset(
+        self, client: AsyncClient, admin_auth_header: dict, mock_stac_ssrf
+    ):
+        href = "https://example.com/" + ("a" * 4090) + ".tif"
+        assert len(href) > 4096
+        resp = await self._search_one(client, admin_auth_header, href)
+        assert resp.status_code == 200
+        assert resp.json()["items"][0]["data_asset_import_refusal"] == "too_long"
+
+    async def test_does_not_flag_a_plain_https_asset(
+        self, client: AsyncClient, admin_auth_header: dict, mock_stac_ssrf
+    ):
+        resp = await self._search_one(
+            client, admin_auth_header, "https://example.com/data.tif"
+        )
+        assert resp.status_code == 200
+        assert resp.json()["items"][0]["data_asset_import_refusal"] is None
+
+    async def test_does_not_flag_a_missing_asset(
+        self, client: AsyncClient, admin_auth_header: dict, mock_stac_ssrf
+    ):
+        # No data asset at all is a distinct, pre-existing UI state (the
+        # frontend's own noCogAsset reason) — not an import refusal code.
+        resp = await self._search_one(client, admin_auth_header, None)
+        assert resp.status_code == 200
+        assert resp.json()["items"][0]["data_asset_import_refusal"] is None
+
+
 async def _create_stac_dataset(
     session,
     *,
