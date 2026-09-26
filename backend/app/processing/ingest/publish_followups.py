@@ -1,24 +1,37 @@
 """The follow-ups a job owes once its terminal commit has landed.
 
-A first ingest owes its completion follow-ups, and a rejected replacement owes
-its failure notice. The terminal transaction records them on the job row, so
-the record exists exactly when the commit does. Whoever claims the record runs
-them: the task after its commit, or the stale-job sweep when the task could not.
+A first ingest owes its completion follow-ups, and deleting the staged upload
+its publish consumed; a rejected replacement owes its failure notice. The
+terminal transaction records them on the job row, so the record exists exactly
+when the commit does. The task runs them after its commit, or the stale-job
+sweep when the task could not. The upload is deleted before the record is
+claimed, so a delete that is cut short is retried; the rest runs once, after
+the claim.
 """
 
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import structlog
-from sqlalchemy import Text, func, literal, select, text, update
+from sqlalchemy import Text, func, literal, select, text, true, update
 from sqlalchemy.orm import joinedload
 
+from app.core.config import settings
 from app.core.failure_reason import redact_failure_reason
 from app.platform.cache.tiles import invalidate_catalog_cache
-from app.platform.jobs.models import PUBLISH_FOLLOWUPS_FIELD, IngestJob
+from app.platform.jobs.models import (
+    PUBLISH_FOLLOWUPS_FIELD,
+    IngestJob,
+    owned_presigned_staging_key,
+)
 from app.processing.ingest.tasks_common import _emit_billing_event, cleanup_step
+from app.processing.ingest.tasks_staging import (
+    reap_downloaded_staging_source,
+    reap_presigned_staging_object,
+)
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,36 +47,105 @@ _LABELS: dict[str, str | None] = {
 
 _SWEEP_BATCH = 50
 
+_REAPS_STAGED_UPLOAD = "reaps_staged_upload"
 
-def owed_followups(attempt_uuid: uuid.UUID, task: str):
+
+def owed_followups(
+    attempt_uuid: uuid.UUID, task: str, *, reaps_staged_upload: bool = False
+):
     """The job's ``user_metadata`` with this attempt's ``task`` follow-ups owed."""
+    fields = ["task", task, "attempt_id", str(attempt_uuid)]
+    if reaps_staged_upload:
+        fields += [_REAPS_STAGED_UPLOAD, true()]
     owed = func.jsonb_build_object(
-        PUBLISH_FOLLOWUPS_FIELD,
-        func.jsonb_build_object("task", task, "attempt_id", str(attempt_uuid)),
+        PUBLISH_FOLLOWUPS_FIELD, func.jsonb_build_object(*fields)
     )
     return func.coalesce(IngestJob.user_metadata, text("'{}'::jsonb")).op("||")(owed)
 
 
 async def note_publish_followups(
-    session: AsyncSession, job_uuid: uuid.UUID, attempt_uuid: uuid.UUID, task: str
+    session: AsyncSession,
+    job_uuid: uuid.UUID,
+    attempt_uuid: uuid.UUID,
+    task: str,
+    *,
+    reaps_staged_upload: bool = False,
 ) -> None:
-    """Record, in the terminal transaction, that this attempt's ``task`` follow-ups are owed."""
+    """Record, in the terminal transaction, that this attempt's ``task`` follow-ups are owed.
+
+    ``reaps_staged_upload`` adds deleting the job's staged upload, which the
+    publish no longer needs.
+    """
     await session.execute(
         update(IngestJob)
         .where(IngestJob.id == job_uuid, IngestJob.attempt_id == attempt_uuid)
-        .values(user_metadata=owed_followups(attempt_uuid, task))
+        .values(
+            user_metadata=owed_followups(
+                attempt_uuid, task, reaps_staged_upload=reaps_staged_upload
+            )
+        )
         .execution_options(synchronize_session=False)
     )
 
 
-async def run_publish_followups(job_uuid: uuid.UUID) -> bool:
-    """Run a job's owed follow-ups once its terminal commit is visible, at most once.
+async def _reap_staged_upload(
+    job_uuid: uuid.UUID, file_path: str | None, user_metadata: dict | None
+) -> None:
+    """Delete a published job's staged upload, as its task's cleanup does; never raises.
 
-    Claims the job's record. The job's status chooses what runs: a complete
-    first ingest's follow-ups, or a failed job's ``ingest_failed`` notice. A job
-    in neither status, or a row another caller has locked, runs nothing. A
-    record an earlier attempt wrote, or a deleted dataset, is cleared and runs
-    nothing. Returns whether this call claimed.
+    ``file_path`` is a local file when ``resolve_file_path`` would read it as
+    one, and is unlinked only inside the upload staging directory. A
+    ``staging/`` path is also deleted from storage.
+    """
+    from app.core.tenancy import is_multi_tenant
+
+    job_id = str(job_uuid)
+    await reap_presigned_staging_object(
+        job_id,
+        owned_presigned_staging_key(job_uuid, user_metadata, file_path),
+        final_status="complete",
+    )
+    if not file_path:
+        return
+    async with cleanup_step("staged upload", job_id=job_id):
+        path = Path(file_path)
+        if path.exists() and (path.is_absolute() or not is_multi_tenant()):
+            local = path.resolve()
+            if local.is_relative_to(Path(settings.upload_staging_dir).resolve()):
+                local.unlink(missing_ok=True)
+            else:
+                structlog.get_logger().warning(
+                    "staged_upload_outside_staging_dir", job_id=job_id
+                )
+    await reap_downloaded_staging_source(
+        job_id,
+        original_file_path=file_path,
+        final_status="complete",
+        failed_source_replayable=True,
+    )
+
+
+def _owes_the_upload(row) -> bool:
+    """Whether a job's record asks, for the attempt that ended the job complete, to delete its upload."""
+    return (
+        row.status == "complete"
+        and row.owed_attempt == str(row.attempt_id)
+        and row.reaps_staged_upload == "true"
+    )
+
+
+async def run_publish_followups(job_uuid: uuid.UUID) -> bool:
+    """Run a job's owed follow-ups once its terminal commit is visible.
+
+    A complete job whose record asks for it first has its staged upload
+    deleted, before the claim and holding no lock, so a caller stopped short
+    leaves the record for the next one to delete again. The claim then takes
+    the record at most once, and the job's status chooses what runs: a
+    complete first ingest's follow-ups, or a failed job's ``ingest_failed``
+    notice. A job in neither status runs nothing, and a row another caller has
+    locked nothing past the delete. A record an earlier attempt wrote is
+    cleared and runs nothing, and a deleted dataset skips the rest. Returns
+    whether this call claimed.
     """
     import app.core.db as db_module
     from app.core.db.tenant_session import current_tenant_var
@@ -76,24 +158,29 @@ async def run_publish_followups(job_uuid: uuid.UUID) -> bool:
     from app.processing.embeddings.helpers import defer_embedding
 
     owed = IngestJob.user_metadata[PUBLISH_FOLLOWUPS_FIELD]
+    owed_row = select(
+        IngestJob.status,
+        IngestJob.dataset_id,
+        IngestJob.error_message,
+        IngestJob.attempt_id,
+        owed["task"].astext.label("task"),
+        owed["attempt_id"].astext.label("owed_attempt"),
+        owed[_REAPS_STAGED_UPLOAD].astext.label("reaps_staged_upload"),
+        IngestJob.file_path,
+        IngestJob.user_metadata,
+    ).where(
+        IngestJob.id == job_uuid,
+        IngestJob.status.in_(("complete", "failed")),
+        owed.is_not(None),
+    )
+    async with db_module.async_session() as session:
+        pending = (await session.execute(owed_row)).one_or_none()
+    if pending is not None and _owes_the_upload(pending):
+        await _reap_staged_upload(job_uuid, pending.file_path, pending.user_metadata)
+
     async with db_module.async_session() as session:
         claim = (
-            await session.execute(
-                select(
-                    IngestJob.status,
-                    IngestJob.dataset_id,
-                    IngestJob.error_message,
-                    IngestJob.attempt_id,
-                    owed["task"].astext,
-                    owed["attempt_id"].astext,
-                )
-                .where(
-                    IngestJob.id == job_uuid,
-                    IngestJob.status.in_(("complete", "failed")),
-                    owed.is_not(None),
-                )
-                .with_for_update(skip_locked=True)
-            )
+            await session.execute(owed_row.with_for_update(skip_locked=True))
         ).one_or_none()
         if claim is None:
             return False
@@ -109,15 +196,17 @@ async def run_publish_followups(job_uuid: uuid.UUID) -> bool:
         )
         await session.commit()
 
-    status, dataset_id, error_message, attempt_id, task, owed_attempt = claim
+    task = claim.task
     job_id = str(job_uuid)
     log = structlog.get_logger().bind(job_id=job_id, task=task)
-    if owed_attempt != str(attempt_id):
+    if claim.owed_attempt != str(claim.attempt_id):
         log.info("publish_followups_from_an_earlier_attempt")
         return True
-    if status == "failed":
+    if claim.status == "failed":
         async with cleanup_step("failure notice", job_id=job_id):
-            await notify_ingest_failed(job_uuid, task=task, reason=error_message or "")
+            await notify_ingest_failed(
+                job_uuid, task=task, reason=claim.error_message or ""
+            )
         return True
     if task not in _LABELS:
         log.warning("publish_followups_unknown_task")
@@ -127,7 +216,7 @@ async def run_publish_followups(job_uuid: uuid.UUID) -> bool:
         dataset = await session.scalar(
             select(Dataset)
             .options(joinedload(Dataset.record))
-            .where(Dataset.id == dataset_id)
+            .where(Dataset.id == claim.dataset_id)
         )
     if dataset is None or dataset.record is None:
         log.info("publish_followups_dataset_gone")

@@ -45,6 +45,7 @@ from app.platform.storage.reap import PrefixDeleteError
 from app.platform.storage.s3 import S3StorageProvider
 from app.processing.embeddings.tasks import embed_record
 from app.processing.ingest import router as ingest_router
+from app.processing.ingest.publish_followups import run_owed_publish_followups
 from app.processing.ingest.tasks import ingest_file, ingest_tileset, task_app
 from app.processing.ingest.tasks_tileset import unpack_tileset
 from app.processing.ingest.tileset import Tileset, TilesetLayout, inspect_tileset
@@ -786,15 +787,18 @@ async def test_a_lost_publish_commit_still_in_progress_keeps_the_unpacked_tilese
     headers, _ = uploader
     job_id = (await upload(client, headers, campus_zip())).json()["job_id"]
     assert (await commit(client, headers, job_id)).status_code == 202
+    staged = (await load_job(test_db_session, job_id)).file_path
 
     with _publish_commit_lost(job_id) as fired:
         await run_queued(queued)
+    await run_owed_publish_followups()
 
     assert fired["count"] == 1, "the publishing commit never fired"
     assert await tileset_objects() != [], (
         "the unpacked tileset was reaped while the commit that decides whether "
         "it is live was still in progress"
     )
+    assert Path(staged).exists(), "the upload went though its publish never landed"
     job = await load_job(test_db_session, job_id)
     assert (job.status, job.dataset_id) == ("running", None)
 
@@ -802,19 +806,22 @@ async def test_a_lost_publish_commit_still_in_progress_keeps_the_unpacked_tilese
 async def test_a_lost_publish_commit_that_aborted_reaps_the_unpacked_tileset(
     client: AsyncClient, test_db_session, uploader, queued
 ) -> None:
-    """A publishing commit that aborted published nothing, so the unpacked tileset is reaped."""
+    """An aborted publishing commit published nothing: the unpacked tileset is reaped, the upload kept."""
     headers, _ = uploader
     job_id = (await upload(client, headers, campus_zip())).json()["job_id"]
     assert (await commit(client, headers, job_id)).status_code == 202
+    staged = (await load_job(test_db_session, job_id)).file_path
 
     with (
         _publish_commit_lost(job_id, aborted=True) as fired,
         pytest.raises(ConnectionResetError),
     ):
         await run_queued(queued)
+    await run_owed_publish_followups()
 
     assert fired["count"] == 1, "the publishing commit never fired"
     assert await tileset_objects() == []
+    assert Path(staged).exists(), "a retry of the failed job needs its upload"
     job = await load_job(test_db_session, job_id)
     assert (job.status, job.dataset_id) == ("failed", None)
 
@@ -822,10 +829,11 @@ async def test_a_lost_publish_commit_that_aborted_reaps_the_unpacked_tileset(
 async def test_a_lost_acknowledgement_that_landed_still_runs_the_followups(
     client: AsyncClient, test_db_session, uploader, queued, followups
 ) -> None:
-    """A tileset publish observed after its acknowledgement was lost runs its follow-ups once."""
+    """A tileset publish seen after a lost acknowledgement runs its follow-ups once and deletes its upload."""
     headers, _ = uploader
     job_id = (await upload(client, headers, campus_zip())).json()["job_id"]
     assert (await commit(client, headers, job_id)).status_code == 202
+    staged = (await load_job(test_db_session, job_id)).file_path
 
     with _ack_lost_on_publish(
         uuid.UUID(job_id), failure=ConnectionResetError("dropped")
@@ -841,6 +849,7 @@ async def test_a_lost_acknowledgement_that_landed_still_runs_the_followups(
     ]
     assert followups.billing == [job_id]
     assert (await load_job(test_db_session, job_id)).status == "complete"
+    assert not Path(staged).exists(), "the staged upload outlived a landed publish"
 
 
 # --- Tenancy -------------------------------------------------------------
@@ -1031,6 +1040,28 @@ async def test_a_presigned_tileset_publishes_from_s3(
         f"{attempt}0/1.b3dm",
         f"{attempt}tileset.json",
     ]
+    assert await s3_storage.list(f"staging/{job_id}/") == []
+
+
+async def test_a_presigned_tileset_whose_acknowledgement_is_lost_leaves_nothing_staged(
+    client: AsyncClient, test_db_session, uploader, queued, s3_storage, followups
+) -> None:
+    """A presigned tileset observed after its acknowledgement was lost leaves no staging object."""
+    headers, _ = uploader
+    body, completed = await presigned_upload(client, headers, s3_storage, campus_zip())
+    assert completed.status_code == 200, completed.text
+    job_id = body["job_id"]
+    # A late PUT through the unexpired URL recreates the client's key.
+    await s3_storage.put(body["s3_key"], io.BytesIO(campus_zip()))
+    assert (await commit(client, headers, job_id)).status_code == 202
+
+    with _ack_lost_on_publish(
+        uuid.UUID(job_id), failure=ConnectionResetError("dropped")
+    ) as fired:
+        await run_queued(queued)
+
+    assert fired["count"] == 1, "the publishing commit never fired"
+    assert (await load_job(test_db_session, job_id)).status == "complete"
     assert await s3_storage.list(f"staging/{job_id}/") == []
 
 

@@ -3,22 +3,28 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json as _json
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
+import structlog
 from sqlalchemy import delete, select, text
 
 import app.core.db as db_module
+from app.core.config import settings
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.platform.jobs.models import IngestJob
+from app.platform.storage.local import LocalStorageProvider
 from app.processing.ingest.publish_followups import (
     PUBLISH_FOLLOWUPS_FIELD,
     run_owed_publish_followups,
     run_publish_followups,
 )
+from app.processing.ingest.tasks_raster_common import PublishObservation
 from tests.factories import create_dataset, get_user_id
 from tests.test_raster_replace_1221 import (
     _ack_lost_on_publish,
@@ -26,6 +32,7 @@ from tests.test_raster_replace_1221 import (
     _make_live_raster,
     _publish_commit_lost,
     _purge,
+    _storage_calls,
 )
 from tests.test_raster_replace_1221 import raster_storage as raster_storage
 
@@ -82,6 +89,7 @@ async def _owed_job(
     status: str = "complete",
     task: str = "ingest_raster",
     error_message: str | None = None,
+    reaps_staged_upload: bool = False,
 ) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
     """A job owing ``task``'s follow-ups for a fresh dataset: (job, dataset, record)."""
     admin_id = await get_user_id(session, "admin")
@@ -94,13 +102,16 @@ async def _owed_job(
     )
     session.add(job)
     await session.flush()
-    job.user_metadata = _owed(task, job.attempt_id)
+    job.user_metadata = _owed(task, job.attempt_id, reaps_staged_upload)
     await session.commit()
     return job.id, dataset.id, dataset.record_id
 
 
-def _owed(task: str, attempt_id) -> dict:
-    return {PUBLISH_FOLLOWUPS_FIELD: {"task": task, "attempt_id": str(attempt_id)}}
+def _owed(task: str, attempt_id, reaps_staged_upload: bool = False) -> dict:
+    record = {"task": task, "attempt_id": str(attempt_id)}
+    if reaps_staged_upload:
+        record["reaps_staged_upload"] = True
+    return {PUBLISH_FOLLOWUPS_FIELD: record}
 
 
 async def _drop(session, job_id, record_id) -> None:
@@ -340,35 +351,318 @@ async def test_the_job_status_response_never_shows_the_record(
         await _drop(test_db_session, job_id, record_id)
 
 
+# --- The staged upload a publish consumed ----------------------------------
+
+
+async def _point_job_at(job_id, *, file_path: str | None, **metadata) -> None:
+    """Bind ``job_id`` to ``file_path``, merging ``metadata`` into its record-bearing metadata."""
+    async with db_module.async_session() as session:
+        job = await session.get(IngestJob, job_id)
+        job.file_path = file_path
+        job.user_metadata = {**job.user_metadata, **metadata}
+        await session.commit()
+
+
+async def _stage_upload(storage, job_id, where: str):
+    """Stage ``job_id``'s upload on disk or in ``storage``; returns what is left of it."""
+    if where == "local":
+        path = Path(settings.upload_staging_dir) / f"{job_id}_upload.tif"
+        path.write_bytes(b"staged")
+        await _point_job_at(job_id, file_path=str(path))
+
+        async def _local_left() -> list:
+            return [path] if path.exists() else []
+
+        return _local_left
+    # Where a presigned completion leaves it: the frozen copy the job is bound
+    # to, and the client's key, which a late PUT can recreate.
+    frozen = f"staging/{job_id}/frozen/upload.tif"
+    client_key = f"staging/{job_id}/upload.tif"
+    for key in (frozen, client_key):
+        await storage.put(key, b"staged")
+    await _point_job_at(job_id, file_path=frozen, s3_key=client_key)
+
+    async def _stored_left() -> list:
+        return [key for key in (frozen, client_key) if await storage.exists(key)]
+
+    return _stored_left
+
+
+@pytest.mark.parametrize("where", ["local", "storage"])
+async def test_a_claim_deletes_the_staged_upload_its_publish_consumed(
+    test_db_session, raster_storage, followups, where
+) -> None:
+    """A complete job whose record asks for it loses its staged upload and runs the rest."""
+    job_id, _, record_id = await _owed_job(test_db_session, reaps_staged_upload=True)
+    try:
+        left = await _stage_upload(raster_storage, job_id, where)
+        assert await left(), "precondition: the upload is staged"
+
+        assert await run_publish_followups(job_id) is True
+        assert await left() == []
+        assert followups == _RASTER
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+@pytest.mark.parametrize("where", ["local", "storage"])
+@pytest.mark.parametrize(
+    ("status", "reaps_staged_upload", "earlier_attempt"),
+    [("complete", False, False), ("failed", True, False), ("complete", True, True)],
+    ids=["not-asked", "failed", "earlier-attempt"],
+)
+async def test_a_claim_that_does_not_license_the_delete_keeps_the_upload(
+    test_db_session,
+    raster_storage,
+    followups,
+    where,
+    status,
+    reaps_staged_upload,
+    earlier_attempt,
+) -> None:
+    """Only a complete job whose own attempt asked for it loses its staged upload."""
+    job_id, _, record_id = await _owed_job(
+        test_db_session, status=status, reaps_staged_upload=reaps_staged_upload
+    )
+    try:
+        left = await _stage_upload(raster_storage, job_id, where)
+        staged = await left()
+        if earlier_attempt:
+            async with db_module.async_session() as session:
+                await session.execute(
+                    text(
+                        "UPDATE catalog.ingest_jobs SET attempt_id = gen_random_uuid() "
+                        "WHERE id = :id"
+                    ),
+                    {"id": job_id},
+                )
+                await session.commit()
+
+        assert await run_publish_followups(job_id) is True
+        assert await left() == staged
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+@pytest.mark.parametrize("via", ["path", "dot-dot", "symlink"])
+async def test_a_local_upload_outside_the_staging_dir_is_never_deleted(
+    test_db_session, tmp_path, followups, via
+) -> None:
+    """A row naming a file outside the staging directory deletes nothing and logs only the job."""
+    staging = Path(settings.upload_staging_dir)
+    outside = tmp_path / "elsewhere" / "keep.tif"
+    outside.parent.mkdir()
+    outside.write_bytes(b"not an upload")
+    named = {
+        "path": outside,
+        "dot-dot": staging / ".." / "elsewhere" / "keep.tif",
+        "symlink": staging / "link.tif",
+    }[via]
+    if via == "symlink":
+        named.symlink_to(outside)
+    job_id, _, record_id = await _owed_job(test_db_session, reaps_staged_upload=True)
+    try:
+        await _point_job_at(job_id, file_path=str(named))
+        with structlog.testing.capture_logs() as logs:
+            assert await run_publish_followups(job_id) is True
+
+        assert outside.read_bytes() == b"not an upload"
+        assert [
+            e for e in logs if e["event"] == "staged_upload_outside_staging_dir"
+        ] == [
+            {
+                "event": "staged_upload_outside_staging_dir",
+                "job_id": str(job_id),
+                "log_level": "warning",
+            }
+        ]
+        assert followups == _RASTER
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def test_a_relative_upload_under_a_relative_staging_dir_is_deleted(
+    test_db_session, tmp_path, monkeypatch, followups
+) -> None:
+    """With a relative staging directory, the relative path a direct upload records is unlinked."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(settings, "upload_staging_dir", "staging")
+    storage = LocalStorageProvider("staging")
+    monkeypatch.setattr("app.platform.storage.get_storage", lambda: storage)
+    job_id, _, record_id = await _owed_job(test_db_session, reaps_staged_upload=True)
+    upload = Path("staging") / f"{job_id}_upload.tif"
+    upload.write_bytes(b"staged")
+    try:
+        await _point_job_at(job_id, file_path=str(upload))
+
+        assert await run_publish_followups(job_id) is True
+        assert not (tmp_path / upload).exists()
+        assert followups == _RASTER
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+@pytest.mark.parametrize("local_copy", [False, True], ids=["key", "key-and-file"])
+async def test_a_staging_key_leaves_storage_where_it_also_reads_as_a_local_path(
+    test_db_session, raster_storage, tmp_path, monkeypatch, followups, local_copy
+) -> None:
+    """A ``staging/`` key the working directory places inside the staging dir is still deleted from storage."""
+    # As in the containers: /app/staging is both the staging dir and what
+    # the key spells relative to /app.
+    monkeypatch.chdir(tmp_path)
+    job_id, _, record_id = await _owed_job(test_db_session, reaps_staged_upload=True)
+    try:
+        left = await _stage_upload(raster_storage, job_id, "storage")
+        as_local = tmp_path / f"staging/{job_id}/frozen/upload.tif"
+        assert as_local.is_relative_to(Path(settings.upload_staging_dir))
+        if local_copy:
+            as_local.parent.mkdir(parents=True)
+            as_local.write_bytes(b"staged")
+
+        assert await run_publish_followups(job_id) is True
+        assert await left() == []
+        assert not as_local.exists()
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def test_a_hosted_staging_key_never_reads_as_a_local_file(
+    test_db_session, raster_storage, tmp_path, monkeypatch, followups
+) -> None:
+    """On a multi-tenant install a relative path is the tenant's storage key, never a local file."""
+    from app.core.db.tenant_session import current_tenant_var
+
+    monkeypatch.chdir(tmp_path)
+    tenant = str(uuid.uuid4())
+    job_id, _, record_id = await _owed_job(test_db_session, reaps_staged_upload=True)
+    frozen = f"staging/{job_id}/frozen/upload.tif"
+    local = tmp_path / frozen
+    local.parent.mkdir(parents=True)
+    local.write_bytes(b"not this tenant's upload")
+    await raster_storage.put(f"tenants/{tenant}/{frozen}", b"staged")
+    try:
+        await _point_job_at(job_id, file_path=frozen)
+        token = current_tenant_var.set(tenant)
+        try:
+            with patch("app.core.tenancy.is_multi_tenant", return_value=True):
+                assert await run_publish_followups(job_id) is True
+        finally:
+            current_tenant_var.reset(token)
+
+        assert local.read_bytes() == b"not this tenant's upload"
+        assert not await raster_storage.exists(f"tenants/{tenant}/{frozen}")
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def test_a_delete_cut_short_leaves_the_record_for_the_next_run(
+    test_db_session, raster_storage, followups, monkeypatch
+) -> None:
+    """A run stopped inside the upload's delete keeps the record, and the next run deletes the upload."""
+    import app.processing.ingest.publish_followups as publish_followups
+
+    real_reap = publish_followups.reap_presigned_staging_object
+    reaps = {"count": 0}
+
+    async def _stopped_once(*args, **kwargs):
+        reaps["count"] += 1
+        if reaps["count"] == 1:
+            raise asyncio.CancelledError
+        return await real_reap(*args, **kwargs)
+
+    monkeypatch.setattr(
+        publish_followups, "reap_presigned_staging_object", _stopped_once
+    )
+    job_id, _, record_id = await _owed_job(test_db_session, reaps_staged_upload=True)
+    try:
+        left = await _stage_upload(raster_storage, job_id, "local")
+        with pytest.raises(asyncio.CancelledError):
+            await run_publish_followups(job_id)
+        assert await _owes(job_id), "the record went before the upload did"
+        assert await left(), "precondition: the delete stopped before the unlink"
+
+        await run_owed_publish_followups()
+        assert await left() == []
+        assert not await _owes(job_id)
+        assert followups == _RASTER
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+@pytest.mark.parametrize(
+    ("file_path", "metadata"),
+    [(None, {}), ("", {"s3_key": ""}), (None, {"s3_key": None})],
+    ids=["missing", "empty", "null-key"],
+)
+async def test_a_record_asking_for_the_delete_of_no_upload_deletes_nothing(
+    test_db_session, raster_storage, followups, file_path, metadata
+) -> None:
+    """A job that names no upload deletes nothing, raises nothing and runs the rest."""
+    job_id, _, record_id = await _owed_job(test_db_session, reaps_staged_upload=True)
+    try:
+        await _point_job_at(job_id, file_path=file_path, **metadata)
+        with _storage_calls(raster_storage) as calls:
+            assert await run_publish_followups(job_id) is True
+        assert calls["delete"] == []
+        assert followups == _RASTER
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
 # --- Through the real tasks ------------------------------------------------
 
 
-async def _raster_job(session, tmp_path: Path, seed: int) -> tuple[IngestJob, Path]:
+async def _raster_job(session, seed: int, **metadata) -> IngestJob:
+    """A pending first raster ingest of a GeoTIFF uploaded to the staging directory."""
     admin_id = await get_user_id(session, "admin")
-    source = tmp_path / "first.tif"
+    source = Path(settings.upload_staging_dir) / "first.tif"
     source.write_bytes(_geotiff_bytes(seed=seed))
     job = IngestJob(
         source_filename="first.tif",
         file_path=str(source),
         created_by=admin_id,
         status="pending",
-        user_metadata={"file_type": "raster", "title": "Follow-up raster"},
+        user_metadata={"file_type": "raster", "title": "Follow-up raster", **metadata},
     )
     session.add(job)
     await session.commit()
     await session.refresh(job)
-    return job, source
+    return job
 
 
-async def _run_raster(job: IngestJob, source: Path) -> None:
+async def _stage_in_storage(session, storage, job: IngestJob) -> tuple[str, str]:
+    """Move ``job``'s upload to where a presigned completion leaves it: (frozen, client key)."""
+    frozen = f"staging/{job.id}/frozen/first.tif"
+    client_key = f"staging/{job.id}/first.tif"
+    source = Path(job.file_path)
+    for key in (frozen, client_key):
+        await storage.put(key, source.read_bytes())
+    source.unlink()
+    job.file_path = frozen
+    job.user_metadata = {**job.user_metadata, "s3_key": client_key}
+    await session.commit()
+    await session.refresh(job)
+    return frozen, client_key
+
+
+async def _run_raster(job: IngestJob) -> None:
     from app.processing.ingest.tasks_raster import ingest_raster
 
     await ingest_raster.func(
         job_id=str(job.id),
-        file_path=str(source),
+        file_path=job.file_path,
         user_id=str(job.created_by),
         attempt_id=str(job.attempt_id),
     )
+
+
+async def _job_row(job_id) -> tuple[str, uuid.UUID | None]:
+    """The job's (status, dataset_id), read on a fresh session."""
+    async with db_module.async_session() as session:
+        row = await session.execute(
+            select(IngestJob.status, IngestJob.dataset_id).where(IngestJob.id == job_id)
+        )
+    return tuple(row.one())
 
 
 async def _purge_raster_job(session, job_id) -> None:
@@ -388,16 +682,17 @@ async def _purge_raster_job(session, job_id) -> None:
 async def test_a_first_ingest_runs_its_followups_once(
     test_db_session,
     raster_storage,
-    tmp_path,
     followups,
 ) -> None:
-    """An acknowledged publish runs the follow-ups once, and the sweep then owes nothing."""
-    job, source = await _raster_job(test_db_session, tmp_path, seed=101)
+    """An acknowledged publish runs the follow-ups once, deletes its upload, and the sweep owes nothing."""
+    job = await _raster_job(test_db_session, seed=101)
+    source = Path(job.file_path)
     try:
-        await _run_raster(job, source)
+        await _run_raster(job)
         assert followups == _RASTER
         assert followups.billing == [str(job.id)]
         assert not await _owes(job.id)
+        assert not source.exists()
 
         await run_owed_publish_followups()
         assert followups == _RASTER
@@ -408,68 +703,149 @@ async def test_a_first_ingest_runs_its_followups_once(
 async def test_a_lost_acknowledgement_that_landed_still_runs_the_followups(
     test_db_session,
     raster_storage,
-    tmp_path,
     followups,
 ) -> None:
-    """A publish observed after its acknowledgement was lost runs the follow-ups once."""
-    job, source = await _raster_job(test_db_session, tmp_path, seed=102)
+    """A publish observed after its acknowledgement was lost runs the follow-ups once and deletes its upload."""
+    job = await _raster_job(test_db_session, seed=102)
+    source = Path(job.file_path)
     try:
         with _ack_lost_on_publish(
             job.id, failure=ConnectionResetError("dropped")
         ) as fired:
-            await _run_raster(job, source)
+            await _run_raster(job)
         assert fired["count"] == 1, "the publishing commit never fired"
         assert followups == _RASTER
         assert not await _owes(job.id)
+        assert (await _job_row(job.id))[0] == "complete"
+        assert not source.exists(), "the staged upload outlived a landed publish"
     finally:
         await _purge_raster_job(test_db_session, job.id)
 
 
+@pytest.mark.parametrize("ack", ["acknowledged", "lost"])
+async def test_a_first_ingest_staged_in_storage_leaves_no_staging_object(
+    test_db_session, raster_storage, followups, ack
+) -> None:
+    """The frozen copy and the client's key both go once the publish lands, acknowledged or not."""
+    job = await _raster_job(test_db_session, seed=105)
+    keys = await _stage_in_storage(test_db_session, raster_storage, job)
+    try:
+        if ack == "lost":
+            with _ack_lost_on_publish(
+                job.id, failure=ConnectionResetError("dropped")
+            ) as fired:
+                await _run_raster(job)
+            assert fired["count"] == 1, "the publishing commit never fired"
+        else:
+            await _run_raster(job)
+        assert followups == _RASTER
+        assert [key for key in keys if await raster_storage.exists(key)] == []
+    finally:
+        await _purge_raster_job(test_db_session, job.id)
+
+
+@pytest.mark.parametrize("archived", [True, False], ids=["archived", "not-archived"])
+async def test_a_lossy_first_ingest_loses_its_upload_only_once_it_is_archived(
+    test_db_session, raster_storage, followups, monkeypatch, archived
+) -> None:
+    """After a lost acknowledgement, a lossy upload goes only when a durable copy holds it."""
+    if not archived:
+
+        async def _not_archived(*args, **kwargs):
+            return False, None, 0, None
+
+        monkeypatch.setattr(
+            "app.processing.ingest.tasks_raster.archive_lossy_original", _not_archived
+        )
+    job = await _raster_job(test_db_session, seed=106, compression="JPEG")
+    source = Path(job.file_path)
+    try:
+        with _ack_lost_on_publish(
+            job.id, failure=ConnectionResetError("dropped")
+        ) as fired:
+            await _run_raster(job)
+        assert fired["count"] == 1, "the publishing commit never fired"
+        status, dataset_id = await _job_row(job.id)
+        assert status == "complete"
+        kept = await raster_storage.list(f"originals/{dataset_id}/")
+        assert bool(kept) is archived
+        assert source.exists() is not archived, (
+            "the only faithful copy of a lossy upload was deleted"
+            if not archived
+            else "the staged upload outlived its archived copy"
+        )
+    finally:
+        await _purge_raster_job(test_db_session, job.id)
+
+
+@pytest.mark.parametrize(
+    "observed",
+    [PublishObservation.LANDED, PublishObservation.UNKNOWN],
+    ids=["landed", "unknown"],
+)
 async def test_followups_a_first_ingest_cannot_claim_are_run_by_the_sweep(
     test_db_session,
     raster_storage,
-    tmp_path,
     followups,
     monkeypatch,
+    observed,
 ) -> None:
-    """A landed publish whose own claim fails leaves the record, and the sweep runs them once."""
+    """A publish whose own claim fails keeps its upload and record until the sweep runs them once."""
 
     async def _unreachable(job_uuid):
         raise ConnectionResetError("the database is gone")
 
+    async def _observe(*args, **kwargs):
+        return observed
+
     monkeypatch.setattr(
         "app.processing.ingest.tasks_raster.run_publish_followups", _unreachable
     )
-    job, source = await _raster_job(test_db_session, tmp_path, seed=103)
+    monkeypatch.setattr(
+        "app.processing.ingest.tasks_raster_common.observe_publish_commit", _observe
+    )
+    job = await _raster_job(test_db_session, seed=103)
+    source = Path(job.file_path)
     try:
         with _ack_lost_on_publish(job.id, failure=ConnectionResetError("dropped")):
-            await _run_raster(job, source)
+            await _run_raster(job)
         assert followups == []
         assert await _owes(job.id)
+        assert source.exists(), "the upload went before the publish was known"
 
         await run_owed_publish_followups()
         assert followups == _RASTER
+        assert not source.exists(), "the sweep left the upload of a landed publish"
         await run_owed_publish_followups()
         assert followups == _RASTER
     finally:
         await _purge_raster_job(test_db_session, job.id)
 
 
+@pytest.mark.parametrize("aborted", [False, True], ids=["in-progress", "aborted"])
 async def test_a_publish_that_never_lands_owes_no_followups(
     test_db_session,
     raster_storage,
-    tmp_path,
     followups,
+    aborted,
 ) -> None:
-    """A commit still in progress that then rolls back leaves no record and runs nothing."""
-    job, source = await _raster_job(test_db_session, tmp_path, seed=104)
+    """A commit that rolls back leaves no record, runs no follow-ups and keeps the upload."""
+    job = await _raster_job(test_db_session, seed=104)
+    source = Path(job.file_path)
     try:
-        with _publish_commit_lost(job.id) as fired:
-            await _run_raster(job, source)
+        with (
+            _publish_commit_lost(job.id, aborted=aborted) as fired,
+            pytest.raises(ConnectionResetError)
+            if aborted
+            else contextlib.nullcontext(),
+        ):
+            await _run_raster(job)
         assert fired["count"] == 1, "the publishing commit never fired"
         assert not await _owes(job.id)
         await run_owed_publish_followups()
-        assert followups == []
+        assert followups == ([("notice", "ingest_failed")] if aborted else [])
+        assert await _job_row(job.id) == ("failed" if aborted else "running", None)
+        assert source.exists(), "the upload went though its publish never landed"
     finally:
         await _purge_raster_job(test_db_session, job.id)
 

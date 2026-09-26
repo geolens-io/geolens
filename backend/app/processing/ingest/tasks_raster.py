@@ -667,7 +667,11 @@ async def ingest_raster(
             # asset). Vector ingests set rows_processed in
             # tasks_common._finalize_ingest from metadata["feature_count"].
             await note_publish_followups(
-                session, job_uuid, attempt_uuid, "ingest_raster"
+                session,
+                job_uuid,
+                attempt_uuid,
+                "ingest_raster",
+                reaps_staged_upload=source_preserved_in_cog or lossy_original_archived,
             )
             await ledger.complete(
                 session,
@@ -698,9 +702,9 @@ async def ingest_raster(
                     raise
                 # Stand down: the dataset may be live, and the handler below
                 # would mail `ingest_failed` for it. `final_status` stays
-                # non-complete since it also licenses deleting the staged
-                # original. The follow-ups run once the publish is visible, or
-                # the sweep runs them.
+                # non-complete, so the cleanup below keeps the staged original;
+                # the follow-ups delete it once the publish is visible, whether
+                # they run here or from the sweep.
                 publish_committed = True
                 absorb_cancellation(exc)
                 await run_publish_followups(job_uuid)

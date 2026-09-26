@@ -44,10 +44,13 @@ from app.processing.embeddings.tasks import embed_record
 from app.processing.ingest import manifest_service
 from app.processing.ingest import router as ingest_router
 from app.processing.ingest.pointcloud import inspect_pointcloud
+from app.processing.ingest.publish_followups import run_owed_publish_followups
 from app.processing.ingest.tasks import ingest_pointcloud, task_app
 from app.processing.raster.models import DatasetAsset
 from tests.factories import create_dataset, create_user, get_user_id
 from tests.pointcloud_files import copc, copc_nodes, reframed, scrambled, two_ends
+from tests.test_publish_followups import followups as followups
+from tests.test_raster_replace_1221 import _ack_lost_on_publish, _publish_commit_lost
 
 _CLOUD = copc()
 _DECODE_FAILED = "The point cloud's points don't decode as its header describes."
@@ -660,6 +663,58 @@ async def test_a_decode_past_its_budget_fails_the_job_with_its_code(
     assert await pointcloud_objects() == []
 
 
+# --- A publish whose acknowledgement is lost -----------------------------
+
+
+async def test_a_lost_acknowledgement_that_landed_deletes_the_staged_file(
+    client: AsyncClient, test_db_session, uploader, queued, followups
+) -> None:
+    """A point cloud publish seen after a lost acknowledgement runs its follow-ups and deletes its upload."""
+    headers, _ = uploader
+    job_id = await committed_upload(client, headers)
+    staged = (await load_job(test_db_session, job_id)).file_path
+
+    with _ack_lost_on_publish(
+        uuid.UUID(job_id), failure=ConnectionResetError("dropped")
+    ) as fired:
+        await run_queued(queued)
+
+    assert fired["count"] == 1, "the publishing commit never fired"
+    job = await load_job(test_db_session, job_id)
+    assert job.status == "complete"
+    key = pointcloud_attempt_key(job.dataset_id, job.attempt_id)
+    assert await pointcloud_objects(job.dataset_id) == [key]
+    assert followups == [
+        ("notice", "ingest_complete"),
+        ("cache",),
+        ("embed",),
+        ("bill", "ingest_jobs"),
+    ]
+    assert not Path(staged).exists(), "the staged upload outlived a landed publish"
+
+
+@pytest.mark.parametrize("aborted", [False, True], ids=["in-progress", "aborted"])
+async def test_a_publish_commit_that_does_not_land_keeps_the_staged_file(
+    client: AsyncClient, test_db_session, uploader, queued, followups, aborted
+) -> None:
+    """A commit still in progress or aborted keeps the upload, and the sweep deletes nothing."""
+    headers, _ = uploader
+    job_id = await committed_upload(client, headers)
+    staged = (await load_job(test_db_session, job_id)).file_path
+
+    with (
+        _publish_commit_lost(job_id, aborted=aborted) as fired,
+        pytest.raises(ConnectionResetError) if aborted else nullcontext(),
+    ):
+        await run_queued(queued)
+    await run_owed_publish_followups()
+
+    assert fired["count"] == 1, "the publishing commit never fired"
+    job = await load_job(test_db_session, job_id)
+    assert (job.status, job.dataset_id) == ("failed" if aborted else "running", None)
+    assert Path(staged).exists(), "the upload went though its publish never landed"
+
+
 # --- Presigned doors on S3 -----------------------------------------------
 
 
@@ -722,6 +777,31 @@ async def test_a_presigned_point_cloud_publishes_from_s3(
     assert job.status == "complete", job.error_message
     key = pointcloud_attempt_key(job.dataset_id, job.attempt_id)
     assert await s3_storage.list(pointcloud_prefix(job.dataset_id)) == [key]
+    assert await s3_storage.get(key) == _CLOUD
+    assert await s3_storage.list(f"staging/{job_id}/") == []
+
+
+async def test_a_presigned_point_cloud_whose_acknowledgement_is_lost_leaves_nothing_staged(
+    client: AsyncClient, test_db_session, uploader, queued, s3_storage, followups
+) -> None:
+    """A presigned point cloud seen after a lost acknowledgement leaves no staging object."""
+    headers, _ = uploader
+    body, completed = await presigned_upload(client, headers, s3_storage)
+    assert completed.status_code == 200, completed.text
+    job_id = body["job_id"]
+    # A late PUT through the unexpired URL recreates the client's key.
+    await s3_storage.put(body["s3_key"], io.BytesIO(_CLOUD))
+    assert (await commit(client, headers, job_id)).status_code == 202
+
+    with _ack_lost_on_publish(
+        uuid.UUID(job_id), failure=ConnectionResetError("dropped")
+    ) as fired:
+        await run_queued(queued)
+
+    assert fired["count"] == 1, "the publishing commit never fired"
+    job = await load_job(test_db_session, job_id)
+    assert job.status == "complete"
+    key = pointcloud_attempt_key(job.dataset_id, job.attempt_id)
     assert await s3_storage.get(key) == _CLOUD
     assert await s3_storage.list(f"staging/{job_id}/") == []
 
