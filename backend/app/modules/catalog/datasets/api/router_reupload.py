@@ -578,6 +578,22 @@ async def reupload_service_preview(
     )
 
 
+def _diffable_columns(columns: list[dict], *, file_path: str) -> list[dict]:
+    """Columns as ``run_ogr2ogr`` will actually store them, for the diff.
+
+    The preview passes ``AUTODETECT_TYPE=YES`` for a CSV source so the UI
+    can show a numeric or boolean column as more than a plain string, but
+    the commit never does: every CSV field lands as ``character varying``
+    regardless of its content. Diffing the preview's autodetected type
+    against the stored column would report a type change for nearly every
+    CSV re-upload. Every other format's import keeps the preview's type,
+    so this is a no-op for them.
+    """
+    if not file_path.lower().endswith(".csv"):
+        return columns
+    return [{"name": c["name"], "type": "String"} for c in columns]
+
+
 @router.post(
     "/{dataset_id}/reupload/{job_id}/preview",
     response_model=ReuploadPreviewResponse,
@@ -735,7 +751,7 @@ async def reupload_preview(
 
     diff = compute_schema_diff(
         prior_columns,
-        info["columns"],
+        _diffable_columns(info["columns"], file_path=file_path),
         prior_feature_count,
         info["feature_count"],
     )

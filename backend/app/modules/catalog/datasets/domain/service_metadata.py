@@ -50,9 +50,8 @@ _TYPE_EQUIVALENCES = {
 
 # GDAL field subtypes the PostgreSQL driver stores as a narrower column
 # type than the bare OGR type would suggest, keyed by (type, subtype)
-# lowercased. Confirmed against ogr2ogr's PGDump output: Integer/Boolean
-# -> boolean, Integer/Int16 -> smallint, Real/Float32 -> real,
-# String/JSON -> json.
+# lowercased: Integer/Boolean -> boolean, Integer/Int16 -> smallint,
+# Real/Float32 -> real, String/JSON -> json.
 _SUBTYPE_TYPE_EQUIVALENCES = {
     ("integer", "boolean"): "boolean",
     ("integer", "int16"): "smallint",
@@ -64,16 +63,17 @@ _SUBTYPE_TYPE_EQUIVALENCES = {
 def _normalize_col_type(column: dict) -> str:
     """Normalize one column's reported type for case-insensitive comparison.
 
-    A reupload preview diffs a PostgreSQL type against an OGR type, but the
-    post-swap drift recompute diffs two PostgreSQL types (both read back
-    from ``information_schema``) -- so the vocabulary depends on the value,
-    not on whether it is the "old" or "new" argument. PostgreSQL's
-    ``data_type`` is always lowercase (``real``); every OGR field type name
-    starts with a capital letter (``Real``), which makes case a reliable
-    discriminator: a lowercase type is already canonical PostgreSQL and
-    returned as-is, while an OGR type is mapped to the PostgreSQL type
-    ogr2ogr would create for it, honoring a GDAL field subtype (e.g.
-    Integer/Boolean) the driver stores narrower than the bare type.
+    Which vocabulary a value is in depends on the value, not on whether it
+    is the "old" or "new" argument: a reupload preview diffs a PostgreSQL
+    type against an OGR type, but the post-swap drift recompute diffs two
+    PostgreSQL types. Every attribute column's PostgreSQL type reaching
+    this diff is lowercase (a PostGIS geometry column would report the
+    non-lowercase ``USER-DEFINED``, but ``column_info`` excludes those
+    before they get here). Every OGR type name starts with a capital
+    letter, so a lowercase value is already canonical and returned as-is,
+    while a capitalized one maps to the PostgreSQL type ogr2ogr would
+    create for it, honoring a GDAL subtype the driver stores narrower
+    than the bare type.
     """
     raw_type = column["type"]
     base_type = raw_type.lower()

@@ -135,6 +135,7 @@ async def _create_dataset(
     name: str = "Reupload Test Dataset",
     visibility: str = "public",
     record_type: str = "vector_dataset",
+    column_info: list[dict] | None = None,
 ) -> Dataset:
     """Insert a Record + Dataset pair directly into the DB."""
     return await create_dataset(
@@ -147,7 +148,9 @@ async def _create_dataset(
         record_type=record_type,
         feature_count=100,
         source_filename="original.geojson",
-        column_info=[
+        column_info=column_info
+        if column_info is not None
+        else [
             {"name": "name", "type": "String"},
             {"name": "value", "type": "Integer"},
         ],
@@ -844,6 +847,114 @@ class TestReuploadPreview:
             "Unable to preview file. The file may be malformed or unsupported."
         )
         assert not downloaded.exists()
+
+
+class TestCsvReuploadDiffMatchesTheStoredType:
+    """ogr2ogr never autodetects a CSV's types (every field lands as
+    ``character varying``), but the preview passes ``AUTODETECT_TYPE=YES``
+    so the UI can show a numeric or boolean column as more than a plain
+    string. The diff must compare against what the commit will actually
+    store, not the preview's enriched types.
+    """
+
+    async def test_csv_reupload_over_csv_dataset_reports_no_type_change(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        mock_ogrinfo_preview,
+    ):
+        """A CSV re-upload over a CSV-created dataset (all character
+        varying) shows no type change, even though the preview's
+        autodetection reports a richer type for the numeric column.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            record_type="table",
+            column_info=[
+                {"name": "name", "type": "character varying"},
+                {"name": "value", "type": "character varying"},
+            ],
+        )
+
+        resp = await client.post(
+            f"/datasets/{dataset.id}/reupload",
+            files={"file": ("update.csv", b"name,value\nalpha,100\n", "text/csv")},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201
+        job_id = resp.json()["job_id"]
+
+        mock_ogrinfo_preview.return_value = {
+            "srid": None,
+            "geometry_type": None,
+            "layer_name": "update",
+            "feature_count": 1,
+            "columns": [
+                {"name": "name", "type": "String"},
+                {"name": "value", "type": "Integer"},
+            ],
+            "sample_rows": [{"name": "alpha", "value": 100}],
+            "all_layers": None,
+        }
+
+        resp = await client.post(
+            f"/datasets/{dataset.id}/reupload/{job_id}/preview",
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["schema_diff"]["type_changes"] == []
+
+    async def test_csv_boolean_looking_column_reports_the_real_stored_type(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        mock_ogrinfo_preview,
+    ):
+        """A CSV column of ``True``/``False`` values still lands as
+        character varying at commit, so a re-upload over an existing
+        boolean column must report that real change rather than matching
+        it through the preview's autodetected Boolean subtype.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            record_type="table",
+            column_info=[{"name": "is_active", "type": "boolean"}],
+        )
+
+        resp = await client.post(
+            f"/datasets/{dataset.id}/reupload",
+            files={"file": ("update.csv", b"is_active\nTrue\n", "text/csv")},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201
+        job_id = resp.json()["job_id"]
+
+        mock_ogrinfo_preview.return_value = {
+            "srid": None,
+            "geometry_type": None,
+            "layer_name": "update",
+            "feature_count": 1,
+            "columns": [{"name": "is_active", "type": "Integer", "subtype": "Boolean"}],
+            "sample_rows": [{"is_active": True}],
+            "all_layers": None,
+        }
+
+        resp = await client.post(
+            f"/datasets/{dataset.id}/reupload/{job_id}/preview",
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["schema_diff"]["type_changes"] == [
+            {"name": "is_active", "old_type": "boolean", "new_type": "String"}
+        ]
 
 
 class TestReuploadJobBinding:
