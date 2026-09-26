@@ -3514,6 +3514,37 @@ class TestNodataRepairOnRefresh:
 
         assert (await _raster_asset(dataset.id)).nodata is None
 
+    async def test_a_relocated_items_unmoved_asset_gets_its_nodata_repaired(
+        self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
+    ) -> None:
+        from app.modules.catalog.sources.cog_info import fetch_cog_nodata
+        from tests.test_cog_info import _TITILER_INFO, _install
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_nodata",
+            fetch_cog_nodata,
+        )
+        _install(
+            monkeypatch, {**_TITILER_INFO, "nodata_type": "Nodata", "nodata_value": 0.0}
+        )
+        install, _ = stac_transport
+        install(
+            {
+                _ITEM: (404, None),
+                _SEARCH: (200, {"features": [_item_doc(asset_href=_ASSET)]}),
+                _ASSET: (206, None),
+            }
+        )
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(test_db_session, created_by=admin_id)
+        assert (await _raster_asset(dataset.id)).nodata is None
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        await _execute(test_db_session, payload)
+
+        assert await _asset_uri(dataset.id) == _ASSET
+        assert (await _raster_asset(dataset.id)).nodata == "0.0"
+
 
 # ---------------------------------------------------------------------------
 # The probe is still a reporter
