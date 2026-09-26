@@ -22,7 +22,7 @@ from procrastinate.exceptions import AlreadyEnqueued
 from procrastinate.jobs import Status
 from sqlalchemy import event
 
-from app.core.geo import wkt_crs_facts
+from app.core.geo import crs_columns, wkt_crs_facts
 from app.processing.ingest import tasks_crs_facts
 from app.processing.ingest.tasks_common import task_app
 from app.processing.raster import probe
@@ -44,6 +44,9 @@ _FEET = rasterio.crs.CRS.from_epsg(2263).to_wkt(version="WKT2_2019")
 _GRADS = rasterio.crs.CRS.from_epsg(4807).to_wkt()
 # The CRS of _FEET written as WKT1, so the text differs and the facts don't.
 _FEET_WKT1 = rasterio.crs.CRS.from_epsg(2263).to_wkt()
+# Two metre-based projected CRSs, so their facts are identical.
+_UTM_18N = rasterio.crs.CRS.from_epsg(32618).to_wkt(version="WKT2_2019")
+_UTM_19N = rasterio.crs.CRS.from_epsg(32619).to_wkt(version="WKT2_2019")
 # Truncated, so PROJ refuses it and the keyword sniff answers.
 _TRUNCATED = 'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84"'
 
@@ -96,9 +99,9 @@ async def _delete(ids: list[uuid.UUID]) -> None:
     )
 
 
-async def _write(asset_id: uuid.UUID, crs_wkt: str, facts: tuple = ()) -> None:
-    """One UPDATE of the row's text and, when given, its facts."""
-    columns = {"crs_wkt": crs_wkt, **dict(zip(_FACTS, facts))}
+async def _write(asset_id: uuid.UUID, crs_wkt: str) -> None:
+    """A current writer's UPDATE: the text with its facts and their digest."""
+    columns = crs_columns({"crs_wkt": crs_wkt, **wkt_crs_facts(crs_wkt)})
     assignments = ", ".join(f"{name} = :{name}" for name in columns)
     await fresh_query(
         f"UPDATE catalog.raster_assets SET {assignments} WHERE id = :id",
@@ -106,18 +109,41 @@ async def _write(asset_id: uuid.UUID, crs_wkt: str, facts: tuple = ()) -> None:
     )
 
 
-async def _clearing_trigger() -> tuple[bool, bool]:
-    """Whether 0073's trigger and its function exist."""
-    ((trigger, function),) = await fresh_query(
+async def _legacy_write(asset_id: uuid.UUID, crs_wkt: str) -> None:
+    """A previous image's UPDATE, which knows only the text."""
+    await fresh_query(
+        "UPDATE catalog.raster_assets SET crs_wkt = :crs_wkt WHERE id = :id",
+        {"crs_wkt": crs_wkt, "id": asset_id},
+    )
+
+
+async def _stored_digest(asset_id: uuid.UUID) -> bytes | None:
+    ((digest,),) = await fresh_query(
+        "SELECT crs_facts_digest FROM catalog.raster_assets WHERE id = :id",
+        {"id": asset_id},
+    )
+    return digest
+
+
+async def _trigger_and_digest() -> tuple[bool, bool, bool]:
+    """Whether 0073's trigger, its function and the digest column exist."""
+    ((trigger, function, column),) = await fresh_query(
         "SELECT EXISTS (SELECT 1 FROM pg_trigger "
         "WHERE tgname = 'trg_clear_stale_raster_crs_facts'), "
-        "to_regproc('catalog.clear_stale_raster_crs_facts') IS NOT NULL"
+        "to_regproc('catalog.clear_stale_raster_crs_facts') IS NOT NULL, "
+        "EXISTS (SELECT 1 FROM information_schema.columns "
+        "WHERE table_schema = 'catalog' AND table_name = 'raster_assets' "
+        "AND column_name = 'crs_facts_digest')"
     )
-    return trigger, function
+    return trigger, function, column
 
 
 def _digest(crs_wkt: str) -> str:
-    return hashlib.sha256(crs_wkt.encode("utf-8")).hexdigest()
+    return _sha256(crs_wkt).hex()
+
+
+def _sha256(crs_wkt: str) -> bytes:
+    return hashlib.sha256(crs_wkt.encode("utf-8")).digest()
 
 
 def _strings(value) -> list[str]:
@@ -221,10 +247,10 @@ class TestSchemaOnlyMigration:
         try:
             down = run_alembic("downgrade", "0072_ingest_job_error_code")
             assert down.returncode == 0, down.stderr
-            assert await _clearing_trigger() == (False, False)
+            assert await _trigger_and_digest() == (False, False, False)
             up = run_alembic("upgrade", "head")
             assert up.returncode == 0, up.stderr
-            assert await _clearing_trigger() == (True, True)
+            assert await _trigger_and_digest() == (True, True, True)
 
             assert set((await _stored(ids)).values()) == {(None, None, None)}
 
@@ -256,8 +282,10 @@ class TestRepairJob:
             stored = await _stored(ids)
             for wkt, asset_id in seeded.items():
                 assert stored[asset_id] == _expected(wkt), wkt
+                assert await _stored_digest(asset_id) == _sha256(wkt)
             assert stored[twin] == _expected(_FEET)
             assert stored[no_crs] == (None, None, None)
+            assert await _stored_digest(no_crs) is None
             assert child.asked.count(_FEET) == 1
         finally:
             await _delete(ids)
@@ -417,6 +445,8 @@ class TestRepairJob:
             await _repair()
 
             assert (await _stored([asset_id]))[asset_id] == _expected(wkt)
+            # The job's SQL digest is the writers' Python one, byte for byte.
+            assert await _stored_digest(asset_id) == _sha256(wkt)
         finally:
             await _delete([asset_id])
 
@@ -456,42 +486,52 @@ class TestRepairJob:
 
 
 class TestTextChangesClearStaleFacts:
-    async def test_an_old_writers_new_text_clears_the_facts(self, test_db_session):
+    @pytest.mark.parametrize(
+        "new_wkt",
+        [_UTM_19N, _UTM_19N.replace('"WGS 84 / UTM zone 19N"', '"UTM 19N é \\ 中"', 1)],
+        ids=["utm-19n", "non-ascii-name"],
+    )
+    async def test_a_writer_switching_utm_zones_keeps_the_facts(
+        self, test_db_session, new_wkt
+    ):
+        assert _expected(new_wkt) == _expected(_UTM_18N)
+        asset_id = await _seed(test_db_session, _UTM_18N)
+        try:
+            await _write(asset_id, _UTM_18N)
+            asset = await test_db_session.get(RasterAsset, asset_id)
+
+            asset.set_crs({"crs_wkt": new_wkt, **wkt_crs_facts(new_wkt)})
+            await test_db_session.commit()
+
+            assert (await _stored([asset_id]))[asset_id] == _expected(new_wkt)
+            assert await _stored_digest(asset_id) == _sha256(new_wkt)
+        finally:
+            await _delete([asset_id])
+
+    async def test_a_legacy_text_only_update_clears_the_facts_and_digest(
+        self, test_db_session
+    ):
         asset_id = await _seed(test_db_session, _FEET)
         try:
-            await _write(asset_id, _FEET, _expected(_FEET))
             await _write(asset_id, _FEET)
+            await _legacy_write(asset_id, _FEET)
             assert (await _stored([asset_id]))[asset_id] == _expected(_FEET)
 
-            await _write(asset_id, _WGS84)
+            await _legacy_write(asset_id, _WGS84)
 
             assert (await _stored([asset_id]))[asset_id] == (None, None, None)
+            assert await _stored_digest(asset_id) is None
         finally:
             await _delete([asset_id])
 
     async def test_new_text_with_new_facts_keeps_them(self, test_db_session):
         asset_id = await _seed(test_db_session, _FEET)
         try:
-            await _write(asset_id, _FEET, _expected(_FEET))
-            await _write(asset_id, _WGS84, _expected(_WGS84))
+            await _write(asset_id, _FEET)
+            await _write(asset_id, _WGS84)
 
             assert (await _stored([asset_id]))[asset_id] == _expected(_WGS84)
-        finally:
-            await _delete([asset_id])
-
-    async def test_new_text_with_the_same_facts_is_cleared_then_refilled(
-        self, test_db_session, child
-    ):
-        assert _expected(_FEET_WKT1) == _expected(_FEET)
-        asset_id = await _seed(test_db_session, _FEET)
-        try:
-            await _write(asset_id, _FEET, _expected(_FEET))
-            await _write(asset_id, _FEET_WKT1, _expected(_FEET_WKT1))
-            assert (await _stored([asset_id]))[asset_id] == (None, None, None)
-
-            await _repair()
-
-            assert (await _stored([asset_id]))[asset_id] == _expected(_FEET_WKT1)
+            assert await _stored_digest(asset_id) == _sha256(_WGS84)
         finally:
             await _delete([asset_id])
 

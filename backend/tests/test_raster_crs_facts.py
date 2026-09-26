@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 import uuid
@@ -39,6 +40,10 @@ _UTM_18N_WKT2 = _UTM_18N.to_wkt(version="WKT2_2019")
 _UTM_19N_WKT2 = rasterio.crs.CRS.from_epsg(32619).to_wkt(version="WKT2_2019")
 # Truncated, so PROJ refuses it, but a keyword sniff still calls it geographic.
 _TRUNCATED = 'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84"'
+
+
+def _sha256(crs_wkt: str) -> bytes:
+    return hashlib.sha256(crs_wkt.encode("utf-8")).digest()
 
 
 @pytest.fixture
@@ -275,9 +280,18 @@ class TestWritersStoreTheFacts:
             asset.crs_has_degree_unit,
             asset.crs_metres_per_unit,
         ) == (False, False, pytest.approx(0.3048006))
+        assert asset.crs_facts_digest == _sha256(asset.crs_wkt)
 
-    def test_the_column_helper_carries_every_fact(self):
-        assert set(crs_columns({})) == {"crs_wkt", *wkt_crs_facts(None)}
+    def test_the_column_helper_carries_every_fact_and_the_texts_digest(self):
+        assert set(crs_columns({})) == {
+            "crs_wkt",
+            *wkt_crs_facts(None),
+            "crs_facts_digest",
+        }
+        assert crs_columns({})["crs_facts_digest"] is None
+        assert crs_columns({"crs_wkt": _NAD83_WKT})["crs_facts_digest"] == (
+            _sha256(_NAD83_WKT)
+        )
 
     def test_set_crs_replaces_the_text_and_its_facts_together(self):
         asset = RasterAsset(crs_wkt="old", crs_is_geographic=True)
@@ -287,6 +301,7 @@ class TestWritersStoreTheFacts:
         assert {column: getattr(asset, column) for column in crs_columns({})} == {
             "crs_wkt": _NAD83_WKT,
             **_NAD83_FACTS,
+            "crs_facts_digest": _sha256(_NAD83_WKT),
         }
 
 

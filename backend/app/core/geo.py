@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import math
 import re
 from collections.abc import Iterable, Sequence
@@ -681,10 +682,19 @@ def crs_columns(meta: dict) -> dict:
     """A raster's CRS text and the facts derived from it, as ``raster_assets`` columns.
 
     Every writer stores them together, so the facts describe the stored text.
+    ``crs_facts_digest`` is the SHA-256 of the text's UTF-8 bytes, which
+    migration 0073's trigger compares with ``sha256(convert_to(crs_wkt,
+    'UTF8'))`` to keep these facts when the text changes.
     """
+    crs_wkt = meta.get("crs_wkt")
     return {
-        "crs_wkt": meta.get("crs_wkt"),
+        "crs_wkt": crs_wkt,
         **{column: meta.get(column) for column in CRS_FACT_COLUMNS},
+        "crs_facts_digest": (
+            hashlib.sha256(crs_wkt.encode("utf-8")).digest()
+            if isinstance(crs_wkt, str)
+            else None
+        ),
     }
 
 

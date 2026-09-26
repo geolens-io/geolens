@@ -9,6 +9,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -84,6 +85,8 @@ class RasterAsset(Base):
     crs_is_geographic: Mapped[bool | None] = mapped_column(nullable=True)
     crs_has_degree_unit: Mapped[bool | None] = mapped_column(nullable=True)
     crs_metres_per_unit: Mapped[float | None] = mapped_column(Double, nullable=True)
+    # SHA-256 of the crs_wkt those facts describe; see crs_columns.
+    crs_facts_digest: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     epsg: Mapped[int | None] = mapped_column(Integer, nullable=True)
     band_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     dtype: Mapped[str | None] = mapped_column(String(30), nullable=True)

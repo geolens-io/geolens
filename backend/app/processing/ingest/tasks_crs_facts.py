@@ -60,7 +60,8 @@ _CANDIDATES = text(
 _FILL = text(
     "UPDATE catalog.raster_assets SET crs_is_geographic = :crs_is_geographic, "
     "crs_has_degree_unit = :crs_has_degree_unit, "
-    "crs_metres_per_unit = :crs_metres_per_unit "
+    "crs_metres_per_unit = :crs_metres_per_unit, "
+    "crs_facts_digest = sha256(convert_to(crs_wkt, 'UTF8')) "
     "WHERE id = ANY(:ids) "
     "AND encode(sha256(convert_to(crs_wkt, 'UTF8')), 'hex') = :digest "
     "AND crs_is_geographic IS NULL AND crs_has_degree_unit IS NULL "
