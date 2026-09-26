@@ -22,7 +22,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from time import monotonic
 from types import SimpleNamespace
-from typing import BinaryIO, Callable
+from typing import BinaryIO, Callable, NamedTuple
 
 import lazrs
 import numpy as np
@@ -143,14 +143,25 @@ class _Header:
     point_count: int
 
 
+class _Node(NamedTuple):
+    """A node holding points: its chunk, and its cell's key in the octree."""
+
+    offset: int
+    size: int
+    count: int
+    depth: int
+    x: int
+    y: int
+    z: int
+
+
 @dataclass(frozen=True)
 class _Layout:
     header: _Header
     laszip: bytes
     wkt: bytes
-    # Every node holding points, as (offset, byte size, point count), the
-    # shallowest first.
-    nodes: list[tuple[int, int, int]]
+    # Every node holding points, the shallowest first.
+    nodes: list[_Node]
     # The per-layer sizes a chunk's header lists, one per LASzip layer.
     layers: int
     # The octree's cube, as its center and half the length of a side.
@@ -321,7 +332,7 @@ def _check_laszip(data: bytes, header: _Header) -> int:
 
 def _walk(
     read: Read, header: _Header, root: tuple[int, int], hierarchy: range
-) -> list[tuple[int, int, int]]:
+) -> list[_Node]:
     """Check every hierarchy page and return each node holding points, shallowest first.
 
     A page is read once at most, from inside the hierarchy record; each node's
@@ -333,7 +344,7 @@ def _walk(
     seen_pages: set[tuple[int, int]] = set()
     seen_keys: set[tuple[int, int, int, int]] = set()
     entries = total = 0
-    nodes: list[tuple[int, int, int, int]] = []
+    nodes: list[_Node] = []
     while pages:
         page = pages.pop()
         offset, size = page
@@ -396,23 +407,23 @@ def _walk(
                     limit=MAX_DECODE_RATIO,
                 )
             total += count
-            nodes.append((depth, node_offset, node_size, count))
+            nodes.append(_Node(node_offset, node_size, count, depth, x, y, z))
     if not nodes or total != header.point_count:
         raise _invalid(
             "The hierarchy's point counts don't add up to the header's.",
             reason="point_count",
         )
     # A chunk two nodes share would be decoded once for each of them.
-    by_offset = sorted(nodes, key=lambda node: node[1])
+    by_offset = sorted(nodes, key=lambda node: node.offset)
     for before, after in zip(by_offset, by_offset[1:]):
-        if after[1] < before[1] + before[2]:
+        if after.offset < before.offset + before.size:
             raise _invalid(
                 "Two nodes' points overlap in the file's point data.",
                 reason="node_overlap",
             )
     # Stable, so the top node is the first one found at the least depth.
-    nodes.sort(key=lambda node: node[0])
-    return [node[1:] for node in nodes]
+    nodes.sort(key=lambda node: node.depth)
+    return nodes
 
 
 def _read_layout(read: Read, size: int) -> _Layout:
@@ -476,12 +487,10 @@ def _check_chunk(chunk: bytes, layout: _Layout, count: int) -> None:
         raise _decode_failed(reason="chunk_header")
 
 
-def _decode(
-    read: Read, layout: _Layout, node: tuple[int, int, int]
-) -> tuple[np.ndarray, np.ndarray]:
+def _decode(read: Read, layout: _Layout, node: _Node) -> tuple[np.ndarray, np.ndarray]:
     """Decode one node with lazrs, check where its points sit, and return their low and high corners."""
     header = layout.header
-    offset, size, count = node
+    offset, size, count = node.offset, node.size, node.count
     if max(size, count * header.record_length) > MAX_DECODE_BYTES:
         raise _invalid(
             "A node of the octree exceeds the "
@@ -515,12 +524,14 @@ def _decode(
         high > np.array(header.maxs) + slack
     ).any():
         raise _decode_failed(reason="decode_bounds")
-    center = np.array(layout.center)
-    if (low < center - layout.halfsize - slack).any() or (
-        high > center + layout.halfsize + slack
-    ).any():
+    # Each level halves the octree's cube, and a COPC reader reads a node only
+    # for a query that meets its cell, so a point outside the cell is hidden.
+    edge = 2 * layout.halfsize / 2**node.depth
+    key = np.array((node.x, node.y, node.z))
+    cell = np.array(layout.center) - layout.halfsize + edge * key
+    if (low < cell - slack).any() or (high > cell + edge + slack).any():
         raise _invalid(
-            "The point cloud's points lie outside its octree.", reason="decode_cube"
+            "A node's points lie outside its octree cell.", reason="decode_voxel"
         )
     return low, high
 
@@ -651,7 +662,7 @@ def inspect_pointcloud(path: str) -> PointCloud:
 
 
 def _decode_node(
-    path: str, layout: _Layout, node: tuple[int, int, int]
+    path: str, layout: _Layout, node: _Node
 ) -> tuple[np.ndarray, np.ndarray]:
     with open(path, "rb") as source:
         return _decode(_reader(source), layout, node)
@@ -723,9 +734,9 @@ async def inspect_stored_pointcloud(storage: StorageProvider, key: str) -> Point
             and evlr_bytes <= MAX_EVLR_BLOCK_BYTES
         ):
             await _copy_range(storage, key, probe, header.evlr_start, evlr_bytes)
-        offset, length, _ = (await asyncio.to_thread(_layout_of, probe)).nodes[0]
-        if length <= MAX_DECODE_BYTES:
-            await _copy_range(storage, key, probe, offset, length)
+        top = (await asyncio.to_thread(_layout_of, probe)).nodes[0]
+        if top.size <= MAX_DECODE_BYTES:
+            await _copy_range(storage, key, probe, top.offset, top.size)
         return await asyncio.to_thread(inspect_pointcloud, probe)
     finally:
         if handle >= 0:

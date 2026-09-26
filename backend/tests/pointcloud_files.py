@@ -44,13 +44,18 @@ def evlr(user_id: bytes, record_id: int, data: bytes) -> bytes:
 
 
 def records(
-    count: int, point_format: int = 6, extra_bytes: int = 0, span: int = 1000
+    count: int,
+    point_format: int = 6,
+    extra_bytes: int = 0,
+    *,
+    start: int = 0,
+    span: int = 1000,
 ) -> bytes:
-    """``count`` points on a diagonal ``span`` raw units long, each with one return."""
+    """``count`` points on a diagonal from raw ``start``, ``span`` long, each with one return."""
     length = _RECORD_LENGTHS[point_format] + extra_bytes
     out = bytearray()
     for i in range(count):
-        step = i * span // max(count - 1, 1)
+        step = start + i * span // max(count - 1, 1)
         out += struct.pack(
             "<iiiHBBBBhHd", step, step, step // 10, 0, 0x11, 0, 2, 0, 0, 0, 0.0
         )
@@ -193,21 +198,21 @@ def copc_nodes(
     last_chunk: Callable[[bytes], bytes] | None = None,
     count_error: int = 0,
     size_error: int = 0,
-    spans: tuple[int, ...] | None = None,
+    points: bytes | None = None,
     pad: float = 0.0,
 ) -> bytes:
-    """A 100-point root node and a node below it per count, laid out after it.
+    """A 100-point root node and up to two nodes below it, laid out after it.
 
-    The last node below the root may carry one fault: ``last_chunk`` rewrites
-    its compressed bytes, and ``count_error`` and ``size_error`` shift the point
-    count and byte size its hierarchy entry states. The header's point count is
-    the entries' sum. ``spans`` gives the ``records`` span of the root and then
-    of each node, 1000 each by default; ``pad`` is ``copc``'s.
+    The nodes below the root hold the two halves of the points' diagonal, each
+    in the cell of the octree's first level that its half crosses. The last
+    may carry one fault: ``last_chunk`` rewrites its compressed bytes, and
+    ``count_error`` and ``size_error`` shift the point count and byte size its
+    hierarchy entry states. The header's point count is the entries' sum.
+    ``points`` and ``pad`` are ``copc``'s.
     """
-    spans = spans or (1000,) * (len(counts) + 1)
     chunks = [
-        compressed_chunk(records(count, span=span))
-        for count, span in zip(counts, spans[1:], strict=True)
+        compressed_chunk(records(count, start=500 * i, span=500))
+        for i, count in enumerate(counts)
     ]
     if last_chunk:
         chunks[-1] = last_chunk(chunks[-1])
@@ -216,14 +221,14 @@ def copc_nodes(
         entries = [root_entry(layout)]
         offset = layout.chunk_offset + layout.chunk_size
         for i, (count, data) in enumerate(zip(counts, chunks)):
-            entries.append((1, i & 1, i >> 1 & 1, i >> 2, offset, len(data), count))
+            entries.append((1, i, i, 0, offset, len(data), count))
             offset += len(data)
         *key, offset, size, count = entries[-1]
         entries[-1] = (*key, offset, size + size_error, count + count_error)
         return [entries]
 
     return copc(
-        points=records(100, span=spans[0]),
+        points=points,
         padding=b"".join(chunks),
         pages=pages,
         header_point_count=100 + sum(counts) + count_error,

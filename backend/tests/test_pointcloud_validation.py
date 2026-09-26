@@ -532,7 +532,7 @@ async def test_nodes_whose_points_overlap_are_refused_before_lazrs(
 
 async def test_disjoint_nodes_listed_out_of_offset_order_pass(tmp_path) -> None:
     """A hierarchy may list nodes in any order, and disjoint ones pass the overlap check."""
-    deeper = compressed_chunk(records(50))
+    deeper = compressed_chunk(records(50, span=500))
     data = copc(
         padding=deeper,
         pages=lambda at: [
@@ -837,7 +837,9 @@ async def test_every_node_of_a_point_cloud_is_decoded(tmp_path, monkeypatch) -> 
 async def test_the_worker_takes_the_extent_from_the_points(tmp_path) -> None:
     """The extent and elevations span every node's points, however far the header's bounds reach."""
     tight = inspect_pointcloud(write(tmp_path, copc_nodes(), "tight.copc.laz"))
-    path = write(tmp_path, copc_nodes(spans=(500, 1000, 500), pad=500))
+    path = write(
+        tmp_path, copc_nodes(points=records(100, start=250, span=500), pad=500)
+    )
     door = inspect_pointcloud(path)
 
     cloud = await inspect_every_node(path)
@@ -848,6 +850,32 @@ async def test_the_worker_takes_the_extent_from_the_points(tmp_path) -> None:
         1281.0,
     )
     assert (door.z_min, door.z_max) == (780.0, 1781.0)
+
+
+async def test_a_point_outside_its_node_cell_is_refused_by_the_worker(
+    tmp_path,
+) -> None:
+    """A node's points must lie in its own octree cell, not only in the octree."""
+    data = copc_nodes(
+        last_chunk=lambda _: compressed_chunk(records(150, start=498, span=502))
+    )
+    path = write(tmp_path, data)
+    inspect_pointcloud(path)
+
+    with pytest.raises(UnsafeUploadError) as refusal:
+        await inspect_every_node(path)
+
+    assert (refusal.value.code, str(refusal.value)) == (
+        "pointcloud_invalid",
+        "A node's points lie outside its octree cell.",
+    )
+
+
+async def test_points_within_a_scale_unit_of_their_cell_pass(tmp_path) -> None:
+    """Points half a scale unit outside their cells, as rounding leaves real files, pass."""
+    data = patched(copc_nodes(), _INFO_AT, "<d", ORIGIN[0] + 5.005)
+
+    assert (await inspect_every_node(write(tmp_path, data))).point_count == 370
 
 
 @pytest.mark.parametrize(
