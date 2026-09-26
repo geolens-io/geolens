@@ -689,6 +689,64 @@ async def test_an_archive_in_place_clears_an_earlier_archive_failure(
         await _drop(test_db_session, job_id, record_id)
 
 
+@pytest.mark.parametrize("race", ["read-lost", "write-timed-out", "check-flaked"])
+async def test_an_archive_found_after_a_failure_counts_as_made(
+    test_db_session, raster_storage, followups, monkeypatch, race
+) -> None:
+    """A run that fails but then finds the archive in place flags nothing and deletes the upload.
+
+    Another run can archive and delete the upload while this one reads it, a
+    write can land though its call fails, and a store can refuse one
+    existence check and answer the next.
+    """
+    job_id, dataset_id, record_id = await _owed_job(
+        test_db_session, task="reupload_file", reaps_staged_upload=True
+    )
+    try:
+        left = await _stage_upload(raster_storage, job_id, "storage")
+        key = await _owe_archive(job_id, dataset_id, "upload.tif")
+        if race == "read-lost":
+
+            async def _read_lost(src, dest):
+                await raster_storage.put(key, b"staged")
+                await raster_storage.delete(src)
+                raise RuntimeError("the staged object is gone")
+
+            monkeypatch.setattr(raster_storage, "get_to_file", _read_lost)
+        elif race == "write-timed-out":
+            real_put = raster_storage.put
+
+            async def _put_timed_out(written, data):
+                await real_put(written, data)
+                if written == key:
+                    raise RuntimeError("the object store timed out")
+
+            monkeypatch.setattr(raster_storage, "put", _put_timed_out)
+        else:
+            await raster_storage.put(key, b"staged")
+            real_exists = raster_storage.exists
+            refused: list[str] = []
+
+            async def _flaky_exists(checked):
+                if checked == key and not refused:
+                    refused.append(checked)
+                    raise RuntimeError("the object store timed out")
+                return await real_exists(checked)
+
+            monkeypatch.setattr(raster_storage, "exists", _flaky_exists)
+
+        assert await run_publish_followups(job_id) is True
+        assert await raster_storage.get(key) == b"staged"
+        assert await left() == []
+        async with db_module.async_session() as session:
+            metadata = await session.scalar(
+                select(IngestJob.user_metadata).where(IngestJob.id == job_id)
+            )
+        assert "archive_failed" not in metadata
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
 async def test_an_upload_outside_the_staging_dir_is_never_archived(
     test_db_session, raster_storage, tmp_path, followups
 ) -> None:

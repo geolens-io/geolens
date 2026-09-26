@@ -137,6 +137,17 @@ async def _note_archive_outcome(job_uuid: uuid.UUID, error: str | None) -> None:
             await session.commit()
 
 
+async def _archive_in_place(archive_key: str) -> bool:
+    """Whether storage holds an object under ``archive_key``; False when it can't tell."""
+    from app.platform.storage import get_storage
+    from app.platform.storage.titiler_url import resolve_current_storage_key
+
+    try:
+        return await get_storage().exists(resolve_current_storage_key(archive_key))
+    except Exception:  # broad: an unreadable store leaves the archive unconfirmed
+        return False
+
+
 async def _archive_upload(
     job_uuid: uuid.UUID, file_path: str, dataset_id: uuid.UUID, archive_key: str
 ) -> bool:
@@ -146,7 +157,8 @@ async def _archive_upload(
     archive. Reads the upload the way its task did, through
     ``resolve_file_path``, but never a local file outside the staging directory.
     Any other failure flags the job's archive as failed, and an archive in
-    place clears the flag.
+    place clears the flag, even one found only after a failure, as when
+    another run made it meanwhile.
     """
     import app.core.db as db_module
     from app.platform.storage import get_storage
@@ -175,10 +187,14 @@ async def _archive_upload(
                 log_message="Failed to archive re-uploaded file to storage",
                 archive_name=archive_key.rsplit("/", 1)[-1],
             )
-        if archived:
+        if archived or await _archive_in_place(archive_key):
             await _note_archive_outcome(job_uuid, None)
-        return archived
+            return True
+        return False
     except Exception as exc:  # broad: an unreadable upload or store keeps the upload
+        if await _archive_in_place(archive_key):
+            await _note_archive_outcome(job_uuid, None)
+            return True
         structlog.get_logger().warning("staged_upload_archive_failed", job_id=job_id)
         await _note_archive_outcome(job_uuid, str(exc))
         return False
