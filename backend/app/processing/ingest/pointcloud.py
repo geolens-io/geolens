@@ -488,10 +488,11 @@ def _decode(read: Read, layout: _Layout, node: tuple[int, int, int]) -> None:
         (count, 3), dtype="<i4", buffer=points, strides=(header.record_length, 4)
     )
     scales, offsets = np.array(header.scales), np.array(header.offsets)
-    low = xyz.min(axis=0) * scales + offsets
-    high = xyz.max(axis=0) * scales + offsets
-    if (low < np.array(header.mins) - scales).any() or (
-        high > np.array(header.maxs) + scales
+    # A negative scale maps the largest raw value to the lowest coordinate.
+    ends = np.stack((xyz.min(axis=0), xyz.max(axis=0))) * scales + offsets
+    low, high, slack = ends.min(axis=0), ends.max(axis=0), np.abs(scales)
+    if (low < np.array(header.mins) - slack).any() or (
+        high > np.array(header.maxs) + slack
     ).any():
         raise _decode_failed(reason="decode_bounds")
 

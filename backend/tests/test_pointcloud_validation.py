@@ -30,6 +30,8 @@ from app.processing.ingest.pointcloud import (
     inspect_stored_pointcloud,
 )
 from tests.pointcloud_files import (
+    ORIGIN,
+    SCALE,
     Layout,
     compressed_chunk,
     copc,
@@ -315,6 +317,25 @@ def test_a_damaged_point_cloud_is_refused_as_invalid(tmp_path, data, message) ->
 def test_a_node_that_does_not_decode_as_declared_is_refused(tmp_path, data) -> None:
     """The top node is decoded, and its points must sit inside the header's bounds."""
     assert refused(tmp_path, data).code == "pointcloud_decode_failed"
+
+
+def _negated_x_scale(min_x: float, max_x: float) -> bytes:
+    """copc() read with a negative X scale, so its points span ORIGIN - 10 to ORIGIN in X."""
+    return patched(patched(copc(), 131, "<d", -SCALE), 179, "<dd", max_x, min_x)
+
+
+def test_a_negative_scale_with_points_outside_the_bounds_is_refused(tmp_path) -> None:
+    """A negative scale turns the raw maximum into the lowest point, and the check follows it."""
+    data = _negated_x_scale(ORIGIN[0] - 5, ORIGIN[0] + 5)
+
+    assert refused(tmp_path, data).code == "pointcloud_decode_failed"
+
+
+def test_a_negative_scale_with_points_inside_the_bounds_passes(tmp_path) -> None:
+    """Points a negative scale places inside the declared bounds pass."""
+    data = _negated_x_scale(ORIGIN[0] - 10, ORIGIN[0])
+
+    assert inspect_pointcloud(write(tmp_path, data)).point_count == 100
 
 
 def _lazrs_panic() -> BaseException:
