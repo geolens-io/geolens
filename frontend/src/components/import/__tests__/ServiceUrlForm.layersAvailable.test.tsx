@@ -7,7 +7,7 @@
 import { render, screen, waitFor } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { ServiceUrlForm } from '../ServiceUrlForm';
-import type { ProbeResponse } from '@/types/api';
+import type { LayerInfo, ProbeResponse } from '@/types/api';
 import { clearServiceImport } from '@/api/service-url-session';
 
 const mockProbeService = vi.fn();
@@ -28,38 +28,56 @@ afterEach(() => {
   clearServiceImport();
 });
 
-const ONE_LAYER_PROBE: ProbeResponse = {
-  service_type: 'wfs',
-  url: 'https://example.test/wfs',
-  selected_layer_id: null,
-  layers: [
-    {
-      name: 'parks',
-      title: 'Parks',
-      geometry_type: 'Polygon',
-      feature_count: 10,
-      layer_type: 'Feature Layer',
-      layer_id: 0,
-      object_id_field: null,
-      kind: 'vector',
-    },
-  ],
-};
+function makeLayer(name: string, layerId: number): LayerInfo {
+  return {
+    name,
+    title: name,
+    geometry_type: 'Polygon',
+    feature_count: 10,
+    layer_type: 'Feature Layer',
+    layer_id: layerId,
+    object_id_field: null,
+    kind: 'vector',
+  };
+}
+
+function probeWith(layers: LayerInfo[]): ProbeResponse {
+  return {
+    service_type: 'wfs',
+    url: 'https://example.test/wfs',
+    selected_layer_id: null,
+    layers,
+  };
+}
+
+async function submitProbe() {
+  const user = userEvent.setup();
+  render(<ServiceUrlForm />);
+
+  await user.type(
+    screen.getByPlaceholderText('https://example.com/wfs, ArcGIS FeatureServer, or OGC API endpoint'),
+    'https://example.test/wfs',
+  );
+  await user.click(screen.getByRole('button', { name: 'Probe →' }));
+  await waitFor(() => expect(mockProbeService).toHaveBeenCalled());
+}
 
 describe('ServiceUrlForm layer count summary', () => {
   it('uses the singular form for exactly one layer', async () => {
-    mockProbeService.mockResolvedValue(ONE_LAYER_PROBE);
-    const user = userEvent.setup();
-    render(<ServiceUrlForm />);
+    mockProbeService.mockResolvedValue(probeWith([makeLayer('parks', 0)]));
+    await submitProbe();
 
-    await user.type(
-      screen.getByPlaceholderText('https://example.com/wfs, ArcGIS FeatureServer, or OGC API endpoint'),
-      'https://example.test/wfs',
-    );
-    await user.click(screen.getByRole('button', { name: 'Probe →' }));
-
-    await waitFor(() => expect(mockProbeService).toHaveBeenCalled());
     expect(await screen.findByText('1 layer available')).toBeInTheDocument();
     expect(screen.queryByText('1 layers available')).not.toBeInTheDocument();
+  });
+
+  it('uses the plural form for more than one layer', async () => {
+    mockProbeService.mockResolvedValue(
+      probeWith([makeLayer('parks', 0), makeLayer('trails', 1)]),
+    );
+    await submitProbe();
+
+    expect(await screen.findByText('2 layers available')).toBeInTheDocument();
+    expect(screen.queryByText('2 layer available')).not.toBeInTheDocument();
   });
 });
