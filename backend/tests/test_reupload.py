@@ -2342,7 +2342,7 @@ class TestArchiveRunsAfterTheSwapCommit:
     """A re-upload archives the original file after the swap commits."""
 
     @staticmethod
-    async def _seed(session, *, table_name: str, local_file: Path):
+    async def _seed(session, *, table_name: str, file_path: str):
         from app.platform.refresh.service import create_pending_run
 
         admin_id = await get_user_id(session, "admin")
@@ -2377,7 +2377,7 @@ class TestArchiveRunsAfterTheSwapCommit:
             status="pending",
             attempt_id=uuid.uuid4(),
             source_filename="update.geojson",
-            file_path=str(local_file),
+            file_path=file_path,
             created_by=admin_id,
             user_metadata={"reupload": True, "dataset_id": str(dataset.id)},
         )
@@ -2426,11 +2426,15 @@ class TestArchiveRunsAfterTheSwapCommit:
         table_name: str,
         put_side_effect,
         extra_patches: tuple = (),
+        staged_key: str | None = None,
     ):
+        """Run the task on ``update.geojson``, staged in place or, with
+        ``staged_key``, in object storage and downloaded to that file."""
         local_file = tmp_path / "update.geojson"
         local_file.write_text('{"type":"FeatureCollection","features":[]}')
+        file_path = staged_key or str(local_file)
         admin_id, dataset, job = await self._seed(
-            test_db_session, table_name=table_name, local_file=local_file
+            test_db_session, table_name=table_name, file_path=file_path
         )
 
         mock_storage = AsyncMock()
@@ -2442,7 +2446,7 @@ class TestArchiveRunsAfterTheSwapCommit:
             stack.enter_context(
                 patch(
                     "app.processing.ingest.service.resolve_file_path",
-                    new=AsyncMock(side_effect=lambda path, job_id: path),
+                    new=AsyncMock(return_value=str(local_file)),
                 )
             )
             stack.enter_context(
@@ -2482,7 +2486,7 @@ class TestArchiveRunsAfterTheSwapCommit:
             await reupload_file(
                 job_id=str(job.id),
                 dataset_id=str(dataset.id),
-                file_path=str(local_file),
+                file_path=file_path,
                 user_id=str(admin_id),
                 attempt_id=str(job.attempt_id),
             )
@@ -2569,6 +2573,47 @@ class TestArchiveRunsAfterTheSwapCommit:
         await test_db_session.refresh(job)
         assert job.status == "complete"
         assert "archive_failed" not in (job.user_metadata or {})
+
+    @pytest.mark.parametrize("archived", [True, False], ids=["archived", "unarchived"])
+    async def test_the_staged_upload_goes_only_once_its_original_is_archived(
+        self, client: AsyncClient, test_db_session, tmp_path, archived
+    ):
+        async def _put(key, fobj):
+            if not archived:
+                raise RuntimeError("S3 unreachable")
+
+        await self._run_reupload(
+            test_db_session,
+            tmp_path,
+            table_name=f"reup_{uuid.uuid4().hex[:10]}",
+            put_side_effect=_put,
+        )
+
+        assert (tmp_path / "update.geojson").exists() is not archived
+
+    @pytest.mark.parametrize("archived", [True, False], ids=["archived", "unarchived"])
+    async def test_a_presigned_upload_goes_only_once_its_original_is_archived(
+        self, client: AsyncClient, test_db_session, tmp_path, archived
+    ):
+        frozen_key = f"staging/{uuid.uuid4()}/frozen/update.geojson"
+        storage = AsyncMock()
+
+        async def _put(key, fobj):
+            if not archived:
+                raise RuntimeError("S3 unreachable")
+
+        await self._run_reupload(
+            test_db_session,
+            tmp_path,
+            table_name=f"reup_{uuid.uuid4().hex[:10]}",
+            put_side_effect=_put,
+            staged_key=frozen_key,
+            extra_patches=(patch("app.platform.storage.get_storage", lambda: storage),),
+        )
+
+        deleted = [call.args[0] for call in storage.delete.await_args_list]
+        assert (frozen_key in deleted) is archived
+        assert not (tmp_path / "update.geojson").exists()
 
     async def test_caches_are_invalidated_before_the_archive_runs(
         self, client: AsyncClient, test_db_session, tmp_path

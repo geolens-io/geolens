@@ -213,6 +213,8 @@ class _FileReupload:
         # Set when the upload fails the safety checks: recorded, not raised.
         self.refused = False
         self.owned_staging_key: str | None = None
+        # Set when the original fails to archive, leaving the upload its only copy.
+        self.archive_failed = False
 
     def prepare(self, job, dataset, staging_table: str) -> None:
         # Read off the row, not the local `file_path` a download rebinds.
@@ -406,7 +408,7 @@ class _FileReupload:
         # was a download (storage holds the source) or an unsafe upload.
         async with cleanup_step("reupload_file local file", job_id=self.job_id):
             if (
-                final_status == "complete"
+                (final_status == "complete" and not self.archive_failed)
                 or self.refused
                 or self.file_path != self.original_file_path
             ):
@@ -414,14 +416,15 @@ class _FileReupload:
         # The object the task downloaded from, which after a presigned
         # completion is the frozen copy the job is bound to.
         async with cleanup_step("reupload_file downloaded source", job_id=self.job_id):
-            await reap_downloaded_staging_source(
-                self.job_id,
-                original_file_path=self.original_file_path,
-                final_status=final_status,
-                # _retry_capability refuses reupload jobs outright, so nothing
-                # else will ever reap this; reap on failure too.
-                failed_source_replayable=False,
-            )
+            if not self.archive_failed:
+                await reap_downloaded_staging_source(
+                    self.job_id,
+                    original_file_path=self.original_file_path,
+                    final_status=final_status,
+                    # _retry_capability refuses reupload jobs outright, so nothing
+                    # else will ever reap this; reap on failure too.
+                    failed_source_replayable=False,
+                )
         # The presigned staging key, which no other reaper sweeps.
         async with cleanup_step(
             "reupload_file presigned staging object", job_id=self.job_id
@@ -437,7 +440,7 @@ class _FileReupload:
         async with async_session() as session:
             job = await session.get(IngestJob, uuid.UUID(self.job_id))
             if job is not None:
-                await _archive_original_file(
+                self.archive_failed = not await _archive_original_file(
                     session,
                     job=job,
                     dataset_id=self.dataset_uuid,
