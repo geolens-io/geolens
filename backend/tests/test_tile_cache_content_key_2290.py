@@ -11,6 +11,7 @@ A page that has already read the new state says so in ``_v``, and the API
 re-reads the row for it at once instead of when its 60 s snapshot expires.
 """
 
+import asyncio
 import contextlib
 import uuid
 from datetime import datetime, timezone
@@ -368,6 +369,97 @@ def _snapshot() -> tile_router._DatasetMeta:
 )
 def test_only_a_newer_state_in_either_spelling_forces_a_re_read(raw, newer):
     assert tile_router._client_saw_newer_state(raw, _snapshot()) is newer
+
+
+# Newer than any row reaches, so every request carrying it asks for a re-read.
+_UNREACHED_VERSION = "9999999999"
+
+
+async def _registered_table(session) -> str:
+    admin_id = await get_user_id(session, "admin")
+    dataset = await create_dataset(
+        session,
+        created_by=admin_id,
+        table_name=f"reread2290_{uuid.uuid4().hex[:10]}",
+        record_type="vector_dataset",
+        geometry_type="Point",
+    )
+    return dataset.table_name
+
+
+def _count_queries(monkeypatch, session, queries: list) -> None:
+    """Record every statement a real session runs, and still run it."""
+    execute = session.execute
+
+    async def counted(statement, *args, **kwargs):
+        queries.append(statement)
+        return await execute(statement, *args, **kwargs)
+
+    monkeypatch.setattr(session, "execute", counted)
+
+
+def _age_forced_reread(cache_key: str) -> None:
+    """Put the key's last forced re-read past its interval."""
+    with tile_router._dataset_cache_lock:
+        claimed_at = tile_router._forced_rereads[cache_key]
+        tile_router._forced_rereads[cache_key] = (
+            claimed_at - tile_router._FORCED_REREAD_INTERVAL
+        )
+
+
+async def test_an_unreached_version_re_reads_the_row_once_per_interval(
+    test_db_session, monkeypatch
+):
+    table = await _registered_table(test_db_session)
+    try:
+        await tile_router._resolve_dataset_meta(table, test_db_session)
+        queries: list = []
+        _count_queries(monkeypatch, test_db_session, queries)
+
+        for _ in range(20):
+            await tile_router._resolve_dataset_meta(
+                table, test_db_session, _UNREACHED_VERSION
+            )
+        assert len(queries) == 1
+
+        _age_forced_reread(table)
+        for _ in range(20):
+            await tile_router._resolve_dataset_meta(
+                table, test_db_session, _UNREACHED_VERSION
+            )
+        assert len(queries) == 2
+    finally:
+        tile_router._evict_dataset_meta(table)
+
+
+async def test_concurrent_requests_for_an_unreached_version_share_one_re_read(
+    test_db_session, monkeypatch
+):
+    """The re-read is claimed before its query, so requests during it don't query."""
+    import app.core.db as db_module
+
+    table = await _registered_table(test_db_session)
+    try:
+        await tile_router._resolve_dataset_meta(table, test_db_session)
+        queries: list = []
+        async with contextlib.AsyncExitStack() as stack:
+            sessions = [
+                await stack.enter_async_context(db_module.async_session())
+                for _ in range(5)
+            ]
+            for session in sessions:
+                _count_queries(monkeypatch, session, queries)
+            await asyncio.gather(
+                *(
+                    tile_router._resolve_dataset_meta(
+                        table, session, _UNREACHED_VERSION
+                    )
+                    for session in sessions
+                )
+            )
+        assert len(queries) == 1
+    finally:
+        tile_router._evict_dataset_meta(table)
 
 
 def test_the_content_version_is_its_own_key_after_the_table_segment():

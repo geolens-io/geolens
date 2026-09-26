@@ -1629,6 +1629,12 @@ def _validate_tile_coordinates(z: int, x: int, y: int) -> None:
 # record's `updated_at`.
 _CLIENT_STATE_PARAM = "_v"
 
+# A caller chooses its own `_v`, so a newer one re-reads a snapshot at most once
+# per interval for each cache key. The claim is recorded before the read, so
+# requests arriving while it runs get the existing snapshot instead of querying.
+_FORCED_REREAD_INTERVAL = 1.0  # seconds
+_forced_rereads: LRUCache[str, float] = LRUCache(maxsize=256)
+
 
 def _client_saw_newer_state(raw: str | None, meta: _DatasetMeta) -> bool:
     """Whether a request's ``_v`` names a newer dataset state than ``meta``.
@@ -1665,6 +1671,8 @@ async def _resolve_dataset_meta(
     authorization that admitted the request. Re-reading the counter alone
     would leave that decision on the stale row and fix nothing, so a
     ``client_state`` newer than the cached snapshot re-reads the whole row.
+    Each cache key allows one such re-read per ``_FORCED_REREAD_INTERVAL``;
+    a request inside the interval gets the snapshot it found.
     """
     now = time.monotonic()
 
@@ -1677,10 +1685,16 @@ async def _resolve_dataset_meta(
         cached_entry = _dataset_cache.get(cache_key)
         if cached_entry is not None:
             ts, cached_meta = cached_entry
-            if now - ts < _DATASET_CACHE_TTL and not _client_saw_newer_state(
-                client_state, cached_meta
-            ):
-                return cached_meta
+            if now - ts < _DATASET_CACHE_TTL:
+                if not _client_saw_newer_state(client_state, cached_meta):
+                    return cached_meta
+                claimed_at = _forced_rereads.get(cache_key)
+                if (
+                    claimed_at is not None
+                    and now - claimed_at < _FORCED_REREAD_INTERVAL
+                ):
+                    return cached_meta
+                _forced_rereads[cache_key] = now
 
     from app.modules.catalog.datasets.domain.models import Dataset as DatasetORM
 
