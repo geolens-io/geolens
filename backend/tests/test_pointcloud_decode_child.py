@@ -40,6 +40,7 @@ from app.processing.ingest.pointcloud import (
     PointCloudDecodeError,
     PointCloudDecodeTimeout,
     inspect_pointcloud,
+    inspect_stored_pointcloud,
     staged_pointcloud_metadata,
 )
 from tests.pointcloud_files import copc
@@ -532,35 +533,103 @@ async def test_a_decoder_crash_refuses_the_presigned_upload(
     assert not await storage.exists(frozen)
 
 
+def _counted_children(monkeypatch) -> dict[str, int]:
+    """The most decode children running at once so far, as ``["peak"]``."""
+    counts = {"running": 0, "peak": 0}
+    lock = threading.Lock()
+    run = pointcloud_module.run_child
+
+    def _run(argv, **kwargs):
+        with lock:
+            counts["running"] += 1
+            counts["peak"] = max(counts["peak"], counts["running"])
+        try:
+            return run(argv, **kwargs)
+        finally:
+            with lock:
+                counts["running"] -= 1
+
+    monkeypatch.setattr(pointcloud_module, "run_child", _run)
+    return counts
+
+
+async def _decoding(pid_file: Path) -> None:
+    """Return once a stalled decoder has written its pid, so its decode has started."""
+    for _ in range(2000):
+        if pid_file.exists() and pid_file.read_text():
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError("the decode child never started decoding")
+
+
 async def test_no_more_than_the_cap_of_children_decode_at_once(
     monkeypatch, tmp_path
 ) -> None:
     """Decodes past the cap wait for a slot, on the event loop."""
     path = _write(tmp_path, copc())
     _decoder_with(monkeypatch, "time.sleep(0.5)")
-    running = peak = 0
-    lock = threading.Lock()
-    run = pointcloud_module.run_child
-
-    def _run(argv, **kwargs):
-        nonlocal running, peak
-        with lock:
-            running += 1
-            peak = max(peak, running)
-        try:
-            return run(argv, **kwargs)
-        finally:
-            with lock:
-                running -= 1
-
-    monkeypatch.setattr(pointcloud_module, "run_child", _run)
+    counts = _counted_children(monkeypatch)
     cap = pointcloud_module.MAX_DECODE_CHILDREN
 
     await asyncio.gather(
         *(staged_pointcloud_metadata(path, "pointcloud") for _ in range(cap + 1))
     )
 
-    assert peak == cap
+    assert counts["peak"] == cap
+
+
+async def test_a_cancelled_decode_keeps_its_slot_until_its_child_is_done(
+    monkeypatch, tmp_path
+) -> None:
+    """A caller that goes away, as a client that disconnects does, frees no slot early."""
+    path = _write(tmp_path, copc())
+    _stalled_decoder(monkeypatch, tmp_path)
+    monkeypatch.setattr(pointcloud_module, "TOP_NODE_DECODE_SECONDS", 1)
+    counts = _counted_children(monkeypatch)
+    cap = pointcloud_module.MAX_DECODE_CHILDREN
+
+    def _decode() -> asyncio.Task:
+        return asyncio.create_task(staged_pointcloud_metadata(path, "pointcloud"))
+
+    running = [_decode() for _ in range(cap)]
+    cancelled = []
+    for _ in range(3):
+        await asyncio.sleep(0.2)
+        running[0].cancel()
+        cancelled.append(running.pop(0))
+        running.append(_decode())
+    await asyncio.gather(*cancelled, *running, return_exceptions=True)
+
+    assert counts["peak"] == cap
+
+
+async def test_a_cancelled_stored_check_keeps_its_probe_until_its_child_is_done(
+    monkeypatch, tmp_path
+) -> None:
+    """The sparse probe outlives every thread and child reading it."""
+    storage, _, frozen = await _presigned_upload(monkeypatch, tmp_path)
+    pid_file, gone = tmp_path / "decoder.pid", tmp_path / "probe-gone"
+    _decoder_with(
+        monkeypatch,
+        "import sys\n"
+        "def _watch(*args):\n"
+        f"    open({str(pid_file)!r}, 'w').write(str(os.getpid()))\n"
+        "    while True:\n"
+        "        if not os.path.exists(sys.argv[-1]):\n"
+        f"            open({str(gone)!r}, 'w').close()\n"
+        "        time.sleep(0.01)\n"
+        "lazrs.decompress_points_with_chunk_table = _watch",
+    )
+    monkeypatch.setattr(pointcloud_module, "TOP_NODE_DECODE_SECONDS", 2)
+
+    check = asyncio.create_task(inspect_stored_pointcloud(storage, frozen))
+    await _decoding(pid_file)
+    check.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await check
+
+    _assert_gone(pid_file)
+    assert not gone.exists(), "the probe went while its child still read it"
 
 
 def _slow_node(count: int) -> bytes:

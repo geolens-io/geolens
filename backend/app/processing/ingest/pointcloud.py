@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING, BinaryIO, Callable, NamedTuple, TypeVar
 
 import structlog
 
+from app.core.async_io import await_draining
 from app.core.pointcloud import LAZ_WITHOUT_KIND, POINTCLOUD_FILE_TYPE, is_laz
 from app.core.upload_errors import UnsafeUploadError
 from app.platform.bounded_child import ChildFailure, run_child
@@ -908,6 +909,7 @@ async def _in_decode_slot(
     """``asyncio.to_thread(func, ...)`` once one of this process's decode slots is free.
 
     The wait is on the event loop, so a queued decode holds no executor thread.
+    A cancelled caller keeps its slot until the thread, and so its child, is done.
     """
     global _decode_slots
     loop = asyncio.get_running_loop()
@@ -915,7 +917,7 @@ async def _in_decode_slot(
         # A semaphore belongs to the loop that first waits on it.
         _decode_slots = (loop, asyncio.Semaphore(MAX_DECODE_CHILDREN))
     async with _decode_slots[1]:
-        return await asyncio.to_thread(func, *args, **kwargs)
+        return await await_draining(asyncio.to_thread(func, *args, **kwargs))
 
 
 async def _at_a_door(func: Callable[[str], PointCloud], path: str) -> PointCloud:
@@ -986,7 +988,7 @@ async def inspect_stored_pointcloud(storage: StorageProvider, key: str) -> Point
             and evlr_bytes <= MAX_EVLR_BLOCK_BYTES
         ):
             await _copy_range(storage, key, probe, header.evlr_start, evlr_bytes)
-        layout = await asyncio.to_thread(_layout_of, probe)
+        layout = await await_draining(asyncio.to_thread(_layout_of, probe))
         top = layout.nodes[0]
         if top.size <= MAX_DECODE_BYTES:
             await _copy_range(storage, key, probe, top.offset, top.size)
