@@ -379,12 +379,15 @@ async def test_service_worker_advances_ogr2ogr_progress_while_remote_import_is_r
     )
 
     try:
-        await asyncio.wait_for(remote_import_started.wait(), timeout=5)
+        # A generous hang guard, not a timing assumption under test: reaching
+        # the stub only needs the worker task to get scheduled, which a
+        # loaded runner can delay well past a couple of seconds.
+        await asyncio.wait_for(remote_import_started.wait(), timeout=30)
 
         # A generous hang guard, not the source of the assertions below --
         # the heartbeat's own mocked interval is 0.01s, so a healthy tick
         # lands almost immediately.
-        await asyncio.wait_for(tick_committed.wait(), timeout=5)
+        await asyncio.wait_for(tick_committed.wait(), timeout=30)
         assert not worker_task.done()
 
         result = await test_db_session.execute(
