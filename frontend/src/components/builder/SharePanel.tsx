@@ -1105,6 +1105,15 @@ export function ShareDialog({
       ? [...new Set(publicEligibility.nonPublicDatasets)]
       : [];
 
+  // mapId changing while this dialog stays mounted (browser Back with Share
+  // open) must not let map A's in-flight response answer for map B — start
+  // fresh and close any open confirmation instead.
+  useEffect(() => {
+    publicEligibilityRequestId.current += 1;
+    setPublicEligibility({ status: 'checking' });
+    setPendingVisibility(null);
+  }, [mapId]);
+
   // Guards a stale response — including a retry's — from landing after a newer request.
   function checkPublicEligibility() {
     const requestId = ++publicEligibilityRequestId.current;

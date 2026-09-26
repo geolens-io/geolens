@@ -1,6 +1,6 @@
 import type { ComponentProps } from 'react';
 import userEvent from '@testing-library/user-event';
-import { fireEvent, render, screen, waitFor, within } from '@/test/test-utils';
+import { act, fireEvent, render, screen, waitFor, within } from '@/test/test-utils';
 import { checkMapVisibility } from '@/api/maps';
 import { ApiError } from '@/api/client';
 import { translateApiErrorDetail } from '@/lib/error-map';
@@ -111,6 +111,7 @@ function setup({
   canSetPublic = true,
   forceActiveEmbedToken = false,
   lockOriginsAfterCreate = null,
+  mapId = 'map-1',
 }: {
   enterprise?: boolean;
   hasShareToken?: boolean;
@@ -143,6 +144,7 @@ function setup({
    *  domain-locked PREVIEW, since createEmbed() skips when a token already
    *  exists and the raw token is available only at creation. */
   lockOriginsAfterCreate?: string[] | null;
+  mapId?: string;
 } = {}) {
   const createShareToken = vi.fn().mockResolvedValue({
     token: 'share-token',
@@ -256,9 +258,9 @@ function setup({
     non_public_datasets: hasNonPublic ? ['Private dataset'] : [],
   });
 
-  render(
+  const { rerender } = render(
     <ShareDialog
-      mapId="map-1"
+      mapId={mapId}
       visibility={visibility}
       open
       onOpenChange={vi.fn()}
@@ -268,7 +270,7 @@ function setup({
     />,
   );
 
-  return { createShareToken, createEmbedToken: createEmbedToken as ReturnType<typeof vi.fn>, updateEmbedTokenFn, updateShareTokenFn, publishMapFn };
+  return { createShareToken, createEmbedToken: createEmbedToken as ReturnType<typeof vi.fn>, updateEmbedTokenFn, updateShareTokenFn, publishMapFn, rerender };
 }
 
 describe('ShareDialog edition gates', () => {
@@ -1561,6 +1563,42 @@ describe('#2297 public confirm defers to the server publish check', () => {
     });
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
     expect(mockedCheckMapVisibility).not.toHaveBeenCalled();
+  });
+
+  it('invalidates an in-flight check when mapId changes, so a late answer cannot cross maps', async () => {
+    const user = userEvent.setup();
+    let resolveMapACheck: (value: { has_non_public: boolean; non_public_datasets: string[] }) => void =
+      () => {};
+    mockedCheckMapVisibility.mockReset();
+    mockedCheckMapVisibility.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveMapACheck = resolve;
+      }),
+    );
+    const { rerender } = setup({
+      mapId: 'map-a',
+      visibility: 'private',
+      hasShareToken: false,
+    });
+
+    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+    await screen.findByRole('alertdialog');
+
+    // The Share dialog stays mounted (e.g. router reuse on Back) while
+    // navigating to another map before map A's check has answered.
+    rerender(
+      <ShareDialog mapId="map-b" visibility="private" open onOpenChange={vi.fn()} />,
+    );
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+
+    // Map A's late "blocked" answer must not resurrect the confirmation or
+    // leak its dataset name onto map B.
+    await act(async () => {
+      resolveMapACheck({ has_non_public: true, non_public_datasets: ['Map A secret'] });
+    });
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(screen.queryByText('Map A secret')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^make public$/i })).not.toBeInTheDocument();
   });
 });
 
