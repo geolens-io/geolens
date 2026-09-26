@@ -100,6 +100,15 @@ def crs_facts(wkt: str, *, timeout: float | None = None) -> dict:
     return _run("crs-facts", stdin=wkt, timeout=timeout or CRS_FACTS_TIMEOUT_SECONDS)
 
 
+def crs_facts_many(wkts: list[str], *, timeout: float | None = None) -> list[dict]:
+    """:func:`crs_facts` of each text, in one child."""
+    return _run(
+        "crs-facts-many",
+        stdin=json.dumps(wkts),
+        timeout=timeout or CRS_FACTS_TIMEOUT_SECONDS,
+    )
+
+
 def crs_matches(
     reference: str, others: list[str], *, timeout: float | None = None
 ) -> list[bool | None]:
@@ -211,6 +220,12 @@ def _crs_facts() -> dict:
     return wkt_crs_facts(sys.stdin.read())
 
 
+def _crs_facts_many() -> list[dict]:
+    from app.core.geo import wkt_crs_facts
+
+    return [wkt_crs_facts(wkt) for wkt in json.loads(sys.stdin.read())]
+
+
 def _crs_same() -> list[bool | None]:
     from rasterio.crs import CRS
     from rasterio.errors import CRSError
@@ -254,6 +269,8 @@ def main(argv: list[str]) -> int:
                 result = _quicklook(args[0], args[1])
             elif op == "crs-facts":
                 result = _crs_facts()
+            elif op == "crs-facts-many":
+                result = _crs_facts_many()
             elif op == "crs-same":
                 result = _crs_same()
             else:

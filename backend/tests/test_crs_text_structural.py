@@ -79,6 +79,10 @@ ALLOWED_SITES: dict[tuple[str, str, str], tuple[int, str]] = {
         1,
         "a probe child op",
     ),
+    ("processing/raster/probe.py", "_crs_facts_many", "app.core.geo.wkt_crs_facts"): (
+        1,
+        "a probe child op",
+    ),
     ("processing/raster/probe.py", "_crs_same", f"{_CRS_CLASS}.from_wkt"): (
         2,
         "a probe child op",
@@ -96,7 +100,9 @@ CONSTANT_ARGUMENT = {
 
 PROBE_MODULE = "processing/raster/probe.py"
 CHILD_MAIN = "main"
-CHILD_OPS = frozenset({"_inspect", "_metadata", "_crs_facts", "_crs_same"})
+CHILD_OPS = frozenset(
+    {"_inspect", "_metadata", "_crs_facts", "_crs_facts_many", "_crs_same"}
+)
 
 
 @dataclass(frozen=True)
