@@ -1,16 +1,18 @@
 """Check an uploaded COPC point cloud before anything stores or serves it.
 
 A point cloud never reaches GDAL. Its header, VLRs and octree hierarchy are
-parsed here with ``struct`` under fixed bounds, and lazrs decodes nodes to
-show the chunks decode as declared: the top node at the upload doors, every
-node in the worker before the copy. Every check reads a local file: the staged
-upload, a copy the worker downloads, or a sparse probe holding only the ranges
-the doors' checks read from an object in storage.
+parsed here with ``struct`` under fixed bounds, its LAZ chunk table must list
+the octree's chunks, and lazrs decodes nodes to show the chunks decode as
+declared: the top node at the upload doors, every node in the worker before
+the copy. Every check reads a local file: the staged upload, a copy the worker
+downloads, or a sparse probe holding only the ranges the doors' checks read
+from an object in storage.
 """
 
 from __future__ import annotations
 
 import asyncio
+import io
 import math
 import os
 import re
@@ -77,6 +79,9 @@ _ENTRY = struct.Struct("<iiiiqii")
 # The COPC info record: the octree's center and half-size, the point spacing,
 # the root hierarchy page's offset and size, and the GPS time range.
 _INFO = struct.Struct("<5dQQ2d")
+# A chunk table entry is two arithmetic-coded 32-bit integers, under 14 bytes
+# together, so reading 32 bytes an entry holds any table.
+_TABLE_ENTRY_BYTES = 32
 _COPC_INFO = (b"copc", 1)
 _COPC_HIERARCHY = (b"copc", 1000)
 _LASZIP = (b"laszip encoded", 22204)
@@ -110,6 +115,7 @@ _NO_CRS = (
     "GeoLens can read."
 )
 _DECODE_FAILED = "The point cloud's points don't decode as its header describes."
+_CHUNK_TABLE = "The file's LAZ chunk table doesn't match its octree."
 
 Read = Callable[[int, int], bytes]
 
@@ -203,6 +209,11 @@ def _decode_failed(*, reason: str) -> UnsafeUploadError:
         UnsafeUploadError(_DECODE_FAILED, code="pointcloud_decode_failed"),
         reason=reason,
     )
+
+
+def _lazrs_failed(exc: BaseException) -> bool:
+    """Whether lazrs raised ``exc`` as an error or a Rust panic, not an interrupt."""
+    return isinstance(exc, Exception) or type(exc).__name__ == "PanicException"
 
 
 def _read_header(data: bytes, size: int) -> _Header:
@@ -469,6 +480,50 @@ def _read_layout(read: Read, size: int) -> _Layout:
     return _Layout(header, laszip, wkt, nodes, layers, tuple(center), halfsize)
 
 
+def _chunk_table_span(
+    layout: _Layout, table_offset: int, size: int
+) -> tuple[int, int] | None:
+    """The range to read for a chunk table at ``table_offset``, or None if it can't lie there."""
+    end = max(node.offset + node.size for node in layout.nodes)
+    if not end <= table_offset <= size - 8:
+        return None
+    return table_offset, min(
+        size - table_offset, 8 + _TABLE_ENTRY_BYTES * len(layout.nodes)
+    )
+
+
+def _check_chunk_table(read: Read, layout: _Layout, size: int) -> None:
+    """Refuse a file a LAZ reader would read differently from its octree.
+
+    A LAZ reader takes each chunk's point count and byte size from the chunk
+    table, and finds the chunks one after another from the start of the point
+    data, past the table's 8-byte offset. The table must list every node's
+    chunk that way, in file order.
+    """
+    point_offset = layout.header.point_offset
+    (table_offset,) = struct.unpack("<q", read(point_offset, 8))
+    span = _chunk_table_span(layout, table_offset, size)
+    if span is None:
+        raise _invalid(_CHUNK_TABLE, reason="chunk_table")
+    version, count = struct.unpack("<II", read(table_offset, 8))
+    # lazrs allocates the table from its stated count before reading it.
+    if version != 0 or count != len(layout.nodes):
+        raise _invalid(_CHUNK_TABLE, reason="chunk_table")
+    try:
+        table = lazrs.read_chunk_table_only(
+            io.BytesIO(read(*span)), lazrs.LazVlr(layout.laszip)
+        )
+    except BaseException as exc:  # broad: a Rust panic reaches Python as pyo3's PanicException, which is no Exception
+        if not _lazrs_failed(exc):
+            raise
+        raise _invalid(_CHUNK_TABLE, reason="chunk_table") from exc
+    start = point_offset + 8
+    for node, entry in zip(sorted(layout.nodes, key=lambda node: node.offset), table):
+        if (node.offset, (node.count, node.size)) != (start, entry):
+            raise _invalid(_CHUNK_TABLE, reason="chunk_table")
+        start += node.size
+
+
 def _check_chunk(chunk: bytes, layout: _Layout, count: int) -> None:
     """Refuse a chunk whose header would size lazrs's buffers past the chunk.
 
@@ -510,7 +565,7 @@ def _decode(read: Read, layout: _Layout, node: _Node) -> tuple[np.ndarray, np.nd
             lazrs.DecompressionSelection(lazrs.SELECTIVE_DECOMPRESS_ALL),
         )
     except BaseException as exc:  # broad: a Rust panic reaches Python as pyo3's PanicException, which is no Exception
-        if not isinstance(exc, Exception) and type(exc).__name__ != "PanicException":
+        if not _lazrs_failed(exc):
             raise
         raise _decode_failed(reason="decode") from exc
     xyz = np.ndarray(
@@ -640,6 +695,7 @@ def _inspect(path: str) -> tuple[PointCloud, _Layout, tuple[np.ndarray, np.ndarr
     with open(path, "rb") as source:
         read = _reader(source)
         layout = _read_layout(read, size)
+        _check_chunk_table(read, layout, size)
         corners = _decode(read, layout, layout.nodes[0])
     header = layout.header
     srid, vertical, bbox = _crs_facts(layout.wkt, header.mins, header.maxs)
@@ -710,8 +766,8 @@ async def inspect_stored_pointcloud(storage: StorageProvider, key: str) -> Point
     """``inspect_pointcloud`` for an object in storage, without downloading it.
 
     A sparse local file of the object's size gets only the ranges the checks
-    read: the header and VLRs, the EVLRs with the hierarchy, and the one node
-    decoded. ``key`` is the physical key.
+    read: the header and VLRs, the EVLRs with the hierarchy, the chunk table,
+    and the one node decoded. ``key`` is the physical key.
     """
     size = await storage.size(key)
     handle, probe = tempfile.mkstemp(
@@ -734,9 +790,14 @@ async def inspect_stored_pointcloud(storage: StorageProvider, key: str) -> Point
             and evlr_bytes <= MAX_EVLR_BLOCK_BYTES
         ):
             await _copy_range(storage, key, probe, header.evlr_start, evlr_bytes)
-        top = (await asyncio.to_thread(_layout_of, probe)).nodes[0]
+        layout = await asyncio.to_thread(_layout_of, probe)
+        top = layout.nodes[0]
         if top.size <= MAX_DECODE_BYTES:
             await _copy_range(storage, key, probe, top.offset, top.size)
+        field = await _copy_range(storage, key, probe, header.point_offset, 8)
+        span = _chunk_table_span(layout, struct.unpack("<q", field)[0], size)
+        if span:
+            await _copy_range(storage, key, probe, *span)
         return await asyncio.to_thread(inspect_pointcloud, probe)
     finally:
         if handle >= 0:

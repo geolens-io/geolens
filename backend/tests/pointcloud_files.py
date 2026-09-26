@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import struct
 from dataclasses import dataclass
 from typing import Callable
@@ -72,6 +73,21 @@ def compressed_chunk(
     return compressed[8 : struct.unpack_from("<q", compressed)[0]]
 
 
+def laszip_record(point_format: int = 6, extra_bytes: int = 0) -> bytes:
+    """The LASzip record of the builder's files, whose chunks vary in size."""
+    laz_vlr = lazrs.LazVlr.new_for_compression(point_format, extra_bytes)
+    record = bytearray(laz_vlr.record_data())
+    struct.pack_into("<I", record, 12, _VARIABLE_CHUNKS)
+    return bytes(record)
+
+
+def chunk_table(entries: list[tuple[int, int]], record: bytes | None = None) -> bytes:
+    """A LAZ chunk table listing each chunk's point count and byte size."""
+    table = io.BytesIO()
+    lazrs.write_chunk_table(table, entries, lazrs.LazVlr(record or laszip_record()))
+    return table.getvalue()
+
+
 def scrambled(chunk: bytes) -> bytes:
     """A format 6 chunk with its compressed layers inverted under an intact header."""
     return chunk[:_CHUNK_HEADER] + bytes(b ^ 0xFF for b in chunk[_CHUNK_HEADER:])
@@ -98,15 +114,14 @@ def copc(
     """A one-node COPC, or one with a single fault named by a keyword.
 
     ``padding`` follows the root node's chunk inside the point data, where
-    ``pages`` may name it as other nodes. ``pages`` returns the hierarchy
-    pages, root page first, laid out one after another from
-    ``Layout.page_offset``. ``pad`` widens the header's bounds and the
-    octree's cube by that much on every side.
+    ``pages`` may name it as other nodes. The chunk table follows it, listing
+    every entry holding points. ``pages`` returns the hierarchy pages, root
+    page first, laid out one after another from ``Layout.page_offset``.
+    ``pad`` widens the header's bounds and the octree's cube by that much on
+    every side.
     """
-    laz_vlr = lazrs.LazVlr.new_for_compression(point_format, extra_bytes)
-    laszip_data = bytearray(laz_vlr.record_data())
-    struct.pack_into("<I", laszip_data, 12, _VARIABLE_CHUNKS)
-    laszip_data = bytes(laszip(bytes(laszip_data)) if laszip else laszip_data)
+    record = laszip_record(point_format, extra_bytes)
+    laszip_data = laszip(record) if laszip else record
     chunk_bytes = compressed_chunk(
         points if points is not None else records(count, point_format, extra_bytes),
         point_format,
@@ -121,10 +136,23 @@ def copc(
     vlrs = [info, *others] if info_first else [*others, info]
     point_offset = 375 + sum(map(len, vlrs))
     chunk_offset = point_offset + 8
-    evlr_start = chunk_offset + len(chunk_bytes) + len(padding)
+    table_offset = chunk_offset + len(chunk_bytes) + len(padding)
+
+    def pages_at(page_offset: int) -> list[list[tuple[int, ...]]]:
+        layout = Layout(chunk_offset, len(chunk_bytes), count, page_offset)
+        return pages(layout) if pages else [[root_entry(layout)]]
+
+    def table_of(page_list: list[list[tuple[int, ...]]]) -> bytes:
+        chunks = sorted(e[4:] for page in page_list for e in page if e[6] > 0)
+        return chunk_table([(count, size) for _, size, count in chunks], record)
+
+    # Chunk entries don't move with the pages, so a first layout sizes the
+    # table that the pages then follow.
+    table = table_of(pages_at(0))
+    evlr_start = table_offset + len(table)
     page_offset = evlr_start + 60
-    layout = Layout(chunk_offset, len(chunk_bytes), count, page_offset)
-    page_list = pages(layout) if pages else [[root_entry(layout)]]
+    page_list = pages_at(page_offset)
+    assert table_of(page_list) == table
     hierarchy = b"".join(
         struct.pack("<iiiiqii", *entry) for page in page_list for entry in page
     )
@@ -185,9 +213,10 @@ def copc(
     return (
         bytes(header)
         + bytes(body)
-        + struct.pack("<q", evlr_start)
+        + struct.pack("<q", table_offset)
         + chunk_bytes
         + padding
+        + table
         + b"".join(evlrs)
     )
 

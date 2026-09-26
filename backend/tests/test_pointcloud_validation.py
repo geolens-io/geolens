@@ -33,9 +33,11 @@ from tests.pointcloud_files import (
     ORIGIN,
     SCALE,
     Layout,
+    chunk_table,
     compressed_chunk,
     copc,
     copc_nodes,
+    laszip_record,
     records,
     root_entry,
     scrambled,
@@ -272,7 +274,7 @@ def _pages(*entries):
         pytest.param(
             copc(
                 pages=lambda at: [
-                    [(0, 0, 0, 0, at.chunk_offset, at.chunk_size + 9, 100)]
+                    [(0, 0, 0, 0, at.chunk_offset, at.chunk_size + 64, 100)]
                 ]
             ),
             "outside the file's point data",
@@ -408,13 +410,13 @@ def _lazrs_panic() -> BaseException:
     return panic.value
 
 
-def _lazrs_raising(monkeypatch, exc: BaseException) -> None:
-    def _decompress(*args, **kwargs):
+def _lazrs_raising(
+    monkeypatch, exc: BaseException, name: str = "decompress_points_with_chunk_table"
+) -> None:
+    def _raise(*args, **kwargs):
         raise exc
 
-    monkeypatch.setattr(
-        pointcloud_module.lazrs, "decompress_points_with_chunk_table", _decompress
-    )
+    monkeypatch.setattr(pointcloud_module.lazrs, name, _raise)
 
 
 def test_a_lazrs_panic_is_a_decode_refusal(tmp_path, monkeypatch) -> None:
@@ -679,6 +681,140 @@ def test_structural_refusals_are_security_events_and_others_are_not(tmp_path) ->
     ]
 
 
+# --- The LAZ chunk table -------------------------------------------------
+
+
+def _pointing_at(data: bytes, table_offset: int) -> bytes:
+    """``data`` whose point data opens with ``table_offset`` as its chunk table's offset."""
+    return patched(data, struct.unpack_from("<I", data, 96)[0], "<q", table_offset)
+
+
+def _with_table(data: bytes, table: bytes) -> bytes:
+    """``data`` with ``table`` appended as its chunk table."""
+    return _pointing_at(data, len(data)) + table
+
+
+_ROOT_CHUNK = (100, len(compressed_chunk(records(100))))
+
+
+def _gap_between_chunks() -> bytes:
+    """Two nodes seven bytes apart, which a LAZ reader would take as touching."""
+    deeper = compressed_chunk(records(50, span=500))
+    return copc(
+        padding=bytes(7) + deeper,
+        pages=lambda at: [
+            [
+                root_entry(at),
+                (1, 0, 0, 0, at.chunk_offset + at.chunk_size + 7, len(deeper), 50),
+            ]
+        ],
+        header_point_count=150,
+    )
+
+
+@pytest.mark.parametrize(
+    ("data", "points"),
+    [
+        pytest.param(copc(), records(100), id="one-node"),
+        pytest.param(
+            copc_nodes(),
+            records(100) + records(120, span=500) + records(150, start=500, span=500),
+            id="several-nodes",
+        ),
+    ],
+)
+def test_a_built_point_cloud_reads_as_plain_laz(data, points) -> None:
+    """lazrs's LAZ reader, which follows the chunk table as laspy does, reads every point."""
+    source = io.BytesIO(data)
+    source.seek(struct.unpack_from("<I", data, 96)[0])
+    decoded = bytearray(len(points))
+
+    lazrs.LasZipDecompressor(source, laszip_record()).decompress_many(decoded)
+
+    assert decoded == points
+
+
+def test_a_chunk_table_anywhere_after_the_chunks_passes(tmp_path) -> None:
+    """A LAZ reader seeks to the chunk table, so one after the EVLRs is read as well."""
+    data = _with_table(copc(), chunk_table([_ROOT_CHUNK]))
+
+    assert inspect_pointcloud(write(tmp_path, data)).point_count == 100
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        pytest.param(_pointing_at(copc(), -1), id="missing"),
+        pytest.param(_pointing_at(copc(), len(copc())), id="past-the-end"),
+        pytest.param(
+            _with_table(copc(), patched(chunk_table([_ROOT_CHUNK]), 0, "<I", 1)),
+            id="version",
+        ),
+        pytest.param(
+            _with_table(copc(), chunk_table([_ROOT_CHUNK])[:9]), id="truncated"
+        ),
+        pytest.param(
+            _with_table(copc(), struct.pack("<II", 0, 1) + b"\xff" * 16), id="garbage"
+        ),
+        pytest.param(
+            _with_table(copc(), chunk_table([(99, _ROOT_CHUNK[1])])),
+            id="count-differs",
+        ),
+        pytest.param(
+            _with_table(copc(), chunk_table([(100, _ROOT_CHUNK[1] + 1)])),
+            id="size-differs",
+        ),
+        pytest.param(_gap_between_chunks(), id="gap-between-chunks"),
+    ],
+)
+def test_a_chunk_table_that_disagrees_with_the_octree_is_refused(
+    tmp_path, data
+) -> None:
+    """A plain LAZ reader follows the chunk table, so it must list the octree's chunks."""
+    refusal = refused(tmp_path, data)
+
+    assert (refusal.code, str(refusal)) == (
+        "pointcloud_invalid",
+        "The file's LAZ chunk table doesn't match its octree.",
+    )
+
+
+def test_a_chunk_table_stating_another_count_is_refused_before_lazrs(
+    tmp_path, monkeypatch
+) -> None:
+    """lazrs allocates a chunk table from its stated count, so the count is checked first."""
+    data = _with_table(copc(), patched(chunk_table([_ROOT_CHUNK]), 4, "<I", 2))
+    calls: list = []
+    read_table = lazrs.read_chunk_table_only
+
+    def _read(*args):
+        calls.append(args)
+        return read_table(*args)
+
+    monkeypatch.setattr(pointcloud_module.lazrs, "read_chunk_table_only", _read)
+
+    assert (refused(tmp_path, data).code, calls) == ("pointcloud_invalid", [])
+
+
+def test_a_lazrs_panic_reading_the_chunk_table_is_a_refusal(
+    tmp_path, monkeypatch
+) -> None:
+    """A Rust panic while lazrs reads the chunk table becomes a refusal, as in the decode."""
+    _lazrs_raising(monkeypatch, _lazrs_panic(), "read_chunk_table_only")
+
+    assert refused(tmp_path, copc()).code == "pointcloud_invalid"
+
+
+def test_an_interrupt_reading_the_chunk_table_is_not_swallowed(
+    tmp_path, monkeypatch
+) -> None:
+    """Only a lazrs failure reading the chunk table is a refusal; an interrupt propagates."""
+    _lazrs_raising(monkeypatch, KeyboardInterrupt(), "read_chunk_table_only")
+
+    with pytest.raises(KeyboardInterrupt):
+        inspect_pointcloud(write(tmp_path, copc()))
+
+
 # --- The probe reads only what the checks need ---------------------------
 
 
@@ -752,8 +888,15 @@ async def test_a_stored_point_cloud_is_read_without_downloading_it(
         patched(copc(info_first=False), 235, "<QI", 0, 0),
         copc(pages=lambda at: [[root_entry(at), (1, 0, 0, 0, at.page_offset, 64, -1)]]),
         copc(chunk=lambda chunk: bytes(len(chunk))),
+        _gap_between_chunks(),
     ],
-    ids=["plain-laz", "plain-laz-without-evlrs", "page-names-itself", "decode"],
+    ids=[
+        "plain-laz",
+        "plain-laz-without-evlrs",
+        "page-names-itself",
+        "decode",
+        "chunk-table",
+    ],
 )
 async def test_a_stored_point_cloud_is_refused_as_a_local_one_is(
     tmp_path: Path, storage, data
