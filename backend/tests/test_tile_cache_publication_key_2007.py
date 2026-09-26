@@ -241,7 +241,7 @@ class TestTheApplicationKeyRollsWithThePublicationVersion:
                 client, url, {**params, TILE_PUBLICATION_VERSION_PARAM: "9"}, {}
             )
             assert claimed_key == honest_key
-            assert honest_key.endswith(":p0")
+            assert ":p0:" in honest_key
         finally:
             await _drop_table(test_db_session, dataset.table_name)
 

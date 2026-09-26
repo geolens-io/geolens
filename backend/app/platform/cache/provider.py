@@ -150,7 +150,8 @@ def init_tile_cache(*, in_memory_fallback: bool = True) -> None:
             consequence=(
                 "worker-side MVT purges after a reupload or PostGIS refresh "
                 "cannot reach the API process's in-memory tile cache; the API "
-                "keeps serving pre-swap tiles for up to tile_cache_ttl"
+                "serves pre-swap tiles until it re-reads the dataset's "
+                "tile_cache_version, within 60 seconds"
             ),
             remediation="set REDIS_URL so both processes share one tile cache",
         )

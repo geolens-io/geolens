@@ -232,6 +232,7 @@ class _DatasetMeta(NamedTuple):
     # fix(#1963): the signed scope binds this, so it is as stale as the
     # `record_status` beside it and no staler.
     publication_version: int
+    tile_cache_version: int
 
 
 # Bounded LRU so a long-lived tile worker cannot grow one entry per
@@ -1681,6 +1682,7 @@ async def _resolve_dataset_meta(table_name: str, db: AsyncSession) -> _DatasetMe
         tile_cache_ttl=dataset.tile_cache_ttl,
         tile_columns=dataset.tile_columns,
         publication_version=dataset.publication_version or 0,
+        tile_cache_version=dataset.tile_cache_version or 1,
     )
     with _dataset_cache_lock:
         _dataset_cache[cache_key] = (now, meta)
@@ -1930,26 +1932,33 @@ def _ensure_clusterable_dataset(meta: _DatasetMeta) -> None:
 
 
 def _generation_table_key(
-    table_name: str, dataset_id: uuid.UUID, publication_version: int
+    table_name: str,
+    dataset_id: uuid.UUID,
+    publication_version: int,
+    tile_cache_version: int,
 ) -> str:
     """Table segment, the generation that makes a reused name safe, and the
-    publication version that makes a superseded entry unreachable.
+    versions that make a superseded entry unreachable.
 
     A cache key of the table name alone would let the next dataset to draw
     ``roads`` read the previous one's cached bytes under its own visibility.
     Keying on the dataset id (a UUID, never reissued) makes that read
-    impossible rather than merely short-lived — GH-1443's name-retirement
-    is not relied on for this.
+    impossible rather than merely short-lived, without relying on freed
+    names being retired.
 
-    fix(#2007): the publication version joins them, so bytes cached while the
-    dataset was public and published stop being reachable the moment a status
-    or visibility transition rolls it, rather than serving out the TTL.
+    The publication version rolls on a status or visibility transition, so
+    bytes cached while the dataset was public and published stop being
+    reachable then rather than serving out the TTL. The content version does
+    the same for a table swap, which runs in the worker and cannot purge an
+    in-memory cache in this process.
 
-    Position is load-bearing: both segments go AFTER the table name so the
+    Position is load-bearing: every segment goes AFTER the table name so the
     ``tile:{table}:*`` patterns in ``invalidate_table`` still match every
     key for a table, whichever dataset wrote it.
     """
-    return f"{table_name}:ds{dataset_id.hex}:p{publication_version}"
+    return (
+        f"{table_name}:ds{dataset_id.hex}:p{publication_version}:v{tile_cache_version}"
+    )
 
 
 def _cluster_cache_table_key(
@@ -1957,16 +1966,17 @@ def _cluster_cache_table_key(
     *,
     dataset_id: uuid.UUID,
     publication_version: int,
+    tile_cache_version: int,
     cluster_radius: int,
     cluster_max_zoom: int,
 ) -> str:
     # fix(#868): the version tag pins the cluster SQL semantics. Bump it whenever
     # _build_cluster_tile_query changes the emitted tile geometry/properties, or a
     # deploy keeps serving stale cluster tiles until TTL expiry. v2 -> v3: #874.
-    return (
-        f"{_generation_table_key(table_name, dataset_id, publication_version)}"
-        f":cluster:v3:r{cluster_radius}:z{cluster_max_zoom}"
+    generation = _generation_table_key(
+        table_name, dataset_id, publication_version, tile_cache_version
     )
+    return f"{generation}:cluster:v3:r{cluster_radius}:z{cluster_max_zoom}"
 
 
 async def _acquire_and_serve_tile(
@@ -2203,6 +2213,7 @@ async def cluster_tile_endpoint(
         table_name,
         dataset_id=meta.dataset_id,
         publication_version=meta.publication_version,
+        tile_cache_version=meta.tile_cache_version,
         cluster_radius=cluster_radius,
         cluster_max_zoom=cluster_max_zoom,
     )
@@ -2385,7 +2396,7 @@ async def tile_endpoint(
     # single_tenant: no prefix, byte-identical to pre-1209.
     _tile_tid = _require_tile_tenant_context()
     _tile_generation_key = _generation_table_key(
-        table_name, meta.dataset_id, meta.publication_version
+        table_name, meta.dataset_id, meta.publication_version, meta.tile_cache_version
     )
     _tile_cache_key = (
         f"{_tile_tid}:{_tile_generation_key}"

@@ -75,6 +75,7 @@ def _cluster_key(
         table,
         dataset_id=dataset_id,
         publication_version=publication_version,
+        tile_cache_version=1,
         cluster_radius=50,
         cluster_max_zoom=12,
     )
@@ -97,11 +98,11 @@ async def test_successor_cannot_read_predecessor_tiles(kind):
     async with _provider(kind) as provider:
         dataset_a, dataset_b = uuid.uuid4(), uuid.uuid4()
 
-        key_a = _generation_table_key(TABLE, dataset_a, 0)
+        key_a = _generation_table_key(TABLE, dataset_a, 0, 1)
         await provider.set(key_a, *TILE, gzip.compress(b"A private geometry"), ttl=300)
         assert await provider.get(key_a, *TILE) is not None
 
-        key_b = _generation_table_key(TABLE, dataset_b, 0)
+        key_b = _generation_table_key(TABLE, dataset_b, 0, 1)
         assert await provider.get(key_b, *TILE) is None, (
             "the successor of a reused table name read the deleted dataset's tile"
         )
@@ -123,7 +124,7 @@ async def test_successor_cannot_read_predecessor_cluster_tiles(kind):
 def test_generation_key_places_the_id_after_the_table_segment():
     """Position is what keeps `tile:{table}:*` invalidation working."""
     dataset_id = uuid.uuid4()
-    key = _generation_table_key(TABLE, dataset_id, 0)
+    key = _generation_table_key(TABLE, dataset_id, 0, 1)
 
     assert key.startswith(f"{TABLE}:"), (
         "the dataset id must follow the table segment — a leading id would "
@@ -149,14 +150,14 @@ async def test_invalidate_table_still_purges_every_generation(kind):
         older, newer = uuid.uuid4(), uuid.uuid4()
 
         await provider.set(
-            _generation_table_key(TABLE, older, 0), *TILE, b"old", ttl=300
+            _generation_table_key(TABLE, older, 0, 1), *TILE, b"old", ttl=300
         )
         await provider.set(
-            _generation_table_key(TABLE, newer, 0), *TILE, b"new", ttl=300
+            _generation_table_key(TABLE, newer, 0, 1), *TILE, b"new", ttl=300
         )
         await provider.set(_cluster_key(TABLE, newer), *TILE, b"clustered", ttl=300)
         await provider.set(
-            _generation_table_key(TABLE, newer, 0),
+            _generation_table_key(TABLE, newer, 0, 1),
             *TILE,
             b"cols",
             ttl=300,
@@ -165,12 +166,16 @@ async def test_invalidate_table_still_purges_every_generation(kind):
 
         await provider.invalidate_table(TABLE)
 
-        assert await provider.get(_generation_table_key(TABLE, older, 0), *TILE) is None
-        assert await provider.get(_generation_table_key(TABLE, newer, 0), *TILE) is None
+        assert (
+            await provider.get(_generation_table_key(TABLE, older, 0, 1), *TILE) is None
+        )
+        assert (
+            await provider.get(_generation_table_key(TABLE, newer, 0, 1), *TILE) is None
+        )
         assert await provider.get(_cluster_key(TABLE, newer), *TILE) is None
         assert (
             await provider.get(
-                _generation_table_key(TABLE, newer, 0), *TILE, cols_key="a,b"
+                _generation_table_key(TABLE, newer, 0, 1), *TILE, cols_key="a,b"
             )
             is None
         )
@@ -181,7 +186,7 @@ async def test_invalidate_table_does_not_purge_a_prefix_sibling(kind):
     """`roads` must not evict `roads_2` — the suffix generate_table_name hands out."""
     async with _provider(kind) as provider:
         dataset_id = uuid.uuid4()
-        sibling = _generation_table_key("roads_2", dataset_id, 0)
+        sibling = _generation_table_key("roads_2", dataset_id, 0, 1)
 
         await provider.set(sibling, *TILE, b"x", ttl=300)
 
@@ -229,7 +234,7 @@ async def test_explicit_label_is_still_cardinality_bounded(kind):
     async with _provider(kind) as provider:
         other_before = _hits("_other")
 
-        key = _generation_table_key(TABLE, uuid.uuid4(), 0)
+        key = _generation_table_key(TABLE, uuid.uuid4(), 0, 1)
         await provider.set(key, *TILE, b"tile", ttl=300)
         await provider.get(key, *TILE, label="Robert'); DROP TABLE--")
 

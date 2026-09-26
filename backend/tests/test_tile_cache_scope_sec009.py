@@ -53,6 +53,7 @@ def _meta(visibility: str, record_status: str = "published") -> _DatasetMeta:
         tile_cache_ttl=None,
         tile_columns=None,
         publication_version=0,
+        tile_cache_version=1,
     )
 
 
