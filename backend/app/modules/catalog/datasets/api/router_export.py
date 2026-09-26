@@ -44,6 +44,7 @@ from app.standards.dcat_us.service import (
     record_to_dcat_us3,
 )
 from app.standards.dcat_us.validation import validate_dcat_us3
+from app.standards.distributions import is_cog_download_eligible
 from app.standards.geodcat_ap.service import (
     catalog_to_geodcat_ap,
     geodcat_ap_fallback_fields,
@@ -275,19 +276,37 @@ async def _visible_record_lineage(
     return (await _visible_lineage(db, [dataset], user))[dataset.record_id]
 
 
+async def _raster_asset_dataset_ids(
+    db: AsyncSession, dataset_ids: list[uuid.UUID]
+) -> set[uuid.UUID]:
+    """The subset of *dataset_ids* that have a RasterAsset row.
+
+    One id-only query: callers here only ever ask "does the row exist",
+    so there is no reason to load the full ORM rows list_raster_assets
+    returns.
+    """
+    if not dataset_ids:
+        return set()
+    RasterAsset = get_catalog_port().raster_asset_orm_class()
+    result = await db.execute(
+        select(RasterAsset.dataset_id).where(RasterAsset.dataset_id.in_(dataset_ids))
+    )
+    return set(result.scalars().all())
+
+
 async def _dcat_raster_asset_presence(
     db: AsyncSession, datasets: list[DatasetModel]
 ) -> dict[uuid.UUID, bool]:
     """Per-page bulk answer to "does this dataset have the RasterAsset row
     the download route requires", keyed by dataset id.
 
-    One bulk lookup instead of one per dataset, mirroring _visible_lineage.
-    Only raster_dataset rows can carry that row at all.
+    One query instead of one per dataset, mirroring _visible_lineage --
+    scoped first to datasets the download route could ever serve anonymously,
+    since a page can hold far more ineligible rows (private, unpublished,
+    STAC-sourced, non-raster) than eligible ones.
     """
-    raster_ids = [ds.id for ds in datasets if ds.record.record_type == "raster_dataset"]
-    if not raster_ids:
-        return {}
-    found = await get_catalog_port().list_raster_assets(db, raster_ids)
+    eligible_ids = [ds.id for ds in datasets if is_cog_download_eligible(ds)]
+    found = await _raster_asset_dataset_ids(db, eligible_ids)
     return {dataset_id: True for dataset_id in found}
 
 

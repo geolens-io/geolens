@@ -1372,7 +1372,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/records/service.py": 877,
     # Export formats share visibility, lineage, raster-asset presence and
     # private-artifact authorization.
-    "backend/app/modules/catalog/datasets/api/router_export.py": 1519,
+    "backend/app/modules/catalog/datasets/api/router_export.py": 1538,
     # Artifact selection, atomic publication, range reads and eviction share one cache
     # protocol.
     "backend/app/processing/export/artifact_cache.py": 559,

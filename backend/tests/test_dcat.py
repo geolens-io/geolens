@@ -1133,9 +1133,9 @@ async def test_dcat_catalog_feed_resolves_raster_assets_once_per_page(
     test_db_session,
     monkeypatch,
 ):
-    """A page of several rasters costs one RasterAsset lookup, not one per
+    """A page of several rasters costs one RasterAsset query, not one per
     dataset -- see _dcat_raster_asset_presence in router_export.py."""
-    import app.platform.extensions.defaults_catalog_port as catalog_port_module
+    import app.modules.catalog.datasets.api.router_export as router_export
 
     session = test_db_session
     admin_id = await get_user_id(session, "admin")
@@ -1145,20 +1145,55 @@ async def test_dcat_catalog_feed_resolves_raster_assets_once_per_page(
         )
 
     calls = 0
-    original = catalog_port_module.DefaultCatalogPort.list_raster_assets
+    original = router_export._raster_asset_dataset_ids
 
-    async def _counting(self, session, dataset_ids):
+    async def _counting(db, dataset_ids):
         nonlocal calls
         calls += 1
-        return await original(self, session, dataset_ids)
+        return await original(db, dataset_ids)
 
-    monkeypatch.setattr(
-        catalog_port_module.DefaultCatalogPort, "list_raster_assets", _counting
-    )
+    monkeypatch.setattr(router_export, "_raster_asset_dataset_ids", _counting)
 
     resp = await client.get("/datasets/dcat/", headers=admin_auth_header)
     assert resp.status_code == 200, resp.text
     assert calls == 1
+
+
+@pytest.mark.anyio
+async def test_dcat_catalog_feed_excludes_ineligible_ids_from_the_asset_lookup(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    monkeypatch,
+):
+    """A STAC-sourced raster can never advertise the COG link (its bytes
+    aren't served by GeoLens), so its id must never reach the RasterAsset
+    query -- only an eligible sibling's does."""
+    import app.modules.catalog.datasets.api.router_export as router_export
+
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    eligible = await _create_dcat_raster_dataset(
+        session, created_by=admin_id, name="Eligible raster"
+    )
+    ineligible = await _create_dcat_raster_dataset(
+        session, created_by=admin_id, name="STAC raster", source_format="stac"
+    )
+
+    seen: list[set] = []
+    original = router_export._raster_asset_dataset_ids
+
+    async def _capturing(db, dataset_ids):
+        seen.append(set(dataset_ids))
+        return await original(db, dataset_ids)
+
+    monkeypatch.setattr(router_export, "_raster_asset_dataset_ids", _capturing)
+
+    resp = await client.get("/datasets/dcat/", headers=admin_auth_header)
+    assert resp.status_code == 200, resp.text
+    assert len(seen) == 1
+    assert eligible.id in seen[0]
+    assert ineligible.id not in seen[0]
 
 
 @pytest.mark.anyio
