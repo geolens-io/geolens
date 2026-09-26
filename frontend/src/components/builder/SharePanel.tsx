@@ -1105,17 +1105,20 @@ export function ShareDialog({
       ? [...new Set(publicEligibility.nonPublicDatasets)]
       : [];
 
-  // mapId changing while this dialog stays mounted (browser Back with Share
-  // open) must not let map A's in-flight check or PUT answer for map B —
-  // invalidate both, clear the refusal, and close any open confirmation.
+  // BuilderDialogs.tsx keys ShareDialog on mapId, so a map switch remounts
+  // this component and resets its state; publishRequestId only has to
+  // arbitrate same-map races (a retry, a rapid re-click) below.
   const publishRequestId = useRef(0);
+
+  // A remount discards this instance's state, not an already-running PUT's
+  // toast — that isn't state a remount resets. Lets the orphaned call
+  // notice it should skip it.
+  const isMountedRef = useRef(true);
   useEffect(() => {
-    publicEligibilityRequestId.current += 1;
-    publishRequestId.current += 1;
-    setPublicEligibility({ status: 'checking' });
-    setPendingVisibility(null);
-    setPublishBlocked(null);
-  }, [mapId]);
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   // Guards a stale response — including a retry's — from landing after a newer request.
   function checkPublicEligibility() {
@@ -1159,12 +1162,12 @@ export function ShareDialog({
   async function handleVisibilityChange(newVisibility: MapVisibility) {
     if (newVisibility === visibility) return;
     setPublishBlocked(null);
-    // A newer attempt — including the mapId effect above bumping this same
-    // ref — makes an earlier PUT's response stale once it lands.
+    // A newer attempt on this same map makes an earlier PUT's response
+    // stale once it lands (a mapId change instead remounts the dialog).
     const requestId = ++publishRequestId.current;
     try {
       await publishMap.mutateAsync({ id: mapId, visibility: newVisibility });
-      if (publishRequestId.current !== requestId) return;
+      if (!isMountedRef.current || publishRequestId.current !== requestId) return;
       if (newVisibility === 'public') {
         toast.success(t('toasts.mapNowPublic'));
       } else if (newVisibility === 'internal') {
@@ -1176,7 +1179,7 @@ export function ShareDialog({
         tokens.clearSharedState();
       }
     } catch (err) {
-      if (publishRequestId.current !== requestId) return;
+      if (!isMountedRef.current || publishRequestId.current !== requestId) return;
       // fix(#1831): the mutation never touched `visibility` on failure (the
       // toggle only follows the server response above), so the previous
       // value is already what's on screen — nothing to snap back here. What

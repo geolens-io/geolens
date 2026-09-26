@@ -106,6 +106,10 @@ export function BuilderDialogs({
       {/* Share dialog */}
       {mapId && (
         <ShareDialog
+          // Remounts on a map switch so ShareDialog's own state (including
+          // useShareTokens' held tokens) can't answer for the wrong map
+          // while this dialog stays open across the switch.
+          key={mapId}
           mapId={mapId}
           visibility={mapData.visibility ?? 'private'}
           open={showShare}

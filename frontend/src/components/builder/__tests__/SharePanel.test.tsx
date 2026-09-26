@@ -258,8 +258,11 @@ function setup({
     non_public_datasets: hasNonPublic ? ['Private dataset'] : [],
   });
 
+  // BuilderDialogs.tsx keys ShareDialog on mapId (a map switch must remount
+  // it); mirrored here so a rerender with a new mapId behaves the same way.
   const { rerender } = render(
     <ShareDialog
+      key={mapId}
       mapId={mapId}
       visibility={visibility}
       open
@@ -1587,7 +1590,7 @@ describe('#2297 public confirm defers to the server publish check', () => {
     // The Share dialog stays mounted (e.g. router reuse on Back) while
     // navigating to another map before map A's check has answered.
     rerender(
-      <ShareDialog mapId="map-b" visibility="private" open onOpenChange={vi.fn()} />,
+      <ShareDialog key="map-b" mapId="map-b" visibility="private" open onOpenChange={vi.fn()} />,
     );
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
 
@@ -1628,7 +1631,7 @@ describe('#2297 public confirm defers to the server publish check', () => {
     });
 
     rerender(
-      <ShareDialog mapId="map-b" visibility="private" open onOpenChange={vi.fn()} />,
+      <ShareDialog key="map-b" mapId="map-b" visibility="private" open onOpenChange={vi.fn()} />,
     );
 
     expect(screen.queryByTestId('share-publish-blocked-error')).not.toBeInTheDocument();
@@ -1659,7 +1662,7 @@ describe('#2297 public confirm defers to the server publish check', () => {
 
     // Map A's PUT is still in flight when the dialog moves to map B.
     rerender(
-      <ShareDialog mapId="map-b" visibility="private" open onOpenChange={vi.fn()} />,
+      <ShareDialog key="map-b" mapId="map-b" visibility="private" open onOpenChange={vi.fn()} />,
     );
 
     const detail = {
@@ -1697,7 +1700,7 @@ describe('#2297 public confirm defers to the server publish check', () => {
     await waitFor(() => expect(publishMapFn).toHaveBeenCalled());
 
     rerender(
-      <ShareDialog mapId="map-b" visibility="private" open onOpenChange={vi.fn()} />,
+      <ShareDialog key="map-b" mapId="map-b" visibility="private" open onOpenChange={vi.fn()} />,
     );
 
     // A late success must not toast on B's behalf or clear B's share state
@@ -1707,6 +1710,49 @@ describe('#2297 public confirm defers to the server publish check', () => {
     });
 
     expect(vi.mocked(toast.success)).not.toHaveBeenCalled();
+  });
+
+  it('does not let a stale unpublish result for map A populate map B share state', async () => {
+    const user = userEvent.setup();
+    let resolveMapAPublish: (value: unknown) => void = () => {};
+    const publishMapFn = vi.fn().mockReturnValue(
+      new Promise((resolve) => {
+        resolveMapAPublish = resolve;
+      }),
+    );
+    const { rerender } = setup({
+      mapId: 'map-a',
+      visibility: 'public',
+      hasShareToken: false,
+      publishMapFn,
+    });
+
+    // Map A creates and holds a raw share token.
+    await user.click(screen.getByRole('button', { name: /generate share link/i }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /copy link/i })).toBeInTheDocument();
+    });
+
+    // A's own unpublish PUT is still in flight when the dialog moves to
+    // (public) map B.
+    await user.click(screen.getByRole('radio', { name: /only you/i }));
+    await screen.findByRole('alertdialog');
+    await user.click(screen.getByRole('button', { name: /stop public sharing/i }));
+    await waitFor(() => expect(publishMapFn).toHaveBeenCalled());
+
+    rerender(
+      <ShareDialog key="map-b" mapId="map-b" visibility="public" open onOpenChange={vi.fn()} />,
+    );
+    // Map B is a fresh instance with no token of its own yet.
+    expect(screen.getByRole('button', { name: /generate share link/i })).toBeInTheDocument();
+
+    await act(async () => {
+      resolveMapAPublish({});
+    });
+
+    // A's late unpublish result must not populate B's share section.
+    expect(screen.queryByRole('button', { name: /copy link/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /generate share link/i })).toBeInTheDocument();
   });
 });
 
