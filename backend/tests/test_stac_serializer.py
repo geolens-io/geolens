@@ -190,13 +190,25 @@ class TestOgcRecordToStacItem:
 
         assert "gsd" not in item["properties"]
 
-    def test_bands_copied(self):
-        """bands array is in output properties when present."""
+    def test_bands_are_built_from_band_info(self):
         record = _make_ogc_record(has_bands=True)
-        item = ogc_record_to_stac_item(record, stac_api_url=STAC_API_URL)
+        item = ogc_record_to_stac_item(
+            record,
+            stac_api_url=STAC_API_URL,
+            band_info=[
+                {"index": 1, "dtype": "uint8", "color_interp": "Red"},
+                {"min": 0, "max": 9, "mean": 4.5},
+            ],
+            dtype="uint8",
+        )
 
-        assert len(item["properties"]["raster:bands"]) == 2
-        assert item["properties"]["raster:bands"][0]["name"] == "B1"
+        assert item["properties"]["raster:bands"] == [
+            {"name": "Red", "data_type": "uint8"},
+            {
+                "data_type": "uint8",
+                "statistics": {"minimum": 0, "maximum": 9, "mean": 4.5},
+            },
+        ]
         assert STAC_RASTER_EXTENSION_URI in item["stac_extensions"]
 
     def test_legacy_projection_input_is_never_emitted(self):
