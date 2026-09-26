@@ -237,6 +237,15 @@ class TestTheParentBoundsTheChild:
         (refused,) = [e for e in logs if e["event"] == "Point cloud refused"]
         assert refused["reason"] == "decode"
 
+    def test_the_child_starts_from_any_working_directory(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The child imports the app from the backend's root, wherever the parent runs."""
+        path = _write(tmp_path, copc())
+        monkeypatch.chdir(tmp_path)
+
+        assert inspect_pointcloud(path).point_count == 100
+
     def test_the_child_decodes_with_path_alone(self, monkeypatch, tmp_path) -> None:
         """The child sees no setting and no secret, and still answers."""
         envs: list[dict[str, str]] = []
