@@ -85,6 +85,11 @@ _ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
         "CPL_VSIL_CURL_ALLOWED_EXTENSIONS clamp. The function's own docstring "
         "carries both gates.",
     ),
+    ("app/modules/catalog/sources/cog_info.py", "fetch_cog_nodata"): (
+        1,
+        "The same INTERNAL Titiler read as fetch_cog_info above, gated the "
+        "same way; see that entry.",
+    ),
 }
 
 
