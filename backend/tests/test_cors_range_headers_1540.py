@@ -24,14 +24,18 @@ import ast
 import pathlib
 
 import pytest
+from fastapi import HTTPException
 from httpx import AsyncClient
+from starlette.requests import Request
+
+from app.platform.http.stored_bytes import evaluate_preconditions, serve_stored_bytes
 
 _ORIGIN = "http://cors-1540.example.com"
 
 _ROUTE_SOURCE = pathlib.Path(__file__).resolve().parents[1] / (
     "app/modules/catalog/datasets/api/router_export.py"
 )
-# The route serves its bytes through this module, so its headers are set here too.
+# The route serves its bytes through this module, which reads request headers too.
 _STORED_BYTES_SOURCE = pathlib.Path(__file__).resolve().parents[1] / (
     "app/platform/http/stored_bytes.py"
 )
@@ -84,12 +88,11 @@ def _conditional_headers_the_route_reads() -> set[str]:
 
 
 def _response_headers_the_cog_route_sets() -> set[str]:
-    """Header names in the COG download helpers and the stored-bytes module.
+    """Header names the COG download helpers in the route module set themselves.
 
-    In the route module, scoped by the ``cog`` in the function names, which is
-    the convention this route already follows, because the DCAT handlers in the
-    same module set headers of their own that no browser client needs to read.
-    Every function of the stored-bytes module counts: it only serves bytes.
+    Scoped by the ``cog`` in the function names, which is the convention this
+    route already follows, because the DCAT handlers in the same module set
+    headers of their own that no browser client needs to read.
 
     Reads ``headers=`` keyword values and header dicts a helper returns, rather
     than every dict literal: the audit call in ``download_cog`` passes a
@@ -101,11 +104,6 @@ def _response_headers_the_cog_route_sets() -> set[str]:
         for node in ast.walk(_route_ast())
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and "cog" in node.name
-    ]
-    functions += [
-        node
-        for node in ast.walk(_stored_bytes_ast())
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     ]
     found: set[str] = set()
     for node in functions:
@@ -283,7 +281,72 @@ def test_every_conditional_header_the_route_evaluates_is_allowed():
     )
 
 
-def test_every_response_header_the_route_sets_is_readable():
+class _StoredObject:
+    """A 100-byte object for building real stored-bytes responses."""
+
+    async def size(self, key: str) -> int:
+        return 100
+
+    async def get_stream(self, key: str):
+        yield b"x" * 100
+
+    async def get_range_stream(self, key: str, start: int, length: int):
+        yield b"x" * length
+
+
+def _request(method: str = "GET", **headers: str) -> Request:
+    raw = [
+        (name.replace("_", "-").encode(), value.encode())
+        for name, value in headers.items()
+    ]
+    return Request(
+        {
+            "type": "http",
+            "method": method,
+            "path": "/",
+            "headers": raw,
+            "query_string": b"",
+        }
+    )
+
+
+async def _stored_bytes_response_headers() -> set[str]:
+    """Header names on every answer the stored-bytes helpers build, read off real responses."""
+    etag = '"v1"'
+
+    async def serve(request: Request):
+        return await serve_stored_bytes(
+            request,
+            _StoredObject(),
+            "k",
+            total_bytes=100,
+            media_type="application/octet-stream",
+            etag=etag,
+        )
+
+    answers = []
+    for request in (_request("HEAD"), _request(), _request(range="bytes=0-9")):
+        response = await serve(request)
+        if request.method == "GET":
+            async for _ in response.body_iterator:  # finish the object's stream
+                pass
+        answers.append(response.headers)
+    with pytest.raises(HTTPException) as unsatisfiable:
+        await serve(_request(range="bytes=500-"))
+    with pytest.raises(HTTPException) as changed:
+        evaluate_preconditions(_request(if_match='"other"'), etag, changed_detail="x")
+    not_modified = evaluate_preconditions(
+        _request(if_none_match=etag), etag, changed_detail="x"
+    )
+    answers += [
+        unsatisfiable.value.headers,
+        changed.value.headers,
+        not_modified.headers,
+    ]
+    return {name.lower() for headers in answers for name in headers or {}}
+
+
+async def test_every_response_header_the_route_sets_is_readable():
     """The other half of the same coupling.
 
     A response header outside Fetch's safelist is not merely undocumented to a
@@ -292,7 +355,9 @@ def test_every_response_header_the_route_sets_is_readable():
     sees them, which for a resumable download means the client cannot tell
     which version it holds or which bytes it just received.
     """
-    sets = _response_headers_the_cog_route_sets()
+    sets = (
+        _response_headers_the_cog_route_sets() | await _stored_bytes_response_headers()
+    )
     _, exposed = _middleware_lists()
 
     assert {"etag", "content-range", "accept-ranges", "content-disposition"} <= sets, (
