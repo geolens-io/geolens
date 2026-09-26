@@ -342,6 +342,10 @@ python scripts/seed-showcase.py --username admin --password "$(grep '^GEOLENS_AD
 Requires internet access to the upstream open-data sources. See
 [`scripts/README.md`](scripts/README.md) for flags (`--no-terrain`, `--prune`, …).
 
+## ☁️ One-Click Deploy
+
+[![Deploy on RepoCloud](https://d16t0pc4846x52.cloudfront.net/deploylobe.svg)](https://repocloud.io/details/geolens/)
+
 ## Architecture
 
 GeoLens is a small set of services around a single PostgreSQL/PostGIS database: the
