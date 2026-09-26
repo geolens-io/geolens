@@ -172,10 +172,22 @@ class TestRowsTheRepairHasNotReached:
         assert batch.json()["tokens"][dataset_id]["maxzoom"] == 7
         assert crs_parses == []
 
-    def test_stac_gsd_converts_by_the_epsg_code(self):
-        asset = RasterAsset(epsg=2263, res_x=10.0, res_y=-10.0)
+    async def test_stac_gsd_converts_by_the_epsg_code(
+        self, client, admin_auth_header, test_db_session, crs_parses
+    ):
+        dataset = await create_raster_dataset(
+            test_db_session,
+            created_by=await get_user_id(test_db_session, "admin"),
+            name=f"CRS facts {uuid.uuid4().hex[:10]}",
+            create_raster_asset=True,
+            raster_asset_kwargs={"epsg": 2263, "res_x": 10.0, "res_y": -10.0},
+        )
 
-        assert asset.to_stac_properties()["gsd"] == pytest.approx(3.048006, rel=1e-4)
+        item = await client.get(f"/stac/items/{dataset.id}", headers=admin_auth_header)
+
+        assert item.status_code == 200, item.text
+        assert item.json()["properties"]["gsd"] == pytest.approx(3.048006, rel=1e-4)
+        assert crs_parses == []
 
     async def test_a_row_with_only_crs_text_gets_the_default_maxzoom(
         self, client, test_db_session, crs_parses

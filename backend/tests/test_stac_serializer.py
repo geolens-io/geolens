@@ -174,7 +174,21 @@ class TestOgcRecordToStacItem:
         assert item["properties"]["proj:code"] == "EPSG:4326"
         assert "proj:epsg" not in item["properties"]
         assert item["properties"]["proj:shape"] == [1024, 2048]
-        assert item["properties"]["gsd"] == 30.0
+
+    def test_gsd_is_converted_from_crs_units_to_metres(self):
+        record = _make_ogc_record(has_stac_extensions=True)
+        item = ogc_record_to_stac_item(
+            record, stac_api_url=STAC_API_URL, crs_metres_per_unit=0.5
+        )
+
+        assert record["properties"]["gsd"] == 30.0
+        assert item["properties"]["gsd"] == 15.0
+
+    def test_gsd_is_omitted_without_metres_per_unit(self):
+        record = _make_ogc_record(has_stac_extensions=True)
+        item = ogc_record_to_stac_item(record, stac_api_url=STAC_API_URL)
+
+        assert "gsd" not in item["properties"]
 
     def test_bands_copied(self):
         """bands array is in output properties when present."""

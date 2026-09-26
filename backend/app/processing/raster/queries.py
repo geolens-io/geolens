@@ -17,12 +17,15 @@ from app.processing.raster.models import RasterAsset
 
 def _row_to_meta(row: Any, *, include_vrt: bool, include_generation_id: bool) -> dict:
     """Convert a RasterAsset row to a dict with floats normalized."""
+    facts = raster_crs_facts(row)
     meta: dict = {
         "band_count": row.band_count,
         "epsg": row.epsg,
         # fix(#569): lets consumers render res_x/res_y honestly — degree
         # resolutions must not be formatted as meters.
-        "crs_is_geographic": raster_crs_facts(row)["crs_is_geographic"],
+        "crs_is_geographic": facts["crs_is_geographic"],
+        # Converts res_x/res_y to STAC's metres; None for a geographic or unknown CRS.
+        "crs_metres_per_unit": facts["crs_metres_per_unit"],
         "res_x": float(row.res_x) if row.res_x is not None else None,
         "res_y": float(row.res_y) if row.res_y is not None else None,
         "width": row.width,

@@ -260,9 +260,9 @@ def extract_raster_metadata(file_path: str) -> dict:
 
     with rasterio.open(file_path) as src:
         crs = src.crs
-        # fix(#1376): explicitly WKT2 — RasterAsset.to_stac_properties()
-        # publishes this as STAC's `proj:wkt2`, and rasterio's default
-        # WKT1_GDAL may be rejected by a strict consumer of that field.
+        # WKT2_2019, the dialect cog_info stores for remote rasters, so the
+        # column holds one dialect whichever path filled it; rasterio's
+        # default is WKT1_GDAL.
         crs_wkt = crs.to_wkt(version="WKT2_2019") if crs else None
         epsg = crs.to_epsg() if crs else None
 

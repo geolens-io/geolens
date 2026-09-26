@@ -343,6 +343,7 @@ async def _dataset_to_stac_item(
         collection_id=collection_id,
         stac_api_url=stac_api_url,
         derived_from_id=await _visible_derived_from_id(db, record, user, user_roles),
+        crs_metres_per_unit=(raster_meta or {}).get("crs_metres_per_unit"),
     )
 
 

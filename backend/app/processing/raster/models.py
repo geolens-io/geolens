@@ -19,12 +19,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
-from app.core.geo import crs_columns, raster_crs_facts
-
-# fix(#1778): shared with the OGC Records serializer, which cannot import from
-# `app.processing` (CATPORT-02/04). See the module docstring for the two
-# producer shapes these two functions reconcile.
-from app.core.raster_bands import band_display_name, stac_band_nodata
+from app.core.geo import crs_columns
 
 
 class RasterAsset(Base):
@@ -123,56 +118,6 @@ class RasterAsset(Base):
         """Replace the stored CRS text and its facts together."""
         for column, value in crs_columns(meta).items():
             setattr(self, column, value)
-
-    def to_stac_properties(self) -> dict:
-        """Extract STAC-compatible properties from raster metadata."""
-        props: dict = {}
-        if self.epsg is not None:
-            props["proj:code"] = f"EPSG:{self.epsg}"
-        if self.crs_wkt:
-            props["proj:wkt2"] = self.crs_wkt
-        if self.width is not None and self.height is not None:
-            props["proj:shape"] = [self.height, self.width]
-        if self.res_x is not None and self.res_y is not None:
-            # fix(#1375): STAC's `gsd` is in METRES; publishing raw
-            # res_x/res_y overstated resolution (measured 3.28x for
-            # foot-based state-plane CRSs). PROJ's metres-per-unit converts it.
-            #
-            # A geographic CRS yields None and OMITS the field: an angular
-            # resolution has no fixed length without a latitude. The OGC Records
-            # serializer instead keeps the CRS-unit value, because it ships a
-            # companion `crs_is_geographic` flag that STAC has no room for
-            # (fix(#569)).
-            metres_per_unit = raster_crs_facts(self)["crs_metres_per_unit"]
-            if metres_per_unit is not None:
-                props["gsd"] = min(abs(self.res_x), abs(self.res_y)) * metres_per_unit
-
-        # Bands (STAC Raster Extension v1.1 format)
-        if self.band_info:
-            bands = []
-            for b in self.band_info:
-                if not isinstance(b, dict):
-                    continue
-                band: dict = {}
-                if b.get("dtype"):
-                    band["data_type"] = b["dtype"]
-                nodata = stac_band_nodata(b.get("nodata"))
-                if nodata is not None:
-                    band["nodata"] = nodata
-                name = band_display_name(b)
-                if name:
-                    band["name"] = name
-                # fix(#1778): an empty entry is dropped rather than appended.
-                # A Producer-B row carries none of the three keys above, so
-                # this list used to come out as `[{}, {}, {}]` and `if bands:`
-                # published it: structurally invalid, and worse than omitting
-                # the field.
-                if band:
-                    bands.append(band)
-            if bands:
-                props["raster:bands"] = bands
-
-        return props
 
 
 class VrtGeneration(Base):

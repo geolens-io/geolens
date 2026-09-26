@@ -127,14 +127,7 @@ class TestExtractRasterMetadata:
         [(4326, "GEOGCRS["), (3857, "PROJCRS[")],
     )
     def test_crs_wkt_is_serialized_as_wkt2(self, epsg, wkt2_root, tmp_path):
-        """fix(#1376): the local-upload path stores this in
-        ``RasterAsset.crs_wkt``, which ``to_stac_properties()`` publishes as
-        the STAC Projection Extension's ``proj:wkt2``. rasterio's default
-        export is WKT1_GDAL (``GEOGCS[``/``PROJCS[``), so the version has to
-        be asked for. Both CRS classes are covered because WKT1 and WKT2 use
-        a different root keyword for each, and the remote-asset probe
-        (``test_cog_info.py``) pins the same property on the other writer —
-        between them the column is one dialect whichever path filled it."""
+        """The upload path stores WKT2 for geographic and projected CRSs alike."""
         tif = _write_tmp_tif(crs=CRS.from_epsg(epsg))
         try:
             from app.processing.raster.cog import extract_raster_metadata

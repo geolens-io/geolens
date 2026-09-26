@@ -620,16 +620,15 @@ def crs_metres_per_unit(crs: object | None) -> float | None:
     """Metres per linear unit of a PROJECTED CRS, or None when that is not a
     question with an answer.
 
-    fix(#1375): STAC's ``gsd`` is in metres, but a stored resolution is
-    in whatever unit its CRS measures. ``units_factor`` reports ``('metre',
-    1.0)`` for UTM/Web Mercator and ``('US survey foot', 0.3048006...)`` for
-    state-plane systems.
+    STAC's ``gsd`` is in metres, but a stored resolution is in whatever unit
+    its CRS measures. ``units_factor`` reports ``('metre', 1.0)`` for UTM/Web
+    Mercator and ``('US survey foot', 0.3048006...)`` for state-plane systems.
 
     Returns None for a GEOGRAPHIC CRS on purpose: ``units_factor`` reports
     RADIANS per unit there, and an angular resolution has no fixed length (a
     degree of longitude is 111 km at the equator, 0 at the pole) without a
     latitude this function isn't given. Callers must omit the value rather
-    than publish it unconverted -- see ``RasterAsset.to_stac_properties``.
+    than publish it unconverted, as the STAC item serializer does.
     """
     if crs is None:
         return None

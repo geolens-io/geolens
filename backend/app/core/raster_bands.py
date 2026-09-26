@@ -1,15 +1,11 @@
 """Normalisation for the `raster_assets.band_info` JSONB column.
 
-fix(#1778): `band_info` is schemaless with two producers that never agreed on
-a shape. Producer A, `extract_raster_metadata` (local ingest), writes
+`band_info` is schemaless with two producers that never agreed on a shape.
+Producer A, `extract_raster_metadata` (local ingest), writes
 `{index, dtype, nodata, color_interp, unit?}` — the canonical shape, which the
 STAC serializer targets. Producer B, `fetch_cog_info` (remote COG via STAC
 import), writes `{min, max, mean}` and is normalised on READ rather than
-migrated, since both readers already need to handle an unrecognised shape.
-
-Lives in `core/` because the two readers sit on opposite sides of a layering
-rule (`app/modules/catalog/` may not import `app.processing.*`, CATPORT-02/04)
-and need a shared module to avoid disagreeing about a band again.
+migrated, since the reader already needs to handle an unrecognised shape.
 """
 
 # The three non-numeric values the STAC Raster Extension accepts for `nodata`.
