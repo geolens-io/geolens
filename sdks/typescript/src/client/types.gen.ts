@@ -20738,6 +20738,10 @@ export type GetTilesetFileDatasetsDatasetIdTiles3dPathGetErrors = {
      */
     404: ProblemDetail;
     /**
+     * Precondition failed — the caller's If-Match no longer matches the current representation
+     */
+    412: ProblemDetail;
+    /**
      * Validation error
      */
     422: ProblemDetail;

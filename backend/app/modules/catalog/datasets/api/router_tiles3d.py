@@ -9,7 +9,7 @@ from collections.abc import AsyncIterator
 from contextlib import aclosing
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,10 +20,15 @@ from app.modules.auth.dependencies import get_optional_user
 from app.modules.catalog.authorization import check_dataset_access_or_anonymous
 from app.modules.catalog.datasets.api.sandboxed_route import SandboxedRoute
 from app.modules.catalog.datasets.domain.service import get_dataset, get_tileset_href
+from app.platform.http.stored_bytes import evaluate_preconditions
 from app.platform.ratelimit import limiter
 from app.platform.storage import get_storage
 from app.platform.storage.titiler_url import resolve_current_storage_key
-from app.standards.ogc.errors import BAD_GATEWAY_RESPONSE, NOT_FOUND_RESPONSE
+from app.standards.ogc.errors import (
+    BAD_GATEWAY_RESPONSE,
+    NOT_FOUND_RESPONSE,
+    PRECONDITION_FAILED_RESPONSE,
+)
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -43,6 +48,10 @@ _OCTET_STREAM = "application/octet-stream"
 # the dataset's prefix.
 _ATTEMPT_ENTRY = re.compile(r"[A-Za-z0-9_-]+/tileset\.json")
 
+# A client may store a file but must ask before each reuse, so every read is
+# authorized again; the live attempt's ETag turns that into a 304.
+_CACHE_CONTROL = "private, no-cache"
+
 
 router = APIRouter(prefix="/datasets", tags=["Datasets"], route_class=SandboxedRoute)
 
@@ -60,6 +69,11 @@ def _live_attempt(href: str | None, dataset_id: uuid.UUID) -> str | None:
         logger.warning("tileset_pointer_outside_prefix", dataset_id=str(dataset_id))
         return None
     return href[: -len("tileset.json")]
+
+
+def _etag(attempt: str) -> str:
+    """The validator of every file in one attempt, which a publish never rewrites."""
+    return f'"{attempt.rstrip("/").rsplit("/", 1)[-1]}"'
 
 
 def _relative_key(path: str) -> str | None:
@@ -86,7 +100,9 @@ async def _chained(first: bytes, rest: AsyncIterator[bytes]) -> AsyncIterator[by
     response_class=Response,
     responses={
         200: {"description": "The requested tileset file"},
+        304: {"description": "The caller already holds this version of the file"},
         404: NOT_FOUND_RESPONSE,
+        412: PRECONDITION_FAILED_RESPONSE,
         502: BAD_GATEWAY_RESPONSE,
     },
 )
@@ -96,6 +112,7 @@ async def _chained(first: bytes, rest: AsyncIterator[bytes]) -> AsyncIterator[by
 async def get_tileset_file(
     dataset_id: uuid.UUID,
     path: str,
+    request: Request,
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
@@ -109,8 +126,11 @@ async def get_tileset_file(
     lose it unless the client carries it over, as CesiumJS does through
     ``Resource`` query parameters. A browser client on another origin also
     needs that origin on the deployment's CORS allowlist
-    (``CORS_ALLOWED_ORIGINS``). A private or missing tileset and a missing
-    file all answer 404, and a storage failure answers 502.
+    (``CORS_ALLOWED_ORIGINS``). Every file carries the published tileset's
+    ETag and asks the client to revalidate before each reuse: after the access
+    check, an ``If-None-Match`` naming the current version answers 304 and an
+    ``If-Match`` naming another answers 412. A private or missing tileset and
+    a missing file all answer 404, and a storage failure answers 502.
     """
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
@@ -135,6 +155,13 @@ async def get_tileset_file(
     # keep its pooled connection until the last byte. Nothing was written, so
     # the rollback discards nothing.
     await db.rollback()
+    etag = _etag(attempt)
+    not_modified = evaluate_preconditions(
+        request, etag, changed_detail="The tileset has changed since that version"
+    )
+    if not_modified is not None:
+        not_modified.headers["Cache-Control"] = _CACHE_CONTROL
+        return not_modified
     stream = get_storage().get_stream(key)
     try:
         first = await anext(stream)
@@ -151,9 +178,8 @@ async def get_tileset_file(
     content_type = _CONTENT_TYPES.get(
         posixpath.splitext(relative)[1].lower(), _OCTET_STREAM
     )
-    max_age = 60 if relative == "tileset.json" else 3600
     return StreamingResponse(
         _chained(first, stream),
         media_type=content_type,
-        headers={"Cache-Control": f"private, max-age={max_age}"},
+        headers={"Cache-Control": _CACHE_CONTROL, "ETag": etag},
     )
