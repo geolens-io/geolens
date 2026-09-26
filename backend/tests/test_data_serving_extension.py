@@ -232,23 +232,27 @@ async def test_rejected_tile_limiter_never_queries_or_releases(
         }
     )
     with pytest.raises(HTTPException) as exc_info:
-        await tile_router._acquire_and_serve_tile(
-            request=request,
-            table_name="roads",
-            z=0,
-            x=0,
-            y=0,
-            tid="tenant-1",
-            schema="data_t_tenant_1",
-            query_callable=query,
-            tile_cache=None,
-            cache_key="roads",
-            cache_ttl=60,
-            base_headers={},
-            tenant_sem=limiter,
-        )
+        async with tile_router.tile_render_slot(limiter):
+            await tile_router._acquire_and_serve_tile(
+                request=request,
+                table_name="roads",
+                z=0,
+                x=0,
+                y=0,
+                tid="tenant-1",
+                schema="data_t_tenant_1",
+                query_callable=query,
+                tile_cache=None,
+                cache_key="roads",
+                cache_ttl=60,
+                base_headers={},
+            )
 
     assert exc_info.value.status_code == 429
+    assert exc_info.value.headers["Retry-After"] == "2"
+    assert exc_info.value.headers["Access-Control-Allow-Origin"] == "*"
+    assert exc_info.value.headers["Access-Control-Expose-Headers"] == "Retry-After"
+    assert exc_info.value.headers["Cache-Control"] == "no-store"
     assert limiter.acquired == 1
     assert limiter.released == 0
     assert pool.acquire_count == 0

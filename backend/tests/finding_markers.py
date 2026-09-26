@@ -364,7 +364,7 @@ UNANCHORED_MARKER_DEBT: dict[str, int] = {
     "processing/raster/vrt.py": 3,
     "processing/raster/vrt_rewrite.py": 5,
     "processing/tiles/pool.py": 6,
-    "processing/tiles/router.py": 26,
+    "processing/tiles/router.py": 15,
     "processing/tiles/service.py": 16,
     "processing/tiles/signing.py": 5,
     "standards/ogc/errors.py": 2,

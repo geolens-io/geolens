@@ -62,15 +62,12 @@ case "$CLIENT_MAX_BODY_SIZE" in
     ;;
 esac
 
-# fix(#581): trusted-proxy trust boundary (see the matching comment in the
-# vhost template). Unset TRUSTED_PROXY_CIDRS renders an identity map that
-# keeps $geolens_fwd_proto = $scheme — the previous hard-coded behavior.
-# A comma- or space-separated CIDR list renders realip directives that
-# recover the client address from X-Forwarded-For for exactly those hops,
-# plus a geo/map pair honoring X-Forwarded-Proto only from a trusted peer.
-# Entries are pinned to IP/CIDR characters so a malformed value cannot
-# smuggle nginx directives into the rendered config.
-TRUSTED_PROXY_CONFIG='map $scheme $geolens_fwd_proto { default $scheme; }'
+# Only explicitly trusted peers can supply client addresses and scheme.
+# An empty vector limit key bypasses edge limiting until realip recovers an
+# address; the API render cap still bounds uncached work. Restrict characters
+# so the configured CIDRs cannot inject directives into the template.
+TRUSTED_PROXY_CONFIG='map $scheme $geolens_fwd_proto { default $scheme; }
+map $remote_addr $geolens_vector_limit_key { default ""; }'
 if [ -n "${TRUSTED_PROXY_CIDRS:-}" ]; then
   realip_directives=""
   geo_entries=""
@@ -95,6 +92,11 @@ map \"\$geolens_peer_trusted:\$http_x_forwarded_proto\" \$geolens_fwd_proto {
     \"1:https\" https;
     \"1:http\" http;
     default \$scheme;
+}
+# A proxy without a usable forwarded address must not share one site-wide bucket.
+map \"\$remote_addr,\$realip_remote_addr\" \$geolens_vector_limit_key {
+    \"~^([^,]+),\\1\$\" \"\";
+    default \$binary_remote_addr;
 }"
 fi
 

@@ -61,6 +61,7 @@ from app.processing.raster.models import RasterAsset
 from app.core.db.tenant_schema import tenant_data_schema
 from app.core.db.tenant_session import current_tenant_var
 from app.core.tenancy import is_multi_tenant
+from app.processing.tiles.admission import tile_render_slot
 from app.processing.tiles.pool import (
     TILE_POOL_ACQUIRE_TIMEOUT_SECONDS,
     get_tile_pool,
@@ -73,6 +74,7 @@ from app.processing.tiles.responses import (
     _tile_etag as _tile_etag,
     _tile_headers as _tile_headers,
     _tile_response,
+    tile_busy_error,
 )
 from app.processing.tiles.service import (
     _TABLE_NAME_RE,
@@ -2164,7 +2166,6 @@ async def _acquire_and_serve_tile(
     cache_ttl: int,
     base_headers: dict[str, str],
     cols_cache_key: str = "",
-    tenant_sem: Any = None,
     mode: str = "vector",
     log_event: str = "tile_access",
     log_extra: dict | None = None,
@@ -2173,13 +2174,12 @@ async def _acquire_and_serve_tile(
 
     Both the vector and cluster endpoints supply a ``query_callable`` (async
     ``(pool, conn) -> bytes | None``) plus a cache key; this owns the
-    shared scaffold: bounded tile-pool acquire, optional per-tenant
-    semaphore (no-op when ``tenant_sem`` is None), the single-connection
+    shared scaffold: bounded tile-pool acquire, a single-connection
     transaction with per-tenant role/search_path bind, error mapping
     (timeout -> 429, broad Exception -> 503), empty-tile caching (-> 204),
     gzip offload, cache write, usage event, and the ETag/304 response.
 
-    Callers keep their own cache-hit short-circuit and cold-rehydrate seam.
+    Callers own cache hits, tenant/global admission and cold rehydration.
     """
     try:
         pool = get_tile_pool()
@@ -2195,23 +2195,8 @@ async def _acquire_and_serve_tile(
             detail="Tile service unavailable",
         )
 
-    # FAIR-01: per-tenant semaphore acquisition (cloud only; no-op when None).
-    _sem_acquired = False
-    if tenant_sem is not None:
-        try:
-            _sem_acquired = await asyncio.wait_for(tenant_sem.acquire(), timeout=10.0)
-            if not _sem_acquired:
-                raise asyncio.TimeoutError
-        except asyncio.TimeoutError:
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Tile concurrency limit reached for tenant, please retry",
-                headers={"Retry-After": "2"},
-            )
-
-    # DP-02 (Phase 1209-03): acquire ONE connection and open a transaction so
-    # SET LOCAL ROLE + SET LOCAL search_path survive for the tile query
-    # (PgBouncer transaction-mode: SET LOCAL is valid within one txn; T-1209-10).
+    # SET LOCAL role and schema bindings must share the query transaction to
+    # survive PgBouncer transaction pooling.
     try:
         # fix(#1926): bounded, so an exhausted pool sheds through the 429 below
         # rather than parking the request until the client gives up.
@@ -2230,11 +2215,7 @@ async def _acquire_and_serve_tile(
             x=x,
             y=y,
         )
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Tile service busy, please retry",
-            headers={"Retry-After": "2"},
-        )
+        raise tile_busy_error()
     except Exception as exc:  # broad: tile query spans MVT SQL/PostGIS — varied DB errors map to a controlled 503 with logged context
         logger.exception(
             "Tile query failed",
@@ -2249,10 +2230,6 @@ async def _acquire_and_serve_tile(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Tile service unavailable",
         )
-    finally:
-        # FAIR-01: always release the per-tenant semaphore (cloud only).
-        if _sem_acquired and tenant_sem is not None:
-            tenant_sem.release()
 
     if tile_data is None:
         # Cache empty tiles to avoid repeated PostGIS queries for sparse datasets.
@@ -2334,11 +2311,11 @@ async def cluster_tile_endpoint(
 
     A tile holding no features answers 204, and a repeat request whose
     ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
-    a dataset still being restored answers 202 with a job id to poll. Three
-    cases answer 429 with ``Retry-After``: waiting past the tile pool's
-    connection budget, a tile query that outruns the pool's per-command
-    timeout, and exceeding a configured per-tenant concurrency limit. Any other
-    failure serving the tile answers 503.
+    a dataset still being restored answers 202 with a job id to poll. Requests
+    answer 429 with ``Retry-After`` when the per-process capacity for uncached
+    renders is full, tile-pool acquisition times out, a tile query exceeds the
+    pool's per-command timeout, or the configured per-tenant concurrency limit
+    is exceeded. Any other failure serving the tile answers 503.
     """
     table_name = _parse_vector_tile_table(table_path)
     _validate_tile_coordinates(z, x, y)
@@ -2411,72 +2388,71 @@ async def cluster_tile_endpoint(
                 _serving_tile_headers(cache_scope, cache_ttl, _cluster_cache_control),
             )
 
-    # fix(#1451): the first thing past the byte-cache short-circuit, because
-    # everything past it acts on the cached authorization. See the helper for
-    # why it cannot sit any later.
-    await _assert_dataset_still_registered(
-        db, dataset_id=meta.dataset_id, table_name=table_name, tid=_cluster_tid
-    )
-
-    # COLD-02 (Phase 1214-04): cold-rehydrate seam — BEFORE cluster tile query.
-    # Mirrors the tile_endpoint seam: uses cached meta.record_status (T-1214-18);
-    # failure is broad-except-swallowed (T-1214-17).
-    _cluster_cold_result = await _check_cold_rehydrate(
-        table_name,
-        meta.record_status,
-        str(_cluster_tid) if _cluster_tid is not None else "",
-    )
-    if _cluster_cold_result is not None:
-        return _cluster_cold_result
-
-    tid = _require_tile_tenant_context()
-    _schema = tenant_data_schema(tid)
-
-    async def _run_cluster_query(pool: Any, conn: Any) -> bytes | None:
-        return await get_cluster_tile(
-            pool,
-            table_name,
-            z,
-            x,
-            y,
-            meta.column_info,
-            tile_columns=meta.tile_columns,
-            additional_columns=additional_columns,
-            cluster_radius=cluster_radius,
-            cluster_max_zoom=cluster_max_zoom,
-            conn=conn,
-            schema=_schema,
+    tenant_sem = _cluster_limiter if is_multi_tenant() else None
+    if tenant_sem is not None:
+        # Authorization is complete; quota waits must not retain an API connection.
+        await db.rollback()
+    async with tile_render_slot(tenant_sem):
+        # Recheck catalog registration before cold storage or rendering acts on
+        # cached authorization; byte-cache hits need no database round trip.
+        await _assert_dataset_still_registered(
+            db, dataset_id=meta.dataset_id, table_name=table_name, tid=_cluster_tid
         )
 
-    _cluster_tenant_sem = _cluster_limiter if is_multi_tenant() else None
+        # Cold storage must be ready before querying, using the cached status.
+        _cluster_cold_result = await _check_cold_rehydrate(
+            table_name,
+            meta.record_status,
+            str(_cluster_tid) if _cluster_tid is not None else "",
+        )
+        if _cluster_cold_result is not None:
+            return _cluster_cold_result
 
-    # The same tenant concurrency budget governs vector and cluster DB reads.
-    return await _acquire_and_serve_tile(
-        request=request,
-        table_name=table_name,
-        z=z,
-        x=x,
-        y=y,
-        tid=tid,
-        schema=_schema,
-        query_callable=_run_cluster_query,
-        tile_cache=tile_cache,
-        cache_key=cluster_cache_key,
-        cache_ttl=cache_ttl,
-        base_headers=_serving_tile_headers(
-            cache_scope, cache_ttl, _cluster_cache_control
-        ),
-        tenant_sem=_cluster_tenant_sem,
-        mode="cluster",
-        log_event="cluster_tile_access",
-        log_extra={
-            "dataset_id": str(meta.record_id),
-            "cluster_radius": cluster_radius,
-            "cluster_max_zoom": cluster_max_zoom,
-            "scope": scope or cache_scope,
-        },
-        cols_cache_key=cols_cache_key,
-    )
+        tid = _require_tile_tenant_context()
+        _schema = tenant_data_schema(tid)
+
+        async def _run_cluster_query(pool: Any, conn: Any) -> bytes | None:
+            return await get_cluster_tile(
+                pool,
+                table_name,
+                z,
+                x,
+                y,
+                meta.column_info,
+                tile_columns=meta.tile_columns,
+                additional_columns=additional_columns,
+                cluster_radius=cluster_radius,
+                cluster_max_zoom=cluster_max_zoom,
+                conn=conn,
+                schema=_schema,
+            )
+
+        # The same tenant concurrency budget governs vector and cluster DB reads.
+        return await _acquire_and_serve_tile(
+            request=request,
+            table_name=table_name,
+            z=z,
+            x=x,
+            y=y,
+            tid=tid,
+            schema=_schema,
+            query_callable=_run_cluster_query,
+            tile_cache=tile_cache,
+            cache_key=cluster_cache_key,
+            cache_ttl=cache_ttl,
+            base_headers=_serving_tile_headers(
+                cache_scope, cache_ttl, _cluster_cache_control
+            ),
+            mode="cluster",
+            log_event="cluster_tile_access",
+            log_extra={
+                "dataset_id": str(meta.record_id),
+                "cluster_radius": cluster_radius,
+                "cluster_max_zoom": cluster_max_zoom,
+                "scope": scope or cache_scope,
+            },
+            cols_cache_key=cols_cache_key,
+        )
 
 
 @router.get(
@@ -2527,11 +2503,11 @@ async def tile_endpoint(
     A malformed table path or an out-of-range tile coordinate answers 400. A
     tile holding no features answers 204, and a repeat request whose
     ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
-    a dataset still being restored answers 202 with a job id to poll. Three
-    cases answer 429 with ``Retry-After``: waiting past the tile pool's
-    connection budget, a tile query that outruns the pool's per-command
-    timeout, and exceeding a configured per-tenant concurrency limit. Any other
-    failure serving the tile answers 503.
+    a dataset still being restored answers 202 with a job id to poll. Requests
+    answer 429 with ``Retry-After`` when the per-process capacity for uncached
+    renders is full, tile-pool acquisition times out, a tile query exceeds the
+    pool's per-command timeout, or the configured per-tenant concurrency limit
+    is exceeded. Any other failure serving the tile answers 503.
     """
     table_name = _parse_vector_tile_table(table_path)
     _validate_tile_coordinates(z, x, y)
@@ -2601,76 +2577,71 @@ async def tile_endpoint(
                 _serving_tile_headers(cache_scope, cache_ttl, _tile_cache_control),
             )
 
-    # fix(#1451): the first thing past the byte-cache short-circuit, because
-    # everything past it acts on the cached authorization. See the helper for
-    # why it cannot sit any later.
-    await _assert_dataset_still_registered(
-        db, dataset_id=meta.dataset_id, table_name=table_name, tid=_tile_tid
-    )
-
-    # Cold-rehydrate seam, before the tile query, on the cached
-    # `record_status` (no extra round-trip on the hot path). A published or
-    # anon-shared dataset is hot, so a public map viewer never sees a 202.
-    _cold_result = await _check_cold_rehydrate(
-        table_name,
-        meta.record_status,
-        str(_tile_tid) if _tile_tid is not None else "",
-    )
-    if _cold_result is not None:
-        return _cold_result
-
-    # Per-tenant concurrency budget from the registered serving extension: it
-    # caps concurrent tile DB connections per tenant so one tenant cannot starve
-    # others of pool connections. The Community default returns None.
-    _tenant_sem = _tile_serving_limiter if is_multi_tenant() else None
-
-    # DP-02 (Phase 1209-03): acquire ONE connection and open a transaction so
-    # SET LOCAL ROLE + SET LOCAL search_path survive for the tile query
-    # (PgBouncer transaction-mode: SET LOCAL is valid within one txn; T-1209-10).
-    tid = _require_tile_tenant_context()
-    _schema = tenant_data_schema(tid)
-
-    # A serving extension may override Cache-Control for a hosted CDN. The
-    # Community default returns None, leaving existing headers unchanged.
-    _response_headers = _serving_tile_headers(
-        cache_scope, cache_ttl, _tile_cache_control
-    )
-
-    async def _run_vector_query(pool: Any, conn: Any) -> bytes | None:
-        return await get_tile(
-            pool,
-            table_name,
-            z,
-            x,
-            y,
-            columns,
-            tile_columns=meta.tile_columns,
-            additional_columns=additional_columns,
-            conn=conn,
-            schema=_schema,
+    tenant_sem = _tile_serving_limiter if is_multi_tenant() else None
+    if tenant_sem is not None:
+        # Authorization is complete; quota waits must not retain an API connection.
+        await db.rollback()
+    async with tile_render_slot(tenant_sem):
+        # Recheck catalog registration before cold storage or rendering acts on
+        # cached authorization; byte-cache hits need no database round trip.
+        await _assert_dataset_still_registered(
+            db, dataset_id=meta.dataset_id, table_name=table_name, tid=_tile_tid
         )
 
-    # MVT-10: shared acquire->bind-role->run-query->gzip->cache->respond core.
-    # FAIR-01 per-tenant semaphore (cloud only) is threaded through tenant_sem.
-    return await _acquire_and_serve_tile(
-        request=request,
-        table_name=table_name,
-        z=z,
-        x=x,
-        y=y,
-        tid=tid,
-        schema=_schema,
-        query_callable=_run_vector_query,
-        tile_cache=tile_cache,
-        cache_key=_tile_cache_key,
-        cache_ttl=cache_ttl,
-        base_headers=_response_headers,
-        cols_cache_key=cols_cache_key,
-        tenant_sem=_tenant_sem,
-        mode="vector",
-        log_event="tile_access",
-        log_extra={
-            "dataset_id": str(meta.record_id),
-            "scope": scope or "public",
-        },
-    )
+        # Cold-rehydrate seam, before the tile query, on the cached
+        # `record_status` (no extra round-trip on the hot path). A published or
+        # anon-shared dataset is hot, so a public map viewer never sees a 202.
+        _cold_result = await _check_cold_rehydrate(
+            table_name,
+            meta.record_status,
+            str(_tile_tid) if _tile_tid is not None else "",
+        )
+        if _cold_result is not None:
+            return _cold_result
+
+        # The shared serving helper binds the tenant role and schema in the
+        # query transaction so SET LOCAL survives PgBouncer transaction pooling.
+        tid = _require_tile_tenant_context()
+        _schema = tenant_data_schema(tid)
+
+        # A serving extension may override Cache-Control for a hosted CDN. The
+        # Community default returns None, leaving existing headers unchanged.
+        _response_headers = _serving_tile_headers(
+            cache_scope, cache_ttl, _tile_cache_control
+        )
+
+        async def _run_vector_query(pool: Any, conn: Any) -> bytes | None:
+            return await get_tile(
+                pool,
+                table_name,
+                z,
+                x,
+                y,
+                columns,
+                tile_columns=meta.tile_columns,
+                additional_columns=additional_columns,
+                conn=conn,
+                schema=_schema,
+            )
+
+        return await _acquire_and_serve_tile(
+            request=request,
+            table_name=table_name,
+            z=z,
+            x=x,
+            y=y,
+            tid=tid,
+            schema=_schema,
+            query_callable=_run_vector_query,
+            tile_cache=tile_cache,
+            cache_key=_tile_cache_key,
+            cache_ttl=cache_ttl,
+            base_headers=_response_headers,
+            cols_cache_key=cols_cache_key,
+            mode="vector",
+            log_event="tile_access",
+            log_extra={
+                "dataset_id": str(meta.record_id),
+                "scope": scope or "public",
+            },
+        )

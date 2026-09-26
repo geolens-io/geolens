@@ -1,6 +1,7 @@
 import { addProtocol, setWorkerUrl } from 'maplibre-gl';
 import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import { Protocol as PmtilesProtocol } from 'pmtiles';
+import { tileRetryProtocol } from './tile-retry-protocol';
 
 /**
  * feat(#846): point maplibre-gl v6 at its worker file.
@@ -45,3 +46,5 @@ setWorkerUrl(maplibreWorkerUrl);
  * import it, so registration is naturally idempotent.
  */
 addProtocol('pmtiles', new PmtilesProtocol().tile);
+
+addProtocol('geolens-tile', tileRetryProtocol);
