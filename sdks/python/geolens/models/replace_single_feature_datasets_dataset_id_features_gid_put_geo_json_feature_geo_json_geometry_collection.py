@@ -11,19 +11,19 @@ from typing import cast
 from typing import Literal
 
 if TYPE_CHECKING:
-    from ..models.replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_write_geo_json_geometry_collection_geo_json_geometry import (
-        ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureWriteGeoJSONGeometryCollectionGeoJSONGeometry,
+    from ..models.replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_geo_json_geometry_collection_geo_json_geometry import (
+        ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometry,
     )
 
 
 T = TypeVar(
     "T",
-    bound="ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureWriteGeoJSONGeometryCollection",
+    bound="ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureGeoJSONGeometryCollection",
 )
 
 
 @_attrs_define
-class ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureWriteGeoJSONGeometryCollection:
+class ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureGeoJSONGeometryCollection:
     """A GeoJSON GeometryCollection (RFC 7946 §3.1.8).
 
     Geometry collections carry ``geometries`` instead of ``coordinates``.
@@ -34,13 +34,13 @@ class ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureWriteGeoJ
 
         Attributes:
             type_ (Literal['GeometryCollection']):
-            geometries (list[ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureWriteGeoJSONGeometryCollection
-                GeoJSONGeometry]):
+            geometries (list[ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureGeoJSONGeometryCollectionGeoJS
+                ONGeometry]):
     """
 
     type_: Literal["GeometryCollection"]
     geometries: list[
-        ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureWriteGeoJSONGeometryCollectionGeoJSONGeometry
+        ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometry
     ]
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -65,8 +65,8 @@ class ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureWriteGeoJ
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_write_geo_json_geometry_collection_geo_json_geometry import (
-            ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureWriteGeoJSONGeometryCollectionGeoJSONGeometry,
+        from ..models.replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_geo_json_geometry_collection_geo_json_geometry import (
+            ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometry,
         )
 
         d = dict(src_dict)
@@ -79,19 +79,19 @@ class ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureWriteGeoJ
         geometries = []
         _geometries = d.pop("geometries")
         for geometries_item_data in _geometries:
-            geometries_item = ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureWriteGeoJSONGeometryCollectionGeoJSONGeometry.from_dict(
+            geometries_item = ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometry.from_dict(
                 geometries_item_data
             )
 
             geometries.append(geometries_item)
 
-        replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_write_geo_json_geometry_collection = cls(
+        replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_geo_json_geometry_collection = cls(
             type_=type_,
             geometries=geometries,
         )
 
-        replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_write_geo_json_geometry_collection.additional_properties = d
-        return replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_write_geo_json_geometry_collection
+        replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_geo_json_geometry_collection.additional_properties = d
+        return replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_geo_json_geometry_collection
 
     @property
     def additional_keys(self) -> list[str]:

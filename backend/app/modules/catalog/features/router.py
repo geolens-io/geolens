@@ -904,8 +904,8 @@ async def delete_single_feature(
 
     The X-GeoLens-Tile-Cache-Version response header carries the dataset's
     tile_cache_version after the delete committed; a 204 response has no
-    body to carry it in, unlike the other three write endpoints'
-    GeoJSONFeatureWrite responses.
+    body to carry it in, unlike the create, replace and patch endpoints,
+    which return it as a field of the written feature.
     """
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:

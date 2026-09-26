@@ -2239,8 +2239,8 @@ export interface paths {
          *
          *     The X-GeoLens-Tile-Cache-Version response header carries the dataset's
          *     tile_cache_version after the delete committed; a 204 response has no
-         *     body to carry it in, unlike the other three write endpoints'
-         *     GeoJSONFeatureWrite responses.
+         *     body to carry it in, unlike the create, replace and patch endpoints,
+         *     which return it as a field of the written feature.
          */
         delete: operations["delete_single_feature_datasets__dataset_id__features__gid__delete"];
         options?: never;

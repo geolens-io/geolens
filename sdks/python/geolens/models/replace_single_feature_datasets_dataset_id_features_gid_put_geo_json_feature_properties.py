@@ -8,12 +8,13 @@ from attrs import field as _attrs_field
 
 
 T = TypeVar(
-    "T", bound="CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureWriteProperties"
+    "T",
+    bound="ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureProperties",
 )
 
 
 @_attrs_define
-class CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureWriteProperties:
+class ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureProperties:
     """ """
 
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -28,10 +29,10 @@ class CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureWriteProperties:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        create_feature_datasets_dataset_id_features_post_geo_json_feature_write_properties = cls()
+        replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_properties = cls()
 
-        create_feature_datasets_dataset_id_features_post_geo_json_feature_write_properties.additional_properties = d
-        return create_feature_datasets_dataset_id_features_post_geo_json_feature_write_properties
+        replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_properties.additional_properties = d
+        return replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_properties
 
     @property
     def additional_keys(self) -> list[str]:

@@ -12,57 +12,53 @@ from typing import cast
 from typing import Literal
 
 if TYPE_CHECKING:
-    from ..models.patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature_write_geo_json_geometry import (
-        PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWriteGeoJSONGeometry,
+    from ..models.create_feature_datasets_dataset_id_features_post_geo_json_feature_geo_json_geometry import (
+        CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometry,
     )
-    from ..models.patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature_write_geo_json_geometry_collection import (
-        PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWriteGeoJSONGeometryCollection,
+    from ..models.create_feature_datasets_dataset_id_features_post_geo_json_feature_geo_json_geometry_collection import (
+        CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometryCollection,
     )
-    from ..models.patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature_write_properties import (
-        PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWriteProperties,
+    from ..models.create_feature_datasets_dataset_id_features_post_geo_json_feature_properties import (
+        CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureProperties,
     )
 
 
-T = TypeVar(
-    "T", bound="PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWrite"
-)
+T = TypeVar("T", bound="CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature")
 
 
 @_attrs_define
-class PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWrite:
+class CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature:
     """A written GeoJSON Feature, plus the dataset's committed tile version.
 
     Attributes:
         id (int):
-        properties (PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWriteProperties):
+        properties (CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureProperties):
         type_ (Literal['Feature'] | Unset):  Default: 'Feature'.
-        geometry (None | PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWriteGeoJSONGeometry |
-            PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWriteGeoJSONGeometryCollection | Unset):
+        geometry (CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometry |
+            CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometryCollection | None | Unset):
         tile_cache_version (int | None | Unset): The dataset's tile_cache_version after this write committed. Send it as
             the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is
             forced to re-read the dataset instead of serving that worker's own cached snapshot.
     """
 
     id: int
-    properties: (
-        PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWriteProperties
-    )
+    properties: CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureProperties
     type_: Literal["Feature"] | Unset = "Feature"
     geometry: (
-        None
-        | PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWriteGeoJSONGeometry
-        | PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWriteGeoJSONGeometryCollection
+        CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometry
+        | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometryCollection
+        | None
         | Unset
     ) = UNSET
     tile_cache_version: int | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        from ..models.patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature_write_geo_json_geometry import (
-            PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWriteGeoJSONGeometry,
+        from ..models.create_feature_datasets_dataset_id_features_post_geo_json_feature_geo_json_geometry import (
+            CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometry,
         )
-        from ..models.patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature_write_geo_json_geometry_collection import (
-            PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWriteGeoJSONGeometryCollection,
+        from ..models.create_feature_datasets_dataset_id_features_post_geo_json_feature_geo_json_geometry_collection import (
+            CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometryCollection,
         )
 
         id = self.id
@@ -76,12 +72,12 @@ class PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWrite:
             geometry = UNSET
         elif isinstance(
             self.geometry,
-            PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWriteGeoJSONGeometryCollection,
+            CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometryCollection,
         ):
             geometry = self.geometry.to_dict()
         elif isinstance(
             self.geometry,
-            PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWriteGeoJSONGeometry,
+            CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometry,
         ):
             geometry = self.geometry.to_dict()
         else:
@@ -112,20 +108,20 @@ class PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWrite:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature_write_geo_json_geometry import (
-            PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWriteGeoJSONGeometry,
+        from ..models.create_feature_datasets_dataset_id_features_post_geo_json_feature_geo_json_geometry import (
+            CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometry,
         )
-        from ..models.patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature_write_geo_json_geometry_collection import (
-            PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWriteGeoJSONGeometryCollection,
+        from ..models.create_feature_datasets_dataset_id_features_post_geo_json_feature_geo_json_geometry_collection import (
+            CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometryCollection,
         )
-        from ..models.patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature_write_properties import (
-            PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWriteProperties,
+        from ..models.create_feature_datasets_dataset_id_features_post_geo_json_feature_properties import (
+            CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureProperties,
         )
 
         d = dict(src_dict)
         id = d.pop("id")
 
-        properties = PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWriteProperties.from_dict(
+        properties = CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureProperties.from_dict(
             d.pop("properties")
         )
 
@@ -136,9 +132,9 @@ class PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWrite:
         def _parse_geometry(
             data: object,
         ) -> (
-            None
-            | PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWriteGeoJSONGeometry
-            | PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWriteGeoJSONGeometryCollection
+            CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometry
+            | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometryCollection
+            | None
             | Unset
         ):
             if data is None:
@@ -148,7 +144,7 @@ class PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWrite:
             try:
                 if not isinstance(data, dict):
                     raise TypeError()
-                geometry_geo_json_geometry_collection = PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWriteGeoJSONGeometryCollection.from_dict(
+                geometry_geo_json_geometry_collection = CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometryCollection.from_dict(
                     data
                 )
 
@@ -158,7 +154,7 @@ class PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWrite:
             try:
                 if not isinstance(data, dict):
                     raise TypeError()
-                geometry_geo_json_geometry = PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWriteGeoJSONGeometry.from_dict(
+                geometry_geo_json_geometry = CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometry.from_dict(
                     data
                 )
 
@@ -166,9 +162,9 @@ class PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWrite:
             except (TypeError, ValueError, AttributeError, KeyError):
                 pass
             return cast(
-                None
-                | PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWriteGeoJSONGeometry
-                | PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWriteGeoJSONGeometryCollection
+                CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometry
+                | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometryCollection
+                | None
                 | Unset,
                 data,
             )
@@ -186,7 +182,7 @@ class PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWrite:
             d.pop("tile_cache_version", UNSET)
         )
 
-        patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature_write = cls(
+        create_feature_datasets_dataset_id_features_post_geo_json_feature = cls(
             id=id,
             properties=properties,
             type_=type_,
@@ -194,8 +190,8 @@ class PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWrite:
             tile_cache_version=tile_cache_version,
         )
 
-        patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature_write.additional_properties = d
-        return patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature_write
+        create_feature_datasets_dataset_id_features_post_geo_json_feature.additional_properties = d
+        return create_feature_datasets_dataset_id_features_post_geo_json_feature
 
     @property
     def additional_keys(self) -> list[str]:

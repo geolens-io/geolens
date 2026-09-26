@@ -199,7 +199,11 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
             "X-GeoLens-Metadata-Fallback-Fields, "
             # fix(#1778): says whether numberMatched is exact or the planner's
             # estimate on a filtered feature page.
-            "X-GeoLens-Number-Matched"
+            "X-GeoLens-Number-Matched, "
+            # The feature delete route's committed tile_cache_version; a 204
+            # has no body to carry it in, so a cross-origin caller needs it
+            # exposed to read it at all.
+            "X-GeoLens-Tile-Cache-Version"
         )
         response.headers["Access-Control-Max-Age"] = "3600"
 
@@ -310,6 +314,10 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
             "X-GeoLens-Metadata-Fallback-Fields, "
             # fix(#1778): says whether numberMatched is exact or the planner's
             # estimate on a filtered feature page.
-            "X-GeoLens-Number-Matched"
+            "X-GeoLens-Number-Matched, "
+            # The feature delete route's committed tile_cache_version; a 204
+            # has no body to carry it in, so a cross-origin caller needs it
+            # exposed to read it at all.
+            "X-GeoLens-Tile-Cache-Version"
         )
         response.headers["Access-Control-Max-Age"] = "3600"

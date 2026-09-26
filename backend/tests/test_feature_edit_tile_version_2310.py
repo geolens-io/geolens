@@ -76,6 +76,27 @@ async def _row_tile_cache_version(session, dataset_id) -> int:
     )
 
 
+@pytest.fixture
+async def _allowed_cors_origin(client: AsyncClient, admin_auth_header: dict):
+    """Register a CORS-allowed origin for the credentialed policy, then clear it.
+
+    Mirrors test_cors_range_headers_1540.py's ``allowed_origin`` fixture: the
+    30s module-global ``_origins_cache`` would otherwise let a stale
+    allowlist (or a stale empty one) leak between tests.
+    """
+    from app.api.middleware import cors as cors_middleware
+
+    origin = "http://cors-2310.example.com"
+    await client.put(
+        "/settings/",
+        json={"settings": {"cors_allowed_origins": origin}},
+        headers=admin_auth_header,
+    )
+    cors_middleware._origins_cache = (0.0, set())
+    yield origin
+    cors_middleware._origins_cache = (0.0, set())
+
+
 async def test_each_mutation_response_carries_the_version_the_tile_route_will_see(
     client: AsyncClient, admin_auth_header: dict, test_db_session
 ):
@@ -202,3 +223,52 @@ async def test_a_stale_worker_serves_the_edit_once_a_tile_request_carries_its_ve
     finally:
         tile_router._evict_dataset_meta(table)
         await _drop_table(test_db_session, table)
+
+
+async def test_the_delete_version_header_is_exposed_cross_origin(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    _allowed_cors_origin: str,
+):
+    """A cross-origin caller must be able to READ the header, not just receive it.
+
+    Access-Control-Expose-Headers gates whether JavaScript can see a
+    non-safelisted response header at all. Unlisted, apiFetchHeader() on a
+    deployment where the API's origin differs from the app's always gets
+    null, and the editor's post-delete reload falls back to a client
+    timestamp the tile routes ignore -- the same staleness this whole fix
+    closes, reopened for exactly the installs that need a cross-origin API.
+    """
+    dataset = await _seed_point_dataset(test_db_session)
+    try:
+        create_resp = await client.post(
+            f"/datasets/{dataset.id}/features/",
+            json={"geometry": PARIS, "properties": {"name": "Paris"}},
+            headers=admin_auth_header,
+        )
+        assert create_resp.status_code == 201, create_resp.text
+        gid = create_resp.json()["id"]
+
+        delete_resp = await client.delete(
+            f"/datasets/{dataset.id}/features/{gid}",
+            headers={**admin_auth_header, "Origin": _allowed_cors_origin},
+        )
+        assert delete_resp.status_code == 204, delete_resp.text
+
+        exposed = {
+            name.strip().lower()
+            for name in delete_resp.headers.get(
+                "access-control-expose-headers", ""
+            ).split(",")
+        }
+        assert TILE_CACHE_VERSION_HEADER.lower() in exposed, (
+            f"{TILE_CACHE_VERSION_HEADER} is not exposed, so JavaScript cannot "
+            f"read it on a cross-origin deployment even though the response "
+            f"carries it. Exposed: {sorted(exposed)}"
+        )
+        assert int(delete_resp.headers[TILE_CACHE_VERSION_HEADER]) == (
+            await _row_tile_cache_version(test_db_session, dataset.id)
+        )
+    finally:
+        await _drop_table(test_db_session, dataset.table_name)

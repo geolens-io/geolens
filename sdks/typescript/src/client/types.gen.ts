@@ -18682,7 +18682,7 @@ export type CreateFeatureDatasetsDatasetIdFeaturesPostError = CreateFeatureDatas
 
 export type CreateFeatureDatasetsDatasetIdFeaturesPostResponses = {
     /**
-     * GeoJSONFeatureWrite
+     * GeoJSONFeature
      *
      * A written GeoJSON Feature, plus the dataset's committed tile version.
      */
@@ -18978,7 +18978,7 @@ export type PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchError = PatchSing
 
 export type PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchResponses = {
     /**
-     * GeoJSONFeatureWrite
+     * GeoJSONFeature
      *
      * A written GeoJSON Feature, plus the dataset's committed tile version.
      */
@@ -19098,7 +19098,7 @@ export type ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutError = ReplaceSi
 
 export type ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutResponses = {
     /**
-     * GeoJSONFeatureWrite
+     * GeoJSONFeature
      *
      * A written GeoJSON Feature, plus the dataset's committed tile version.
      */

@@ -7,32 +7,32 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
 
-from ..models.create_feature_datasets_dataset_id_features_post_geo_json_feature_write_geo_json_geometry_collection_geo_json_geometry_type import (
-    check_create_feature_datasets_dataset_id_features_post_geo_json_feature_write_geo_json_geometry_collection_geo_json_geometry_type,
+from ..models.replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_geo_json_geometry_collection_geo_json_geometry_type import (
+    check_replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_geo_json_geometry_collection_geo_json_geometry_type,
 )
-from ..models.create_feature_datasets_dataset_id_features_post_geo_json_feature_write_geo_json_geometry_collection_geo_json_geometry_type import (
-    CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureWriteGeoJSONGeometryCollectionGeoJSONGeometryType,
+from ..models.replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_geo_json_geometry_collection_geo_json_geometry_type import (
+    ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometryType,
 )
 from typing import cast
 
 
 T = TypeVar(
     "T",
-    bound="CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureWriteGeoJSONGeometryCollectionGeoJSONGeometry",
+    bound="ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometry",
 )
 
 
 @_attrs_define
-class CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureWriteGeoJSONGeometryCollectionGeoJSONGeometry:
+class ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometry:
     """A GeoJSON geometry object (RFC 7946).
 
     Attributes:
         type_
-            (CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureWriteGeoJSONGeometryCollectionGeoJSONGeometryType):
+            (ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometryType):
         coordinates (list[Any]):
     """
 
-    type_: CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureWriteGeoJSONGeometryCollectionGeoJSONGeometryType
+    type_: ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometryType
     coordinates: list[Any]
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -55,19 +55,19 @@ class CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureWriteGeoJSONGeomet
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        type_ = check_create_feature_datasets_dataset_id_features_post_geo_json_feature_write_geo_json_geometry_collection_geo_json_geometry_type(
+        type_ = check_replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_geo_json_geometry_collection_geo_json_geometry_type(
             d.pop("type")
         )
 
         coordinates = cast(list[Any], d.pop("coordinates"))
 
-        create_feature_datasets_dataset_id_features_post_geo_json_feature_write_geo_json_geometry_collection_geo_json_geometry = cls(
+        replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_geo_json_geometry_collection_geo_json_geometry = cls(
             type_=type_,
             coordinates=coordinates,
         )
 
-        create_feature_datasets_dataset_id_features_post_geo_json_feature_write_geo_json_geometry_collection_geo_json_geometry.additional_properties = d
-        return create_feature_datasets_dataset_id_features_post_geo_json_feature_write_geo_json_geometry_collection_geo_json_geometry
+        replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_geo_json_geometry_collection_geo_json_geometry.additional_properties = d
+        return replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_geo_json_geometry_collection_geo_json_geometry
 
     @property
     def additional_keys(self) -> list[str]:

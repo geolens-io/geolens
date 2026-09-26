@@ -36661,7 +36661,7 @@
                     "id",
                     "properties"
                   ],
-                  "title": "GeoJSONFeatureWrite",
+                  "title": "GeoJSONFeature",
                   "type": "object"
                 }
               },
@@ -36790,7 +36790,7 @@
     },
     "/datasets/{dataset_id}/features/{gid}": {
       "delete": {
-        "description": "Delete a feature by gid (hard delete).\n\nThe X-GeoLens-Tile-Cache-Version response header carries the dataset's\ntile_cache_version after the delete committed; a 204 response has no\nbody to carry it in, unlike the other three write endpoints'\nGeoJSONFeatureWrite responses.",
+        "description": "Delete a feature by gid (hard delete).\n\nThe X-GeoLens-Tile-Cache-Version response header carries the dataset's\ntile_cache_version after the delete committed; a 204 response has no\nbody to carry it in, unlike the create, replace and patch endpoints,\nwhich return it as a field of the written feature.",
         "operationId": "delete_single_feature_datasets__dataset_id__features__gid__delete",
         "parameters": [
           {
@@ -37349,7 +37349,7 @@
                     "id",
                     "properties"
                   ],
-                  "title": "GeoJSONFeatureWrite",
+                  "title": "GeoJSONFeature",
                   "type": "object"
                 }
               },
@@ -37632,7 +37632,7 @@
                     "id",
                     "properties"
                   ],
-                  "title": "GeoJSONFeatureWrite",
+                  "title": "GeoJSONFeature",
                   "type": "object"
                 }
               },
