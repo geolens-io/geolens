@@ -1,21 +1,15 @@
-"""The point cloud route serves only a live attempt's COPC file, by range and sandboxed, and caches a granted read briefly."""
+"""The point cloud route serves only a live attempt's COPC file, by range and sandboxed, deciding access on every read."""
 
 import uuid
-from datetime import UTC, datetime, timedelta
-from types import SimpleNamespace
 
 import boto3
-import jwt
 import pytest
-from cachetools import TLRUCache
+from cachetools import TTLCache
 from httpx import AsyncClient
 from moto import mock_aws
-from sqlalchemy import event, select, text
-from starlette.requests import Request
+from sqlalchemy import select, text
 from structlog.testing import capture_logs
 
-from app.core.config import settings
-from app.core.db.tenant_session import current_tenant_var
 from app.core.pointcloud import (
     POINTCLOUD_ASSET_KEY,
     POINTCLOUD_MEDIA_TYPE,
@@ -41,10 +35,10 @@ _COPC = b"LASF" + bytes(range(256)) * 16
 
 
 @pytest.fixture(autouse=True)
-def _no_cached_grants():
-    pointcloud_access._grants.clear()
+def _fresh_audit_window():
+    pointcloud_access._audited.clear()
     yield
-    pointcloud_access._grants.clear()
+    pointcloud_access._audited.clear()
 
 
 class _SpyStorage:
@@ -474,9 +468,7 @@ async def test_an_unresolvable_credential_is_a_sandboxed_401(
     """A supplied credential that doesn't resolve is 401 on a public point cloud, never anonymous."""
     dataset_id, attempt = await _published(make_pointcloud, storage)
     served = await client.get(_url(dataset_id, attempt))
-    assert served.status_code == 200, (
-        "precondition: an anonymous read is served and cached"
-    )
+    assert served.status_code == 200, "precondition: an anonymous read is served"
 
     resp = await client.get(_url(dataset_id, attempt), headers=headers)
 
@@ -512,7 +504,7 @@ async def test_the_connection_is_released_before_storage_is_read(
     storage,
     request_sessions,  # noqa: F811
 ) -> None:
-    """Whether access was decided or cached, no transaction is open when the file starts to stream."""
+    """Whether or not the read writes an audit row, no transaction is open when the file starts to stream."""
     dataset_id, attempt = await _published(make_pointcloud, storage)
     held: list[bool] = []
     read = storage.get_range_stream
@@ -522,12 +514,14 @@ async def test_the_connection_is_released_before_storage_is_read(
         return read(key, start, length)
 
     storage.get_range_stream = recording
-    decided = await client.get(
+    audited = await client.get(
         _url(dataset_id, attempt), headers={"Range": "bytes=0-9"}
     )
-    cached = await client.get(_url(dataset_id, attempt), headers={"Range": "bytes=0-9"})
+    deduped = await client.get(
+        _url(dataset_id, attempt), headers={"Range": "bytes=0-9"}
+    )
 
-    assert decided.status_code == cached.status_code == 206
+    assert audited.status_code == deduped.status_code == 206
     assert held == [False, False]
 
 
@@ -690,7 +684,7 @@ async def test_each_store_serves_ranges_and_misses_as_404(
 
 
 class _Clock:
-    """The grant cache's clock, moved by hand."""
+    """The audit window's clock, moved by hand."""
 
     def __init__(self) -> None:
         self.now = 1_000.0
@@ -702,13 +696,14 @@ class _Clock:
 @pytest.fixture
 def clock(monkeypatch) -> _Clock:
     tick = _Clock()
-    grants = TLRUCache(maxsize=16, ttu=pointcloud_access._grants.ttu, timer=tick)
-    monkeypatch.setattr(pointcloud_access, "_grants", grants)
-    monkeypatch.setattr(pointcloud_access, "time", SimpleNamespace(monotonic=tick))
+    window = TTLCache(
+        maxsize=16, ttl=pointcloud_access.AUDIT_WINDOW_SECONDS, timer=tick
+    )
+    monkeypatch.setattr(pointcloud_access, "_audited", window)
     return tick
 
 
-async def _audited(session, dataset_id: uuid.UUID) -> list[tuple]:
+async def _audit_rows(session, dataset_id: uuid.UUID) -> list[tuple]:
     rows = await session.execute(
         select(AuditLog.user_id, AuditLog.details)
         .where(
@@ -720,246 +715,190 @@ async def _audited(session, dataset_id: uuid.UUID) -> list[tuple]:
     return [tuple(row) for row in rows]
 
 
-async def _token(session, user_id: uuid.UUID, *, seconds: int) -> str:
-    """A signed access token for ``user_id`` that expires in ``seconds``."""
-    user = await session.get(User, user_id)
-    now = datetime.now(UTC)
-    return jwt.encode(
-        {
-            "sub": str(user_id),
-            "username": user.username,
-            "jti": uuid.uuid4().hex,
-            "token_version": user.token_version,
-            "iat": now,
-            "exp": now + timedelta(seconds=seconds),
-        },
-        settings.jwt_secret_key.get_secret_value(),
-        algorithm=settings.jwt_algorithm,
-    )
-
-
-async def _api_key(client: AsyncClient, admin_auth_header: dict, user_id) -> str:
+async def _api_key(
+    client: AsyncClient, admin_auth_header: dict, user_id
+) -> tuple[str, str]:
+    """A new API key for ``user_id``, and its id."""
     created = await client.post(
         "/admin/api-keys/",
         json={"user_id": str(user_id), "name": "copc reader"},
         headers=admin_auth_header,
     )
     assert created.status_code == 201, created.text
-    return created.json()["key"]
+    return created.json()["key"], created.json()["id"]
 
 
-async def test_a_cached_grant_serves_without_touching_the_database(
-    client: AsyncClient, test_db_session, make_pointcloud, storage
+async def _set_visibility(session, dataset_id: uuid.UUID, visibility: str) -> None:
+    await session.execute(
+        text(
+            "UPDATE catalog.records SET visibility = :visibility WHERE id = "
+            "(SELECT record_id FROM catalog.datasets WHERE id = :id)"
+        ),
+        {"visibility": visibility, "id": dataset_id},
+    )
+    await session.commit()
+
+
+@pytest.mark.parametrize(
+    "credential",
+    ["anonymous", "token", "api_key", "api_key+authorization", "extension"],
+)
+async def test_each_credential_writes_one_audit_row_per_window(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    make_pointcloud,
+    storage,
+    owner,
+    monkeypatch,
+    credential: str,
 ) -> None:
-    """After one granted read, further reads by the same caller run no SQL and write no audit row."""
-    dataset_id, attempt = await _published(make_pointcloud, storage)
-    url = _url(dataset_id, attempt)
-    statements: list[str] = []
-
-    def record(conn, cursor, statement, *args) -> None:
-        # The test client warms every request's session with these two; the
-        # app's own session opens no connection until a query needs one.
-        if statement != "SELECT 1" and not statement.startswith(
-            "SET LOCAL statement_timeout"
-        ):
-            statements.append(statement)
-
-    engine = test_db_session.bind.sync_engine
-    event.listen(engine, "before_cursor_execute", record)
-    try:
-        decided = await client.get(url, headers={"Range": "bytes=0-9"})
-        deciding = len(statements)
-        hits = [
-            (await client.get(url, headers={"Range": f"bytes={i}-{i + 9}"})).status_code
-            for i in range(3)
-        ]
-        head = await client.head(url)
-    finally:
-        event.remove(engine, "before_cursor_execute", record)
-
-    assert decided.status_code == 206
-    assert deciding > 0, "precondition: the listener sees the deciding read's queries"
-    assert hits == [206] * 3
-    assert head.status_code == 200
-    assert statements[deciding:] == []
-    assert await _audited(test_db_session, dataset_id) == [
-        (None, {"attempt_id": str(attempt), "credential": "anonymous"})
-    ]
-
-
-async def test_each_credential_is_decided_and_audited_once(
-    client: AsyncClient, test_db_session, make_pointcloud, storage, owner
-) -> None:
-    """Anonymous and signed-in readers each fill their own grant, one audit row apiece."""
+    """Many reads by one credential in a window write one audit row, whatever the credential."""
     owner_headers, owner_id = owner
+    headers: dict = {}
+    if credential == "token":
+        headers = owner_headers
+    elif credential.startswith("api_key"):
+        key, _ = await _api_key(client, admin_auth_header, owner_id)
+        headers = {"X-Api-Key": key}
+        if credential == "api_key+authorization":
+            headers.update(owner_headers)
+    elif credential == "extension":
+        session_token = uuid.uuid4().hex
+
+        class _Extension:
+            async def resolve_identity_from_token(self, token, request, db):
+                return await db.get(User, owner_id) if token == session_token else None
+
+        monkeypatch.setattr(auth_dependencies, "get_identity_extension", _Extension)
+        headers = {"Authorization": f"Bearer {session_token}"}
     dataset_id, attempt = await _published(make_pointcloud, storage)
     url = _url(dataset_id, attempt)
 
-    for _ in range(3):
-        assert (await client.get(url)).status_code == 200
-        assert (await client.get(url, headers=owner_headers)).status_code == 200
+    served = [
+        (
+            await client.get(url, headers={**headers, "Range": f"bytes={i}-{i + 9}"})
+        ).status_code
+        for i in range(4)
+    ]
+    head = await client.head(url, headers=headers)
 
-    assert await _audited(test_db_session, dataset_id) == [
-        (None, {"attempt_id": str(attempt), "credential": "anonymous"}),
-        (owner_id, {"attempt_id": str(attempt), "credential": "authorization"}),
+    assert served == [206] * 4
+    assert head.status_code == 200
+    user = None if credential == "anonymous" else owner_id
+    kind = "authorization" if credential in {"token", "extension"} else credential
+    assert await _audit_rows(test_db_session, dataset_id) == [
+        (user, {"attempt_id": str(attempt), "credential": kind})
     ]
 
 
-async def test_an_anonymous_grant_lives_thirty_seconds(
+async def test_the_audit_window_is_thirty_seconds(
     client: AsyncClient, test_db_session, make_pointcloud, storage, clock
 ) -> None:
-    """The cache answers for 30 s after a grant, and the next read is decided again."""
+    """A caller's reads write one row per 30 s window."""
     dataset_id, attempt = await _published(make_pointcloud, storage)
     url = _url(dataset_id, attempt)
 
     assert (await client.get(url)).status_code == 200
     clock.now += 29.5
     assert (await client.get(url)).status_code == 200
-    assert len(await _audited(test_db_session, dataset_id)) == 1
+    assert len(await _audit_rows(test_db_session, dataset_id)) == 1
 
     clock.now += 1
     assert (await client.get(url)).status_code == 200
-    assert len(await _audited(test_db_session, dataset_id)) == 2
+    assert len(await _audit_rows(test_db_session, dataset_id)) == 2
 
 
-@pytest.mark.parametrize("credential", ["token", "api_key"])
-async def test_a_grant_never_outlives_its_credential(
+@pytest.mark.parametrize("revocation", ["api_key", "session"])
+async def test_a_revoked_credential_is_refused_on_the_next_read(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    make_pointcloud,
+    storage,
+    owner,
+    revocation: str,
+) -> None:
+    """A key revoked, or a session signed out, right after a served read is refused on the next."""
+    owner_headers, owner_id = owner
+    dataset_id, attempt = await _published(
+        make_pointcloud, storage, owner_id=owner_id, visibility="private"
+    )
+    url = _url(dataset_id, attempt)
+    if revocation == "api_key":
+        key, key_id = await _api_key(client, admin_auth_header, owner_id)
+        headers = {"X-Api-Key": key}
+    else:
+        headers = owner_headers
+    assert (await client.get(url, headers=headers)).status_code == 200
+
+    if revocation == "api_key":
+        revoked = await client.delete(
+            f"/admin/api-keys/{key_id}", headers=admin_auth_header
+        )
+    else:
+        revoked = await client.post("/auth/logout", headers=owner_headers)
+    assert revoked.status_code == 204, revoked.text
+    refused = await client.get(url, headers=headers)
+
+    assert refused.status_code == 401
+    _assert_sandboxed(refused)
+
+
+async def test_the_audit_window_grants_nothing(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session,
     make_pointcloud,
     storage,
     owner,
-    clock,
-    credential: str,
 ) -> None:
-    """A credential expiring in 10 s keeps its grant under 10 s, not the full 30 s."""
+    """A key revoked inside its audit window is refused on the next read."""
     owner_id = owner[1]
-    if credential == "token":
-        token = await _token(test_db_session, owner_id, seconds=10)
-        headers = {"Authorization": f"Bearer {token}"}
-    else:
-        key = await _api_key(client, admin_auth_header, owner_id)
-        await test_db_session.execute(
-            text("UPDATE catalog.api_keys SET expires_at = :at WHERE user_id = :user"),
-            {"at": datetime.now(UTC) + timedelta(seconds=10), "user": owner_id},
-        )
-        await test_db_session.commit()
-        headers = {"X-Api-Key": key}
+    key, key_id = await _api_key(client, admin_auth_header, owner_id)
     dataset_id, attempt = await _published(
         make_pointcloud, storage, owner_id=owner_id, visibility="private"
     )
     url = _url(dataset_id, attempt)
+    headers = {"X-Api-Key": key}
 
-    assert (await client.get(url, headers=headers)).status_code == 200
-    clock.now += 5
-    assert (await client.get(url, headers=headers)).status_code == 200
-    assert len(await _audited(test_db_session, dataset_id)) == 1
+    first = await client.get(url, headers=headers)
+    second = await client.get(url, headers=headers)
+    assert first.status_code == second.status_code == 200
+    assert len(await _audit_rows(test_db_session, dataset_id)) == 1, (
+        "precondition: the second read fell inside the window"
+    )
 
-    clock.now += 6
-    assert (await client.get(url, headers=headers)).status_code == 200
-    assert len(await _audited(test_db_session, dataset_id)) == 2
+    revoked = await client.delete(
+        f"/admin/api-keys/{key_id}", headers=admin_auth_header
+    )
+    assert revoked.status_code == 204, revoked.text
+    refused = await client.get(url, headers=headers)
+
+    assert refused.status_code == 401
+    assert len(await _audit_rows(test_db_session, dataset_id)) == 1
 
 
-async def test_a_refusal_is_never_cached(
+async def test_visibility_changes_apply_on_the_next_read(
     client: AsyncClient, test_db_session, make_pointcloud, storage, owner
 ) -> None:
-    """A point cloud refused as private is served on the next read once it is public."""
-    dataset_id, attempt = await _published(
-        make_pointcloud, storage, owner_id=owner[1], visibility="private"
-    )
+    """A point cloud made private is 404 to the next anonymous read, and served again once public."""
+    dataset_id, attempt = await _published(make_pointcloud, storage, owner_id=owner[1])
     url = _url(dataset_id, attempt)
-    assert (await client.get(url)).status_code == 404
-
-    await test_db_session.execute(
-        text(
-            "UPDATE catalog.records SET visibility = 'public' WHERE id = "
-            "(SELECT record_id FROM catalog.datasets WHERE id = :id)"
-        ),
-        {"id": dataset_id},
-    )
-    await test_db_session.commit()
-
     assert (await client.get(url)).status_code == 200
 
+    await _set_visibility(test_db_session, dataset_id, "private")
+    hidden = await client.get(url)
+    await _set_visibility(test_db_session, dataset_id, "public")
+    shown = await client.get(url)
 
-async def test_a_key_sent_with_an_authorization_header_is_decided_every_time(
-    client: AsyncClient,
-    admin_auth_header: dict,
-    test_db_session,
-    make_pointcloud,
-    storage,
-    owner,
-) -> None:
-    """Two credentials on one request are never cached, so each read is decided and audited."""
-    owner_headers, owner_id = owner
-    key = await _api_key(client, admin_auth_header, owner_id)
-    dataset_id, attempt = await _published(
-        make_pointcloud, storage, owner_id=owner_id, visibility="private"
-    )
-
-    for _ in range(3):
-        resp = await client.get(
-            _url(dataset_id, attempt), headers={**owner_headers, "X-Api-Key": key}
-        )
-        assert resp.status_code == 200
-
-    assert (
-        await _audited(test_db_session, dataset_id)
-        == [
-            (
-                owner_id,
-                {"attempt_id": str(attempt), "credential": "api_key+authorization"},
-            )
-        ]
-        * 3
-    )
+    assert hidden.status_code == 404
+    assert shown.status_code == 200
 
 
-async def test_a_bearer_resolved_by_an_extension_is_decided_every_time(
-    client: AsyncClient, test_db_session, make_pointcloud, storage, owner, monkeypatch
-) -> None:
-    """A bearer that isn't this service's JWT has no expiry the cache can trust, so it is never cached."""
-    owner_id = owner[1]
-    session_token = uuid.uuid4().hex
-
-    class _Extension:
-        async def resolve_identity_from_token(self, token, request, db):
-            return await db.get(User, owner_id) if token == session_token else None
-
-    monkeypatch.setattr(auth_dependencies, "get_identity_extension", _Extension)
-    dataset_id, attempt = await _published(
-        make_pointcloud, storage, owner_id=owner_id, visibility="private"
-    )
-
-    for _ in range(3):
-        resp = await client.get(
-            _url(dataset_id, attempt),
-            headers={"Authorization": f"Bearer {session_token}"},
-        )
-        assert resp.status_code == 200
-
-    assert len(await _audited(test_db_session, dataset_id)) == 3
-
-
-async def test_a_cached_grant_still_serves_only_the_stored_name(
-    client: AsyncClient, make_pointcloud, storage
-) -> None:
-    """With a grant cached, another file name under the same attempt is still 404."""
-    dataset_id, attempt = await _published(make_pointcloud, storage)
-    assert (await client.get(_url(dataset_id, attempt))).status_code == 200
-    storage.read.clear()
-
-    other = await client.get(_url(dataset_id, attempt, name="other"))
-
-    assert other.status_code == 404
-    assert storage.read == []
-
-
-async def test_a_replaced_file_is_decided_again(
+async def test_a_replaced_file_stops_serving_at_once(
     client: AsyncClient, test_db_session, make_pointcloud, storage
 ) -> None:
-    """After a new attempt goes live, its URL serves the new bytes at once and the old URL is 404."""
+    """Right after a new attempt goes live, the old URL is 404 and the new one serves the new bytes."""
     dataset_id, first = await _published(make_pointcloud, storage)
     assert (await client.get(_url(dataset_id, first))).status_code == 200
 
@@ -983,56 +922,14 @@ async def test_a_replaced_file_is_decided_again(
     )
     await test_db_session.commit()
 
-    moved = await client.get(_url(dataset_id, second))
     stale = await client.get(_url(dataset_id, first))
+    moved = await client.get(_url(dataset_id, second))
 
+    assert stale.status_code == 404
     assert moved.status_code == 200
     assert moved.content == replacement
-    assert stale.status_code == 404
-
-
-class _Touched(Exception):
-    pass
-
-
-class _Untouchable:
-    """A session that fails the test on any use."""
-
-    def __getattr__(self, name: str):
-        raise _Touched(name)
-
-
-async def test_another_tenant_never_shares_a_grant(
-    client: AsyncClient, make_pointcloud, storage
-) -> None:
-    """A grant cached in one tenant answers there without the database, and is decided again in another."""
-    dataset_id, attempt = await _published(make_pointcloud, storage)
-    assert (await client.get(_url(dataset_id, attempt))).status_code == 200
-    request = Request(
-        {
-            "type": "http",
-            "method": "GET",
-            "path": _url(dataset_id, attempt),
-            "headers": [],
-            "query_string": b"",
-            "client": ("203.0.113.9", 1),
-        }
-    )
-
-    async def read():
-        return await pointcloud_access.authorize_pointcloud_read(
-            request,
-            _Untouchable(),
-            None,
-            dataset_id=dataset_id,
-            attempt_id=attempt,
-            name="data",
-        )
-
-    assert (await read()).attempt_id == attempt
-    tenant = current_tenant_var.set(str(uuid.uuid4()))
-    try:
-        with pytest.raises(_Touched):
-            await read()
-    finally:
-        current_tenant_var.reset(tenant)
+    audited = await _audit_rows(test_db_session, dataset_id)
+    assert [details["attempt_id"] for _, details in audited] == [
+        str(first),
+        str(second),
+    ]
