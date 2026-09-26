@@ -183,6 +183,17 @@ async def _validate_upload_file_safety(
     )
 
 
+def original_archive_key(
+    dataset_id, file_path: str, archive_name: str | None = None
+) -> str:
+    """The logical key an upload's original is archived under.
+
+    ``file_path`` is a temp download on any object-store deployment, so a
+    caller that knows the name the user uploaded passes it as ``archive_name``.
+    """
+    return f"originals/{dataset_id}/{archive_name or Path(file_path).name}"
+
+
 async def _archive_original_file(
     session,
     *,
@@ -215,11 +226,7 @@ async def _archive_original_file(
     """
 
     logger = structlog.get_logger()
-    # fix(#1290): `file_path` is a temp download on any object-store
-    # deployment, so deriving the name from it archives the upload under a
-    # generated filename nobody recognises. Callers that know what the user
-    # actually uploaded pass it.
-    archive_key = f"originals/{dataset_id}/{archive_name or Path(file_path).name}"
+    archive_key = original_archive_key(dataset_id, file_path, archive_name)
     try:
         from app.core.db.tenant_session import current_tenant_var
         from app.platform.storage.titiler_url import resolve_storage_key

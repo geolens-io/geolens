@@ -496,6 +496,9 @@ class _RasterReplace:
             schema_diff=None,
             contacted_origin=False,
             job_values={"current_step": "complete", "progress": 1.0},
+            reaps_staged_upload=(
+                self.source_preserved_in_cog or self.lossy_original_archived
+            ),
         )
 
     def classify(self, exc: BaseException) -> Failure:
@@ -551,7 +554,7 @@ class _RasterReplace:
 
     async def _clean_up(self, final_status: str) -> None:
         # A publish seen only through the probe is "pending", which keeps the
-        # staged upload.
+        # staged upload for the follow-ups to delete once the publish is visible.
         async with cleanup_step("reupload_raster temp dir", job_id=self.job_id):
             if self.tmp_dir:
                 shutil.rmtree(self.tmp_dir, ignore_errors=True)
