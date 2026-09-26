@@ -14,13 +14,14 @@ import contextlib
 import time
 import uuid
 from collections.abc import Awaitable, Callable
+from datetime import timedelta
 from types import SimpleNamespace
 from typing import Any, NamedTuple
 from unittest.mock import patch
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import event, text
+from sqlalchemy import event, select, text, update
 
 from app.platform.cache.tile_cache import InMemoryTileCacheProvider
 from app.processing.tiles import router as tile_router
@@ -556,6 +557,157 @@ async def test_a_cancelled_cold_claimant_s_read_is_taken_over(
     finally:
         release.set()
         case.forget()
+
+
+@_CASES
+async def test_a_wait_leaves_a_session_s_pending_changes_uncommitted(
+    test_db_session, make_case
+):
+    """A waiting request that has pending changes keeps them, and its connection."""
+    import app.core.db as db_module
+    from app.modules.catalog.datasets.domain.models import Dataset
+
+    case = await make_case(test_db_session)
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def claimant_meta():
+        async with db_module.async_session() as session:
+            execute = session.execute
+
+            async def read_when_released(*args, **kwargs):
+                entered.set()
+                await release.wait()
+                return await execute(*args, **kwargs)
+
+            session.execute = read_when_released
+            return await case.resolve(session)
+
+    async def stored_ttl():
+        async with db_module.async_session() as session:
+            return await session.scalar(
+                select(Dataset.tile_cache_ttl).where(Dataset.id == case.dataset_id)
+            )
+
+    try:
+        before = await stored_ttl()
+        async with db_module.async_session() as waiter_session:
+            dataset = await waiter_session.get(Dataset, case.dataset_id)
+            dataset.tile_cache_ttl = 7
+            claimant = asyncio.create_task(claimant_meta())
+            await asyncio.wait_for(entered.wait(), timeout=5)
+            waiter = asyncio.create_task(case.resolve(waiter_session))
+            await asyncio.sleep(0)
+            release.set()
+            await asyncio.wait_for(asyncio.gather(claimant, waiter), timeout=10)
+
+            assert await stored_ttl() == before
+            assert dataset in waiter_session.dirty
+            assert waiter_session.in_transaction()
+    finally:
+        release.set()
+        case.forget()
+
+
+async def test_waiting_api_key_requests_never_move_last_used_at_back(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+):
+    """Waiting tile requests write nothing to the API key they came with.
+
+    The first request starts waiting only after a second one has recorded a
+    newer use of the key. A wait that committed what authentication left on
+    the first request's session would put the older time back.
+    """
+    import app.core.db as db_module
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from app.api.main import app
+    from app.core.config import settings
+    from app.core.dependencies import get_db
+    from app.modules.auth.models import ApiKey
+
+    dataset = await _public_raster(test_db_session)
+    minted = await client.post(
+        "/auth/api-keys/", json={"name": "tile waits"}, headers=admin_auth_header
+    )
+    assert minted.status_code == 201, minted.text
+    key_id = uuid.UUID(minted.json()["id"])
+    with_key = {"X-Api-Key": minted.json()["key"]}
+
+    # The tile requests get an engine of their own, so its writes are theirs.
+    request_engine = create_async_engine(settings.test_database_url)
+    sessions = async_sessionmaker(request_engine, expire_on_commit=False)
+    key_writes: list[str] = []
+    first_waits, first_may_wait, second_waits = (asyncio.Event() for _ in range(3))
+
+    def on_execute(conn, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().upper().startswith("UPDATE") and "api_keys" in statement:
+            key_writes.append(statement)
+
+    async def get_db_ordering_waits():
+        async with sessions() as session:
+            commit = session.commit
+
+            # A waiting request commits just before it starts waiting.
+            async def commit_in_order():
+                if not first_waits.is_set():
+                    first_waits.set()
+                    await first_may_wait.wait()
+                    await commit()
+                else:
+                    await commit()
+                    second_waits.set()
+
+            session.commit = commit_in_order
+            yield session
+
+    async def last_used():
+        async with db_module.async_session() as session:
+            return await session.scalar(
+                select(ApiKey.last_used_at).where(ApiKey.id == key_id)
+            )
+
+    read = tile_router._read_raster_meta
+    held, entered = asyncio.Event(), asyncio.Event()
+
+    async def held_read(*args):
+        entered.set()
+        await held.wait()
+        return await read(*args)
+
+    monkeypatch.setattr(tile_router, "_read_raster_meta", held_read)
+    monkeypatch.setitem(app.dependency_overrides, get_db, get_db_ordering_waits)
+    event.listen(request_engine.sync_engine, "before_cursor_execute", on_execute)
+    try:
+        claimant = asyncio.create_task(_meta_for_request(dataset.id, None))
+        await asyncio.wait_for(entered.wait(), timeout=5)
+        first = asyncio.create_task(_auth_check(client, dataset.id, headers=with_key))
+        await asyncio.wait_for(first_waits.wait(), timeout=5)
+        async with db_module.async_session() as session:
+            # A minute on, so the second request records its use again.
+            await session.execute(
+                update(ApiKey)
+                .where(ApiKey.id == key_id)
+                .values(last_used_at=ApiKey.last_used_at - timedelta(seconds=61))
+            )
+            await session.commit()
+        second = asyncio.create_task(_auth_check(client, dataset.id, headers=with_key))
+        await asyncio.wait_for(second_waits.wait(), timeout=5)
+        newest = await last_used()
+        first_may_wait.set()
+        held.set()
+        _, *responses = await asyncio.wait_for(
+            asyncio.gather(claimant, first, second), timeout=10
+        )
+
+        assert [resp.status_code for resp in responses] == [200, 200]
+        assert await last_used() == newest
+        assert key_writes == []
+    finally:
+        first_may_wait.set()
+        held.set()
+        event.remove(request_engine.sync_engine, "before_cursor_execute", on_execute)
+        await request_engine.dispose()
+        _forget(dataset.id)
 
 
 async def _vector_http_case(client, session, tmp_path):

@@ -750,11 +750,11 @@ async def _resolve_raster_meta(
     return await _cached_snapshot(
         _RASTER_SNAPSHOTS,
         cache_key,
+        db,
         names_newer=lambda meta: (
             version is not None and int(version) > meta.tile_cache_version
         ),
         read=lambda: _read_raster_meta(db, dataset_id, tenant_id),
-        release=lambda: db.commit(),
     )
 
 
@@ -1766,10 +1766,10 @@ async def _lead_reread(
 async def _cached_snapshot(
     snapshots: _Snapshots,
     key: str,
+    db: AsyncSession,
     *,
     names_newer: Callable[[_Snapshot], bool],
     read: Callable[[], Awaitable[_Snapshot]],
-    release: Callable[[], Awaitable[object]],
 ) -> _Snapshot:
     """Return the snapshot cached for ``key``, reading it when missing or stale.
 
@@ -1783,9 +1783,10 @@ async def _cached_snapshot(
     one does.
 
     Each read is run by the request that claims it, through its own ``read``,
-    so on its own session. The others ``release`` their session's connection
-    and wait, for the running read or for the next interval's, taking the read
-    over if its claimant is cancelled, and then judge its result as above.
+    so on its own session. The others wait, for the running read or for the
+    next interval's, taking the read over if its claimant is cancelled, and
+    then judge its result as above. A waiting request first commits ``db`` to
+    give its connection back, unless that would commit pending changes.
     """
     arrived = time.monotonic()
     taking_over = False
@@ -1817,7 +1818,8 @@ async def _cached_snapshot(
                     cooldown = claimed_at + _FORCED_REREAD_INTERVAL - now
         if claimed is not None:
             return await _lead_reread(snapshots, key, claimed, read, now)
-        await release()
+        if not (db.new or db.dirty or db.deleted):
+            await db.commit()
         if reread is None:
             await asyncio.sleep(cooldown)
         else:
@@ -1849,9 +1851,9 @@ async def _resolve_dataset_meta(
     return await _cached_snapshot(
         _VECTOR_SNAPSHOTS,
         cache_key,
+        db,
         names_newer=lambda meta: _client_saw_newer_state(client_state, meta),
         read=lambda: _read_dataset_meta(db, table_name, tid),
-        release=lambda: db.commit(),
     )
 
 
