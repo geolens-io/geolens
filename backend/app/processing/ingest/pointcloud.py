@@ -252,6 +252,14 @@ class PointCloudDecodeError(Exception):
         super().__init__("Decoding the point cloud failed unexpectedly.")
 
 
+class PointCloudDecodeTimeout(UnsafeUploadError):
+    """The refusal of a decode stopped at its deadline.
+
+    It says the decode took too long here, not that the content is invalid,
+    so a door that deletes the upload on a refusal can let the client retry.
+    """
+
+
 def _read_header(data: bytes, size: int) -> _Header:
     """Parse the LAS header, refusing anything but LAS 1.4 LAZ in format 6 to 8."""
     if not data.startswith(b"LASF"):
@@ -781,10 +789,13 @@ def _decoded_corners(
     except ChildFailure as failure:
         logger.warning("Point cloud decode failed", **failure.details)
         if failure.category == "timeout":
-            raise _invalid(
-                f"The point cloud takes more than {timeout} seconds to decode.",
+            raise _logged(
+                PointCloudDecodeTimeout(
+                    f"The point cloud takes more than {timeout} seconds to decode.",
+                    code="pointcloud_invalid",
+                    values={"limit": timeout},
+                ),
                 reason="decode_time",
-                limit=timeout,
             ) from None
         if failure.details.get("signal") in _CRASH_SIGNALS:
             raise _decode_failed(reason="decode_crash") from None

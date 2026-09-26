@@ -39,6 +39,7 @@ _MINT_CONSTRUCTORS = frozenset(
         "UnsafeUploadError",
         "IngestCeilingError",
         "IngestBudgetExceededError",
+        "PointCloudDecodeTimeout",
     }
 )
 

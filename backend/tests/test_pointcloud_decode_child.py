@@ -379,6 +379,27 @@ async def test_a_signal_from_outside_keeps_the_presigned_upload(
     assert not await storage.exists(frozen)
 
 
+async def test_a_decode_past_the_deadline_keeps_the_presigned_upload(
+    monkeypatch, tmp_path
+) -> None:
+    """Running out of time is no verdict on the file, so the client can complete again."""
+    from app.processing.ingest.presigned import admit_presigned_pointcloud
+
+    storage, job, frozen = await _presigned_upload(monkeypatch, tmp_path)
+    _stalled_decoder(monkeypatch, tmp_path)
+    monkeypatch.setattr(pointcloud_module, "TOP_NODE_DECODE_SECONDS", 1)
+
+    with pytest.raises(HTTPException) as failure:
+        await admit_presigned_pointcloud(storage, job, frozen_key=frozen)
+
+    assert (failure.value.status_code, failure.value.detail) == (
+        503,
+        "Checking the point cloud took too long. Complete the upload again to retry.",
+    )
+    assert await storage.exists(job.user_metadata["s3_key"])
+    assert not await storage.exists(frozen)
+
+
 async def test_a_decoder_crash_refuses_the_presigned_upload(
     monkeypatch, tmp_path
 ) -> None:

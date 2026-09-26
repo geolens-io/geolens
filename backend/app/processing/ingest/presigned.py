@@ -20,7 +20,10 @@ from app.core.upload_errors import UnsafeUploadError, refusal_detail
 from app.modules.quota.service import check_replacement_quota, check_upload_quota
 from app.platform.storage import StorageProvider
 from app.platform.storage.titiler_url import resolve_current_storage_key
-from app.processing.ingest.pointcloud import inspect_stored_pointcloud
+from app.processing.ingest.pointcloud import (
+    PointCloudDecodeTimeout,
+    inspect_stored_pointcloud,
+)
 from app.processing.ingest.tileset import (
     TILESET_UNPACKED_BYTES_FIELD,
     inspect_stored_tileset,
@@ -618,11 +621,21 @@ async def admit_presigned_pointcloud(
     Runs after ``finalize_presigned_object``, on the frozen copy, and reads
     only the ranges those checks need. Follows that function's failure
     contract: a refusal deletes both objects, any other failure only the
-    frozen copy.
+    frozen copy. A decode that runs out of time is no verdict on the file,
+    so it keeps the upload and answers 503 for the client to complete again.
     """
     physical_frozen_key = resolve_current_storage_key(frozen_key)
     try:
         await inspect_stored_pointcloud(storage, physical_frozen_key)
+    except PointCloudDecodeTimeout as exc:
+        await _cleanup_presigned_object(storage, physical_frozen_key, job.id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Checking the point cloud took too long. "
+                "Complete the upload again to retry."
+            ),
+        ) from exc
     except UnsafeUploadError as exc:
         await _cleanup_presigned_object(storage, physical_frozen_key, job.id)
         await _cleanup_presigned_object(
