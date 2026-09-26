@@ -660,6 +660,26 @@ async def test_a_missing_archive_is_made_from_the_upload_before_it_goes(
         await _drop(test_db_session, job_id, record_id)
 
 
+async def test_an_upload_outside_the_staging_dir_is_never_archived(
+    test_db_session, raster_storage, tmp_path, followups
+) -> None:
+    """A replacement naming a file outside the staging directory neither archives nor deletes it."""
+    outside = tmp_path / "keep.tif"
+    outside.write_bytes(b"not an upload")
+    job_id, dataset_id, record_id = await _owed_job(
+        test_db_session, task="reupload_file", reaps_staged_upload=True
+    )
+    try:
+        await _point_job_at(job_id, file_path=str(outside))
+        key = await _owe_archive(job_id, dataset_id, "keep.tif")
+
+        assert await run_publish_followups(job_id) is True
+        assert not await raster_storage.exists(key)
+        assert outside.read_bytes() == b"not an upload"
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
 @pytest.mark.parametrize(
     ("file_path", "metadata"),
     [(None, {}), ("", {"s3_key": ""}), (None, {"s3_key": None})],
