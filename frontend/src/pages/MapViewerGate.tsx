@@ -55,9 +55,9 @@ export function MapViewerGate() {
   const shouldCheckAccess = !!id && hasToken && !!user;
   const accessQuery = useMapAccess(id, { enabled: shouldCheckAccess });
 
-  // Own the title only for the gate's own loading/error UI below — a branch
-  // sets its own once it renders. Passing a title unconditionally can fire
-  // after (and stomp) the branch's, if both mount in the same commit.
+  // Own the title only for the gate's own loading/error UI below. A branch
+  // sets its own once it renders; asserting one here too can stomp it if
+  // both happen to mount in the same commit.
   const isOwnLoadingOrError =
     (hasToken && !user) ||
     (shouldCheckAccess && accessQuery.isLoading) ||
