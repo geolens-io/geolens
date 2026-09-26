@@ -167,15 +167,13 @@ def if_none_match_matches(if_none_match: str | None, etag: str | None) -> bool:
     WEAK comparison, unlike ``If-Range``: a cache revalidation only needs
     equivalence, not byte-identity.
 
-    fix(#1554): ``*`` matches even when ``etag`` is None — the section asks
-    whether the RESOURCE has a current representation, not whether the server
-    can name it. Requiring an etag here would force a multi-gigabyte re-fetch
-    just to confirm what the caller already stat'd.
+    ``*`` matches even when ``etag`` is None — the section asks whether the
+    RESOURCE has a current representation, not whether the server can name it.
+    Requiring an etag here would force a multi-gigabyte re-fetch just to confirm
+    what the caller already stat'd.
 
-    A match is answered 304 unconditionally: this route serves GET/HEAD only
-    (``test_the_cog_download_answers_only_safe_methods`` pins it). The
-    section's ``*`` to 412 case applies to unsafe methods this route has no
-    caller for.
+    ``evaluate_preconditions`` answers a match with 304 for GET and HEAD and
+    with 412 for any other method, as the section requires.
     """
     if not if_none_match:
         return False

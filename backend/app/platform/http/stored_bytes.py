@@ -5,7 +5,7 @@ its entity-tag. What remains is which representation to send, so HEAD and GET
 share it.
 """
 
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncGenerator, Mapping
 from typing import Any
 
 from fastapi import HTTPException, Request, Response, status
@@ -31,7 +31,9 @@ class StoredObjectUnreadable(Exception):
     """The store failed before the object's first byte was read."""
 
 
-async def _chained(first: bytes, rest: AsyncIterator[bytes]) -> AsyncIterator[bytes]:
+async def _chained(
+    first: bytes, rest: AsyncGenerator[bytes, None]
+) -> AsyncGenerator[bytes, None]:
     yield first
     async for chunk in rest:
         yield chunk
@@ -46,7 +48,7 @@ class _StoredBytesResponse(StreamingResponse):
     """
 
     def __init__(
-        self, first: bytes, stream: AsyncIterator[bytes], **kwargs: Any
+        self, first: bytes, stream: AsyncGenerator[bytes, None], **kwargs: Any
     ) -> None:
         super().__init__(_chained(first, stream), **kwargs)
         self._stream = stream
@@ -61,7 +63,7 @@ class _StoredBytesResponse(StreamingResponse):
 async def _opened(
     storage: StorageProvider,
     key: str,
-    stream: AsyncIterator[bytes],
+    stream: AsyncGenerator[bytes, None],
     expected: int,
     **response: Any,
 ) -> Response:
@@ -109,7 +111,9 @@ def evaluate_preconditions(
     Raises 412, with ``changed_detail`` and the current ETag, when ``If-Match``
     names another version: a resuming client may send it instead of
     ``If-Range``, and RFC 9110 gives it no serve-the-whole-object fallback.
-    Returns the 304 when ``If-None-Match`` already holds this one, else None.
+    When ``If-None-Match`` already holds this one, returns the 304 for GET and
+    HEAD and raises 412 for any other method, as RFC 9110 section 13.1.2
+    requires. Otherwise returns None.
     """
     if not if_match_passes(request.headers.get("if-match"), etag):
         raise HTTPException(
@@ -118,7 +122,13 @@ def evaluate_preconditions(
             headers={"ETag": etag} if etag is not None else None,
         )
     if if_none_match_matches(request.headers.get("if-none-match"), etag):
-        return not_modified_response(etag)
+        if request.method in ("GET", "HEAD"):
+            return not_modified_response(etag)
+        raise HTTPException(
+            status_code=status.HTTP_412_PRECONDITION_FAILED,
+            detail="A current representation matches If-None-Match",
+            headers={"ETag": etag} if etag is not None else None,
+        )
     return None
 
 
