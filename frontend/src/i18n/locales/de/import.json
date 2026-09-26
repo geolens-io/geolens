@@ -169,6 +169,7 @@
     "assetCount_one": "{{count}} Asset",
     "assetCount_other": "{{count}} Assets",
     "noCogAsset": "Kein COG-Asset",
+    "unsupportedAssetScheme": "Veröffentlicht unter einer {{scheme}}://-Adresse, die GeoLens nicht lesen kann",
     "catalogHelp": "Durchsuchen und importieren Sie Rasterdatensätze aus öffentlichen STAC-Katalogen wie",
     "matchedTotal": "({{count}} insgesamt)",
     "confirm": {

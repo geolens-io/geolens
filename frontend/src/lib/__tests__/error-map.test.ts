@@ -453,6 +453,32 @@ describe('API error localization boundary', () => {
     expect(translateApiErrorDetail(detail, 422)).toBe('display_name is required.');
   });
 
+  // The STAC import door reuses pydantic's own HttpUrl parsing inside a
+  // field validator (`_validate_stac_http_url` in stac_router.py) to reject
+  // an item whose data asset is an `s3://` (or other non-http) URL. That
+  // raises pydantic-core's own `url_scheme` error type rather than the
+  // generic `value_error` a raised ValueError would produce; unmapped it
+  // fell through to the field-name-only "has an invalid value" message and
+  // hid that the concrete, fixable problem is the scheme.
+  it('names the scheme problem for a pydantic url_scheme validation error, not the generic field message', () => {
+    const detail = [
+      {
+        type: 'url_scheme',
+        loc: ['body', 'items', 0, 'data_asset_href'],
+        msg: "URL scheme should be 'http' or 'https'",
+        ctx: { expected_schemes: "'http' or 'https'" },
+      },
+    ];
+
+    expect(classifyApiError(detail, 422)).toEqual({
+      key: 'errors.validationUrlSchemeInvalid',
+      values: { field: 'items.0.data_asset_href' },
+    });
+    const rendered = translateApiErrorDetail(detail, 422);
+    expect(rendered).toBe('items.0.data_asset_href must be an http or https address.');
+    expect(rendered).not.toBe('The submitted values are invalid.');
+  });
+
   it('localizes validation constraints with their numeric limit', () => {
     const detail = [
       {

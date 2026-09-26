@@ -497,6 +497,15 @@ function validationDescriptor(entry: unknown): ApiErrorDescriptor | undefined {
   if (type === 'literal_error' || type === 'enum') {
     return { key: 'errors.validationInvalidChoice', values: { field } };
   }
+  // A door that reuses pydantic's own HttpUrl parsing inside a field
+  // validator (STAC's `_validate_stac_http_url`, among others) surfaces
+  // pydantic-core's OWN error type here rather than the generic
+  // `value_error` a raised ValueError would produce, so it needs its own
+  // branch or it falls through to the field-name-only message below and
+  // hides that the concrete, fixable problem is the URL's scheme.
+  if (type === 'url_scheme') {
+    return { key: 'errors.validationUrlSchemeInvalid', values: { field } };
+  }
   return { key: 'errors.validationInvalidField', values: { field } };
 }
 

@@ -263,6 +263,7 @@
     "validationLessThan": "{{field}} muss kleiner als {{limit}} sein.",
     "validationLessThanOrEqual": "{{field}} darf höchstens {{limit}} sein.",
     "validationInvalidChoice": "Wählen Sie einen gültigen Wert für {{field}}.",
+    "validationUrlSchemeInvalid": "{{field}} muss eine http- oder https-Adresse sein.",
     "datasetNotFound": "Datensatz nicht gefunden",
     "collectionNotFound": "Sammlung nicht gefunden",
     "mapNotFound": "Karte nicht gefunden",

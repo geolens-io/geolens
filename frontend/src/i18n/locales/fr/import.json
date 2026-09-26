@@ -169,6 +169,7 @@
     "assetCount_one": "{{count}} ressource",
     "assetCount_other": "{{count}} ressources",
     "noCogAsset": "Aucune ressource COG",
+    "unsupportedAssetScheme": "Publié à une adresse {{scheme}}:// que GeoLens ne peut pas lire",
     "catalogHelp": "Parcourez et importez des jeux de données raster depuis des catalogues STAC publics tels que",
     "matchedTotal": "({{count}} au total)",
     "confirm": {

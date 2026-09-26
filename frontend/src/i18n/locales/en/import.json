@@ -185,6 +185,7 @@
     "assetCount_one": "{{count}} asset",
     "assetCount_other": "{{count}} assets",
     "noCogAsset": "No COG asset",
+    "unsupportedAssetScheme": "Published at an {{scheme}}:// address GeoLens can't read",
     "catalogHelp": "Browse and import raster datasets from public STAC catalogs like",
     "matchedTotal": "({{count}} total)",
     "confirm": {
