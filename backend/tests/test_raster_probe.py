@@ -19,6 +19,7 @@ import uuid
 import numpy as np
 import pytest
 import rasterio
+import structlog
 from rasterio.crs import CRS
 from rasterio.transform import from_bounds
 from sqlalchemy import select
@@ -111,9 +112,10 @@ class TestTheParentBoundsTheChild:
         "stdout,code,kind",
         [
             (json.dumps({"error": "open", "message": _CHILD_TEXT}), 1, "open"),
-            (json.dumps({"error": _CHILD_TEXT}), 1, "read"),
-            (_CHILD_TEXT, 0, "read"),
-            (json.dumps({"no": "result"}), 0, "read"),
+            (json.dumps({"error": "invalid", "exception": "CRSError"}), 1, "read"),
+            (json.dumps({"error": _CHILD_TEXT}), 1, "internal"),
+            (_CHILD_TEXT, 0, "internal"),
+            (json.dumps({"no": "result"}), 0, "internal"),
         ],
     )
     def test_a_failed_child_comes_back_as_a_kind_only(
@@ -143,6 +145,61 @@ class TestTheParentBoundsTheChild:
         assert env["PROJ_NETWORK"] == "OFF"
         assert env["CPL_VSIL_CURL_ALLOWED_EXTENSIONS"] == "tif,tiff,vrt"
         assert env["GDAL_HTTP_TIMEOUT"] == "300"
+
+
+class TestOperatorDiagnostics:
+    """Job reasons stay generic; the operator log says which failure it was."""
+
+    @pytest.mark.parametrize(
+        "raised,category",
+        [
+            (rasterio.errors.RasterioIOError("not a raster"), "open"),
+            (rasterio.errors.CRSError("no such CRS"), "invalid"),
+            (ModuleNotFoundError("gone"), "internal"),
+            (rasterio.errors.EnvError("bad config"), "internal"),
+        ],
+    )
+    def test_the_child_tells_bad_raster_data_from_its_own_failures(
+        self, monkeypatch, capsys, raised, category
+    ) -> None:
+        def _fail(_path):
+            raise raised
+
+        monkeypatch.setattr(probe, "_metadata", _fail)
+
+        assert probe.main(["metadata", "any.tif"]) == 1
+        reply = json.loads(capsys.readouterr().out)
+        assert reply == {"error": category, "exception": type(raised).__name__}
+
+    def test_operators_can_tell_a_startup_failure_from_bad_raster_data(
+        self, monkeypatch
+    ) -> None:
+        def _logged(script: str) -> dict:
+            _stand_in(monkeypatch, script)
+            with structlog.testing.capture_logs() as captured:
+                with pytest.raises(probe.RasterProbeError):
+                    probe.read_raster_metadata("any.tif")
+            events = [e for e in captured if e["event"] == "raster probe failed"]
+            assert len(events) == 1, captured
+            assert "not_a_module" not in repr(captured)
+            assert "secret" not in repr(captured)
+            return events[0]
+
+        startup = _logged("import app.processing.raster.not_a_module")
+        bad_data = _logged(
+            "import json, sys\n"
+            f"sys.stderr.write({_CHILD_TEXT!r})\n"
+            "print(json.dumps({'error': 'invalid', 'exception': 'CRSError'}))\n"
+            "sys.exit(1)\n"
+        )
+        killed = _logged("import os, signal; os.kill(os.getpid(), signal.SIGKILL)")
+
+        assert startup["category"] == "no_reply"
+        assert startup["exception"] == "ModuleNotFoundError"
+        assert startup["returncode"] == 1
+        assert (bad_data["category"], bad_data["exception"]) == ("invalid", "CRSError")
+        assert (killed["category"], killed["signal"]) == ("killed", "SIGKILL")
+        assert {startup["op"], bad_data["op"], killed["op"]} == {"metadata"}
 
 
 class TestCallersRefuseOnTime:
@@ -210,7 +267,7 @@ class TestCallersRefuseOnTime:
             )
         else:
             _failing_child(monkeypatch, stdout=json.dumps({"error": _CHILD_TEXT}))
-            expected = "The raster's metadata could not be read."
+            expected = "Reading the raster failed unexpectedly."
 
         started = time.monotonic()
         with pytest.raises(ValueError) as exc_info:

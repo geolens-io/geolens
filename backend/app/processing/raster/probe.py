@@ -5,17 +5,24 @@ blocked on one can't be stopped. So every read of an uploaded raster, of the
 COG made from it, or of a VRT over such COGs runs in a child started with
 ``python -m app.processing.raster.probe``. The parent waits a set time and
 kills the child when it runs over. Only a typed error comes back: nothing the
-child printed, and no text from the file.
+child printed, and no text from the file. The operator log records which
+operation failed and how, from a fixed set of categories.
 """
 
 from __future__ import annotations
 
 import base64
 import json
+import re
+import signal
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 # Below the proxies in front of the API (nginx allows 600 s on /api,
 # Cloudflare 100 s), so the client gets this refusal rather than a 504.
@@ -28,9 +35,21 @@ CRS_FACTS_TIMEOUT_SECONDS = 30
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[3]
 
+# The child's verdicts, and the kind each surfaces as. "invalid" is a raster
+# GDAL or PROJ refused to read; "internal" is any other failure in the child.
+_CHILD_KINDS = {"open": "open", "invalid": "read", "internal": "internal"}
+
+# An exception's class name, the one part of a traceback the log may carry:
+# its message can quote the file.
+_EXCEPTION_NAME = re.compile(r"[A-Za-z_][\w.]{0,99}(?:Error|Exception|Exit|Interrupt)")
+
 
 class RasterProbeError(Exception):
-    """A probe that didn't answer. ``kind`` is "open", "read" or "timeout"."""
+    """A probe that didn't answer.
+
+    ``kind`` is "open", "read" (the raster's content couldn't be read),
+    "internal" (the child failed, not the file) or "timeout".
+    """
 
     def __init__(self, kind: str, *, timeout: float) -> None:
         self.kind = kind
@@ -41,6 +60,8 @@ class RasterProbeError(Exception):
                 f"Reading the raster took longer than {timeout:g} seconds, "
                 "so it was stopped."
             )
+        elif kind == "internal":
+            message = "Reading the raster failed unexpectedly."
         else:
             message = "The raster's metadata could not be read."
         super().__init__(message)
@@ -98,6 +119,7 @@ def _run(op: str, *args: str, stdin: str | None = None, timeout: float) -> Any:
             timeout=timeout,
         )
     except subprocess.TimeoutExpired:
+        logger.warning("raster probe failed", op=op, category="timeout")
         raise RasterProbeError("timeout", timeout=timeout) from None
     try:
         reply = json.loads(done.stdout)
@@ -105,10 +127,38 @@ def _run(op: str, *args: str, stdin: str | None = None, timeout: float) -> Any:
         reply = None
     if done.returncode == 0 and isinstance(reply, dict) and "result" in reply:
         return reply["result"]
-    kind = (
-        "open" if isinstance(reply, dict) and reply.get("error") == "open" else "read"
+    if not isinstance(reply, dict):
+        reply = {}
+    category, exception = reply.get("error"), reply.get("exception")
+    if done.returncode < 0:
+        category, exception = "killed", None
+    elif category not in _CHILD_KINDS:
+        # No verdict: the child died before it could give one, as a failed
+        # import or an interpreter crash does. Its traceback ends with the
+        # exception's class name.
+        category = "no_reply"
+        lines = done.stderr.strip().splitlines()
+        exception = lines[-1].split(":", 1)[0] if lines else None
+    logger.warning(
+        "raster probe failed",
+        op=op,
+        category=category,
+        returncode=done.returncode,
+        signal=_signal_name(done.returncode),
+        exception=exception
+        if isinstance(exception, str) and _EXCEPTION_NAME.fullmatch(exception)
+        else None,
     )
-    raise RasterProbeError(kind, timeout=timeout)
+    raise RasterProbeError(_CHILD_KINDS.get(category, "internal"), timeout=timeout)
+
+
+def _signal_name(returncode: int) -> str | None:
+    if returncode >= 0:
+        return None
+    try:
+        return signal.Signals(-returncode).name
+    except ValueError:
+        return str(-returncode)
 
 
 def _inspect(path: str, expected_compression: str) -> dict:
@@ -157,9 +207,21 @@ def _crs_facts() -> dict:
     }
 
 
-def main(argv: list[str]) -> int:
-    import rasterio
+def _category(exc: Exception) -> str:
+    """ "open", "invalid" (GDAL or PROJ refused the raster) or "internal"."""
+    from rasterio import errors
+    from rasterio._err import CPLE_BaseError
 
+    if isinstance(exc, errors.RasterioIOError):
+        return "open"
+    if isinstance(exc, (errors.EnvError, errors.GDALVersionError)):
+        return "internal"
+    if isinstance(exc, (errors.RasterioError, errors.CRSError, CPLE_BaseError)):
+        return "invalid"
+    return "internal"
+
+
+def main(argv: list[str]) -> int:
     from app.processing.raster.vrt import gdal_safe_open_env
 
     op, args = argv[0], argv[1:]
@@ -175,11 +237,8 @@ def main(argv: list[str]) -> int:
                 result = _crs_facts()
             else:
                 raise ValueError(op)
-    except rasterio.errors.RasterioIOError:
-        print(json.dumps({"error": "open"}))
-        return 1
-    except Exception:  # broad: the parent sees any other failure as "read"
-        print(json.dumps({"error": "read"}))
+    except Exception as exc:  # broad: every failure reaches the parent as a category
+        print(json.dumps({"error": _category(exc), "exception": type(exc).__name__}))
         return 1
     print(json.dumps({"result": result}))
     return 0

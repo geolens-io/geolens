@@ -734,14 +734,14 @@ async def _preview_raster(
         except OSError:
             pass
     except Exception as exc:  # broad: any failed probe is a failed preview
-        timed_out = isinstance(exc, probe.RasterProbeError) and exc.kind == "timeout"
-        logger.warning("raster_preview failed", job_id=str(job.id), timed_out=timed_out)
+        kind = exc.kind if isinstance(exc, probe.RasterProbeError) else None
+        logger.warning("raster_preview failed", job_id=str(job.id), kind=kind)
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={
                 "code": "raster_preview_failed",
                 "message": str(exc)
-                if timed_out
+                if kind in ("timeout", "internal")
                 else "Unable to preview raster file. The file may be malformed or unsupported.",
             },
         )
