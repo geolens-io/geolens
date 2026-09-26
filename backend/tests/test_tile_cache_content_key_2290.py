@@ -20,8 +20,9 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi import HTTPException
 from httpx import AsyncClient
-from sqlalchemy import text
+from sqlalchemy import event, text
 from starlette.requests import Request
 
 from app.platform.cache import provider as cache_provider
@@ -379,27 +380,62 @@ def test_only_a_newer_state_in_either_spelling_forces_a_re_read(raw, newer):
 _UNREACHED_VERSION = "9999999999"
 
 
-async def _registered_table(session) -> str:
+async def _registered_dataset(session):
     admin_id = await get_user_id(session, "admin")
-    dataset = await create_dataset(
+    return await create_dataset(
         session,
         created_by=admin_id,
         table_name=f"reread2290_{uuid.uuid4().hex[:10]}",
         record_type="vector_dataset",
         geometry_type="Point",
     )
-    return dataset.table_name
 
 
-def _count_queries(monkeypatch, session, queries: list) -> None:
-    """Record every statement a real session runs, and still run it."""
-    execute = session.execute
+@contextlib.contextmanager
+def _counting_row_reads(table_name: str):
+    """Count the SELECTs naming ``table_name`` that reach the database.
 
-    async def counted(statement, *args, **kwargs):
-        queries.append(statement)
-        return await execute(statement, *args, **kwargs)
+    Counted at the engine, because a forced re-read runs on a session of its
+    own rather than the one the caller passed in.
+    """
+    import app.core.db as db_module
 
-    monkeypatch.setattr(session, "execute", counted)
+    reads: list[str] = []
+
+    def on_execute(conn, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().upper().startswith("SELECT") and table_name in str(
+            parameters
+        ):
+            reads.append(statement)
+
+    engine = db_module.engine.sync_engine
+    event.listen(engine, "before_cursor_execute", on_execute)
+    try:
+        yield reads
+    finally:
+        event.remove(engine, "before_cursor_execute", on_execute)
+
+
+async def _bump_tile_cache_version(session, dataset_id) -> None:
+    from app.modules.catalog.datasets.domain.models import Dataset
+    from app.platform.catalog_locks import bump_tile_cache_version_atomic
+
+    await bump_tile_cache_version_atomic(
+        session, dataset_cls=Dataset, dataset_id=dataset_id
+    )
+    await session.commit()
+
+
+async def _meta_for_request(
+    table_name: str, client_state: str
+) -> tile_router._DatasetMeta:
+    """Resolve metadata as a tile request does, on a session it closes after."""
+    import app.core.db as db_module
+
+    async with db_module.async_session() as session:
+        return await tile_router._resolve_dataset_meta(
+            table_name, session, client_state
+        )
 
 
 def _age_forced_reread(cache_key: str) -> None:
@@ -412,56 +448,133 @@ def _age_forced_reread(cache_key: str) -> None:
 
 
 async def test_an_unreached_version_re_reads_the_row_once_per_interval(
-    test_db_session, monkeypatch
+    test_db_session,
 ):
-    table = await _registered_table(test_db_session)
+    table = (await _registered_dataset(test_db_session)).table_name
     try:
         await tile_router._resolve_dataset_meta(table, test_db_session)
-        queries: list = []
-        _count_queries(monkeypatch, test_db_session, queries)
+        with _counting_row_reads(table) as reads:
+            for _ in range(20):
+                await tile_router._resolve_dataset_meta(
+                    table, test_db_session, _UNREACHED_VERSION
+                )
+            assert len(reads) == 1
 
-        for _ in range(20):
-            await tile_router._resolve_dataset_meta(
-                table, test_db_session, _UNREACHED_VERSION
-            )
-        assert len(queries) == 1
-
-        _age_forced_reread(table)
-        for _ in range(20):
-            await tile_router._resolve_dataset_meta(
-                table, test_db_session, _UNREACHED_VERSION
-            )
-        assert len(queries) == 2
+            _age_forced_reread(table)
+            for _ in range(20):
+                await tile_router._resolve_dataset_meta(
+                    table, test_db_session, _UNREACHED_VERSION
+                )
+            assert len(reads) == 2
     finally:
         tile_router._evict_dataset_meta(table)
 
 
 async def test_concurrent_requests_for_an_unreached_version_share_one_re_read(
-    test_db_session, monkeypatch
+    test_db_session,
 ):
-    """The re-read is claimed before its query, so requests during it don't query."""
-    import app.core.db as db_module
-
-    table = await _registered_table(test_db_session)
+    table = (await _registered_dataset(test_db_session)).table_name
     try:
         await tile_router._resolve_dataset_meta(table, test_db_session)
-        queries: list = []
-        async with contextlib.AsyncExitStack() as stack:
-            sessions = [
-                await stack.enter_async_context(db_module.async_session())
-                for _ in range(5)
-            ]
-            for session in sessions:
-                _count_queries(monkeypatch, session, queries)
-            await asyncio.gather(
-                *(
-                    tile_router._resolve_dataset_meta(
-                        table, session, _UNREACHED_VERSION
-                    )
-                    for session in sessions
-                )
+        with _counting_row_reads(table) as reads:
+            metas = await asyncio.gather(
+                *(_meta_for_request(table, _UNREACHED_VERSION) for _ in range(5))
             )
-        assert len(queries) == 1
+        assert len(reads) == 1
+        assert [meta.tile_cache_version for meta in metas] == [1] * 5
+    finally:
+        tile_router._evict_dataset_meta(table)
+
+
+async def test_tiles_fanned_out_after_a_swap_all_get_the_new_snapshot(
+    test_db_session,
+):
+    """Every request that names the new version waits for the one re-read."""
+    dataset = await _registered_dataset(test_db_session)
+    table = dataset.table_name
+    try:
+        await tile_router._resolve_dataset_meta(table, test_db_session)
+        await _bump_tile_cache_version(test_db_session, dataset.id)
+        with _counting_row_reads(table) as reads:
+            metas = await asyncio.wait_for(
+                asyncio.gather(*(_meta_for_request(table, "2") for _ in range(5))),
+                timeout=10,
+            )
+        keys = {
+            _generation_table_key(
+                table,
+                meta.dataset_id,
+                meta.publication_version,
+                meta.tile_cache_version,
+            )
+            for meta in metas
+        }
+        assert [meta.tile_cache_version for meta in metas] == [2] * 5
+        assert keys == {_generation_table_key(table, dataset.id, 0, 2)}
+        assert len(reads) == 1
+    finally:
+        tile_router._evict_dataset_meta(table)
+
+
+async def test_a_cancelled_request_leaves_its_re_read_to_the_others(
+    test_db_session, monkeypatch
+):
+    """Cancelling the request that started a re-read strands nobody waiting on it."""
+    dataset = await _registered_dataset(test_db_session)
+    table = dataset.table_name
+    try:
+        await tile_router._resolve_dataset_meta(table, test_db_session)
+        await _bump_tile_cache_version(test_db_session, dataset.id)
+
+        # Holds the re-read open, so the cancel lands while it is in flight.
+        entered, release = asyncio.Event(), asyncio.Event()
+        read = tile_router._read_dataset_meta
+
+        async def read_once_released(*args, **kwargs):
+            entered.set()
+            await release.wait()
+            return await read(*args, **kwargs)
+
+        monkeypatch.setattr(tile_router, "_read_dataset_meta", read_once_released)
+        with _counting_row_reads(table) as reads:
+            leader = asyncio.create_task(_meta_for_request(table, "2"))
+            await asyncio.wait_for(entered.wait(), timeout=5)
+            followers = [
+                asyncio.create_task(_meta_for_request(table, "2")) for _ in range(4)
+            ]
+            await asyncio.sleep(0)
+            leader.cancel()
+            release.set()
+            metas = await asyncio.wait_for(asyncio.gather(*followers), timeout=5)
+
+        assert leader.cancelled()
+        assert [meta.tile_cache_version for meta in metas] == [2] * 4
+        assert len(reads) == 1
+    finally:
+        tile_router._evict_dataset_meta(table)
+
+
+async def test_a_failed_re_read_fails_every_waiting_request_alike(test_db_session):
+    """Waiting requests get the error the read raised: here, the row is gone."""
+    dataset = await _registered_dataset(test_db_session)
+    table = dataset.table_name
+    try:
+        await tile_router._resolve_dataset_meta(table, test_db_session)
+        await test_db_session.execute(
+            text("UPDATE catalog.datasets SET table_name = :gone WHERE id = :id"),
+            {"gone": f"{table}_gone", "id": dataset.id},
+        )
+        await test_db_session.commit()
+        with _counting_row_reads(table) as reads:
+            outcomes = await asyncio.gather(
+                *(_meta_for_request(table, "2") for _ in range(5)),
+                return_exceptions=True,
+            )
+        assert all(
+            isinstance(outcome, HTTPException) and outcome.status_code == 404
+            for outcome in outcomes
+        ), outcomes
+        assert len(reads) == 1
     finally:
         tile_router._evict_dataset_meta(table)
 
