@@ -14,6 +14,9 @@ from rasterio.crs import CRS
 WKT = CRS.from_user_input("EPSG:26912+5703").to_wkt().encode()
 ORIGIN = (425_000.0, 4_513_000.0, 1_280.0)
 SCALE = 0.01
+# Where copc() writes the COPC info record's fields: after the 375-byte
+# header and the first VLR's 54-byte header.
+INFO_AT = 375 + 54
 
 _RECORD_LENGTHS = {6: 30, 7: 36, 8: 38}
 _VARIABLE_CHUNKS = 0xFFFFFFFF
@@ -219,6 +222,52 @@ def copc(
         + table
         + b"".join(evlrs)
     )
+
+
+def two_ends(wkt: bytes = WKT) -> bytes:
+    """An empty root over two 50-point nodes, one at each end of the points' diagonal.
+
+    The nodes hold raw 0..10 and 990..1000 in cells (1,0,0,0) and (1,1,1,0),
+    so no point lies between the two ends.
+    """
+    far = compressed_chunk(records(50, start=990, span=10))
+    return copc(
+        count=50,
+        points=records(50, span=10),
+        wkt=wkt,
+        padding=far,
+        pages=lambda at: [
+            [
+                (0, 0, 0, 0, 0, 0, 0),
+                (1, 0, 0, 0, at.chunk_offset, at.chunk_size, 50),
+                (1, 1, 1, 0, at.chunk_offset + at.chunk_size, len(far), 50),
+            ]
+        ],
+        header_point_count=100,
+    )
+
+
+def reframed(
+    data: bytes,
+    scales: tuple[float, float, float],
+    offsets: tuple[float, float, float],
+    center: tuple[float, float, float],
+    halfsize: float,
+) -> bytes:
+    """``data`` placed anew by ``scales`` and ``offsets``, in a cube at ``center``.
+
+    ``data``'s raw points span 0..1000 in X and Y and 0..100 in Z, as copc()
+    and two_ends() build them; the header's bounds follow.
+    """
+    bounds: list[float] = []
+    for scale, offset, reach in zip(scales, offsets, (1000, 1000, 100)):
+        ends = (offset, offset + scale * reach)
+        bounds += [max(ends), min(ends)]
+    out = bytearray(data)
+    struct.pack_into("<3d3d", out, 131, *scales, *offsets)
+    struct.pack_into("<6d", out, 179, *bounds)
+    struct.pack_into("<4d", out, INFO_AT, *center, halfsize)
+    return bytes(out)
 
 
 def copc_nodes(

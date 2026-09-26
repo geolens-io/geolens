@@ -30,6 +30,7 @@ from app.processing.ingest.pointcloud import (
     inspect_stored_pointcloud,
 )
 from tests.pointcloud_files import (
+    INFO_AT,
     ORIGIN,
     SCALE,
     Layout,
@@ -39,8 +40,10 @@ from tests.pointcloud_files import (
     copc_nodes,
     laszip_record,
     records,
+    reframed,
     root_entry,
     scrambled,
+    two_ends,
 )
 
 
@@ -60,11 +63,6 @@ def patched(data: bytes, offset: int, fmt: str, *values) -> bytes:
     out = bytearray(data)
     struct.pack_into(fmt, out, offset, *values)
     return bytes(out)
-
-
-# Where copc() writes the COPC info record's fields: after the 375-byte
-# header and the first VLR's 54-byte header.
-_INFO_AT = 375 + 54
 
 
 def child_page(layout: Layout, entries: list[tuple[int, ...]]):
@@ -489,7 +487,7 @@ def test_a_node_that_does_not_decode_as_declared_is_refused(tmp_path, data) -> N
 )
 def test_a_damaged_copc_info_record_is_refused(tmp_path, offset, fmt, values) -> None:
     """The octree's center, half-size and spacing and the GPS time range must be usable."""
-    refusal = refused(tmp_path, patched(copc(), _INFO_AT + offset, fmt, *values))
+    refusal = refused(tmp_path, patched(copc(), INFO_AT + offset, fmt, *values))
 
     assert (refusal.code, "COPC info record" in str(refusal)) == (
         "pointcloud_invalid",
@@ -499,7 +497,7 @@ def test_a_damaged_copc_info_record_is_refused(tmp_path, offset, fmt, values) ->
 
 def test_points_outside_the_octree_are_refused(tmp_path) -> None:
     """Every point must lie in the octree's cube, which a COPC reader splits into nodes."""
-    refusal = refused(tmp_path, patched(copc(), _INFO_AT, "<d", ORIGIN[0] + 20))
+    refusal = refused(tmp_path, patched(copc(), INFO_AT, "<d", ORIGIN[0] + 20))
 
     assert (refusal.code, "outside its octree" in str(refusal)) == (
         "pointcloud_invalid",
@@ -511,7 +509,7 @@ async def test_a_finite_header_that_scales_past_a_double_is_refused(tmp_path) ->
     """A Z scale, Z bound and half-size of 1e308 put inf in the points and NaN in the cells."""
     data = patched(copc(), 147, "<d", 1e308)
     data = patched(data, 211, "<d", 1e308)
-    path = write(tmp_path, patched(data, _INFO_AT + 24, "<d", 1e308))
+    path = write(tmp_path, patched(data, INFO_AT + 24, "<d", 1e308))
 
     with pytest.raises(UnsafeUploadError) as door:
         inspect_pointcloud(path)
@@ -525,7 +523,7 @@ async def test_a_finite_header_that_scales_past_a_double_is_refused(tmp_path) ->
 
 def test_an_octree_past_a_double_is_refused(tmp_path) -> None:
     """A half-size of 1e308 overflows the cells, and NaN passes every comparison."""
-    refusal = refused(tmp_path, patched(copc(), _INFO_AT + 24, "<d", 1e308))
+    refusal = refused(tmp_path, patched(copc(), INFO_AT + 24, "<d", 1e308))
 
     assert (refusal.code, str(refusal)) == (
         "pointcloud_invalid",
@@ -554,7 +552,7 @@ async def test_facts_json_cannot_carry_are_refused_last(tmp_path, monkeypatch) -
 
 def test_an_octree_larger_than_its_points_passes(tmp_path) -> None:
     """A cube that holds the points with room to spare is fine."""
-    data = patched(copc(), _INFO_AT + 24, "<d", 50.0)
+    data = patched(copc(), INFO_AT + 24, "<d", 50.0)
 
     assert inspect_pointcloud(write(tmp_path, data)).point_count == 100
 
@@ -563,7 +561,7 @@ def _negated_x_scale(min_x: float, max_x: float) -> bytes:
     """copc() read with a negative X scale, so its points span ORIGIN - 10 to ORIGIN in X."""
     data = patched(copc(), 131, "<d", -SCALE)
     # The octree's cube moves with the points.
-    data = patched(data, _INFO_AT, "<d", ORIGIN[0] - 5)
+    data = patched(data, INFO_AT, "<d", ORIGIN[0] - 5)
     return patched(data, 179, "<dd", max_x, min_x)
 
 
@@ -1180,6 +1178,70 @@ async def test_the_worker_takes_the_extent_from_the_points(tmp_path) -> None:
     assert (door.z_min, door.z_max) == (780.0, 1781.0)
 
 
+@pytest.mark.parametrize(
+    ("x_scale", "x_offset", "extent"),
+    [
+        pytest.param(
+            0.3599, -179.95, (176.351, -17.0, -176.351, -16.0), id="each-side-of-180"
+        ),
+        pytest.param(0.001, -0.5, (-0.5, -17.0, 0.5, -16.0), id="each-side-of-0"),
+    ],
+)
+async def test_a_geographic_cloud_takes_the_narrower_longitude_domain(
+    tmp_path, x_scale, x_offset, extent
+) -> None:
+    """Points each side of ±180 give a west > east extent, and points each side of 0 an ordinary one."""
+    data = reframed(
+        two_ends(CRS.from_epsg(4326).to_wkt().encode()),
+        (x_scale, 0.001, 0.01),
+        (x_offset, -17.0, 0.0),
+        (0.0, -16.5, 90.0),
+        180.0,
+    )
+
+    cloud = await inspect_every_node(write(tmp_path, data))
+
+    assert cloud.extent_bbox == pytest.approx(extent, abs=1e-3)
+
+
+@pytest.mark.parametrize(
+    ("epsg", "west", "south", "extent"),
+    [
+        pytest.param(
+            32760,
+            815_000.0,
+            8_100_000.0,
+            (179.959, -17.163, -179.945, -17.071),
+            id="utm-60s-across-180",
+        ),
+        pytest.param(
+            3857,
+            -5_000.0,
+            -1_900_000.0,
+            (-0.045, -16.821, 0.045, -16.735),
+            id="mercator-across-0",
+        ),
+    ],
+)
+async def test_a_projected_cloud_keeps_its_extent_across_a_meridian(
+    tmp_path, epsg, west, south, extent
+) -> None:
+    """A projected cloud's extent comes from the CRS transform, west > east across ±180."""
+    data = reframed(
+        copc(wkt=CRS.from_epsg(epsg).to_wkt().encode()),
+        (10.0, 10.0, 0.01),
+        (west, south, 1_280.0),
+        (west + 5_000, south + 5_000, 1_280.5),
+        5_000.0,
+    )
+    path = write(tmp_path, data)
+
+    door, worker = inspect_pointcloud(path), await inspect_every_node(path)
+
+    assert door.extent_bbox == pytest.approx(extent, abs=1e-3)
+    assert worker.extent_bbox == pytest.approx(extent, abs=1e-3)
+
+
 async def test_a_point_outside_its_node_cell_is_refused_by_the_worker(
     tmp_path,
 ) -> None:
@@ -1201,7 +1263,7 @@ async def test_a_point_outside_its_node_cell_is_refused_by_the_worker(
 
 async def test_points_within_a_scale_unit_of_their_cell_pass(tmp_path) -> None:
     """Points half a scale unit outside their cells, as rounding leaves real files, pass."""
-    data = patched(copc_nodes(), _INFO_AT, "<d", ORIGIN[0] + 5.005)
+    data = patched(copc_nodes(), INFO_AT, "<d", ORIGIN[0] + 5.005)
 
     assert (await inspect_every_node(write(tmp_path, data))).point_count == 370
 

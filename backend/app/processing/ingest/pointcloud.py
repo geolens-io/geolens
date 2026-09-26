@@ -32,6 +32,7 @@ import numpy as np
 import structlog
 
 from app.core.config import settings
+from app.core.geo import rollup_bbox
 from app.core.pointcloud import LAZ_WITHOUT_KIND, POINTCLOUD_FILE_TYPE, is_laz
 from app.core.upload_errors import UnsafeUploadError
 from app.platform.storage import StorageProvider
@@ -616,7 +617,10 @@ def _check_chunk(chunk: bytes, layout: _Layout, count: int) -> None:
 
 
 def _decode(read: Read, layout: _Layout, node: _Node) -> tuple[np.ndarray, np.ndarray]:
-    """Decode one node with lazrs, check where its points sit, and return their low and high corners."""
+    """Decode one node with lazrs, check where its points sit, and return their low and high corners.
+
+    Each corner has a fourth value: the X ends read in the 0..360 domain.
+    """
     header = layout.header
     offset, size, count = node.offset, node.size, node.count
     if max(size, count * header.record_length) > MAX_DECODE_BYTES:
@@ -675,7 +679,11 @@ def _decode(read: Read, layout: _Layout, node: _Node) -> tuple[np.ndarray, np.nd
         raise _invalid(
             "A node's points lie outside its octree cell.", reason="decode_voxel"
         )
-    return low, high
+    # A cloud each side of ±180 spans less in the 0..360 domain; only a
+    # geographic CRS's extent uses these ends.
+    x = xyz[:, 0] * scales[0] + offsets[0]
+    np.add(x, 360, out=x, where=x < 0)
+    return np.append(low, x.min()), np.append(high, x.max())
 
 
 def _parse_wkt(text: str) -> list:
@@ -741,9 +749,17 @@ def _declared_crs(wkt: bytes) -> tuple[int, str]:
 
 
 def _crs_facts(
-    wkt: bytes, mins: Sequence[float], maxs: Sequence[float]
+    wkt: bytes,
+    mins: Sequence[float],
+    maxs: Sequence[float],
+    shifted: tuple[float, float] | None = None,
 ) -> tuple[int, str | None, tuple[float, float, float, float]]:
-    """The horizontal EPSG code, the vertical CRS name and the WGS84 extent of ``mins`` to ``maxs``."""
+    """The horizontal EPSG code, the vertical CRS name and the WGS84 extent of ``mins`` to ``maxs``.
+
+    ``shifted`` is the X range read in the 0..360 domain. For a geographic
+    CRS the extent keeps whichever domain spans less, so a cloud crossing
+    ±180 comes out west > east rather than nearly global.
+    """
     from rasterio.coords import BoundingBox
     from rasterio.crs import CRS
 
@@ -751,8 +767,11 @@ def _crs_facts(
 
     try:
         srid, name = _declared_crs(wkt)
-        bounds = BoundingBox(*mins[:2], *maxs[:2])
-        bbox = _wgs84_bbox(SimpleNamespace(crs=CRS.from_epsg(srid), bounds=bounds))
+        crs = CRS.from_epsg(srid)
+        bounds = [mins[0], mins[1], maxs[0], maxs[1]]
+        if shifted is not None and crs.is_geographic:
+            bounds = rollup_bbox([*bounds, *shifted])
+        bbox = _wgs84_bbox(SimpleNamespace(crs=crs, bounds=BoundingBox(*bounds)))
     except (
         Exception
     ) as exc:  # broad: an unreadable WKT or an EPSG code PROJ can't use is one refusal
@@ -847,7 +866,9 @@ async def inspect_every_node(path: str) -> PointCloud:
         low, high = np.minimum(low, node_low), np.maximum(high, node_high)
     # Some writers round a header's bounds outward, so the points set the extent.
     low, high = low.tolist(), high.tolist()
-    _, _, bbox = await asyncio.to_thread(_crs_facts, layout.wkt, low, high)
+    _, _, bbox = await asyncio.to_thread(
+        _crs_facts, layout.wkt, low, high, (low[3], high[3])
+    )
     return _publishable(replace(cloud, extent_bbox=bbox, z_min=low[2], z_max=high[2]))
 
 

@@ -19,6 +19,7 @@ import boto3
 import pytest
 from httpx import AsyncClient
 from moto import mock_aws
+from rasterio.crs import CRS
 from sqlalchemy import select, text
 
 import app.platform.storage.provider as storage_provider
@@ -46,7 +47,7 @@ from app.processing.ingest.pointcloud import inspect_pointcloud
 from app.processing.ingest.tasks import ingest_pointcloud, task_app
 from app.processing.raster.models import DatasetAsset
 from tests.factories import create_dataset, create_user, get_user_id
-from tests.pointcloud_files import copc, copc_nodes, scrambled
+from tests.pointcloud_files import copc, copc_nodes, reframed, scrambled, two_ends
 
 _CLOUD = copc()
 _DECODE_FAILED = "The point cloud's points don't decode as its header describes."
@@ -588,6 +589,29 @@ async def test_a_point_cloud_publishes_the_extent_of_its_points(
     detail = await client.get(f"/datasets/{dataset.id}", headers=uploader[0])
     assert detail.status_code == 200, detail.text
     assert detail.json()["extent_bbox"] == pytest.approx(tight.extent_bbox, abs=1e-6)
+
+
+async def test_a_point_cloud_across_the_antimeridian_publishes_a_narrow_extent(
+    client: AsyncClient, test_db_session, uploader, queued
+) -> None:
+    """Points each side of ±180 publish a west > east extent, not a near-global one."""
+    data = reframed(
+        two_ends(CRS.from_epsg(4326).to_wkt().encode()),
+        (0.3599, 0.001, 0.01),
+        (-179.95, -17.0, 0.0),
+        (0.0, -16.5, 90.0),
+        180.0,
+    )
+
+    job_id = await publish(client, uploader[0], queued, data)
+
+    job = await load_job(test_db_session, job_id)
+    assert job.status == "complete", job.error_message
+    detail = await client.get(f"/datasets/{job.dataset_id}", headers=uploader[0])
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["extent_bbox"] == pytest.approx(
+        [176.351, -17.0, -176.351, -16.0], abs=1e-3
+    )
 
 
 async def test_a_damaged_node_below_the_top_is_refused_before_the_copy(
