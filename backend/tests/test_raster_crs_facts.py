@@ -347,11 +347,10 @@ class TestVrtSourcesCompareCrsInTheChild:
 
         assert time.monotonic() - started < 5
         assert resp.status_code == 422, resp.text
-        ((code, flagged),) = [
-            (e["code"], e["source_id"]) for e in resp.json()["detail"]
-        ]
-        assert code == "crs_unverified"
-        assert flagged in {asset_id for _, asset_id in sources}
+        # No answer blames no one source: every source is unverified.
+        assert sorted((e["code"], e["source_id"]) for e in resp.json()["detail"]) == (
+            sorted(("crs_unverified", asset_id) for _, asset_id in sources)
+        )
 
     @pytest.mark.parametrize(
         "raised",
@@ -369,7 +368,7 @@ class TestVrtSourcesCompareCrsInTheChild:
         monkeypatch.setattr(probe.subprocess, "run", _fail)
 
         assert compare_crs([_UTM_18N_WKT2, _UTM_19N_WKT2]) == {
-            _UTM_18N_WKT2: True,
+            _UTM_18N_WKT2: None,
             _UTM_19N_WKT2: None,
         }
 

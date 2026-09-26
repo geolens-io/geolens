@@ -34,7 +34,7 @@ def compare_crs(crs_wkts: list[str | None]) -> dict[str, bool | None]:
     The reference is the first text PROJ can read. Identical text is the same
     CRS without asking PROJ; differing texts are compared in the raster probe
     child, since PROJ may open files named in them. None marks a text PROJ
-    refused, or every text after the first when the child gave no answer.
+    refused, or every text when the child gave no answer.
     """
     distinct = list(dict.fromkeys(wkt for wkt in crs_wkts if wkt is not None))
     if len(distinct) < 2:
@@ -42,7 +42,7 @@ def compare_crs(crs_wkts: list[str | None]) -> dict[str, bool | None]:
     try:
         return dict(zip(distinct, crs_matches(distinct)))
     except RasterProbeError:
-        return {distinct[0]: True, **dict.fromkeys(distinct[1:])}
+        return dict.fromkeys(distinct)
 
 
 def _check_crs(
