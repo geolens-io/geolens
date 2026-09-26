@@ -31,6 +31,44 @@ _NEW_CHECK = (
 )
 
 
+def _assert_no_pointclouds() -> None:
+    """Block the downgrade rather than drop a point cloud's facts or file pointer."""
+    bind = op.get_bind()
+    bind.execute(
+        sa.text(
+            """
+            LOCK TABLE catalog.records, catalog.datasets, catalog.dataset_assets
+            IN SHARE ROW EXCLUSIVE MODE
+            """
+        )
+    )
+    pointcloud_count = bind.execute(
+        sa.text(
+            """
+            SELECT count(*)
+            FROM catalog.datasets d
+            LEFT JOIN catalog.records r ON r.id = d.record_id
+            WHERE r.record_type = 'pointcloud_dataset'
+               OR d.pointcloud_point_count IS NOT NULL
+               OR d.pointcloud_point_format IS NOT NULL
+               OR d.pointcloud_vertical_crs IS NOT NULL
+               OR EXISTS (
+                   SELECT 1 FROM catalog.dataset_assets a
+                   WHERE a.dataset_id = d.id AND a.key = 'pointcloud'
+               )
+            """
+        )
+    ).scalar_one()
+
+    if pointcloud_count:
+        raise RuntimeError(
+            "Cannot downgrade 0071_pointcloud_asset_and_facts while "
+            f"{pointcloud_count} point cloud dataset(s) exist. Delete them, or "
+            "cancel the downgrade. GeoLens will not drop a point cloud's facts "
+            "or the pointer to its file automatically."
+        )
+
+
 def _replace_check(check: str) -> None:
     op.drop_constraint(
         "chk_dataset_assets_key", "dataset_assets", schema="catalog", type_="check"
@@ -60,8 +98,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Fails loudly while any point cloud row exists: the row is the only
-    # pointer to its point cloud's live file, so it is not dropped to make room.
+    _assert_no_pointclouds()
     _replace_check(_OLD_CHECK)
     op.drop_column("datasets", "pointcloud_vertical_crs", schema="catalog")
     op.drop_column("datasets", "pointcloud_point_format", schema="catalog")
