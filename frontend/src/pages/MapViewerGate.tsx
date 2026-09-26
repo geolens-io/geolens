@@ -16,6 +16,18 @@ const PublicMapViewerPage = lazy(() =>
 );
 
 /**
+ * The Suspense fallback below, not the gate itself: only this is mounted
+ * while a branch's chunk is still loading, so only it can own the title for
+ * that window without racing the branch's own effect once it mounts. A
+ * chunk that fails to load leaves this as the last title set, since
+ * AppErrorBoundary's fallback doesn't touch it.
+ */
+function MapLoadingFallback({ title }: { title: string }) {
+  useDocumentTitle(title);
+  return <LoadingState />;
+}
+
+/**
  * Route-level gate for /maps/:id.
  * Editor/admin users see the full MapBuilderPage (server enforces RBAC).
  * Anonymous and signed-in viewer users see a read-only PublicMapViewerPage.
@@ -97,7 +109,7 @@ export function MapViewerGate() {
 
   return (
     <AppErrorBoundary>
-      <Suspense fallback={<LoadingState />}>
+      <Suspense fallback={<MapLoadingFallback title={t('pageTitle.map')} />}>
         {canEdit && !previewAsViewer ? <MapBuilderPage /> : <PublicMapViewerPage />}
       </Suspense>
     </AppErrorBoundary>
