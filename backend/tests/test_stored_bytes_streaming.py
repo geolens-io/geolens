@@ -96,18 +96,24 @@ async def test_an_empty_object_is_served_empty() -> None:
 
 
 @pytest.mark.parametrize("spec_version", ["2.4", "2.3"])
-async def test_a_client_gone_before_the_status_line_leaves_no_stream_open(
-    spec_version: str,
+@pytest.mark.parametrize("gone_at", ["http.response.start", "http.response.body"])
+async def test_a_client_that_leaves_early_leaves_no_stream_open(
+    spec_version: str, gone_at: str
 ) -> None:
-    """The stream the first read opened is closed though the body never started."""
+    """The stream the first read opened is closed when the client leaves before or mid-body."""
     store = _Store(b"x" * 100)
     response = await _serve(store, None, total_bytes=100)
     assert store.closed == [], "precondition: the first read leaves the stream open"
+    left = asyncio.Event()
 
     async def receive() -> dict:
+        await left.wait()
         return {"type": "http.disconnect"}
 
     async def send(message: dict) -> None:
+        if message["type"] != gone_at:
+            return
+        left.set()
         if spec_version == "2.4":
             raise OSError("client went away")
         # Before 2.4 starlette listens for the disconnect and cancels this send.

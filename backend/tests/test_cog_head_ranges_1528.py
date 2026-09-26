@@ -446,16 +446,19 @@ async def test_a_cog_deleted_after_its_stat_is_a_404(
     admin_auth_header: dict,
     test_db_session,
     monkeypatch,
+    request,
     backend: str,
     request_headers: dict,
 ):
     """An object deleted between the stat and the first read answers 404."""
+    storage = (
+        request.getfixturevalue("s3_storage") if backend == "s3" else get_storage()
+    )
     dataset, raster_asset = await _raster_dataset(
         test_db_session,
         storage_backend=backend,
         sha256=hashlib.sha256(_COG_BYTES).hexdigest(),
     )
-    storage = get_storage()
     monkeypatch.setattr(storage, "size", AsyncMock(return_value=len(_COG_BYTES)))
 
     resp = await client.get(
@@ -525,6 +528,24 @@ async def test_a_cog_that_shrank_after_its_stat_is_a_503(
 
     assert resp.status_code == 503, resp.text
     assert resp.json()["detail"] == "COG download temporarily unavailable"
+
+
+async def test_an_empty_cog_downloads_as_an_empty_body(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """A zero-length COG answers 200 with no bytes, not a refusal."""
+    dataset, raster_asset = await _raster_dataset(
+        test_db_session, sha256=hashlib.sha256(b"").hexdigest()
+    )
+    await get_storage().put(raster_asset.asset_uri, b"")
+
+    resp = await client.get(
+        f"/datasets/{dataset.id}/download/cog", headers=admin_auth_header
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["content-length"] == "0"
+    assert resp.content == b""
 
 
 async def test_head_cog_matches_get_on_non_raster(
@@ -820,10 +841,10 @@ async def test_head_cog_on_a_missing_s3_object_is_404(
 async def test_head_cog_issues_exactly_one_s3_metadata_call(
     client: AsyncClient, admin_auth_header: dict, test_db_session, s3_storage
 ):
-    """fix(#1540 review P2): one ``HeadObject`` per probe, not two.
+    """One ``HeadObject`` per probe, not two.
 
-    The reason this PR answers HEAD here instead of signing a second URL for
-    ``head_object`` is that it is ONE round trip. ``exists()`` then ``size()``
+    The route answers HEAD here instead of signing a second URL for
+    ``head_object`` because it is ONE round trip. ``exists()`` then ``size()``
     quietly made it two — both are ``head_object`` on the S3 provider — so every
     ``/vsicurl/`` open paid two object-store round trips and two request charges
     for one probe, and the argument the design was chosen on stopped being true.
@@ -832,7 +853,7 @@ async def test_head_cog_issues_exactly_one_s3_metadata_call(
     requests that are counted and not method calls. The recorded sequence is
     asserted whole: a ``GetObject`` appearing here would mean the HEAD had
     started reading the object to learn its length, which is the amplification
-    ``_cog_head_response`` exists to avoid.
+    ``head_response`` exists to avoid.
     """
     dataset, raster_asset = await _raster_dataset(
         test_db_session,
