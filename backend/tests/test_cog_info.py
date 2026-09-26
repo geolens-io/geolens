@@ -490,6 +490,25 @@ class TestBandStatistics:
         assert [entry["min"] for entry in result["band_info"]] == [1.0, 2.0, 3.0]
 
 
+class TestNodata:
+    async def test_a_nodata_type_stores_its_value(self, monkeypatch) -> None:
+        info = {**_TITILER_INFO, "nodata_type": "Nodata", "nodata_value": 0.0}
+        _install(monkeypatch, info)
+        result = await fetch_cog_info("https://origin.test/scene.tif")
+        assert result is not None
+        assert result["nodata"] == 0.0
+
+    @pytest.mark.parametrize("nodata_type", ["Mask", "Alpha", "None"])
+    async def test_a_non_scalar_nodata_type_stores_none(
+        self, monkeypatch, nodata_type
+    ) -> None:
+        info = {**_TITILER_INFO, "nodata_type": nodata_type, "nodata_value": None}
+        _install(monkeypatch, info)
+        result = await fetch_cog_info("https://origin.test/scene.tif")
+        assert result is not None
+        assert result["nodata"] is None
+
+
 class TestReconcileEpsg:
     """fix(#1334 review, round 3): the two questions this function tells
     apart. "The probe returned no EPSG" and "the probe established no CRS

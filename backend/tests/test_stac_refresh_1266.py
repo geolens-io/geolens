@@ -3409,6 +3409,143 @@ class TestOriginAssetRepair:
         assert await _origin_asset_rows(dataset.id) == []
 
 
+class TestNodataRepairOnRefresh:
+    """An unmoved asset gets no re-describe from fetch_cog_info, so a
+    dataset imported before nodata reading was fixed would keep a NULL
+    nodata forever without this: one /cog/info read on a refresh that
+    resolved but did not move, only while the stored value is still
+    missing.
+    """
+
+    async def test_a_nodata_reply_repairs_a_null_row(
+        self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
+    ) -> None:
+        from app.modules.catalog.sources.cog_info import fetch_cog_nodata
+        from tests.test_cog_info import _TITILER_INFO, _install
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_nodata",
+            fetch_cog_nodata,
+        )
+        _install(
+            monkeypatch, {**_TITILER_INFO, "nodata_type": "Nodata", "nodata_value": 0.0}
+        )
+        install, _ = stac_transport
+        install({_ITEM: (200, _item_doc()), _ASSET: (206, None)})
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(test_db_session, created_by=admin_id)
+        assert (await _raster_asset(dataset.id)).nodata is None
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        await _execute(test_db_session, payload)
+
+        assert (await _raster_asset(dataset.id)).nodata == "0.0"
+
+    async def test_a_mask_reply_leaves_the_row_null(
+        self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
+    ) -> None:
+        from app.modules.catalog.sources.cog_info import fetch_cog_nodata
+        from tests.test_cog_info import _TITILER_INFO, _install
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_nodata",
+            fetch_cog_nodata,
+        )
+        _install(monkeypatch, {**_TITILER_INFO, "nodata_type": "Mask"})
+        install, _ = stac_transport
+        install({_ITEM: (200, _item_doc()), _ASSET: (206, None)})
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(test_db_session, created_by=admin_id)
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        await _execute(test_db_session, payload)
+
+        assert (await _raster_asset(dataset.id)).nodata is None
+
+    async def test_a_row_with_nodata_already_set_makes_no_repair_call(
+        self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
+    ) -> None:
+        async def _unreachable(url: str):
+            raise AssertionError(
+                "fetch_cog_nodata called for a row that already had nodata"
+            )
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_nodata",
+            _unreachable,
+        )
+        install, _ = stac_transport
+        install({_ITEM: (200, _item_doc()), _ASSET: (206, None)})
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(test_db_session, created_by=admin_id)
+        await test_db_session.execute(
+            update(RasterAsset)
+            .where(RasterAsset.dataset_id == dataset.id)
+            .values(nodata="7")
+        )
+        await test_db_session.commit()
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        await _execute(test_db_session, payload)
+
+        assert (await _raster_asset(dataset.id)).nodata == "7"
+
+    async def test_an_ssrf_refused_url_makes_no_repair_call(
+        self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
+    ) -> None:
+        async def _unreachable(url: str):
+            raise AssertionError("fetch_cog_nodata called for an SSRF-refused address")
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_nodata",
+            _unreachable,
+        )
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.stac_resolve_asset_gate.validate_url_for_ssrf",
+            AsyncMock(side_effect=SSRFError("refused")),
+        )
+        install, _ = stac_transport
+        install({_ITEM: (200, _item_doc()), _ASSET: (206, None)})
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(test_db_session, created_by=admin_id)
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        await _execute(test_db_session, payload)
+
+        assert (await _raster_asset(dataset.id)).nodata is None
+
+    async def test_a_relocated_items_unmoved_asset_gets_its_nodata_repaired(
+        self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
+    ) -> None:
+        from app.modules.catalog.sources.cog_info import fetch_cog_nodata
+        from tests.test_cog_info import _TITILER_INFO, _install
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_nodata",
+            fetch_cog_nodata,
+        )
+        _install(
+            monkeypatch, {**_TITILER_INFO, "nodata_type": "Nodata", "nodata_value": 0.0}
+        )
+        install, _ = stac_transport
+        install(
+            {
+                _ITEM: (404, None),
+                _SEARCH: (200, {"features": [_item_doc(asset_href=_ASSET)]}),
+                _ASSET: (206, None),
+            }
+        )
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(test_db_session, created_by=admin_id)
+        assert (await _raster_asset(dataset.id)).nodata is None
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        await _execute(test_db_session, payload)
+
+        assert await _asset_uri(dataset.id) == _ASSET
+        assert (await _raster_asset(dataset.id)).nodata == "0.0"
+
+
 # ---------------------------------------------------------------------------
 # The probe is still a reporter
 # ---------------------------------------------------------------------------
@@ -3457,7 +3594,16 @@ class TestProbedCrsOfAMovedAsset:
     """
 
     async def _refresh(
-        self, client, headers, session, stac_transport, monkeypatch, crs
+        self,
+        client,
+        headers,
+        session,
+        stac_transport,
+        monkeypatch,
+        crs,
+        *,
+        nodata_type: str | None = None,
+        nodata_value: float | None = None,
     ):
         from app.modules.catalog.sources.cog_info import fetch_cog_info
         from tests.test_cog_info import _TITILER_INFO, _install
@@ -3466,7 +3612,10 @@ class TestProbedCrsOfAMovedAsset:
             "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_info",
             fetch_cog_info,
         )
-        _install(monkeypatch, {**_TITILER_INFO, "crs": crs})
+        info = {**_TITILER_INFO, "crs": crs}
+        if nodata_type is not None:
+            info = {**info, "nodata_type": nodata_type, "nodata_value": nodata_value}
+        _install(monkeypatch, info)
         install, _ = stac_transport
         install(
             {
@@ -3550,3 +3699,22 @@ class TestProbedCrsOfAMovedAsset:
         ) == (True, True, None)
         assert described.epsg is None
         assert (await _reload(dataset.id)).srid is None
+
+    async def test_a_moved_assets_nodata_value_is_stored(
+        self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
+    ) -> None:
+        dataset, payload = await self._refresh(
+            client,
+            admin_auth_header,
+            test_db_session,
+            stac_transport,
+            monkeypatch,
+            "http://www.opengis.net/def/crs/EPSG/0/32621",
+            nodata_type="Nodata",
+            nodata_value=0.0,
+        )
+        await _execute(test_db_session, payload)
+
+        assert await _asset_uri(dataset.id) == _MOVED_ASSET
+        described = await _raster_asset(dataset.id)
+        assert described.nodata == "0.0"

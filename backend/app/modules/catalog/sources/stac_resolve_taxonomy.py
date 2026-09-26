@@ -71,6 +71,9 @@ class StacResolution:
     # Why GeoLens declined an asset it could read, for a refusal that has
     # its own message. None for every verdict about the origin.
     refusal: str | None = None
+    # An unmoved asset's nodata backfill, when repair was requested and
+    # Titiler reported a scalar value. None otherwise.
+    repaired_nodata: str | None = None
 
     @property
     def resolved(self) -> bool:
