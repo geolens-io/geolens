@@ -432,6 +432,122 @@ async def test_a_delete_racing_the_stat_is_a_404_not_a_503(
     )
 
 
+@pytest.mark.parametrize(
+    ("backend", "request_headers"),
+    [
+        ("local", {}),
+        ("local", {"Range": "bytes=0-99"}),
+        ("s3", {"Range": "bytes=0-99", "If-Range": '"another-version"'}),
+    ],
+    ids=["whole", "range", "s3-stale-resume"],
+)
+async def test_a_cog_deleted_after_its_stat_is_a_404(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    monkeypatch,
+    request,
+    backend: str,
+    request_headers: dict,
+):
+    """An object deleted between the stat and the first read answers 404."""
+    storage = (
+        request.getfixturevalue("s3_storage") if backend == "s3" else get_storage()
+    )
+    dataset, raster_asset = await _raster_dataset(
+        test_db_session,
+        storage_backend=backend,
+        sha256=hashlib.sha256(_COG_BYTES).hexdigest(),
+    )
+    monkeypatch.setattr(storage, "size", AsyncMock(return_value=len(_COG_BYTES)))
+
+    resp = await client.get(
+        f"/datasets/{dataset.id}/download/cog",
+        headers={**admin_auth_header, **request_headers},
+    )
+
+    assert resp.status_code == 404, resp.text
+    assert resp.json()["detail"] == "COG file not found"
+
+
+@pytest.mark.parametrize(
+    "request_headers", [{}, {"Range": "bytes=0-99"}], ids=["whole", "range"]
+)
+async def test_a_cog_read_failing_before_its_first_byte_is_a_503(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    local_cog,
+    monkeypatch,
+    request_headers: dict,
+):
+    """A store that fails at the first read answers the 503 its stat would."""
+    dataset, _ = local_cog
+    storage = get_storage()
+
+    async def _broken(*args, **kwargs):
+        raise RuntimeError("backend exploded")
+        yield b""
+
+    monkeypatch.setattr(storage, "get_stream", _broken)
+    monkeypatch.setattr(storage, "get_range_stream", _broken)
+
+    resp = await client.get(
+        f"/datasets/{dataset.id}/download/cog",
+        headers={**admin_auth_header, **request_headers},
+    )
+
+    assert resp.status_code == 503, resp.text
+    assert resp.json()["detail"] == "COG download temporarily unavailable"
+
+
+@pytest.mark.parametrize(
+    ("stored", "request_headers"),
+    [(b"x" * 30, {"Range": "bytes=50-60"}), (b"", {})],
+    ids=["range-past-the-new-end", "whole-object-emptied"],
+)
+async def test_a_cog_that_shrank_after_its_stat_is_a_503(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    monkeypatch,
+    stored: bytes,
+    request_headers: dict,
+):
+    """A COG sized and then rewritten shorter answers 503, never a success with no bytes."""
+    dataset, raster_asset = await _raster_dataset(
+        test_db_session, sha256=hashlib.sha256(_COG_BYTES).hexdigest()
+    )
+    storage = get_storage()
+    await storage.put(raster_asset.asset_uri, stored)
+    monkeypatch.setattr(storage, "size", AsyncMock(return_value=len(_COG_BYTES)))
+
+    resp = await client.get(
+        f"/datasets/{dataset.id}/download/cog",
+        headers={**admin_auth_header, **request_headers},
+    )
+
+    assert resp.status_code == 503, resp.text
+    assert resp.json()["detail"] == "COG download temporarily unavailable"
+
+
+async def test_an_empty_cog_downloads_as_an_empty_body(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """A zero-length COG answers 200 with no bytes, not a refusal."""
+    dataset, raster_asset = await _raster_dataset(
+        test_db_session, sha256=hashlib.sha256(b"").hexdigest()
+    )
+    await get_storage().put(raster_asset.asset_uri, b"")
+
+    resp = await client.get(
+        f"/datasets/{dataset.id}/download/cog", headers=admin_auth_header
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["content-length"] == "0"
+    assert resp.content == b""
+
+
 async def test_head_cog_matches_get_on_non_raster(
     client: AsyncClient, admin_auth_header: dict, test_db_session
 ):
@@ -725,10 +841,10 @@ async def test_head_cog_on_a_missing_s3_object_is_404(
 async def test_head_cog_issues_exactly_one_s3_metadata_call(
     client: AsyncClient, admin_auth_header: dict, test_db_session, s3_storage
 ):
-    """fix(#1540 review P2): one ``HeadObject`` per probe, not two.
+    """One ``HeadObject`` per probe, not two.
 
-    The reason this PR answers HEAD here instead of signing a second URL for
-    ``head_object`` is that it is ONE round trip. ``exists()`` then ``size()``
+    The route answers HEAD here instead of signing a second URL for
+    ``head_object`` because it is ONE round trip. ``exists()`` then ``size()``
     quietly made it two — both are ``head_object`` on the S3 provider — so every
     ``/vsicurl/`` open paid two object-store round trips and two request charges
     for one probe, and the argument the design was chosen on stopped being true.
@@ -737,7 +853,7 @@ async def test_head_cog_issues_exactly_one_s3_metadata_call(
     requests that are counted and not method calls. The recorded sequence is
     asserted whole: a ``GetObject`` appearing here would mean the HEAD had
     started reading the object to learn its length, which is the amplification
-    ``_cog_head_response`` exists to avoid.
+    ``head_response`` exists to avoid.
     """
     dataset, raster_asset = await _raster_dataset(
         test_db_session,
@@ -2071,30 +2187,31 @@ async def test_a_matching_if_match_still_serves_the_range(
 
 
 async def test_if_match_is_evaluated_before_if_none_match(
-    client: AsyncClient, admin_auth_header: dict, test_db_session, local_cog
+    client: AsyncClient, admin_auth_header: dict, local_cog
 ):
     """RFC 9110 section 13.2.2 fixes the order, and the order is observable.
 
-    A client holding an old copy can send both: ``If-Match`` naming the version
-    it wants to act on, ``If-None-Match`` naming the copy it has cached — here
-    the same stale tag. Evaluating If-None-Match first answers 304, telling the
-    client its stale copy is current. Evaluating If-Match first answers 412,
-    which is the truth: the representation moved.
+    ``If-Match`` names a version that is not the stored one, and
+    ``If-None-Match`` names the stored one. Evaluating If-None-Match first
+    answers 304; evaluating If-Match first answers 412, since the version the
+    client asked to act on is not the one stored.
     """
     dataset, raster_asset = local_cog
-    stale = f'"{raster_asset.sha256}"'
-
-    await _complete_a_replacement(test_db_session, raster_asset, _REPLACEMENT_BYTES)
+    current = f'"{raster_asset.sha256}"'
 
     resp = await client.get(
         f"/datasets/{dataset.id}/download/cog",
-        headers={**admin_auth_header, "If-Match": stale, "If-None-Match": stale},
+        headers={
+            **admin_auth_header,
+            "If-Match": '"another-version"',
+            "If-None-Match": current,
+        },
     )
 
     assert resp.status_code == 412, (
-        f"got {resp.status_code}. A 304 here tells a client whose copy is out "
-        f"of date that it is current, which is the more expensive lie: it stops "
-        f"asking."
+        f"got {resp.status_code}. A 304 here means If-None-Match was evaluated "
+        f"before If-Match, and the client is told a version it did not ask for "
+        f"is current."
     )
 
 

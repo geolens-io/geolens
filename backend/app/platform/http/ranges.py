@@ -11,17 +11,21 @@ from fastapi import status
 from starlette.responses import Response
 
 # bytes=FIRST-LAST | bytes=FIRST- | bytes=-SUFFIX. `[0-9]` not `\d`: Python's
-# `\d` is unicode-aware and accepts non-ASCII digits. Anything unmatched (a
-# second range, unknown unit, reversed pair) is IGNORED per RFC 9110 section
-# 14.2 — the safe direction, since the client still gets a usable response.
+# `\d` is unicode-aware and accepts non-ASCII digits. Lenient parsing ignores
+# anything unmatched (a second range, unknown unit, reversed pair), as RFC 9110
+# section 14.2 allows, so the client still gets a usable response.
 #
-# fix(#1540): the unit is case-INSENSITIVE (a token per RFC 9110
-# section 14.1), so `Bytes=0-16383` must match — treating it as unmatched
-# served the whole object as a 200 instead of a 206.
+# The unit is case-insensitive (a token per RFC 9110 section 14.1), so
+# `Bytes=0-16383` matches; an unmatched unit would serve the whole object as a
+# 200 instead of a 206.
 #
 # Only the unit. Digits stay `[0-9]`, and entity-tag comparisons (section
 # 8.8.3.2, including the `W/` prefix) stay case-SENSITIVE.
 BYTE_RANGE_RE = re.compile(r"^bytes=(?:([0-9]+)-([0-9]*)|-([0-9]+))$", re.IGNORECASE)
+
+# Strict parsing reads the unit and each range-spec of the set separately.
+_BYTES_UNIT_RE = re.compile(r"^bytes=", re.IGNORECASE)
+_RANGE_SPEC_RE = re.compile(r"^(?:([0-9]+)-([0-9]*)|-([0-9]+))$")
 
 # No byte of the representation was named (first-byte-pos past the end, or a
 # zero-length suffix). RFC 9110 section 15.5.17 wants 416 with the real size,
@@ -52,21 +56,51 @@ def _range_int(digits: str, size: int) -> int:
     return int(trimmed)
 
 
-def parse_byte_range(raw: str | None, size: int) -> tuple[int, int] | str | None:
+def parse_byte_range(
+    raw: str | None, size: int, *, strict: bool = False
+) -> tuple[int, int] | str | None:
     """Resolve a Range header to an inclusive ``(start, end)`` byte pair.
 
     Returns ``None`` for no usable range (serve the whole representation) or
     for a multi-range request — ``multipart/byteranges`` is not implemented,
     and answering just the first range would corrupt a client expecting both.
     Returns ``RANGE_UNSATISFIABLE`` for 416, else the pair, already clamped.
+
+    ``strict`` refuses an invalid ``bytes`` range, one malformed or holding a
+    reversed pair, with ``RANGE_UNSATISFIABLE`` instead of ignoring it, which
+    RFC 9110 section 14.2 allows. It still ignores a Range in another unit, as
+    that section requires, and serves a valid multi-range whole.
     """
-    if not raw:
+    header = (raw or "").strip()
+    if not header:
         return None
-    match = BYTE_RANGE_RE.match(raw.strip())
+    if strict:
+        return _parse_strictly(header, size)
+    match = BYTE_RANGE_RE.match(header)
     if match is None:
         return None
-    first, last, suffix = match.groups()
+    return _resolve(*match.groups(), size)
 
+
+def _parse_strictly(header: str, size: int) -> tuple[int, int] | str | None:
+    """``parse_byte_range`` for a present header, refusing an invalid bytes range."""
+    if not _BYTES_UNIT_RE.match(header):
+        return None
+    # An empty list element is ignored, as RFC 9110 section 5.6.1.2 requires.
+    specs = [spec.strip() for spec in header[len("bytes=") :].split(",")]
+    matches = [_RANGE_SPEC_RE.match(spec) for spec in specs if spec]
+    if not matches or not all(matches):
+        return RANGE_UNSATISFIABLE
+    resolved = [_resolve(*match.groups(), size) for match in matches]
+    if None in resolved:
+        return RANGE_UNSATISFIABLE
+    return resolved[0] if len(resolved) == 1 else None
+
+
+def _resolve(
+    first: str | None, last: str | None, suffix: str | None, size: int
+) -> tuple[int, int] | str | None:
+    """One well-formed range-spec against the size; None for a reversed pair."""
     if suffix is not None:
         # bytes=-N: the final N bytes. A zero-length suffix names nothing.
         wanted = _range_int(suffix, size)
@@ -82,7 +116,7 @@ def parse_byte_range(raw: str | None, size: int) -> tuple[int, int] | str | None
         return (start, size - 1)
     end = _range_int(last, size)
     if end < start:
-        return None  # reversed pair: invalid, so ignore rather than reject
+        return None
     # A last-byte-pos past the end is CLAMPED, not rejected — clients that do
     # not know the size ask for more than exists on purpose.
     return (start, min(end, size - 1))
@@ -133,15 +167,13 @@ def if_none_match_matches(if_none_match: str | None, etag: str | None) -> bool:
     WEAK comparison, unlike ``If-Range``: a cache revalidation only needs
     equivalence, not byte-identity.
 
-    fix(#1554): ``*`` matches even when ``etag`` is None — the section asks
-    whether the RESOURCE has a current representation, not whether the server
-    can name it. Requiring an etag here would force a multi-gigabyte re-fetch
-    just to confirm what the caller already stat'd.
+    ``*`` matches even when ``etag`` is None — the section asks whether the
+    RESOURCE has a current representation, not whether the server can name it.
+    Requiring an etag here would force a multi-gigabyte re-fetch just to confirm
+    what the caller already stat'd.
 
-    A match is answered 304 unconditionally: this route serves GET/HEAD only
-    (``test_the_cog_download_answers_only_safe_methods`` pins it). The
-    section's ``*`` to 412 case applies to unsafe methods this route has no
-    caller for.
+    ``evaluate_preconditions`` answers a match with 304 for GET and HEAD and
+    with 412 for any other method, as the section requires.
     """
     if not if_none_match:
         return False
