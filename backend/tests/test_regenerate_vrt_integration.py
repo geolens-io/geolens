@@ -382,9 +382,14 @@ async def test_regenerate_vrt_happy_path_end_to_end(
         f"Expected status='ready', got {vrt_asset.status!r}"
     )
 
-    # [4] vrt_asset.crs_wkt is populated (non-None, WGS84 WKT)
+    # [4] vrt_asset.crs_wkt is populated (non-None, WGS84 WKT), with its facts
     assert vrt_asset.crs_wkt is not None
     assert "WGS" in vrt_asset.crs_wkt or "4326" in vrt_asset.crs_wkt
+    assert (
+        vrt_asset.crs_is_geographic,
+        vrt_asset.crs_has_degree_unit,
+        vrt_asset.crs_metres_per_unit,
+    ) == (True, True, None)
 
     # [5] vrt_asset.epsg == 4326
     assert vrt_asset.epsg == 4326

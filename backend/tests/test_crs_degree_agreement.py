@@ -84,8 +84,8 @@ async def test_every_site_agrees_on_the_same_crs(
     # which are these same helpers over the SRS text. It folds the geographic
     # precondition in, so it answers the conjunction.
     facts = {
-        "is_geographic": wkt_is_geographic(srtext),
-        "has_degree_unit": wkt_has_degree_unit(srtext),
+        "crs_is_geographic": wkt_is_geographic(srtext),
+        "crs_has_degree_unit": wkt_has_degree_unit(srtext),
     }
     assert _is_degree_based(facts) is (is_geographic and is_degrees), srtext
 
@@ -203,6 +203,7 @@ def test_unknown_units_resolve_to_the_safe_side_at_each_caller():
     unknown = crs_has_degree_unit(_NoUnits())
     assert unknown is None
     assert (
-        _is_degree_based({"is_geographic": True, "has_degree_unit": unknown}) is False
+        _is_degree_based({"crs_is_geographic": True, "crs_has_degree_unit": unknown})
+        is False
     )
     assert (unknown is not False) is True

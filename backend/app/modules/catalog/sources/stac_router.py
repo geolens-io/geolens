@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.standards.ogc.errors import BAD_GATEWAY_RESPONSE, ERROR_RESPONSES_WRITE
 
-from app.core.geo import bbox_to_extent_wkt
+from app.core.geo import bbox_to_extent_wkt, crs_columns
 from app.core.url_redaction import has_url_credentials, redact_url_credentials
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.identity import Identity
@@ -811,7 +811,7 @@ async def stac_import(
                     height=ci.get("height"),
                     nodata=str(nodata_raw) if nodata_raw is not None else None,
                     band_info=ci.get("band_info"),
-                    crs_wkt=ci.get("crs_wkt"),
+                    **crs_columns(ci),
                     # fix(#1375): res_x/res_y/is_rotated come off /cog/stac's
                     # proj:transform as one fact — written together or not at
                     # all, since a probe with no transform must leave them at

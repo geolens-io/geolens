@@ -538,6 +538,20 @@ async def _expire_unclaimed_scheduled_refreshes_safely() -> None:
         log.exception("scheduled_refresh_expiry_sweep_failed")
 
 
+async def _queue_crs_facts_repair_safely() -> None:
+    """Queue one CRS facts repair now rather than wait for its periodic slot."""
+    from procrastinate.exceptions import AlreadyEnqueued
+
+    from app.processing.ingest.tasks_crs_facts import repair_crs_facts
+
+    try:
+        await repair_crs_facts.defer_async()
+    except AlreadyEnqueued:
+        pass
+    except Exception:  # broad: the periodic run still fills these rows
+        log.warning("crs_facts_repair_queue_failed", exc_info=True)
+
+
 async def run_scheduled_refresh_expiry_sweeps() -> None:
     """Sweep expired unclaimed scheduled admissions for the worker lifetime."""
     while True:
@@ -673,6 +687,7 @@ async def main() -> None:
             # builds has a large table to sort.
             await _purge_terminal_jobs_safely()
             await _expire_unclaimed_scheduled_refreshes_safely()
+            await _queue_crs_facts_repair_safely()
             sweep_task = asyncio.create_task(run_stalled_queue_sweeps())
             purge_task = asyncio.create_task(run_terminal_job_purges())
             scheduled_expiry_task = asyncio.create_task(

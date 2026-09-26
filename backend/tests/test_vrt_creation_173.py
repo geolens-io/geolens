@@ -473,7 +473,7 @@ class TestCreateVrtJob:
             lookup_result.scalars.return_value = scalars
             mock_db.execute = AsyncMock(return_value=lookup_result)
 
-            # Mock validate_sources to return a compatibility error.
+            # Mock the validation to return a compatibility error.
             fake_error = MagicMock()
             fake_error.model_dump.return_value = {
                 "code": "crs_mismatch",
@@ -481,8 +481,8 @@ class TestCreateVrtJob:
             }
 
             with patch(
-                "app.processing.raster.validation.validate_sources",
-                return_value=[fake_error],
+                "app.processing.raster.validation.validate_sources_async",
+                new=AsyncMock(return_value=[fake_error]),
             ):
                 mock_user = MagicMock()
                 with pytest.raises(HTTPException) as exc_info:
@@ -532,8 +532,8 @@ class TestCreateVrtJob:
 
             with (
                 patch(
-                    "app.processing.raster.validation.validate_sources",
-                    return_value=[],
+                    "app.processing.raster.validation.validate_sources_async",
+                    new=AsyncMock(return_value=[]),
                 ),
                 patch(
                     "app.processing.ingest.service.create_ingest_job",

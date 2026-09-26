@@ -100,6 +100,25 @@ def crs_facts(wkt: str, *, timeout: float | None = None) -> dict:
     return _run("crs-facts", stdin=wkt, timeout=timeout or CRS_FACTS_TIMEOUT_SECONDS)
 
 
+def crs_facts_many(wkts: list[str], *, timeout: float | None = None) -> list[dict]:
+    """:func:`crs_facts` of each text, in one child."""
+    return _run(
+        "crs-facts-many",
+        stdin=json.dumps(wkts),
+        timeout=timeout or CRS_FACTS_TIMEOUT_SECONDS,
+    )
+
+
+def crs_matches(wkts: list[str], *, timeout: float | None = None) -> list[bool | None]:
+    """Whether each CRS text names the same CRS as the first text PROJ can read.
+
+    None marks a text PROJ refused.
+    """
+    return _run(
+        "crs-same", stdin=json.dumps(wkts), timeout=timeout or CRS_FACTS_TIMEOUT_SECONDS
+    )
+
+
 def _command(op: str, *args: str) -> list[str]:
     return [sys.executable, "-m", __name__, op, *args]
 
@@ -121,6 +140,16 @@ def _run(op: str, *args: str, stdin: str | None = None, timeout: float) -> Any:
     except subprocess.TimeoutExpired:
         logger.warning("raster probe failed", op=op, category="timeout")
         raise RasterProbeError("timeout", timeout=timeout) from None
+    except (OSError, UnicodeDecodeError) as exc:
+        # The child couldn't start, or its reply wasn't text: the failure is
+        # ours, not the raster's.
+        logger.warning(
+            "raster probe failed",
+            op=op,
+            category="spawn" if isinstance(exc, OSError) else "undecodable",
+            exception=type(exc).__name__,
+        )
+        raise RasterProbeError("internal", timeout=timeout) from None
     try:
         reply = json.loads(done.stdout)
     except ValueError:
@@ -162,13 +191,9 @@ def _signal_name(returncode: int) -> str | None:
 
 
 def _inspect(path: str, expected_compression: str) -> dict:
-    from app.processing.raster.cog import (
-        _predictor_supported,
-        check_cog_compliance,
-        extract_raster_metadata,
-    )
+    from app.processing.raster.cog import _predictor_supported, check_cog_compliance
 
-    metadata = extract_raster_metadata(path)
+    metadata = _metadata(path)
     compliant, reason = check_cog_compliance(
         path, expected_compression=expected_compression or None
     )
@@ -181,9 +206,12 @@ def _inspect(path: str, expected_compression: str) -> dict:
 
 
 def _metadata(path: str) -> dict:
+    """``extract_raster_metadata`` plus the facts of the CRS text it read."""
+    from app.core.geo import wkt_crs_facts
     from app.processing.raster.cog import extract_raster_metadata
 
-    return extract_raster_metadata(path)
+    metadata = extract_raster_metadata(path)
+    return {**metadata, **wkt_crs_facts(metadata["crs_wkt"])}
 
 
 def _quicklook(path: str, size: str) -> str:
@@ -193,18 +221,29 @@ def _quicklook(path: str, size: str) -> str:
 
 
 def _crs_facts() -> dict:
-    from app.core.geo import (
-        wkt_has_degree_unit,
-        wkt_is_geographic,
-        wkt_metres_per_unit,
-    )
+    from app.core.geo import wkt_crs_facts
 
-    wkt = sys.stdin.read()
-    return {
-        "is_geographic": wkt_is_geographic(wkt),
-        "has_degree_unit": wkt_has_degree_unit(wkt),
-        "metres_per_unit": wkt_metres_per_unit(wkt),
-    }
+    return wkt_crs_facts(sys.stdin.read())
+
+
+def _crs_facts_many() -> list[dict]:
+    from app.core.geo import wkt_crs_facts
+
+    return [wkt_crs_facts(wkt) for wkt in json.loads(sys.stdin.read())]
+
+
+def _crs_same() -> list[bool | None]:
+    from rasterio.crs import CRS
+    from rasterio.errors import CRSError
+
+    parsed = []
+    for wkt in json.loads(sys.stdin.read()):
+        try:
+            parsed.append(CRS.from_wkt(wkt))
+        except CRSError:
+            parsed.append(None)
+    reference = next((crs for crs in parsed if crs is not None), None)
+    return [None if crs is None else crs.equals(reference) for crs in parsed]
 
 
 def _category(exc: Exception) -> str:
@@ -235,6 +274,10 @@ def main(argv: list[str]) -> int:
                 result = _quicklook(args[0], args[1])
             elif op == "crs-facts":
                 result = _crs_facts()
+            elif op == "crs-facts-many":
+                result = _crs_facts_many()
+            elif op == "crs-same":
+                result = _crs_same()
             else:
                 raise ValueError(op)
     except Exception as exc:  # broad: every failure reaches the parent as a category

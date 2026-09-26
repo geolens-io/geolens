@@ -270,6 +270,7 @@
     "uploadZipNestedArchive": "Das Archiv enthält ein verschachteltes Archiv, was nicht unterstützt wird.",
     "uploadZipTooManyEntries": "Das Archiv enthält mehr als {{max_entries}} Einträge.",
     "sourceValidationCrsMismatch": "Das Koordinatenreferenzsystem der Quelle {{source}} stimmt nicht mit den anderen Quellen überein.",
+    "sourceValidationCrsUnverified": "Das Koordinatenreferenzsystem der Quelle {{source}} konnte nicht mit denen der anderen Quellen verglichen werden.",
     "sourceValidationBandCountMismatch": "Die Bandanzahl der Quelle {{source}} stimmt nicht mit den anderen Quellen überein.",
     "sourceValidationSingleBandRequired": "Die Quelle {{source}} hat mehr als ein Band; Band-Stack-Quellen müssen einbändig sein.",
     "sourceValidationDtypeMismatch": "Der Pixel-Datentyp der Quelle {{source}} stimmt nicht mit den anderen Quellen überein.",

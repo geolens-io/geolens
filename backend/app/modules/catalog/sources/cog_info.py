@@ -13,7 +13,7 @@ import httpx
 import structlog
 
 from app.core.crs_uri import parse_crs_uri
-from app.core.geo import pixel_size_from_affine
+from app.core.geo import crs_facts_of, pixel_size_from_affine
 from app.core.url_redaction import redact_exception_text
 from app.platform.storage.titiler_url import build_titiler_cog_url
 
@@ -47,12 +47,12 @@ def _authority_epsg(value: str) -> int | None:
 
 
 def _georeferencing(info: dict) -> dict:
-    """``crs_wkt``/``epsg`` from Titiler's raw ``/cog/info`` reply.
+    """``crs_wkt``/``epsg`` and the CRS facts from Titiler's raw ``/cog/info`` reply.
 
     Titiler reports an OGC CRS URI when PROJ matches the file's CRS to an
     authority code, and the file's own WKT otherwise. Only an EPSG or CRS84
-    reference is read, and its WKT2_2019 text (STAC's ``proj:wkt2``) comes
-    from the registry, so the API never parses CRS text a remote file
+    reference is read, and its WKT2_2019 text (STAC's ``proj:wkt2``) and facts
+    come from the registry, so the API never parses CRS text a remote file
     supplied. Any other CRS sets ``crs_unidentified``: the asset has one,
     GeoLens can't say which, and callers refuse it rather than take the
     item's declared code.
@@ -70,12 +70,14 @@ def _georeferencing(info: dict) -> dict:
         from rasterio.crs import CRS
 
         if crs_value in _CRS84_REFERENCES:
-            crs84 = CRS.from_user_input(_CRS84_URI)
-            return {"crs_wkt": crs84.to_wkt(version="WKT2_2019"), "epsg": None}
-        epsg = _authority_epsg(crs_value)
-        if epsg is not None:
-            crs_wkt = CRS.from_epsg(epsg).to_wkt(version="WKT2_2019")
-            return {"crs_wkt": crs_wkt, "epsg": epsg}
+            crs, epsg = CRS.from_user_input(_CRS84_URI), None
+        elif (epsg := _authority_epsg(crs_value)) is not None:
+            crs = CRS.from_epsg(epsg)
+        else:
+            crs = None
+        if crs is not None:
+            crs_wkt = crs.to_wkt(version="WKT2_2019")
+            return {"crs_wkt": crs_wkt, "epsg": epsg, **crs_facts_of(crs, crs_wkt)}
     except Exception:  # broad: a reference PROJ doesn't know is unidentified
         pass
     return {"crs_wkt": None, "epsg": None, "crs_unidentified": True}

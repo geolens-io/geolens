@@ -29,12 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.core.url_redaction import redact_exception_text
-from app.core.geo import (
-    extent_lon_span,
-    extent_to_span_bbox,
-    wkt_has_degree_unit,
-    wkt_is_geographic,
-)
+from app.core.geo import extent_lon_span, extent_to_span_bbox, raster_crs_facts
 from app.core.identity import Identity
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES, capabilities
 from app.core.tile_scope import (
@@ -402,19 +397,19 @@ def _native_resolution_meters(
         # fix(#939): "is this resolution in degrees?" is not an EPSG equality
         # test -- 4269, 4258, 4979 and 9518 store degrees too, and reading those
         # as metres pinned maxzoom to the cap (ETOPO got z22 instead of z7).
-        geographic = wkt_is_geographic(asset.crs_wkt)
-        if geographic is None:
-            # No usable WKT stored: fall back to the historical EPSG test.
-            geographic = asset.epsg == 4326
+        facts = raster_crs_facts(asset)
+        geographic = facts["crs_is_geographic"]
         if geographic:
-            if wkt_has_degree_unit(asset.crs_wkt) is not False:
+            if facts["crs_has_degree_unit"] is not False:
                 values.extend(_degrees_resolution_to_meters(res_x, res_y, bounds))
             # else: geographic with a non-degree angular unit (grads). Neither
             # metres nor degrees, so let the bounds estimate below take over.
-        else:
+        elif geographic is False:
             # Ingest normally stores COGs in metre-based CRSs. For an
             # unsupported projected CRS this still beats a universal z18.
             values.extend(v for v in (res_x, res_y) if v is not None)
+        # else: the CRS class is unknown, so the resolution may be degrees or
+        # metres; the bounds estimate below (or the default maxzoom) decides.
 
     if not values and bounds and len(bounds) == 4 and asset.width and asset.height:
         minx, miny, maxx, maxy = bounds

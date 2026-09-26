@@ -270,6 +270,7 @@
     "uploadZipNestedArchive": "El archivo contiene un archivo anidado, lo cual no es compatible.",
     "uploadZipTooManyEntries": "El archivo tiene más de {{max_entries}} entradas.",
     "sourceValidationCrsMismatch": "El sistema de referencia de coordenadas de la fuente {{source}} no coincide con las demás fuentes.",
+    "sourceValidationCrsUnverified": "No se pudo comparar el sistema de referencia de coordenadas de la fuente {{source}} con el de las demás fuentes.",
     "sourceValidationBandCountMismatch": "El número de bandas de la fuente {{source}} no coincide con las demás fuentes.",
     "sourceValidationSingleBandRequired": "La fuente {{source}} tiene más de una banda; las fuentes de pila de bandas deben tener una sola banda.",
     "sourceValidationDtypeMismatch": "El tipo de datos de píxel de la fuente {{source}} no coincide con las demás fuentes.",

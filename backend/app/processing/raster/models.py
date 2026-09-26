@@ -9,6 +9,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -18,7 +19,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
-from app.core.geo import wkt_metres_per_unit
+from app.core.geo import crs_columns, raster_crs_facts
 
 # fix(#1778): shared with the OGC Records serializer, which cannot import from
 # `app.processing` (CATPORT-02/04). See the module docstring for the two
@@ -79,6 +80,13 @@ class RasterAsset(Base):
 
     # -- STAC-facing descriptive metadata --
     crs_wkt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Derived from crs_wkt and written with it (crs_columns), so requests read
+    # these instead of handing the stored text to PROJ. NULL is unknown.
+    crs_is_geographic: Mapped[bool | None] = mapped_column(nullable=True)
+    crs_has_degree_unit: Mapped[bool | None] = mapped_column(nullable=True)
+    crs_metres_per_unit: Mapped[float | None] = mapped_column(Double, nullable=True)
+    # SHA-256 of the crs_wkt those facts describe; see crs_columns.
+    crs_facts_digest: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     epsg: Mapped[int | None] = mapped_column(Integer, nullable=True)
     band_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     dtype: Mapped[str | None] = mapped_column(String(30), nullable=True)
@@ -111,6 +119,11 @@ class RasterAsset(Base):
     # timestamp comparison for it.
     built_from: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
+    def set_crs(self, meta: dict) -> None:
+        """Replace the stored CRS text and its facts together."""
+        for column, value in crs_columns(meta).items():
+            setattr(self, column, value)
+
     def to_stac_properties(self) -> dict:
         """Extract STAC-compatible properties from raster metadata."""
         props: dict = {}
@@ -130,7 +143,7 @@ class RasterAsset(Base):
             # serializer instead keeps the CRS-unit value, because it ships a
             # companion `crs_is_geographic` flag that STAC has no room for
             # (fix(#569)).
-            metres_per_unit = wkt_metres_per_unit(self.crs_wkt)
+            metres_per_unit = raster_crs_facts(self)["crs_metres_per_unit"]
             if metres_per_unit is not None:
                 props["gsd"] = min(abs(self.res_x), abs(self.res_y)) * metres_per_unit
 

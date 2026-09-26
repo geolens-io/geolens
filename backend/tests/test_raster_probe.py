@@ -24,7 +24,12 @@ from rasterio.crs import CRS
 from rasterio.transform import from_bounds
 from sqlalchemy import select
 
-from app.core.geo import wkt_has_degree_unit, wkt_is_geographic, wkt_metres_per_unit
+from app.core.geo import (
+    wkt_crs_facts,
+    wkt_has_degree_unit,
+    wkt_is_geographic,
+    wkt_metres_per_unit,
+)
 from app.platform.jobs.models import IngestJob
 from app.processing.raster import probe
 from app.processing.raster.cog import (
@@ -129,6 +134,35 @@ class TestTheParentBoundsTheChild:
         assert exc_info.value.kind == kind
         assert "secret" not in repr(exc_info.value)
         assert "child-only" not in str(exc_info.value)
+
+    @pytest.mark.parametrize(
+        ("raised", "category"),
+        [
+            (OSError(24, "Too many open files"), "spawn"),
+            (
+                UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte"),
+                "undecodable",
+            ),
+        ],
+    )
+    def test_a_child_that_cannot_start_or_be_read_is_an_internal_failure(
+        self, monkeypatch, raised, category
+    ) -> None:
+        def _fail(*args, **kwargs):
+            raise raised
+
+        monkeypatch.setattr(probe.subprocess, "run", _fail)
+
+        with structlog.testing.capture_logs() as captured:
+            with pytest.raises(probe.RasterProbeError) as exc_info:
+                probe.crs_facts("GEOGCRS[...]")
+
+        assert exc_info.value.kind == "internal"
+        (event,) = [e for e in captured if e["event"] == "raster probe failed"]
+        assert (event["category"], event["exception"]) == (
+            category,
+            type(raised).__name__,
+        )
 
     def test_the_child_runs_under_the_clamps_with_proj_offline(
         self, monkeypatch, tmp_path
@@ -304,8 +338,9 @@ class TestTheChildAnswersAsTheInProcessReadDid:
 
         inspection = probe.inspect_raster(path, expected_compression="DEFLATE")
 
+        metadata = extract_raster_metadata(path)
         assert inspection["metadata"] == json.loads(
-            json.dumps(extract_raster_metadata(path))
+            json.dumps({**metadata, **wkt_crs_facts(metadata["crs_wkt"])})
         )
         assert (inspection["compliant"], inspection["compliance_reason"]) == (
             check_cog_compliance(path, expected_compression="DEFLATE")
@@ -324,10 +359,30 @@ class TestTheChildAnswersAsTheInProcessReadDid:
         wkt = CRS.from_epsg(epsg).to_wkt()
 
         assert probe.crs_facts(wkt) == {
-            "is_geographic": wkt_is_geographic(wkt),
-            "has_degree_unit": wkt_has_degree_unit(wkt),
-            "metres_per_unit": wkt_metres_per_unit(wkt),
+            "crs_is_geographic": wkt_is_geographic(wkt),
+            "crs_has_degree_unit": wkt_has_degree_unit(wkt),
+            "crs_metres_per_unit": wkt_metres_per_unit(wkt),
         }
+
+    @pytest.mark.parametrize(
+        "name,facts",
+        [
+            ("geographic", (True, True, None)),
+            ("utm", (False, False, 1.0)),
+            ("us_feet", (False, False, pytest.approx(0.3048006))),
+        ],
+    )
+    def test_the_metadata_carries_the_facts_of_its_crs(self, tmp_path, name, facts):
+        epsg, bounds = next((e, b) for n, e, b in _FIXTURES if n == name)
+        path = _geotiff(tmp_path / f"{name}.tif", epsg=epsg, bounds=bounds)
+
+        metadata = probe.read_raster_metadata(path)
+
+        assert (
+            metadata["crs_is_geographic"],
+            metadata["crs_has_degree_unit"],
+            metadata["crs_metres_per_unit"],
+        ) == facts
 
     def test_an_unopenable_file_is_an_open_error(self, tmp_path) -> None:
         path = tmp_path / f"{uuid.uuid4().hex}.tif"

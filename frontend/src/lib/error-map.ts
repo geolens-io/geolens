@@ -152,6 +152,7 @@ const EXACT_ERROR_KEYS: Record<string, ApiErrorDescriptor['key']> = {
 // of one user-facing key per backend code rather than per call site.
 const SOURCE_VALIDATION_CODE_KEYS: Record<string, ApiErrorDescriptor['key']> = {
   crs_mismatch: 'errors.sourceValidationCrsMismatch', // VAL-01
+  crs_unverified: 'errors.sourceValidationCrsUnverified', // VAL-01
   band_count_mismatch: 'errors.sourceValidationBandCountMismatch', // VAL-02
   single_band_required: 'errors.sourceValidationSingleBandRequired', // VAL-03
   dtype_mismatch: 'errors.sourceValidationDtypeMismatch', // VAL-04

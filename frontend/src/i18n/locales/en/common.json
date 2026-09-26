@@ -398,6 +398,7 @@
     "uploadZipNestedArchive": "The archive contains a nested archive, which isn't supported.",
     "uploadZipTooManyEntries": "The archive has more than {{max_entries}} entries.",
     "sourceValidationCrsMismatch": "Source {{source}}'s coordinate reference system doesn't match the other sources.",
+    "sourceValidationCrsUnverified": "Source {{source}}'s coordinate reference system couldn't be compared with the other sources.",
     "sourceValidationBandCountMismatch": "Source {{source}}'s band count doesn't match the other sources.",
     "sourceValidationSingleBandRequired": "Source {{source}} has more than one band; band-stack sources must be single-band.",
     "sourceValidationDtypeMismatch": "Source {{source}}'s pixel data type doesn't match the other sources.",

@@ -137,7 +137,7 @@ from app.core.persistent_config import (
 )
 from app.modules.quota.service import check_upload_quota, get_user_quota_usage
 from app.modules.quota.service import DatasetQuotaExceededError
-from app.processing.raster.validation import validate_sources
+from app.processing.raster.validation import validate_sources_async
 from app.platform.service_auth import (
     credential_or_422,
     service_credential_from_request,
@@ -1464,11 +1464,11 @@ async def add_vrt_source(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"VRT dataset {dataset_id} has no vrt_type — cannot validate sources",
         )
-    errors = validate_sources(vrt_asset.vrt_type, all_assets)
+    errors = await validate_sources_async(vrt_asset.vrt_type, all_assets)
     if errors:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=[e.model_dump() for e in errors],
+            detail=[e.model_dump(mode="json") for e in errors],
         )
 
     # fix(#1327): STAGE the intended post-mutation member set on the

@@ -59,7 +59,7 @@ def _write_swapped_fields(
     raster_asset.storage_backend = "local"
     raster_asset.driver = cog_meta.get("driver")
     raster_asset.ingested_at = datetime.now(timezone.utc)
-    raster_asset.crs_wkt = cog_meta.get("crs_wkt")
+    raster_asset.set_crs(cog_meta)
     raster_asset.epsg = cog_meta.get("epsg")
     raster_asset.band_count = cog_meta.get("band_count")
     raster_asset.dtype = cog_meta.get("dtype")
