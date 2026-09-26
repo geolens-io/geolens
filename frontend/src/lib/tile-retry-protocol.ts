@@ -42,6 +42,7 @@ export const tileRetryProtocol: AddProtocolAction = async (request, controller) 
         data: await response.arrayBuffer(),
         cacheControl: response.headers.get('Cache-Control'),
         expires: response.headers.get('Expires'),
+        etag: response.headers.get('ETag') ?? undefined,
       };
     }
     const delay = retryDelay(response.headers.get('Retry-After'));

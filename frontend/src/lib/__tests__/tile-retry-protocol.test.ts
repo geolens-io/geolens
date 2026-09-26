@@ -33,6 +33,17 @@ it.each(['2', 'Thu, 01 Jan 2026 00:00:02 GMT'])('honors Retry-After %s and prese
   expect(fetcher).toHaveBeenLastCalledWith(url, expect.objectContaining({ headers: request.headers, signal: controller.signal }));
 });
 
+it('preserves the strong ETag for MapLibre tile revalidation', async () => {
+  const etag = '"tile-content-digest"';
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('tile', {
+    headers: { ETag: etag },
+  })));
+
+  const response = await tileRetryProtocol(request, new AbortController());
+
+  expect(response.etag).toBe(etag);
+});
+
 it('stops after two retries', async () => {
   const fetcher = vi.fn().mockImplementation(() => Promise.resolve(new Response('', { status: 429, headers: { 'Retry-After': '0' } })));
   vi.stubGlobal('fetch', fetcher);
