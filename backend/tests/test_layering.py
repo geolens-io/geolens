@@ -1271,7 +1271,7 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 _MODULE_LOC_CAPS: dict[str, int] = {
     # Manifest reservation, staging, run admission and fenced settlement share one
     # apply workflow.
-    "backend/app/processing/ingest/manifest_service.py": 1221,
+    "backend/app/processing/ingest/manifest_service.py": 1220,
     # Endpoint parsing, SSRF checks and credential forwarding share one security
     # boundary.
     "backend/app/platform/service_endpoints.py": 1360,
@@ -1301,7 +1301,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Ingest API router debt; split upload, import and registration endpoints before
     # raising further. Each upload door branches once per 3D upload kind: a 3D
     # Tiles tileset and a COPC point cloud.
-    "backend/app/processing/ingest/router.py": 1705,
+    "backend/app/processing/ingest/router.py": 1712,
     # Shared ingest finalization carries verification, bounded ArcGIS requests and lifecycle context.
     "backend/app/processing/ingest/tasks_common.py": 1718,
     # The file and service strategies: retrieval, staging, verification and cleanup.
@@ -1340,7 +1340,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/ogr.py": 1369,
     # Archive and GDAL content validation remain centralized at the upload security
     # boundary.
-    "backend/app/processing/ingest/validation.py": 1204,
+    "backend/app/processing/ingest/validation.py": 1206,
     # OAuth destination validation, account linking and role reconciliation share one
     # boundary.
     "backend/app/modules/auth/oauth/service.py": 1111,

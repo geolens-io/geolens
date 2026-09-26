@@ -27,7 +27,6 @@ from app.core.geo import unknown_srid_refusal
 from app.core.db.tenant_session import defer_async_with_tenant
 from app.core.identity import Identity
 from app.core.persistent_config import UPLOAD_MAX_SIZE_MB, get_allowed_extensions_list
-from app.core.pointcloud import LAZ_WITHOUT_KIND, is_laz
 from app.platform.extensions import get_catalog_port, get_processing_port
 from app.platform.extensions.entitlement import enforce_limit
 from app.platform.jobs.defer_guard import (
@@ -66,6 +65,7 @@ from app.processing.ingest.manifest_sources import (
     publication_to_catalog_fields,
     validate_publication_intent,
 )
+from app.processing.ingest.pointcloud import require_pointcloud_file
 from app.processing.ingest.service import queue_ingest_job, validate_file_extension
 
 # fix(#435): batch download writes so a 64 KiB httpx chunk doesn't cost one
@@ -160,8 +160,7 @@ async def _validate_prepared_source(
 ) -> None:
     allowed = await get_allowed_extensions_list(db)
     validate_file_extension(prepared.source_filename, allowed)
-    if is_laz(prepared.source_filename):
-        raise ValueError(LAZ_WITHOUT_KIND)
+    require_pointcloud_file(None, prepared.source_filename)
 
 
 async def _authorize_prepared_source(

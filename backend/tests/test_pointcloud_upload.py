@@ -28,7 +28,7 @@ from app.core.pointcloud import (
     pointcloud_attempt_key,
     pointcloud_prefix,
 )
-from app.core.upload_errors import CodedUploadError
+from app.core.upload_errors import UnsafeUploadError
 from app.modules.catalog.datasets.api.router_reupload import (
     _assert_compatible_record_type,
 )
@@ -275,7 +275,8 @@ async def test_a_default_install_refuses_a_point_cloud(
         )
 
     assert resp.status_code == 400, resp.text
-    assert "'.laz' not allowed" in resp.json()["detail"]
+    detail = resp.json()["detail"]
+    assert (detail["code"], detail["extension"]) == ("disallowed_extension", ".laz")
     assert await jobs_of(test_db_session, uuid.UUID(user_id)) == []
 
 
@@ -328,7 +329,11 @@ async def test_a_laz_without_the_point_cloud_kind_is_refused(
         )
 
     assert resp.status_code == 422, resp.text
-    assert resp.json()["detail"] == LAZ_WITHOUT_KIND
+    assert resp.json()["detail"] == {
+        "code": "pointcloud_kind_required",
+        "message": LAZ_WITHOUT_KIND,
+        "file_type": "pointcloud",
+    }
     assert await jobs_of(test_db_session, user_id) == []
 
 
@@ -375,7 +380,7 @@ async def test_a_manifest_entry_takes_no_laz(monkeypatch) -> None:
         (copc(wkt=None), "pointcloud_no_crs"),
         (copc(header_point_count=99), "pointcloud_invalid"),
         (copc(chunk=lambda chunk: bytes(len(chunk))), "pointcloud_decode_failed"),
-        (b"SQLite format 3\x00" + bytes(512), None),
+        (b"SQLite format 3\x00" + bytes(512), "pointcloud_invalid"),
     ],
     ids=["plain-laz", "no-crs", "invalid", "decode", "renamed-database"],
 )
@@ -389,10 +394,7 @@ async def test_the_upload_door_refuses_a_file_that_fails_a_check(
 
     assert resp.status_code == 422, resp.text
     detail = resp.json()["detail"]
-    if code is None:
-        assert detail == "The file is not a LAS or LAZ point cloud."
-    else:
-        assert (detail["code"], set(detail)) == (code, {"code", "message"})
+    assert (detail["code"], set(detail)) == (code, {"code", "message"})
     job = (
         await test_db_session.execute(
             select(IngestJob).where(IngestJob.created_by == user_id)
@@ -520,7 +522,7 @@ async def test_a_file_that_changed_since_the_door_is_refused_before_the_copy(
     staged = Path((await load_job(test_db_session, job_id)).file_path)
     staged.write_bytes(copc(wkt=None))
 
-    with pytest.raises(CodedUploadError):
+    with pytest.raises(UnsafeUploadError):
         await run_queued(queued)
 
     job = await load_job(test_db_session, job_id)
@@ -557,7 +559,7 @@ async def test_a_damaged_node_below_the_top_is_refused_before_the_copy(
     )
     staged = Path((await load_job(test_db_session, job_id)).file_path)
 
-    with pytest.raises(CodedUploadError):
+    with pytest.raises(UnsafeUploadError):
         await run_queued(queued)
 
     job = await load_job(test_db_session, job_id)
@@ -653,7 +655,7 @@ async def test_a_stored_point_cloud_is_decoded_from_a_download_that_is_removed(
     assert previewed.status_code == 200, previewed.text
     assert (await commit(client, headers, job_id)).status_code == 202
 
-    with pytest.raises(CodedUploadError) if damaged else nullcontext():
+    with pytest.raises(UnsafeUploadError) if damaged else nullcontext():
         await run_queued(queued)
 
     job = await load_job(test_db_session, job_id)

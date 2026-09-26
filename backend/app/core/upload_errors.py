@@ -92,10 +92,3 @@ def refusal_detail(exc: Exception) -> dict[str, str | int]:
     code = getattr(exc, "code", None) or _UNCODED_REFUSAL_FALLBACK_CODE
     values = getattr(exc, "values", None) or {}
     return {"code": code, "message": str(exc), **values}
-
-
-class CodedUploadError(UnsafeUploadError):
-    """An ``UnsafeUploadError`` built code first, as the point cloud checks raise it."""
-
-    def __init__(self, code: str, message: str, **values: str | int) -> None:
-        super().__init__(message, code=code, values=values)

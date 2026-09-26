@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import MIN_SIGNABLE_JOB_LIFETIME_SECONDS, settings
 from app.core.persistent_config import UPLOAD_MAX_SIZE_MB
 from app.core.async_io import await_draining, run_in_thread_draining
-from app.core.upload_errors import CodedUploadError, UnsafeUploadError, refusal_detail
+from app.core.upload_errors import UnsafeUploadError, refusal_detail
 from app.modules.quota.service import check_replacement_quota, check_upload_quota
 from app.platform.storage import StorageProvider
 from app.platform.storage.titiler_url import resolve_current_storage_key
@@ -623,7 +623,7 @@ async def admit_presigned_pointcloud(
     physical_frozen_key = resolve_current_storage_key(frozen_key)
     try:
         await inspect_stored_pointcloud(storage, physical_frozen_key)
-    except CodedUploadError as exc:
+    except UnsafeUploadError as exc:
         await _cleanup_presigned_object(storage, physical_frozen_key, job.id)
         await _cleanup_presigned_object(
             storage, resolve_current_storage_key(job.user_metadata["s3_key"]), job.id

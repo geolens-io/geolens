@@ -1019,7 +1019,9 @@ def validate_file_content(file_path: str, filename: str) -> None:
 
     # The point cloud path runs the COPC checks; this keeps a renamed database out.
     if suffix == POINTCLOUD_SUFFIX and not header.startswith(b"LASF"):
-        raise ValueError("The file is not a LAS or LAZ point cloud.")
+        raise UnsafeUploadError(
+            "The file is not a LAS or LAZ point cloud.", code="pointcloud_invalid"
+        )
 
     # Skip magic-byte validation for extensions without known content rules
     if suffix not in EXTENSION_CONTENT_MAP:

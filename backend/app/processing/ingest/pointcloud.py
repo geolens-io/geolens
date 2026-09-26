@@ -25,11 +25,10 @@ from typing import BinaryIO, Callable
 import lazrs
 import numpy as np
 import structlog
-from fastapi import HTTPException, status
 
 from app.core.config import settings
 from app.core.pointcloud import LAZ_WITHOUT_KIND, POINTCLOUD_FILE_TYPE, is_laz
-from app.core.upload_errors import CodedUploadError, refusal_detail
+from app.core.upload_errors import UnsafeUploadError
 from app.platform.storage import StorageProvider
 from app.platform.storage.titiler_url import resolve_current_storage_key
 from app.processing.ingest.schemas import PointCloudPreviewResponse
@@ -148,18 +147,36 @@ class _Layout:
 _ORDINARY_REFUSALS = frozenset({"pointcloud_not_copc", "pointcloud_no_crs"})
 
 
-def _refusal(
-    code: str, message: str, *, reason: str, **values: object
-) -> CodedUploadError:
-    if code in _ORDINARY_REFUSALS:
+def _logged(refusal: UnsafeUploadError, *, reason: str) -> UnsafeUploadError:
+    if refusal.code in _ORDINARY_REFUSALS:
         logger.info("Point cloud refused", reason=reason)
     else:
         logger.warning("Point cloud refused", event_type="security", reason=reason)
-    return CodedUploadError(code, message, **values)
+    return refusal
 
 
-def _invalid(message: str, *, reason: str, **values: object) -> CodedUploadError:
-    return _refusal("pointcloud_invalid", message, reason=reason, **values)
+def _invalid(message: str, *, reason: str, **values: str | int) -> UnsafeUploadError:
+    return _logged(
+        UnsafeUploadError(message, code="pointcloud_invalid", values=values),
+        reason=reason,
+    )
+
+
+def _not_copc(*, reason: str) -> UnsafeUploadError:
+    return _logged(
+        UnsafeUploadError(_NOT_COPC, code="pointcloud_not_copc"), reason=reason
+    )
+
+
+def _no_crs(*, reason: str) -> UnsafeUploadError:
+    return _logged(UnsafeUploadError(_NO_CRS, code="pointcloud_no_crs"), reason=reason)
+
+
+def _decode_failed(*, reason: str) -> UnsafeUploadError:
+    return _logged(
+        UnsafeUploadError(_DECODE_FAILED, code="pointcloud_decode_failed"),
+        reason=reason,
+    )
 
 
 def _read_header(data: bytes, size: int) -> _Header:
@@ -167,7 +184,7 @@ def _read_header(data: bytes, size: int) -> _Header:
     if not data.startswith(b"LASF"):
         raise _invalid("The file is not a LAS or LAZ point cloud.", reason="not_las")
     if len(data) < HEADER_SIZE:
-        raise _refusal("pointcloud_not_copc", _NOT_COPC, reason="short_header")
+        raise _not_copc(reason="short_header")
     header_size, point_offset, vlr_count, format_byte, record_length = (
         struct.unpack_from("<HIIBH", data, 94)
     )
@@ -178,7 +195,7 @@ def _read_header(data: bytes, size: int) -> _Header:
         or not format_byte & 0x80
         or point_format not in _ITEMS
     ):
-        raise _refusal("pointcloud_not_copc", _NOT_COPC, reason="not_copc")
+        raise _not_copc(reason="not_copc")
     scales = struct.unpack_from("<3d", data, 131)
     offsets = struct.unpack_from("<3d", data, 155)
     max_x, min_x, max_y, min_y, max_z, min_z = struct.unpack_from("<6d", data, 179)
@@ -365,7 +382,7 @@ def _read_layout(read: Read, size: int) -> _Layout:
     header = _read_header(read(0, min(size, HEADER_SIZE)), size)
     vlrs = _read_records(read, HEADER_SIZE, header.point_offset, header.vlr_count, _VLR)
     if not vlrs or vlrs[0][0] != _COPC_INFO or vlrs[0][2] != 160:
-        raise _refusal("pointcloud_not_copc", _NOT_COPC, reason="no_copc_info")
+        raise _not_copc(reason="no_copc_info")
     _check_evlr_block(header, size)
     evlrs = _read_records(read, header.evlr_start, size, header.evlr_count, _EVLR)
     found = {}
@@ -376,12 +393,12 @@ def _read_layout(read: Read, size: int) -> _Layout:
     if _COPC_HIERARCHY not in found:
         raise _invalid("The file has no COPC hierarchy.", reason="no_hierarchy")
     if _WKT not in found:
-        raise _refusal("pointcloud_no_crs", _NO_CRS, reason="no_wkt")
+        raise _no_crs(reason="no_wkt")
     laszip = read(*found[_LASZIP])
     layers = _check_laszip(laszip, header)
     wkt_offset, wkt_length = found[_WKT]
     if wkt_length > MAX_WKT_BYTES:
-        raise _refusal("pointcloud_no_crs", _NO_CRS, reason="wkt_limit")
+        raise _no_crs(reason="wkt_limit")
     root = struct.unpack_from("<QQ", read(vlrs[0][1] + 40, 16))
     hierarchy_offset, hierarchy_length = found[_COPC_HIERARCHY]
     nodes = _walk(
@@ -404,13 +421,11 @@ def _check_chunk(chunk: bytes, layout: _Layout, count: int) -> None:
     record_length = layout.header.record_length
     fixed = record_length + 4 + 4 * layout.layers
     if len(chunk) < fixed:
-        raise _refusal("pointcloud_decode_failed", _DECODE_FAILED, reason="chunk_size")
+        raise _decode_failed(reason="chunk_size")
     points = struct.unpack_from("<I", chunk, record_length)[0]
     sizes = struct.unpack_from(f"<{layout.layers}I", chunk, record_length + 4)
     if points != count or fixed + sum(sizes) != len(chunk):
-        raise _refusal(
-            "pointcloud_decode_failed", _DECODE_FAILED, reason="chunk_header"
-        )
+        raise _decode_failed(reason="chunk_header")
 
 
 def _decode(read: Read, layout: _Layout, node: tuple[int, int, int]) -> None:
@@ -438,9 +453,7 @@ def _decode(read: Read, layout: _Layout, node: tuple[int, int, int]) -> None:
     except BaseException as exc:  # broad: a Rust panic reaches Python as pyo3's PanicException, which is no Exception
         if not isinstance(exc, Exception) and type(exc).__name__ != "PanicException":
             raise
-        raise _refusal(
-            "pointcloud_decode_failed", _DECODE_FAILED, reason="decode"
-        ) from exc
+        raise _decode_failed(reason="decode") from exc
     xyz = np.ndarray(
         (count, 3), dtype="<i4", buffer=points, strides=(header.record_length, 4)
     )
@@ -450,9 +463,7 @@ def _decode(read: Read, layout: _Layout, node: tuple[int, int, int]) -> None:
     if (low < np.array(header.mins) - scales).any() or (
         high > np.array(header.maxs) + scales
     ).any():
-        raise _refusal(
-            "pointcloud_decode_failed", _DECODE_FAILED, reason="decode_bounds"
-        )
+        raise _decode_failed(reason="decode_bounds")
 
 
 def _parse_wkt(text: str) -> list:
@@ -533,9 +544,9 @@ def _crs_facts(
     except (
         Exception
     ) as exc:  # broad: an unreadable WKT or an EPSG code PROJ can't use is one refusal
-        raise _refusal("pointcloud_no_crs", _NO_CRS, reason="crs") from exc
+        raise _no_crs(reason="crs") from exc
     if not all(map(math.isfinite, bbox)):
-        raise _refusal("pointcloud_no_crs", _NO_CRS, reason="extent")
+        raise _no_crs(reason="extent")
     vertical = "".join(c for c in name if c.isprintable())[:255] or None
     return srid, vertical, tuple(bbox)
 
@@ -576,7 +587,7 @@ def _inspect(path: str) -> tuple[PointCloud, _Layout]:
 
 
 def inspect_pointcloud(path: str) -> PointCloud:
-    """Check a COPC file on local disk, decoding its top node; a refusal is a ``CodedUploadError``."""
+    """Check a COPC file on local disk, decoding its top node; a refusal is an ``UnsafeUploadError``."""
     return _inspect(path)[0]
 
 
@@ -678,15 +689,18 @@ async def staged_pointcloud_bytes(file_path: str) -> int:
 
 
 def require_pointcloud_file(kind: str | None, filename: str | None) -> None:
-    """Refuse a point cloud that is not a .laz, or a .laz without the point cloud kind."""
+    """Refuse a point cloud that is not a .laz, or a .laz without the point cloud kind.
+
+    Raises the module's coded exception, since every caller is a door that
+    converts it.
+    """
     if kind == POINTCLOUD_FILE_TYPE and not is_laz(filename):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=refusal_detail(CodedUploadError("pointcloud_not_copc", _NOT_COPC)),
-        )
+        raise UnsafeUploadError(_NOT_COPC, code="pointcloud_not_copc")
     if kind != POINTCLOUD_FILE_TYPE and is_laz(filename):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=LAZ_WITHOUT_KIND
+        raise UnsafeUploadError(
+            LAZ_WITHOUT_KIND,
+            code="pointcloud_kind_required",
+            values={"file_type": POINTCLOUD_FILE_TYPE},
         )
 
 
@@ -701,14 +715,12 @@ async def staged_pointcloud_metadata(path: str, kind: str | None) -> dict:
 async def preview_staged_pointcloud(
     job_id: uuid.UUID, source_filename: str | None, file_path: str
 ) -> PointCloudPreviewResponse:
-    """The preview of a staged point cloud; a file that fails a check is a 422."""
-    try:
-        cloud = await inspect_staged_pointcloud(file_path)
-    except CodedUploadError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=refusal_detail(exc),
-        ) from exc
+    """The preview of a staged point cloud.
+
+    Lets ``UnsafeUploadError`` propagate: the caller (``preview_file``) is
+    the door that converts it.
+    """
+    cloud = await inspect_staged_pointcloud(file_path)
     return PointCloudPreviewResponse(
         job_id=job_id,
         source_filename=source_filename,

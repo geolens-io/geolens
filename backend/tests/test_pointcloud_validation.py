@@ -18,7 +18,7 @@ from rasterio.crs import CRS
 from structlog.testing import capture_logs
 
 from app.core.config import settings
-from app.core.upload_errors import CodedUploadError, refusal_detail
+from app.core.upload_errors import UnsafeUploadError, refusal_detail
 from app.platform.storage.local import LocalStorageProvider
 from app.platform.storage.s3 import S3StorageProvider
 from app.processing.ingest import pointcloud as pointcloud_module
@@ -44,8 +44,8 @@ def write(tmp_path: Path, data: bytes, name: str = "cloud.copc.laz") -> str:
     return str(path)
 
 
-def refused(tmp_path: Path, data: bytes) -> CodedUploadError:
-    with pytest.raises(CodedUploadError) as refusal:
+def refused(tmp_path: Path, data: bytes) -> UnsafeUploadError:
+    with pytest.raises(UnsafeUploadError) as refusal:
         inspect_pointcloud(write(tmp_path, data))
     return refusal.value
 
@@ -183,11 +183,11 @@ def test_a_point_cloud_without_a_usable_crs_is_refused(tmp_path, wkt) -> None:
 
 _CHECK_IN_A_CHILD = """
 import sys
-from app.core.upload_errors import CodedUploadError
+from app.core.upload_errors import UnsafeUploadError
 from app.processing.ingest.pointcloud import inspect_pointcloud
 try:
     print(inspect_pointcloud(sys.argv[1]).srid)
-except CodedUploadError as exc:
+except UnsafeUploadError as exc:
     print(exc.code)
 """
 
@@ -584,7 +584,7 @@ async def test_a_stored_point_cloud_is_refused_as_a_local_one_is(
     await storage.put("staging/job/frozen/c.laz", io.BytesIO(data))
     local = refused(tmp_path, data)
 
-    with pytest.raises(CodedUploadError) as stored:
+    with pytest.raises(UnsafeUploadError) as stored:
         await inspect_stored_pointcloud(storage, "staging/job/frozen/c.laz")
 
     assert (stored.value.code, str(stored.value)) == (local.code, str(local))
@@ -599,7 +599,7 @@ async def test_the_probe_copies_nothing_past_a_bad_header(
     await storage.put("staging/job/frozen/c.laz", io.BytesIO(data))
     counting = _CountingReads(storage)
 
-    with pytest.raises(CodedUploadError):
+    with pytest.raises(UnsafeUploadError):
         await inspect_stored_pointcloud(counting, "staging/job/frozen/c.laz")
 
     assert counting.bytes_read < 16 * 1024 < len(data)
@@ -620,7 +620,7 @@ async def test_the_probe_skips_a_node_past_the_decode_bound(
     counting = _CountingReads(storage)
     monkeypatch.setattr(pointcloud_module, "MAX_DECODE_BYTES", 8 * 1024)
 
-    with pytest.raises(CodedUploadError, match="decode limit"):
+    with pytest.raises(UnsafeUploadError, match="decode limit"):
         await inspect_stored_pointcloud(counting, "staging/job/frozen/c.laz")
 
     assert counting.bytes_read < 8 * 1024 < big
@@ -672,7 +672,7 @@ async def test_a_damaged_node_below_the_top_passes_the_door_and_not_the_worker(
     inspect_pointcloud(path)
     chunks = _decoded_chunks(monkeypatch)
 
-    with pytest.raises(CodedUploadError) as refusal:
+    with pytest.raises(UnsafeUploadError) as refusal:
         await inspect_every_node(path)
 
     assert (refusal.value.code, len(chunks)) == ("pointcloud_decode_failed", decoded)
@@ -687,7 +687,7 @@ async def test_a_node_below_the_top_past_the_decode_bound_is_refused(
     inspect_pointcloud(path)
     chunks = _decoded_chunks(monkeypatch)
 
-    with pytest.raises(CodedUploadError, match="decode limit") as refusal:
+    with pytest.raises(UnsafeUploadError, match="decode limit") as refusal:
         await inspect_every_node(path)
 
     assert (refusal.value.code, len(chunks)) == ("pointcloud_invalid", 2)

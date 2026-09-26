@@ -221,8 +221,14 @@ async def _get_allowed_extensions_safely(db: AsyncSession) -> list[str]:
 async def _refuse_upload(db: AsyncSession, filename: str, kind: str | None) -> None:
     """Refuse a standalone VRT, a disallowed extension, or a mismatched upload kind."""
     _reject_standalone_vrt(filename)
-    # Ahead of the allowed list, so a .las sent as a point cloud gets the hint.
-    require_pointcloud_file(kind, filename)
+    try:
+        # Ahead of the allowed list, so a .las sent as a point cloud gets the hint.
+        require_pointcloud_file(kind, filename)
+    except UnsafeUploadError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=refusal_detail(exc),
+        ) from exc
     allowed_list = await _get_allowed_extensions_safely(db)
     try:
         validate_file_extension(filename, allowed_list)
@@ -825,20 +831,21 @@ async def preview_file(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Job has no associated file — upload must complete before preview",
         )
-    if (job.user_metadata or {}).get("file_type") == TILESET_FILE_TYPE:
-        try:
+    file_type = (job.user_metadata or {}).get("file_type")
+    try:
+        if file_type == TILESET_FILE_TYPE:
             return await preview_staged_tileset(
                 job.id, job.source_filename, job.file_path
             )
-        except UnsafeUploadError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=refusal_detail(exc),
-            ) from exc
-    if (job.user_metadata or {}).get("file_type") == POINTCLOUD_FILE_TYPE:
-        return await preview_staged_pointcloud(
-            job.id, job.source_filename, job.file_path
-        )
+        if file_type == POINTCLOUD_FILE_TYPE:
+            return await preview_staged_pointcloud(
+                job.id, job.source_filename, job.file_path
+            )
+    except UnsafeUploadError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=refusal_detail(exc),
+        ) from exc
     file_path: str = job.file_path
     downloaded_preview_path: Path | None = None
     resolved_file_path = await resolve_file_path(file_path, str(job.id))

@@ -26,7 +26,11 @@ asserts it).
 
 from pathlib import Path
 
-from app.core.pointcloud import LAZ_WITHOUT_KIND, POINTCLOUD_SUFFIX
+from app.core.pointcloud import (
+    LAZ_WITHOUT_KIND,
+    POINTCLOUD_FILE_TYPE,
+    POINTCLOUD_SUFFIX,
+)
 from app.core.upload_errors import UnsafeUploadError
 
 # Every driver a legitimate upload can need, none that reaches the network
@@ -116,7 +120,11 @@ def allowed_input_drivers(file_path: str) -> tuple[str, ...]:
     """
     suffix = Path(file_path).suffix.lower()
     if suffix == POINTCLOUD_SUFFIX:
-        raise UnsafeUploadError(LAZ_WITHOUT_KIND)
+        raise UnsafeUploadError(
+            LAZ_WITHOUT_KIND,
+            code="pointcloud_kind_required",
+            values={"file_type": POINTCLOUD_FILE_TYPE},
+        )
     return _DRIVERS_BY_EXTENSION.get(suffix, ARCHIVE_MEMBER_DRIVERS)
 
 
