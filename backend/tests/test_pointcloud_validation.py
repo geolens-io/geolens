@@ -422,6 +422,33 @@ def test_a_chunk_whose_header_disagrees_is_refused_before_lazrs(
     assert (refused(tmp_path, data).code, calls) == ("pointcloud_decode_failed", [])
 
 
+@pytest.mark.parametrize(
+    "second",
+    [
+        lambda at: (1, 0, 0, 0, at.chunk_offset, at.chunk_size, at.count),
+        lambda at: (1, 0, 0, 0, at.chunk_offset + 1, at.chunk_size - 1, at.count),
+    ],
+    ids=["same-chunk", "inside-another"],
+)
+async def test_nodes_whose_points_overlap_are_refused_before_lazrs(
+    tmp_path, monkeypatch, second
+) -> None:
+    """A chunk two nodes name is refused before any node is decoded."""
+    path = write(tmp_path, copc(pages=_pages(second), header_point_count=200))
+    calls = _lazrs_calls(monkeypatch)
+
+    with pytest.raises(UnsafeUploadError) as door:
+        inspect_pointcloud(path)
+    with pytest.raises(UnsafeUploadError) as worker:
+        await inspect_every_node(path)
+
+    assert (door.value.code, worker.value.code, calls) == (
+        "pointcloud_invalid",
+        "pointcloud_invalid",
+        [],
+    )
+
+
 def test_extra_bytes_within_the_bound_decode(tmp_path) -> None:
     """Points that carry extra bytes pass the LASzip and chunk checks."""
     cloud = inspect_pointcloud(write(tmp_path, copc(extra_bytes=8)))

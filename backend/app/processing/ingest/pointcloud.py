@@ -304,8 +304,9 @@ def _walk(
 ) -> list[tuple[int, int, int]]:
     """Check every hierarchy page and return each node holding points, shallowest first.
 
-    A page is read once at most, from inside the hierarchy record; a node's
-    points lie inside the point data; and the nodes' counts sum to the header's.
+    A page is read once at most, from inside the hierarchy record; each node's
+    points lie inside the point data and overlap no other node's; and the
+    nodes' counts sum to the header's.
     """
     pages = [root]
     seen_pages: set[tuple[int, int]] = set()
@@ -373,6 +374,14 @@ def _walk(
             "The hierarchy's point counts don't add up to the header's.",
             reason="point_count",
         )
+    # A chunk two nodes share would be decoded once for each of them.
+    by_offset = sorted(nodes, key=lambda node: node[1])
+    for before, after in zip(by_offset, by_offset[1:]):
+        if after[1] < before[1] + before[2]:
+            raise _invalid(
+                "Two nodes' points overlap in the file's point data.",
+                reason="node_overlap",
+            )
     # Stable, so the top node is the first one found at the least depth.
     nodes.sort(key=lambda node: node[0])
     return [node[1:] for node in nodes]
