@@ -348,7 +348,10 @@ async function authenticatedFetch(
 }
 
 /**
- * Fetch wrapper that converts auth/network/HTTP errors into ApiError.
+ * Authenticate, retry on a stale 401, and throw ApiError on a non-ok
+ * response — everything apiFetch does except deciding what the body is.
+ * Shared with apiFetchHeader, which needs the raw Response (for a header)
+ * rather than a parsed JSON body.
  *
  * When `expected404` is set, a 404 response resolves to `null` instead
  * of throwing — for endpoints where 404 is a normal/handled outcome
@@ -360,10 +363,10 @@ async function authenticatedFetch(
  * returns a final response with status 404. Other error statuses (403, 410,
  * 500, …) still throw ApiError normally.
  */
-export async function apiFetch<T>(
+async function apiFetchResponse(
   path: string,
   options: RequestInit & { expected404?: boolean; timeoutMs?: number } = {},
-): Promise<T> {
+): Promise<Response | null> {
   const { expected404, timeoutMs, ...fetchOptions } = options;
 
   // fix(#438): DATA-04 — bound the request. Compose with any caller signal so
@@ -382,7 +385,7 @@ export async function apiFetch<T>(
   });
 
   if (response.status === 404 && expected404) {
-    return null as T;
+    return null;
   }
 
   if (!response.ok) {
@@ -406,11 +409,52 @@ export async function apiFetch<T>(
     );
   }
 
+  return response;
+}
+
+/**
+ * Fetch wrapper that converts auth/network/HTTP errors into ApiError.
+ *
+ * When `expected404` is set, a 404 response resolves to `null` instead
+ * of throwing — for endpoints where 404 is a normal/handled outcome
+ * (e.g. share-token lookup with a possibly-invalid token). The caller's
+ * TypeScript signature should reflect the nullable shape.
+ *
+ * Important: `expected404` does NOT bypass the 401→refresh→retry flow in
+ * `authenticatedFetch`. The quiet path only fires AFTER `authenticatedFetch`
+ * returns a final response with status 404. Other error statuses (403, 410,
+ * 500, …) still throw ApiError normally.
+ */
+export async function apiFetch<T>(
+  path: string,
+  options: RequestInit & { expected404?: boolean; timeoutMs?: number } = {},
+): Promise<T> {
+  const response = await apiFetchResponse(path, options);
+
+  if (response === null) {
+    return null as T;
+  }
+
   if (response.status === 204) {
     return undefined as T;
   }
 
   return response.json() as Promise<T>;
+}
+
+/**
+ * As apiFetch, but reads one response header instead of a JSON body — for
+ * a route (a 204 with no body, most often) whose data rides on a header.
+ * Returns null when the response carries no value for that header, same as
+ * a missing/unparseable field would from a JSON body.
+ */
+export async function apiFetchHeader(
+  path: string,
+  headerName: string,
+  options: RequestInit & { expected404?: boolean; timeoutMs?: number } = {},
+): Promise<string | null> {
+  const response = await apiFetchResponse(path, options);
+  return response?.headers.get(headerName) ?? null;
 }
 
 export async function apiFetchBlob(

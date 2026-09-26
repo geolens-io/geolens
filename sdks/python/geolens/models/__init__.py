@@ -223,9 +223,6 @@ from .dataset_version_list_response import DatasetVersionListResponse
 from .dataset_version_response import DatasetVersionResponse
 from .dbf_truncation_collision_warning import DbfTruncationCollisionWarning
 from .dbf_truncation_detail import DbfTruncationDetail
-from .delete_single_feature_datasets_dataset_id_features_gid_delete_feature_delete_result import (
-    DeleteSingleFeatureDatasetsDatasetIdFeaturesGidDeleteFeatureDeleteResult,
-)
 from .derived_from_response import DerivedFromResponse
 from .derived_from_response_params import DerivedFromResponseParams
 from .detect_embedding_dims_response import DetectEmbeddingDimsResponse
@@ -979,7 +976,6 @@ __all__ = (
     "DatasetVersionResponse",
     "DbfTruncationCollisionWarning",
     "DbfTruncationDetail",
-    "DeleteSingleFeatureDatasetsDatasetIdFeaturesGidDeleteFeatureDeleteResult",
     "DerivedFromResponse",
     "DerivedFromResponseParams",
     "DetectEmbeddingDimsResponse",

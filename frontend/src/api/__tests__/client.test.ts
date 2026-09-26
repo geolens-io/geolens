@@ -1,4 +1,4 @@
-import { abortInflightRefresh, apiFetch, ApiError, tryRefresh } from '@/api/client';
+import { abortInflightRefresh, apiFetch, apiFetchHeader, ApiError, tryRefresh } from '@/api/client';
 import { useAuthStore } from '@/stores/auth-store';
 import type { TokenResponse } from '@/types/api';
 
@@ -30,6 +30,17 @@ function errorResponse(status: number, detail?: string): Response {
       ? () => Promise.resolve({ detail })
       : () => Promise.reject(new Error('not json')),
     headers: new Headers(),
+  } as Response;
+}
+
+/** A bodyless success response (e.g. a 204) carrying only headers. */
+function headerResponse(status: number, headers: Record<string, string> = {}): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    statusText: 'No Content',
+    json: () => Promise.reject(new Error('no body')),
+    headers: new Headers(headers),
   } as Response;
 }
 
@@ -563,5 +574,41 @@ describe('apiFetch', () => {
       await apiFetch('/b/');
       expect(mockRefresh).toHaveBeenCalledTimes(2);
     });
+  });
+});
+
+describe('apiFetchHeader', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null });
+    abortInflightRefresh();
+  });
+
+  it('reads the named header off a bodyless 204', async () => {
+    mockFetch.mockResolvedValueOnce(
+      headerResponse(204, { 'X-GeoLens-Tile-Cache-Version': '7' }),
+    );
+
+    const value = await apiFetchHeader('/a/', 'X-GeoLens-Tile-Cache-Version', {
+      method: 'DELETE',
+    });
+    expect(value).toBe('7');
+  });
+
+  it('returns null when the response carries no value for that header', async () => {
+    mockFetch.mockResolvedValueOnce(headerResponse(204));
+
+    const value = await apiFetchHeader('/a/', 'X-GeoLens-Tile-Cache-Version', {
+      method: 'DELETE',
+    });
+    expect(value).toBeNull();
+  });
+
+  it('still throws ApiError on a non-ok response, same as apiFetch', async () => {
+    mockFetch.mockResolvedValueOnce(errorResponse(404, 'Feature not found'));
+
+    await expect(
+      apiFetchHeader('/a/', 'X-GeoLens-Tile-Cache-Version', { method: 'DELETE' }),
+    ).rejects.toThrow(ApiError);
   });
 });

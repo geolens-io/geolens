@@ -1,5 +1,5 @@
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 from urllib.parse import quote
 
 import httpx
@@ -8,9 +8,6 @@ from ...client import AuthenticatedClient, Client
 from ...types import Response
 from ... import errors
 
-from ...models.delete_single_feature_datasets_dataset_id_features_gid_delete_feature_delete_result import (
-    DeleteSingleFeatureDatasetsDatasetIdFeaturesGidDeleteFeatureDeleteResult,
-)
 from ...models.problem_detail import ProblemDetail
 from uuid import UUID
 
@@ -33,17 +30,10 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> (
-    DeleteSingleFeatureDatasetsDatasetIdFeaturesGidDeleteFeatureDeleteResult
-    | ProblemDetail
-    | None
-):
-    if response.status_code == 200:
-        response_200 = DeleteSingleFeatureDatasetsDatasetIdFeaturesGidDeleteFeatureDeleteResult.from_dict(
-            response.json()
-        )
-
-        return response_200
+) -> Any | ProblemDetail | None:
+    if response.status_code == 204:
+        response_204 = cast(Any, None)
+        return response_204
 
     if response.status_code == 400:
         response_400 = ProblemDetail.from_dict(response.json())
@@ -98,10 +88,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[
-    DeleteSingleFeatureDatasetsDatasetIdFeaturesGidDeleteFeatureDeleteResult
-    | ProblemDetail
-]:
+) -> Response[Any | ProblemDetail]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -115,16 +102,15 @@ def sync_detailed(
     gid: int,
     *,
     client: AuthenticatedClient,
-) -> Response[
-    DeleteSingleFeatureDatasetsDatasetIdFeaturesGidDeleteFeatureDeleteResult
-    | ProblemDetail
-]:
+) -> Response[Any | ProblemDetail]:
     """Delete Single Feature
 
      Delete a feature by gid (hard delete).
 
-    Returns the dataset's tile_cache_version after the delete committed
-    (see GeoJSONFeatureWrite's field of the same name).
+    The X-GeoLens-Tile-Cache-Version response header carries the dataset's
+    tile_cache_version after the delete committed; a 204 response has no
+    body to carry it in, unlike the other three write endpoints'
+    GeoJSONFeatureWrite responses.
 
     Args:
         dataset_id (UUID):
@@ -135,7 +121,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[DeleteSingleFeatureDatasetsDatasetIdFeaturesGidDeleteFeatureDeleteResult | ProblemDetail]
+        Response[Any | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -155,17 +141,15 @@ def sync(
     gid: int,
     *,
     client: AuthenticatedClient,
-) -> (
-    DeleteSingleFeatureDatasetsDatasetIdFeaturesGidDeleteFeatureDeleteResult
-    | ProblemDetail
-    | None
-):
+) -> Any | ProblemDetail | None:
     """Delete Single Feature
 
      Delete a feature by gid (hard delete).
 
-    Returns the dataset's tile_cache_version after the delete committed
-    (see GeoJSONFeatureWrite's field of the same name).
+    The X-GeoLens-Tile-Cache-Version response header carries the dataset's
+    tile_cache_version after the delete committed; a 204 response has no
+    body to carry it in, unlike the other three write endpoints'
+    GeoJSONFeatureWrite responses.
 
     Args:
         dataset_id (UUID):
@@ -176,7 +160,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        DeleteSingleFeatureDatasetsDatasetIdFeaturesGidDeleteFeatureDeleteResult | ProblemDetail
+        Any | ProblemDetail
     """
 
     return sync_detailed(
@@ -191,16 +175,15 @@ async def asyncio_detailed(
     gid: int,
     *,
     client: AuthenticatedClient,
-) -> Response[
-    DeleteSingleFeatureDatasetsDatasetIdFeaturesGidDeleteFeatureDeleteResult
-    | ProblemDetail
-]:
+) -> Response[Any | ProblemDetail]:
     """Delete Single Feature
 
      Delete a feature by gid (hard delete).
 
-    Returns the dataset's tile_cache_version after the delete committed
-    (see GeoJSONFeatureWrite's field of the same name).
+    The X-GeoLens-Tile-Cache-Version response header carries the dataset's
+    tile_cache_version after the delete committed; a 204 response has no
+    body to carry it in, unlike the other three write endpoints'
+    GeoJSONFeatureWrite responses.
 
     Args:
         dataset_id (UUID):
@@ -211,7 +194,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[DeleteSingleFeatureDatasetsDatasetIdFeaturesGidDeleteFeatureDeleteResult | ProblemDetail]
+        Response[Any | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -229,17 +212,15 @@ async def asyncio(
     gid: int,
     *,
     client: AuthenticatedClient,
-) -> (
-    DeleteSingleFeatureDatasetsDatasetIdFeaturesGidDeleteFeatureDeleteResult
-    | ProblemDetail
-    | None
-):
+) -> Any | ProblemDetail | None:
     """Delete Single Feature
 
      Delete a feature by gid (hard delete).
 
-    Returns the dataset's tile_cache_version after the delete committed
-    (see GeoJSONFeatureWrite's field of the same name).
+    The X-GeoLens-Tile-Cache-Version response header carries the dataset's
+    tile_cache_version after the delete committed; a 204 response has no
+    body to carry it in, unlike the other three write endpoints'
+    GeoJSONFeatureWrite responses.
 
     Args:
         dataset_id (UUID):
@@ -250,7 +231,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        DeleteSingleFeatureDatasetsDatasetIdFeaturesGidDeleteFeatureDeleteResult | ProblemDetail
+        Any | ProblemDetail
     """
 
     return (

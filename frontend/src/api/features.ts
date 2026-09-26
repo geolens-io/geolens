@@ -1,5 +1,8 @@
 import type { Geometry } from 'geojson';
-import { apiFetch } from './client';
+import { apiFetch, apiFetchHeader } from './client';
+
+/** Must match TILE_CACHE_VERSION_HEADER in backend/app/modules/catalog/features/schemas.py. */
+const TILE_CACHE_VERSION_HEADER = 'X-GeoLens-Tile-Cache-Version';
 
 export interface GeoJSONFeature {
   type: 'Feature';
@@ -19,7 +22,11 @@ export interface GeoJSONFeatureWrite extends GeoJSONFeature {
   tile_cache_version?: number | null;
 }
 
-/** Acknowledgement for a deleted feature; see GeoJSONFeatureWrite's field of the same name. */
+/**
+ * Acknowledgement for a deleted feature; see GeoJSONFeatureWrite's field of
+ * the same name. The delete endpoint stays 204 (compatibility with existing
+ * callers), so this rides a response header rather than a JSON body.
+ */
 export interface FeatureDeleteResult {
   tile_cache_version?: number | null;
 }
@@ -61,7 +68,13 @@ export async function deleteFeature(
   datasetId: string,
   gid: number,
 ): Promise<FeatureDeleteResult> {
-  return apiFetch<FeatureDeleteResult>(`/datasets/${datasetId}/features/${gid}`, {
-    method: 'DELETE',
-  });
+  const version = await apiFetchHeader(
+    `/datasets/${datasetId}/features/${gid}`,
+    TILE_CACHE_VERSION_HEADER,
+    { method: 'DELETE' },
+  );
+  // A server that predates this header (or an unparseable value) leaves
+  // tile_cache_version null; the caller falls back to a timestamp.
+  const parsed = version != null ? Number(version) : NaN;
+  return { tile_cache_version: Number.isFinite(parsed) ? parsed : null };
 }

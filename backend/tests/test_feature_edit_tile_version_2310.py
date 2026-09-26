@@ -8,9 +8,11 @@ cache (``_dataset_cache``) and its own tile-bytes cache, so a write handled
 by one worker never reaches another's. Only a request whose ``_v`` names a
 newer state forces that other worker to re-read the row.
 
-Every feature mutation response now returns the dataset's ``tile_cache_version``
-after its write committed, so the editor's post-edit tile reload can send a
-spelling the routes actually recognise.
+Every feature mutation response now carries the dataset's
+``tile_cache_version`` after its write committed -- create, replace and
+patch in the JSON body, delete on the ``X-GeoLens-Tile-Cache-Version``
+header since a 204 has no body -- so the editor's post-edit tile reload can
+send a spelling the routes actually recognise.
 """
 
 import uuid
@@ -21,6 +23,7 @@ from cachetools import LRUCache
 from httpx import AsyncClient
 from sqlalchemy import text
 
+from app.modules.catalog.features.schemas import TILE_CACHE_VERSION_HEADER
 from app.platform.cache.tile_cache import InMemoryTileCacheProvider
 from app.processing.tiles import router as tile_router
 
@@ -78,9 +81,10 @@ async def test_each_mutation_response_carries_the_version_the_tile_route_will_se
 ):
     """Create, replace, patch and delete each return the row's post-commit version.
 
-    A real DB round trip for every one of the four responses: the value in
-    the JSON body must match what a fresh read of the dataset row shows
-    immediately after the same request committed.
+    A real DB round trip for every one of the four responses: the value
+    (create/replace/patch in the JSON body, delete on a response header
+    since its 204 has no body) must match what a fresh read of the dataset
+    row shows immediately after the same request committed.
     """
     dataset = await _seed_point_dataset(test_db_session)
     try:
@@ -119,8 +123,9 @@ async def test_each_mutation_response_carries_the_version_the_tile_route_will_se
             f"/datasets/{dataset.id}/features/{gid}",
             headers=admin_auth_header,
         )
-        assert delete_resp.status_code == 200, delete_resp.text
-        assert delete_resp.json()["tile_cache_version"] == (
+        assert delete_resp.status_code == 204, delete_resp.text
+        delete_version = int(delete_resp.headers[TILE_CACHE_VERSION_HEADER])
+        assert delete_version == (
             await _row_tile_cache_version(test_db_session, dataset.id)
         )
 
@@ -131,7 +136,7 @@ async def test_each_mutation_response_carries_the_version_the_tile_route_will_se
             create_resp.json()["tile_cache_version"],
             put_resp.json()["tile_cache_version"],
             patch_resp.json()["tile_cache_version"],
-            delete_resp.json()["tile_cache_version"],
+            delete_version,
         ]
         assert versions == list(range(versions[0], versions[0] + 4))
     finally:

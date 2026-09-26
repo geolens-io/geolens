@@ -261,7 +261,7 @@ async def test_a_delete_from_a_created_layer_still_recomputes(
         f"/datasets/{created_dataset.id}/features/{gid}", headers=admin_auth_header
     )
 
-    assert resp.status_code == 200, resp.text
+    assert resp.status_code == 204, resp.text
     assert aggregate_calls == [created_dataset.table_name]
 
 
@@ -287,7 +287,7 @@ async def test_deleting_an_interior_row_runs_no_aggregate(
         f"/datasets/{sketch_dataset.id}/features/{gid}", headers=admin_auth_header
     )
 
-    assert resp.status_code == 200, resp.text
+    assert resp.status_code == 204, resp.text
     assert aggregate_calls == []
     after_count, after_extent = await _state(test_db_session, sketch_dataset)
     assert after_count == before_count - 1
@@ -316,7 +316,7 @@ async def test_deleting_a_corner_row_shrinks_the_extent(
         f"/datasets/{sketch_dataset.id}/features/{gid}", headers=admin_auth_header
     )
 
-    assert resp.status_code == 200, resp.text
+    assert resp.status_code == 204, resp.text
     assert aggregate_calls == [sketch_dataset.table_name]
     _after_count, after_extent = await _state(test_db_session, sketch_dataset)
     assert after_extent != before_extent

@@ -1263,4 +1263,30 @@ describe('useFeatureEditing — tile reload carries the mutation response tile_c
 
     expect(setTiles.mock.calls[0][0][0]).toMatch(/\/tiles\/parcels\/.*cb=\d+$/);
   });
+
+  // The delete endpoint stays 204: its committed version rides a response
+  // header, read by deleteFeature() in api/features.ts. Here that surfaces
+  // as mutateAsync resolving to `undefined` outright (a bare 204, older
+  // server or a header the client didn't get) rather than an object with a
+  // null field — the hook must fall back cleanly, not crash reading a
+  // property off undefined and report a successful delete as failed.
+  it('falls back to a timestamp, without throwing, when a delete resolves with no result at all (bare 204)', async () => {
+    useDrawingStore.setState({ selectedFeature: { gid: 7, tdId: 'td-7', properties: {} } });
+    deleteMutateAsync.mockResolvedValueOnce(undefined);
+    // Mocks are not auto-cleared between tests in this file; other describes
+    // legitimately call toast.error/toast.success for their own cases.
+    vi.mocked(toast.error).mockClear();
+    vi.mocked(toast.success).mockClear();
+    const setTiles = vi.fn();
+    const map = makeMapWithVectorSource(setTiles);
+    const { result } = renderEditing(map);
+
+    await act(async () => {
+      await result.current.handleDeleteFeature();
+    });
+
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(toast.success).toHaveBeenCalledWith('map.featureDeleted');
+    expect(setTiles.mock.calls[0][0][0]).toMatch(/\/tiles\/parcels\/.*cb=\d+$/);
+  });
 });

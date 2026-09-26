@@ -11,6 +11,7 @@ from fastapi import (
     HTTPException,
     Query,
     Request,
+    Response,
     status,
 )
 from fastapi.responses import JSONResponse
@@ -48,8 +49,9 @@ from app.modules.catalog.datasets.domain.service import get_dataset
 from app.modules.embed_tokens.service import validate_embed_token_access
 from app.core.dependencies import get_db
 from app.modules.catalog.features.schemas import (
+    TILE_CACHE_VERSION_DESCRIPTION,
+    TILE_CACHE_VERSION_HEADER,
     FeatureCreate,
-    FeatureDeleteResult,
     FeatureReplace,
     FeatureUpdate,
     GeoJSONFeature,
@@ -878,12 +880,16 @@ async def patch_single_feature(
 
 @features_router.delete(
     "/{dataset_id}/features/{gid}",
-    response_class=JSONResponse,
+    status_code=status.HTTP_204_NO_CONTENT,
     responses={
-        200: {
-            "content": {
-                "application/json": {"schema": inline_json_schema(FeatureDeleteResult)}
-            }
+        204: {
+            "description": "Feature deleted.",
+            "headers": {
+                TILE_CACHE_VERSION_HEADER: {
+                    "description": TILE_CACHE_VERSION_DESCRIPTION,
+                    "schema": {"type": "integer"},
+                },
+            },
         },
         **ERROR_RESPONSES_WRITE,
     },
@@ -893,11 +899,13 @@ async def delete_single_feature(
     gid: int,
     user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
-) -> JSONResponse:
+) -> Response:
     """Delete a feature by gid (hard delete).
 
-    Returns the dataset's tile_cache_version after the delete committed
-    (see GeoJSONFeatureWrite's field of the same name).
+    The X-GeoLens-Tile-Cache-Version response header carries the dataset's
+    tile_cache_version after the delete committed; a 204 response has no
+    body to carry it in, unlike the other three write endpoints'
+    GeoJSONFeatureWrite responses.
     """
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
@@ -962,8 +970,9 @@ async def delete_single_feature(
         user_id=str(user.id),
     )
 
-    return JSONResponse(
-        content=FeatureDeleteResult(tile_cache_version=tile_version).model_dump(
-            mode="json"
-        ),
+    headers = (
+        {TILE_CACHE_VERSION_HEADER: str(tile_version)}
+        if tile_version is not None
+        else None
     )
+    return Response(status_code=status.HTTP_204_NO_CONTENT, headers=headers)

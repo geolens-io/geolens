@@ -36790,7 +36790,7 @@
     },
     "/datasets/{dataset_id}/features/{gid}": {
       "delete": {
-        "description": "Delete a feature by gid (hard delete).\n\nReturns the dataset's tile_cache_version after the delete committed\n(see GeoJSONFeatureWrite's field of the same name).",
+        "description": "Delete a feature by gid (hard delete).\n\nThe X-GeoLens-Tile-Cache-Version response header carries the dataset's\ntile_cache_version after the delete committed; a 204 response has no\nbody to carry it in, unlike the other three write endpoints'\nGeoJSONFeatureWrite responses.",
         "operationId": "delete_single_feature_datasets__dataset_id__features__gid__delete",
         "parameters": [
           {
@@ -36814,31 +36814,16 @@
           }
         ],
         "responses": {
-          "200": {
-            "content": {
-              "application/json": {
+          "204": {
+            "description": "Feature deleted.",
+            "headers": {
+              "X-GeoLens-Tile-Cache-Version": {
+                "description": "The dataset's tile_cache_version after this write committed. Send it as the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is forced to re-read the dataset instead of serving that worker's own cached snapshot.",
                 "schema": {
-                  "description": "Acknowledgement for a deleted feature.",
-                  "properties": {
-                    "tile_cache_version": {
-                      "anyOf": [
-                        {
-                          "type": "integer"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "description": "The dataset's tile_cache_version after this write committed. Send it as the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is forced to re-read the dataset instead of serving that worker's own cached snapshot.",
-                      "title": "Tile Cache Version"
-                    }
-                  },
-                  "title": "FeatureDeleteResult",
-                  "type": "object"
+                  "type": "integer"
                 }
               }
-            },
-            "description": "Successful Response"
+            }
           },
           "400": {
             "content": {

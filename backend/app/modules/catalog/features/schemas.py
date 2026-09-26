@@ -184,27 +184,24 @@ class GeoJSONFeature(BaseModel):
 # tile_cache_version or a record updated_at timestamp; a write's response
 # carries the version so its caller's next tile reload can use one of those
 # spellings instead of a client timestamp the routes would otherwise ignore.
-_TILE_CACHE_VERSION_DESCRIPTION = (
+TILE_CACHE_VERSION_DESCRIPTION = (
     "The dataset's tile_cache_version after this write committed. Send it "
     "as the tile routes' `_v` query parameter when reloading tiles, so a "
     "request that reaches a different API worker is forced to re-read the "
     "dataset instead of serving that worker's own cached snapshot."
 )
 
+# A 204 response has no body to put the field above in, so the delete
+# endpoint (the one write that stays 204, for compatibility with existing
+# callers) carries the same value on this response header instead.
+TILE_CACHE_VERSION_HEADER = "X-GeoLens-Tile-Cache-Version"
+
 
 class GeoJSONFeatureWrite(GeoJSONFeature):
     """A written GeoJSON Feature, plus the dataset's committed tile version."""
 
     tile_cache_version: int | None = Field(
-        default=None, description=_TILE_CACHE_VERSION_DESCRIPTION
-    )
-
-
-class FeatureDeleteResult(BaseModel):
-    """Acknowledgement for a deleted feature."""
-
-    tile_cache_version: int | None = Field(
-        default=None, description=_TILE_CACHE_VERSION_DESCRIPTION
+        default=None, description=TILE_CACHE_VERSION_DESCRIPTION
     )
 
 

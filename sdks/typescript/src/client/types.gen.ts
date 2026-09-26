@@ -18802,18 +18802,9 @@ export type DeleteSingleFeatureDatasetsDatasetIdFeaturesGidDeleteError = DeleteS
 
 export type DeleteSingleFeatureDatasetsDatasetIdFeaturesGidDeleteResponses = {
     /**
-     * FeatureDeleteResult
-     *
-     * Acknowledgement for a deleted feature.
+     * Feature deleted.
      */
-    200: {
-        /**
-         * Tile Cache Version
-         *
-         * The dataset's tile_cache_version after this write committed. Send it as the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is forced to re-read the dataset instead of serving that worker's own cached snapshot.
-         */
-        tile_cache_version?: number | null;
-    };
+    204: void;
 };
 
 export type DeleteSingleFeatureDatasetsDatasetIdFeaturesGidDeleteResponse = DeleteSingleFeatureDatasetsDatasetIdFeaturesGidDeleteResponses[keyof DeleteSingleFeatureDatasetsDatasetIdFeaturesGidDeleteResponses];

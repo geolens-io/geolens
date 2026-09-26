@@ -380,7 +380,9 @@ export function useFeatureEditing({
       if (isSelectionStale(epoch, targetDatasetId, sf, generation, drawingGenerationRef.current)) return;
       toast.success(t('map.featureDeleted'));
       try { removeFeatures([sf.tdId]); } catch { /* already removed */ }
-      reloadTiles(deleted.tile_cache_version);
+      // Optional: an older server's delete has no body at all (a bare 204),
+      // so `deleted` itself, not just its field, can be undefined here.
+      reloadTiles(deleted?.tile_cache_version);
       const map = mapRef.current;
       if (map) showAllFeaturesInTiles(map);
       clearSelectedFeature();
