@@ -1106,7 +1106,7 @@ async def test_visibility_changes_apply_on_the_next_read(
 async def test_a_deleted_point_cloud_is_404_on_the_next_read(
     client: AsyncClient, admin_auth_header: dict, make_pointcloud, storage
 ) -> None:
-    """Right after its dataset is deleted, the file's URL answers 404."""
+    """Right after its dataset is deleted, the file's URL answers 404 before any storage read."""
     dataset_id, attempt = await _published(make_pointcloud, storage)
     url = _url(dataset_id, attempt)
     assert (await client.get(url)).status_code == 200
@@ -1120,8 +1120,11 @@ async def test_a_deleted_point_cloud_is_404_on_the_next_read(
             headers=admin_auth_header,
         )
     assert deleted.status_code == 204, deleted.text
+    # Delete also reaps the file, so a read that got past access would 404 too.
+    storage.read.clear()
 
     assert (await client.get(url)).status_code == 404
+    assert storage.read == []
 
 
 async def test_a_replaced_file_stops_serving_at_once(
