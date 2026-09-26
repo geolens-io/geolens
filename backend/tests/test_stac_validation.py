@@ -15,6 +15,7 @@ from app.standards.stac.serializer import (
 )
 
 STAC_API_URL = "http://localhost:8080/api/stac"
+_BAND_INFO = [{"index": 1, "dtype": "uint16", "color_interp": "Gray"}]
 
 
 def _make_ogc_record(
@@ -143,7 +144,9 @@ class TestPystacRoundtrip:
     def test_item_roundtrip_with_extensions(self):
         """stac_extensions array survives PySTAC roundtrip."""
         ogc = _make_ogc_record(has_stac_extensions=True)
-        stac_item = ogc_record_to_stac_item(ogc, stac_api_url=STAC_API_URL)
+        stac_item = ogc_record_to_stac_item(
+            ogc, stac_api_url=STAC_API_URL, band_info=_BAND_INFO
+        )
 
         item = pystac.Item.from_dict(stac_item)
         roundtripped = item.to_dict(include_self_link=False, transform_hrefs=False)
@@ -159,6 +162,7 @@ class TestPystacRoundtrip:
             ogc,
             collection_id="collection-1",
             stac_api_url=STAC_API_URL,
+            band_info=_BAND_INFO,
         )
 
         validated_schemas = validate_dict(stac_item, stac_version="1.0.0")
