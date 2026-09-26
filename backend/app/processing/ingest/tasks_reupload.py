@@ -57,6 +57,7 @@ from app.processing.ingest.tasks_common import (
 from app.processing.ingest.tasks_staging import (
     StagingResult,
     _archive_original_file,
+    original_archive_key,
     reap_downloaded_staging_source,
     reap_presigned_staging_object,
     _run_staging_pipeline,
@@ -364,6 +365,10 @@ class _FileReupload:
             schema_diff=schema_diff,
             contacted_origin=False,
             live_table=dataset.table_name,
+            reaps_staged_upload=True,
+            upload_archive_key=original_archive_key(
+                dataset.id, self.file_path, self._archive_name()
+            ),
         )
 
     def classify(self, exc: BaseException) -> Failure:
@@ -387,7 +392,8 @@ class _FileReupload:
         # A cancelled archive must not skip the cleanup after it.
         try:
             # The archive key is named after the file, so after an unconfirmed
-            # publish it could overwrite the original of the version still live.
+            # publish it could overwrite the original of the version still live;
+            # the follow-ups archive it once the publish is visible.
             if publication is not None and publication.confirmed:
                 async with cleanup_step("reupload_file archive", job_id=self.job_id):
                     await self._archive()
@@ -402,8 +408,8 @@ class _FileReupload:
 
     async def _clean_up(self, final_status: str) -> None:
         # A publish seen only through the probe is "pending", which keeps the
-        # upload. The local file goes on success, and on failure only when it
-        # was a download (storage holds the source) or an unsafe upload.
+        # upload for the follow-ups. The local file goes on success, and on
+        # failure only when it was a download or an unsafe upload.
         async with cleanup_step("reupload_file local file", job_id=self.job_id):
             if (
                 final_status == "complete"
@@ -430,6 +436,13 @@ class _FileReupload:
                 self.job_id, self.owned_staging_key, final_status=final_status
             )
 
+    def _archive_name(self) -> str:
+        # The job id makes the key this upload's alone, so an object already
+        # there is its archive and never another version's.
+        from app.processing.ingest.service import safe_upload_basename
+
+        return f"{self.job_id}_{safe_upload_basename(self.source_filename)}"
+
     async def _archive(self) -> None:
         from app.core.db import async_session
         from app.platform.jobs.models import IngestJob
@@ -443,6 +456,7 @@ class _FileReupload:
                     dataset_id=self.dataset_uuid,
                     file_path=self.file_path,
                     log_message="Failed to archive re-uploaded file to storage",
+                    archive_name=self._archive_name(),
                 )
 
 

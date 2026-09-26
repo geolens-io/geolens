@@ -2565,7 +2565,7 @@ class TestArchiveRunsAfterTheSwapCommit:
             put_side_effect=_recording_put,
         )
 
-        assert put_calls == [f"originals/{dataset.id}/update.geojson"]
+        assert put_calls == [f"originals/{dataset.id}/{job.id}_update.geojson"]
         await test_db_session.refresh(job)
         assert job.status == "complete"
         assert "archive_failed" not in (job.user_metadata or {})
