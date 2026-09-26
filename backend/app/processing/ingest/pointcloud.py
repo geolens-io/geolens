@@ -289,6 +289,11 @@ def _check_laszip(data: bytes, header: _Header) -> int:
         or sum(size for _, size in items) != header.record_length
     ):
         raise _invalid("The file's LASzip record is damaged.", reason="laszip")
+    # Writers put every extra byte in one item; lazrs decodes each item per point.
+    if len(extra) > 1 or any(size == 0 for _, size in extra):
+        raise _invalid(
+            "The file's LASzip record is damaged.", reason="laszip_extra_items"
+        )
     extra_bytes = sum(size for _, size in extra)
     if extra_bytes > MAX_EXTRA_BYTES:
         raise _invalid(

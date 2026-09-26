@@ -449,6 +449,31 @@ async def test_nodes_whose_points_overlap_are_refused_before_lazrs(
     )
 
 
+def _byte14_items(*sizes: int):
+    """A LASzip record rewrite that lists the extra bytes as one BYTE14 item per size."""
+
+    def rewrite(record: bytes) -> bytes:
+        items = [record[34:40], *(struct.pack("<HHH", 14, size, 3) for size in sizes)]
+        return record[:32] + struct.pack("<H", len(items)) + b"".join(items)
+
+    return rewrite
+
+
+@pytest.mark.parametrize(
+    ("extra_bytes", "sizes"),
+    [(0, (0,) * 64), (8, (4, 4))],
+    ids=["empty-items", "split-extra-bytes"],
+)
+def test_extra_bytes_outside_one_item_are_refused_before_lazrs(
+    tmp_path, monkeypatch, extra_bytes, sizes
+) -> None:
+    """lazrs decodes every item for each point, so extra bytes form one non-empty item."""
+    data = copc(extra_bytes=extra_bytes, laszip=_byte14_items(*sizes))
+    calls = _lazrs_calls(monkeypatch)
+
+    assert (refused(tmp_path, data).code, calls) == ("pointcloud_invalid", [])
+
+
 def test_extra_bytes_within_the_bound_decode(tmp_path) -> None:
     """Points that carry extra bytes pass the LASzip and chunk checks."""
     cloud = inspect_pointcloud(write(tmp_path, copc(extra_bytes=8)))
