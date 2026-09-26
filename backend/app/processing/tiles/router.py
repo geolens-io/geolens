@@ -2311,11 +2311,11 @@ async def cluster_tile_endpoint(
 
     A tile holding no features answers 204, and a repeat request whose
     ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
-    a dataset still being restored answers 202 with a job id to poll. Three
-    cases answer 429 with ``Retry-After``: waiting past the tile pool's
-    connection budget, a tile query that outruns the pool's per-command
-    timeout, and exceeding a configured per-tenant concurrency limit. Any other
-    failure serving the tile answers 503.
+    a dataset still being restored answers 202 with a job id to poll. Requests
+    answer 429 with ``Retry-After`` when the per-process capacity for uncached
+    renders is full, tile-pool acquisition times out, a tile query exceeds the
+    pool's per-command timeout, or the configured per-tenant concurrency limit
+    is exceeded. Any other failure serving the tile answers 503.
     """
     table_name = _parse_vector_tile_table(table_path)
     _validate_tile_coordinates(z, x, y)
@@ -2503,11 +2503,11 @@ async def tile_endpoint(
     A malformed table path or an out-of-range tile coordinate answers 400. A
     tile holding no features answers 204, and a repeat request whose
     ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
-    a dataset still being restored answers 202 with a job id to poll. Three
-    cases answer 429 with ``Retry-After``: waiting past the tile pool's
-    connection budget, a tile query that outruns the pool's per-command
-    timeout, and exceeding a configured per-tenant concurrency limit. Any other
-    failure serving the tile answers 503.
+    a dataset still being restored answers 202 with a job id to poll. Requests
+    answer 429 with ``Retry-After`` when the per-process capacity for uncached
+    renders is full, tile-pool acquisition times out, a tile query exceeds the
+    pool's per-command timeout, or the configured per-tenant concurrency limit
+    is exceeded. Any other failure serving the tile answers 503.
     """
     table_name = _parse_vector_tile_table(table_path)
     _validate_tile_coordinates(z, x, y)
