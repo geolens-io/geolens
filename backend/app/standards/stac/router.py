@@ -346,6 +346,7 @@ async def _dataset_to_stac_item(
         crs_metres_per_unit=(raster_meta or {}).get("crs_metres_per_unit"),
         band_info=(raster_meta or {}).get("band_info"),
         dtype=(raster_meta or {}).get("dtype"),
+        nodata=(raster_meta or {}).get("nodata"),
     )
 
 

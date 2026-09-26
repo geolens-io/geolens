@@ -33,6 +33,12 @@ class TestBandInfoShapes:
             }
         ]
 
+    def test_a_bands_own_nodata_wins_over_the_rasters(self) -> None:
+        bands = _stac_bands(
+            [{"dtype": "uint8", "nodata": None}, {"dtype": "uint8"}], nodata="0"
+        )
+        assert bands == [{"data_type": "uint8"}, {"data_type": "uint8", "nodata": 0.0}]
+
     def test_a_band_with_no_field_is_left_out(self) -> None:
         assert _stac_bands([{"min": None, "max": None}, {"dtype": "uint8"}]) == [
             {"data_type": "uint8"}
@@ -95,7 +101,9 @@ def _ogc_bands(band_info: list[dict]) -> list[dict]:
     return _ogc_record(band_info)["properties"].get("raster:bands", [])
 
 
-def _stac_bands(band_info: list[dict], dtype: str | None = None) -> list[dict]:
+def _stac_bands(
+    band_info: list[dict], dtype: str | None = None, nodata: str | None = None
+) -> list[dict]:
     from app.standards.stac.serializer import ogc_record_to_stac_item
 
     item = ogc_record_to_stac_item(
@@ -103,5 +111,6 @@ def _stac_bands(band_info: list[dict], dtype: str | None = None) -> list[dict]:
         stac_api_url="https://example.test/stac",
         band_info=band_info,
         dtype=dtype,
+        nodata=nodata,
     )
     return item["properties"].get("raster:bands", [])

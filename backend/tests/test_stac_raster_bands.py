@@ -75,6 +75,24 @@ async def test_a_remote_cogs_bands_carry_their_statistics_and_data_type(
         ]
 
 
+async def test_a_remote_cogs_bands_take_the_rasters_nodata(
+    client, admin_auth_header, test_db_session
+):
+    # fetch_cog_info keeps the nodata on the raster, not on its bands.
+    band_info = [{"min": 0, "max": 255, "mean": 12.5 + band} for band in range(3)]
+    dataset_id = await _raster(test_db_session, band_info, "0", dtype="uint8")
+
+    for bands in await _published_bands(client, admin_auth_header, dataset_id):
+        assert bands == [
+            {
+                "data_type": "uint8",
+                "nodata": 0.0,
+                "statistics": {"minimum": 0, "maximum": 255, "mean": 12.5 + band},
+            }
+            for band in range(3)
+        ]
+
+
 @pytest.mark.parametrize(
     ("stored", "published"), [("0.0", 0.0), ("nan", "nan")], ids=["number", "nan"]
 )
