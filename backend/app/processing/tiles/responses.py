@@ -34,14 +34,17 @@ def _serving_tile_headers(
 
     Signed, embed-token, and unpublished preview tiles resolve to ``private``.
     A serving extension must never turn those into publicly cacheable CDN
-    responses. Public tiles may use the provider's CDN-specific TTL.
+    responses. Public tiles may use the provider's CDN-specific TTL. A
+    ``no-store`` scope is sent as a bare ``no-store`` and takes no TTL.
     """
     headers = (
         _empty_tile_headers(cache_scope, cache_ttl)
         if empty
         else _tile_headers(cache_scope, cache_ttl)
     )
-    if cache_scope == "public" and cache_control_override is not None:
+    if cache_scope == "no-store":
+        headers["Cache-Control"] = "no-store"
+    elif cache_scope == "public" and cache_control_override is not None:
         headers["Cache-Control"] = cache_control_override
     return headers
 

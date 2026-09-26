@@ -1833,12 +1833,17 @@ async def _assert_dataset_still_registered(
 def _demote_prewarmed_cache_scope(
     request: Request, meta: _DatasetMeta, cache_scope: str
 ) -> str:
-    """Refuse the shared cache to a request whose ``pv`` names another row state.
+    """Narrow the cache scope to what the request's own version params allow.
 
-    fix(#2007): the emitted vector template carries the publication version, so
-    a caller supplying the counter an unpublish is about to make current would
-    otherwise fill that key with bytes from before the transition.
+    A ``_v`` still newer than the snapshot serving the request means these
+    bytes can predate a state the page has already read, so no cache may keep
+    them under that URL. The emitted vector template also carries the
+    publication version, and a caller supplying the counter an unpublish is
+    about to make current would otherwise fill that shared-cache key with
+    bytes from before the transition.
     """
+    if _client_saw_newer_state(request.query_params.get(_CLIENT_STATE_PARAM), meta):
+        return "no-store"
     if cache_scope == "public" and _cache_key_version_mismatch(
         _cache_key_arg_values(request, TILE_PUBLICATION_VERSION_PARAM),
         meta.publication_version,

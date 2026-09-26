@@ -9,6 +9,8 @@ reading the old entries once it re-reads the dataset row.
 
 A page that has already read the new state says so in ``_v``, and the API
 re-reads the row for it at once instead of when its 60 s snapshot expires.
+A tile served from a snapshot older than that ``_v`` is sent ``no-store``, so
+no cache keeps it under the page's URL.
 """
 
 import asyncio
@@ -20,11 +22,13 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import text
+from starlette.requests import Request
 
 from app.platform.cache import provider as cache_provider
 from app.platform.cache.tile_cache import InMemoryTileCacheProvider
 from app.platform.jobs.models import IngestJob
 from app.processing.tiles import router as tile_router
+from app.processing.tiles.responses import _serving_tile_headers
 from app.processing.tiles.router import _generation_table_key
 
 from tests.factories import create_dataset, get_user_id
@@ -460,6 +464,100 @@ async def test_concurrent_requests_for_an_unreached_version_share_one_re_read(
         assert len(queries) == 1
     finally:
         tile_router._evict_dataset_meta(table)
+
+
+_CDN_POLICY = "public, max-age=60, s-maxage=86400"
+
+
+class _CdnServing:
+    """A hosted serving extension whose only policy is its CDN Cache-Control."""
+
+    def get_tile_concurrency_limiter(self, tenant_id: str) -> None:
+        return None
+
+    def get_tile_cache_control(self) -> str:
+        return _CDN_POLICY
+
+
+def _request(query: str) -> Request:
+    return Request({"type": "http", "query_string": query.encode(), "headers": []})
+
+
+@pytest.mark.parametrize(
+    "query,scope,expected",
+    [
+        ("_v=4", "public", "no-store"),
+        ("_v=4", "private", "no-store"),
+        ("_v=2026-09-25T12:00:01Z", "public", "no-store"),
+        ("_v=3", "public", "public"),
+        ("_v=2", "private", "private"),
+        ("", "public", "public"),
+        ("", "private", "private"),
+        ("pv=1", "public", "private"),
+    ],
+)
+def test_only_a_v_newer_than_the_snapshot_forbids_caching(query, scope, expected):
+    demoted = tile_router._demote_prewarmed_cache_scope(
+        _request(query), _snapshot(), scope
+    )
+    assert demoted == expected
+
+
+@pytest.mark.parametrize("empty", [False, True])
+def test_a_no_store_scope_is_sent_bare_and_skips_the_cdn_policy(empty):
+    headers = _serving_tile_headers("no-store", 300, _CDN_POLICY, empty=empty)
+    assert headers["Cache-Control"] == "no-store"
+
+
+@pytest.mark.usefixtures("_init_tile_pool_for_tests")
+@pytest.mark.parametrize("route", TILE_ROUTES)
+async def test_a_tile_older_than_the_page_is_not_cached_under_its_url(
+    client: AsyncClient, test_db_session, tmp_path, monkeypatch, route: str
+):
+    import app.platform.extensions as ext_mod
+    from app.modules.catalog.datasets.domain.models import Dataset
+    from app.platform.catalog_locks import bump_tile_cache_version_atomic
+
+    monkeypatch.setitem(ext_mod._extensions, "data_serving", _CdnServing())
+    # Long enough that no request below can outlive the claim by accident.
+    monkeypatch.setattr(tile_router, "_FORCED_REREAD_INTERVAL", 3600.0)
+    _, dataset, _ = await _seed(test_db_session, tmp_path)
+    table = dataset.table_name
+    url = route.format(table=table)
+    try:
+        with patch.object(
+            tile_router, "get_tile_cache", return_value=InMemoryTileCacheProvider()
+        ):
+            current = await client.get(url, params={"_v": "1"})
+            ahead_of_row = await client.get(url, params={"_v": "2"})
+
+            await bump_tile_cache_version_atomic(
+                test_db_session, dataset_cls=Dataset, dataset_id=dataset.id
+            )
+            await test_db_session.commit()
+            in_claim_window = await client.get(url, params={"_v": "2"})
+
+            _age_forced_reread(table)
+            caught_up = await client.get(url, params={"_v": "2"})
+            unversioned = await client.get(url)
+            older = await client.get(url, params={"_v": "1"})
+
+        for resp in (
+            current,
+            ahead_of_row,
+            in_claim_window,
+            caught_up,
+            unversioned,
+            older,
+        ):
+            assert resp.status_code == 200, resp.text
+        assert ahead_of_row.headers["cache-control"] == "no-store"
+        assert in_claim_window.headers["cache-control"] == "no-store"
+        for resp in (current, caught_up, unversioned, older):
+            assert resp.headers["cache-control"] == _CDN_POLICY
+    finally:
+        tile_router._evict_dataset_meta(table)
+        await _drop_table(test_db_session, table)
 
 
 def test_the_content_version_is_its_own_key_after_the_table_segment():
