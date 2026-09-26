@@ -1584,14 +1584,27 @@ class TestStacImportProbedCrs:
         )
         assert stored == 0
 
+    @pytest.mark.parametrize(
+        "crs",
+        [
+            "http://www.opengis.net/def/crs/OGC/0/CRS84",
+            "http://www.opengis.net/def/crs/OGC/1.3/CRS84",
+        ],
+    )
     async def test_a_crs84_asset_is_stored_as_crs84(
-        self, client, admin_auth_header, mock_stac_ssrf, test_db_session, monkeypatch
+        self,
+        client,
+        admin_auth_header,
+        mock_stac_ssrf,
+        test_db_session,
+        monkeypatch,
+        crs,
     ):
         """Main's CRS84 WKT, longitude first, and no EPSG code on either row."""
-        from tests.test_cog_info import _CRS84_URI, _CRS84_WKT
+        from tests.test_cog_info import _MAIN_CRS84_WKT
 
         data, _href = await self._import(
-            client, admin_auth_header, monkeypatch, crs=_CRS84_URI, epsg=4326
+            client, admin_auth_header, monkeypatch, crs=crs, epsg=4326
         )
 
         assert data["created"] == 1
@@ -1604,5 +1617,5 @@ class TestStacImportProbedCrs:
                 ).bindparams(did=uuid.UUID(data["results"][0]["dataset_id"]))
             )
         ).one()
-        assert row.crs_wkt == _CRS84_WKT
+        assert row.crs_wkt == _MAIN_CRS84_WKT[crs]
         assert (row.epsg, row.srid) == (None, None)

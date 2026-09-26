@@ -183,10 +183,24 @@ class TestGeoreferencing:
 # Valid WKT, as Titiler reports a CRS PROJ cannot match to an authority code.
 _UTM_21N_WKT = rasterio.crs.CRS.from_epsg(32621).to_wkt()
 
-_CRS84_URI = "http://www.opengis.net/def/crs/OGC/1.3/CRS84"
-_CRS84_URN = "urn:ogc:def:crs:OGC:1.3:CRS84"
-# What main published for a CRS84 probe: PROJ's own CRS84, longitude first.
-_CRS84_WKT = rasterio.crs.CRS.from_user_input(_CRS84_URI).to_wkt(version="WKT2_2019")
+# The CRS84 forms a probe may report. The first is what the pinned Titiler
+# sends (rio-tiler writes version 0 for an authority with no version); the
+# rest are the forms parse_crs_uri would otherwise map to EPSG:4326.
+_CRS84_FORMS = [
+    "http://www.opengis.net/def/crs/OGC/0/CRS84",
+    "http://www.opengis.net/def/crs/OGC/1.3/CRS84",
+    "http://www.opengis.net/def/crs/OGC/1.3/CRS84/",
+    "https://www.opengis.net/def/crs/OGC/1.3/CRS84",
+    "https://www.opengis.net/def/crs/OGC/1.3/CRS84/",
+    "urn:ogc:def:crs:OGC:1.3:CRS84",
+]
+_CRS84_URI = _CRS84_FORMS[0]
+# What main stored for each: its own call on the reported string, which gives
+# PROJ's CRS84, longitude first.
+_MAIN_CRS84_WKT = {
+    form: rasterio.crs.CRS.from_user_input(form).to_wkt(version="WKT2_2019")
+    for form in _CRS84_FORMS
+}
 
 
 @pytest.fixture
@@ -262,14 +276,14 @@ class TestAuthorityCrsOnly:
         assert reconcile_epsg(result, 32621) is None
         assert crs_text_parses == []
 
-    @pytest.mark.parametrize("crs", [_CRS84_URI, _CRS84_URN])
+    @pytest.mark.parametrize("crs", _CRS84_FORMS)
     async def test_crs84_stays_crs84(self, monkeypatch, crs_text_parses, crs) -> None:
         """CRS84 is not EPSG:4326: it is longitude first, and has no EPSG code."""
         _install(monkeypatch, {**_TITILER_INFO, "crs": crs})
         result = await fetch_cog_info("https://origin.test/scene.tif")
 
         assert result is not None
-        assert result["crs_wkt"] == _CRS84_WKT
+        assert result["crs_wkt"] == _MAIN_CRS84_WKT[crs]
         assert result["epsg"] is None
         assert "crs_unidentified" not in result
         assert reconcile_epsg(result, 4326) is None

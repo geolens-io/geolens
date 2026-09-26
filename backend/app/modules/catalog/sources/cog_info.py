@@ -12,7 +12,7 @@ import re
 import httpx
 import structlog
 
-from app.core.crs_uri import is_crs84_uri, parse_crs_uri
+from app.core.crs_uri import parse_crs_uri
 from app.core.geo import pixel_size_from_affine
 from app.core.url_redaction import redact_exception_text
 from app.platform.storage.titiler_url import build_titiler_cog_url
@@ -23,8 +23,20 @@ _BARE_EPSG = re.compile(r"^EPSG:(\d{1,9})$")
 
 # OGC:CRS84 is WGS 84 with longitude first, which EPSG:4326 is not, so it has
 # no EPSG code. Its WKT is built from our copy of the URI Titiler reports for
-# it, never from Titiler's text.
-_CRS84_URI = "http://www.opengis.net/def/crs/OGC/1.3/CRS84"
+# it, never from Titiler's text. rio-tiler writes version 0 for an authority
+# with no version, so that is the form Titiler reports. The others are every
+# form parse_crs_uri would otherwise turn into 4326.
+_CRS84_URI = "http://www.opengis.net/def/crs/OGC/0/CRS84"
+_CRS84_REFERENCES = frozenset(
+    {
+        _CRS84_URI,
+        "http://www.opengis.net/def/crs/OGC/1.3/CRS84",
+        "http://www.opengis.net/def/crs/OGC/1.3/CRS84/",
+        "https://www.opengis.net/def/crs/OGC/1.3/CRS84",
+        "https://www.opengis.net/def/crs/OGC/1.3/CRS84/",
+        "urn:ogc:def:crs:OGC:1.3:CRS84",
+    }
+)
 
 
 def _authority_epsg(value: str) -> int | None:
@@ -57,7 +69,7 @@ def _georeferencing(info: dict) -> dict:
     try:
         from rasterio.crs import CRS
 
-        if is_crs84_uri(crs_value):
+        if crs_value in _CRS84_REFERENCES:
             crs84 = CRS.from_user_input(_CRS84_URI)
             return {"crs_wkt": crs84.to_wkt(version="WKT2_2019"), "epsg": None}
         epsg = _authority_epsg(crs_value)

@@ -37,13 +37,6 @@ _RE_EPSG_URN = re.compile(r"^urn:ogc:def:crs:EPSG::(\d+)$")
 _RE_OGC_CRS84_URN = re.compile(r"^urn:ogc:def:crs:OGC:1\.3:CRS84$")
 
 
-def is_crs84_uri(value: str | None) -> bool:
-    """Whether ``value`` is one of the OGC CRS84 URI or URN forms above."""
-    return bool(
-        value and (_RE_OGC_CRS84_HTTP.match(value) or _RE_OGC_CRS84_URN.match(value))
-    )
-
-
 def parse_crs_uri(value: str | None) -> int | None:
     """Map a URI/URN-form CRS reference to an EPSG integer code.
 

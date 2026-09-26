@@ -3511,12 +3511,25 @@ class TestProbedCrsOfAMovedAsset:
         assert run.error_code == "stac_refresh_failed"
         assert run.error_message == tasks_stac_refresh._CRS_UNIDENTIFIED_MESSAGE
 
+    @pytest.mark.parametrize(
+        "crs",
+        [
+            "http://www.opengis.net/def/crs/OGC/0/CRS84",
+            "http://www.opengis.net/def/crs/OGC/1.3/CRS84",
+        ],
+    )
     async def test_a_crs84_asset_is_adopted_as_crs84(
-        self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
+        self,
+        client,
+        admin_auth_header,
+        test_db_session,
+        stac_transport,
+        monkeypatch,
+        crs,
     ) -> None:
         """Main's CRS84 WKT, longitude first, with no EPSG code borrowed from
         the item's declared EPSG:32633."""
-        from tests.test_cog_info import _CRS84_URI, _CRS84_WKT
+        from tests.test_cog_info import _MAIN_CRS84_WKT
 
         dataset, payload = await self._refresh(
             client,
@@ -3524,12 +3537,12 @@ class TestProbedCrsOfAMovedAsset:
             test_db_session,
             stac_transport,
             monkeypatch,
-            _CRS84_URI,
+            crs,
         )
         await _execute(test_db_session, payload)
 
         assert await _asset_uri(dataset.id) == _MOVED_ASSET
         described = await _raster_asset(dataset.id)
-        assert described.crs_wkt == _CRS84_WKT
+        assert described.crs_wkt == _MAIN_CRS84_WKT[crs]
         assert described.epsg is None
         assert (await _reload(dataset.id)).srid is None
