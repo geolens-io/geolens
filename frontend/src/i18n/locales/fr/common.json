@@ -282,6 +282,7 @@
     "validationLessThan": "Le champ {{field}} doit être inférieur à {{limit}}.",
     "validationLessThanOrEqual": "Le champ {{field}} doit être inférieur ou égal à {{limit}}.",
     "validationInvalidChoice": "Choisissez une valeur valide pour le champ {{field}}.",
+    "validationUrlSchemeInvalid": "Le champ {{field}} doit être une adresse http ou https.",
     "datasetNotFound": "Jeu de données introuvable",
     "collectionNotFound": "Collection introuvable",
     "mapNotFound": "Carte introuvable",

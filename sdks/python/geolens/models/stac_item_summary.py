@@ -8,6 +8,12 @@ from attrs import field as _attrs_field
 
 from ..types import UNSET, Unset
 
+from ..models.stac_item_summary_data_asset_import_refusal_type_0 import (
+    check_stac_item_summary_data_asset_import_refusal_type_0,
+)
+from ..models.stac_item_summary_data_asset_import_refusal_type_0 import (
+    StacItemSummaryDataAssetImportRefusalType0,
+)
 from typing import cast
 
 
@@ -37,6 +43,12 @@ class StacItemSummary:
             import so the dataset records which asset it came from. The key remains stable when the href changes.
         data_asset_size_bytes (int | None | Unset): Size of the primary data asset in bytes (from STAC file:size). None
             when not in manifest.
+        data_asset_import_refusal (None | StacItemSummaryDataAssetImportRefusalType0 | Unset): Why /import would refuse
+            this item's data asset, based on its URL alone, or null if the href passes import's format, length and
+            credential checks. 'not_http' for a scheme other than http/https, such as s3://; 'credentials' for a URL
+            carrying a credential query parameter GeoLens won't store; 'too_long' for a URL over the length import allows.
+            Import also checks each asset's host, and can still refuse a null item there as a per-item failure that leaves
+            the rest of the batch importing.
         thumbnail_href (None | str | Unset): Thumbnail URL if available.
     """
 
@@ -56,6 +68,9 @@ class StacItemSummary:
     data_asset_type: None | str | Unset = UNSET
     data_asset_key: None | str | Unset = UNSET
     data_asset_size_bytes: int | None | Unset = UNSET
+    data_asset_import_refusal: (
+        None | StacItemSummaryDataAssetImportRefusalType0 | Unset
+    ) = UNSET
     thumbnail_href: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -147,6 +162,14 @@ class StacItemSummary:
         else:
             data_asset_size_bytes = self.data_asset_size_bytes
 
+        data_asset_import_refusal: None | str | Unset
+        if isinstance(self.data_asset_import_refusal, Unset):
+            data_asset_import_refusal = UNSET
+        elif isinstance(self.data_asset_import_refusal, str):
+            data_asset_import_refusal = self.data_asset_import_refusal
+        else:
+            data_asset_import_refusal = self.data_asset_import_refusal
+
         thumbnail_href: None | str | Unset
         if isinstance(self.thumbnail_href, Unset):
             thumbnail_href = UNSET
@@ -188,6 +211,8 @@ class StacItemSummary:
             field_dict["data_asset_key"] = data_asset_key
         if data_asset_size_bytes is not UNSET:
             field_dict["data_asset_size_bytes"] = data_asset_size_bytes
+        if data_asset_import_refusal is not UNSET:
+            field_dict["data_asset_import_refusal"] = data_asset_import_refusal
         if thumbnail_href is not UNSET:
             field_dict["thumbnail_href"] = thumbnail_href
 
@@ -329,6 +354,29 @@ class StacItemSummary:
             d.pop("data_asset_size_bytes", UNSET)
         )
 
+        def _parse_data_asset_import_refusal(
+            data: object,
+        ) -> None | StacItemSummaryDataAssetImportRefusalType0 | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                data_asset_import_refusal_type_0 = (
+                    check_stac_item_summary_data_asset_import_refusal_type_0(data)
+                )
+
+                return data_asset_import_refusal_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | StacItemSummaryDataAssetImportRefusalType0 | Unset, data)
+
+        data_asset_import_refusal = _parse_data_asset_import_refusal(
+            d.pop("data_asset_import_refusal", UNSET)
+        )
+
         def _parse_thumbnail_href(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -355,6 +403,7 @@ class StacItemSummary:
             data_asset_type=data_asset_type,
             data_asset_key=data_asset_key,
             data_asset_size_bytes=data_asset_size_bytes,
+            data_asset_import_refusal=data_asset_import_refusal,
             thumbnail_href=thumbnail_href,
         )
 

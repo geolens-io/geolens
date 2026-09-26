@@ -410,6 +410,7 @@
     "validationLessThan": "{{field}} must be less than {{limit}}.",
     "validationLessThanOrEqual": "{{field}} must be at most {{limit}}.",
     "validationInvalidChoice": "Choose a valid value for {{field}}.",
+    "validationUrlSchemeInvalid": "{{field}} must be an http or https address.",
     "loadFailed": "Failed to load",
     "mapMessage": "Map error — some layers may not display correctly.",
     "datasetNotFound": "Dataset not found",

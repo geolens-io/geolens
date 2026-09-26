@@ -191,6 +191,10 @@
     "assetCount_one": "{{count}} 个资产",
     "assetCount_other": "{{count}} 个资产",
     "noCogAsset": "无 COG 资产",
+    "unsupportedAssetScheme": "发布于 GeoLens 无法读取的 {{scheme}}:// 地址",
+    "assetUrlInvalid": "其地址不是有效的 http 或 https URL",
+    "assetHasCredentials": "使用了带签名或凭证的 URL，GeoLens 不会存储此类地址",
+    "assetHrefTooLong": "其地址过长，GeoLens 无法存储",
     "catalogHelp": "浏览并导入来自公共 STAC 目录的栅格数据集，例如",
     "matchedTotal": "（共 {{count}} 个）",
     "confirm": {

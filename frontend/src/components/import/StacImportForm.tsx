@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import {
@@ -59,6 +59,67 @@ type Step =
   | 'importing'
   | 'done';
 
+interface AssetAvailability {
+  importable: boolean;
+  /** Unset when importable. 'no_asset' has no href at all; the other three
+   * mirror the search endpoint's own `data_asset_import_refusal` — the
+   * server's prediction of what `/import`'s `StacImportItem` validator
+   * (stac_router.py) would refuse, so the client screens out exactly what
+   * the door would reject rather than a separate, driftable guess. */
+  reason?: 'no_asset' | 'not_http' | 'credentials' | 'too_long';
+  /** The href's scheme, lowercase and without the trailing colon — display
+   * only, for the 'not_http' reason's message. Parsing it here decides
+   * nothing: `data_asset_import_refusal` already did. */
+  scheme?: string;
+}
+
+function assetAvailability(
+  item: Pick<StacItemSummary, 'data_asset_href' | 'data_asset_import_refusal'>,
+): AssetAvailability {
+  if (!item.data_asset_href) return { importable: false, reason: 'no_asset' };
+  // Absent (the field's own type allows undefined) is treated the same as
+  // null — importable — rather than as an unknown, disable-it default. The
+  // only way this app's own API omits the field is a server too old to
+  // have it yet, and disabling every item against that server would break
+  // imports that work today for a check it hasn't heard of.
+  if (!item.data_asset_import_refusal) return { importable: true };
+  const availability: AssetAvailability = {
+    importable: false,
+    reason: item.data_asset_import_refusal,
+  };
+  if (item.data_asset_import_refusal === 'not_http') {
+    try {
+      availability.scheme = new URL(item.data_asset_href).protocol.replace(/:$/, '');
+    } catch {
+      // Unparsable is display-only fallout; data_asset_import_refusal already decided.
+    }
+  }
+  return availability;
+}
+
+/** The reason text for a disabled item's row, one per `AssetAvailability.reason`. */
+function assetUnavailableReasonText(
+  t: (key: string, opts?: Record<string, unknown>) => string,
+  availability: AssetAvailability,
+): string {
+  switch (availability.reason) {
+    case 'not_http':
+      // A scheme names the address's actual problem; without one (the
+      // href didn't parse even client-side, e.g. a malformed authority)
+      // there is nothing to name, so fall back to a generic reason rather
+      // than an empty "://" fragment.
+      return availability.scheme
+        ? t('stac.unsupportedAssetScheme', { scheme: availability.scheme })
+        : t('stac.assetUrlInvalid');
+    case 'credentials':
+      return t('stac.assetHasCredentials');
+    case 'too_long':
+      return t('stac.assetHrefTooLong');
+    default:
+      return t('stac.noCogAsset');
+  }
+}
+
 export function StacImportForm() {
   const { t } = useTranslation('import');
   const [step, setStep] = useState<Step>('idle');
@@ -81,6 +142,7 @@ export function StacImportForm() {
     results: StacImportResult[];
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const importErrorId = useId();
   // fix(#1712): a mount that STARTED the import must not act on its own
   // settlement after it unmounts — `handleImport`'s function body keeps
   // running past an unmount (unlike the request itself, nothing cancels
@@ -97,7 +159,10 @@ export function StacImportForm() {
 
   const items = searchResult.items;
   const matchedCount = searchResult.matched;
-  const selectableItems = useMemo(() => items.filter((i) => i.data_asset_href), [items]);
+  const selectableItems = useMemo(
+    () => items.filter((i) => assetAvailability(i).importable),
+    [items],
+  );
 
   // fix(#1764): a failed Connect returns here with the credential intact, so
   // editing the URL to another catalog would send the first catalog's key to
@@ -665,51 +730,69 @@ export function StacImportForm() {
         </div>
 
         {/* Action bar */}
-        <div className="flex items-center justify-between rounded-lg border border-border bg-surface-1 px-4 py-2.5">
-          <label className="flex items-center gap-2 text-xs text-muted-foreground">
-            <input
-              type="checkbox"
-              checked={allSelected}
-              onChange={toggleAll}
-              className="rounded-sm border-border"
-            />
-            {selectedItems.size > 0
-              ? t('stac.selectedCount', { selected: selectedItems.size, total: items.length })
-              : t('stac.itemCount', { count: items.length })}
-          </label>
-          <Button
-            size="sm"
-            disabled={selectedItems.size === 0}
-            onClick={() => setStep('confirm')}
-          >
-            {selectedItems.size > 0 ? t('stac.importItems', { count: selectedItems.size }) : t('stac.importLabel')}
-          </Button>
+        <div
+          data-testid="stac-items-action-bar"
+          className="rounded-lg border border-border bg-surface-1 px-4 py-2.5"
+        >
+          <div className="flex items-center justify-between">
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={toggleAll}
+                className="rounded-sm border-border"
+              />
+              {selectedItems.size > 0
+                ? t('stac.selectedCount', { selected: selectedItems.size, total: selectableItems.length })
+                : t('stac.itemCount', { count: items.length })}
+            </label>
+            <Button
+              size="sm"
+              disabled={selectedItems.size === 0}
+              onClick={() => setStep('confirm')}
+            >
+              {selectedItems.size > 0 ? t('stac.importItems', { count: selectedItems.size }) : t('stac.importLabel')}
+            </Button>
+          </div>
+          {/* A refused import lands back on this step (see handleImport's catch);
+              shown here, beside the action that triggered it, rather than below
+              a list that can run to 50 rows and push it out of view. */}
+          {error && (
+            <p id={importErrorId} data-testid="stac-import-error" className="mt-2 text-sm text-destructive">
+              {error}
+            </p>
+          )}
         </div>
 
         {/* Item rows */}
-        <div className="overflow-hidden rounded-xl border border-border bg-card divide-y divide-border">
+        <div
+          data-testid="stac-items-list"
+          className="overflow-hidden rounded-xl border border-border bg-card divide-y divide-border"
+        >
           {items.length === 0 && (
             <p className="px-5 py-8 text-center text-sm text-muted-foreground">
               {t('stac.noItems')}
             </p>
           )}
           {items.map((item) => {
-            const hasAsset = !!item.data_asset_href;
+            const availability = assetAvailability(item);
             const isSelected = selectedItems.has(item.id);
+            const reasonId = `stac-asset-reason-${item.id}`;
 
             return (
               <label
                 key={item.id}
                 className={cn(
                   'flex items-center gap-3 px-4 py-3 transition-colors',
-                  hasAsset ? 'cursor-pointer hover:bg-surface-2' : 'opacity-50 cursor-not-allowed',
+                  availability.importable ? 'cursor-pointer hover:bg-surface-2' : 'opacity-50 cursor-not-allowed',
                   isSelected && 'bg-primary/5',
                 )}
               >
                 <input
                   type="checkbox"
                   checked={isSelected}
-                  disabled={!hasAsset}
+                  disabled={!availability.importable}
+                  aria-describedby={availability.importable ? undefined : reasonId}
                   onChange={() => toggleItem(item.id)}
                   className="rounded-sm border-border shrink-0"
                 />
@@ -747,17 +830,18 @@ export function StacImportForm() {
                   </div>
                 </div>
 
-                {!hasAsset && (
-                  <span className="shrink-0 font-mono text-2xs text-muted-foreground">
-                    {t('stac.noCogAsset')}
+                {!availability.importable && (
+                  <span
+                    id={reasonId}
+                    className="max-w-[10rem] shrink-0 text-right font-mono text-2xs text-muted-foreground"
+                  >
+                    {assetUnavailableReasonText(t, availability)}
                   </span>
                 )}
               </label>
             );
           })}
         </div>
-
-        {error && <p className="text-sm text-destructive">{error}</p>}
       </div>
     );
   }

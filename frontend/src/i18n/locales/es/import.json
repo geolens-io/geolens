@@ -175,6 +175,10 @@
     "assetCount_one": "{{count}} recurso",
     "assetCount_other": "{{count}} recursos",
     "noCogAsset": "Sin recurso COG",
+    "unsupportedAssetScheme": "Publicado en una dirección {{scheme}}:// que GeoLens no puede leer",
+    "assetUrlInvalid": "Su dirección no es una URL http o https válida",
+    "assetHasCredentials": "Usa una URL firmada o con credenciales, que GeoLens no almacena",
+    "assetHrefTooLong": "Su dirección es demasiado larga para que GeoLens la almacene",
     "catalogHelp": "Explore e importe conjuntos de datos ráster desde catálogos STAC públicos como",
     "matchedTotal": "({{count}} en total)",
     "confirm": {

@@ -410,6 +410,7 @@
     "validationLessThan": "{{field}}必须小于 {{limit}}。",
     "validationLessThanOrEqual": "{{field}}必须小于或等于 {{limit}}。",
     "validationInvalidChoice": "请为 {{field}}选择一个有效的值。",
+    "validationUrlSchemeInvalid": "{{field}}必须是 http 或 https 地址。",
     "loadFailed": "加载失败",
     "mapMessage": "地图错误——部分图层可能无法正确显示。",
     "datasetNotFound": "未找到数据集",

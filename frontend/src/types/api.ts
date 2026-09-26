@@ -2222,6 +2222,15 @@ export interface StacItemSummary {
   data_asset_type: string | null;
   data_asset_key: string | null;
   data_asset_size_bytes: number | null; // EW-05: STAC file:size extension
+  // Why /import would refuse this item's asset by its URL alone, or null if
+  // the href passes import's format, length and credential checks (also
+  // null when there's no asset at all — check data_asset_href for that).
+  // Import separately checks each asset's host and can still refuse a null
+  // item there, per item, without failing the rest of the batch. Optional
+  // rather than always-present so an older server that predates this field
+  // still parses: this app always matches its own API, but the field
+  // itself is a newer contract than some servers a client could still hit.
+  data_asset_import_refusal?: 'not_http' | 'credentials' | 'too_long' | null;
   thumbnail_href: string | null;
   asset_count: number;
 }

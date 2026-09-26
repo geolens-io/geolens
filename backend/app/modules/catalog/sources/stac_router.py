@@ -11,7 +11,14 @@ from typing import Literal
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    HttpUrl,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -72,6 +79,49 @@ def _validate_optional_stac_http_url(v: str | None) -> str | None:
     and ``HttpUrl(None)`` raises.
     """
     return None if v is None else _validate_stac_http_url(v)
+
+
+def _data_asset_import_refusal(
+    href: str | None,
+) -> Literal["not_http", "credentials", "too_long"] | None:
+    """Why ``/import``'s own ``StacImportItem.data_asset_href`` field would
+    refuse *href*, or ``None`` if that field's own checks would accept it.
+    Format, length and credentials only: ``/import`` separately checks each
+    asset's host, which this does not predict.
+
+    Search is the one place that can tell the caller before an item is
+    ticked, rather than after the whole batch 422s on submit — but only if
+    this predicts the SAME field in the SAME order: the field's own
+    ``max_length=4096`` (pydantic enforces this before any field_validator
+    runs), then ``HttpUrl(href)``, then ``has_url_credentials`` only once
+    ``HttpUrl`` has passed — exactly ``_validate_stac_http_url``'s own
+    order. A too-long, credentialed href is ``too_long``, not
+    ``credentials``: that is what ``HttpUrl`` raises on before the
+    credential check ever runs, and checking credentials first would
+    answer for input the real validator never reaches.
+
+    ``HttpUrl`` also enforces its OWN, tighter length ceiling internally,
+    independently of the field's 4096 cap, so an href in between comes
+    back as pydantic's ``url_too_long`` error rather than the field's
+    ``string_too_long`` one the length check above catches — read off the
+    raised error's type rather than hardcoding a second length, so this
+    keeps matching ``HttpUrl`` even if a future pydantic release changes
+    that ceiling. Any other ``HttpUrl`` failure — an unparseable
+    authority, a disallowed scheme — is ``not_http``.
+    """
+    if href is None:
+        return None
+    if len(href) > 4096:
+        return "too_long"
+    try:
+        HttpUrl(href)
+    except ValidationError as exc:
+        if any(error["type"] == "url_too_long" for error in exc.errors()):
+            return "too_long"
+        return "not_http"
+    if has_url_credentials(href):
+        return "credentials"
+    return None
 
 
 router = APIRouter(
@@ -238,6 +288,26 @@ class StacItemSummary(BaseModel):
     data_asset_size_bytes: int | None = Field(
         default=None,
         description="Size of the primary data asset in bytes (from STAC file:size). None when not in manifest.",
+    )
+    data_asset_import_refusal: Literal["not_http", "credentials", "too_long"] | None = (
+        Field(
+            # Optional, not required: a generated SDK client raises on any
+            # field a required-but-nullable schema promises but an older
+            # server never sends. The web app ships bundled with its own
+            # API and always gets this field; the SDK, CLI and MCP can run
+            # ahead of an older GeoLens server that predates this check.
+            default=None,
+            description=(
+                "Why /import would refuse this item's data asset, based on its "
+                "URL alone, or null if the href passes import's format, length "
+                "and credential checks. 'not_http' for a scheme other than "
+                "http/https, such as s3://; 'credentials' for a URL carrying a "
+                "credential query parameter GeoLens won't store; 'too_long' for "
+                "a URL over the length import allows. Import also checks each "
+                "asset's host, and can still refuse a null item there as a "
+                "per-item failure that leaves the rest of the batch importing."
+            ),
+        )
     )
     thumbnail_href: str | None = Field(
         default=None, description="Thumbnail URL if available."
@@ -497,7 +567,15 @@ async def stac_search(
         )
 
     return StacSearchResponse(
-        items=[StacItemSummary(**item) for item in result["items"]],
+        items=[
+            StacItemSummary(
+                **item,
+                data_asset_import_refusal=_data_asset_import_refusal(
+                    item.get("data_asset_href")
+                ),
+            )
+            for item in result["items"]
+        ],
         matched=result["matched"],
         returned=result["returned"],
     )

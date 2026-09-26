@@ -74,6 +74,8 @@ if str(_SDK_PY_PATH) not in _sys.path:
 
 from geolens.auth import GeolensClient  # noqa: E402
 from geolens.client import AuthenticatedClient, Client  # noqa: E402
+from geolens.models.stac_item_summary import StacItemSummary  # noqa: E402
+from geolens.types import UNSET  # noqa: E402
 
 # Phase 278 TEST-09: lift the 3 TypeScript-round-trip skip preconditions to
 # module-level constants so the conditional skips become @pytest.mark.skipif
@@ -171,6 +173,28 @@ class TestPythonAuthWrapperUnit:
     def test_client_property(self) -> None:
         c = GeolensClient(base_url="http://x", bearer_token="abc")
         assert c.client is c._client
+
+
+# ------------------- Model field compatibility (older server) -------------------
+
+
+class TestPythonModelOptionalFieldCompatibility:
+    """A Python SDK version can run a version ahead of the GeoLens server it
+    talks to — unlike the web app, which always ships bundled with its own
+    API. A field the SDK knows about but an older server never sent must
+    come back ``UNSET``, not raise ``KeyError``; that only holds if the
+    generated model's own field stays optional (a ``default=None`` on the
+    backend schema, not just nullable) once it exists."""
+
+    def test_stac_item_summary_from_dict_tolerates_a_missing_optional_field(
+        self,
+    ) -> None:
+        # Shaped like an older server's /services/stac/search response:
+        # every required field present, data_asset_import_refusal simply
+        # doesn't exist yet.
+        raw = {"id": "item-1", "title": "Item 1", "asset_count": 1}
+        item = StacItemSummary.from_dict(raw)
+        assert item.data_asset_import_refusal is UNSET
 
 
 # ------------------- Optional request bodies (regeneration guard) -------------------
