@@ -1,7 +1,8 @@
 """Fill the CRS facts of raster rows whose ``crs_wkt`` has none.
 
-Rows stored before the facts existed, or by a worker still running the
-previous image during a rolling deploy, hold NULL facts. Each run pages
+Rows written before the facts existed hold NULL facts, as do rows a worker
+still on the previous image inserts during a rolling deploy, or whose text it
+changes (migration 0073's trigger then clears the stale facts). Each run pages
 through them by id, asks the probe child about each distinct text once, and
 stops when it runs out of rows, texts or time, so a backlog drains over
 several runs. ``raster_assets`` has no row-level security, so one pass covers

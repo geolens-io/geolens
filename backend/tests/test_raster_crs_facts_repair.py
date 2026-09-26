@@ -42,6 +42,8 @@ _FACTS = ("crs_is_geographic", "crs_has_degree_unit", "crs_metres_per_unit")
 _WGS84 = rasterio.crs.CRS.from_epsg(4326).to_wkt(version="WKT2_2019")
 _FEET = rasterio.crs.CRS.from_epsg(2263).to_wkt(version="WKT2_2019")
 _GRADS = rasterio.crs.CRS.from_epsg(4807).to_wkt()
+# The CRS of _FEET written as WKT1, so the text differs and the facts don't.
+_FEET_WKT1 = rasterio.crs.CRS.from_epsg(2263).to_wkt()
 # Truncated, so PROJ refuses it and the keyword sniff answers.
 _TRUNCATED = 'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84"'
 
@@ -90,6 +92,26 @@ async def _delete(ids: list[uuid.UUID]) -> None:
     await fresh_query(
         "DELETE FROM catalog.raster_assets WHERE id = ANY(:ids)", {"ids": ids}
     )
+
+
+async def _write(asset_id: uuid.UUID, crs_wkt: str, facts: tuple = ()) -> None:
+    """One UPDATE of the row's text and, when given, its facts."""
+    columns = {"crs_wkt": crs_wkt, **dict(zip(_FACTS, facts))}
+    assignments = ", ".join(f"{name} = :{name}" for name in columns)
+    await fresh_query(
+        f"UPDATE catalog.raster_assets SET {assignments} WHERE id = :id",
+        {**columns, "id": asset_id},
+    )
+
+
+async def _clearing_trigger() -> tuple[bool, bool]:
+    """Whether 0073's trigger and its function exist."""
+    ((trigger, function),) = await fresh_query(
+        "SELECT EXISTS (SELECT 1 FROM pg_trigger "
+        "WHERE tgname = 'trg_clear_stale_raster_crs_facts'), "
+        "to_regproc('catalog.clear_stale_raster_crs_facts') IS NOT NULL"
+    )
+    return trigger, function
 
 
 def _digest(crs_wkt: str) -> str:
@@ -167,8 +189,10 @@ class TestSchemaOnlyMigration:
         try:
             down = run_alembic("downgrade", "0072_ingest_job_error_code")
             assert down.returncode == 0, down.stderr
+            assert await _clearing_trigger() == (False, False)
             up = run_alembic("upgrade", "head")
             assert up.returncode == 0, up.stderr
+            assert await _clearing_trigger() == (True, True)
 
             assert set((await _stored(ids)).values()) == {(None, None, None)}
 
@@ -397,6 +421,47 @@ class TestRepairJob:
             assert await _filled() == 2
         finally:
             await _delete(ids)
+
+
+class TestTextChangesClearStaleFacts:
+    async def test_an_old_writers_new_text_clears_the_facts(self, test_db_session):
+        asset_id = await _seed(test_db_session, _FEET)
+        try:
+            await _write(asset_id, _FEET, _expected(_FEET))
+            await _write(asset_id, _FEET)
+            assert (await _stored([asset_id]))[asset_id] == _expected(_FEET)
+
+            await _write(asset_id, _WGS84)
+
+            assert (await _stored([asset_id]))[asset_id] == (None, None, None)
+        finally:
+            await _delete([asset_id])
+
+    async def test_new_text_with_new_facts_keeps_them(self, test_db_session):
+        asset_id = await _seed(test_db_session, _FEET)
+        try:
+            await _write(asset_id, _FEET, _expected(_FEET))
+            await _write(asset_id, _WGS84, _expected(_WGS84))
+
+            assert (await _stored([asset_id]))[asset_id] == _expected(_WGS84)
+        finally:
+            await _delete([asset_id])
+
+    async def test_new_text_with_the_same_facts_is_cleared_then_refilled(
+        self, test_db_session, child
+    ):
+        assert _expected(_FEET_WKT1) == _expected(_FEET)
+        asset_id = await _seed(test_db_session, _FEET)
+        try:
+            await _write(asset_id, _FEET, _expected(_FEET))
+            await _write(asset_id, _FEET_WKT1, _expected(_FEET_WKT1))
+            assert (await _stored([asset_id]))[asset_id] == (None, None, None)
+
+            await _repair()
+
+            assert (await _stored([asset_id]))[asset_id] == _expected(_FEET_WKT1)
+        finally:
+            await _delete([asset_id])
 
 
 class TestRunBudget:
