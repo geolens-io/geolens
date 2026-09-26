@@ -677,6 +677,40 @@ async def test_only_one_small_range_escapes_the_whole_file_limit(
     _assert_sandboxed(whole[-1])
 
 
+async def test_every_read_counts_against_the_request_cap(
+    client: AsyncClient, make_pointcloud, storage, monkeypatch
+) -> None:
+    """Small ranges and HEAD alike are refused past the per-client request cap, and the global limit adds nothing."""
+    from app.modules.catalog.datasets.api.router_pointcloud import _READ_LIMIT
+    from app.platform import ratelimit
+    from tests.test_ogc_features_filter import _freeze_rate_limit_window
+
+    _freeze_rate_limit_window(monkeypatch)
+    cap = int(_READ_LIMIT.split("/")[0])
+    dataset_id, attempt = await _published(make_pointcloud, storage)
+    url = _url(dataset_id, attempt)
+    ratelimit.limiter.enabled = True
+    ratelimit.limiter._storage.reset()
+    try:
+        ranges = [
+            (
+                await client.get(url, headers={"Range": f"bytes={i % 4000}-{i % 4000}"})
+            ).status_code
+            for i in range(cap - 1)
+        ]
+        head = await client.head(url)
+        refused = await client.get(url, headers={"Range": "bytes=0-0"})
+    finally:
+        ratelimit.limiter.enabled = False
+        ratelimit.limiter._storage.reset()
+
+    assert ranges == [206] * (cap - 1)
+    assert head.status_code == 200
+    assert refused.status_code == 429
+    assert int(refused.headers["retry-after"]) > 0
+    _assert_sandboxed(refused)
+
+
 @pytest.fixture(params=["local", "s3"])
 def any_storage(request, tmp_path, monkeypatch):
     """The local adapter, or the S3 adapter against a moto bucket."""
