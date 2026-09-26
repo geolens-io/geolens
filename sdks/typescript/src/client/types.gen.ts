@@ -7133,7 +7133,7 @@ export type OgcAsset = {
     /**
      * Type
      */
-    type: string;
+    type?: string | null;
     /**
      * Title
      */

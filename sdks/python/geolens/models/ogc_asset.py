@@ -20,13 +20,13 @@ class OGCAsset:
 
     Attributes:
         href (str):
-        type_ (str):
+        type_ (None | str | Unset):
         title (None | str | Unset):
         roles (list[str] | None | Unset):
     """
 
     href: str
-    type_: str
+    type_: None | str | Unset = UNSET
     title: None | str | Unset = UNSET
     roles: list[str] | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -34,7 +34,11 @@ class OGCAsset:
     def to_dict(self) -> dict[str, Any]:
         href = self.href
 
-        type_ = self.type_
+        type_: None | str | Unset
+        if isinstance(self.type_, Unset):
+            type_ = UNSET
+        else:
+            type_ = self.type_
 
         title: None | str | Unset
         if isinstance(self.title, Unset):
@@ -56,9 +60,10 @@ class OGCAsset:
         field_dict.update(
             {
                 "href": href,
-                "type": type_,
             }
         )
+        if type_ is not UNSET:
+            field_dict["type"] = type_
         if title is not UNSET:
             field_dict["title"] = title
         if roles is not UNSET:
@@ -71,7 +76,14 @@ class OGCAsset:
         d = dict(src_dict)
         href = d.pop("href")
 
-        type_ = d.pop("type")
+        def _parse_type_(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        type_ = _parse_type_(d.pop("type", UNSET))
 
         def _parse_title(data: object) -> None | str | Unset:
             if data is None:
