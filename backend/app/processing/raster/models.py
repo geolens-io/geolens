@@ -253,17 +253,18 @@ class DatasetAsset(Base):
     per pre-conversion upload kept when COG conversion was lossy, ADR-002
     Decision 7 — hash-suffixed so every kept original counts, not just the
     newest), 'tileset' (a 3D Tiles dataset's live unpack attempt, sized to
-    the unpacked bytes). The archived and tileset keys are INTERNAL: they
-    feed the per-user storage sum but are never published as STAC assets
-    (see ``app.platform.assets.keys``).
+    the unpacked bytes), 'pointcloud' (a COPC point cloud's live file, sized
+    to the file). The archived, tileset and pointcloud keys are INTERNAL:
+    they feed the per-user storage sum but are never published as STAC
+    assets (see ``app.platform.assets.keys``).
     """
 
     __tablename__ = "dataset_assets"
     __table_args__ = (
         UniqueConstraint("dataset_id", "key", name="uq_dataset_assets_key"),
         CheckConstraint(
-            "key IN ('data', 'vrt', 'thumbnail', 'overview', 'metadata', 'tileset') "
-            "OR key LIKE 'archived_original:%'",
+            "key IN ('data', 'vrt', 'thumbnail', 'overview', 'metadata', 'tileset', "
+            "'pointcloud') OR key LIKE 'archived_original:%'",
             name="chk_dataset_assets_key",
         ),
         {"schema": "catalog"},

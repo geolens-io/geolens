@@ -483,6 +483,17 @@ class Dataset(Base):
     tileset_extensions_required: Mapped[list[str] | None] = mapped_column(
         ARRAY(Text), nullable=True
     )
+    # A COPC point cloud's point count, point data record format and vertical
+    # CRS name, read from its header at upload.
+    pointcloud_point_count: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True
+    )
+    pointcloud_point_format: Mapped[int | None] = mapped_column(
+        SmallInteger, nullable=True
+    )
+    pointcloud_vertical_crs: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
     quicklook_256_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Source info

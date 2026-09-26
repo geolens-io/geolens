@@ -200,6 +200,28 @@ class RasterMetadata(BaseModel):
     )
 
 
+class PointCloudMetadata(BaseModel):
+    """A COPC point cloud's published file."""
+
+    size_bytes: int | None = Field(
+        default=None, description="Size of the COPC file in bytes"
+    )
+    point_count: int | None = Field(
+        default=None, description="Number of points, from the file's header"
+    )
+    point_format: int | None = Field(
+        default=None,
+        description=(
+            "LAS point data record format: 6 (no colour), 7 (RGB) or 8 (RGB and "
+            "near infrared)"
+        ),
+    )
+    vertical_crs: str | None = Field(
+        default=None,
+        description="Name of the file's vertical CRS, when its WKT gives one",
+    )
+
+
 class TilesetMetadata(BaseModel):
     """A 3D Tiles dataset's published tileset."""
 
@@ -503,6 +525,13 @@ class DatasetResponse(BaseModel):
         description=(
             "3D Tiles metadata on the dataset detail response; null for other "
             "record types and before a tileset is published"
+        ),
+    )
+    pointcloud: PointCloudMetadata | None = Field(
+        default=None,
+        description=(
+            "COPC point cloud metadata on the dataset detail response; null for "
+            "other record types and before a point cloud is published"
         ),
     )
     stac_assets: dict[str, StacAsset] | None = Field(

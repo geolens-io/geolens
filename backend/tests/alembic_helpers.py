@@ -27,9 +27,12 @@ This module is the one place that knows about refuse-to-coerce downgrades:
   test_catalog_projection, test_tileset_upload and test_tileset_quality_score)
   remove them themselves.
 - ``0070_pointcloud_record_type``: refuses while any record uses
-  ``pointcloud_dataset`` or any dataset uses ``copc``. Not auto-cleaned;
-  test_pointcloud_record_type and test_pointcloud_record_type_migration
-  remove their rows themselves.
+  ``pointcloud_dataset`` or any dataset uses ``copc``, and
+  ``0071_pointcloud_asset_and_facts`` while any ``pointcloud`` asset row
+  exists. Not auto-cleaned; the tests that commit such rows
+  (test_pointcloud_record_type, test_pointcloud_record_type_migration,
+  test_pointcloud_branches and test_pointcloud_record_type_refusals) remove
+  them themselves.
 
 If a future migration gains a refuse-to-coerce downgrade, teach this module
 about it rather than adding cleanup to individual test files.

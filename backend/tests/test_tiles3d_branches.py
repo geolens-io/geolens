@@ -258,4 +258,6 @@ async def test_every_reupload_door_refuses_a_tileset(
     resp = await client.post(path, headers=admin_auth_header, **body)
 
     assert resp.status_code == 400, resp.text
-    assert "3D Tiles datasets do not support reupload" in resp.json()["detail"]
+    detail = resp.json()["detail"]
+    assert detail["code"] == "tileset_reupload_unsupported"
+    assert detail["message"].startswith("3D Tiles datasets do not support reupload")

@@ -3767,6 +3767,10 @@ export type DatasetResponse = {
      */
     tileset?: TilesetMetadata | null;
     /**
+     * COPC point cloud metadata on the dataset detail response; null for other record types and before a point cloud is published
+     */
+    pointcloud?: PointCloudMetadata | null;
+    /**
      * Stac Assets
      *
      * STAC-style asset dictionary
@@ -7673,6 +7677,38 @@ export type PermissionsResponse = {
     permissions: {
         [key: string]: boolean;
     };
+};
+
+/**
+ * PointCloudMetadata
+ *
+ * A COPC point cloud's published file.
+ */
+export type PointCloudMetadata = {
+    /**
+     * Size Bytes
+     *
+     * Size of the COPC file in bytes
+     */
+    size_bytes?: number | null;
+    /**
+     * Point Count
+     *
+     * Number of points, from the file's header
+     */
+    point_count?: number | null;
+    /**
+     * Point Format
+     *
+     * LAS point data record format: 6 (no colour), 7 (RGB) or 8 (RGB and near infrared)
+     */
+    point_format?: number | null;
+    /**
+     * Vertical Crs
+     *
+     * Name of the file's vertical CRS, when its WKT gives one
+     */
+    vertical_crs?: string | null;
 };
 
 /**

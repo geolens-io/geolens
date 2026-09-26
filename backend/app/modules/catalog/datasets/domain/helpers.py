@@ -17,6 +17,7 @@ from app.modules.catalog.datasets.domain.source_freshness import (
 )
 from app.modules.catalog.datasets.domain.schemas import (
     DatasetResponse,
+    PointCloudMetadata,
     RasterBandInfo,
     RasterConnect,
     RasterMetadata,
@@ -133,6 +134,7 @@ def dataset_to_response(
     actors_by_id: Mapping[uuid.UUID, Identity] | None = None,
     raster_asset=None,
     tileset_asset=None,
+    pointcloud_asset=None,
     is_admin: bool = False,
     source_count: int | None = None,
     base_url: str | None = None,
@@ -188,6 +190,16 @@ def dataset_to_response(
             extensions_required=dataset.tileset_extensions_required,
         )
         if record_type == "tiles3d_dataset" and tileset_asset is not None
+        else None
+    )
+    pointcloud = (
+        PointCloudMetadata(
+            size_bytes=pointcloud_asset.size_bytes,
+            point_count=dataset.pointcloud_point_count,
+            point_format=dataset.pointcloud_point_format,
+            vertical_crs=dataset.pointcloud_vertical_crs,
+        )
+        if record_type == "pointcloud_dataset" and pointcloud_asset is not None
         else None
     )
 
@@ -278,6 +290,7 @@ def dataset_to_response(
         record_type=record_type,
         raster=raster_metadata,
         tileset=tileset,
+        pointcloud=pointcloud,
         stac_assets=stac_assets,
         language=getattr(record, "language", None),
     )

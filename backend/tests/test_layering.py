@@ -1326,7 +1326,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # semantics.
     "backend/app/processing/embeddings/backfill.py": 933,
     # Reupload preview, compatibility and staged commit share an endpoint lifecycle.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1492,
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1511,
     # VRT creation and regeneration share publication and superseded-object cleanup.
     "backend/app/processing/ingest/tasks_vrt.py": 1684,
     # The raster strategy: conversion, read-back, object puts and their cleanup.
@@ -1351,7 +1351,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # catalog writes.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 660,
     # Dataset request and verification response families share this public contract.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1608,
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1637,
     # Analysis validation, bounded execution and fenced registration share one task
     # lifecycle.
     "backend/app/processing/analysis/tasks.py": 1400,

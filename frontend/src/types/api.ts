@@ -119,6 +119,15 @@ export interface StacAsset {
   size_bytes?: number;
 }
 
+/** A COPC point cloud's published file. */
+export interface PointCloudMetadata {
+  size_bytes: number | null;
+  point_count: number | null;
+  /** LAS point data record format: 6, 7 (RGB) or 8 (RGB and near infrared). */
+  point_format: number | null;
+  vertical_crs: string | null;
+}
+
 /** A 3D Tiles dataset's published tileset. */
 export interface TilesetMetadata {
   /** URL path of the tileset's tileset.json on the app origin, e.g. /api/datasets/{id}/tiles3d/tileset.json. */
@@ -347,6 +356,7 @@ export interface DatasetResponse {
   record_type: RecordType;
   raster: RasterMetadata | null;
   tileset?: TilesetMetadata | null;
+  pointcloud?: PointCloudMetadata | null;
   stac_assets?: Record<string, StacAsset> | null;
   stac_extensions?: string[];
   language?: string;

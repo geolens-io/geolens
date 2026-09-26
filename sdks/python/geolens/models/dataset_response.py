@@ -23,6 +23,7 @@ if TYPE_CHECKING:
         DatasetResponseStacAssetsType0,
     )
     from ..models.derived_from_response import DerivedFromResponse
+    from ..models.point_cloud_metadata import PointCloudMetadata
     from ..models.quality_detail import QualityDetail
     from ..models.raster_metadata import RasterMetadata
     from ..models.tileset_metadata import TilesetMetadata
@@ -124,6 +125,8 @@ class DatasetResponse:
         raster (None | RasterMetadata | Unset): Raster-specific metadata (null for vectors)
         tileset (None | TilesetMetadata | Unset): 3D Tiles metadata on the dataset detail response; null for other
             record types and before a tileset is published
+        pointcloud (None | PointCloudMetadata | Unset): COPC point cloud metadata on the dataset detail response; null
+            for other record types and before a point cloud is published
         stac_assets (DatasetResponseStacAssetsType0 | None | Unset): STAC-style asset dictionary
         stac_extensions (list[str] | None | Unset):
         language (None | str | Unset): ISO 639-1 language code, e.g. en, fr
@@ -191,6 +194,7 @@ class DatasetResponse:
     record_type: str | Unset = "vector_dataset"
     raster: None | RasterMetadata | Unset = UNSET
     tileset: None | TilesetMetadata | Unset = UNSET
+    pointcloud: None | PointCloudMetadata | Unset = UNSET
     stac_assets: DatasetResponseStacAssetsType0 | None | Unset = UNSET
     stac_extensions: list[str] | None | Unset = UNSET
     language: None | str | Unset = UNSET
@@ -205,6 +209,7 @@ class DatasetResponse:
             DatasetResponseStacAssetsType0,
         )
         from ..models.derived_from_response import DerivedFromResponse
+        from ..models.point_cloud_metadata import PointCloudMetadata
         from ..models.quality_detail import QualityDetail
         from ..models.raster_metadata import RasterMetadata
         from ..models.tileset_metadata import TilesetMetadata
@@ -539,6 +544,14 @@ class DatasetResponse:
         else:
             tileset = self.tileset
 
+        pointcloud: dict[str, Any] | None | Unset
+        if isinstance(self.pointcloud, Unset):
+            pointcloud = UNSET
+        elif isinstance(self.pointcloud, PointCloudMetadata):
+            pointcloud = self.pointcloud.to_dict()
+        else:
+            pointcloud = self.pointcloud
+
         stac_assets: dict[str, Any] | None | Unset
         if isinstance(self.stac_assets, Unset):
             stac_assets = UNSET
@@ -683,6 +696,8 @@ class DatasetResponse:
             field_dict["raster"] = raster
         if tileset is not UNSET:
             field_dict["tileset"] = tileset
+        if pointcloud is not UNSET:
+            field_dict["pointcloud"] = pointcloud
         if stac_assets is not UNSET:
             field_dict["stac_assets"] = stac_assets
         if stac_extensions is not UNSET:
@@ -705,6 +720,7 @@ class DatasetResponse:
             DatasetResponseStacAssetsType0,
         )
         from ..models.derived_from_response import DerivedFromResponse
+        from ..models.point_cloud_metadata import PointCloudMetadata
         from ..models.quality_detail import QualityDetail
         from ..models.raster_metadata import RasterMetadata
         from ..models.tileset_metadata import TilesetMetadata
@@ -1300,6 +1316,23 @@ class DatasetResponse:
 
         tileset = _parse_tileset(d.pop("tileset", UNSET))
 
+        def _parse_pointcloud(data: object) -> None | PointCloudMetadata | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                pointcloud_type_0 = PointCloudMetadata.from_dict(data)
+
+                return pointcloud_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | PointCloudMetadata | Unset, data)
+
+        pointcloud = _parse_pointcloud(d.pop("pointcloud", UNSET))
+
         def _parse_stac_assets(
             data: object,
         ) -> DatasetResponseStacAssetsType0 | None | Unset:
@@ -1422,6 +1455,7 @@ class DatasetResponse:
             record_type=record_type,
             raster=raster,
             tileset=tileset,
+            pointcloud=pointcloud,
             stac_assets=stac_assets,
             stac_extensions=stac_extensions,
             language=language,
