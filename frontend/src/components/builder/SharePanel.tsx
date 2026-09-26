@@ -1115,6 +1115,9 @@ export function ShareDialog({
   // notice it should skip it.
   const isMountedRef = useRef(true);
   useEffect(() => {
+    // StrictMode runs setup, cleanup, then setup again on mount; without
+    // this line the cleanup's false is never undone by the second setup.
+    isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
     };

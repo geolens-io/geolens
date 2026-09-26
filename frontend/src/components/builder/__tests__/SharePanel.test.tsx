@@ -1,6 +1,11 @@
+import { StrictMode } from 'react';
 import type { ComponentProps } from 'react';
 import userEvent from '@testing-library/user-event';
 import { act, fireEvent, render, screen, waitFor, within } from '@/test/test-utils';
+// React only double-invokes an effect's setup/cleanup on mount when
+// StrictMode is the render root itself; the project's render() always
+// wraps a `wrapper` around it, which defeats that. Used bare below.
+import { render as renderUnderStrictMode } from '@testing-library/react';
 import { checkMapVisibility } from '@/api/maps';
 import { ApiError } from '@/api/client';
 import { translateApiErrorDetail } from '@/lib/error-map';
@@ -112,6 +117,7 @@ function setup({
   forceActiveEmbedToken = false,
   lockOriginsAfterCreate = null,
   mapId = 'map-1',
+  strictMode = false,
 }: {
   enterprise?: boolean;
   hasShareToken?: boolean;
@@ -145,6 +151,9 @@ function setup({
    *  exists and the raw token is available only at creation. */
   lockOriginsAfterCreate?: string[] | null;
   mapId?: string;
+  /** Renders under React.StrictMode, which double-invokes effect setup and
+   *  cleanup on mount — the app's real runtime configuration in dev. */
+  strictMode?: boolean;
 } = {}) {
   const createShareToken = vi.fn().mockResolvedValue({
     token: 'share-token',
@@ -260,7 +269,7 @@ function setup({
 
   // BuilderDialogs.tsx keys ShareDialog on mapId (a map switch must remount
   // it); mirrored here so a rerender with a new mapId behaves the same way.
-  const { rerender } = render(
+  const dialog = (
     <ShareDialog
       key={mapId}
       mapId={mapId}
@@ -270,8 +279,14 @@ function setup({
       hasUnsavedChanges={hasUnsavedChanges}
       saveStatus={saveStatus}
       layers={layers}
-    />,
+    />
   );
+  // Bare: see the renderUnderStrictMode import comment above. Every hook
+  // ShareDialog calls is mocked above, so no real query/router/tooltip
+  // context is ever touched.
+  const { rerender } = strictMode
+    ? renderUnderStrictMode(<StrictMode>{dialog}</StrictMode>)
+    : render(dialog);
 
   return { createShareToken, createEmbedToken: createEmbedToken as ReturnType<typeof vi.fn>, updateEmbedTokenFn, updateShareTokenFn, publishMapFn, rerender };
 }
@@ -1753,6 +1768,59 @@ describe('#2297 public confirm defers to the server publish check', () => {
     // A's late unpublish result must not populate B's share section.
     expect(screen.queryByRole('button', { name: /copy link/i })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /generate share link/i })).toBeInTheDocument();
+  });
+});
+
+// main.tsx renders the app under React.StrictMode, which in development runs
+// an effect's setup, its cleanup, then setup again on mount — real behavior
+// the tests above never exercise since they don't opt into StrictMode.
+describe('StrictMode: mount must leave isMountedRef true', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('still confirms a successful visibility change', async () => {
+    const user = userEvent.setup();
+    const publishMapFn = vi.fn().mockResolvedValue({});
+    setup({
+      strictMode: true,
+      visibility: 'private',
+      hasShareToken: false,
+      publishMapFn,
+    });
+
+    await user.click(screen.getByRole('radio', { name: /all team members/i }));
+
+    await waitFor(() => {
+      expect(publishMapFn).toHaveBeenCalledWith({ id: 'map-1', visibility: 'internal' });
+    });
+    expect(vi.mocked(toast.success)).toHaveBeenCalled();
+  });
+
+  it('still shows a publish refusal inline', async () => {
+    const user = userEvent.setup();
+    const detail = {
+      message: 'Cannot set visibility to public: map contains non-public datasets',
+      datasets: 'Large Lakes',
+    };
+    const publishMapFn = vi
+      .fn()
+      .mockRejectedValue(new ApiError(translateApiErrorDetail(detail, 400), 400, detail));
+    setup({
+      strictMode: true,
+      visibility: 'private',
+      hasShareToken: false,
+      publishMapFn,
+    });
+
+    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+    const makePublicButton = await screen.findByRole('button', { name: /^make public$/i });
+    await waitFor(() => expect(makePublicButton).toBeEnabled());
+    await user.click(makePublicButton);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('share-publish-blocked-error')).toHaveTextContent('Large Lakes');
+    });
   });
 });
 
