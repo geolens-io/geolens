@@ -2236,6 +2236,11 @@ export interface paths {
         /**
          * Delete Single Feature
          * @description Delete a feature by gid (hard delete).
+         *
+         *     The X-GeoLens-Tile-Cache-Version response header carries the dataset's
+         *     tile_cache_version after the delete committed; a 204 response has no
+         *     body to carry it in, unlike the create, replace and patch endpoints,
+         *     which return it as a field of the written feature.
          */
         delete: operations["delete_single_feature_datasets__dataset_id__features__gid__delete"];
         options?: never;
@@ -25206,6 +25211,11 @@ export interface operations {
                         properties: {
                             [key: string]: unknown;
                         };
+                        /**
+                         * Tile Cache Version
+                         * @description The dataset's tile_cache_version after this write committed. Send it as the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is forced to re-read the dataset instead of serving that worker's own cached snapshot.
+                         */
+                        tile_cache_version?: number | null;
                     };
                     "application/json": unknown;
                 };
@@ -25493,6 +25503,11 @@ export interface operations {
                         properties: {
                             [key: string]: unknown;
                         };
+                        /**
+                         * Tile Cache Version
+                         * @description The dataset's tile_cache_version after this write committed. Send it as the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is forced to re-read the dataset instead of serving that worker's own cached snapshot.
+                         */
+                        tile_cache_version?: number | null;
                     };
                     "application/json": unknown;
                 };
@@ -25594,9 +25609,11 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description Feature deleted. */
             204: {
                 headers: {
+                    /** @description The dataset's tile_cache_version after this write committed. Send it as the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is forced to re-read the dataset instead of serving that worker's own cached snapshot. */
+                    "X-GeoLens-Tile-Cache-Version"?: number;
                     [name: string]: unknown;
                 };
                 content?: never;
@@ -25747,6 +25764,11 @@ export interface operations {
                         properties: {
                             [key: string]: unknown;
                         };
+                        /**
+                         * Tile Cache Version
+                         * @description The dataset's tile_cache_version after this write committed. Send it as the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is forced to re-read the dataset instead of serving that worker's own cached snapshot.
+                         */
+                        tile_cache_version?: number | null;
                     };
                     "application/json": unknown;
                 };

@@ -3,7 +3,7 @@
 import math
 from typing import Annotated, Any, Literal
 
-from pydantic import AfterValidator, BaseModel, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
 
 MAX_COORDINATE_TUPLES = 100_000
@@ -178,6 +178,38 @@ class GeoJSONFeature(BaseModel):
     id: int
     geometry: GeoJSONGeometryLike | None = None
     properties: dict
+
+
+# The tile routes treat `_v` as a freshness signal only when it is a stored
+# tile_cache_version or a record updated_at timestamp; a write's response
+# carries the version so its caller's next tile reload can use one of those
+# spellings instead of a client timestamp the routes would otherwise ignore.
+TILE_CACHE_VERSION_DESCRIPTION = (
+    "The dataset's tile_cache_version after this write committed. Send it "
+    "as the tile routes' `_v` query parameter when reloading tiles, so a "
+    "request that reaches a different API worker is forced to re-read the "
+    "dataset instead of serving that worker's own cached snapshot."
+)
+
+# A 204 response has no body to put the field above in, so the delete
+# endpoint (the one write that stays 204, for compatibility with existing
+# callers) carries the same value on this response header instead.
+TILE_CACHE_VERSION_HEADER = "X-GeoLens-Tile-Cache-Version"
+
+
+class GeoJSONFeatureWrite(GeoJSONFeature):
+    """A written GeoJSON Feature, plus the dataset's committed tile version."""
+
+    # The inlined response schema's own "title" is what the SDK generators
+    # name this route's response model from (inline_json_schema() flattens
+    # $defs, so a $ref-based component name is not available to them). Kept
+    # at the pre-existing "GeoJSONFeature" so the additive field does not
+    # rename generated SDK classes out from under existing callers.
+    model_config = ConfigDict(title="GeoJSONFeature")
+
+    tile_cache_version: int | None = Field(
+        default=None, description=TILE_CACHE_VERSION_DESCRIPTION
+    )
 
 
 class Link(BaseModel):

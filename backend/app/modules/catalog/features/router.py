@@ -49,11 +49,14 @@ from app.modules.catalog.datasets.domain.service import get_dataset
 from app.modules.embed_tokens.service import validate_embed_token_access
 from app.core.dependencies import get_db
 from app.modules.catalog.features.schemas import (
+    TILE_CACHE_VERSION_DESCRIPTION,
+    TILE_CACHE_VERSION_HEADER,
     FeatureCreate,
     FeatureReplace,
     FeatureUpdate,
     GeoJSONFeature,
     GeoJSONFeatureCollection,
+    GeoJSONFeatureWrite,
     inline_json_schema,
 )
 from app.modules.catalog.features.service import (
@@ -537,7 +540,9 @@ async def get_single_feature(
     responses={
         201: {
             "content": {
-                "application/geo+json": {"schema": inline_json_schema(GeoJSONFeature)}
+                "application/geo+json": {
+                    "schema": inline_json_schema(GeoJSONFeatureWrite)
+                }
             }
         },
         **ERROR_RESPONSES_WRITE,
@@ -627,10 +632,11 @@ async def create_feature(
         user_id=str(user.id),
     )
 
-    feature = GeoJSONFeature(
+    feature = GeoJSONFeatureWrite(
         id=row["gid"],
         geometry=row["geometry"],
         properties=row["properties"],
+        tile_cache_version=tile_version,
     )
     return JSONResponse(
         content=feature.model_dump(mode="json"),
@@ -645,7 +651,9 @@ async def create_feature(
     responses={
         200: {
             "content": {
-                "application/geo+json": {"schema": inline_json_schema(GeoJSONFeature)}
+                "application/geo+json": {
+                    "schema": inline_json_schema(GeoJSONFeatureWrite)
+                }
             }
         },
         **ERROR_RESPONSES_WRITE,
@@ -731,7 +739,7 @@ async def replace_single_feature(
     )
     # fix(#1902): evaluated at write time, so a counter read before the lock
     # wait is never written back over a peer's commit.
-    await bump_tile_cache_version_on(db, dataset)
+    tile_version = await bump_tile_cache_version_on(db, dataset)
     await db.commit()
 
     # Invalidate cached tiles so the replaced feature renders correctly
@@ -739,10 +747,11 @@ async def replace_single_feature(
     if tile_cache is not None:
         await tile_cache.invalidate_table(dataset.table_name)
 
-    feature = GeoJSONFeature(
+    feature = GeoJSONFeatureWrite(
         id=row["gid"],
         geometry=row["geometry"],
         properties=row["properties"],
+        tile_cache_version=tile_version,
     )
     return JSONResponse(
         content=feature.model_dump(mode="json"),
@@ -756,7 +765,9 @@ async def replace_single_feature(
     responses={
         200: {
             "content": {
-                "application/geo+json": {"schema": inline_json_schema(GeoJSONFeature)}
+                "application/geo+json": {
+                    "schema": inline_json_schema(GeoJSONFeatureWrite)
+                }
             }
         },
         **ERROR_RESPONSES_WRITE,
@@ -847,7 +858,7 @@ async def patch_single_feature(
     )
     # fix(#1902): evaluated at write time, so a counter read before the lock
     # wait is never written back over a peer's commit.
-    await bump_tile_cache_version_on(db, dataset)
+    tile_version = await bump_tile_cache_version_on(db, dataset)
     await db.commit()
 
     # Invalidate cached tiles so the updated feature renders correctly
@@ -855,10 +866,11 @@ async def patch_single_feature(
     if tile_cache is not None:
         await tile_cache.invalidate_table(dataset.table_name)
 
-    feature = GeoJSONFeature(
+    feature = GeoJSONFeatureWrite(
         id=row["gid"],
         geometry=row["geometry"],
         properties=row["properties"],
+        tile_cache_version=tile_version,
     )
     return JSONResponse(
         content=feature.model_dump(mode="json"),
@@ -869,7 +881,18 @@ async def patch_single_feature(
 @features_router.delete(
     "/{dataset_id}/features/{gid}",
     status_code=status.HTTP_204_NO_CONTENT,
-    responses=ERROR_RESPONSES_WRITE,
+    responses={
+        204: {
+            "description": "Feature deleted.",
+            "headers": {
+                TILE_CACHE_VERSION_HEADER: {
+                    "description": TILE_CACHE_VERSION_DESCRIPTION,
+                    "schema": {"type": "integer"},
+                },
+            },
+        },
+        **ERROR_RESPONSES_WRITE,
+    },
 )
 async def delete_single_feature(
     dataset_id: uuid.UUID,
@@ -877,7 +900,13 @@ async def delete_single_feature(
     user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    """Delete a feature by gid (hard delete)."""
+    """Delete a feature by gid (hard delete).
+
+    The X-GeoLens-Tile-Cache-Version response header carries the dataset's
+    tile_cache_version after the delete committed; a 204 response has no
+    body to carry it in, unlike the create, replace and patch endpoints,
+    which return it as a field of the written feature.
+    """
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
         raise HTTPException(
@@ -941,4 +970,9 @@ async def delete_single_feature(
         user_id=str(user.id),
     )
 
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    headers = (
+        {TILE_CACHE_VERSION_HEADER: str(tile_version)}
+        if tile_version is not None
+        else None
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT, headers=headers)

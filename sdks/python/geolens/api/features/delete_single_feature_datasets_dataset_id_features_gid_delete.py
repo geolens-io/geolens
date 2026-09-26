@@ -107,6 +107,11 @@ def sync_detailed(
 
      Delete a feature by gid (hard delete).
 
+    The X-GeoLens-Tile-Cache-Version response header carries the dataset's
+    tile_cache_version after the delete committed; a 204 response has no
+    body to carry it in, unlike the create, replace and patch endpoints,
+    which return it as a field of the written feature.
+
     Args:
         dataset_id (UUID):
         gid (int):
@@ -141,6 +146,11 @@ def sync(
 
      Delete a feature by gid (hard delete).
 
+    The X-GeoLens-Tile-Cache-Version response header carries the dataset's
+    tile_cache_version after the delete committed; a 204 response has no
+    body to carry it in, unlike the create, replace and patch endpoints,
+    which return it as a field of the written feature.
+
     Args:
         dataset_id (UUID):
         gid (int):
@@ -169,6 +179,11 @@ async def asyncio_detailed(
     """Delete Single Feature
 
      Delete a feature by gid (hard delete).
+
+    The X-GeoLens-Tile-Cache-Version response header carries the dataset's
+    tile_cache_version after the delete committed; a 204 response has no
+    body to carry it in, unlike the create, replace and patch endpoints,
+    which return it as a field of the written feature.
 
     Args:
         dataset_id (UUID):
@@ -201,6 +216,11 @@ async def asyncio(
     """Delete Single Feature
 
      Delete a feature by gid (hard delete).
+
+    The X-GeoLens-Tile-Cache-Version response header carries the dataset's
+    tile_cache_version after the delete committed; a 204 response has no
+    body to carry it in, unlike the create, replace and patch endpoints,
+    which return it as a field of the written feature.
 
     Args:
         dataset_id (UUID):

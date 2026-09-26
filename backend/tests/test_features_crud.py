@@ -11,6 +11,7 @@ from httpx import AsyncClient
 from sqlalchemy import text
 
 from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.modules.catalog.features.schemas import TILE_CACHE_VERSION_HEADER
 
 from tests.factories import create_raster_dataset, get_user_id
 
@@ -535,7 +536,7 @@ class TestDeleteFeature:
         admin_auth_header: dict,
         test_layer: Dataset,
     ):
-        """Insert then DELETE. Assert 204. GET confirms 404."""
+        """Insert then DELETE. Assert 204 with the bumped tile version header. GET confirms 404."""
         # Insert
         create_resp = await client.post(
             f"/datasets/{test_layer.id}/features/",
@@ -547,6 +548,7 @@ class TestDeleteFeature:
         )
         assert create_resp.status_code == 201
         gid = create_resp.json()["id"]
+        created_version = create_resp.json()["tile_cache_version"]
 
         # Delete
         resp = await client.delete(
@@ -554,6 +556,11 @@ class TestDeleteFeature:
             headers=admin_auth_header,
         )
         assert resp.status_code == 204
+        # The tile routes' `_v` freshness check needs the version THIS write
+        # committed, so a stale API worker can be told to re-read the
+        # dataset instead of serving its own cached snapshot. A 204 has no
+        # body to carry it in, so it rides a response header instead.
+        assert int(resp.headers[TILE_CACHE_VERSION_HEADER]) == created_version + 1
 
         # Confirm gone
         get_resp = await client.get(

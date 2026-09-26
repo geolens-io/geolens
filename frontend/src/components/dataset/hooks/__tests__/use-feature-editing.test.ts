@@ -32,7 +32,7 @@ vi.mock('@/hooks/use-features', () => ({
 
 vi.mock('@/lib/tile-utils', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/tile-utils')>()),
-  buildSignedTileUrl: (table: string, _token: unknown, _base: unknown, cacheBust?: string) =>
+  buildSignedTileUrl: (table: string, _token: unknown, _base: unknown, cacheBust?: string | number) =>
     `/tiles/${table}/{z}/{x}/{y}.pbf?cb=${cacheBust ?? ''}`,
 }));
 
@@ -66,6 +66,10 @@ function makeMapWithVectorSource(setTiles: ReturnType<typeof vi.fn>) {
     ),
     getLayer: vi.fn(() => undefined),
     setFilter: vi.fn(),
+    // saveAndRefresh's success path wires a sourcedata listener regardless
+    // of whether a 'drawn-overlay' source is registered on this mock.
+    on: vi.fn(),
+    off: vi.fn(),
   } as unknown as MaplibreMap;
 }
 
@@ -1173,5 +1177,116 @@ describe("useFeatureEditing on the dataset preview's layers", () => {
     });
 
     expect(overlay.setData).toHaveBeenCalledWith({ type: 'FeatureCollection', features: [] });
+  });
+});
+
+// The tile routes only recognise `_v` as a stored tile_cache_version or a
+// record updated_at timestamp, so the post-edit reload must send the value
+// the mutation response returns rather than a client timestamp (#2310).
+describe('useFeatureEditing — tile reload carries the mutation response tile_cache_version', () => {
+  beforeEach(() => {
+    createMutateAsync.mockClear();
+    updateMutateAsync.mockClear();
+    deleteMutateAsync.mockClear();
+  });
+
+  it('saveAndRefresh (create) sends the response tile_cache_version as the tile _v', async () => {
+    createMutateAsync.mockResolvedValueOnce({ id: 1, tile_cache_version: 42 });
+    const setTiles = vi.fn();
+    const map = makeMapWithVectorSource(setTiles);
+    const { result } = renderEditing(map);
+
+    await act(async () => {
+      await result.current.saveAndRefresh({ type: 'Point', coordinates: [0, 0] }, {});
+    });
+
+    expect(setTiles).toHaveBeenCalledTimes(1);
+    expect(setTiles.mock.calls[0][0][0]).toMatch(/\/tiles\/parcels\/.*cb=42$/);
+  });
+
+  it('handleSaveEdit (geometry update) sends the response tile_cache_version as the tile _v', async () => {
+    useDrawingStore.setState({ selectedFeature: { gid: 7, tdId: 'td-7', properties: {} } });
+    updateMutateAsync.mockResolvedValueOnce({ id: 7, tile_cache_version: 43 });
+    const getSnapshotFeature = vi.fn(() => ({
+      type: 'Feature' as const,
+      geometry: { type: 'Point' as const, coordinates: [0, 0] },
+      properties: {},
+    }));
+    const setTiles = vi.fn();
+    const map = makeMapWithVectorSource(setTiles);
+    const { result } = renderEditing(map, { getSnapshotFeature });
+
+    await act(async () => {
+      await result.current.handleSaveEdit();
+    });
+
+    expect(setTiles.mock.calls[0][0][0]).toMatch(/\/tiles\/parcels\/.*cb=43$/);
+  });
+
+  it('handleDeleteFeature sends the response tile_cache_version as the tile _v', async () => {
+    useDrawingStore.setState({ selectedFeature: { gid: 7, tdId: 'td-7', properties: {} } });
+    deleteMutateAsync.mockResolvedValueOnce({ tile_cache_version: 44 });
+    const setTiles = vi.fn();
+    const map = makeMapWithVectorSource(setTiles);
+    const { result } = renderEditing(map);
+
+    await act(async () => {
+      await result.current.handleDeleteFeature();
+    });
+
+    expect(setTiles.mock.calls[0][0][0]).toMatch(/\/tiles\/parcels\/.*cb=44$/);
+  });
+
+  it('handleEditAttributeSubmit sends the response tile_cache_version as the tile _v', async () => {
+    useDrawingStore.setState({ selectedFeature: { gid: 7, tdId: 'td-7', properties: { name: 'old' } } });
+    updateMutateAsync.mockResolvedValueOnce({ id: 7, tile_cache_version: 45 });
+    const setTiles = vi.fn();
+    const map = makeMapWithVectorSource(setTiles);
+    const { result } = renderEditing(map);
+
+    await act(async () => {
+      await result.current.handleEditAttributeSubmit({ name: 'new' });
+    });
+
+    expect(setTiles.mock.calls[0][0][0]).toMatch(/\/tiles\/parcels\/.*cb=45$/);
+  });
+
+  it('falls back to a timestamp when the response has no tile_cache_version (older server)', async () => {
+    createMutateAsync.mockResolvedValueOnce({ id: 1 });
+    const setTiles = vi.fn();
+    const map = makeMapWithVectorSource(setTiles);
+    const { result } = renderEditing(map);
+
+    await act(async () => {
+      await result.current.saveAndRefresh({ type: 'Point', coordinates: [0, 0] }, {});
+    });
+
+    expect(setTiles.mock.calls[0][0][0]).toMatch(/\/tiles\/parcels\/.*cb=\d+$/);
+  });
+
+  // The delete endpoint stays 204: its committed version rides a response
+  // header, read by deleteFeature() in api/features.ts. Here that surfaces
+  // as mutateAsync resolving to `undefined` outright (a bare 204, older
+  // server or a header the client didn't get) rather than an object with a
+  // null field — the hook must fall back cleanly, not crash reading a
+  // property off undefined and report a successful delete as failed.
+  it('falls back to a timestamp, without throwing, when a delete resolves with no result at all (bare 204)', async () => {
+    useDrawingStore.setState({ selectedFeature: { gid: 7, tdId: 'td-7', properties: {} } });
+    deleteMutateAsync.mockResolvedValueOnce(undefined);
+    // Mocks are not auto-cleared between tests in this file; other describes
+    // legitimately call toast.error/toast.success for their own cases.
+    vi.mocked(toast.error).mockClear();
+    vi.mocked(toast.success).mockClear();
+    const setTiles = vi.fn();
+    const map = makeMapWithVectorSource(setTiles);
+    const { result } = renderEditing(map);
+
+    await act(async () => {
+      await result.current.handleDeleteFeature();
+    });
+
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(toast.success).toHaveBeenCalledWith('map.featureDeleted');
+    expect(setTiles.mock.calls[0][0][0]).toMatch(/\/tiles\/parcels\/.*cb=\d+$/);
   });
 });

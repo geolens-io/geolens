@@ -30,7 +30,7 @@ T = TypeVar(
 
 @_attrs_define
 class ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeature:
-    """A single GeoJSON Feature.
+    """A written GeoJSON Feature, plus the dataset's committed tile version.
 
     Attributes:
         id (int):
@@ -38,6 +38,9 @@ class ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeature:
         type_ (Literal['Feature'] | Unset):  Default: 'Feature'.
         geometry (None | ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureGeoJSONGeometry |
             ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureGeoJSONGeometryCollection | Unset):
+        tile_cache_version (int | None | Unset): The dataset's tile_cache_version after this write committed. Send it as
+            the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is
+            forced to re-read the dataset instead of serving that worker's own cached snapshot.
     """
 
     id: int
@@ -51,6 +54,7 @@ class ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeature:
         | ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureGeoJSONGeometryCollection
         | Unset
     ) = UNSET
+    tile_cache_version: int | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -83,6 +87,12 @@ class ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeature:
         else:
             geometry = self.geometry
 
+        tile_cache_version: int | None | Unset
+        if isinstance(self.tile_cache_version, Unset):
+            tile_cache_version = UNSET
+        else:
+            tile_cache_version = self.tile_cache_version
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -95,6 +105,8 @@ class ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeature:
             field_dict["type"] = type_
         if geometry is not UNSET:
             field_dict["geometry"] = geometry
+        if tile_cache_version is not UNSET:
+            field_dict["tile_cache_version"] = tile_cache_version
 
         return field_dict
 
@@ -163,12 +175,24 @@ class ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeature:
 
         geometry = _parse_geometry(d.pop("geometry", UNSET))
 
+        def _parse_tile_cache_version(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        tile_cache_version = _parse_tile_cache_version(
+            d.pop("tile_cache_version", UNSET)
+        )
+
         replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature = (
             cls(
                 id=id,
                 properties=properties,
                 type_=type_,
                 geometry=geometry,
+                tile_cache_version=tile_cache_version,
             )
         )
 

@@ -18702,7 +18702,7 @@ export type CreateFeatureDatasetsDatasetIdFeaturesPostResponses = {
     /**
      * GeoJSONFeature
      *
-     * A single GeoJSON Feature.
+     * A written GeoJSON Feature, plus the dataset's committed tile version.
      */
     201: {
         /**
@@ -18750,6 +18750,12 @@ export type CreateFeatureDatasetsDatasetIdFeaturesPostResponses = {
         properties: {
             [key: string]: unknown;
         };
+        /**
+         * Tile Cache Version
+         *
+         * The dataset's tile_cache_version after this write committed. Send it as the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is forced to re-read the dataset instead of serving that worker's own cached snapshot.
+         */
+        tile_cache_version?: number | null;
     };
 };
 
@@ -18814,7 +18820,7 @@ export type DeleteSingleFeatureDatasetsDatasetIdFeaturesGidDeleteError = DeleteS
 
 export type DeleteSingleFeatureDatasetsDatasetIdFeaturesGidDeleteResponses = {
     /**
-     * Successful Response
+     * Feature deleted.
      */
     204: void;
 };
@@ -18992,7 +18998,7 @@ export type PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchResponses = {
     /**
      * GeoJSONFeature
      *
-     * A single GeoJSON Feature.
+     * A written GeoJSON Feature, plus the dataset's committed tile version.
      */
     200: {
         /**
@@ -19040,6 +19046,12 @@ export type PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchResponses = {
         properties: {
             [key: string]: unknown;
         };
+        /**
+         * Tile Cache Version
+         *
+         * The dataset's tile_cache_version after this write committed. Send it as the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is forced to re-read the dataset instead of serving that worker's own cached snapshot.
+         */
+        tile_cache_version?: number | null;
     };
 };
 
@@ -19106,7 +19118,7 @@ export type ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutResponses = {
     /**
      * GeoJSONFeature
      *
-     * A single GeoJSON Feature.
+     * A written GeoJSON Feature, plus the dataset's committed tile version.
      */
     200: {
         /**
@@ -19154,6 +19166,12 @@ export type ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutResponses = {
         properties: {
             [key: string]: unknown;
         };
+        /**
+         * Tile Cache Version
+         *
+         * The dataset's tile_cache_version after this write committed. Send it as the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is forced to re-read the dataset instead of serving that worker's own cached snapshot.
+         */
+        tile_cache_version?: number | null;
     };
 };
 

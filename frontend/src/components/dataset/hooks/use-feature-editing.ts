@@ -151,14 +151,24 @@ export function useFeatureEditing({
   const overlayFeaturesRef = useRef<GeoJSON.Feature[]>([]);
   const overlayCleanupRef = useRef<{ off: () => void; clearTimer: () => void } | null>(null);
 
-  /** Swap tile URLs with a cache-busted version to force fresh tile fetches. */
-  const reloadTiles = useCallback(() => {
+  /**
+   * Swap tile URLs with a fresh version to force fresh tile fetches.
+   *
+   * `tileVersion` should be the dataset's tile_cache_version from the write
+   * that triggered the reload: the tile routes recognise it (or a record's
+   * updated_at) as a freshness signal and force a stale API worker to
+   * re-read the dataset, where a client timestamp is ignored. A caller with
+   * no version (an older server's response) falls back to a timestamp,
+   * which still busts this browser's own tile cache even though the routes
+   * won't treat it as newer.
+   */
+  const reloadTiles = useCallback((tileVersion?: number | null) => {
     const map = mapRef.current;
     if (!map || !tableName) return;
     const source = map.getSource(previewSourceId(tableName));
     if (source && 'setTiles' in source) {
       const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tileConfig?.cdn_base_url;
-      const freshUrl = buildSignedTileUrl(tableName, tileToken ?? null, tileBaseUrl, String(Date.now()));
+      const freshUrl = buildSignedTileUrl(tableName, tileToken ?? null, tileBaseUrl, tileVersion ?? Date.now());
       (source as VectorTileSource).setTiles([freshUrl]);
     }
   }, [mapRef, tableName, tileConfig?.cdn_base_url, tileToken]);
@@ -210,7 +220,7 @@ export function useFeatureEditing({
       }
 
       try {
-        await createFeature.mutateAsync({
+        const created = await createFeature.mutateAsync({
           datasetId,
           geometry: geometry as Geometry,
           properties,
@@ -224,7 +234,7 @@ export function useFeatureEditing({
         // useful left to clear.
         if (isStale(epoch, targetDatasetId, generation, drawingGenerationRef.current)) return false;
         toast.success(t('map.featureSaved'));
-        reloadTiles();
+        reloadTiles(created.tile_cache_version);
 
         // Clear overlay after tiles load
         if (map) {
@@ -319,7 +329,7 @@ export function useFeatureEditing({
     const targetDatasetId = session.targetDatasetId;
     const generation = drawingGenerationRef.current;
     try {
-      await updateFeatureMutation.mutateAsync({
+      const updated = await updateFeatureMutation.mutateAsync({
         datasetId,
         gid: sf.gid,
         geometry: feature.geometry as Geometry,
@@ -334,7 +344,7 @@ export function useFeatureEditing({
       if (isSelectionStale(epoch, targetDatasetId, sf, generation, drawingGenerationRef.current)) return;
       toast.success(t('map.featureUpdated'));
       try { removeFeatures([sf.tdId]); } catch { /* already removed */ }
-      reloadTiles();
+      reloadTiles(updated.tile_cache_version);
       const map = mapRef.current;
       if (map) showAllFeaturesInTiles(map);
       clearSelectedFeature();
@@ -366,11 +376,13 @@ export function useFeatureEditing({
     const targetDatasetId = session.targetDatasetId;
     const generation = drawingGenerationRef.current;
     try {
-      await deleteFeatureMutation.mutateAsync({ datasetId, gid: sf.gid });
+      const deleted = await deleteFeatureMutation.mutateAsync({ datasetId, gid: sf.gid });
       if (isSelectionStale(epoch, targetDatasetId, sf, generation, drawingGenerationRef.current)) return;
       toast.success(t('map.featureDeleted'));
       try { removeFeatures([sf.tdId]); } catch { /* already removed */ }
-      reloadTiles();
+      // Optional: an older server's delete has no body at all (a bare 204),
+      // so `deleted` itself, not just its field, can be undefined here.
+      reloadTiles(deleted?.tile_cache_version);
       const map = mapRef.current;
       if (map) showAllFeaturesInTiles(map);
       clearSelectedFeature();
@@ -410,7 +422,7 @@ export function useFeatureEditing({
       const targetDatasetId = session.targetDatasetId;
       const generation = drawingGenerationRef.current;
       try {
-        await updateFeatureMutation.mutateAsync({ datasetId, gid: sf.gid, properties });
+        const updated = await updateFeatureMutation.mutateAsync({ datasetId, gid: sf.gid, properties });
         // fix(#1761 review round 4): recheck immediately after the await,
         // before reporting success, writing to the store, or reloading
         // tiles. setSelectedFeature's own epoch check already refuses the
@@ -424,7 +436,7 @@ export function useFeatureEditing({
         // attribute-driven rendering kept stale values until a manual reload.
         // Cache-bust the vector tiles so the edited attributes render. Geometry
         // is unchanged, so the selection is intentionally kept.
-        reloadTiles();
+        reloadTiles(updated.tile_cache_version);
         return { applied: true };
       } catch (err) {
         // fix(#1761 review round 5): mirror the success path's recheck. If
