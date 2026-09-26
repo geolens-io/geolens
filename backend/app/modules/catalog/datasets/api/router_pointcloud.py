@@ -36,8 +36,9 @@ logger = structlog.stdlib.get_logger(__name__)
 
 router = APIRouter(prefix="/datasets", tags=["Datasets"], route_class=SandboxedRoute)
 
-# One attempt's bytes never change, so a client may keep them.
-_CACHE_CONTROL = "private, max-age=3600"
+# A client may store the bytes but must ask before each reuse, so every read is
+# authorized again; the attempt's ETag turns that into a 304.
+_CACHE_CONTROL = "private, no-cache"
 
 _PATH = "/{dataset_id}/copc/{attempt_id}/{name}.copc.laz"
 

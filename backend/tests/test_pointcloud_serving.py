@@ -277,10 +277,27 @@ async def test_the_validators_are_the_attempt(
     )
 
     assert held.status_code == 304
-    assert held.headers["cache-control"] == "private, max-age=3600"
+    assert held.headers["cache-control"] == "private, no-cache"
     assert changed.status_code == 412
     assert stale_range.status_code == 200
     assert stale_range.content == _COPC
+
+
+async def test_a_revalidation_after_the_dataset_turns_private_is_404(
+    client: AsyncClient, test_db_session, make_pointcloud, storage, owner
+) -> None:
+    """A client revalidating a stored copy of a point cloud made private gets 404, not 304."""
+    dataset_id, attempt = await _published(make_pointcloud, storage, owner_id=owner[1])
+    url = _url(dataset_id, attempt)
+    stored = await client.get(url)
+    assert stored.status_code == 200
+
+    await _set_visibility(test_db_session, dataset_id, "private")
+    revalidated = await client.get(
+        url, headers={"If-None-Match": stored.headers["etag"]}
+    )
+
+    assert revalidated.status_code == 404
 
 
 async def test_only_the_live_attempt_under_its_stored_name_is_served(
@@ -564,7 +581,7 @@ async def test_missing_and_forbidden_answer_alike(
 async def test_every_answer_is_sandboxed_and_privately_cached(
     client: AsyncClient, make_pointcloud, storage, owner
 ) -> None:
-    """The file is private for an hour; a 404 and a malformed id's 422 are private and uncached."""
+    """The file may be kept privately but is revalidated on every reuse; a 404 and a malformed id's 422 are never stored."""
     dataset_id, attempt = await _published(make_pointcloud, storage)
     private_id, private_attempt = await _published(
         make_pointcloud, storage, owner_id=owner[1], visibility="private"
@@ -578,7 +595,7 @@ async def test_every_answer_is_sandboxed_and_privately_cached(
     )
 
     for resp in (whole, part):
-        assert resp.headers["cache-control"] == "private, max-age=3600"
+        assert resp.headers["cache-control"] == "private, no-cache"
     assert malformed.status_code == 422
     for resp in (forbidden, malformed):
         assert resp.headers["cache-control"] == "private, no-store"
