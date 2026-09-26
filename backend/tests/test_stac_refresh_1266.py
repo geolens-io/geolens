@@ -3509,7 +3509,12 @@ class TestProbedCrsOfAMovedAsset:
         run = await _run_for(dataset.id)
         assert run.status == "failed"
         assert run.error_code == "stac_refresh_failed"
-        assert run.error_message == tasks_stac_refresh._CRS_UNIDENTIFIED_MESSAGE
+        assert run.error_message == (
+            "The STAC item now names an asset whose CRS has no EPSG code and "
+            "isn't OGC CRS84, which GeoLens doesn't support for remote COGs. The "
+            "dataset keeps its previous asset until the source is reprojected to "
+            "an EPSG CRS (gdalwarp's -t_srs option does this) and refreshed again."
+        )
 
     @pytest.mark.parametrize(
         "crs",

@@ -1575,8 +1575,10 @@ class TestStacImportProbedCrs:
         assert (data["created"], data["errors"]) == (0, 1)
         assert data["results"][0]["status"] == "error"
         assert data["results"][0]["error"] == (
-            "This item's asset has a coordinate reference system GeoLens can't "
-            "identify by an EPSG or OGC CRS84 code, so it was not imported."
+            "GeoLens imports remote COGs whose CRS has an EPSG code or is OGC "
+            "CRS84, and this item's asset has neither. Reproject the file to an "
+            "EPSG CRS, for example with gdalwarp -t_srs EPSG:<code>, and import "
+            "it again."
         )
         stored = await test_db_session.scalar(
             text("SELECT count(*) FROM catalog.datasets WHERE source_url = :u"),

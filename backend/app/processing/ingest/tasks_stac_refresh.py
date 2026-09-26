@@ -184,9 +184,10 @@ _BLOCKED_BY_POLICY_MESSAGE = (
     "policy refuses it. Nothing was changed."
 )
 _CRS_UNIDENTIFIED_MESSAGE = (
-    "The STAC item now names an asset whose coordinate reference system "
-    "GeoLens can't identify by an EPSG or OGC CRS84 code. The dataset keeps "
-    "pointing at the asset it always did."
+    "The STAC item now names an asset whose CRS has no EPSG code and isn't "
+    "OGC CRS84, which GeoLens doesn't support for remote COGs. The dataset "
+    "keeps its previous asset until the source is reprojected to an EPSG CRS "
+    "(gdalwarp's -t_srs option does this) and refreshed again."
 )
 
 

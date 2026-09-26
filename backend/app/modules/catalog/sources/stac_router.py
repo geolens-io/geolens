@@ -91,8 +91,9 @@ _OFF_ORIGIN_ITEM_HREF_MESSAGE = (
 )
 
 _UNIDENTIFIED_CRS_MESSAGE = (
-    "This item's asset has a coordinate reference system GeoLens can't "
-    "identify by an EPSG or OGC CRS84 code, so it was not imported."
+    "GeoLens imports remote COGs whose CRS has an EPSG code or is OGC CRS84, "
+    "and this item's asset has neither. Reproject the file to an EPSG CRS, "
+    "for example with gdalwarp -t_srs EPSG:<code>, and import it again."
 )
 
 _STAC_TOKEN_DESCRIPTION = (
