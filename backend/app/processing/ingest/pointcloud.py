@@ -17,7 +17,8 @@ import re
 import struct
 import tempfile
 import uuid
-from dataclasses import dataclass
+from collections.abc import Sequence
+from dataclasses import dataclass, replace
 from pathlib import Path
 from time import monotonic
 from types import SimpleNamespace
@@ -475,8 +476,10 @@ def _check_chunk(chunk: bytes, layout: _Layout, count: int) -> None:
         raise _decode_failed(reason="chunk_header")
 
 
-def _decode(read: Read, layout: _Layout, node: tuple[int, int, int]) -> None:
-    """Decode one node with lazrs and check its points sit inside the header's bounds."""
+def _decode(
+    read: Read, layout: _Layout, node: tuple[int, int, int]
+) -> tuple[np.ndarray, np.ndarray]:
+    """Decode one node with lazrs, check where its points sit, and return their low and high corners."""
     header = layout.header
     offset, size, count = node
     if max(size, count * header.record_length) > MAX_DECODE_BYTES:
@@ -519,6 +522,7 @@ def _decode(read: Read, layout: _Layout, node: tuple[int, int, int]) -> None:
         raise _invalid(
             "The point cloud's points lie outside its octree.", reason="decode_cube"
         )
+    return low, high
 
 
 def _parse_wkt(text: str) -> list:
@@ -584,9 +588,9 @@ def _declared_crs(wkt: bytes) -> tuple[int, str]:
 
 
 def _crs_facts(
-    wkt: bytes, header: _Header
+    wkt: bytes, mins: Sequence[float], maxs: Sequence[float]
 ) -> tuple[int, str | None, tuple[float, float, float, float]]:
-    """The horizontal EPSG code, the vertical CRS name and the WGS84 extent."""
+    """The horizontal EPSG code, the vertical CRS name and the WGS84 extent of ``mins`` to ``maxs``."""
     from rasterio.coords import BoundingBox
     from rasterio.crs import CRS
 
@@ -594,7 +598,7 @@ def _crs_facts(
 
     try:
         srid, name = _declared_crs(wkt)
-        bounds = BoundingBox(*header.mins[:2], *header.maxs[:2])
+        bounds = BoundingBox(*mins[:2], *maxs[:2])
         bbox = _wgs84_bbox(SimpleNamespace(crs=CRS.from_epsg(srid), bounds=bounds))
     except (
         Exception
@@ -619,15 +623,15 @@ def _reader(source: BinaryIO) -> Read:
     return read
 
 
-def _inspect(path: str) -> tuple[PointCloud, _Layout]:
-    """``inspect_pointcloud``, with the layout it read."""
+def _inspect(path: str) -> tuple[PointCloud, _Layout, tuple[np.ndarray, np.ndarray]]:
+    """``inspect_pointcloud``, with the layout it read and the top node's corners."""
     size = os.path.getsize(path)
     with open(path, "rb") as source:
         read = _reader(source)
         layout = _read_layout(read, size)
-        _decode(read, layout, layout.nodes[0])
+        corners = _decode(read, layout, layout.nodes[0])
     header = layout.header
-    srid, vertical, bbox = _crs_facts(layout.wkt, header)
+    srid, vertical, bbox = _crs_facts(layout.wkt, header.mins, header.maxs)
     cloud = PointCloud(
         point_count=header.point_count,
         point_format=header.point_format,
@@ -638,7 +642,7 @@ def _inspect(path: str) -> tuple[PointCloud, _Layout]:
         z_max=header.maxs[2],
         size_bytes=size,
     )
-    return cloud, layout
+    return cloud, layout, corners
 
 
 def inspect_pointcloud(path: str) -> PointCloud:
@@ -646,9 +650,11 @@ def inspect_pointcloud(path: str) -> PointCloud:
     return _inspect(path)[0]
 
 
-def _decode_node(path: str, layout: _Layout, node: tuple[int, int, int]) -> None:
+def _decode_node(
+    path: str, layout: _Layout, node: tuple[int, int, int]
+) -> tuple[np.ndarray, np.ndarray]:
     with open(path, "rb") as source:
-        _decode(_reader(source), layout, node)
+        return _decode(_reader(source), layout, node)
 
 
 async def inspect_every_node(path: str) -> PointCloud:
@@ -656,10 +662,11 @@ async def inspect_every_node(path: str) -> PointCloud:
 
     lazrs holds the GIL while it decodes, so each node gets a thread call of
     its own and the event loop runs between nodes. Between nodes the time
-    spent is checked against the file's decode budget.
+    spent is checked against the file's decode budget. The extent and the
+    elevation range are the ones the decoded points cover, not the header's.
     """
     started = monotonic()
-    cloud, layout = await asyncio.to_thread(_inspect, path)
+    cloud, layout, (low, high) = await asyncio.to_thread(_inspect, path)
     budget = max(
         DECODE_FLOOR_SECONDS, cloud.size_bytes * DECODE_SECONDS_PER_MB // 1024**2
     )
@@ -670,8 +677,12 @@ async def inspect_every_node(path: str) -> PointCloud:
                 reason="decode_time",
                 limit=budget,
             )
-        await asyncio.to_thread(_decode_node, path, layout, node)
-    return cloud
+        node_low, node_high = await asyncio.to_thread(_decode_node, path, layout, node)
+        low, high = np.minimum(low, node_low), np.maximum(high, node_high)
+    # Some writers round a header's bounds outward, so the points set the extent.
+    low, high = low.tolist(), high.tolist()
+    _, _, bbox = await asyncio.to_thread(_crs_facts, layout.wkt, low, high)
+    return replace(cloud, extent_bbox=bbox, z_min=low[2], z_max=high[2])
 
 
 def _layout_of(path: str) -> _Layout:

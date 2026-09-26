@@ -42,6 +42,7 @@ from app.platform.storage.s3 import S3StorageProvider
 from app.processing.embeddings.tasks import embed_record
 from app.processing.ingest import manifest_service
 from app.processing.ingest import router as ingest_router
+from app.processing.ingest.pointcloud import inspect_pointcloud
 from app.processing.ingest.tasks import ingest_pointcloud, task_app
 from app.processing.raster.models import DatasetAsset
 from tests.factories import create_dataset, create_user, get_user_id
@@ -568,6 +569,25 @@ async def test_a_point_cloud_of_several_nodes_publishes(
     key = pointcloud_attempt_key(job.dataset_id, job.attempt_id)
     assert dataset.pointcloud_point_count == 370
     assert await storage_provider.get_storage().get(key) == data
+
+
+async def test_a_point_cloud_publishes_the_extent_of_its_points(
+    client: AsyncClient, test_db_session, uploader, queued, tmp_path
+) -> None:
+    """Header bounds far wider than the points don't widen the published extent or elevations."""
+    tight_file = tmp_path / "tight.copc.laz"
+    tight_file.write_bytes(_CLOUD)
+    tight = inspect_pointcloud(str(tight_file))
+
+    job_id = await publish(client, uploader[0], queued, copc(pad=500))
+
+    job = await load_job(test_db_session, job_id)
+    assert job.status == "complete", job.error_message
+    dataset = await test_db_session.get(Dataset, job.dataset_id)
+    assert (dataset.z_min, dataset.z_max) == (1280.0, 1281.0)
+    detail = await client.get(f"/datasets/{dataset.id}", headers=uploader[0])
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["extent_bbox"] == pytest.approx(tight.extent_bbox, abs=1e-6)
 
 
 async def test_a_damaged_node_below_the_top_is_refused_before_the_copy(

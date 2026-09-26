@@ -43,12 +43,14 @@ def evlr(user_id: bytes, record_id: int, data: bytes) -> bytes:
     return struct.pack("<H16sHQ32s", 0, user_id, record_id, len(data), b"") + data
 
 
-def records(count: int, point_format: int = 6, extra_bytes: int = 0) -> bytes:
-    """``count`` points on a 10 m diagonal, each with one return."""
+def records(
+    count: int, point_format: int = 6, extra_bytes: int = 0, span: int = 1000
+) -> bytes:
+    """``count`` points on a diagonal ``span`` raw units long, each with one return."""
     length = _RECORD_LENGTHS[point_format] + extra_bytes
     out = bytearray()
     for i in range(count):
-        step = i * 1000 // max(count - 1, 1)
+        step = i * span // max(count - 1, 1)
         out += struct.pack(
             "<iiiHBBBBhHd", step, step, step // 10, 0, 0x11, 0, 2, 0, 0, 0, 0.0
         )
@@ -86,13 +88,15 @@ def copc(
     header_point_count: int | None = None,
     padding: bytes = b"",
     pages: Callable[[Layout], list[list[tuple[int, ...]]]] | None = None,
+    pad: float = 0.0,
 ) -> bytes:
     """A one-node COPC, or one with a single fault named by a keyword.
 
     ``padding`` follows the root node's chunk inside the point data, where
     ``pages`` may name it as other nodes. ``pages`` returns the hierarchy
     pages, root page first, laid out one after another from
-    ``Layout.page_offset``.
+    ``Layout.page_offset``. ``pad`` widens the header's bounds and the
+    octree's cube by that much on every side.
     """
     laz_vlr = lazrs.LazVlr.new_for_compression(point_format, extra_bytes)
     laszip_data = bytearray(laz_vlr.record_data())
@@ -133,7 +137,7 @@ def copc(
         ORIGIN[0] + top / 2,
         ORIGIN[1] + top / 2,
         ORIGIN[2] + top / 2,
-        top / 2,
+        top / 2 + pad,
         top / 10,
         page_offset,
         32 * len(page_list[0]),
@@ -158,12 +162,12 @@ def copc(
         "<6d",
         header,
         179,
-        ORIGIN[0] + top,
-        ORIGIN[0],
-        ORIGIN[1] + top,
-        ORIGIN[1],
-        ORIGIN[2] + top / 10,
-        ORIGIN[2],
+        ORIGIN[0] + top + pad,
+        ORIGIN[0] - pad,
+        ORIGIN[1] + top + pad,
+        ORIGIN[1] - pad,
+        ORIGIN[2] + top / 10 + pad,
+        ORIGIN[2] - pad,
     )
     struct.pack_into(
         "<QIQ",
@@ -189,15 +193,22 @@ def copc_nodes(
     last_chunk: Callable[[bytes], bytes] | None = None,
     count_error: int = 0,
     size_error: int = 0,
+    spans: tuple[int, ...] | None = None,
+    pad: float = 0.0,
 ) -> bytes:
     """A 100-point root node and a node below it per count, laid out after it.
 
     The last node below the root may carry one fault: ``last_chunk`` rewrites
     its compressed bytes, and ``count_error`` and ``size_error`` shift the point
     count and byte size its hierarchy entry states. The header's point count is
-    the entries' sum.
+    the entries' sum. ``spans`` gives the ``records`` span of the root and then
+    of each node, 1000 each by default; ``pad`` is ``copc``'s.
     """
-    chunks = [compressed_chunk(records(count)) for count in counts]
+    spans = spans or (1000,) * (len(counts) + 1)
+    chunks = [
+        compressed_chunk(records(count, span=span))
+        for count, span in zip(counts, spans[1:], strict=True)
+    ]
     if last_chunk:
         chunks[-1] = last_chunk(chunks[-1])
 
@@ -212,7 +223,9 @@ def copc_nodes(
         return [entries]
 
     return copc(
+        points=records(100, span=spans[0]),
         padding=b"".join(chunks),
         pages=pages,
         header_point_count=100 + sum(counts) + count_error,
+        pad=pad,
     )

@@ -834,6 +834,22 @@ async def test_every_node_of_a_point_cloud_is_decoded(tmp_path, monkeypatch) -> 
     assert (cloud.point_count, len(decoded)) == (370, 3)
 
 
+async def test_the_worker_takes_the_extent_from_the_points(tmp_path) -> None:
+    """The extent and elevations span every node's points, however far the header's bounds reach."""
+    tight = inspect_pointcloud(write(tmp_path, copc_nodes(), "tight.copc.laz"))
+    path = write(tmp_path, copc_nodes(spans=(500, 1000, 500), pad=500))
+    door = inspect_pointcloud(path)
+
+    cloud = await inspect_every_node(path)
+
+    assert (cloud.extent_bbox, cloud.z_min, cloud.z_max) == (
+        tight.extent_bbox,
+        1280.0,
+        1281.0,
+    )
+    assert (door.z_min, door.z_max) == (780.0, 1781.0)
+
+
 @pytest.mark.parametrize(
     ("data", "decoded"),
     [
