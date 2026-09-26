@@ -60,6 +60,11 @@ def patched(data: bytes, offset: int, fmt: str, *values) -> bytes:
     return bytes(out)
 
 
+# Where copc() writes the COPC info record's fields: after the 375-byte
+# header and the first VLR's 54-byte header.
+_INFO_AT = 375 + 54
+
+
 def child_page(layout: Layout, entries: list[tuple[int, ...]]):
     """A root page naming one child page, laid out right after it."""
     child = layout.page_offset + 64
@@ -319,9 +324,60 @@ def test_a_node_that_does_not_decode_as_declared_is_refused(tmp_path, data) -> N
     assert refused(tmp_path, data).code == "pointcloud_decode_failed"
 
 
+@pytest.mark.parametrize(
+    ("offset", "fmt", "values"),
+    [
+        (0, "<d", (float("nan"),)),
+        (24, "<d", (0.0,)),
+        (24, "<d", (-5.0,)),
+        (32, "<d", (0.0,)),
+        (32, "<d", (float("inf"),)),
+        (56, "<dd", (10.0, 5.0)),
+        (56, "<d", (float("nan"),)),
+    ],
+    ids=[
+        "center-nan",
+        "halfsize-zero",
+        "halfsize-negative",
+        "spacing-zero",
+        "spacing-inf",
+        "gps-range-reversed",
+        "gps-time-nan",
+    ],
+)
+def test_a_damaged_copc_info_record_is_refused(tmp_path, offset, fmt, values) -> None:
+    """The octree's center, half-size and spacing and the GPS time range must be usable."""
+    refusal = refused(tmp_path, patched(copc(), _INFO_AT + offset, fmt, *values))
+
+    assert (refusal.code, "COPC info record" in str(refusal)) == (
+        "pointcloud_invalid",
+        True,
+    )
+
+
+def test_points_outside_the_octree_are_refused(tmp_path) -> None:
+    """Every point must lie in the octree's cube, which a COPC reader splits into nodes."""
+    refusal = refused(tmp_path, patched(copc(), _INFO_AT, "<d", ORIGIN[0] + 20))
+
+    assert (refusal.code, "outside its octree" in str(refusal)) == (
+        "pointcloud_invalid",
+        True,
+    )
+
+
+def test_an_octree_larger_than_its_points_passes(tmp_path) -> None:
+    """A cube that holds the points with room to spare is fine."""
+    data = patched(copc(), _INFO_AT + 24, "<d", 50.0)
+
+    assert inspect_pointcloud(write(tmp_path, data)).point_count == 100
+
+
 def _negated_x_scale(min_x: float, max_x: float) -> bytes:
     """copc() read with a negative X scale, so its points span ORIGIN - 10 to ORIGIN in X."""
-    return patched(patched(copc(), 131, "<d", -SCALE), 179, "<dd", max_x, min_x)
+    data = patched(copc(), 131, "<d", -SCALE)
+    # The octree's cube moves with the points.
+    data = patched(data, _INFO_AT, "<d", ORIGIN[0] - 5)
+    return patched(data, 179, "<dd", max_x, min_x)
 
 
 def test_a_negative_scale_with_points_outside_the_bounds_is_refused(tmp_path) -> None:

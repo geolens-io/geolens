@@ -73,6 +73,9 @@ _LAYERED_CHUNKED = 3
 _VLR = struct.Struct("<2x16sHH32x")
 _EVLR = struct.Struct("<2x16sHQ32x")
 _ENTRY = struct.Struct("<iiiiqii")
+# The COPC info record: the octree's center and half-size, the point spacing,
+# the root hierarchy page's offset and size, and the GPS time range.
+_INFO = struct.Struct("<5dQQ2d")
 _COPC_INFO = (b"copc", 1)
 _COPC_HIERARCHY = (b"copc", 1000)
 _LASZIP = (b"laszip encoded", 22204)
@@ -149,6 +152,9 @@ class _Layout:
     nodes: list[tuple[int, int, int]]
     # The per-layer sizes a chunk's header lists, one per LASzip layer.
     layers: int
+    # The octree's cube, as its center and half the length of a side.
+    center: tuple[float, float, float]
+    halfsize: float
 
 
 # Refusals of an ordinary file: plain LAS or LAZ, or one with no usable CRS.
@@ -413,6 +419,16 @@ def _read_layout(read: Read, size: int) -> _Layout:
     vlrs = _read_records(read, HEADER_SIZE, header.point_offset, header.vlr_count, _VLR)
     if not vlrs or vlrs[0][0] != _COPC_INFO or vlrs[0][2] != 160:
         raise _not_copc(reason="no_copc_info")
+    *center, halfsize, spacing, root_offset, root_size, gps_min, gps_max = _INFO.unpack(
+        read(vlrs[0][1], _INFO.size)
+    )
+    if (
+        not all(map(math.isfinite, (*center, halfsize, spacing, gps_min, gps_max)))
+        or halfsize <= 0
+        or spacing <= 0
+        or gps_min > gps_max
+    ):
+        raise _invalid("The file's COPC info record is damaged.", reason="copc_info")
     _check_evlr_block(header, size)
     evlrs = _read_records(read, header.evlr_start, size, header.evlr_count, _EVLR)
     found = {}
@@ -429,7 +445,7 @@ def _read_layout(read: Read, size: int) -> _Layout:
     wkt_offset, wkt_length = found[_WKT]
     if wkt_length > MAX_WKT_BYTES:
         raise _no_crs(reason="wkt_limit")
-    root = struct.unpack_from("<QQ", read(vlrs[0][1] + 40, 16))
+    root = (root_offset, root_size)
     hierarchy_offset, hierarchy_length = found[_COPC_HIERARCHY]
     nodes = _walk(
         read,
@@ -437,7 +453,8 @@ def _read_layout(read: Read, size: int) -> _Layout:
         root,
         range(hierarchy_offset, hierarchy_offset + hierarchy_length),
     )
-    return _Layout(header, laszip, read(wkt_offset, wkt_length), nodes, layers)
+    wkt = read(wkt_offset, wkt_length)
+    return _Layout(header, laszip, wkt, nodes, layers, tuple(center), halfsize)
 
 
 def _check_chunk(chunk: bytes, layout: _Layout, count: int) -> None:
@@ -495,6 +512,13 @@ def _decode(read: Read, layout: _Layout, node: tuple[int, int, int]) -> None:
         high > np.array(header.maxs) + slack
     ).any():
         raise _decode_failed(reason="decode_bounds")
+    center = np.array(layout.center)
+    if (low < center - layout.halfsize - slack).any() or (
+        high > center + layout.halfsize + slack
+    ).any():
+        raise _invalid(
+            "The point cloud's points lie outside its octree.", reason="decode_cube"
+        )
 
 
 def _parse_wkt(text: str) -> list:
