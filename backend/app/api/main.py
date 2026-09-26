@@ -9,6 +9,7 @@ import structlog
 # Must run before FastAPI/Starlette imports (gh #101); shared with worker for
 # the /tmp tmpfs issue during COG conversion.
 from app.core.config import settings
+from app.core.pointcloud import POINTCLOUD_MEDIA_TYPE
 from app.core.runtime.gdal_env import configure_gdal_s3_env
 from app.core.runtime.staging import redirect_tempfile_to_staging
 
@@ -1030,18 +1031,18 @@ app.add_middleware(
 # runs first on response) 2) GZipMiddleware (added second, outer, runs
 # second). Pinned by tests/test_phase_273_middleware_order.py.
 app.add_middleware(SecurityHeadersMiddleware)
-# fix(#1540): image/tiff joins starlette's default exclusions (avif/gif/
-# jpeg/png/webp) — a CORRECTNESS fix, not just a CPU one. This middleware
-# compresses a 200 but skips a 206, so a COG's strong ETag would identify
-# gzip bytes on the full download but raw bytes on a range: a client
-# resuming the encoded representation could splice raw bytes at encoded
-# offsets and assemble a corrupt file. Excluding the type restores the
-# invariant without variant-specific validators.
+# The COG and COPC media types join starlette's default exclusions (avif/gif/
+# jpeg/png/webp), and each is produced only by its byte route. This middleware
+# compresses a 200 but skips a 206, so a strong ETag would identify gzip bytes
+# on the full download but raw bytes on a range: a client resuming the encoded
+# representation could splice raw bytes at encoded offsets and assemble a
+# corrupt file. Excluding the types keeps one representation per ETag.
 app.add_middleware(
     GZipMiddleware,
     minimum_size=256,
     compresslevel=4,
-    exclude_content_types=DEFAULT_EXCLUDED_CONTENT_TYPES + ("image/tiff",),
+    exclude_content_types=DEFAULT_EXCLUDED_CONTENT_TYPES
+    + ("image/tiff", POINTCLOUD_MEDIA_TYPE),
 )
 # fix(#1532): export route excluded by PATH, not media type — excluding
 # `application/geo+json`/`text/csv` app-wide also stopped compressing

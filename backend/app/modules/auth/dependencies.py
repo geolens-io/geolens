@@ -2,6 +2,7 @@
 
 import hashlib
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from time import monotonic
 from collections.abc import Mapping
@@ -331,6 +332,82 @@ def request_carries_credentials(request: Request) -> bool:
     request that should have been served anonymously.
     """
     return bool(request.headers.get("Authorization") or _supplied_api_key(request))
+
+
+@dataclass(frozen=True, slots=True)
+class ReadCredential:
+    """The credential a read authenticates with, in a form a cache may key on.
+
+    ``fingerprint`` is a SHA-256 digest of the credential, never the
+    credential itself.
+    """
+
+    kind: str
+    fingerprint: str
+
+
+def read_credential(request: Request) -> ReadCredential:
+    """The credential this read would authenticate with, read before any database work.
+
+    It covers the whole Authorization header rather than a parsed bearer
+    token, so a header the resolver refuses never shares an anonymous
+    caller's key.
+    """
+    api_key = _supplied_api_key(request) or ""
+    authorization = request.headers.get("Authorization") or ""
+    if api_key and authorization:
+        kind = "api_key+authorization"
+    elif api_key:
+        kind = "api_key"
+    elif authorization:
+        kind = "authorization"
+    else:
+        kind = "anonymous"
+    material = "\0".join((kind, api_key, authorization))
+    return ReadCredential(kind, hashlib.sha256(material.encode()).hexdigest())
+
+
+async def read_credential_lifetime(
+    request: Request,
+    token: str | None,
+    identity: Identity | None,
+    db: AsyncSession,
+) -> tuple[bool, datetime | None]:
+    """Whether a read granted to this request's credential may be cached, and until when.
+
+    Anonymous reads may be, with no expiry of their own. An API key may be
+    until its ``expires_at``, and a bearer until its ``exp`` when it is a
+    JWT this service issued to ``identity``. Anything else may not, including
+    a key sent alongside an Authorization header.
+    """
+    kind = read_credential(request).kind
+    if kind == "anonymous":
+        return True, None
+    if kind == "api_key":
+        key = _supplied_api_key(request) or ""
+        row = (
+            await db.execute(
+                select(ApiKey.id, ApiKey.expires_at).where(
+                    ApiKey.key_hash == hashlib.sha256(key.encode()).hexdigest(),
+                    ApiKey.is_active == True,  # noqa: E712
+                )
+            )
+        ).first()
+        return (False, None) if row is None else (True, row.expires_at)
+    if kind != "authorization" or token is None or identity is None:
+        return False, None
+    try:
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret_key.get_secret_value(),
+            algorithms=[settings.jwt_algorithm],
+        )
+    except jwt.PyJWTError:
+        return False, None
+    expires = payload.get("exp")
+    if payload.get("sub") != str(identity.id) or not isinstance(expires, int | float):
+        return False, None
+    return True, datetime.fromtimestamp(expires, tz=timezone.utc)
 
 
 def reject_unresolvable_credentials(request: Request, user: Identity | None) -> None:

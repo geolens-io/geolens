@@ -55,6 +55,14 @@ def is_pointcloud_attempt_key(value: object) -> bool:
     return isinstance(value, str) and _ATTEMPT_KEY.fullmatch(value) is not None
 
 
+def pointcloud_attempt_of(href: object, dataset_id: uuid.UUID) -> uuid.UUID | None:
+    """The attempt ``href`` names, when it is exactly one of this dataset's attempt objects."""
+    if not isinstance(href, str) or not href.startswith(pointcloud_prefix(dataset_id)):
+        return None
+    match = _ATTEMPT_KEY.fullmatch(href)
+    return None if match is None else uuid.UUID(match["attempt"])
+
+
 def is_laz(filename: str | None) -> bool:
     """Whether an upload's name marks it as a point cloud."""
     return Path(filename or "").suffix.lower() == POINTCLOUD_SUFFIX

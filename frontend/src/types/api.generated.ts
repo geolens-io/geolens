@@ -2020,6 +2020,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/datasets/{dataset_id}/copc/{attempt_id}/{name}.copc.laz": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Pointcloud File
+         * @description Serve a published COPC point cloud's file, whole or by HTTP byte range.
+         *
+         *     Point a client at the dataset's ``pointcloud.url``. The path names the
+         *     upload attempt, so a replaced file gets a new URL and the old one answers
+         *     404. Header credentials (``X-Api-Key`` or ``Authorization``) or the
+         *     ``api_key`` query parameter authenticate the read, and any caller who can
+         *     view the dataset can read the file. The response carries a strong ETag and
+         *     honours ``Range``, ``If-Range``, ``If-Match`` and ``If-None-Match``; a
+         *     malformed byte range, or one naming no byte of the file, answers 416.
+         *     Through the bundled web server a page on any origin can read the file,
+         *     with header credentials or none; the API alone allows only the origins in
+         *     ``CORS_ALLOWED_ORIGINS``. A private, missing or replaced point cloud
+         *     answers 404, and a storage failure answers 502.
+         */
+        get: operations["get_pointcloud_file_datasets__dataset_id__copc__attempt_id___name__copc_laz_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/datasets/{dataset_id}/dcat-us/3.0/": {
         parameters: {
             query?: never;
@@ -24392,6 +24424,105 @@ export interface operations {
             };
             /** @description Internal server error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    get_pointcloud_file_datasets__dataset_id__copc__attempt_id___name__copc_laz_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+                attempt_id: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The whole COPC file, as application/vnd.laszip+copc */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description One byte range of the COPC file */
+            206: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The caller already holds this version of the file */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Precondition failed — the caller's If-Match no longer matches the current representation */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The Range names no byte of the file, or is malformed */
+            416: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Bad gateway — an upstream provider failed */
+            502: {
                 headers: {
                     [name: string]: unknown;
                 };
