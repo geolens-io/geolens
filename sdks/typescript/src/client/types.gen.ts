@@ -7698,6 +7698,12 @@ export type PermissionsResponse = {
  */
 export type PointCloudMetadata = {
     /**
+     * Url
+     *
+     * URL path of the COPC file on the app origin, e.g. /api/datasets/{id}/copc/{attempt}/data.copc.laz. A replaced file gets a new URL
+     */
+    url?: string | null;
+    /**
      * Size Bytes
      *
      * Size of the COPC file in bytes

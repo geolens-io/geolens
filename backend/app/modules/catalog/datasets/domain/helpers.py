@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
+from app.core.pointcloud import pointcloud_path
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.core.tile_scope import tile_template_query
 from app.core.tiles3d import tileset_path
@@ -194,6 +195,11 @@ def dataset_to_response(
     )
     pointcloud = (
         PointCloudMetadata(
+            url=(
+                f"/api{pointcloud_path(dataset.id, dataset.pointcloud_attempt_id)}"
+                if dataset.pointcloud_attempt_id is not None
+                else None
+            ),
             size_bytes=pointcloud_asset.size_bytes,
             point_count=dataset.pointcloud_point_count,
             point_format=dataset.pointcloud_point_format,

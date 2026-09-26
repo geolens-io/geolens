@@ -1,7 +1,8 @@
 """Where a COPC point cloud is stored and how the catalog names it.
 
-The upload doors, the job sweep, delete, quota and the dataset response read
-these facts, so they are defined once in ``core``.
+The upload doors, the job sweep, delete, quota, the serving route and every
+surface that advertises the file read these facts, so they are defined once in
+``core``.
 """
 
 from __future__ import annotations
@@ -48,6 +49,11 @@ def pointcloud_prefix(dataset_id: uuid.UUID | str) -> str:
 def pointcloud_attempt_key(dataset_id: uuid.UUID, attempt_id: uuid.UUID) -> str:
     """The object one ingest attempt writes the point cloud to."""
     return f"{pointcloud_prefix(dataset_id)}{attempt_id}/{POINTCLOUD_FILENAME}"
+
+
+def pointcloud_path(dataset_id: uuid.UUID | str, attempt_id: uuid.UUID | str) -> str:
+    """The API path that serves one attempt's point cloud file."""
+    return f"/datasets/{dataset_id}/copc/{attempt_id}/{POINTCLOUD_FILENAME}"
 
 
 def is_pointcloud_attempt_key(value: object) -> bool:

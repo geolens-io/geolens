@@ -11167,6 +11167,11 @@ export interface components {
          */
         PointCloudMetadata: {
             /**
+             * Url
+             * @description URL path of the COPC file on the app origin, e.g. /api/datasets/{id}/copc/{attempt}/data.copc.laz. A replaced file gets a new URL
+             */
+            url?: string | null;
+            /**
              * Size Bytes
              * @description Size of the COPC file in bytes
              */

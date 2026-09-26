@@ -29,6 +29,7 @@ from app.core.pointcloud import (
     POINTCLOUD_ASSET_KEY,
     POINTCLOUD_MEDIA_TYPE,
     pointcloud_attempt_key,
+    pointcloud_path,
     pointcloud_prefix,
 )
 from app.core.upload_errors import UnsafeUploadError
@@ -246,11 +247,17 @@ async def test_a_point_cloud_publishes_its_dataset_pointer_and_object(
     assert detail.status_code == 200, detail.text
     body = detail.json()
     assert body["pointcloud"] == {
+        "url": f"/api{pointcloud_path(dataset.id, job.attempt_id)}",
         "size_bytes": len(_CLOUD),
         "point_count": 100,
         "point_format": 6,
         "vertical_crs": "NAVD88 height",
     }
+    served = await client.get(
+        body["pointcloud"]["url"].removeprefix("/api"), headers=headers
+    )
+    assert served.status_code == 200, served.text
+    assert served.content == _CLOUD
     assert body["extent_bbox"] == pytest.approx(preview["extent_bbox"], abs=1e-6)
     assert queued == [(embed_record, {"record_id": str(record.id)})]
 

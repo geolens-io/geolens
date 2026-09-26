@@ -201,6 +201,21 @@ async def test_a_range_is_served_from_one_ranged_read(
     _assert_sandboxed(resp)
 
 
+async def test_the_advertised_url_serves_the_file(
+    client: AsyncClient, admin_auth_header: dict, make_pointcloud, storage
+) -> None:
+    """The dataset response's ``pointcloud.url`` is the route that serves the file."""
+    dataset_id, attempt = await _published(make_pointcloud, storage)
+
+    detail = await client.get(f"/datasets/{dataset_id}", headers=admin_auth_header)
+    url = detail.json()["pointcloud"]["url"]
+    resp = await client.get(url.removeprefix("/api"))
+
+    assert url == f"/api{_url(dataset_id, attempt)}"
+    assert resp.status_code == 200
+    assert resp.content == _COPC
+
+
 async def test_head_reads_nothing_and_reports_the_stored_size(
     client: AsyncClient, make_pointcloud, storage
 ) -> None:

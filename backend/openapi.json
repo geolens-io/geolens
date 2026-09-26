@@ -13271,6 +13271,18 @@
       "PointCloudMetadata": {
         "description": "A COPC point cloud's published file.",
         "properties": {
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "URL path of the COPC file on the app origin, e.g. /api/datasets/{id}/copc/{attempt}/data.copc.laz. A replaced file gets a new URL",
+            "title": "Url"
+          },
           "size_bytes": {
             "anyOf": [
               {
