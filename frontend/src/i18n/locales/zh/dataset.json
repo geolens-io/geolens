@@ -1161,6 +1161,24 @@
     "stay": "留下",
     "leave": "离开"
   },
+  "pointcloud": {
+    "title": "COPC 点云",
+    "pointCount": "点数",
+    "crs": "水平坐标参考系",
+    "size": "文件大小",
+    "pointFormat": "点格式",
+    "bounds": "地理范围",
+    "elevationRange": "高程范围",
+    "verticalCrs": "垂直坐标参考系",
+    "accessTitle": "在点云客户端中打开",
+    "urlLabel": "COPC 文件地址",
+    "copyUrl": "复制 COPC URL",
+    "privateHint": "此点云需要只读 API 密钥。客户端支持请求头时，请使用 X-Api-Key。示例中只有占位符，不会包含您的密钥。",
+    "clientLabel": "点云客户端",
+    "potreeHint": "Potree 无法为 COPC 发送 X-Api-Key 请求头。请将 URL 中的占位符替换为只读密钥，并将生成的 URL 作为机密信息保管。",
+    "copySnippet": "复制客户端示例",
+    "instructions": "QGIS、Potree 和 copc.js"
+  },
   "tileset": {
     "title": "3D Tiles 瓦片集",
     "version": "版本",

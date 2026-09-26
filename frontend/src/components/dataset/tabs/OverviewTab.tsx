@@ -32,6 +32,7 @@ import { SECTION_EYEBROW } from '@/components/dataset/SectionEyebrow';
 import { RelatedDatasets } from '@/components/dataset/RelatedDatasets';
 import { UsedInMaps } from '@/components/dataset/UsedInMaps';
 import { TilesetCard } from '@/components/dataset/TilesetCard';
+import { PointCloudCard } from '@/components/dataset/PointCloudCard';
 import type { DatasetEditCapabilities } from '@/components/dataset/hooks/use-dataset-edit-capabilities';
 import { getSourceFormatLabel } from '@/i18n/labels';
 import { cn } from '@/lib/utils';
@@ -533,6 +534,7 @@ export function OverviewTab({
           {dataset.tileset && (
             <TilesetCard tileset={dataset.tileset} extentBbox={dataset.extent_bbox} />
           )}
+          {dataset.pointcloud && <PointCloudCard dataset={dataset} />}
         </div>
 
         {/* ── Sidebar ── */}

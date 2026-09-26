@@ -1161,6 +1161,24 @@
     "stay": "Stay",
     "leave": "Leave"
   },
+  "pointcloud": {
+    "title": "COPC point cloud",
+    "pointCount": "Points",
+    "crs": "Horizontal CRS",
+    "size": "File size",
+    "pointFormat": "Point format",
+    "bounds": "Geographic bounds",
+    "elevationRange": "Elevation range",
+    "verticalCrs": "Vertical CRS",
+    "accessTitle": "Open in a point cloud client",
+    "urlLabel": "COPC URL",
+    "copyUrl": "Copy COPC URL",
+    "privateHint": "This point cloud needs a read-only API key. Use X-Api-Key in clients that support headers. The examples contain a placeholder, never your key.",
+    "clientLabel": "Point cloud client",
+    "potreeHint": "Potree cannot send an X-Api-Key header for COPC. Replace the placeholder in its URL with your read-only key; treat the resulting URL as a secret.",
+    "copySnippet": "Copy client snippet",
+    "instructions": "QGIS, Potree, and copc.js"
+  },
   "tileset": {
     "title": "3D Tiles tileset",
     "version": "Version",

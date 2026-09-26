@@ -236,6 +236,36 @@ describe('ConnectDropdown', () => {
     );
   });
 
+  it('copies the COPC URL and opens point cloud client instructions', async () => {
+    const user = userEvent.setup();
+    const onShowInstructions = vi.fn();
+    render(
+      <ConnectDropdown
+        dataset={makeDataset({
+          record_type: 'pointcloud_dataset',
+          pointcloud: {
+            url: '/api/datasets/ds-1/copc/attempt-1/data.copc.laz',
+            size_bytes: 1024,
+            point_count: 100,
+            point_format: 7,
+            vertical_crs: null,
+          },
+        })}
+        onShowInstructions={onShowInstructions}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /connect/i }));
+    expect(screen.getByText('QGIS, Potree, and copc.js')).toBeInTheDocument();
+    await user.click(screen.getByRole('menuitem', { name: 'Copy COPC URL' }));
+    await expect(navigator.clipboard.readText()).resolves.toBe(
+      `${window.location.origin}/api/datasets/ds-1/copc/attempt-1/data.copc.laz`,
+    );
+    await user.click(screen.getByRole('button', { name: /connect/i }));
+    await user.click(screen.getByRole('menuitem', { name: /open connection instructions/i }));
+    expect(onShowInstructions).toHaveBeenCalledOnce();
+  });
+
   it('offers no connection for an unknown record type', () => {
     render(
       <ConnectDropdown
