@@ -110,8 +110,13 @@ class _Fake:
         refused: bool = False,
         during: dict | None = None,
         failure: Failure | None = None,
+        reaps_staged_upload: bool = False,
+        stage_note: dict | None = None,
     ) -> None:
         self.seed = seed
+        self.reaps_staged_upload = reaps_staged_upload
+        # What staging writes onto the job row's metadata.
+        self.stage_note = stage_note
         self.raster_row = raster_row
         self.verdict = verdict
         self.fail_at = fail_at
@@ -138,6 +143,8 @@ class _Fake:
         self.lock_timeouts["stage"] = await session.scalar(
             text("SELECT current_setting('lock_timeout')")
         )
+        if self.stage_note:
+            job.user_metadata = {**(job.user_metadata or {}), **self.stage_note}
         await self._step("stage")
         return self.verdict
 
@@ -160,6 +167,7 @@ class _Fake:
             schema_diff=None,
             contacted_origin=False,
             live_table=dataset.table_name,
+            reaps_staged_upload=self.reaps_staged_upload,
         )
 
     def classify(self, exc: BaseException) -> Failure:
@@ -299,6 +307,45 @@ async def test_the_job_row_comes_before_the_catalog_rows_and_every_fetch_before_
     assert fake.seen["stage"] == none
     assert fake.seen["install"] == {**none, "job": True}
     assert fake.seen["write"] == {row: True for row in _ROWS}
+
+
+async def test_a_publish_that_consumed_no_upload_owes_no_followups(seed) -> None:
+    """A publish naming no staged upload records no follow-ups and claims none."""
+    claim = AsyncMock()
+    with patch("app.processing.ingest.publication.run_publish_followups", claim):
+        await _settle(_Fake(seed))
+
+    assert (await _state(seed))["job"] == "complete"
+    claim.assert_not_awaited()
+    assert not await _owes_followups(seed)
+
+
+async def test_a_publish_that_consumed_an_upload_owes_it_after_the_release(
+    seed,
+) -> None:
+    """The record lands with the complete, keeps what staging wrote, and is claimed after the release."""
+    fake = _Fake(seed, reaps_staged_upload=True, stage_note={"warnings": ["w"]})
+    released_at_claim: list = []
+
+    async def _claim(job_uuid) -> bool:
+        released_at_claim.append(fake.released)
+        return False
+
+    with patch("app.processing.ingest.publication.run_publish_followups", _claim):
+        await _settle(fake)
+
+    assert (await _state(seed))["job"] == "complete"
+    assert released_at_claim == [(PublicationCommit.ACKNOWLEDGED, False)]
+    async with db_module.async_session() as session:
+        metadata = await session.scalar(
+            select(IngestJob.user_metadata).where(IngestJob.id == seed.job_id)
+        )
+    assert metadata["warnings"] == ["w"]
+    assert metadata[PUBLISH_FOLLOWUPS_FIELD] == {
+        "task": "fake_replacement",
+        "attempt_id": str(seed.attempt_id),
+        "reaps_staged_upload": True,
+    }
 
 
 @pytest.mark.parametrize("row", ["raster", "dataset", "record"])

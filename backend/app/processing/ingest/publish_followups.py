@@ -1,12 +1,12 @@
 """The follow-ups a job owes once its terminal commit has landed.
 
-A first ingest owes its completion follow-ups, and deleting the staged upload
-its publish consumed; a rejected replacement owes its failure notice. The
-terminal transaction records them on the job row, so the record exists exactly
-when the commit does. The task runs them after its commit, or the stale-job
-sweep when the task could not. The upload is deleted before the record is
-claimed, so a delete that is cut short is retried; the rest runs once, after
-the claim.
+A first ingest owes its completion follow-ups, and a rejected replacement its
+failure notice. A publish that consumed a staged upload, first ingest or
+replacement, also owes deleting it. The terminal transaction records them on
+the job row, so the record exists exactly when the commit does. The task runs
+them after its commit, or the stale-job sweep when the task could not. The
+upload is deleted before the record is claimed, so a delete that is cut short
+is retried; the rest runs once, after the claim.
 """
 
 from __future__ import annotations
@@ -29,6 +29,7 @@ from app.platform.jobs.models import (
 )
 from app.processing.ingest.tasks_common import _emit_billing_event, cleanup_step
 from app.processing.ingest.tasks_staging import (
+    _archive_original_file,
     reap_downloaded_staging_source,
     reap_presigned_staging_object,
 )
@@ -47,16 +48,27 @@ _LABELS: dict[str, str | None] = {
 
 _SWEEP_BATCH = 50
 
+# A replacement runs its own completion steps, so its record owes only the
+# staged upload.
+_REPLACEMENTS = frozenset({"reupload_file", "reupload_raster"})
+
 _REAPS_STAGED_UPLOAD = "reaps_staged_upload"
+_ARCHIVE_KEY = "archive_key"
 
 
 def owed_followups(
-    attempt_uuid: uuid.UUID, task: str, *, reaps_staged_upload: bool = False
+    attempt_uuid: uuid.UUID,
+    task: str,
+    *,
+    reaps_staged_upload: bool = False,
+    archive_key: str | None = None,
 ):
     """The job's ``user_metadata`` with this attempt's ``task`` follow-ups owed."""
     fields = ["task", task, "attempt_id", str(attempt_uuid)]
     if reaps_staged_upload:
         fields += [_REAPS_STAGED_UPLOAD, true()]
+    if archive_key is not None:
+        fields += [_ARCHIVE_KEY, archive_key]
     owed = func.jsonb_build_object(
         PUBLISH_FOLLOWUPS_FIELD, func.jsonb_build_object(*fields)
     )
@@ -88,18 +100,76 @@ async def note_publish_followups(
     )
 
 
+def _in_staging_dir(path: str) -> bool:
+    """Whether ``path`` resolves, following links, inside the upload staging directory."""
+    return (
+        Path(path).resolve().is_relative_to(Path(settings.upload_staging_dir).resolve())
+    )
+
+
+async def _archive_upload(
+    job_uuid: uuid.UUID, file_path: str, dataset_id: uuid.UUID, archive_key: str
+) -> bool:
+    """Whether ``archive_key`` holds the upload's original, archiving it now if not.
+
+    Reads the upload the way its task did, through ``resolve_file_path``, but
+    never a local file outside the upload staging directory.
+    """
+    import app.core.db as db_module
+    from app.platform.storage import get_storage
+    from app.platform.storage.titiler_url import resolve_current_storage_key
+    from app.processing.ingest.service import resolve_file_path
+
+    job_id = str(job_uuid)
+    local: str | None = None
+    try:
+        if await get_storage().exists(resolve_current_storage_key(archive_key)):
+            return True
+        local = await resolve_file_path(file_path, job_id)
+        if local == file_path and not _in_staging_dir(local):
+            structlog.get_logger().warning(
+                "staged_upload_outside_staging_dir", job_id=job_id
+            )
+            return False
+        async with db_module.async_session() as session:
+            job = await session.get(IngestJob, job_uuid)
+            return job is not None and await _archive_original_file(
+                session,
+                job=job,
+                dataset_id=dataset_id,
+                file_path=local,
+                log_message="Failed to archive re-uploaded file to storage",
+                archive_name=archive_key.rsplit("/", 1)[-1],
+            )
+    except Exception:  # broad: an upload or store that can't be read keeps the upload
+        structlog.get_logger().warning("staged_upload_archive_failed", job_id=job_id)
+        return False
+    finally:
+        if local is not None and local != file_path:
+            Path(local).unlink(missing_ok=True)
+
+
 async def _reap_staged_upload(
-    job_uuid: uuid.UUID, file_path: str | None, user_metadata: dict | None
+    job_uuid: uuid.UUID,
+    file_path: str | None,
+    user_metadata: dict | None,
+    *,
+    dataset_id: uuid.UUID | None = None,
+    archive_key: str | None = None,
 ) -> None:
     """Delete a published job's staged upload, as its task's cleanup does; never raises.
 
-    ``file_path`` is a local file when ``resolve_file_path`` would read it as
-    one, and is unlinked only inside the upload staging directory. A
-    ``staging/`` path is also deleted from storage.
+    With ``archive_key`` and a live dataset, the upload's original is archived
+    first and the upload kept when it can't be. ``file_path`` is a local file
+    when ``resolve_file_path`` would read it as one, and is unlinked only inside
+    the upload staging directory. A ``staging/`` path is also deleted from storage.
     """
     from app.core.tenancy import is_multi_tenant
 
     job_id = str(job_uuid)
+    if file_path and archive_key and dataset_id is not None:
+        if not await _archive_upload(job_uuid, file_path, dataset_id, archive_key):
+            return
     await reap_presigned_staging_object(
         job_id,
         owned_presigned_staging_key(job_uuid, user_metadata, file_path),
@@ -110,9 +180,8 @@ async def _reap_staged_upload(
     async with cleanup_step("staged upload", job_id=job_id):
         path = Path(file_path)
         if path.exists() and (path.is_absolute() or not is_multi_tenant()):
-            local = path.resolve()
-            if local.is_relative_to(Path(settings.upload_staging_dir).resolve()):
-                local.unlink(missing_ok=True)
+            if _in_staging_dir(file_path):
+                path.resolve().unlink(missing_ok=True)
             else:
                 structlog.get_logger().warning(
                     "staged_upload_outside_staging_dir", job_id=job_id
@@ -142,10 +211,10 @@ async def run_publish_followups(job_uuid: uuid.UUID) -> bool:
     leaves the record for the next one to delete again. The claim then takes
     the record at most once, and the job's status chooses what runs: a
     complete first ingest's follow-ups, or a failed job's ``ingest_failed``
-    notice. A job in neither status runs nothing, and a row another caller has
-    locked nothing past the delete. A record an earlier attempt wrote is
-    cleared and runs nothing, and a deleted dataset skips the rest. Returns
-    whether this call claimed.
+    notice. A replacement owes nothing past the delete. A job in neither status
+    runs nothing, and a row another caller has locked nothing past the delete.
+    A record an earlier attempt wrote is cleared and runs nothing, and a
+    deleted dataset skips the rest. Returns whether this call claimed.
     """
     import app.core.db as db_module
     from app.core.db.tenant_session import current_tenant_var
@@ -166,6 +235,7 @@ async def run_publish_followups(job_uuid: uuid.UUID) -> bool:
         owed["task"].astext.label("task"),
         owed["attempt_id"].astext.label("owed_attempt"),
         owed[_REAPS_STAGED_UPLOAD].astext.label("reaps_staged_upload"),
+        owed[_ARCHIVE_KEY].astext.label("archive_key"),
         IngestJob.file_path,
         IngestJob.user_metadata,
     ).where(
@@ -176,7 +246,13 @@ async def run_publish_followups(job_uuid: uuid.UUID) -> bool:
     async with db_module.async_session() as session:
         pending = (await session.execute(owed_row)).one_or_none()
     if pending is not None and _owes_the_upload(pending):
-        await _reap_staged_upload(job_uuid, pending.file_path, pending.user_metadata)
+        await _reap_staged_upload(
+            job_uuid,
+            pending.file_path,
+            pending.user_metadata,
+            dataset_id=pending.dataset_id,
+            archive_key=pending.archive_key,
+        )
 
     async with db_module.async_session() as session:
         claim = (
@@ -207,6 +283,8 @@ async def run_publish_followups(job_uuid: uuid.UUID) -> bool:
             await notify_ingest_failed(
                 job_uuid, task=task, reason=claim.error_message or ""
             )
+        return True
+    if task in _REPLACEMENTS:
         return True
     if task not in _LABELS:
         log.warning("publish_followups_unknown_task")

@@ -115,6 +115,10 @@ class Published:
     reembed: bool = True
     # Further job columns the complete writes, in its one UPDATE of the job row.
     job_values: dict[str, Any] | None = None
+    # The follow-ups delete the staged upload the publish consumed, after
+    # archiving its original under this key when there is one.
+    reaps_staged_upload: bool = False
+    upload_archive_key: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -325,6 +329,8 @@ class _Attempt:
     # be cancelled, so cleanup never reaps what the commit published.
     publication: PublicationCommit | None = None
     reembed: bool = True
+    # The publish recorded follow-ups for its staged upload.
+    owes_followups: bool = False
 
 
 async def settle_replacement(
@@ -374,6 +380,10 @@ async def settle_replacement(
             await _drop_staging_table(attempt.staging_table)
         await strategy.release(publication=attempt.publication, failed=failed)
 
+    # After the release, which archives the upload these follow-ups delete.
+    if attempt.owes_followups:
+        async with cleanup_step(f"{strategy.task} follow-ups", job_id=job_id):
+            await run_publish_followups(attempt.job_id)
     if attempt.publication is not None and attempt.reembed:
         async with cleanup_step(f"{strategy.task} embedding", job_id=job_id):
             await _defer_embedding(attempt.dataset_id)
@@ -513,11 +523,19 @@ async def _publish(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
         attempt.reembed = published.reembed
         if published.tiles_changed:
             await bump_tile_cache_version_on(session, dataset)
+        values = dict(published.job_values or {})
+        if published.reaps_staged_upload:
+            values["user_metadata"] = owed_followups(
+                attempt_id,
+                strategy.task,
+                reaps_staged_upload=True,
+                archive_key=published.upload_archive_key,
+            )
         await _complete(
             session,
             job_id,
             attempt_id,
-            values=published.job_values,
+            values=values,
             linked=partial(
                 record_refresh_success,
                 ingest_job_id=job_id,
@@ -532,6 +550,7 @@ async def _publish(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
         attempt.publication = await commit_publication(
             session, job_id=job_id, attempt_id=attempt_id, task=strategy.task
         )
+        attempt.owes_followups = published.reaps_staged_upload
 
         # Published, so each step below logs its own failure instead of
         # failing the replacement.

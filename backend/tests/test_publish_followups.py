@@ -589,6 +589,77 @@ async def test_a_delete_cut_short_leaves_the_record_for_the_next_run(
         await _drop(test_db_session, job_id, record_id)
 
 
+async def _owe_archive(job_id, dataset_id, name: str) -> str:
+    """Name the key the job's record archives the upload's original under."""
+    key = f"originals/{dataset_id}/{name}"
+    async with db_module.async_session() as session:
+        job = await session.get(IngestJob, job_id)
+        owed = {**job.user_metadata[PUBLISH_FOLLOWUPS_FIELD], "archive_key": key}
+        job.user_metadata = {**job.user_metadata, PUBLISH_FOLLOWUPS_FIELD: owed}
+        await session.commit()
+    return key
+
+
+@pytest.mark.parametrize("task", ["reupload_file", "reupload_raster"])
+async def test_a_replacement_owes_only_the_deletion_of_its_upload(
+    test_db_session, raster_storage, followups, task
+) -> None:
+    """A replacement's record deletes the upload and runs nothing else, as a task it knows."""
+    job_id, _, record_id = await _owed_job(
+        test_db_session, task=task, reaps_staged_upload=True
+    )
+    try:
+        left = await _stage_upload(raster_storage, job_id, "local")
+        with structlog.testing.capture_logs() as logs:
+            assert await run_publish_followups(job_id) is True
+
+        assert await left() == []
+        assert followups == []
+        assert "publish_followups_unknown_task" not in [e["event"] for e in logs]
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def test_an_archive_already_made_is_not_made_again(
+    test_db_session, raster_storage, followups
+) -> None:
+    """An upload whose original is already archived is deleted without a second copy."""
+    job_id, dataset_id, record_id = await _owed_job(
+        test_db_session, task="reupload_file", reaps_staged_upload=True
+    )
+    try:
+        left = await _stage_upload(raster_storage, job_id, "storage")
+        key = await _owe_archive(job_id, dataset_id, "upload.tif")
+        await raster_storage.put(key, b"archived by the task")
+        with _storage_calls(raster_storage) as calls:
+            assert await run_publish_followups(job_id) is True
+
+        assert calls["put"] == []
+        assert await raster_storage.get(key) == b"archived by the task"
+        assert await left() == []
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+@pytest.mark.parametrize("where", ["local", "storage"])
+async def test_a_missing_archive_is_made_from_the_upload_before_it_goes(
+    test_db_session, raster_storage, followups, where
+) -> None:
+    """The claim archives an upload's original from the upload itself, then deletes the upload."""
+    job_id, dataset_id, record_id = await _owed_job(
+        test_db_session, task="reupload_file", reaps_staged_upload=True
+    )
+    try:
+        left = await _stage_upload(raster_storage, job_id, where)
+        key = await _owe_archive(job_id, dataset_id, "upload.tif")
+
+        assert await run_publish_followups(job_id) is True
+        assert await raster_storage.get(key) == b"staged"
+        assert await left() == []
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
 @pytest.mark.parametrize(
     ("file_path", "metadata"),
     [(None, {}), ("", {"s3_key": ""}), (None, {"s3_key": None})],
