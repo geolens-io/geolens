@@ -241,6 +241,16 @@ def _pages(*entries):
     return lambda layout: [[root_entry(layout), *(e(layout) for e in entries)]]
 
 
+def _two_levels_down(pages) -> bytes:
+    """The root node and a node two levels below it, on the pages ``pages`` returns."""
+    deeper = compressed_chunk(records(50, span=250))
+
+    def layout(at: Layout):
+        return pages(at, (2, 0, 0, 0, at.chunk_offset + at.chunk_size, len(deeper), 50))
+
+    return copc(padding=deeper, pages=layout, header_point_count=150)
+
+
 @pytest.mark.parametrize(
     ("data", "message"),
     [
@@ -296,7 +306,35 @@ def _pages(*entries):
             id="key-outside-octree",
         ),
         pytest.param(
+            copc(pages=_pages(lambda at: (1, -1, 0, 0, 0, 0, 0))),
+            "outside the octree",
+            id="negative-key",
+        ),
+        pytest.param(
+            copc(pages=_pages(lambda at: (-1, 0, 0, 0, 0, 0, 0))),
+            "outside the octree",
+            id="negative-depth",
+        ),
+        pytest.param(
             copc(pages=_pages(root_entry)), "malformed or repeated", id="repeated"
+        ),
+        pytest.param(
+            copc(pages=lambda at: child_page(at, [root_entry(at)])),
+            "malformed or repeated",
+            id="repeated-on-another-page",
+        ),
+        pytest.param(
+            copc(
+                points=records(100, span=500),
+                pages=lambda at: [[(1, 0, 0, 0, at.chunk_offset, at.chunk_size, 100)]],
+            ),
+            "no root node",
+            id="no-root",
+        ),
+        pytest.param(
+            _two_levels_down(lambda at, node: [[root_entry(at), node]]),
+            "parent is missing",
+            id="missing-parent",
         ),
         pytest.param(
             copc(pages=_pages(lambda at: (1, 0, 0, 0, 0, 0, -2))),
@@ -310,6 +348,27 @@ def test_a_damaged_point_cloud_is_refused_as_invalid(tmp_path, data, message) ->
     refusal = refused(tmp_path, data)
 
     assert (refusal.code, message in str(refusal)) == ("pointcloud_invalid", True)
+
+
+@pytest.mark.parametrize(
+    "pages",
+    [
+        pytest.param(
+            lambda at, node: [[root_entry(at), (1, 0, 0, 0, 0, 0, 0), node]],
+            id="empty-parent",
+        ),
+        pytest.param(lambda at, node: child_page(at, [node]), id="page-parent"),
+    ],
+)
+async def test_a_node_reached_through_an_empty_entry_or_a_page_passes(
+    tmp_path, pages
+) -> None:
+    """An empty entry or a page reference is the entry a reader walks through."""
+    path = write(tmp_path, _two_levels_down(pages))
+
+    door, worker = inspect_pointcloud(path), await inspect_every_node(path)
+
+    assert (door.point_count, worker.point_count) == (150, 150)
 
 
 @pytest.mark.parametrize(

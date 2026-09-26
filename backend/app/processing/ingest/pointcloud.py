@@ -84,6 +84,7 @@ _INFO = struct.Struct("<5dQQ2d")
 _TABLE_ENTRY_BYTES = 32
 _COPC_INFO = (b"copc", 1)
 _COPC_HIERARCHY = (b"copc", 1000)
+_ROOT_KEY = (0, 0, 0, 0)
 _LASZIP = (b"laszip encoded", 22204)
 _WKT = (b"LASF_Projection", 2112)
 
@@ -348,12 +349,13 @@ def _walk(
 
     A page is read once at most, from inside the hierarchy record; each node's
     points lie inside the point data, overlap no other node's and decode to at
-    most ``MAX_DECODE_RATIO`` times their stored size; and the nodes' counts sum
-    to the header's.
+    most ``MAX_DECODE_RATIO`` times their stored size; the nodes' counts sum
+    to the header's; and each node is reachable from the root.
     """
     pages = [root]
     seen_pages: set[tuple[int, int]] = set()
     seen_keys: set[tuple[int, int, int, int]] = set()
+    present: set[tuple[int, int, int, int]] = set()
     entries = total = 0
     nodes: list[_Node] = []
     while pages:
@@ -390,10 +392,11 @@ def _walk(
                     "A hierarchy entry names a node outside the octree.",
                     reason="node_key",
                 )
+            key = (depth, x, y, z)
+            present.add(key)
             if count == -1:
                 pages.append((node_offset, node_size))
                 continue
-            key = (depth, x, y, z)
             if count < -1 or key in seen_keys:
                 raise _invalid(
                     "A hierarchy entry is malformed or repeated.", reason="node_entry"
@@ -424,6 +427,7 @@ def _walk(
             "The hierarchy's point counts don't add up to the header's.",
             reason="point_count",
         )
+    _check_reachable(nodes, present)
     # A chunk two nodes share would be decoded once for each of them.
     by_offset = sorted(nodes, key=lambda node: node.offset)
     for before, after in zip(by_offset, by_offset[1:]):
@@ -435,6 +439,31 @@ def _walk(
     # Stable, so the top node is the first one found at the least depth.
     nodes.sort(key=lambda node: node.depth)
     return nodes
+
+
+def _check_reachable(
+    nodes: list[_Node], present: set[tuple[int, int, int, int]]
+) -> None:
+    """Refuse a node that a reader walking down from the root never reaches.
+
+    A reader reaches a node only through an entry for each of its ancestors,
+    and an empty entry or a page reference is such an entry too.
+    """
+    if _ROOT_KEY not in present:
+        raise _invalid("The hierarchy has no root node.", reason="no_root")
+    reachable = {_ROOT_KEY}
+    for node in nodes:
+        key, chain = (node.depth, node.x, node.y, node.z), []
+        while key not in reachable:
+            if key not in present:
+                raise _invalid(
+                    "A node's parent is missing from the hierarchy.",
+                    reason="node_parent",
+                )
+            chain.append(key)
+            depth, x, y, z = key
+            key = (depth - 1, x >> 1, y >> 1, z >> 1)
+        reachable.update(chain)
 
 
 def _read_layout(read: Read, size: int) -> _Layout:
