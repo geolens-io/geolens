@@ -1,24 +1,19 @@
 """No code under ``backend/app`` hands CRS text to PROJ outside the raster probe child.
 
 PROJ may open files named in CRS text, so stored and uploaded CRS text is read
-only in the bounded probe child. Names resolve through each module's imports,
-so aliases, module aliases, relative imports and ``getattr`` with a literal
-name are all seen. Each rule is exact both ways, by count:
+only in the bounded probe child. Each rule is exact both ways, by count:
 
 - every PROJ text parser or ``core.geo`` WKT helper is at an ``ALLOWED_SITES`` entry;
-- every ``rasterio`` reference is in a ``RASTERIO_SITES`` function;
+- every ``rasterio`` import and reference is in a ``RASTERIO_SITES`` function,
+  none at module level so nothing re-exports it, and a site outside the child
+  uses exactly its ``RASTERIO_NAMES``;
 - ``CHILD_FUNCTIONS`` are reached only from each other, and the child's ``main``
   only from its ``__main__`` guard;
 - ``cog._wgs84_bbox``, which hands its CRS to ``transform_bounds``, is called
   only from ``WGS84_BBOX_CALLERS``;
-- nothing uses ``pyproj`` or ``osgeo``.
+- nothing imports or uses ``pyproj`` or ``osgeo``.
 
-Known limits: a parser that arrives with no import trace (a parameter, a dict
-value, a factory's return, ``importlib``, ``__import__``), a computed
-``getattr`` name and a star import are not seen. Text standing in for a CRS
-object inside an allowed function (``crs == text``, or text handed to
-``_wgs84_bbox``) is not seen. A local variable that shadows an imported name
-can raise a false alarm.
+What the scan can't see is listed on :func:`scan`.
 """
 
 from __future__ import annotations
@@ -57,6 +52,7 @@ PARSERS = frozenset(
     }
 )
 FORBIDDEN_ROOTS = ("pyproj", "osgeo")
+_IMPORT_ROOTS = ("rasterio", *FORBIDDEN_ROOTS)
 
 PROBE = "processing/raster/probe.py"
 COG = "processing/raster/cog.py"
@@ -91,23 +87,47 @@ ALLOWED_SITES: dict[tuple[str, str, str], tuple[int, str]] = {
 # (module, function) -> the module-level string constant its parse must take.
 CONSTANT_ARGUMENT = {(COG_INFO, "_georeferencing"): "_CRS84_URI"}
 
-# (module under app/, enclosing function) -> (rasterio references, why it is safe)
+# (module under app/, enclosing function) -> (rasterio imports and references,
+# why it is safe)
 RASTERIO_SITES: dict[tuple[str, str], tuple[int, str]] = {
-    ("core/geo.py", "_parse_crs"): (1, "reached only from ALLOWED_SITES"),
-    ("core/geo.py", "_proj_knows_epsg"): (1, "from_epsg on an integer code"),
+    ("core/geo.py", "_parse_crs"): (2, "reached only from ALLOWED_SITES"),
+    ("core/geo.py", "_proj_knows_epsg"): (2, "from_epsg on an integer code"),
     ("core/geo.py", "crs_facts_for_epsg"): (
-        2,
+        4,
         "from_epsg on a validated integer code, which reads only the PROJ database",
     ),
-    (COG_INFO, "_georeferencing"): (2, "from_epsg on a code, the pinned CRS84 parse"),
-    (PROBE, "_crs_same"): (2, _CHILD),
-    (PROBE, "_category"): (6, _CHILD),
-    (COG, "extract_raster_metadata"): (1, _CHILD),
-    (COG, "check_cog_compliance"): (1, _CHILD),
-    (COG, "_predictor_supported"): (1, _CHILD),
-    (COG, "_wgs84_bbox"): (2, "transforms the CRS of a WGS84_BBOX_CALLERS caller"),
-    (QUICKLOOK, "generate_quicklook"): (3, _CHILD),
-    (VRT, "gdal_safe_open_env"): (1, _CHILD),
+    (COG_INFO, "_georeferencing"): (3, "from_epsg on a code, the pinned CRS84 parse"),
+    (PROBE, "_crs_same"): (4, _CHILD),
+    (PROBE, "_category"): (8, _CHILD),
+    (COG, "extract_raster_metadata"): (2, _CHILD),
+    (COG, "check_cog_compliance"): (2, _CHILD),
+    (COG, "_predictor_supported"): (2, _CHILD),
+    (COG, "_wgs84_bbox"): (3, "transforms the CRS of a WGS84_BBOX_CALLERS caller"),
+    (QUICKLOOK, "generate_quicklook"): (4, _CHILD),
+    (VRT, "gdal_safe_open_env"): (2, _CHILD),
+}
+_FROM_EPSG = f"{_CRS_CLASS}.from_epsg"
+# RASTERIO_SITES outside the child -> the rasterio names it uses, by count, so
+# swapping one for another that takes text fails even at the same count.
+RASTERIO_NAMES: dict[tuple[str, str], dict[str, int]] = {
+    ("core/geo.py", "_parse_crs"): {"rasterio.crs": 1, f"{_CRS_CLASS}.from_wkt": 1},
+    ("core/geo.py", "_proj_knows_epsg"): {"rasterio.crs": 1, _FROM_EPSG: 1},
+    ("core/geo.py", "crs_facts_for_epsg"): {
+        "rasterio.crs": 1,
+        "rasterio.errors": 1,
+        _FROM_EPSG: 1,
+        "rasterio.errors.CRSError": 1,
+    },
+    (COG_INFO, "_georeferencing"): {
+        "rasterio.crs": 1,
+        _FROM_EPSG: 1,
+        f"{_CRS_CLASS}.from_user_input": 1,
+    },
+    (COG, "_wgs84_bbox"): {
+        "rasterio.warp": 1,
+        "rasterio.warp.transform": 1,
+        "rasterio.warp.transform_bounds": 1,
+    },
 }
 
 CHILD_MAIN = (PROBE, "main")
@@ -172,6 +192,15 @@ def _import_base(node: ast.ImportFrom, rel: str) -> str:
         package.pop()
     package = package[: len(package) - node.level + 1]
     return ".".join([*package, node.module] if node.module else package)
+
+
+def _imported(node: ast.Import | ast.ImportFrom, rel: str) -> list[str]:
+    """The rasterio, pyproj or osgeo modules an import statement loads."""
+    if isinstance(node, ast.Import):
+        modules = [alias.name for alias in node.names]
+    else:
+        modules = [_import_base(node, rel)]
+    return [m for m in modules if any(_under(m, root) for root in _IMPORT_ROOTS)]
 
 
 def _bindings(tree: ast.Module, rel: str) -> dict[str, set[str]]:
@@ -245,9 +274,19 @@ def _is_main_guard(node: ast.AST) -> bool:
 
 
 def scan(sources: dict[str, str]) -> list[Ref]:
-    """Every outermost name reference that resolves, keyed by module and function.
+    """Every outermost name reference that resolves, and every import of an
+    ``_IMPORT_ROOTS`` module, keyed by module and function.
 
-    Module-level code inside ``if __name__ == "__main__":`` is keyed ``__main__``.
+    Names resolve through each module's imports, so aliases, module aliases,
+    relative imports and ``getattr`` with a literal name are seen. Module-level
+    code inside ``if __name__ == "__main__":`` is keyed ``__main__``.
+
+    Not seen: a parser with no import trace (a parameter, a dict value, a
+    factory's return, ``importlib``, ``__import__``), a computed ``getattr``
+    name, a star import from an app module, ``runpy`` running the probe module
+    in this process, and text standing in for a CRS object inside an allowed
+    function (``crs == text``, or text handed to ``_wgs84_bbox``). A local
+    variable that shadows an imported name can raise a false alarm.
     """
     refs: list[Ref] = []
     for rel, source in sources.items():
@@ -268,20 +307,18 @@ def scan(sources: dict[str, str]) -> list[Ref]:
                 scope = (*scope, node.name)
             elif not scope and _is_main_guard(node):
                 scope = (_MAIN_GUARD,)
+            function = ".".join(scope) or "<module>"
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                refs.extend(
+                    Ref(rel, function, name, None) for name in _imported(node, rel)
+                )
             candidate = (
                 isinstance(node, (ast.Name, ast.Attribute))
                 and isinstance(node.ctx, ast.Load)
             ) or _literal_getattr(node, names)
             if candidate and id(node) not in inner:
                 for name in _resolve(node, names):
-                    refs.append(
-                        Ref(
-                            rel,
-                            ".".join(scope) or "<module>",
-                            name,
-                            calls.get(id(node)),
-                        )
-                    )
+                    refs.append(Ref(rel, function, name, calls.get(id(node))))
             for child in ast.iter_child_nodes(node):
                 visit(child, scope)
 
@@ -318,6 +355,20 @@ def rasterio_sites(refs: list[Ref]) -> Counter:
     return Counter(
         (ref.module, ref.function) for ref in refs if _under(ref.name, "rasterio")
     )
+
+
+def rasterio_name_differences(refs: list[Ref]) -> dict[tuple[str, str], str]:
+    """``RASTERIO_NAMES`` sites whose rasterio names differ from their pins."""
+    differences = {}
+    for site, pinned in RASTERIO_NAMES.items():
+        found = Counter(
+            ref.name
+            for ref in refs
+            if (ref.module, ref.function) == site and _under(ref.name, "rasterio")
+        )
+        if found != Counter(pinned):
+            differences[site] = _differences(found, Counter(pinned))
+    return differences
 
 
 def constant_argument_violations(sources: dict[str, str], refs: list[Ref]) -> list[str]:
@@ -423,6 +474,20 @@ def test_every_rasterio_reference_is_in_an_allowed_function(app_refs):
     assert found == expected, _differences(found, expected)
 
 
+def test_rasterio_sites_outside_the_child_use_only_their_pinned_names(app_refs):
+    assert rasterio_name_differences(app_refs) == {}
+
+
+def test_every_rasterio_site_outside_the_child_pins_its_names():
+    assert set(RASTERIO_NAMES) == set(RASTERIO_SITES) - CHILD_FUNCTIONS
+    for site, names in RASTERIO_NAMES.items():
+        assert sum(names.values()) == RASTERIO_SITES[site][0], site
+
+
+def test_no_rasterio_site_is_module_level():
+    assert [site for site in RASTERIO_SITES if site[1] == "<module>"] == []
+
+
 def test_child_functions_are_reached_only_from_the_child(app_refs):
     assert child_reach_violations(app_refs) == []
 
@@ -509,28 +574,38 @@ def test_every_site_said_to_run_in_the_child_is_a_child_function():
             "f",
             "app.core.geo._parse_crs",
         ),
-        (
-            "modules/x.py",
-            "import pyproj\ndef f(t):\n    return pyproj.CRS(t)\n",
-            "f",
-            "pyproj",
-        ),
-        (
-            "modules/x.py",
-            "from osgeo import osr\ndef f(t):\n    osr.SpatialReference().ImportFromWkt(t)\n",
-            "f",
-            "osgeo",
-        ),
-        (
-            "modules/x.py",
-            "from osgeo import gdal\ndef f(path):\n    return gdal.Open(path)\n",
-            "f",
-            "osgeo",
-        ),
     ],
 )
 def test_the_scan_sees_each_way_of_reaching_a_parser(module, source, scope, target):
     assert parser_sites(scan({module: source})) == Counter({(module, scope, target): 1})
+
+
+# Rejected twins: pyproj and osgeo, imported or used.
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        (
+            "import pyproj\ndef f(t):\n    return pyproj.CRS(t)\n",
+            {("<module>", "pyproj"): 1, ("f", "pyproj"): 1},
+        ),
+        (
+            "from osgeo import osr\ndef f(t):\n    osr.SpatialReference().ImportFromWkt(t)\n",
+            {("<module>", "osgeo"): 1, ("f", "osgeo"): 1},
+        ),
+        (
+            "from osgeo import gdal\ndef f(path):\n    return gdal.Open(path)\n",
+            {("<module>", "osgeo"): 1, ("f", "osgeo"): 1},
+        ),
+        ("from osgeo import osr\n", {("<module>", "osgeo"): 1}),
+    ],
+    ids=["pyproj", "osr", "gdal", "import-alone"],
+)
+def test_the_scan_sees_pyproj_and_osgeo_imported_or_used(source, expected):
+    found = parser_sites(scan({"modules/x.py": source}))
+
+    assert found == Counter(
+        {("modules/x.py", scope, target): n for (scope, target), n in expected.items()}
+    )
 
 
 # Accepted twins: none of these parses CRS text.
@@ -569,8 +644,38 @@ def test_the_scan_ignores_what_is_not_a_crs_text_parse(source):
 )
 def test_rasterio_outside_an_allowed_function_is_seen(source):
     assert rasterio_sites(scan({"modules/x.py": source})) == Counter(
-        {("modules/x.py", "f"): 1}
+        {("modules/x.py", "<module>"): 1, ("modules/x.py", "f"): 1}
     )
+
+
+def test_a_module_that_could_re_export_rasterio_is_seen():
+    sources = {
+        "core/x.py": "import rasterio\n",
+        "modules/y.py": "from app.core.x import rasterio as r\n"
+        "def f(path):\n    return r.open(path)\n",
+    }
+
+    assert rasterio_sites(scan(sources)) == Counter({("core/x.py", "<module>"): 1})
+
+
+@pytest.mark.parametrize(
+    ("body", "differs"),
+    [
+        ("    from rasterio.crs import CRS\n    return CRS.from_epsg(epsg)\n", False),
+        (
+            "    from rasterio.warp import transform_bounds\n"
+            "    return transform_bounds(epsg, 'EPSG:4326', 0, 0, 1, 1)\n",
+            True,
+        ),
+        ("    from rasterio.crs import CRS\n    return CRS.from_string(epsg)\n", True),
+    ],
+    ids=["from-epsg", "a-transform-that-takes-text", "a-text-parser"],
+)
+def test_a_same_count_swap_at_a_pinned_site_is_seen(body, differs):
+    site = ("core/geo.py", "_proj_knows_epsg")
+    refs = scan({site[0]: f"def {site[1]}(epsg):\n{body}"})
+
+    assert (site in rasterio_name_differences(refs)) is differs
 
 
 @pytest.mark.parametrize(
