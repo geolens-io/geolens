@@ -660,6 +660,35 @@ async def test_a_missing_archive_is_made_from_the_upload_before_it_goes(
         await _drop(test_db_session, job_id, record_id)
 
 
+@pytest.mark.parametrize("found", [False, True], ids=["made", "found"])
+async def test_an_archive_in_place_clears_an_earlier_archive_failure(
+    test_db_session, raster_storage, followups, found
+) -> None:
+    """A job flagged for a failed archive loses the flag, and its upload, once its archive is in place."""
+    job_id, dataset_id, record_id = await _owed_job(
+        test_db_session, task="reupload_file", reaps_staged_upload=True
+    )
+    try:
+        await _point_job_at(
+            job_id, file_path=None, archive_failed=True, archive_error="refused"
+        )
+        left = await _stage_upload(raster_storage, job_id, "storage")
+        key = await _owe_archive(job_id, dataset_id, "upload.tif")
+        if found:
+            await raster_storage.put(key, b"staged")
+
+        assert await run_publish_followups(job_id) is True
+        assert await raster_storage.get(key) == b"staged"
+        assert await left() == []
+        async with db_module.async_session() as session:
+            metadata = await session.scalar(
+                select(IngestJob.user_metadata).where(IngestJob.id == job_id)
+            )
+        assert not {"archive_failed", "archive_error"} & metadata.keys()
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
 async def test_an_upload_outside_the_staging_dir_is_never_archived(
     test_db_session, raster_storage, tmp_path, followups
 ) -> None:
