@@ -1083,24 +1083,37 @@ export function ShareDialog({
 
   // validate_public_visibility (server) decides whether the map can go
   // public; isLayerHiddenFromMapAudience above only guesses from cached
-  // layer fields and can disagree with it. Null = unchecked/checking.
-  const [pendingNonPublicDatasets, setPendingNonPublicDatasets] = useState<string[] | null>(null);
+  // layer fields and can disagree with it. 'error' must stay distinct from
+  // an eligible result — a request that never got an answer is not the
+  // server saying yes.
+  type PublicEligibility =
+    | { status: 'checking' }
+    | { status: 'error' }
+    | { status: 'resolved'; nonPublicDatasets: string[] };
+  const [publicEligibility, setPublicEligibility] = useState<PublicEligibility>({ status: 'checking' });
   const publicEligibilityRequestId = useRef(0);
-  const isPublicBlocked = (pendingNonPublicDatasets?.length ?? 0) > 0;
+  const isCheckingPublicEligibility = publicEligibility.status === 'checking';
+  const publicEligibilityFailed = publicEligibility.status === 'error';
+  const isPublicBlocked =
+    publicEligibility.status === 'resolved' && publicEligibility.nonPublicDatasets.length > 0;
+  const isPublicEligible =
+    publicEligibility.status === 'resolved' && publicEligibility.nonPublicDatasets.length === 0;
+  const blockedDatasets =
+    publicEligibility.status === 'resolved' ? publicEligibility.nonPublicDatasets : [];
 
-  // Guards a stale response from landing after a newer request.
+  // Guards a stale response — including a retry's — from landing after a newer request.
   function checkPublicEligibility() {
     const requestId = ++publicEligibilityRequestId.current;
-    setPendingNonPublicDatasets(null);
+    setPublicEligibility({ status: 'checking' });
     checkMapVisibility(mapId)
       .then((check) => {
         if (publicEligibilityRequestId.current === requestId) {
-          setPendingNonPublicDatasets(check.non_public_datasets);
+          setPublicEligibility({ status: 'resolved', nonPublicDatasets: check.non_public_datasets });
         }
       })
       .catch(() => {
         if (publicEligibilityRequestId.current === requestId) {
-          setPendingNonPublicDatasets([]);
+          setPublicEligibility({ status: 'error' });
         }
       });
   }
@@ -1347,16 +1360,22 @@ export function ShareDialog({
               {pendingVisibility === 'public' ? (
                 <>
                   <AlertDialogHeader>
-                    <AlertDialogTitle>{t('share.makePublicConfirmTitle')}</AlertDialogTitle>
+                    <AlertDialogTitle>
+                      {isPublicBlocked
+                        ? t('share.makePublicBlockedTitle')
+                        : t('share.makePublicConfirmTitle')}
+                    </AlertDialogTitle>
                     <AlertDialogDescription>
                       {isPublicBlocked
                         ? t('share.makePublicBlockedDescription', {
-                            datasets: (pendingNonPublicDatasets ?? []).join(', '),
+                            datasets: blockedDatasets.join(', '),
                           })
-                        : t('share.makePublicConfirmDescription')}
+                        : publicEligibilityFailed
+                          ? t('share.makePublicCheckFailed')
+                          : t('share.makePublicConfirmDescription')}
                     </AlertDialogDescription>
                   </AlertDialogHeader>
-                  {!isPublicBlocked && pendingAudienceHiddenLayers.length > 0 && (
+                  {isPublicEligible && pendingAudienceHiddenLayers.length > 0 && (
                     <div
                       data-testid="share-confirm-audience-hidden-warning"
                       className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-foreground"
@@ -1372,12 +1391,17 @@ export function ShareDialog({
                   )}
                   <AlertDialogFooter>
                     <AlertDialogCancel>{t('share.visibilityConfirmCancel')}</AlertDialogCancel>
-                    {!isPublicBlocked && (
+                    {publicEligibilityFailed && (
+                      <Button type="button" variant="outline" onClick={checkPublicEligibility}>
+                        {t('share.makePublicCheckRetry')}
+                      </Button>
+                    )}
+                    {!isPublicBlocked && !publicEligibilityFailed && (
                       <AlertDialogAction
                         onClick={handleConfirmVisibilityChange}
-                        disabled={pendingNonPublicDatasets === null}
+                        disabled={isCheckingPublicEligibility}
                       >
-                        {pendingNonPublicDatasets === null ? (
+                        {isCheckingPublicEligibility ? (
                           <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
                         ) : (
                           t('share.makePublicConfirmAction')

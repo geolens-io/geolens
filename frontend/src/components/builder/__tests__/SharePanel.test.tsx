@@ -1387,7 +1387,7 @@ describe('#2297 public confirm defers to the server publish check', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any;
 
-  it('blocks Make public and names the datasets when the server would refuse', async () => {
+  it('blocks Make public, names the datasets, and swaps the heading when the server would refuse', async () => {
     const user = userEvent.setup();
     const { publishMapFn } = setup({
       visibility: 'private',
@@ -1399,10 +1399,10 @@ describe('#2297 public confirm defers to the server publish check', () => {
     await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
 
     const dialog = await screen.findByRole('alertdialog');
-    expect(dialog).toHaveTextContent(/make this map public\?/i);
     await waitFor(() => {
       expect(dialog).toHaveTextContent('Private dataset');
     });
+    expect(dialog).toHaveTextContent(/this map can't be public yet/i);
     expect(screen.queryByRole('button', { name: /^make public$/i })).not.toBeInTheDocument();
     // Superseded by the message above — showing both would say the map can't
     // go public AND will go public with the layer merely hidden.
@@ -1411,6 +1411,39 @@ describe('#2297 public confirm defers to the server publish check', () => {
 
     await user.click(screen.getByRole('button', { name: /^cancel$/i }));
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  it('shows an error with Retry when the check fails, and enables Make public once a retry succeeds', async () => {
+    const user = userEvent.setup();
+    const { publishMapFn } = setup({
+      visibility: 'private',
+      hasShareToken: false,
+    });
+    mockedCheckMapVisibility.mockReset();
+    mockedCheckMapVisibility.mockRejectedValueOnce(new Error('network error'));
+    mockedCheckMapVisibility.mockResolvedValueOnce({ has_non_public: false, non_public_datasets: [] });
+
+    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+
+    const dialog = await screen.findByRole('alertdialog');
+    await waitFor(() => {
+      expect(dialog).toHaveTextContent(/couldn't check whether this map can be public/i);
+    });
+    // A failed check must not read as an eligible one.
+    expect(screen.queryByRole('button', { name: /^make public$/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^cancel$/i })).toBeInTheDocument();
+    expect(publishMapFn).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: /^retry$/i }));
+
+    const makePublicButton = await screen.findByRole('button', { name: /^make public$/i });
+    await waitFor(() => expect(makePublicButton).toBeEnabled());
+    expect(screen.queryByRole('button', { name: /^retry$/i })).not.toBeInTheDocument();
+
+    await user.click(makePublicButton);
+    await waitFor(() => {
+      expect(publishMapFn).toHaveBeenCalledWith({ id: 'map-1', visibility: 'public' });
+    });
   });
 
   it('leaves all datasets public unaffected: Make public still offered', async () => {
