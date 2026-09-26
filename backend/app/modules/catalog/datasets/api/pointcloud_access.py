@@ -3,8 +3,8 @@
 Each read resolves the caller, checks the dataset and reads the live pointer,
 so a revoked credential, a dataset made private or a replaced file stops
 serving at once. A viewer reads one file in many ranges, so only the audit row
-is deduplicated: one per tenant, dataset, attempt and credential in each
-``AUDIT_WINDOW_SECONDS``, per worker process. The dedupe grants nothing.
+is deduplicated: one per tenant, dataset, attempt, credential and caller in
+each ``AUDIT_WINDOW_SECONDS``, per worker process. The dedupe grants nothing.
 """
 
 from __future__ import annotations
@@ -64,8 +64,8 @@ async def authorize_pointcloud_read(
     Raises 401 for a supplied credential that doesn't resolve, and 404 for an
     unknown or invisible dataset, another record type, a missing or malformed
     pointer, a stale attempt or a name other than the stored one. The first
-    granted read per tenant, dataset, attempt and credential in each audit
-    window writes one audit row.
+    granted read per tenant, dataset, attempt, credential and caller in each
+    audit window writes one audit row.
     """
     identity = await get_optional_user(request, token, db)
     dataset = await get_dataset(db, dataset_id)
@@ -82,11 +82,14 @@ async def authorize_pointcloud_read(
         raise _not_found()
 
     credential = read_credential(request)
+    # The caller as well as the credential: a key sent beside a bearer token
+    # resolves to the token's user once the key is revoked.
     audit_key = (
         current_tenant_var.get(),
         dataset_id,
         attempt_id,
         credential.fingerprint,
+        identity.id if identity is not None else None,
     )
     if audit_key in _audited:
         return grant

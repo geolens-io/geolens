@@ -930,6 +930,65 @@ async def test_a_failed_audit_write_is_retried_by_the_next_read(
     assert len(await _audit_rows(test_db_session, dataset_id)) == 1
 
 
+async def test_each_caller_and_credential_writes_its_own_audit_row(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    make_pointcloud,
+    storage,
+    owner,
+) -> None:
+    """Inside one window the owner by token and by key, another user and an anonymous reader each write one row."""
+    owner_headers, owner_id = owner
+    key, _ = await _api_key(client, admin_auth_header, owner_id)
+    other_headers, other_id = await create_user(client, admin_auth_header, "viewer")
+    dataset_id, attempt = await _published(make_pointcloud, storage)
+    url = _url(dataset_id, attempt)
+    callers = [owner_headers, {"X-Api-Key": key}, other_headers, {}]
+
+    for headers in callers * 2:
+        assert (await client.get(url, headers=headers)).status_code == 200
+
+    rows = await _audit_rows(test_db_session, dataset_id)
+    assert sorted(
+        (str(user), details["credential"]) for user, details in rows
+    ) == sorted(
+        [
+            (str(owner_id), "authorization"),
+            (str(owner_id), "api_key"),
+            (other_id, "authorization"),
+            ("None", "anonymous"),
+        ]
+    )
+
+
+async def test_a_key_revoked_beside_a_token_audits_the_token_user(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    make_pointcloud,
+    storage,
+    owner,
+) -> None:
+    """Reads carrying one user's key and another's token move to the token's user when the key is revoked, and that user gets a row."""
+    owner_id = owner[1]
+    key, key_id = await _api_key(client, admin_auth_header, owner_id)
+    other_headers, other_id = await create_user(client, admin_auth_header, "viewer")
+    dataset_id, attempt = await _published(make_pointcloud, storage)
+    url = _url(dataset_id, attempt)
+    headers = {"X-Api-Key": key, **other_headers}
+
+    assert (await client.get(url, headers=headers)).status_code == 200
+    revoked = await client.delete(
+        f"/admin/api-keys/{key_id}", headers=admin_auth_header
+    )
+    assert revoked.status_code == 204, revoked.text
+    assert (await client.get(url, headers=headers)).status_code == 200
+
+    rows = await _audit_rows(test_db_session, dataset_id)
+    assert [user for user, _ in rows] == [owner_id, uuid.UUID(other_id)]
+
+
 async def test_the_audit_window_is_thirty_seconds(
     client: AsyncClient, test_db_session, make_pointcloud, storage, clock
 ) -> None:
