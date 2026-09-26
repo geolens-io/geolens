@@ -1430,6 +1430,37 @@ class TestSchemaDiffComputation:
         assert result["columns_removed"] == []
         assert result["type_changes"] == []
 
+    def test_schema_diff_subtype_matches_stored_type(self):
+        """A GDAL field subtype maps to a narrower PostgreSQL column type
+        than its bare OGR type (Integer/Boolean -> boolean, Integer/Int16 ->
+        smallint, Real/Float32 -> real, String/JSON -> json). An unchanged
+        column reporting one of these subtypes must not read as a type
+        change against the stored column.
+        """
+        old_cols = [
+            {"name": "is_capital", "type": "boolean"},
+            {"name": "rank", "type": "smallint"},
+            {"name": "area_km2", "type": "real"},
+            {"name": "tags", "type": "json"},
+        ]
+        new_cols = [
+            {"name": "is_capital", "type": "Integer", "subtype": "Boolean"},
+            {"name": "rank", "type": "Integer", "subtype": "Int16"},
+            {"name": "area_km2", "type": "Real", "subtype": "Float32"},
+            {"name": "tags", "type": "String", "subtype": "JSON"},
+        ]
+        result = compute_schema_diff(old_cols, new_cols, 10, 10)
+        assert result["type_changes"] == []
+
+    def test_schema_diff_subtype_does_not_mask_a_real_type_change(self):
+        """A boolean column that became a plain string is still reported."""
+        old_cols = [{"name": "is_capital", "type": "boolean"}]
+        new_cols = [{"name": "is_capital", "type": "String"}]
+        result = compute_schema_diff(old_cols, new_cols, 10, 10)
+        assert result["type_changes"] == [
+            {"name": "is_capital", "old_type": "boolean", "new_type": "String"}
+        ]
+
 
 # ---------------------------------------------------------------------------
 # GPKG-01 Phase 1058: Multi-layer support tests

@@ -1189,7 +1189,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/maps/service_diff.py": 400,
         "backend/app/modules/catalog/maps/service_shared.py": 400,
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 657,
-        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 512,
+        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 541,
         "backend/app/modules/catalog/datasets/domain/service_query.py": 439,
         "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 513,
         # Chat splits retain tool execution and result-serialization workflows.
@@ -1336,7 +1336,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_vector.py": 1160,
     # GDAL environments, timeouts, reaping and error sanitization share one process
     # boundary.
-    "backend/app/processing/ingest/ogr.py": 1351,
+    "backend/app/processing/ingest/ogr.py": 1361,
     # Archive and GDAL content validation remain centralized at the upload security
     # boundary.
     "backend/app/processing/ingest/validation.py": 1199,

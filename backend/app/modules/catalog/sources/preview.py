@@ -486,7 +486,19 @@ async def run_service_preview(
 
     layer = layers[0]
 
-    columns = [{"name": f["name"], "type": f["type"]} for f in layer.get("fields", [])]
+    # GDAL subtype (e.g. Integer/Boolean) maps to a narrower PostgreSQL
+    # column type than the bare OGR type; carried through so a reupload
+    # diff can compare against the stored column without reporting a
+    # false change (ServicePreviewResponse.columns is dict[str, str], so
+    # the key is included only when there is a subtype to report).
+    columns = [
+        {
+            "name": f["name"],
+            "type": f["type"],
+            **({"subtype": f["subType"]} if f.get("subType") else {}),
+        }
+        for f in layer.get("fields", [])
+    ]
 
     sample_rows = [feat.get("properties", {}) for feat in layer.get("features", [])]
 

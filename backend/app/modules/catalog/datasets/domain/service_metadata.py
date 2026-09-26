@@ -48,9 +48,43 @@ _TYPE_EQUIVALENCES = {
     "float": "double precision",
 }
 
+# GDAL field subtypes the PostgreSQL driver stores as a narrower column
+# type than the bare OGR type would suggest, keyed by (type, subtype)
+# lowercased. Confirmed against ogr2ogr's PGDump output: Integer/Boolean
+# -> boolean, Integer/Int16 -> smallint, Real/Float32 -> real,
+# String/JSON -> json.
+_SUBTYPE_TYPE_EQUIVALENCES = {
+    ("integer", "boolean"): "boolean",
+    ("integer", "int16"): "smallint",
+    ("real", "float32"): "real",
+    ("string", "json"): "json",
+}
 
-def _normalize_col_type(col_type: str) -> str:
-    return _TYPE_EQUIVALENCES.get(col_type.lower(), col_type.lower())
+
+def _normalize_col_type(column: dict) -> str:
+    """Normalize one column's reported type for case-insensitive comparison.
+
+    A reupload preview diffs a PostgreSQL type against an OGR type, but the
+    post-swap drift recompute diffs two PostgreSQL types (both read back
+    from ``information_schema``) -- so the vocabulary depends on the value,
+    not on whether it is the "old" or "new" argument. PostgreSQL's
+    ``data_type`` is always lowercase (``real``); every OGR field type name
+    starts with a capital letter (``Real``), which makes case a reliable
+    discriminator: a lowercase type is already canonical PostgreSQL and
+    returned as-is, while an OGR type is mapped to the PostgreSQL type
+    ogr2ogr would create for it, honoring a GDAL field subtype (e.g.
+    Integer/Boolean) the driver stores narrower than the bare type.
+    """
+    raw_type = column["type"]
+    base_type = raw_type.lower()
+    if raw_type == base_type:
+        return base_type
+    subtype = column.get("subtype")
+    if subtype:
+        mapped = _SUBTYPE_TYPE_EQUIVALENCES.get((base_type, subtype.lower()))
+        if mapped is not None:
+            return mapped
+    return _TYPE_EQUIVALENCES.get(base_type, base_type)
 
 
 def compute_schema_diff(
@@ -63,7 +97,9 @@ def compute_schema_diff(
 
     Column matching is case-insensitive (ogr2ogr lowercases on import,
     but remote sources report original case). Type comparison normalizes
-    common OGR-to-PostgreSQL type mappings (e.g. String ↔ character varying).
+    common OGR-to-PostgreSQL type mappings (e.g. String ↔ character varying),
+    including GDAL field subtypes that store as a narrower column type
+    (e.g. Integer/Boolean ↔ boolean).
     """
     old_by_lower = {c["name"].lower(): c for c in old_columns}
     new_by_lower = {c["name"].lower(): c for c in new_columns}
@@ -86,8 +122,8 @@ def compute_schema_diff(
                 "new_type": new_by_lower[n]["type"],
             }
             for n in sorted(old_keys & new_keys)
-            if _normalize_col_type(old_by_lower[n]["type"])
-            != _normalize_col_type(new_by_lower[n]["type"])
+            if _normalize_col_type(old_by_lower[n])
+            != _normalize_col_type(new_by_lower[n])
         ],
         "row_count_old": old_feature_count,
         "row_count_new": new_feature_count,
