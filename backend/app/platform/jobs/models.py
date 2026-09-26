@@ -12,6 +12,7 @@ from sqlalchemy import (
     String,
     Text,
     func,
+    or_,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -275,4 +276,24 @@ class IngestJob(Base):
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
+    )
+
+
+def holds_unarchived_original():
+    """Predicate: the row records that its original never reached ``originals/``.
+
+    Its staged upload may then be the only copy of that original.
+    """
+    return IngestJob.user_metadata["archive_failed"].astext.is_not(None)
+
+
+def needs_staged_input():
+    """Predicate: the row still needs the staged file its ``file_path`` names.
+
+    Pending and running rows read it, a failed row may retry from it, and a row
+    holding an unarchived original keeps that original's only copy in it.
+    """
+    return or_(
+        IngestJob.status.in_(STATUSES_NEEDING_STAGED_INPUT),
+        holds_unarchived_original(),
     )
