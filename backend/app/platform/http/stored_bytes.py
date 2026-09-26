@@ -5,7 +5,8 @@ its entity-tag. What remains is which representation to send, so HEAD and GET
 share it.
 """
 
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Mapping
+from contextlib import aclosing
 
 from fastapi import HTTPException, Request, Response, status
 from fastapi.responses import StreamingResponse
@@ -19,6 +20,39 @@ from app.platform.http.ranges import (
     range_bound_to_this_version,
 )
 from app.platform.storage.provider import StorageProvider
+
+
+class StoredObjectMissing(Exception):
+    """The object was gone when its first byte was read."""
+
+
+class StoredObjectUnreadable(Exception):
+    """The store failed before the object's first byte was read."""
+
+
+async def _chained(first: bytes, rest: AsyncIterator[bytes]) -> AsyncIterator[bytes]:
+    # Closing this generator on a client disconnect closes the storage stream too.
+    async with aclosing(rest):
+        yield first
+        async for chunk in rest:
+            yield chunk
+
+
+async def _opened(stream: AsyncIterator[bytes]) -> AsyncIterator[bytes]:
+    """``stream`` with its first chunk already read.
+
+    A read that fails once the status line is sent can only cut the body short,
+    so the first one happens while the caller can still answer with a status.
+    """
+    try:
+        first = await anext(stream)
+    except FileNotFoundError:
+        raise StoredObjectMissing from None
+    except StopAsyncIteration:
+        first = b""
+    except Exception as exc:  # broad: each store raises its own errors, and the caller maps them to one status
+        raise StoredObjectUnreadable from exc
+    return _chained(first, stream)
 
 
 def evaluate_preconditions(
@@ -94,6 +128,10 @@ async def serve_stored_bytes(
     representation adds ``Accept-Ranges`` and the ETag; the 416 carries only
     those and the size. ``strict`` answers an unusable Range with 416 instead
     of the whole object.
+
+    Raises ``StoredObjectMissing`` when the object is gone at its first read and
+    ``StoredObjectUnreadable`` when the store fails before it, for the caller to
+    answer as it answers the same failure of its stat.
     """
     if request.method == "HEAD":
         return head_response(
@@ -129,7 +167,7 @@ async def serve_stored_bytes(
         # One ranged read: no byte outside the window is fetched.
         start, end = byte_range
         return StreamingResponse(
-            storage.get_range_stream(key, start, end - start + 1),
+            await _opened(storage.get_range_stream(key, start, end - start + 1)),
             status_code=status.HTTP_206_PARTIAL_CONTENT,
             media_type=media_type,
             headers={
@@ -139,7 +177,7 @@ async def serve_stored_bytes(
             },
         )
     return StreamingResponse(
-        storage.get_stream(key),
+        await _opened(storage.get_stream(key)),
         media_type=media_type,
         headers={**representation, "Content-Length": str(total_bytes)},
     )

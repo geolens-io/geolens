@@ -432,6 +432,71 @@ async def test_a_delete_racing_the_stat_is_a_404_not_a_503(
     )
 
 
+@pytest.mark.parametrize(
+    ("backend", "request_headers"),
+    [
+        ("local", {}),
+        ("local", {"Range": "bytes=0-99"}),
+        ("s3", {"Range": "bytes=0-99", "If-Range": '"another-version"'}),
+    ],
+    ids=["whole", "range", "s3-stale-resume"],
+)
+async def test_a_cog_deleted_after_its_stat_is_a_404(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    monkeypatch,
+    backend: str,
+    request_headers: dict,
+):
+    """An object deleted between the stat and the first read answers 404."""
+    dataset, raster_asset = await _raster_dataset(
+        test_db_session,
+        storage_backend=backend,
+        sha256=hashlib.sha256(_COG_BYTES).hexdigest(),
+    )
+    storage = get_storage()
+    monkeypatch.setattr(storage, "size", AsyncMock(return_value=len(_COG_BYTES)))
+
+    resp = await client.get(
+        f"/datasets/{dataset.id}/download/cog",
+        headers={**admin_auth_header, **request_headers},
+    )
+
+    assert resp.status_code == 404, resp.text
+    assert resp.json()["detail"] == "COG file not found"
+
+
+@pytest.mark.parametrize(
+    "request_headers", [{}, {"Range": "bytes=0-99"}], ids=["whole", "range"]
+)
+async def test_a_cog_read_failing_before_its_first_byte_is_a_503(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    local_cog,
+    monkeypatch,
+    request_headers: dict,
+):
+    """A store that fails at the first read answers the 503 its stat would."""
+    dataset, _ = local_cog
+    storage = get_storage()
+
+    async def _broken(*args, **kwargs):
+        raise RuntimeError("backend exploded")
+        yield b""
+
+    monkeypatch.setattr(storage, "get_stream", _broken)
+    monkeypatch.setattr(storage, "get_range_stream", _broken)
+
+    resp = await client.get(
+        f"/datasets/{dataset.id}/download/cog",
+        headers={**admin_auth_header, **request_headers},
+    )
+
+    assert resp.status_code == 503, resp.text
+    assert resp.json()["detail"] == "COG download temporarily unavailable"
+
+
 async def test_head_cog_matches_get_on_non_raster(
     client: AsyncClient, admin_auth_header: dict, test_db_session
 ):

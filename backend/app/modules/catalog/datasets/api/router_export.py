@@ -64,6 +64,8 @@ from app.core.public_urls import get_public_urls
 from app.platform.extensions import get_catalog_port, get_permission_extension
 from app.platform.http.ranges import range_bound_to_this_version
 from app.platform.http.stored_bytes import (
+    StoredObjectMissing,
+    StoredObjectUnreadable,
     evaluate_preconditions,
     head_response,
     serve_stored_bytes,
@@ -1278,14 +1280,14 @@ async def _s3_cog_response(
             physical_asset_key=physical_asset_key,
             dataset_id=dataset_id,
         )
-        return await serve_stored_bytes(
+        return await _cog_bytes(
             request,
             storage,
             physical_asset_key,
             total_bytes=total_bytes,
-            media_type="image/tiff",
+            filename=filename,
+            dataset_id=dataset_id,
             etag=etag,
-            headers=_cog_disposition(filename),
         )
 
     url = storage.generate_presigned_get_url(
@@ -1360,16 +1362,26 @@ async def _cog_object_size(
     try:
         return await storage.size(physical_asset_key)
     except FileNotFoundError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="COG file not found",
-        )
+        raise _cog_file_not_found()
     except Exception:  # broad: storage backend (S3/MinIO/local) can throw varied SDK/I/O errors; map to 503
-        logger.exception("cog_storage_error", dataset_id=str(dataset_id))
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="COG download temporarily unavailable",
-        )
+        raise _cog_storage_failed(dataset_id)
+
+
+def _cog_file_not_found() -> HTTPException:
+    """The 404 for a COG whose object is gone, at the stat or at the first read."""
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="COG file not found",
+    )
+
+
+def _cog_storage_failed(dataset_id: uuid.UUID) -> HTTPException:
+    """Log the store's failure and build the 503 the stat and the first read share."""
+    logger.exception("cog_storage_error", dataset_id=str(dataset_id))
+    return HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="COG download temporarily unavailable",
+    )
 
 
 async def _cog_size_once(
@@ -1422,12 +1434,39 @@ async def _local_cog_response(
         physical_asset_key=physical_asset_key,
         dataset_id=dataset_id,
     )
-    return await serve_stored_bytes(
+    return await _cog_bytes(
         request,
         storage,
         physical_asset_key,
         total_bytes=total_bytes,
-        media_type="image/tiff",
+        filename=filename,
+        dataset_id=dataset_id,
         etag=etag,
-        headers=_cog_disposition(filename),
     )
+
+
+async def _cog_bytes(
+    request: Request,
+    storage,
+    physical_asset_key: str,
+    *,
+    total_bytes: int,
+    filename: str,
+    dataset_id: uuid.UUID,
+    etag: str | None,
+) -> Response:
+    """The shared serving, with a failed first read answered as the stat answers it."""
+    try:
+        return await serve_stored_bytes(
+            request,
+            storage,
+            physical_asset_key,
+            total_bytes=total_bytes,
+            media_type="image/tiff",
+            etag=etag,
+            headers=_cog_disposition(filename),
+        )
+    except StoredObjectMissing:
+        raise _cog_file_not_found() from None
+    except StoredObjectUnreadable:
+        raise _cog_storage_failed(dataset_id) from None
