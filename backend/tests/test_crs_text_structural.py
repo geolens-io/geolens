@@ -84,7 +84,7 @@ ALLOWED_SITES: dict[tuple[str, str, str], tuple[int, str]] = {
         "a probe child op",
     ),
     ("processing/raster/probe.py", "_crs_same", f"{_CRS_CLASS}.from_wkt"): (
-        2,
+        1,
         "a probe child op",
     ),
     (

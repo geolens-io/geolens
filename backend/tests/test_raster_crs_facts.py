@@ -315,6 +315,26 @@ class TestVrtSourcesCompareCrsInTheChild:
             _UTM_19N_WKT2: None,
         }
 
+    async def test_an_unreadable_crs_is_blamed_on_its_own_source(
+        self, client, admin_auth_header, test_db_session
+    ):
+        unreadable = await _vrt_source(test_db_session, "NOT A CRS")
+        readable = await _vrt_source(test_db_session, _UTM_18N_WKT2)
+
+        resp = await _create_vrt(client, admin_auth_header, [unreadable, readable])
+
+        assert resp.status_code == 422, resp.text
+        assert [(e["code"], e["source_id"]) for e in resp.json()["detail"]] == [
+            ("crs_unverified", unreadable[1])
+        ]
+
+    def test_the_reference_is_the_first_text_proj_can_read(self):
+        assert compare_crs(["NOT A CRS", _UTM_18N_WKT2, _UTM_19N_WKT2]) == {
+            "NOT A CRS": None,
+            _UTM_18N_WKT2: True,
+            _UTM_19N_WKT2: False,
+        }
+
     def test_identical_text_starts_no_child(self, monkeypatch):
         def _no_child(*args, **kwargs):
             raise AssertionError("a probe child was started")

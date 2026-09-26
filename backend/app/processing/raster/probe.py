@@ -109,17 +109,13 @@ def crs_facts_many(wkts: list[str], *, timeout: float | None = None) -> list[dic
     )
 
 
-def crs_matches(
-    reference: str, others: list[str], *, timeout: float | None = None
-) -> list[bool | None]:
-    """Whether each CRS text in ``others`` names the same CRS as ``reference``.
+def crs_matches(wkts: list[str], *, timeout: float | None = None) -> list[bool | None]:
+    """Whether each CRS text names the same CRS as the first text PROJ can read.
 
     None marks a text PROJ refused.
     """
     return _run(
-        "crs-same",
-        stdin=json.dumps([reference, *others]),
-        timeout=timeout or CRS_FACTS_TIMEOUT_SECONDS,
+        "crs-same", stdin=json.dumps(wkts), timeout=timeout or CRS_FACTS_TIMEOUT_SECONDS
     )
 
 
@@ -240,15 +236,14 @@ def _crs_same() -> list[bool | None]:
     from rasterio.crs import CRS
     from rasterio.errors import CRSError
 
-    reference, *others = json.loads(sys.stdin.read())
-    reference_crs = CRS.from_wkt(reference)
-    matches: list[bool | None] = []
-    for wkt in others:
+    parsed = []
+    for wkt in json.loads(sys.stdin.read()):
         try:
-            matches.append(reference_crs.equals(CRS.from_wkt(wkt)))
+            parsed.append(CRS.from_wkt(wkt))
         except CRSError:
-            matches.append(None)
-    return matches
+            parsed.append(None)
+    reference = next((crs for crs in parsed if crs is not None), None)
+    return [None if crs is None else crs.equals(reference) for crs in parsed]
 
 
 def _category(exc: Exception) -> str:

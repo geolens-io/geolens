@@ -29,24 +29,20 @@ class SourceValidationError(BaseModel):
 
 
 def compare_crs(crs_wkts: list[str | None]) -> dict[str, bool | None]:
-    """Whether each stored CRS text names the reference source's CRS, keyed by text.
+    """Whether each stored CRS text names the reference CRS, keyed by text.
 
-    The reference is the first known text. Identical text is the same CRS
-    without asking PROJ; any other text is compared in the raster probe child,
-    since PROJ may open files named in it. None marks text it couldn't compare.
+    The reference is the first text PROJ can read. Identical text is the same
+    CRS without asking PROJ; differing texts are compared in the raster probe
+    child, since PROJ may open files named in them. None marks a text PROJ
+    refused, or every text after the first when the child gave no answer.
     """
-    known = [wkt for wkt in crs_wkts if wkt is not None]
-    if not known:
-        return {}
-    reference = known[0]
-    others = list(dict.fromkeys(wkt for wkt in known if wkt != reference))
-    if not others:
-        return {reference: True}
+    distinct = list(dict.fromkeys(wkt for wkt in crs_wkts if wkt is not None))
+    if len(distinct) < 2:
+        return dict.fromkeys(distinct, True)
     try:
-        matches = crs_matches(reference, others)
+        return dict(zip(distinct, crs_matches(distinct)))
     except RasterProbeError:
-        return {reference: True, **dict.fromkeys(others)}
-    return {reference: True, **dict(zip(others, matches))}
+        return {distinct[0]: True, **dict.fromkeys(distinct[1:])}
 
 
 def _check_crs(
@@ -54,11 +50,12 @@ def _check_crs(
 ) -> list[SourceValidationError]:
     """VAL-01: All sources must share the same CRS.
 
-    Reference = first source with a non-None crs_wkt.
-    Sources with crs_wkt=None are skipped.
+    ``same_crs`` is :func:`compare_crs` of the sources' text, so a source whose
+    text PROJ refused is the one reported, whatever its position. Sources with
+    crs_wkt=None are skipped.
     """
     errors: list[SourceValidationError] = []
-    for src in sources[1:]:
+    for src in sources:
         if src.crs_wkt is None:
             continue
         same = same_crs.get(src.crs_wkt)
@@ -67,7 +64,7 @@ def _check_crs(
                 SourceValidationError(
                     source_id=src.id,
                     code="crs_unverified",
-                    message="CRS could not be compared with the reference source",
+                    message="CRS could not be compared with the other sources",
                     field="crs_wkt",
                 )
             )
@@ -257,7 +254,7 @@ def _check_grid_alignment(sources: list[Any]) -> list[SourceValidationError]:
 async def validate_sources_async(
     vrt_type: str, sources: list[Any]
 ) -> list[SourceValidationError]:
-    """:func:`validate_sources`, comparing CRSs in a thread off the event loop."""
+    """:func:`validate_sources`, with the CRS comparison run in a thread."""
     same_crs = await asyncio.to_thread(compare_crs, [src.crs_wkt for src in sources])
     return validate_sources(vrt_type, sources, same_crs)
 
@@ -265,15 +262,15 @@ async def validate_sources_async(
 def validate_sources(
     vrt_type: str,
     sources: list[Any],
-    same_crs: dict[str, bool | None] | None = None,
+    same_crs: dict[str, bool | None],
 ) -> list[SourceValidationError]:
     """Validate candidate sources for VRT creation.
 
     Args:
         vrt_type: "mosaic" or "band_stack"
         sources: list of RasterAsset (or compatible objects) to validate
-        same_crs: :func:`compare_crs` of the sources' CRS text, computed here
-            when not given
+        same_crs: :func:`compare_crs` of the sources' CRS text, which may wait
+            on the probe child; handlers go through :func:`validate_sources_async`
 
     Returns:
         list of SourceValidationError — empty list means all sources compatible.
@@ -285,8 +282,6 @@ def validate_sources(
     """
     if len(sources) < 2:
         return []
-    if same_crs is None:
-        same_crs = compare_crs([src.crs_wkt for src in sources])
 
     errors: list[SourceValidationError] = []
 
