@@ -610,6 +610,16 @@ async def test_storage_errors_never_name_a_key_or_path(
         _assert_sandboxed(resp)
 
 
+def test_the_route_documents_its_401() -> None:
+    """The published schema lists the 401 the access check raises for a credential that doesn't resolve."""
+    from app.api.main import app
+
+    paths = app.openapi()["paths"]
+    operation = paths["/datasets/{dataset_id}/copc/{attempt_id}/{name}.copc.laz"]["get"]
+
+    assert "401" in operation["responses"]
+
+
 @pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE"])
 async def test_the_route_answers_get_and_head_only(
     client: AsyncClient, make_pointcloud, storage, method
