@@ -199,15 +199,20 @@ export function AnalysisJobWatcher() {
           // another tab, or from the dataset's owner or an admin cancelling
           // a run this user started, and the panel is about to re-enable
           // with no other explanation of why the run stopped.
+          //
+          // The stale sweep also settles an abandoned run as `cancelled`
+          // with a code, not a title-worthy deliberate cancel, so a coded
+          // reason takes priority over the named/generic text below it.
           toast.info(
-            job.title
-              ? t('analysisTools.jobCancelledNamed', {
-                  defaultValue: '“{{title}}” was cancelled',
-                  title: job.title,
-                })
-              : t('analysisTools.jobCancelled', {
-                  defaultValue: 'Analysis run cancelled',
-                }),
+            fixedFailureReason(data?.error_code) ??
+              (job.title
+                ? t('analysisTools.jobCancelledNamed', {
+                    defaultValue: '“{{title}}” was cancelled',
+                    title: job.title,
+                  })
+                : t('analysisTools.jobCancelled', {
+                    defaultValue: 'Analysis run cancelled',
+                  })),
             { id: toastId },
           );
         } else {

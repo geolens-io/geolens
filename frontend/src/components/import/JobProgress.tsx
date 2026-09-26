@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { describeFailureReason } from '@/lib/failure-reason';
+import { describeFailureReason, fixedFailureReason } from '@/lib/failure-reason';
 import {
   useJobStatus,
   useRetryJob,
@@ -364,7 +364,9 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
             "Import another" button. */}
         {job.status === 'cancelled' && (
           <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">{t('jobProgress.cancelledMessage')}</p>
+            <p className="text-sm text-muted-foreground">
+              {fixedFailureReason(job.error_code) ?? t('jobProgress.cancelledMessage')}
+            </p>
             <Button variant="outline" onClick={onReset}>
               {t('jobProgress.startOver')}
             </Button>

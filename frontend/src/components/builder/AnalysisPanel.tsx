@@ -1939,9 +1939,10 @@ export function AnalysisPanel({
                         // query state, so it outlives the watcher's store
                         // clear rather than disappearing with it.
                         job.status === 'cancelled'
-                        ? t('analysisTools.jobCancelled', {
-                            defaultValue: 'Analysis run cancelled',
-                          })
+                        ? (fixedFailureReason(job.error_code) ??
+                            t('analysisTools.jobCancelled', {
+                              defaultValue: 'Analysis run cancelled',
+                            }))
                         : job.current_step === 'registering'
                         ? t('analysisTools.jobSaving', {
                             defaultValue: 'Saving the dataset…',
