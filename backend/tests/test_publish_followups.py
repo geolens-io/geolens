@@ -8,6 +8,7 @@ import json as _json
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 import structlog
@@ -17,6 +18,7 @@ import app.core.db as db_module
 from app.core.config import settings
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.platform.jobs.models import IngestJob
+from app.platform.storage.local import LocalStorageProvider
 from app.processing.ingest.publish_followups import (
     PUBLISH_FOLLOWUPS_FIELD,
     run_owed_publish_followups,
@@ -475,6 +477,80 @@ async def test_a_local_upload_outside_the_staging_dir_is_never_deleted(
             }
         ]
         assert followups == _RASTER
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def test_a_relative_upload_under_a_relative_staging_dir_is_deleted(
+    test_db_session, tmp_path, monkeypatch, followups
+) -> None:
+    """With a relative staging directory, the relative path a direct upload records is unlinked."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(settings, "upload_staging_dir", "staging")
+    storage = LocalStorageProvider("staging")
+    monkeypatch.setattr("app.platform.storage.get_storage", lambda: storage)
+    job_id, _, record_id = await _owed_job(test_db_session, reaps_staged_upload=True)
+    upload = Path("staging") / f"{job_id}_upload.tif"
+    upload.write_bytes(b"staged")
+    try:
+        await _point_job_at(job_id, file_path=str(upload))
+
+        assert await run_publish_followups(job_id) is True
+        assert not (tmp_path / upload).exists()
+        assert followups == _RASTER
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+@pytest.mark.parametrize("local_copy", [False, True], ids=["key", "key-and-file"])
+async def test_a_staging_key_leaves_storage_where_it_also_reads_as_a_local_path(
+    test_db_session, raster_storage, tmp_path, monkeypatch, followups, local_copy
+) -> None:
+    """A ``staging/`` key the working directory places inside the staging dir is still deleted from storage."""
+    # As in the containers: /app/staging is both the staging dir and what
+    # the key spells relative to /app.
+    monkeypatch.chdir(tmp_path)
+    job_id, _, record_id = await _owed_job(test_db_session, reaps_staged_upload=True)
+    try:
+        left = await _stage_upload(raster_storage, job_id, "storage")
+        as_local = tmp_path / f"staging/{job_id}/frozen/upload.tif"
+        assert as_local.is_relative_to(Path(settings.upload_staging_dir))
+        if local_copy:
+            as_local.parent.mkdir(parents=True)
+            as_local.write_bytes(b"staged")
+
+        assert await run_publish_followups(job_id) is True
+        assert await left() == []
+        assert not as_local.exists()
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def test_a_hosted_staging_key_never_reads_as_a_local_file(
+    test_db_session, raster_storage, tmp_path, monkeypatch, followups
+) -> None:
+    """On a multi-tenant install a relative path is the tenant's storage key, never a local file."""
+    from app.core.db.tenant_session import current_tenant_var
+
+    monkeypatch.chdir(tmp_path)
+    tenant = str(uuid.uuid4())
+    job_id, _, record_id = await _owed_job(test_db_session, reaps_staged_upload=True)
+    frozen = f"staging/{job_id}/frozen/upload.tif"
+    local = tmp_path / frozen
+    local.parent.mkdir(parents=True)
+    local.write_bytes(b"not this tenant's upload")
+    await raster_storage.put(f"tenants/{tenant}/{frozen}", b"staged")
+    try:
+        await _point_job_at(job_id, file_path=frozen)
+        token = current_tenant_var.set(tenant)
+        try:
+            with patch("app.core.tenancy.is_multi_tenant", return_value=True):
+                assert await run_publish_followups(job_id) is True
+        finally:
+            current_tenant_var.reset(token)
+
+        assert local.read_bytes() == b"not this tenant's upload"
+        assert not await raster_storage.exists(f"tenants/{tenant}/{frozen}")
     finally:
         await _drop(test_db_session, job_id, record_id)
 

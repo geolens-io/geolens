@@ -91,9 +91,12 @@ async def _reap_staged_upload(
 ) -> None:
     """Delete a published job's staged upload, as its task's cleanup does; never raises.
 
-    A local path is unlinked only when it resolves inside the upload staging
-    directory.
+    ``file_path`` is a local file when ``resolve_file_path`` would read it as
+    one, and is unlinked only inside the upload staging directory. A
+    ``staging/`` path is also deleted from storage.
     """
+    from app.core.tenancy import is_multi_tenant
+
     job_id = str(job_uuid)
     await reap_presigned_staging_object(
         job_id,
@@ -102,22 +105,22 @@ async def _reap_staged_upload(
     )
     if not file_path:
         return
-    if not Path(file_path).is_absolute():
-        await reap_downloaded_staging_source(
-            job_id,
-            original_file_path=file_path,
-            final_status="complete",
-            failed_source_replayable=True,
-        )
-        return
     async with cleanup_step("staged upload", job_id=job_id):
-        local = Path(file_path).resolve()
-        if not local.is_relative_to(Path(settings.upload_staging_dir).resolve()):
-            structlog.get_logger().warning(
-                "staged_upload_outside_staging_dir", job_id=job_id
-            )
-            return
-        local.unlink(missing_ok=True)
+        path = Path(file_path)
+        if path.exists() and (path.is_absolute() or not is_multi_tenant()):
+            local = path.resolve()
+            if local.is_relative_to(Path(settings.upload_staging_dir).resolve()):
+                local.unlink(missing_ok=True)
+            else:
+                structlog.get_logger().warning(
+                    "staged_upload_outside_staging_dir", job_id=job_id
+                )
+    await reap_downloaded_staging_source(
+        job_id,
+        original_file_path=file_path,
+        final_status="complete",
+        failed_source_replayable=True,
+    )
 
 
 async def run_publish_followups(job_uuid: uuid.UUID) -> bool:
