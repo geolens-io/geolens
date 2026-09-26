@@ -904,6 +904,74 @@ describe('SourcePanel', () => {
     await changeTestLanguage('en');
   });
 
+  // #2311 review: the sweep settles an abandoned run as `cancelled`, the
+  // same terminal status a deliberate user cancel lands in. Gating the
+  // reason line on `status === 'failed'` made an abandoned run read exactly
+  // like a user's own click, with the new abandoned translation never shown.
+  it("renders each cancelled run's own translated reason, styled as muted rather than an error", () => {
+    vi.mocked(useDatasetRefreshRuns).mockReturnValue({
+      data: {
+        runs: [
+          {
+            id: 'run-abandoned',
+            dataset_id: 'dataset-1',
+            dataset_version_id: null,
+            ingest_job_id: 'job-1',
+            origin_kind: 'service',
+            trigger: 'scheduled',
+            status: 'cancelled',
+            triggered_by: null,
+            triggered_by_username: null,
+            started_at: '2026-08-05T00:00:00Z',
+            claimed_at: '2026-08-05T00:00:01Z',
+            finished_at: '2026-08-05T00:01:00Z',
+            feature_count_before: 1200,
+            feature_count_after: null,
+            schema_diff: null,
+            error_code: 'abandoned',
+            error_message:
+              'The refresh task was never picked up by a worker, or the worker disappeared before recording an outcome.',
+          },
+          {
+            id: 'run-user-cancelled',
+            dataset_id: 'dataset-1',
+            dataset_version_id: null,
+            ingest_job_id: 'job-2',
+            origin_kind: 'service',
+            trigger: 'api',
+            status: 'cancelled',
+            triggered_by: 'user-1',
+            triggered_by_username: 'jdoe',
+            started_at: '2026-08-04T00:00:00Z',
+            claimed_at: '2026-08-04T00:00:01Z',
+            finished_at: '2026-08-04T00:01:00Z',
+            feature_count_before: 1100,
+            feature_count_after: null,
+            schema_diff: null,
+            error_code: 'user_cancelled',
+            error_message: 'Cancelled by user.',
+          },
+        ],
+        total: 2,
+      } satisfies { runs: DatasetRefreshRunResponse[]; total: number },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useDatasetRefreshRuns>);
+
+    render(<SourcePanel dataset={makeDataset()} />);
+
+    const abandonedReason = screen.getByText(
+      'The refresh task was never picked up by a worker, or the worker disappeared before recording an outcome.',
+    );
+    const userCancelledReason = screen.getByText('Cancelled by user');
+
+    expect(abandonedReason).toBeInTheDocument();
+    expect(userCancelledReason).toBeInTheDocument();
+    expect(abandonedReason.textContent).not.toBe(userCancelledReason.textContent);
+    expect(abandonedReason.className).toContain('text-muted-foreground');
+    expect(abandonedReason.className).not.toContain('text-destructive');
+  });
+
   it('shows verification evidence and offers an exact blocked-run retry', async () => {
     const onAcceptBlockedRun = vi.fn();
     const verification: NonNullable<DatasetRefreshRunResponse['verification']> = {
