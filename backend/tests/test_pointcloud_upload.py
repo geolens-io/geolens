@@ -14,7 +14,6 @@ from unittest.mock import AsyncMock, patch
 
 import boto3
 import pytest
-from fastapi import HTTPException
 from httpx import AsyncClient
 from moto import mock_aws
 from sqlalchemy import select, text
@@ -29,9 +28,6 @@ from app.core.pointcloud import (
     pointcloud_prefix,
 )
 from app.core.upload_errors import UnsafeUploadError
-from app.modules.catalog.datasets.api.router_reupload import (
-    _assert_compatible_record_type,
-)
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.platform.jobs.models import UNPUBLISHED_STORAGE_KEYS_FIELD, IngestJob
 from app.platform.jobs.sweep import (
@@ -44,7 +40,7 @@ from app.processing.ingest import manifest_service
 from app.processing.ingest import router as ingest_router
 from app.processing.ingest.tasks import ingest_pointcloud, task_app
 from app.processing.raster.models import DatasetAsset
-from tests.factories import create_user
+from tests.factories import create_dataset, create_user, get_user_id
 from tests.pointcloud_files import copc, copc_nodes, scrambled
 
 _CLOUD = copc()
@@ -350,14 +346,34 @@ async def test_a_url_import_takes_no_point_cloud_kind(
     assert resp.status_code == 422, resp.text
 
 
-def test_a_replacement_takes_no_laz() -> None:
-    """No dataset's data can be replaced by a point cloud."""
-    dataset = SimpleNamespace(record=SimpleNamespace(record_type="vector_dataset"))
+@pytest.mark.parametrize("door", ["multipart", "presigned"])
+async def test_a_replacement_takes_no_laz(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch, door
+) -> None:
+    """No dataset's data can be replaced by a point cloud; the refusal is coded."""
+    # The presigned door refuses any non-S3 deployment before reading the dataset.
+    monkeypatch.setattr(settings, "storage_provider", "s3")
+    admin_id = await get_user_id(test_db_session, "admin")
+    vector = await create_dataset(test_db_session, created_by=admin_id)
+    if door == "multipart":
+        resp = await client.post(
+            f"/datasets/{vector.id}/reupload",
+            files={"file": ("site.copc.laz", _CLOUD, "application/octet-stream")},
+            headers=admin_auth_header,
+        )
+    else:
+        resp = await client.post(
+            f"/datasets/{vector.id}/reupload/presigned",
+            json={"filename": "site.copc.laz", "file_size": len(_CLOUD)},
+            headers=admin_auth_header,
+        )
 
-    with pytest.raises(HTTPException) as refusal:
-        _assert_compatible_record_type(dataset, "site.copc.laz")
-
-    assert (refusal.value.status_code, refusal.value.detail) == (400, LAZ_WITHOUT_KIND)
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"] == {
+        "code": "pointcloud_kind_required",
+        "message": LAZ_WITHOUT_KIND,
+        "file_type": "pointcloud",
+    }
 
 
 async def test_a_manifest_entry_takes_no_laz(monkeypatch) -> None:
