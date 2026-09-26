@@ -240,6 +240,8 @@ def main(argv: list[str]) -> int:
     except Exception as exc:  # broad: every failure reaches the parent as a category
         print(json.dumps({"error": _category(exc), "exception": type(exc).__name__}))
         return 1
+    # The parent parses this reply; stdout is not a log.
+    # codeql[py/clear-text-logging-sensitive-data]
     print(json.dumps({"result": result}))
     return 0
 
