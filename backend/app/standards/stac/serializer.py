@@ -56,6 +56,10 @@ _STATISTICS = {
     "valid_percent": "valid_percent",
 }
 
+# The asset holding a raster's data, which its raster:bands describe: the COG,
+# or a manifest VRT.
+_DATA_ASSET_KEYS = ("data", "vrt")
+
 _RTL_LANGS = {"ar", "fa", "he", "ur"}
 
 
@@ -243,7 +247,8 @@ def ogc_record_to_stac_item(
     band_info, dtype, nodata:
         The raster's stored band_info, dtype and nodata, which ``raster:bands``
         is built from. A band without its own dtype or nodata key takes the
-        raster's.
+        raster's. The raster extension defines ``raster:bands`` on assets, so
+        they go on the data asset, and an item without one has none.
     """
     props = record["properties"]
 
@@ -285,14 +290,18 @@ def ogc_record_to_stac_item(
             stac_props[key] = props[key]
     if props.get("gsd") is not None and crs_metres_per_unit is not None:
         stac_props["gsd"] = props["gsd"] * crs_metres_per_unit
-    bands = _stac_bands(band_info, dtype, nodata)
-    if bands:
-        stac_props["raster:bands"] = bands
 
     if any(key.startswith("proj:") for key in stac_props):
         _append_unique(stac_extensions, STAC_PROJECTION_EXTENSION_URI)
-    if "raster:bands" in stac_props:
+
+    assets = dict(record.get("assets", {}))
+    bands = _stac_bands(band_info, dtype, nodata)
+    data_key = next((key for key in _DATA_ASSET_KEYS if key in assets), None)
+    if bands and data_key is not None:
+        assets[data_key] = {**assets[data_key], "raster:bands": bands}
         _append_unique(stac_extensions, STAC_RASTER_EXTENSION_URI)
+    elif STAC_RASTER_EXTENSION_URI in stac_extensions:
+        stac_extensions.remove(STAC_RASTER_EXTENSION_URI)
 
     # -- Build Item ---------------------------------------------------------
     item: dict = {
@@ -304,7 +313,7 @@ def ogc_record_to_stac_item(
         "links": _build_stac_links(
             record["id"], collection_id, stac_api_url, derived_from_id
         ),
-        "assets": record.get("assets", {}),
+        "assets": assets,
     }
     if record.get("bbox") is not None:
         item["bbox"] = record["bbox"]

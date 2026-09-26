@@ -1,16 +1,32 @@
-"""STAC items publish raster:bands as Band objects with only an allowed nodata."""
+"""STAC items publish raster:bands on the data asset, with only an allowed nodata."""
 
+import json
 import uuid
+from pathlib import Path
 
+import pystac
+import pystac.stac_io
 import pytest
+from pystac.validation.stac_validator import JsonSchemaSTACValidator
+
+from app.processing.raster.models import DatasetAsset
+from app.standards.stac.serializer import STAC_RASTER_EXTENSION_URI
 
 from tests.factories import create_raster_dataset, get_user_id
 
 pytestmark = pytest.mark.anyio
 
+# The published raster extension v1.1.0 schema, kept here so no test fetches it.
+_RASTER_SCHEMA = Path(__file__).parent / "fixtures/stac/raster-v1.1.0-schema.json"
+
 
 async def _raster(
-    session, band_info: list[dict], nodata: str | None, dtype: str | None = None
+    session,
+    band_info: list[dict],
+    nodata: str | None,
+    dtype: str | None = None,
+    *,
+    data_asset: bool = True,
 ) -> str:
     dataset = await create_raster_dataset(
         session,
@@ -24,11 +40,22 @@ async def _raster(
             "dtype": dtype,
         },
     )
+    if data_asset:
+        session.add(
+            DatasetAsset(
+                dataset_id=dataset.id,
+                key="data",
+                href=f"rasters/{dataset.id}/abc/source.cog.tif",
+                media_type="image/tiff; application=geotiff",
+                roles=["data"],
+            )
+        )
+        await session.commit()
     return str(dataset.id)
 
 
-async def _published_bands(client, headers, dataset_id: str) -> list:
-    """The item's raster:bands from /stac/items and from /stac/search."""
+async def _published_items(client, headers, dataset_id: str) -> list[dict]:
+    """The item from /stac/items and from /stac/search."""
     item = await client.get(f"/stac/items/{dataset_id}", headers=headers)
     search = await client.get(
         "/stac/search", params={"ids": dataset_id}, headers=headers
@@ -36,10 +63,64 @@ async def _published_bands(client, headers, dataset_id: str) -> list:
     assert item.status_code == 200, item.text
     assert search.status_code == 200, search.text
     ((found,),) = [search.json()["features"]]
-    return [
-        item.json()["properties"].get("raster:bands"),
-        found["properties"].get("raster:bands"),
-    ]
+    return [item.json(), found]
+
+
+async def _published_bands(client, headers, dataset_id: str) -> list:
+    """The raster:bands of the item's data asset, from both routes."""
+    items = await _published_items(client, headers, dataset_id)
+    for item in items:
+        assert "raster:bands" not in item["properties"]
+    return [item["assets"]["data"].get("raster:bands") for item in items]
+
+
+def _validate_raster_extension(item: dict, monkeypatch) -> None:
+    """Validate ``item`` against the raster extension schema, offline."""
+
+    def _no_fetch(*args, **kwargs):
+        raise AssertionError("a schema was fetched")
+
+    monkeypatch.setattr(pystac.stac_io.DefaultStacIO, "read_text_from_href", _no_fetch)
+    validator = JsonSchemaSTACValidator()
+    validator.schema_cache[STAC_RASTER_EXTENSION_URI] = json.loads(
+        _RASTER_SCHEMA.read_text()
+    )
+    validator.validate_extension(
+        item, pystac.STACObjectType.ITEM, "1.0.0", STAC_RASTER_EXTENSION_URI
+    )
+
+
+async def test_the_bands_are_on_the_data_asset_and_meet_the_raster_schema(
+    client, admin_auth_header, test_db_session, monkeypatch
+):
+    band_info = [{"min": 0, "max": 255, "mean": 12.5 + band} for band in range(3)]
+    dataset_id = await _raster(test_db_session, band_info, "0", dtype="uint8")
+
+    for item in await _published_items(client, admin_auth_header, dataset_id):
+        assert "raster:bands" not in item["properties"]
+        assert [key for key, a in item["assets"].items() if "raster:bands" in a] == [
+            "data"
+        ]
+        assert STAC_RASTER_EXTENSION_URI in item["stac_extensions"]
+        _validate_raster_extension(item, monkeypatch)
+
+        # The schema does check the asset's bands.
+        item["assets"]["data"]["raster:bands"][0]["nodata"] = None
+        with pytest.raises(pystac.errors.STACValidationError):
+            _validate_raster_extension(item, monkeypatch)
+
+
+async def test_an_item_without_a_data_asset_publishes_no_bands(
+    client, admin_auth_header, test_db_session
+):
+    band = {"index": 1, "dtype": "uint8", "nodata": "0", "color_interp": "Gray"}
+    dataset_id = await _raster(test_db_session, [band], "0", data_asset=False)
+
+    for item in await _published_items(client, admin_auth_header, dataset_id):
+        assert "data" not in item["assets"]
+        assert "raster:bands" not in item["properties"]
+        assert not [a for a in item["assets"].values() if "raster:bands" in a]
+        assert STAC_RASTER_EXTENSION_URI not in item.get("stac_extensions", [])
 
 
 async def test_a_band_without_nodata_has_no_nodata_key(

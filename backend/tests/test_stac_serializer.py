@@ -190,7 +190,7 @@ class TestOgcRecordToStacItem:
 
         assert "gsd" not in item["properties"]
 
-    def test_bands_are_built_from_band_info(self):
+    def test_bands_are_built_from_band_info_onto_the_data_asset(self):
         record = _make_ogc_record(has_bands=True)
         item = ogc_record_to_stac_item(
             record,
@@ -202,14 +202,51 @@ class TestOgcRecordToStacItem:
             dtype="uint8",
         )
 
-        assert item["properties"]["raster:bands"] == [
+        assert item["assets"]["data"]["raster:bands"] == [
             {"name": "Red", "data_type": "uint8"},
             {
                 "data_type": "uint8",
                 "statistics": {"minimum": 0, "maximum": 9, "mean": 4.5},
             },
         ]
+        assert "raster:bands" not in item["properties"]
+        assert "raster:bands" not in record["assets"]["data"]
         assert STAC_RASTER_EXTENSION_URI in item["stac_extensions"]
+
+    def test_a_manifest_vrts_bands_land_on_its_vrt_asset(self):
+        record = _make_ogc_record()
+        record["assets"] = {
+            "vrt": {
+                "href": "https://storage.example.com/mosaic.vrt",
+                "roles": ["data"],
+            },
+            "thumbnail": {"href": "https://storage.example.com/ql.png"},
+        }
+        item = ogc_record_to_stac_item(
+            record,
+            stac_api_url=STAC_API_URL,
+            band_info=[{"index": 1, "dtype": "uint8", "color_interp": "Gray"}],
+        )
+
+        assert item["assets"]["vrt"]["raster:bands"] == [
+            {"name": "Gray", "data_type": "uint8"}
+        ]
+        assert "raster:bands" not in item["assets"]["thumbnail"]
+        assert "raster:bands" not in item["properties"]
+
+    def test_no_data_asset_means_no_bands_and_no_raster_extension(self):
+        record = _make_ogc_record()
+        record["assets"] = {"thumbnail": {"href": "https://storage.example.com/ql.png"}}
+        record["stac_extensions"] = [STAC_RASTER_EXTENSION_URI]
+        item = ogc_record_to_stac_item(
+            record,
+            stac_api_url=STAC_API_URL,
+            band_info=[{"index": 1, "dtype": "uint8", "color_interp": "Gray"}],
+        )
+
+        assert "raster:bands" not in item["properties"]
+        assert "raster:bands" not in item["assets"]["thumbnail"]
+        assert STAC_RASTER_EXTENSION_URI not in item.get("stac_extensions", [])
 
     def test_legacy_projection_input_is_never_emitted(self):
         """Legacy internal input is normalized to Projection Extension v2."""

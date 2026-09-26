@@ -106,11 +106,13 @@ def _stac_bands(
 ) -> list[dict]:
     from app.standards.stac.serializer import ogc_record_to_stac_item
 
+    record = _ogc_record(band_info)
+    record["assets"]["data"] = {"href": "https://example.test/cog.tif"}
     item = ogc_record_to_stac_item(
-        _ogc_record(band_info),
+        record,
         stac_api_url="https://example.test/stac",
         band_info=band_info,
         dtype=dtype,
         nodata=nodata,
     )
-    return item["properties"].get("raster:bands", [])
+    return item["assets"]["data"].get("raster:bands", [])
