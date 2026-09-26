@@ -198,6 +198,10 @@ jobs:
               - 'frontend/src/components/admin/AuditLogViewer.tsx'
               - 'frontend/src/lib/__tests__/public-app-url-shape.cases.json'
               - 'frontend/src/lib/error-map.ts'
+              # test_job_failure_codes.py reads this by literal path (the
+              # fixed-failure-code to translation-key table); a
+              # frontend-only edit here must still run Backend Tests.
+              - 'frontend/src/lib/failure-reason.ts'
               - 'frontend/README.md'
               - 'frontend/src/components/admin/__tests__/AdminSidebar.test.tsx'
               - 'frontend/src/lib/__tests__/public-urls.test.ts'
