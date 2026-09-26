@@ -173,9 +173,12 @@ class TestUnpublishedStorageKeys:
         self, test_db_session, monkeypatch
     ) -> None:
         """A pass whose commit fails deletes none of the keys its rows name."""
+        from sqlalchemy import delete
+
+        from app.platform.jobs.models import IngestJob
         from app.platform.jobs.sweep import fail_stale_jobs
 
-        await _stale_running_row_naming(
+        job_id = await _stale_running_row_naming(
             test_db_session, ["rasters/d/abc/source.cog.tif"]
         )
         storage = MagicMock()
@@ -184,19 +187,28 @@ class TestUnpublishedStorageKeys:
         async def _commit_fails() -> None:
             raise RuntimeError("commit failed")
 
-        monkeypatch.setattr(test_db_session, "commit", _commit_fails)
-        with (
-            patch("app.platform.storage.get_storage", return_value=storage),
-            pytest.raises(RuntimeError, match="commit failed"),
-        ):
-            await fail_stale_jobs(test_db_session, detailed=True)
+        try:
+            monkeypatch.setattr(test_db_session, "commit", _commit_fails)
+            with (
+                patch("app.platform.storage.get_storage", return_value=storage),
+                pytest.raises(RuntimeError, match="commit failed"),
+            ):
+                await fail_stale_jobs(test_db_session, detailed=True)
 
-        storage.delete.assert_not_awaited()
-        monkeypatch.undo()
-        await test_db_session.rollback()
+            storage.delete.assert_not_awaited()
+        finally:
+            monkeypatch.undo()
+            await test_db_session.rollback()
+            # _stale_running_row_naming committed this row before the forced
+            # failure, so rollback() can't undo it; a later stale-job sweep
+            # in this process would otherwise reap its key.
+            await test_db_session.execute(
+                delete(IngestJob).where(IngestJob.id == job_id)
+            )
+            await test_db_session.commit()
 
 
-async def _stale_running_row_naming(session, keys: list[str]) -> None:
+async def _stale_running_row_naming(session, keys: list[str]) -> uuid.UUID:
     """A running job past its lease whose row names unpublished storage keys."""
     from datetime import datetime, timedelta, timezone
 
@@ -206,16 +218,16 @@ async def _stale_running_row_naming(session, keys: list[str]) -> None:
         UNPUBLISHED_STORAGE_KEYS_FIELD,
     )
 
-    session.add(
-        IngestJob(
-            status="running",
-            source_filename="raster.tif",
-            started_at=datetime.now(timezone.utc)
-            - timedelta(seconds=JOB_TIMEOUT_SECONDS + 60),
-            user_metadata={UNPUBLISHED_STORAGE_KEYS_FIELD: keys},
-        )
+    job = IngestJob(
+        status="running",
+        source_filename="raster.tif",
+        started_at=datetime.now(timezone.utc)
+        - timedelta(seconds=JOB_TIMEOUT_SECONDS + 60),
+        user_metadata={UNPUBLISHED_STORAGE_KEYS_FIELD: keys},
     )
+    session.add(job)
     await session.commit()
+    return job.id
 
 
 class TestRecorderChecksItsOwnFence:
