@@ -638,6 +638,21 @@ def test_the_route_documents_its_401() -> None:
     assert "401" in operation["responses"]
 
 
+def test_the_route_publishes_anonymous_access() -> None:
+    """The published schema lets a client read without credentials, beside each credential scheme."""
+    from app.api.main import app
+
+    paths = app.openapi()["paths"]
+    operation = paths["/datasets/{dataset_id}/copc/{attempt_id}/{name}.copc.laz"]["get"]
+
+    assert operation["security"] == [
+        {},
+        {"OAuth2PasswordBearer": []},
+        {"ApiKeyHeader": []},
+        {"ApiKeyQuery": []},
+    ]
+
+
 @pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE"])
 async def test_the_route_answers_get_and_head_only(
     client: AsyncClient, make_pointcloud, storage, method

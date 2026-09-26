@@ -10,8 +10,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_db
+from app.core.identity import Identity
 from app.core.pointcloud import POINTCLOUD_MEDIA_TYPE
-from app.modules.auth.dependencies import oauth2_scheme_optional
+from app.modules.auth.dependencies import get_optional_user
 from app.modules.catalog.datasets.api.pointcloud_access import (
     authorize_pointcloud_read,
 )
@@ -128,7 +129,7 @@ async def get_pointcloud_file(
     attempt_id: uuid.UUID,
     name: str,
     request: Request,
-    token: Annotated[str | None, Depends(oauth2_scheme_optional)],
+    identity: Annotated[Identity | None, Depends(get_optional_user)],
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Serve a published COPC point cloud's file, whole or by HTTP byte range.
@@ -151,7 +152,7 @@ async def get_pointcloud_file(
     answers 404, and a storage failure answers 502.
     """
     grant = await authorize_pointcloud_read(
-        request, db, token, dataset_id=dataset_id, attempt_id=attempt_id, name=name
+        request, db, identity, dataset_id=dataset_id, attempt_id=attempt_id, name=name
     )
     # The body streams for as long as the client takes, and the session would
     # keep its pooled connection until the last byte.

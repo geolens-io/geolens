@@ -35518,6 +35518,7 @@
           }
         },
         "security": [
+          {},
           {
             "OAuth2PasswordBearer": []
           },

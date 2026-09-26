@@ -19,9 +19,10 @@ from fastapi import HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.tenant_session import current_tenant_var
+from app.core.identity import Identity
 from app.core.pointcloud import POINTCLOUD_FILENAME, pointcloud_attempt_of
 from app.modules.audit.service import AuditEvent, audit_emit
-from app.modules.auth.dependencies import get_optional_user, read_credential
+from app.modules.auth.dependencies import read_credential
 from app.modules.catalog.authorization import check_dataset_access_or_anonymous
 from app.modules.catalog.datasets.domain.service import (
     get_dataset,
@@ -54,7 +55,7 @@ def _not_found() -> HTTPException:
 async def authorize_pointcloud_read(
     request: Request,
     db: AsyncSession,
-    token: str | None,
+    identity: Identity | None,
     *,
     dataset_id: uuid.UUID,
     attempt_id: uuid.UUID,
@@ -62,13 +63,14 @@ async def authorize_pointcloud_read(
 ) -> PointCloudGrant:
     """Decide whether this request may read one attempt's file of a point cloud.
 
-    Raises 401 for a supplied credential that doesn't resolve, and 404 for an
-    unknown or invisible dataset, another record type, a missing or malformed
-    pointer, a stale attempt or a name other than the stored one. The first
-    granted read per tenant, dataset, attempt, credential, caller and client
-    address in each audit window writes one audit row.
+    ``identity`` is the caller the route's ``get_optional_user`` resolved,
+    which already answered 401 for a supplied credential that doesn't resolve.
+    Raises 404 for an unknown or invisible dataset, another record type, a
+    missing or malformed pointer, a stale attempt or a name other than the
+    stored one. The first granted read per tenant, dataset, attempt,
+    credential, caller and client address in each audit window writes one
+    audit row.
     """
-    identity = await get_optional_user(request, token, db)
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
         # Worded like the guard's denial, so a private id and an unknown one match.
