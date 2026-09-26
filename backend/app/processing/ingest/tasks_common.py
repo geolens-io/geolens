@@ -1447,10 +1447,10 @@ async def _run_service_import_with_wfs_fallback(
 async def invalidate_tile_cache_for_table(table_name: str) -> None:
     """Best-effort MVT tile-cache purge after a table's contents change.
 
-    fix(#394) B-019/VT-01: reupload swaps the whole table under the same
-    ``table_name`` but was the one write path that never purged the Valkey
-    tile cache — the cache key has no content-version dimension, so stale
-    geometry/attributes kept 304-serving for up to ``tile_cache_ttl``.
+    Tile keys carry the dataset's ``tile_cache_version``, so an API process
+    stops reading pre-swap entries once it re-reads the dataset row. The purge
+    makes the new rows visible sooner wherever it can reach the cache: a
+    process still holding the old version re-renders from the swapped table.
     Call AFTER the owning transaction commits, so a concurrent tile request
     can't re-cache pre-swap rows. Never raises.
     """

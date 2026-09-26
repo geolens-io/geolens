@@ -12,6 +12,7 @@ directly with a valid signature mocked and assert the resolved cache scope.
 
 import types
 import uuid
+from datetime import datetime, timezone
 
 import pytest
 
@@ -53,6 +54,8 @@ def _meta(visibility: str, record_status: str = "published") -> _DatasetMeta:
         tile_cache_ttl=None,
         tile_columns=None,
         publication_version=0,
+        tile_cache_version=1,
+        updated_at=datetime.now(timezone.utc),
     )
 
 

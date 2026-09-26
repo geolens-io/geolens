@@ -6,6 +6,7 @@ import math
 import threading
 import time
 import uuid
+from datetime import datetime
 from typing import Any, Literal, NamedTuple
 from urllib.parse import parse_qs, urlencode
 
@@ -232,6 +233,8 @@ class _DatasetMeta(NamedTuple):
     # fix(#1963): the signed scope binds this, so it is as stale as the
     # `record_status` beside it and no staler.
     publication_version: int
+    tile_cache_version: int
+    updated_at: datetime
 
 
 # Bounded LRU so a long-lived tile worker cannot grow one entry per
@@ -1621,33 +1624,44 @@ def _validate_tile_coordinates(z: int, x: int, y: int) -> None:
         )
 
 
-async def _resolve_dataset_meta(table_name: str, db: AsyncSession) -> _DatasetMeta:
-    """Look up dataset metadata with a short in-memory cache.
+# The product's own tile URLs carry the dataset state their page last read:
+# the builder and viewer send `tile_cache_version`, the dataset page its
+# record's `updated_at`.
+_CLIENT_STATE_PARAM = "_v"
 
-    In ``multi_tenant`` the cache key is ``{tid}:{table_name}`` and the
-    query adds a ``tenant_id`` filter, closing the cross-dataset authz leak
-    on the data plane. In ``single_tenant`` the key is the bare
-    ``table_name``, byte-identical to pre-1209.
+# A caller chooses its own `_v`, so a newer one re-reads a snapshot at most once
+# per interval for each cache key. The request that claims the re-read runs it
+# on its own session, needing no connection beyond the one it already holds,
+# and requests arriving meanwhile wait on the future it publishes.
+_FORCED_REREAD_INTERVAL = 1.0  # seconds
+_forced_rereads: LRUCache[str, float] = LRUCache(maxsize=256)
+_rereads_in_flight: dict[str, asyncio.Future[_DatasetMeta | None]] = {}
 
-    fix(#2007): the tile cache key is derived from THIS snapshot, the same one
-    that decides visibility and record_status, so it can never be staler than
-    the authorization that admitted the request. Re-reading the counter alone
-    would leave that decision on the stale row and fix nothing.
+
+def _client_saw_newer_state(raw: str | None, meta: _DatasetMeta) -> bool:
+    """Whether a request's ``_v`` names a newer dataset state than ``meta``.
+
+    A worker-side swap cannot evict this process's snapshot, and the first
+    request for the new tiles usually comes from the page that just read the
+    new state. A value that is not newer, or is neither spelling, leaves the
+    snapshot to its TTL.
     """
-    now = time.monotonic()
+    if raw is None or len(raw) > 64:
+        return False
+    version = _meta_cache_version_segment(raw)
+    if version is not None:
+        return int(version) > meta.tile_cache_version
+    try:
+        seen = datetime.fromisoformat(raw)
+    except ValueError:
+        return False
+    return seen.tzinfo is not None and seen > meta.updated_at
 
-    # Fail before consulting even the in-memory cache: an unresolved request
-    # must never reuse a single-tenant bare-key entry after a mode transition.
-    tid = _require_tile_tenant_context()
-    cache_key = f"{tid}:{table_name}" if tid is not None else table_name
 
-    with _dataset_cache_lock:
-        cached_entry = _dataset_cache.get(cache_key)
-        if cached_entry is not None:
-            ts, cached_meta = cached_entry
-            if now - ts < _DATASET_CACHE_TTL:
-                return cached_meta
-
+async def _read_dataset_meta(
+    db: AsyncSession, table_name: str, tid: str | None
+) -> _DatasetMeta:
+    """Read the metadata snapshot for ``table_name``, or raise 404."""
     from app.modules.catalog.datasets.domain.models import Dataset as DatasetORM
 
     stmt = (
@@ -1668,7 +1682,7 @@ async def _resolve_dataset_meta(table_name: str, db: AsyncSession) -> _DatasetMe
             status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
         )
 
-    meta = _DatasetMeta(
+    return _DatasetMeta(
         dataset_id=dataset.id,
         record_id=dataset.record_id,
         table_name=dataset.table_name,
@@ -1681,7 +1695,105 @@ async def _resolve_dataset_meta(table_name: str, db: AsyncSession) -> _DatasetMe
         tile_cache_ttl=dataset.tile_cache_ttl,
         tile_columns=dataset.tile_columns,
         publication_version=dataset.publication_version or 0,
+        tile_cache_version=dataset.tile_cache_version or 1,
+        updated_at=dataset.record.updated_at,
     )
+
+
+async def _lead_reread(
+    reread: asyncio.Future[_DatasetMeta | None],
+    cache_key: str,
+    table_name: str,
+    db: AsyncSession,
+    tid: str | None,
+    now: float,
+) -> _DatasetMeta:
+    """Run a claimed re-read on the claimant's session and publish the result.
+
+    A failed read hands every waiting request the same error. A cancelled one
+    publishes ``None``, so a waiting request takes the read over instead of
+    inheriting the cancellation.
+    """
+    try:
+        meta = await _read_dataset_meta(db, table_name, tid)
+    except BaseException as exc:  # release the waiters however the read ends
+        with _dataset_cache_lock:
+            if _rereads_in_flight.get(cache_key) is reread:
+                del _rereads_in_flight[cache_key]
+        if isinstance(exc, Exception):
+            reread.set_exception(exc)
+            # The claimant raises it too, so a future nobody waited on must
+            # not be logged as never retrieved.
+            reread.exception()
+        else:
+            reread.set_result(None)
+        raise
+    with _dataset_cache_lock:
+        _dataset_cache[cache_key] = (now, meta)
+        if _rereads_in_flight.get(cache_key) is reread:
+            del _rereads_in_flight[cache_key]
+    reread.set_result(meta)
+    return meta
+
+
+async def _resolve_dataset_meta(
+    table_name: str, db: AsyncSession, client_state: str | None = None
+) -> _DatasetMeta:
+    """Look up dataset metadata with a short in-memory cache.
+
+    In ``multi_tenant`` the cache key is ``{tid}:{table_name}`` and the
+    query adds a ``tenant_id`` filter, closing the cross-dataset authz leak
+    on the data plane. In ``single_tenant`` the key is the bare
+    ``table_name``.
+
+    The tile cache key is derived from THIS snapshot, the same one that
+    decides visibility and record_status, so it can never be staler than the
+    authorization that admitted the request. Re-reading the counter alone
+    would leave that decision on the stale row and fix nothing, so a
+    ``client_state`` newer than the cached snapshot re-reads the whole row.
+    Each cache key allows one such re-read per ``_FORCED_REREAD_INTERVAL``,
+    run by the request that claims it on that request's own session. Requests
+    arriving while it runs wait for its result, taking the read over if its
+    claimant is cancelled, and a later request in the interval is served
+    whatever snapshot the cache then holds.
+    """
+    # Fail before consulting even the in-memory cache: an unresolved request
+    # must never reuse a single-tenant bare-key entry after a mode transition.
+    tid = _require_tile_tenant_context()
+    cache_key = f"{tid}:{table_name}" if tid is not None else table_name
+
+    taking_over = False
+    while True:
+        now = time.monotonic()
+        claimed = None
+        with _dataset_cache_lock:
+            cached_entry = _dataset_cache.get(cache_key)
+            if cached_entry is None or now - cached_entry[0] >= _DATASET_CACHE_TTL:
+                break
+            cached_meta = cached_entry[1]
+            if not _client_saw_newer_state(client_state, cached_meta):
+                return cached_meta
+            reread = _rereads_in_flight.get(cache_key)
+            if reread is None:
+                claimed_at = _forced_rereads.get(cache_key)
+                if (
+                    not taking_over
+                    and claimed_at is not None
+                    and now - claimed_at < _FORCED_REREAD_INTERVAL
+                ):
+                    return cached_meta
+                _forced_rereads[cache_key] = now
+                reread = claimed = asyncio.get_running_loop().create_future()
+                _rereads_in_flight[cache_key] = reread
+        if claimed is not None:
+            return await _lead_reread(claimed, cache_key, table_name, db, tid, now)
+        meta = await asyncio.shield(reread)
+        if meta is not None:
+            return meta
+        # Its claimant was cancelled, so take the read over.
+        taking_over = True
+
+    meta = await _read_dataset_meta(db, table_name, tid)
     with _dataset_cache_lock:
         _dataset_cache[cache_key] = (now, meta)
     return meta
@@ -1705,7 +1817,9 @@ async def _resolve_dataset_meta_for_serving(
     IDs, and this exit is exactly the case where there is no id to authorize.
     """
     try:
-        return await _resolve_dataset_meta(table_name, db)
+        return await _resolve_dataset_meta(
+            table_name, db, request.query_params.get(_CLIENT_STATE_PARAM)
+        )
     except HTTPException as exc:
         capability_declined(request, user, exc)
 
@@ -1781,12 +1895,17 @@ async def _assert_dataset_still_registered(
 def _demote_prewarmed_cache_scope(
     request: Request, meta: _DatasetMeta, cache_scope: str
 ) -> str:
-    """Refuse the shared cache to a request whose ``pv`` names another row state.
+    """Narrow the cache scope to what the request's own version params allow.
 
-    fix(#2007): the emitted vector template carries the publication version, so
-    a caller supplying the counter an unpublish is about to make current would
-    otherwise fill that key with bytes from before the transition.
+    A ``_v`` still newer than the snapshot serving the request means these
+    bytes can predate a state the page has already read, so no cache may keep
+    them under that URL. The emitted vector template also carries the
+    publication version, and a caller supplying the counter an unpublish is
+    about to make current would otherwise fill that shared-cache key with
+    bytes from before the transition.
     """
+    if _client_saw_newer_state(request.query_params.get(_CLIENT_STATE_PARAM), meta):
+        return "no-store"
     if cache_scope == "public" and _cache_key_version_mismatch(
         _cache_key_arg_values(request, TILE_PUBLICATION_VERSION_PARAM),
         meta.publication_version,
@@ -1930,26 +2049,33 @@ def _ensure_clusterable_dataset(meta: _DatasetMeta) -> None:
 
 
 def _generation_table_key(
-    table_name: str, dataset_id: uuid.UUID, publication_version: int
+    table_name: str,
+    dataset_id: uuid.UUID,
+    publication_version: int,
+    tile_cache_version: int,
 ) -> str:
     """Table segment, the generation that makes a reused name safe, and the
-    publication version that makes a superseded entry unreachable.
+    versions that make a superseded entry unreachable.
 
     A cache key of the table name alone would let the next dataset to draw
     ``roads`` read the previous one's cached bytes under its own visibility.
     Keying on the dataset id (a UUID, never reissued) makes that read
-    impossible rather than merely short-lived — GH-1443's name-retirement
-    is not relied on for this.
+    impossible rather than merely short-lived, without relying on freed
+    names being retired.
 
-    fix(#2007): the publication version joins them, so bytes cached while the
-    dataset was public and published stop being reachable the moment a status
-    or visibility transition rolls it, rather than serving out the TTL.
+    The publication version rolls on a status or visibility transition, so
+    bytes cached while the dataset was public and published stop being
+    reachable then rather than serving out the TTL. The content version does
+    the same for a table swap, which runs in the worker and cannot purge an
+    in-memory cache in this process.
 
-    Position is load-bearing: both segments go AFTER the table name so the
+    Position is load-bearing: every segment goes AFTER the table name so the
     ``tile:{table}:*`` patterns in ``invalidate_table`` still match every
     key for a table, whichever dataset wrote it.
     """
-    return f"{table_name}:ds{dataset_id.hex}:p{publication_version}"
+    return (
+        f"{table_name}:ds{dataset_id.hex}:p{publication_version}:v{tile_cache_version}"
+    )
 
 
 def _cluster_cache_table_key(
@@ -1957,16 +2083,17 @@ def _cluster_cache_table_key(
     *,
     dataset_id: uuid.UUID,
     publication_version: int,
+    tile_cache_version: int,
     cluster_radius: int,
     cluster_max_zoom: int,
 ) -> str:
     # fix(#868): the version tag pins the cluster SQL semantics. Bump it whenever
     # _build_cluster_tile_query changes the emitted tile geometry/properties, or a
     # deploy keeps serving stale cluster tiles until TTL expiry. v2 -> v3: #874.
-    return (
-        f"{_generation_table_key(table_name, dataset_id, publication_version)}"
-        f":cluster:v3:r{cluster_radius}:z{cluster_max_zoom}"
+    generation = _generation_table_key(
+        table_name, dataset_id, publication_version, tile_cache_version
     )
+    return f"{generation}:cluster:v3:r{cluster_radius}:z{cluster_max_zoom}"
 
 
 async def _acquire_and_serve_tile(
@@ -2203,6 +2330,7 @@ async def cluster_tile_endpoint(
         table_name,
         dataset_id=meta.dataset_id,
         publication_version=meta.publication_version,
+        tile_cache_version=meta.tile_cache_version,
         cluster_radius=cluster_radius,
         cluster_max_zoom=cluster_max_zoom,
     )
@@ -2385,7 +2513,7 @@ async def tile_endpoint(
     # single_tenant: no prefix, byte-identical to pre-1209.
     _tile_tid = _require_tile_tenant_context()
     _tile_generation_key = _generation_table_key(
-        table_name, meta.dataset_id, meta.publication_version
+        table_name, meta.dataset_id, meta.publication_version, meta.tile_cache_version
     )
     _tile_cache_key = (
         f"{_tile_tid}:{_tile_generation_key}"

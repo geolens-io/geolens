@@ -463,11 +463,11 @@ async def _repair_geom_4326(
             return _RepairReport(code)
 
     if purge_table is not None:
-        # Outside the transaction: the MVT cache key has no content-version
-        # dimension, so without this, rows just made visible stay hidden
-        # behind cached tiles until they expire. Repeated by the end-of-run
-        # purge on the success path, but doing it here too makes the repair
-        # visible even if the measurement that follows fails.
+        # Outside the transaction, so a concurrent tile request can't re-cache
+        # pre-repair rows. Without it, rows just made visible stay hidden behind
+        # cached tiles until the API re-reads the bumped version. Repeated by
+        # the end-of-run purge on the success path, but doing it here too makes
+        # the repair visible even if the measurement that follows fails.
         await invalidate_tile_cache_for_table(purge_table)
 
     return report
