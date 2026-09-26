@@ -9,6 +9,8 @@ from ...types import Response
 from ... import errors
 
 from ...models.problem_detail import ProblemDetail
+from ...types import File
+from io import BytesIO
 from uuid import UUID
 
 
@@ -32,13 +34,15 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Any | ProblemDetail | None:
+) -> Any | File | ProblemDetail | None:
     if response.status_code == 200:
-        response_200 = cast(Any, None)
+        response_200 = File(payload=BytesIO(response.content))
+
         return response_200
 
     if response.status_code == 206:
-        response_206 = cast(Any, None)
+        response_206 = File(payload=BytesIO(response.content))
+
         return response_206
 
     if response.status_code == 304:
@@ -98,7 +102,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[Any | ProblemDetail]:
+) -> Response[Any | File | ProblemDetail]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -113,7 +117,7 @@ def sync_detailed(
     name: str,
     *,
     client: AuthenticatedClient,
-) -> Response[Any | ProblemDetail]:
+) -> Response[Any | File | ProblemDetail]:
     """Get Pointcloud File
 
      Serve a published COPC point cloud's file, whole or by HTTP byte range.
@@ -145,7 +149,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | ProblemDetail]
+        Response[Any | File | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -167,7 +171,7 @@ def sync(
     name: str,
     *,
     client: AuthenticatedClient,
-) -> Any | ProblemDetail | None:
+) -> Any | File | ProblemDetail | None:
     """Get Pointcloud File
 
      Serve a published COPC point cloud's file, whole or by HTTP byte range.
@@ -199,7 +203,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | ProblemDetail
+        Any | File | ProblemDetail
     """
 
     return sync_detailed(
@@ -216,7 +220,7 @@ async def asyncio_detailed(
     name: str,
     *,
     client: AuthenticatedClient,
-) -> Response[Any | ProblemDetail]:
+) -> Response[Any | File | ProblemDetail]:
     """Get Pointcloud File
 
      Serve a published COPC point cloud's file, whole or by HTTP byte range.
@@ -248,7 +252,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | ProblemDetail]
+        Response[Any | File | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -268,7 +272,7 @@ async def asyncio(
     name: str,
     *,
     client: AuthenticatedClient,
-) -> Any | ProblemDetail | None:
+) -> Any | File | ProblemDetail | None:
     """Get Pointcloud File
 
      Serve a published COPC point cloud's file, whole or by HTTP byte range.
@@ -300,7 +304,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | ProblemDetail
+        Any | File | ProblemDetail
     """
 
     return (

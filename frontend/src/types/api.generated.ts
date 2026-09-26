@@ -24465,19 +24465,23 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The whole COPC file, as application/vnd.laszip+copc */
+            /** @description The whole COPC file */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/vnd.laszip+copc": string;
+                };
             };
             /** @description One byte range of the COPC file */
             206: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/vnd.laszip+copc": string;
+                };
             };
             /** @description The caller already holds this version of the file */
             304: {

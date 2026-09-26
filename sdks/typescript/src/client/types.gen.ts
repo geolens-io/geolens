@@ -18216,14 +18216,16 @@ export type GetPointcloudFileDatasetsDatasetIdCopcAttemptIdNameCopcLazGetError =
 
 export type GetPointcloudFileDatasetsDatasetIdCopcAttemptIdNameCopcLazGetResponses = {
     /**
-     * The whole COPC file, as application/vnd.laszip+copc
+     * The whole COPC file
      */
-    200: unknown;
+    200: Blob | File;
     /**
      * One byte range of the COPC file
      */
-    206: unknown;
+    206: Blob | File;
 };
+
+export type GetPointcloudFileDatasetsDatasetIdCopcAttemptIdNameCopcLazGetResponse = GetPointcloudFileDatasetsDatasetIdCopcAttemptIdNameCopcLazGetResponses[keyof GetPointcloudFileDatasetsDatasetIdCopcAttemptIdNameCopcLazGetResponses];
 
 export type GetDcatUs3RecordDatasetsDatasetIdDcatUs30GetData = {
     body?: never;

@@ -12,6 +12,11 @@ literal_enums: true
 # Generate endpoints for ALL FastAPI tags rather than only the first tag.
 generate_all_tags: true
 
+# The generator reads only JSON, text and octet-stream bodies. A COPC point
+# cloud file is bytes, so it is read as octet-stream and returned as a File.
+content_type_overrides:
+  application/vnd.laszip+copc: application/octet-stream
+
 # Format generated code with ruff so it matches project style.
 post_hooks:
   - "ruff check . --fix-only"

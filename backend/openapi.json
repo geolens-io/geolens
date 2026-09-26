@@ -35393,9 +35393,25 @@
         ],
         "responses": {
           "200": {
-            "description": "The whole COPC file, as application/vnd.laszip+copc"
+            "content": {
+              "application/vnd.laszip+copc": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The whole COPC file"
           },
           "206": {
+            "content": {
+              "application/vnd.laszip+copc": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
             "description": "One byte range of the COPC file"
           },
           "304": {

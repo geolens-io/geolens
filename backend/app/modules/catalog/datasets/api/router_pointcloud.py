@@ -42,6 +42,9 @@ _CACHE_CONTROL = "private, no-cache"
 
 _PATH = "/{dataset_id}/copc/{attempt_id}/{name}.copc.laz"
 
+# Declared as bytes, so a generated client hands back the file rather than None.
+_COPC_BODY = {POINTCLOUD_MEDIA_TYPE: {"schema": {"type": "string", "format": "binary"}}}
+
 # Every read resolves the caller and the dataset before it touches storage. A
 # COPC view reads about one range per octree node in the viewer's point budget,
 # tens to a few hundred, and an active user refines a few views a minute.
@@ -98,8 +101,8 @@ def _range_units(request: Request) -> int:
     _PATH,
     response_class=Response,
     responses={
-        200: {"description": f"The whole COPC file, as {POINTCLOUD_MEDIA_TYPE}"},
-        206: {"description": "One byte range of the COPC file"},
+        200: {"description": "The whole COPC file", "content": _COPC_BODY},
+        206: {"description": "One byte range of the COPC file", "content": _COPC_BODY},
         304: {"description": "The caller already holds this version of the file"},
         401: {
             **PROBLEM_RESPONSE,
