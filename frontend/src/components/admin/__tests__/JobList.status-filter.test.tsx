@@ -60,8 +60,6 @@ describe('JobList status filter from the URL (#1185)', () => {
     expect(statusFilter()).toHaveTextContent('Failed');
   });
 
-  // fix(#2300): cancelled and fanned-out jobs used to fall through the
-  // filter's allowlist and land on "All Statuses" despite a valid API filter.
   it('queries the cancelled jobs when the route carries ?status=cancelled', () => {
     render(<JobList />, { route: '/admin/jobs?status=cancelled' });
 

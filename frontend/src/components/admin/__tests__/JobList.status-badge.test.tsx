@@ -1,9 +1,6 @@
 import { render, screen } from '@/test/test-utils';
 import { JobList } from '../JobList';
 
-// fix(#2300): the badge used to render the raw stored value, so every locale
-// showed the same English enum word regardless of language.
-
 const { mockUseAdminJobs } = vi.hoisted(() => ({ mockUseAdminJobs: vi.fn() }));
 
 vi.mock('@/hooks/use-admin', () => ({
