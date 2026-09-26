@@ -591,15 +591,22 @@ async def test_a_point_cloud_publishes_the_extent_of_its_points(
     assert detail.json()["extent_bbox"] == pytest.approx(tight.extent_bbox, abs=1e-6)
 
 
-async def test_a_point_cloud_across_the_antimeridian_publishes_a_narrow_extent(
-    client: AsyncClient, test_db_session, uploader, queued
+@pytest.mark.parametrize(
+    ("x_offset", "center_x", "extent"),
+    [
+        pytest.param(-179.95, 0.0, [176.351, -17.0, -176.351, -16.0], id="across-180"),
+        pytest.param(0.0, 180.0, [-3.699, -17.0, 3.599, -16.0], id="0-to-360-across-0"),
+    ],
+)
+async def test_a_point_cloud_across_a_seam_publishes_a_narrow_extent(
+    client: AsyncClient, test_db_session, uploader, queued, x_offset, center_x, extent
 ) -> None:
-    """Points each side of ±180 publish a west > east extent, not a near-global one."""
+    """Points each side of ±180, or of 0 in 0..360 longitudes, publish a narrow extent."""
     data = reframed(
         two_ends(CRS.from_epsg(4326).to_wkt().encode()),
         (0.3599, 0.001, 0.01),
-        (-179.95, -17.0, 0.0),
-        (0.0, -16.5, 90.0),
+        (x_offset, -17.0, 0.0),
+        (center_x, -16.5, 90.0),
         180.0,
     )
 
@@ -609,9 +616,7 @@ async def test_a_point_cloud_across_the_antimeridian_publishes_a_narrow_extent(
     assert job.status == "complete", job.error_message
     detail = await client.get(f"/datasets/{job.dataset_id}", headers=uploader[0])
     assert detail.status_code == 200, detail.text
-    assert detail.json()["extent_bbox"] == pytest.approx(
-        [176.351, -17.0, -176.351, -16.0], abs=1e-3
-    )
+    assert detail.json()["extent_bbox"] == pytest.approx(extent, abs=1e-3)
 
 
 async def test_a_damaged_node_below_the_top_is_refused_before_the_copy(

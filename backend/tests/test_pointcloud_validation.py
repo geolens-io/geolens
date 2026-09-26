@@ -1178,30 +1178,87 @@ async def test_the_worker_takes_the_extent_from_the_points(tmp_path) -> None:
     assert (door.z_min, door.z_max) == (780.0, 1781.0)
 
 
-@pytest.mark.parametrize(
-    ("x_scale", "x_offset", "extent"),
-    [
-        pytest.param(
-            0.3599, -179.95, (176.351, -17.0, -176.351, -16.0), id="each-side-of-180"
-        ),
-        pytest.param(0.001, -0.5, (-0.5, -17.0, 0.5, -16.0), id="each-side-of-0"),
-    ],
-)
-async def test_a_geographic_cloud_takes_the_narrower_longitude_domain(
-    tmp_path, x_scale, x_offset, extent
-) -> None:
-    """Points each side of ±180 give a west > east extent, and points each side of 0 an ordinary one."""
-    data = reframed(
+def _geographic_ends(x_scale: float, x_offset: float, center_x: float) -> bytes:
+    """two_ends() in EPSG:4326 near Fiji's latitude, with raw X 0..1000 at the given longitudes."""
+    return reframed(
         two_ends(CRS.from_epsg(4326).to_wkt().encode()),
         (x_scale, 0.001, 0.01),
         (x_offset, -17.0, 0.0),
-        (0.0, -16.5, 90.0),
+        (center_x, -16.5, 90.0),
         180.0,
     )
 
+
+@pytest.mark.parametrize(
+    ("data", "extent"),
+    [
+        pytest.param(
+            _geographic_ends(0.3599, -179.95, 0.0),
+            (176.351, -17.0, -176.351, -16.0),
+            id="each-side-of-180",
+        ),
+        pytest.param(
+            _geographic_ends(0.001, -0.5, 0.0),
+            (-0.5, -17.0, 0.5, -16.0),
+            id="each-side-of-0",
+        ),
+        pytest.param(
+            _geographic_ends(0.36, -180.0, 0.0),
+            (176.4, -17.0, -176.4, -16.0),
+            id="at-180-and-minus-180",
+        ),
+        pytest.param(
+            _geographic_ends(0.3599, 0.0, 180.0),
+            (-3.699, -17.0, 3.599, -16.0),
+            id="0-to-360-each-side-of-0",
+        ),
+        pytest.param(
+            reframed(
+                two_ends(CRS.from_epsg(4326).to_wkt().encode()),
+                (0.00204, 0.001, 0.01),
+                (179.0, -17.0, 0.0),
+                (180.0, -16.5, 2.0),
+                2.0,
+            ),
+            (179.0, -17.0, -178.96, -16.0),
+            id="0-to-360-each-side-of-180",
+        ),
+    ],
+)
+async def test_a_geographic_cloud_takes_the_narrower_longitude_domain(
+    tmp_path, data, extent
+) -> None:
+    """Points each side of either seam, in either encoding, give the narrow extent, west > east across ±180."""
     cloud = await inspect_every_node(write(tmp_path, data))
 
     assert cloud.extent_bbox == pytest.approx(extent, abs=1e-3)
+
+
+@pytest.mark.parametrize(
+    ("offsets", "center"),
+    [
+        pytest.param((400.0, 10.0, 0.0), (405.0, 15.0, 5.0), id="longitude-past-360"),
+        pytest.param((10.0, 85.0, 0.0), (15.0, 90.0, 5.0), id="latitude-past-90"),
+    ],
+)
+def test_coordinates_a_geographic_crs_cannot_hold_are_refused(
+    tmp_path, offsets, center
+) -> None:
+    """A geographic cloud's longitudes stay within ±360 and its latitudes within ±90."""
+    data = reframed(
+        copc(wkt=CRS.from_epsg(4326).to_wkt().encode()),
+        (0.01, 0.01, 0.01),
+        offsets,
+        center,
+        5.0,
+    )
+
+    refusal = refused(tmp_path, data)
+
+    assert (refusal.code, str(refusal)) == (
+        "pointcloud_invalid",
+        "The point cloud's coordinates don't fit its geographic CRS.",
+    )
 
 
 @pytest.mark.parametrize(

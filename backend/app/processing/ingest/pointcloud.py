@@ -619,7 +619,7 @@ def _check_chunk(chunk: bytes, layout: _Layout, count: int) -> None:
 def _decode(read: Read, layout: _Layout, node: _Node) -> tuple[np.ndarray, np.ndarray]:
     """Decode one node with lazrs, check where its points sit, and return their low and high corners.
 
-    Each corner has a fourth value: the X ends read in the 0..360 domain.
+    Each corner also carries X wrapped into [-180, 180) and into [0, 360).
     """
     header = layout.header
     offset, size, count = node.offset, node.size, node.count
@@ -679,11 +679,15 @@ def _decode(read: Read, layout: _Layout, node: _Node) -> tuple[np.ndarray, np.nd
         raise _invalid(
             "A node's points lie outside its octree cell.", reason="decode_voxel"
         )
-    # A cloud each side of ±180 spans less in the 0..360 domain; only a
-    # geographic CRS's extent uses these ends.
-    x = xyz[:, 0] * scales[0] + offsets[0]
-    np.add(x, 360, out=x, where=x < 0)
-    return np.append(low, x.min()), np.append(high, x.max())
+    # A cloud each side of one encoding's seam is narrow in the other, so a
+    # geographic CRS's extent reads longitudes both ways, in place.
+    x = xyz[:, 0] * scales[0]
+    x += offsets[0] + 180
+    np.remainder(x, 360, out=x)
+    x -= 180
+    west, east = x.min(), x.max()
+    np.remainder(x, 360, out=x)
+    return np.append(low, (west, x.min())), np.append(high, (east, x.max()))
 
 
 def _parse_wkt(text: str) -> list:
@@ -752,13 +756,14 @@ def _crs_facts(
     wkt: bytes,
     mins: Sequence[float],
     maxs: Sequence[float],
-    shifted: tuple[float, float] | None = None,
+    longitudes: tuple[float, float, float, float] | None = None,
 ) -> tuple[int, str | None, tuple[float, float, float, float]]:
     """The horizontal EPSG code, the vertical CRS name and the WGS84 extent of ``mins`` to ``maxs``.
 
-    ``shifted`` is the X range read in the 0..360 domain. For a geographic
-    CRS the extent keeps whichever domain spans less, so a cloud crossing
-    ±180 comes out west > east rather than nearly global.
+    ``longitudes`` is the X range wrapped into [-180, 180) and then into
+    [0, 360), as (min, max, min, max). For a geographic CRS the extent keeps
+    whichever spans less, so a cloud across either seam comes out narrow,
+    west > east across ±180.
     """
     from rasterio.coords import BoundingBox
     from rasterio.crs import CRS
@@ -768,13 +773,23 @@ def _crs_facts(
     try:
         srid, name = _declared_crs(wkt)
         crs = CRS.from_epsg(srid)
-        bounds = [mins[0], mins[1], maxs[0], maxs[1]]
-        if shifted is not None and crs.is_geographic:
-            bounds = rollup_bbox([*bounds, *shifted])
+        geographic = crs.is_geographic
+    except Exception as exc:  # broad: an unreadable WKT or unknown EPSG code
+        raise _no_crs(reason="crs") from exc
+    if geographic and not (
+        -360 <= mins[0] <= maxs[0] <= 360 and -90 <= mins[1] <= maxs[1] <= 90
+    ):
+        raise _invalid(
+            "The point cloud's coordinates don't fit its geographic CRS.",
+            reason="geographic_range",
+        )
+    bounds = [mins[0], mins[1], maxs[0], maxs[1]]
+    if longitudes is not None and geographic:
+        west, east, shifted_west, shifted_east = longitudes
+        bounds = rollup_bbox([west, mins[1], east, maxs[1], shifted_west, shifted_east])
+    try:
         bbox = _wgs84_bbox(SimpleNamespace(crs=crs, bounds=BoundingBox(*bounds)))
-    except (
-        Exception
-    ) as exc:  # broad: an unreadable WKT or an EPSG code PROJ can't use is one refusal
+    except Exception as exc:  # broad: PROJ failing on the extent is the same refusal
         raise _no_crs(reason="crs") from exc
     if not all(map(math.isfinite, bbox)):
         raise _no_crs(reason="extent")
@@ -867,7 +882,7 @@ async def inspect_every_node(path: str) -> PointCloud:
     # Some writers round a header's bounds outward, so the points set the extent.
     low, high = low.tolist(), high.tolist()
     _, _, bbox = await asyncio.to_thread(
-        _crs_facts, layout.wkt, low, high, (low[3], high[3])
+        _crs_facts, layout.wkt, low, high, (low[3], high[3], low[4], high[4])
     )
     return _publishable(replace(cloud, extent_bbox=bbox, z_min=low[2], z_max=high[2]))
 
