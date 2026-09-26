@@ -10,6 +10,7 @@ interval, with concurrent requests waiting on that one read.
 
 import asyncio
 import contextlib
+import time
 import uuid
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -18,6 +19,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import event, text
 
+from app.platform.cache.tile_cache import InMemoryTileCacheProvider
 from app.processing.tiles import router as tile_router
 
 from tests.factories import get_user_id
@@ -37,15 +39,19 @@ async def _public_raster(session):
 
 
 @contextlib.contextmanager
-def _counting_raster_reads(dataset_id: uuid.UUID):
-    """Count the raster metadata reads for ``dataset_id`` that reach the database."""
+def _counting_statements(marker: str, param: str):
+    """Record when each SELECT containing ``marker`` and naming ``param`` runs."""
     import app.core.db as db_module
 
-    reads: list[str] = []
+    reads: list[float] = []
 
     def on_execute(conn, cursor, statement, parameters, context, executemany):
-        if "raster_assets" in statement and str(dataset_id) in str(parameters):
-            reads.append(statement)
+        if (
+            statement.lstrip().upper().startswith("SELECT")
+            and marker in statement
+            and param in str(parameters)
+        ):
+            reads.append(time.monotonic())
 
     engine = db_module.engine.sync_engine
     event.listen(engine, "before_cursor_execute", on_execute)
@@ -55,14 +61,9 @@ def _counting_raster_reads(dataset_id: uuid.UUID):
         event.remove(engine, "before_cursor_execute", on_execute)
 
 
-def _age_raster_claim(dataset_id: uuid.UUID) -> None:
-    """Put the dataset's last forced re-read past its interval."""
-    key = str(dataset_id)
-    with tile_router._raster_meta_cache_lock:
-        claimed_at = tile_router._raster_forced_rereads[key]
-        tile_router._raster_forced_rereads[key] = (
-            claimed_at - tile_router._FORCED_REREAD_INTERVAL
-        )
+def _counting_raster_reads(dataset_id: uuid.UUID):
+    """Record when each raster metadata read for ``dataset_id`` runs."""
+    return _counting_statements("raster_assets", str(dataset_id))
 
 
 def _forget(dataset_id: uuid.UUID) -> None:
@@ -92,23 +93,29 @@ async def _meta_for_request(dataset_id: uuid.UUID, version: str):
         return await tile_router._resolve_raster_meta(session, dataset_id, version)
 
 
-async def test_an_unreached_v_re_reads_the_row_once_per_interval(
-    client: AsyncClient, test_db_session
+async def test_an_unreached_v_re_reads_the_row_at_most_once_per_interval(
+    client: AsyncClient, test_db_session, monkeypatch
 ):
+    """Each of these requests waits for a read of its own, an interval apart.
+
+    No row reaches the version, and a read that started before a request
+    arrived cannot answer it, so every request in the sequence needs the next
+    interval's read.
+    """
+    interval = 0.2
+    monkeypatch.setattr(tile_router, "_FORCED_REREAD_INTERVAL", interval)
     dataset = await _public_raster(test_db_session)
     try:
         assert (await _auth_check(client, dataset.id)).status_code == 200
         with _counting_raster_reads(dataset.id) as reads:
-            for _ in range(20):
+            for _ in range(4):
                 resp = await _auth_check(client, dataset.id, _UNREACHED_VERSION)
                 assert resp.status_code == 200, resp.text
                 assert resp.headers["X-GeoLens-Cache-Status"] == "private"
-            assert len(reads) == 1
 
-            _age_raster_claim(dataset.id)
-            for _ in range(20):
-                await _auth_check(client, dataset.id, _UNREACHED_VERSION)
-            assert len(reads) == 2
+        assert len(reads) == 4
+        gaps = [later - earlier for earlier, later in zip(reads, reads[1:])]
+        assert min(gaps) >= 0.8 * interval, gaps
     finally:
         _forget(dataset.id)
 
@@ -349,3 +356,165 @@ async def test_a_waiter_holding_the_only_connection_lets_the_claimant_read(
         await claimant_session.close()
         await one_connection.dispose()
         forget()
+
+
+async def _on_own_session(resolve, version):
+    """Resolve as a tile request does, on a session it closes after."""
+    import app.core.db as db_module
+
+    async with db_module.async_session() as session:
+        return await resolve(session, version)
+
+
+@pytest.mark.parametrize("case", [_vector_case, _raster_case], ids=["vector", "raster"])
+async def test_the_first_request_after_a_commit_is_not_served_a_speculative_read(
+    test_db_session, case
+):
+    """A read forced for a version before it committed cannot answer for it after.
+
+    The speculative request opens the interval while the row is still at the
+    old version. The request naming the new version after the commit waits
+    for the next read instead of taking the snapshot the first one left.
+    """
+    _, _, resolve, advance, forget = await case(test_db_session)
+    try:
+        await resolve(test_db_session)
+        speculative = await _on_own_session(resolve, "2")
+        await advance()
+        after = await asyncio.wait_for(_on_own_session(resolve, "2"), timeout=5)
+
+        assert speculative.tile_cache_version == 1
+        assert after.tile_cache_version == 2
+    finally:
+        forget()
+
+
+@pytest.mark.parametrize("case", [_vector_case, _raster_case], ids=["vector", "raster"])
+async def test_a_read_that_began_before_the_commit_cannot_answer_after_it(
+    test_db_session, case
+):
+    """The same rule while the old read is still running when the request arrives."""
+    import app.core.db as db_module
+
+    _, _, resolve, advance, forget = await case(test_db_session)
+    queried, released, waiting = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+    async def speculative_request():
+        async with db_module.async_session() as session:
+            execute = session.execute
+
+            # The query sees the old row, then the read stays in flight.
+            async def query_then_hold(*args, **kwargs):
+                result = await execute(*args, **kwargs)
+                queried.set()
+                await released.wait()
+                return result
+
+            session.execute = query_then_hold
+            return await resolve(session, "2")
+
+    async def request_after_the_commit():
+        async with db_module.async_session() as session:
+            commit = session.commit
+
+            # A waiter releases its connection just before it starts waiting.
+            async def commit_then_signal():
+                await commit()
+                waiting.set()
+
+            session.commit = commit_then_signal
+            return await resolve(session, "2")
+
+    try:
+        await resolve(test_db_session)
+        speculative = asyncio.create_task(speculative_request())
+        await asyncio.wait_for(queried.wait(), timeout=5)
+        await advance()
+        after = asyncio.create_task(request_after_the_commit())
+        await asyncio.wait_for(waiting.wait(), timeout=5)
+        released.set()
+        metas = await asyncio.wait_for(asyncio.gather(speculative, after), timeout=10)
+
+        assert [meta.tile_cache_version for meta in metas] == [1, 2]
+    finally:
+        released.set()
+        forget()
+
+
+async def _vector_http_case(client, session, tmp_path):
+    """A seeded public point dataset, served through the vector tile route."""
+    from tests.test_tile_cache_content_key_2290 import _drop_table, _seed
+
+    _, dataset, _ = await _seed(session, tmp_path)
+    table = dataset.table_name
+
+    async def fetch(version=None):
+        params = {} if version is None else {"_v": version}
+        resp = await client.get(f"/tiles/data.{table}/0/0/0.pbf", params=params)
+        assert resp.status_code == 200, resp.text
+        return resp.headers["cache-control"]
+
+    async def cleanup():
+        tile_router._evict_dataset_meta(table)
+        await _drop_table(session, table)
+
+    return fetch, _counting_statements("catalog.records", table), "no-store", cleanup
+
+
+async def _raster_http_case(client, session, tmp_path):
+    """A public raster, served through the auth check the raster proxy runs."""
+    dataset = await _public_raster(session)
+
+    async def fetch(version=None):
+        resp = await _auth_check(client, dataset.id, version)
+        assert resp.status_code == 200, resp.text
+        return resp.headers["X-GeoLens-Cache-Status"]
+
+    async def cleanup():
+        _forget(dataset.id)
+
+    return fetch, _counting_raster_reads(dataset.id), "private", cleanup
+
+
+@pytest.mark.usefixtures("_init_tile_pool_for_tests")
+@pytest.mark.parametrize(
+    "case", [_vector_http_case, _raster_http_case], ids=["vector", "raster"]
+)
+async def test_unreached_versions_asked_for_during_the_interval_share_one_read(
+    client: AsyncClient, test_db_session, tmp_path, case
+):
+    """Concurrent requests for an unreached version wait out the interval together.
+
+    Twenty arrive inside the interval a first such request opened. Each gets the
+    old snapshot, sent uncacheable, within about an interval, and the row is
+    read at most once per elapsed interval.
+    """
+    fetch, counting, uncacheable, cleanup = await case(
+        client, test_db_session, tmp_path
+    )
+    interval = tile_router._FORCED_REREAD_INTERVAL
+
+    async def timed_fetch():
+        started = time.monotonic()
+        header = await fetch(_UNREACHED_VERSION)
+        return header, time.monotonic() - started
+
+    try:
+        with patch.object(
+            tile_router, "get_tile_cache", return_value=InMemoryTileCacheProvider()
+        ):
+            await fetch()
+            assert await fetch(_UNREACHED_VERSION) == uncacheable
+            with counting as reads:
+                started = time.monotonic()
+                results = await asyncio.wait_for(
+                    asyncio.gather(*(timed_fetch() for _ in range(20))), timeout=15
+                )
+                elapsed = time.monotonic() - started
+
+        for header, took in results:
+            assert header == uncacheable
+            assert took < interval + 1.0, took
+        assert len(reads) <= 1 + elapsed // interval, (len(reads), elapsed)
+    finally:
+        await cleanup()

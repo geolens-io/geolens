@@ -1774,46 +1774,50 @@ async def _cached_snapshot(
     """Return the snapshot cached for ``key``, reading it when missing or stale.
 
     A snapshot younger than the TTL is served unless ``names_newer`` says the
-    request has already seen a newer state. Each key allows one such forced
-    re-read per ``_FORCED_REREAD_INTERVAL``, run by the request that claims it
-    through its own ``read``, so on its own session. Requests arriving while
-    it runs ``release`` their session's connection, so waiters cannot hold
-    every one the claimant might need, then wait for its result, taking the
-    read over if its claimant is cancelled. A later request in the interval
-    is served whatever snapshot the cache then holds, so a version named
-    before it commits keeps its first requests after the commit on the old
-    snapshot until the interval ends, sent uncacheable by the version check.
+    request has already seen a newer state. That request gets a snapshot at
+    least as new, or else the result of a read that started after it arrived:
+    a read already running, or one run earlier in the interval, is not enough
+    on its own. Each key allows one such forced re-read per
+    ``_FORCED_REREAD_INTERVAL``, run by the request that claims it through its
+    own ``read``, so on its own session. The others ``release`` their
+    session's connection and wait, for the running read or for the next
+    interval's, taking the read over if its claimant is cancelled.
     """
+    arrived = time.monotonic()
     taking_over = False
     while True:
         now = time.monotonic()
         claimed = None
+        cooldown = 0.0
         with snapshots.lock:
             cached = snapshots.entries.get(key)
             if cached is None or now - cached[0] >= snapshots.ttl:
                 break
-            if not names_newer(cached[1]):
-                return cached[1]
+            # An entry's timestamp is when the read behind it started.
+            read_at, snapshot = cached
+            if read_at > arrived or not names_newer(snapshot):
+                return snapshot
             reread = snapshots.in_flight.get(key)
             if reread is None:
                 claimed_at = snapshots.claims.get(key)
                 if (
-                    not taking_over
-                    and claimed_at is not None
-                    and now - claimed_at < _FORCED_REREAD_INTERVAL
+                    taking_over
+                    or claimed_at is None
+                    or now - claimed_at >= _FORCED_REREAD_INTERVAL
                 ):
-                    return cached[1]
-                snapshots.claims[key] = now
-                reread = claimed = asyncio.get_running_loop().create_future()
-                snapshots.in_flight[key] = reread
+                    snapshots.claims[key] = now
+                    reread = claimed = asyncio.get_running_loop().create_future()
+                    snapshots.in_flight[key] = reread
+                else:
+                    cooldown = claimed_at + _FORCED_REREAD_INTERVAL - now
         if claimed is not None:
             return await _lead_reread(snapshots, key, claimed, read, now)
         await release()
-        snapshot = await asyncio.shield(reread)
-        if snapshot is not None:
-            return snapshot
-        # Its claimant was cancelled, so take the read over.
-        taking_over = True
+        if reread is None:
+            await asyncio.sleep(cooldown)
+        else:
+            # A cancelled claimant publishes None; its read is then taken over.
+            taking_over = await asyncio.shield(reread) is None
 
     snapshot = await read()
     with snapshots.lock:

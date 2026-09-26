@@ -15,6 +15,7 @@ no cache keeps it under the page's URL.
 
 import asyncio
 import contextlib
+import time
 import uuid
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
@@ -393,20 +394,20 @@ async def _registered_dataset(session):
 
 @contextlib.contextmanager
 def _counting_row_reads(table_name: str):
-    """Count the SELECTs naming ``table_name`` that reach the database.
+    """Record when each SELECT naming ``table_name`` reaches the database.
 
-    Counted at the engine, because a forced re-read runs on a session of its
-    own rather than the one the caller passed in.
+    Recorded at the engine, so reads count whichever request's session runs
+    them.
     """
     import app.core.db as db_module
 
-    reads: list[str] = []
+    reads: list[float] = []
 
     def on_execute(conn, cursor, statement, parameters, context, executemany):
         if statement.lstrip().upper().startswith("SELECT") and table_name in str(
             parameters
         ):
-            reads.append(statement)
+            reads.append(time.monotonic())
 
     engine = db_module.engine.sync_engine
     event.listen(engine, "before_cursor_execute", on_execute)
@@ -438,50 +439,57 @@ async def _meta_for_request(
         )
 
 
-def _age_forced_reread(cache_key: str) -> None:
-    """Put the key's last forced re-read past its interval."""
-    with tile_router._dataset_cache_lock:
-        claimed_at = tile_router._forced_rereads[cache_key]
-        tile_router._forced_rereads[cache_key] = (
-            claimed_at - tile_router._FORCED_REREAD_INTERVAL
-        )
-
-
-async def test_an_unreached_version_re_reads_the_row_once_per_interval(
-    test_db_session,
+async def test_an_unreached_version_re_reads_the_row_at_most_once_per_interval(
+    test_db_session, monkeypatch
 ):
+    """Each of these requests waits for a read of its own, an interval apart.
+
+    No row reaches the version, and a read that started before a request
+    arrived cannot answer it, so every request in the sequence needs the next
+    interval's read.
+    """
+    interval = 0.2
+    monkeypatch.setattr(tile_router, "_FORCED_REREAD_INTERVAL", interval)
     table = (await _registered_dataset(test_db_session)).table_name
     try:
         await tile_router._resolve_dataset_meta(table, test_db_session)
         with _counting_row_reads(table) as reads:
-            for _ in range(20):
-                await tile_router._resolve_dataset_meta(
+            for _ in range(4):
+                meta = await tile_router._resolve_dataset_meta(
                     table, test_db_session, _UNREACHED_VERSION
                 )
-            assert len(reads) == 1
+                assert meta.tile_cache_version == 1
 
-            _age_forced_reread(table)
-            for _ in range(20):
-                await tile_router._resolve_dataset_meta(
-                    table, test_db_session, _UNREACHED_VERSION
-                )
-            assert len(reads) == 2
+        assert len(reads) == 4
+        gaps = [later - earlier for earlier, later in zip(reads, reads[1:])]
+        assert min(gaps) >= 0.8 * interval, gaps
     finally:
         tile_router._evict_dataset_meta(table)
 
 
-async def test_concurrent_requests_for_an_unreached_version_share_one_re_read(
+async def test_concurrent_requests_for_an_unreached_version_share_each_read(
     test_db_session,
 ):
+    """Five requests share two reads.
+
+    The four that arrive after the first read began cannot be answered by it,
+    so they share the next interval's read.
+    """
     table = (await _registered_dataset(test_db_session)).table_name
     try:
         await tile_router._resolve_dataset_meta(table, test_db_session)
         with _counting_row_reads(table) as reads:
-            metas = await asyncio.gather(
-                *(_meta_for_request(table, _UNREACHED_VERSION) for _ in range(5))
+            started = time.monotonic()
+            metas = await asyncio.wait_for(
+                asyncio.gather(
+                    *(_meta_for_request(table, _UNREACHED_VERSION) for _ in range(5))
+                ),
+                timeout=10,
             )
-        assert len(reads) == 1
+            elapsed = time.monotonic() - started
         assert [meta.tile_cache_version for meta in metas] == [1] * 5
+        assert len(reads) == 2
+        assert elapsed < tile_router._FORCED_REREAD_INTERVAL + 1.0
     finally:
         tile_router._evict_dataset_meta(table)
 
@@ -717,8 +725,6 @@ async def test_a_tile_older_than_the_page_is_not_cached_under_its_url(
     from app.platform.catalog_locks import bump_tile_cache_version_atomic
 
     monkeypatch.setitem(ext_mod._extensions, "data_serving", _CdnServing())
-    # Long enough that no request below can outlive the claim by accident.
-    monkeypatch.setattr(tile_router, "_FORCED_REREAD_INTERVAL", 3600.0)
     _, dataset, _ = await _seed(test_db_session, tmp_path)
     table = dataset.table_name
     url = route.format(table=table)
@@ -733,25 +739,15 @@ async def test_a_tile_older_than_the_page_is_not_cached_under_its_url(
                 test_db_session, dataset_cls=Dataset, dataset_id=dataset.id
             )
             await test_db_session.commit()
-            in_claim_window = await client.get(url, params={"_v": "2"})
-
-            _age_forced_reread(table)
-            caught_up = await client.get(url, params={"_v": "2"})
+            # Inside the interval the first read opened, so it waits for the next.
+            after_the_swap = await client.get(url, params={"_v": "2"})
             unversioned = await client.get(url)
             older = await client.get(url, params={"_v": "1"})
 
-        for resp in (
-            current,
-            ahead_of_row,
-            in_claim_window,
-            caught_up,
-            unversioned,
-            older,
-        ):
+        for resp in (current, ahead_of_row, after_the_swap, unversioned, older):
             assert resp.status_code == 200, resp.text
         assert ahead_of_row.headers["cache-control"] == "no-store"
-        assert in_claim_window.headers["cache-control"] == "no-store"
-        for resp in (current, caught_up, unversioned, older):
+        for resp in (current, after_the_swap, unversioned, older):
             assert resp.headers["cache-control"] == _CDN_POLICY
     finally:
         tile_router._evict_dataset_meta(table)
