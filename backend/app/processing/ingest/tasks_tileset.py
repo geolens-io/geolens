@@ -330,7 +330,9 @@ async def ingest_tileset(
             dataset.quality_detail = await compute_quality_score(
                 session, dataset.table_name, [], dataset
             )
-            await note_publish_followups(session, job_uuid, attempt_uuid, _TASK)
+            await note_publish_followups(
+                session, job_uuid, attempt_uuid, _TASK, reaps_staged_upload=True
+            )
             await ledger.complete(
                 session,
                 job_uuid,
