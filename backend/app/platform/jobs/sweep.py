@@ -1562,6 +1562,7 @@ async def fail_stale_jobs(
             IngestJob.id.not_in(latest_complete_ids),
             IngestJob.id.not_in(latest_manifest_ids),
             not_(presigned_url_may_still_be_live),
+            not_(_holds_unarchived_original()),
         ]
         # fix(#1778): a row still naming an unreaped artifact is not
         # purged; it IS the pending-reap record. One DELETE .. RETURNING
@@ -1588,14 +1589,17 @@ async def fail_stale_jobs(
                 retention_days=settings.ingest_jobs_retention_days,
             )
 
-        # #434 r3-r5: this purge is the retention policy for staged files.
-        # Reap only paths no surviving row NEEDS (pending/running reads it,
-        # failed keeps it for retry); complete rows keep the row, not the file.
+        # This purge is the retention policy for staged files. A surviving row
+        # keeps a path only while it reads it (pending/running), may retry from
+        # it (failed) or the path holds the row's unarchived original.
         if deleted_paths:
             survivors = await db.execute(
                 select(IngestJob.file_path).where(
                     IngestJob.file_path.in_(deleted_paths),
-                    IngestJob.status.in_(STATUSES_NEEDING_STAGED_INPUT),
+                    or_(
+                        IngestJob.status.in_(STATUSES_NEEDING_STAGED_INPUT),
+                        _holds_unarchived_original(),
+                    ),
                 )
             )
             deleted_paths -= set(survivors.scalars())
@@ -1640,6 +1644,14 @@ def _carries_unreaped_artifacts():
             for field in UNREAPED_ARTIFACT_FIELDS
         )
     )
+
+
+def _holds_unarchived_original():
+    """Predicate: the row records that its original never reached ``originals/``.
+
+    Its staged upload may be the only copy, so the retention purge keeps both.
+    """
+    return IngestJob.user_metadata["archive_failed"].astext.is_not(None)
 
 
 async def collect_unreaped_artifacts(
