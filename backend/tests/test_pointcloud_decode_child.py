@@ -14,20 +14,27 @@ import asyncio
 import io
 import json
 import os
+import signal
 import struct
 import sys
+import threading
 import time
+import uuid
 from pathlib import Path
+from types import SimpleNamespace
 
 import lazrs
 import numpy as np
 import pytest
+from fastapi import HTTPException
 from httpx import AsyncClient
 from sqlalchemy import select
 from structlog.testing import capture_logs
 
+from app.core.config import settings
 from app.core.upload_errors import UnsafeUploadError, refusal_detail
 from app.platform.jobs.models import IngestJob
+from app.platform.storage.local import LocalStorageProvider
 from app.processing.ingest import pointcloud as pointcloud_module
 from app.processing.ingest.pointcloud import (
     PointCloudDecodeError,
@@ -94,6 +101,17 @@ def _assert_gone(pid_file: Path) -> None:
         os.kill(int(pid_file.read_text()), 0)
 
 
+def _kill_once_decoding(pid_file: Path, signum: int) -> None:
+    """Send ``signum`` from outside to a stalled decoder once its decode starts."""
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline:
+        try:
+            os.kill(int(pid_file.read_text()), signum)
+            return
+        except (FileNotFoundError, ValueError):
+            time.sleep(0.01)
+
+
 class TestTheParentBoundsTheChild:
     def test_a_decode_that_never_returns_is_stopped_at_the_deadline(
         self, monkeypatch, tmp_path
@@ -138,6 +156,32 @@ class TestTheParentBoundsTheChild:
             "decode_crash",
             "security",
         )
+
+    @pytest.mark.parametrize(
+        "name", ["SIGSEGV", "SIGBUS", "SIGABRT", "SIGILL", "SIGFPE"]
+    )
+    def test_a_crash_signal_is_refused_as_undecodable(
+        self, monkeypatch, tmp_path, name
+    ) -> None:
+        _stand_in(
+            monkeypatch, f"import os, signal\nos.kill(os.getpid(), signal.{name})\n"
+        )
+
+        with pytest.raises(UnsafeUploadError) as refusal:
+            inspect_pointcloud(_write(tmp_path, copc()))
+
+        assert refusal.value.code == "pointcloud_decode_failed"
+
+    @pytest.mark.parametrize("name", ["SIGKILL", "SIGTERM", "SIGUSR1"])
+    def test_any_other_signal_says_nothing_about_the_file(
+        self, monkeypatch, tmp_path, name
+    ) -> None:
+        _stand_in(
+            monkeypatch, f"import os, signal\nos.kill(os.getpid(), signal.{name})\n"
+        )
+
+        with pytest.raises(PointCloudDecodeError):
+            inspect_pointcloud(_write(tmp_path, copc()))
 
     def test_the_child_decodes_with_path_alone(self, monkeypatch, tmp_path) -> None:
         """The child sees no setting and no secret, and still answers."""
@@ -191,8 +235,13 @@ class TestTheParentBoundsTheChild:
             id="named-check",
         ),
         pytest.param(
-            f"print({_CHILD_TEXT!r}, flush=True); os.kill(os.getpid(), signal.SIGKILL)",
+            f"print({_CHILD_TEXT!r}, flush=True); os.kill(os.getpid(), signal.SIGSEGV)",
             UnsafeUploadError,
+            id="crashed",
+        ),
+        pytest.param(
+            f"print({_CHILD_TEXT!r}, flush=True); os.kill(os.getpid(), signal.SIGKILL)",
+            PointCloudDecodeError,
             id="killed",
         ),
     ],
@@ -292,6 +341,65 @@ async def test_ingest_fails_the_job_with_our_text_only(
         None,
         expected,
     )
+
+
+async def _presigned_upload(monkeypatch, tmp_path):
+    """A point cloud's presigned upload and its frozen copy, as the completion door sees them."""
+    monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path / "staging"))
+    (tmp_path / "staging").mkdir()
+    storage = LocalStorageProvider(base_dir=str(tmp_path / "store"))
+    job = SimpleNamespace(
+        id=uuid.uuid4(), user_metadata={"s3_key": "staging/job/cloud.copc.laz"}
+    )
+    frozen = "staging/job/frozen/cloud.copc.laz"
+    for key in (job.user_metadata["s3_key"], frozen):
+        await storage.put(key, copc())
+    return storage, job, frozen
+
+
+async def test_a_signal_from_outside_keeps_the_presigned_upload(
+    monkeypatch, tmp_path
+) -> None:
+    """A SIGKILL the door didn't send, as from the OOM killer, is no verdict on the file."""
+    from app.processing.ingest.presigned import admit_presigned_pointcloud
+
+    storage, job, frozen = await _presigned_upload(monkeypatch, tmp_path)
+    pid_file = _stalled_decoder(monkeypatch, tmp_path)
+    killer = threading.Thread(
+        target=_kill_once_decoding, args=(pid_file, signal.SIGKILL)
+    )
+    killer.start()
+    try:
+        with pytest.raises(PointCloudDecodeError):
+            await admit_presigned_pointcloud(storage, job, frozen_key=frozen)
+    finally:
+        killer.join()
+
+    assert await storage.exists(job.user_metadata["s3_key"])
+    assert not await storage.exists(frozen)
+
+
+async def test_a_decoder_crash_refuses_the_presigned_upload(
+    monkeypatch, tmp_path
+) -> None:
+    from app.processing.ingest.presigned import admit_presigned_pointcloud
+
+    storage, job, frozen = await _presigned_upload(monkeypatch, tmp_path)
+    _decoder_with(
+        monkeypatch,
+        "lazrs.decompress_points_with_chunk_table = "
+        "lambda *args: os.kill(os.getpid(), signal.SIGSEGV)",
+    )
+
+    with pytest.raises(HTTPException) as refusal:
+        await admit_presigned_pointcloud(storage, job, frozen_key=frozen)
+
+    assert (refusal.value.status_code, refusal.value.detail["code"]) == (
+        422,
+        "pointcloud_decode_failed",
+    )
+    assert not await storage.exists(job.user_metadata["s3_key"])
+    assert not await storage.exists(frozen)
 
 
 def _slow_node(count: int) -> bytes:

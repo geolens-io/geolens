@@ -239,6 +239,10 @@ _DECODE_REFUSALS: dict[str, Callable[[], UnsafeUploadError]] = {
         "A node's points lie outside its octree cell.", reason="decode_voxel"
     ),
 }
+# The signals a decoder ends on when it fails on its input. Any other signal,
+# such as the OOM killer's SIGKILL or an operator's SIGTERM, says nothing about
+# the file.
+_CRASH_SIGNALS = frozenset({"SIGSEGV", "SIGBUS", "SIGABRT", "SIGILL", "SIGFPE"})
 
 
 class PointCloudDecodeError(Exception):
@@ -764,7 +768,8 @@ def _decoded_corners(
 
     Each corner is X, Y and Z, then X wrapped into [-180, 180) and into
     [0, 360). A child that runs out of time is refused as too slow to decode,
-    and one a signal ends as undecodable.
+    and one a crash signal ends as undecodable. Any other failure, such as a
+    SIGKILL from the OOM killer, is a ``PointCloudDecodeError``.
     """
     try:
         result = run_child(
@@ -781,7 +786,7 @@ def _decoded_corners(
                 reason="decode_time",
                 limit=timeout,
             ) from None
-        if failure.category == "killed":
+        if failure.details.get("signal") in _CRASH_SIGNALS:
             raise _decode_failed(reason="decode_crash") from None
         raise PointCloudDecodeError() from None
     return _corners_of(result)
