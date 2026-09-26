@@ -203,6 +203,11 @@ class RasterMetadata(BaseModel):
 class PointCloudMetadata(BaseModel):
     """A COPC point cloud's published file."""
 
+    url: str | None = Field(
+        default=None,
+        description="URL path of the COPC file on the app origin, e.g. "
+        "/api/datasets/{id}/copc/{attempt}/data.copc.laz. A replaced file gets a new URL",
+    )
     size_bytes: int | None = Field(
         default=None, description="Size of the COPC file in bytes"
     )

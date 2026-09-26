@@ -29,6 +29,7 @@ from app.core.pointcloud import (
     POINTCLOUD_ASSET_KEY,
     POINTCLOUD_MEDIA_TYPE,
     pointcloud_attempt_key,
+    pointcloud_path,
     pointcloud_prefix,
 )
 from app.core.upload_errors import UnsafeUploadError
@@ -42,7 +43,6 @@ from app.platform.jobs.sweep import (
 from app.platform.storage.s3 import S3StorageProvider
 from app.processing.embeddings.tasks import embed_record
 from app.processing.ingest import manifest_service
-from app.processing.ingest import router as ingest_router
 from app.processing.ingest.pointcloud import inspect_pointcloud
 from app.processing.ingest.publish_followups import run_owed_publish_followups
 from app.processing.ingest.tasks import ingest_pointcloud, task_app
@@ -57,20 +57,8 @@ _DECODE_FAILED = "The point cloud's points don't decode as its header describes.
 
 
 @pytest.fixture
-def laz_allowed(monkeypatch) -> None:
-    """The doors' allowed list with .laz added, as an operator adds it."""
-
-    async def _allowed(_db):
-        return [*settings.allowed_extensions_list, ".laz"]
-
-    monkeypatch.setattr(ingest_router, "get_allowed_extensions_list", _allowed)
-
-
-@pytest.fixture
-async def uploader(
-    client: AsyncClient, admin_auth_header: dict, test_db_session, laz_allowed
-):
-    """An editor on an install that allows .laz, whose datasets and jobs are removed afterwards."""
+async def uploader(client: AsyncClient, admin_auth_header: dict, test_db_session):
+    """An editor whose datasets and jobs are removed afterwards."""
     headers, user_id = await create_user(client, admin_auth_header, "editor")
     yield headers, uuid.UUID(user_id)
     # A committed pointcloud row blocks the migration tests' downgrades past 0070.
@@ -237,6 +225,7 @@ async def test_a_point_cloud_publishes_its_dataset_pointer_and_object(
         POINTCLOUD_MEDIA_TYPE,
         len(_CLOUD),
     )
+    assert dataset.pointcloud_attempt_id == job.attempt_id
     assert await pointcloud_objects(dataset.id) == [key]
     assert await storage_provider.get_storage().get(key) == _CLOUD
     assert not Path(staged).exists()
@@ -245,11 +234,17 @@ async def test_a_point_cloud_publishes_its_dataset_pointer_and_object(
     assert detail.status_code == 200, detail.text
     body = detail.json()
     assert body["pointcloud"] == {
+        "url": f"/api{pointcloud_path(dataset.id, job.attempt_id)}",
         "size_bytes": len(_CLOUD),
         "point_count": 100,
         "point_format": 6,
         "vertical_crs": "NAVD88 height",
     }
+    served = await client.get(
+        body["pointcloud"]["url"].removeprefix("/api"), headers=headers
+    )
+    assert served.status_code == 200, served.text
+    assert served.content == _CLOUD
     assert body["extent_bbox"] == pytest.approx(preview["extent_bbox"], abs=1e-6)
     assert queued == [(embed_record, {"record_id": str(record.id)})]
 
@@ -257,32 +252,16 @@ async def test_a_point_cloud_publishes_its_dataset_pointer_and_object(
 # --- The doors -----------------------------------------------------------
 
 
-@pytest.mark.parametrize("door", ["multipart", "presigned"])
-async def test_a_default_install_refuses_a_point_cloud(
-    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch, door
+async def test_a_default_install_takes_a_point_cloud(
+    client: AsyncClient, test_db_session, uploader
 ) -> None:
-    """The default allowed list leaves .laz out, so a point cloud gets the usual 400."""
-    headers, user_id = await create_user(client, admin_auth_header, "editor")
-    monkeypatch.setattr(
-        settings, "storage_provider", "s3" if door == "presigned" else "local"
-    )
-    if door == "multipart":
-        resp = await upload(client, headers)
-    else:
-        resp = await client.post(
-            "/ingest/upload/presigned",
-            json={
-                "filename": "site.copc.laz",
-                "file_size": len(_CLOUD),
-                "kind": "pointcloud",
-            },
-            headers=headers,
-        )
+    """.laz is on the default allowed list, so the upload door opens a point cloud job."""
+    headers, user_id = uploader
 
-    assert resp.status_code == 400, resp.text
-    detail = resp.json()["detail"]
-    assert (detail["code"], detail["extension"]) == ("disallowed_extension", ".laz")
-    assert await jobs_of(test_db_session, uuid.UUID(user_id)) == []
+    resp = await upload(client, headers)
+
+    assert resp.status_code == 201, resp.text
+    assert len(await jobs_of(test_db_session, user_id)) == 1
 
 
 @pytest.mark.parametrize("door", ["multipart", "presigned"])

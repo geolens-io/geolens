@@ -1,7 +1,8 @@
 """Where a COPC point cloud is stored and how the catalog names it.
 
-The upload doors, the job sweep, delete, quota and the dataset response read
-these facts, so they are defined once in ``core``.
+The upload doors, the job sweep, delete, quota, the serving route and every
+surface that advertises the file read these facts, so they are defined once in
+``core``.
 """
 
 from __future__ import annotations
@@ -31,8 +32,13 @@ LAZ_WITHOUT_KIND = (
     f"kind={POINTCLOUD_FILE_TYPE}."
 )
 
+# Every attempt's object has this name, and the route that serves it ends in it.
+POINTCLOUD_FILENAME = "data.copc.laz"
+
 _UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
-_ATTEMPT_KEY = re.compile(rf"pointclouds/{_UUID}/{_UUID}/data\.copc\.laz")
+_ATTEMPT_KEY = re.compile(
+    rf"pointclouds/{_UUID}/(?P<attempt>{_UUID})/{re.escape(POINTCLOUD_FILENAME)}"
+)
 
 
 def pointcloud_prefix(dataset_id: uuid.UUID | str) -> str:
@@ -42,12 +48,25 @@ def pointcloud_prefix(dataset_id: uuid.UUID | str) -> str:
 
 def pointcloud_attempt_key(dataset_id: uuid.UUID, attempt_id: uuid.UUID) -> str:
     """The object one ingest attempt writes the point cloud to."""
-    return f"{pointcloud_prefix(dataset_id)}{attempt_id}/data.copc.laz"
+    return f"{pointcloud_prefix(dataset_id)}{attempt_id}/{POINTCLOUD_FILENAME}"
+
+
+def pointcloud_path(dataset_id: uuid.UUID | str, attempt_id: uuid.UUID | str) -> str:
+    """The API path that serves one attempt's point cloud file."""
+    return f"/datasets/{dataset_id}/copc/{attempt_id}/{POINTCLOUD_FILENAME}"
 
 
 def is_pointcloud_attempt_key(value: object) -> bool:
     """Whether ``value`` is exactly one attempt's object, the only shape reaped."""
     return isinstance(value, str) and _ATTEMPT_KEY.fullmatch(value) is not None
+
+
+def pointcloud_attempt_of(href: object, dataset_id: uuid.UUID) -> uuid.UUID | None:
+    """The attempt ``href`` names, when it is exactly one of this dataset's attempt objects."""
+    if not isinstance(href, str) or not href.startswith(pointcloud_prefix(dataset_id)):
+        return None
+    match = _ATTEMPT_KEY.fullmatch(href)
+    return None if match is None else uuid.UUID(match["attempt"])
 
 
 def is_laz(filename: str | None) -> bool:

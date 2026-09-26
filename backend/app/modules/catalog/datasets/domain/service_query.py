@@ -42,6 +42,7 @@ logger = structlog.stdlib.get_logger(__name__)
 __all__ = [
     "get_dataset",
     "get_tileset_href",
+    "get_pointcloud_pointer",
     "list_datasets",
     "get_datasets_list",
     "get_dataset_detail",
@@ -69,6 +70,12 @@ async def get_tileset_href(session: AsyncSession, dataset_id: uuid.UUID) -> str 
     rows = await get_catalog_port().get_dataset_assets(session, dataset_id)
     carrier = _carrier(rows, TILESET_ASSET_KEY)
     return None if carrier is None else carrier.href
+
+
+async def get_pointcloud_pointer(session: AsyncSession, dataset_id: uuid.UUID) -> Any:
+    """A point cloud's live pointer row, naming its file and size, or None; never published."""
+    rows = await get_catalog_port().get_dataset_assets(session, dataset_id)
+    return _carrier(rows, POINTCLOUD_ASSET_KEY)
 
 
 async def list_datasets(

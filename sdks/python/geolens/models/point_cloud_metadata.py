@@ -19,6 +19,8 @@ class PointCloudMetadata:
     """A COPC point cloud's published file.
 
     Attributes:
+        url (None | str | Unset): URL path of the COPC file on the app origin, e.g.
+            /api/datasets/{id}/copc/{attempt}/data.copc.laz. A replaced file gets a new URL
         size_bytes (int | None | Unset): Size of the COPC file in bytes
         point_count (int | None | Unset): Number of points, from the file's header
         point_format (int | None | Unset): LAS point data record format: 6 (no colour), 7 (RGB) or 8 (RGB and near
@@ -26,6 +28,7 @@ class PointCloudMetadata:
         vertical_crs (None | str | Unset): Name of the file's vertical CRS, when its WKT gives one
     """
 
+    url: None | str | Unset = UNSET
     size_bytes: int | None | Unset = UNSET
     point_count: int | None | Unset = UNSET
     point_format: int | None | Unset = UNSET
@@ -33,6 +36,12 @@ class PointCloudMetadata:
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        url: None | str | Unset
+        if isinstance(self.url, Unset):
+            url = UNSET
+        else:
+            url = self.url
+
         size_bytes: int | None | Unset
         if isinstance(self.size_bytes, Unset):
             size_bytes = UNSET
@@ -60,6 +69,8 @@ class PointCloudMetadata:
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
+        if url is not UNSET:
+            field_dict["url"] = url
         if size_bytes is not UNSET:
             field_dict["size_bytes"] = size_bytes
         if point_count is not UNSET:
@@ -74,6 +85,15 @@ class PointCloudMetadata:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
+
+        def _parse_url(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        url = _parse_url(d.pop("url", UNSET))
 
         def _parse_size_bytes(data: object) -> int | None | Unset:
             if data is None:
@@ -112,6 +132,7 @@ class PointCloudMetadata:
         vertical_crs = _parse_vertical_crs(d.pop("vertical_crs", UNSET))
 
         point_cloud_metadata = cls(
+            url=url,
             size_bytes=size_bytes,
             point_count=point_count,
             point_format=point_format,

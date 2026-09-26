@@ -42,6 +42,7 @@ from app.modules.catalog.datasets.domain.service_query import (
     get_dataset_detail,
     get_dataset_rows,
     get_datasets_list,
+    get_pointcloud_pointer,
     get_tileset_href,
     list_datasets,
 )
@@ -76,6 +77,7 @@ __all__ = [
     "get_dataset_rows",
     "get_dataset_versions",
     "get_datasets_list",
+    "get_pointcloud_pointer",
     "get_tileset_href",
     "get_related_datasets",
     "get_related_records",

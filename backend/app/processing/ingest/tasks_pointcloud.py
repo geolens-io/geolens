@@ -102,16 +102,17 @@ async def create_pointcloud_dataset(
     *,
     dataset_id: uuid.UUID,
     cloud: PointCloud,
-    attempt_key: str,
+    attempt_id: uuid.UUID,
     source_filename: str | None,
     created_by: uuid.UUID,
     user_metadata: dict,
 ):
     """Create the Record, the Dataset and the point cloud pointer row in one transaction.
 
-    The dataset slot and the file's bytes are reserved under the per-user
-    lock first, as the tileset and raster tails reserve theirs. Returns
-    (record, dataset).
+    The pointer row names ``attempt_id``'s object and the dataset carries
+    ``attempt_id`` itself. The dataset slot and the file's bytes are reserved
+    under the per-user lock first, as the tileset and raster tails reserve
+    theirs. Returns (record, dataset).
     """
     from app.modules.quota.service import reserve_dataset_slot, reserve_storage_bytes
     from app.platform.extensions import get_catalog_port, get_processing_port
@@ -152,6 +153,7 @@ async def create_pointcloud_dataset(
         pointcloud_point_count=cloud.point_count,
         pointcloud_point_format=cloud.point_format,
         pointcloud_vertical_crs=cloud.vertical_crs,
+        pointcloud_attempt_id=attempt_id,
     )
     set_dataset_origin(dataset, "upload", filename=source_filename)
     session.add(dataset)
@@ -160,7 +162,7 @@ async def create_pointcloud_dataset(
         DatasetAsset(
             dataset_id=dataset.id,
             key=POINTCLOUD_ASSET_KEY,
-            href=attempt_key,
+            href=pointcloud_attempt_key(dataset_id, attempt_id),
             media_type=POINTCLOUD_MEDIA_TYPE,
             size_bytes=cloud.size_bytes,
         )
@@ -298,7 +300,7 @@ async def ingest_pointcloud(
                 session,
                 dataset_id=dataset_id,
                 cloud=cloud,
-                attempt_key=attempt_key,
+                attempt_id=attempt_uuid,
                 source_filename=source_filename,
                 created_by=uuid.UUID(user_id),
                 user_metadata=user_metadata,

@@ -197,6 +197,43 @@ class TestPythonModelOptionalFieldCompatibility:
         assert item.data_asset_import_refusal is UNSET
 
 
+# ------------------- Binary downloads -------------------
+
+
+class TestPointCloudDownload:
+    """The convenience calls return a point cloud file's bytes, whole or ranged."""
+
+    @pytest.mark.parametrize("status", [200, 206])
+    def test_sync_and_asyncio_return_the_file(self, status: int) -> None:
+        from geolens.api.datasets import (
+            get_pointcloud_file_datasets_dataset_id_copc_attempt_id_name_copc_laz_get as download,
+        )
+        from geolens.types import File
+
+        body = b"LASF" + bytes(range(64))
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                status,
+                content=body,
+                headers={"Content-Type": "application/vnd.laszip+copc"},
+            )
+
+        client = AuthenticatedClient(
+            base_url="http://sdk.test",
+            token=uuid4().hex,
+            httpx_args={"transport": httpx.MockTransport(respond)},
+        )
+        ids = {"dataset_id": uuid4(), "attempt_id": uuid4(), "name": "data"}
+
+        synced = download.sync(**ids, client=client)
+        awaited = asyncio.run(download.asyncio(**ids, client=client))
+
+        for result in (synced, awaited):
+            assert isinstance(result, File)
+            assert result.payload.read() == body
+
+
 # ------------------- Optional request bodies (regeneration guard) -------------------
 
 

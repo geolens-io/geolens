@@ -1,23 +1,20 @@
 """The access surfaces a catalog feed publishes for a dataset.
 
-fix(#1469): the DCAT-family serializers used to map
-``record.distributions`` straight onto ``dcat:Distribution`` nodes,
-which breaks for raster/VRT rows whose ``url`` is an object-storage KEY
-— unresolvable and leaking internal storage layout. STAC-imported
-rasters had no distribution row at all, so they appeared with no access
-method whatsoever.
+Mapping ``record.distributions`` straight onto ``dcat:Distribution`` nodes
+fails for raster/VRT rows whose ``url`` is an object-storage key, which is
+unresolvable and leaks internal storage layout, and gives STAC-imported
+rasters, which have no distribution row, no access method at all.
 
 This module decides what a feed may publish: ``is_publishable_url``
 rejects internal pointers (only http(s) or root-relative API paths
 pass); ``published_distributions`` adds, for the raster family, the
 tile template the product serves anonymously (plus the COG download for a
-public, published raster) — derived per request
-since it lives at the APP origin, nginx-rewritten to the tile proxy, and
-carries the tile cache-key params, values a stored row can't hold. A 3D
-Tiles dataset gets its tileset.json the same way, with no stored row.
-Mirrors ``build_assets`` in ``modules/catalog/search/service_records.py``
-(what STAC advertises for the same datasets) — the discrepancy #1469
-reported.
+public, published raster), derived per request since it lives at the APP
+origin, nginx-rewritten to the tile proxy, and carries the tile cache-key
+params, values a stored row can't hold. A 3D Tiles dataset gets its
+tileset.json the same way, and a point cloud its COPC file, with no stored
+row. Mirrors ``build_assets`` in ``modules/catalog/search/service_records.py``,
+which is what STAC advertises for the same datasets.
 """
 
 from __future__ import annotations
@@ -26,6 +23,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
+from app.core.pointcloud import POINTCLOUD_MEDIA_TYPE, pointcloud_path
 from app.core.record_types import is_raster_family
 from app.core.tile_scope import republished_tile_url, tile_template_query
 from app.core.tiles3d import TILESET_MEDIA_TYPE, tileset_path
@@ -179,6 +177,20 @@ def _tileset_distribution(
     )
 
 
+def _pointcloud_distribution(
+    dataset: Dataset, *, api_base_url: str
+) -> PublishedDistribution:
+    """A point cloud's live COPC file, which any caller who can view it may read."""
+    return PublishedDistribution(
+        distribution_type="download",
+        format="copc",
+        url=api_base_url + pointcloud_path(dataset.id, dataset.pointcloud_attempt_id),
+        title="COPC point cloud",
+        description=None,
+        media_type=POINTCLOUD_MEDIA_TYPE,
+    )
+
+
 def published_distributions(
     dataset: Dataset,
     *,
@@ -188,11 +200,11 @@ def published_distributions(
 ) -> list[PublishedDistribution]:
     """Every distribution a catalog feed should publish for *dataset*.
 
-    Stored rows that resolve for a consumer, plus the derived raster or
-    tileset access surface. Requires ``dataset.record.distributions`` to be
-    loaded. ``has_raster_asset`` gates the COG download entry and defaults
-    closed; the caller resolves it once per page (see the dcat/dcat_us/
-    geodcat_ap catalog serializers).
+    Stored rows that resolve for a consumer, plus the derived raster,
+    tileset or point cloud access surface. Requires
+    ``dataset.record.distributions`` to be loaded. ``has_raster_asset`` gates
+    the COG download entry and defaults closed; the caller resolves it once
+    per page (see the dcat/dcat_us/geodcat_ap catalog serializers).
     """
     record = dataset.record
     entries: list[PublishedDistribution] = []
@@ -205,6 +217,8 @@ def published_distributions(
             )
     elif record.record_type == "tiles3d_dataset":
         entries.append(_tileset_distribution(dataset, api_base_url=api_base_url))
+    elif record.record_type == "pointcloud_dataset" and dataset.pointcloud_attempt_id:
+        entries.append(_pointcloud_distribution(dataset, api_base_url=api_base_url))
 
     for row in record.distributions or ():
         if not is_publishable_url(row.url):

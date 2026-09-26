@@ -15,6 +15,8 @@ from app.core.config import settings
 from app.core.pointcloud import (
     POINTCLOUD_ASSET_KEY,
     POINTCLOUD_MEDIA_TYPE,
+    pointcloud_attempt_key,
+    pointcloud_path,
     pointcloud_prefix,
 )
 from app.core.record_types import RECORD_TYPES, is_table_or_raster_backed
@@ -22,7 +24,7 @@ from app.modules.auth.models import User
 from app.modules.catalog.datasets.api.router_reupload import (
     _assert_compatible_record_type,
 )
-from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.modules.catalog.datasets.domain.models import Dataset, Record, RecordContact
 from app.modules.quota.service import get_user_quota_usage
 from app.platform.storage.local import LocalStorageProvider
 from app.platform.storage.s3 import S3StorageProvider
@@ -35,7 +37,7 @@ _FILE_BYTES = 229_729_892
 
 @pytest.fixture
 async def pointcloud(test_db_session):
-    """A published point cloud whose pointer row names its second upload attempt."""
+    """A published point cloud whose dataset and pointer row name its live upload attempt."""
     owner = User(username=f"copc-{uuid.uuid4().hex[:8]}", password_hash="x")
     test_db_session.add(owner)
     await test_db_session.flush()
@@ -48,10 +50,12 @@ async def pointcloud(test_db_session):
     )
     test_db_session.add(record)
     await test_db_session.flush()
+    attempt = uuid.uuid4()
     dataset = Dataset(
         record_id=record.id,
         table_name=f"pc_{uuid.uuid4().hex[:12]}",
         source_format="copc",
+        pointcloud_attempt_id=attempt,
         pointcloud_point_count=39_025_611,
         pointcloud_point_format=6,
         pointcloud_vertical_crs="NGF-IGN69 height",
@@ -62,7 +66,7 @@ async def pointcloud(test_db_session):
         DatasetAsset(
             dataset_id=dataset.id,
             key=POINTCLOUD_ASSET_KEY,
-            href=f"{pointcloud_prefix(dataset.id)}a2/data.copc.laz",
+            href=pointcloud_attempt_key(dataset.id, attempt),
             media_type=POINTCLOUD_MEDIA_TYPE,
             size_bytes=_FILE_BYTES,
         )
@@ -153,6 +157,7 @@ async def test_the_detail_response_carries_the_point_cloud_block(
 
     assert pointcloud_resp.status_code == 200, pointcloud_resp.text
     assert pointcloud_resp.json()["pointcloud"] == {
+        "url": f"/api{pointcloud_path(pointcloud.id, pointcloud.pointcloud_attempt_id)}",
         "size_bytes": _FILE_BYTES,
         "point_count": 39_025_611,
         "point_format": 6,
@@ -164,10 +169,10 @@ async def test_the_detail_response_carries_the_point_cloud_block(
     assert vector_resp.json()["pointcloud"] is None
 
 
-async def test_the_ogc_record_lists_no_format_until_the_file_is_served(
+async def test_the_ogc_record_lists_the_point_cloud_file(
     client: AsyncClient, admin_auth_header: dict, pointcloud
 ) -> None:
-    """The OGC record names no format no client can fetch, and OGC Features has no collection."""
+    """The OGC record lists the served COPC file and its format, and OGC Features has no collection."""
     record = await client.get(
         f"/collections/datasets/items/{pointcloud.id}", headers=admin_auth_header
     )
@@ -176,9 +181,80 @@ async def test_the_ogc_record_lists_no_format_until_the_file_is_served(
     )
 
     assert record.status_code == 200, record.text
-    assert record.json()["properties"]["formats"] == []
-    assert POINTCLOUD_ASSET_KEY not in record.json()["assets"]
+    asset = record.json()["assets"][POINTCLOUD_ASSET_KEY]
+    assert asset["href"].endswith(
+        pointcloud_path(pointcloud.id, pointcloud.pointcloud_attempt_id)
+    )
+    assert asset["type"] == POINTCLOUD_MEDIA_TYPE
+    assert asset["roles"] == ["data"]
+    assert record.json()["properties"]["formats"] == [POINTCLOUD_MEDIA_TYPE]
     assert features.status_code == 404
+
+
+async def test_the_feeds_publish_the_point_cloud_file_as_a_download(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, pointcloud
+) -> None:
+    """DCAT, GeoDCAT-AP and DCAT-US publish the served COPC file as a download, and no row is stored."""
+    test_db_session.add(
+        RecordContact(
+            record_id=pointcloud.record_id,
+            role="pointOfContact",
+            name="LiDAR Team",
+            email="lidar@example.com",
+        )
+    )
+    await test_db_session.commit()
+    url_suffix = pointcloud_path(pointcloud.id, pointcloud.pointcloud_attempt_id)
+
+    dcat = await client.get(
+        f"/datasets/{pointcloud.id}/dcat/", headers=admin_auth_header
+    )
+    geodcat = await client.get(
+        f"/datasets/{pointcloud.id}/geodcat-ap/", headers=admin_auth_header
+    )
+    dcat_us = await client.get(
+        f"/datasets/{pointcloud.id}/dcat-us/3.0/", headers=admin_auth_header
+    )
+
+    assert dcat.status_code == 200, dcat.text
+    [dcat_dist] = dcat.json()["dcat:distribution"]
+    assert dcat_dist["dcat:accessURL"].endswith(url_suffix)
+    assert dcat_dist["dcat:mediaType"] == POINTCLOUD_MEDIA_TYPE
+    assert geodcat.status_code == 200, geodcat.text
+    [geodcat_dist] = geodcat.json()["dcat:distribution"]
+    assert geodcat_dist["dcat:downloadURL"]["@id"].endswith(url_suffix)
+    assert dcat_us.status_code == 200, dcat_us.text
+    [dcat_us_dist] = dcat_us.json()["distribution"]
+    assert dcat_us_dist["downloadURL"].endswith(url_suffix)
+    stored = await test_db_session.execute(
+        text("SELECT count(*) FROM catalog.record_distributions WHERE record_id = :id"),
+        {"id": pointcloud.record_id},
+    )
+    assert stored.scalar_one() == 0
+
+
+async def test_a_point_cloud_without_a_live_attempt_advertises_no_file(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, pointcloud
+) -> None:
+    """With no attempt on the dataset row, no surface names a file to fetch."""
+    await test_db_session.execute(
+        text("UPDATE catalog.datasets SET pointcloud_attempt_id = NULL WHERE id = :id"),
+        {"id": pointcloud.id},
+    )
+    await test_db_session.commit()
+
+    detail = await client.get(f"/datasets/{pointcloud.id}", headers=admin_auth_header)
+    record = await client.get(
+        f"/collections/datasets/items/{pointcloud.id}", headers=admin_auth_header
+    )
+    dcat = await client.get(
+        f"/datasets/{pointcloud.id}/dcat/", headers=admin_auth_header
+    )
+
+    assert detail.status_code == record.status_code == dcat.status_code == 200
+    assert detail.json()["pointcloud"]["url"] is None
+    assert POINTCLOUD_ASSET_KEY not in record.json()["assets"]
+    assert not dcat.json().get("dcat:distribution")
 
 
 _DOORS = [

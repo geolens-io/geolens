@@ -1184,13 +1184,15 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/search/service_datasets.py": 281,
         # Shared-map audience decisions stay behind the permission extension seam.
         "backend/app/modules/catalog/maps/service_public.py": 987,
-        "backend/app/modules/catalog/search/service_records.py": 603,
+        # Record assembly keeps one format and asset branch per record type.
+        "backend/app/modules/catalog/search/service_records.py": 615,
         "backend/app/modules/catalog/search/service_semantic.py": 481,
         "backend/app/modules/catalog/maps/service_diff.py": 400,
         "backend/app/modules/catalog/maps/service_shared.py": 400,
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 657,
         "backend/app/modules/catalog/datasets/domain/service_metadata.py": 546,
-        "backend/app/modules/catalog/datasets/domain/service_query.py": 439,
+        # Internal pointer reads sit beside the detail query that shares them.
+        "backend/app/modules/catalog/datasets/domain/service_query.py": 446,
         "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 513,
         # Chat splits retain tool execution and result-serialization workflows.
         "backend/app/processing/ai/chat_actions.py": 587,
@@ -1292,7 +1294,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/core/db/tenant_adoption.py": 1258,
     # Application composition debt; preserve lifespan and middleware ordering when
     # splitting.
-    "backend/app/api/main.py": 1721,
+    "backend/app/api/main.py": 1722,
     # Published map schema debt; separate validation helpers before raising.
     "backend/app/modules/catalog/maps/schemas.py": 1396,
     # Metadata facade preserves the import and patch surface used by extensions and
@@ -1355,7 +1357,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # catalog writes.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 660,
     # Dataset request and verification response families share this public contract.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1637,
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1642,
     # Analysis validation, bounded execution and fenced registration share one task
     # lifecycle.
     "backend/app/processing/analysis/tasks.py": 1401,

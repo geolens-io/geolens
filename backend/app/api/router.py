@@ -25,6 +25,9 @@ from app.modules.catalog.datasets.api.router_health import (
 from app.modules.catalog.datasets.api.router_metadata import (
     router as datasets_metadata_router,
 )
+from app.modules.catalog.datasets.api.router_pointcloud import (
+    router as datasets_pointcloud_router,
+)
 from app.modules.catalog.datasets.api.router_refresh import (
     router as datasets_refresh_router,
 )
@@ -78,6 +81,7 @@ api_router.include_router(datasets_router)
 api_router.include_router(datasets_analysis_router)
 api_router.include_router(datasets_vrt_router)
 api_router.include_router(datasets_tiles3d_router)
+api_router.include_router(datasets_pointcloud_router)
 api_router.include_router(datasets_data_router)
 api_router.include_router(datasets_metadata_router)
 api_router.include_router(datasets_reupload_router)
