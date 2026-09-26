@@ -1110,9 +1110,18 @@ async def test_a_superseded_publish_never_overwrites_the_live_versions_archive(
             await session.commit()
 
 
-@pytest.mark.parametrize("in_storage", [False, True], ids=["local", "storage"])
-async def test_an_archive_the_sweep_cannot_write_keeps_the_upload(
-    replace, storage, monkeypatch, in_storage: bool
+@pytest.mark.parametrize(
+    ("in_storage", "call", "prefix"),
+    [
+        (False, "put", "originals/"),
+        (True, "put", "originals/"),
+        (True, "exists", "originals/"),
+        (True, "get_to_file", "staging/"),
+    ],
+    ids=["write-local", "write-storage", "check", "download"],
+)
+async def test_an_archive_the_sweep_cannot_make_keeps_the_upload(
+    replace, storage, monkeypatch, in_storage: bool, call: str, prefix: str
 ) -> None:
     """A file upload whose original can't be archived stays, and the job says the archive failed.
 
@@ -1122,14 +1131,14 @@ async def test_an_archive_the_sweep_cannot_write_keeps_the_upload(
     with _landed_unseen(replacement.job_id):
         await replacement.run()
 
-    real_put = storage.put
+    real = getattr(storage, call)
 
-    async def _put(key, data):
-        if key.startswith("originals/"):
-            raise OSError("the object store refused the write")
-        return await real_put(key, data)
+    async def _refused(key, *args, **kwargs):
+        if key.startswith(prefix):
+            raise RuntimeError("the object store refused the call")
+        return await real(key, *args, **kwargs)
 
-    monkeypatch.setattr(storage, "put", _put)
+    monkeypatch.setattr(storage, call, _refused)
     await run_owed_publish_followups()
 
     kept = replacement.staged_keys[:1] or [str(replacement.upload)]
@@ -1138,6 +1147,7 @@ async def test_an_archive_the_sweep_cannot_write_keeps_the_upload(
         select(IngestJob.user_metadata).where(IngestJob.id == replacement.job_id)
     )
     assert metadata.get("archive_failed") is True
+    assert metadata.get("archive_error") == "the object store refused the call"
 
 
 async def test_a_lossy_raster_whose_original_was_not_archived_keeps_its_upload(

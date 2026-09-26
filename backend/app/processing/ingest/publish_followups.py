@@ -107,6 +107,32 @@ def _in_staging_dir(path: str) -> bool:
     )
 
 
+async def _note_archive_failed(job_uuid: uuid.UUID, error: str) -> None:
+    """Flag the job's archive as failed, as ``_archive_original_file`` does; never raises.
+
+    Merges into the stored metadata, since writing back a copy could restore
+    a record a concurrent claim has cleared.
+    """
+    import app.core.db as db_module
+
+    flag = func.jsonb_build_object(
+        "archive_failed", true(), "archive_error", error[:500]
+    )
+    async with cleanup_step("archive failure flag", job_id=str(job_uuid)):
+        async with db_module.async_session() as session:
+            await session.execute(
+                update(IngestJob)
+                .where(IngestJob.id == job_uuid)
+                .values(
+                    user_metadata=func.coalesce(
+                        IngestJob.user_metadata, text("'{}'::jsonb")
+                    ).op("||")(flag)
+                )
+                .execution_options(synchronize_session=False)
+            )
+            await session.commit()
+
+
 async def _archive_upload(
     job_uuid: uuid.UUID, file_path: str, dataset_id: uuid.UUID, archive_key: str
 ) -> bool:
@@ -115,6 +141,7 @@ async def _archive_upload(
     ``archive_key`` names this upload alone, so an object already there is its
     archive. Reads the upload the way its task did, through
     ``resolve_file_path``, but never a local file outside the staging directory.
+    Any other failure flags the job's archive as failed.
     """
     import app.core.db as db_module
     from app.platform.storage import get_storage
@@ -142,8 +169,9 @@ async def _archive_upload(
                 log_message="Failed to archive re-uploaded file to storage",
                 archive_name=archive_key.rsplit("/", 1)[-1],
             )
-    except Exception:  # broad: an upload or store that can't be read keeps the upload
+    except Exception as exc:  # broad: an unreadable upload or store keeps the upload
         structlog.get_logger().warning("staged_upload_archive_failed", job_id=job_id)
+        await _note_archive_failed(job_uuid, str(exc))
         return False
     finally:
         if local is not None and local != file_path:
