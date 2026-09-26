@@ -27,7 +27,7 @@ const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
  * Navigation to the dataset goes through the search typeahead (client-side
  * routing), not a direct `page.goto('/datasets/{id}')` — a hard `goto` of a
  * protected route drops the session under the worktree Vite recipe used to
- * exercise this lane (`AGENTS.md`, "Working from a git worktree").
+ * exercise this lane (`AGENTS.md`, "Worktrees").
  */
 
 const RAW_SERVICE_TOKEN_MESSAGE =

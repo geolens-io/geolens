@@ -1,6 +1,6 @@
 # Pre-commit hooks for GeoLens security guardrails.
 # Pins audit-derived patterns so security regressions trip CI.
-# See AGENTS.md "Security pre-commit checklist" for the rules these hooks enforce.
+# See AGENTS.md > Security for the rules these hooks enforce.
 #
 # Run locally:
 #   pip install pre-commit && pre-commit install
@@ -15,7 +15,7 @@ repos:
           Any httpx.AsyncClient with follow_redirects=True must be constructed
           via make_safe_client() from backend/app/platform/security.py.
           The factory installs the per-hop _revalidate_redirect event hook.
-          See AGENTS.md Security pre-commit checklist Rule 2.
+          See AGENTS.md Security, Rule 2.
           Uses a system bash hook (not pygrep) so multi-line AsyncClient
           declarations are caught. The previous per-line pattern
           `httpx\.AsyncClient\([^)]*follow_redirects=True` would miss:
@@ -37,7 +37,7 @@ repos:
               if grep -qE "httpx\.AsyncClient\(" "$f"; then
                 echo "FAIL: $f constructs httpx.AsyncClient( with follow_redirects=True"
                 echo "  Use make_safe_client() from backend/app/platform/security.py"
-                echo "  See AGENTS.md Security pre-commit checklist Rule 2."
+                echo "  See AGENTS.md Security, Rule 2."
                 exit 1
               fi
             fi
@@ -60,7 +60,7 @@ repos:
           Any route handler that fetches a Record/Dataset/Map by ID must call
           check_dataset_access_or_anonymous (read), check_dataset_access (read),
           check_dataset_write_access (owner-or-admin mutation), or
-          apply_visibility_filter. See AGENTS.md Security pre-commit checklist Rule 1.
+          apply_visibility_filter. See AGENTS.md Security, Rule 1.
           This grep is the cheap commit-time layer only — it is file-scoped and
           only sees get_dataset( call sites. The authoritative per-handler check
           is backend/tests/test_rule1_structural.py (fix(#822)), which walks the

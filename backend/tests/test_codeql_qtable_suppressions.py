@@ -1,6 +1,6 @@
 """Structural guard for the CodeQL alert-suppression pack.
 
-AGENTS.md ("Standing CodeQL policy", decided 2026-08-03) says that if the
+AGENTS.md ("Security > CodeQL") says that if the
 validated-identifier ``py/sql-injection`` class fires again on an
 ingest-adjacent PR, the repo adopts the alert-suppression query pack instead
 of dismissing the alerts by hand a second time. It fired again on
@@ -136,7 +136,7 @@ def test_every_dynamic_text_site_carries_a_suppression_marker(rel_path: str) -> 
         "Dynamic text() sites without a `# codeql[py/sql-injection]` marker on "
         "their own line directly above:\n  " + "\n  ".join(unmarked) + "\n"
         "Add the marker with its justification, or make the SQL static. See "
-        "AGENTS.md > Standing CodeQL policy."
+        "AGENTS.md > Security > CodeQL."
     )
 
 
@@ -176,7 +176,7 @@ def test_every_codeql_marker_in_backend_app_binds_to_the_line_it_covers() -> Non
         "CodeQL markers that do not bind to the line they are meant to "
         "suppress:\n  " + "\n  ".join(misplaced) + "\n"
         "A marker must sit alone on the line directly above its call. See "
-        "AGENTS.md > Standing CodeQL policy."
+        "AGENTS.md > Security > CodeQL."
     )
 
 
@@ -494,7 +494,7 @@ def test_every_marker_sits_above_a_construct_its_own_rule_reports_at() -> None:
         "rule reports at, so they suppress nothing:\n  "
         + "\n  ".join(misplaced)
         + "\nMove the marker onto the line directly above the flagged call. See "
-        "AGENTS.md > Standing CodeQL policy."
+        "AGENTS.md > Security > CodeQL."
     )
 
     unexercised = (set(MARKER_CONSTRUCTS) | RULES_CHECKED_ELSEWHERE) - exercised

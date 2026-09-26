@@ -263,8 +263,8 @@ jobs:
               # alert-suppression query, that a step still acts on the SARIF,
               # and that the query still refuses to honour ruff's noqa
               # comments. Without these entries a codeql.yml-only PR skips the
-              # only test that checks any of it. See AGENTS.md > Standing
-              # CodeQL policy.
+              # only test that checks any of it. See AGENTS.md > Security >
+              # CodeQL.
               - '.github/workflows/codeql.yml'
               - '.github/codeql/**'
               # fix(#1925): test_unscoped_finding_markers.py reads this config

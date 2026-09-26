@@ -1081,8 +1081,7 @@ def test_every_model_fetching_handler_is_guarded_or_allowlisted() -> None:
             "apply_visibility_filter (or the maps/records domain guards) to "
             "the handler, or — only for endpoints unguarded by design — add "
             "an ALLOWLIST entry in this file with a one-line justification. "
-            "See AGENTS.md, Security pre-commit checklist Rule 1.\n"
-            + "\n".join(details)
+            "See AGENTS.md Security, Rule 1.\n" + "\n".join(details)
         )
 
     stale = sorted(set(ALLOWLIST) - set(unguarded))

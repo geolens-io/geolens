@@ -25,7 +25,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # AGENTS.md > Standing CodeQL policy (decided 2026-08-03): when the
+        # AGENTS.md > Security > CodeQL: when the
         # validated-identifier py/sql-injection class fires again on an
         # ingest-adjacent PR, adopt the alert-suppression query pack instead of
         # dismissing the alerts by hand again. It fired again on 2026-08-11:
