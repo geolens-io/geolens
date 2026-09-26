@@ -453,6 +453,32 @@ class TestStacSearchAssetEligibility:
         assert resp.status_code == 200
         assert resp.json()["items"][0]["data_asset_import_refusal"] == "too_long"
 
+    async def test_flags_a_too_long_credentialed_asset_as_too_long_not_credentials(
+        self, client: AsyncClient, admin_auth_header: dict, mock_stac_ssrf
+    ):
+        # /import's validator runs HttpUrl(v) before the credential check —
+        # an href over HttpUrl's own length ceiling never reaches that
+        # check, so the real refusal is too_long even though this href also
+        # carries a credential query parameter.
+        prefix = "https://example.com/"
+        suffix = "?X-Amz-Signature=abc123"
+        href = prefix + "a" * (2100 - len(prefix) - len(suffix)) + suffix
+        assert len(href) == 2100
+        resp = await self._search_one(client, admin_auth_header, href)
+        assert resp.status_code == 200
+        assert resp.json()["items"][0]["data_asset_import_refusal"] == "too_long"
+
+    async def test_flags_a_malformed_asset_as_not_http(
+        self, client: AsyncClient, admin_auth_header: dict, mock_stac_ssrf
+    ):
+        # has_url_credentials() deliberately returns True for an
+        # unparsable authority ("cannot tell" resolves to refusal, not to
+        # "no") — checked after HttpUrl now, so this never reaches that
+        # check either; HttpUrl's own url_parsing failure makes it not_http.
+        resp = await self._search_one(client, admin_auth_header, "https://[invalid")
+        assert resp.status_code == 200
+        assert resp.json()["items"][0]["data_asset_import_refusal"] == "not_http"
+
     async def test_does_not_flag_an_asset_at_httpurls_own_length_ceiling(
         self, client: AsyncClient, admin_auth_header: dict, mock_stac_ssrf
     ):
