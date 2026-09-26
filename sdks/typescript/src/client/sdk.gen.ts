@@ -2341,6 +2341,9 @@ export const createFeatureDatasetsDatasetIdFeaturesPost = <ThrowOnError extends 
  * Delete Single Feature
  *
  * Delete a feature by gid (hard delete).
+ *
+ * Returns the dataset's tile_cache_version after the delete committed
+ * (see GeoJSONFeatureWrite's field of the same name).
  */
 export const deleteSingleFeatureDatasetsDatasetIdFeaturesGidDelete = <ThrowOnError extends boolean = false>(options: Options<DeleteSingleFeatureDatasetsDatasetIdFeaturesGidDeleteData, ThrowOnError>): RequestResult<DeleteSingleFeatureDatasetsDatasetIdFeaturesGidDeleteResponses, DeleteSingleFeatureDatasetsDatasetIdFeaturesGidDeleteErrors, ThrowOnError> => (options.client ?? client).delete<DeleteSingleFeatureDatasetsDatasetIdFeaturesGidDeleteResponses, DeleteSingleFeatureDatasetsDatasetIdFeaturesGidDeleteErrors, ThrowOnError>({
     security: [

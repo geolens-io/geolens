@@ -9,8 +9,8 @@ from ...types import Response
 from ... import errors
 
 from ...models.feature_update import FeatureUpdate
-from ...models.patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature import (
-    PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeature,
+from ...models.patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature_write import (
+    PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWrite,
 )
 from ...models.problem_detail import ProblemDetail
 from uuid import UUID
@@ -43,15 +43,13 @@ def _get_kwargs(
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
 ) -> (
-    PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeature
+    PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWrite
     | ProblemDetail
     | None
 ):
     if response.status_code == 200:
-        response_200 = (
-            PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeature.from_dict(
-                response.json()
-            )
+        response_200 = PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWrite.from_dict(
+            response.json()
         )
 
         return response_200
@@ -110,7 +108,8 @@ def _parse_response(
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
 ) -> Response[
-    PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeature | ProblemDetail
+    PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWrite
+    | ProblemDetail
 ]:
     return Response(
         status_code=HTTPStatus(response.status_code),
@@ -127,7 +126,8 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: FeatureUpdate,
 ) -> Response[
-    PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeature | ProblemDetail
+    PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWrite
+    | ProblemDetail
 ]:
     """Patch Single Feature
 
@@ -143,7 +143,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeature | ProblemDetail]
+        Response[PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWrite | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -166,7 +166,7 @@ def sync(
     client: AuthenticatedClient,
     body: FeatureUpdate,
 ) -> (
-    PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeature
+    PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWrite
     | ProblemDetail
     | None
 ):
@@ -184,7 +184,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeature | ProblemDetail
+        PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWrite | ProblemDetail
     """
 
     return sync_detailed(
@@ -202,7 +202,8 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: FeatureUpdate,
 ) -> Response[
-    PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeature | ProblemDetail
+    PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWrite
+    | ProblemDetail
 ]:
     """Patch Single Feature
 
@@ -218,7 +219,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeature | ProblemDetail]
+        Response[PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWrite | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -239,7 +240,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: FeatureUpdate,
 ) -> (
-    PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeature
+    PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWrite
     | ProblemDetail
     | None
 ):
@@ -257,7 +258,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeature | ProblemDetail
+        PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureWrite | ProblemDetail
     """
 
     return (

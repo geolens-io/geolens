@@ -535,7 +535,7 @@ class TestDeleteFeature:
         admin_auth_header: dict,
         test_layer: Dataset,
     ):
-        """Insert then DELETE. Assert 204. GET confirms 404."""
+        """Insert then DELETE. Assert 200 with the bumped tile version. GET confirms 404."""
         # Insert
         create_resp = await client.post(
             f"/datasets/{test_layer.id}/features/",
@@ -547,13 +547,18 @@ class TestDeleteFeature:
         )
         assert create_resp.status_code == 201
         gid = create_resp.json()["id"]
+        created_version = create_resp.json()["tile_cache_version"]
 
         # Delete
         resp = await client.delete(
             f"/datasets/{test_layer.id}/features/{gid}",
             headers=admin_auth_header,
         )
-        assert resp.status_code == 204
+        assert resp.status_code == 200
+        # The tile routes' `_v` freshness check needs the version THIS write
+        # committed, so a stale API worker can be told to re-read the
+        # dataset instead of serving its own cached snapshot.
+        assert resp.json()["tile_cache_version"] == created_version + 1
 
         # Confirm gone
         get_resp = await client.get(
@@ -836,7 +841,7 @@ class TestMetadataRefresh:
             f"/datasets/{dataset_id}/features/{gid}",
             headers=admin_auth_header,
         )
-        assert resp.status_code == 204
+        assert resp.status_code == 200
 
         # Query feature_count directly via SQL to avoid expired ORM state
         result = await test_db_session.execute(

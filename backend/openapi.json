@@ -36543,7 +36543,7 @@
             "content": {
               "application/geo+json": {
                 "schema": {
-                  "description": "A single GeoJSON Feature.",
+                  "description": "A written GeoJSON Feature, plus the dataset's committed tile version.",
                   "properties": {
                     "type": {
                       "const": "Feature",
@@ -36643,13 +36643,25 @@
                       "type": "object",
                       "additionalProperties": true,
                       "title": "Properties"
+                    },
+                    "tile_cache_version": {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "The dataset's tile_cache_version after this write committed. Send it as the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is forced to re-read the dataset instead of serving that worker's own cached snapshot.",
+                      "title": "Tile Cache Version"
                     }
                   },
                   "required": [
                     "id",
                     "properties"
                   ],
-                  "title": "GeoJSONFeature",
+                  "title": "GeoJSONFeatureWrite",
                   "type": "object"
                 }
               },
@@ -36778,7 +36790,7 @@
     },
     "/datasets/{dataset_id}/features/{gid}": {
       "delete": {
-        "description": "Delete a feature by gid (hard delete).",
+        "description": "Delete a feature by gid (hard delete).\n\nReturns the dataset's tile_cache_version after the delete committed\n(see GeoJSONFeatureWrite's field of the same name).",
         "operationId": "delete_single_feature_datasets__dataset_id__features__gid__delete",
         "parameters": [
           {
@@ -36802,7 +36814,30 @@
           }
         ],
         "responses": {
-          "204": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Acknowledgement for a deleted feature.",
+                  "properties": {
+                    "tile_cache_version": {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "The dataset's tile_cache_version after this write committed. Send it as the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is forced to re-read the dataset instead of serving that worker's own cached snapshot.",
+                      "title": "Tile Cache Version"
+                    }
+                  },
+                  "title": "FeatureDeleteResult",
+                  "type": "object"
+                }
+              }
+            },
             "description": "Successful Response"
           },
           "400": {
@@ -37211,7 +37246,7 @@
             "content": {
               "application/geo+json": {
                 "schema": {
-                  "description": "A single GeoJSON Feature.",
+                  "description": "A written GeoJSON Feature, plus the dataset's committed tile version.",
                   "properties": {
                     "type": {
                       "const": "Feature",
@@ -37311,13 +37346,25 @@
                       "type": "object",
                       "additionalProperties": true,
                       "title": "Properties"
+                    },
+                    "tile_cache_version": {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "The dataset's tile_cache_version after this write committed. Send it as the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is forced to re-read the dataset instead of serving that worker's own cached snapshot.",
+                      "title": "Tile Cache Version"
                     }
                   },
                   "required": [
                     "id",
                     "properties"
                   ],
-                  "title": "GeoJSONFeature",
+                  "title": "GeoJSONFeatureWrite",
                   "type": "object"
                 }
               },
@@ -37482,7 +37529,7 @@
             "content": {
               "application/geo+json": {
                 "schema": {
-                  "description": "A single GeoJSON Feature.",
+                  "description": "A written GeoJSON Feature, plus the dataset's committed tile version.",
                   "properties": {
                     "type": {
                       "const": "Feature",
@@ -37582,13 +37629,25 @@
                       "type": "object",
                       "additionalProperties": true,
                       "title": "Properties"
+                    },
+                    "tile_cache_version": {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "The dataset's tile_cache_version after this write committed. Send it as the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is forced to re-read the dataset instead of serving that worker's own cached snapshot.",
+                      "title": "Tile Cache Version"
                     }
                   },
                   "required": [
                     "id",
                     "properties"
                   ],
-                  "title": "GeoJSONFeature",
+                  "title": "GeoJSONFeatureWrite",
                   "type": "object"
                 }
               },

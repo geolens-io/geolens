@@ -8,8 +8,8 @@ from ...client import AuthenticatedClient, Client
 from ...types import Response
 from ... import errors
 
-from ...models.create_feature_datasets_dataset_id_features_post_geo_json_feature import (
-    CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature,
+from ...models.create_feature_datasets_dataset_id_features_post_geo_json_feature_write import (
+    CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureWrite,
 )
 from ...models.feature_create import FeatureCreate
 from ...models.problem_detail import ProblemDetail
@@ -40,10 +40,12 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature | ProblemDetail | None:
+) -> (
+    CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureWrite | ProblemDetail | None
+):
     if response.status_code == 201:
         response_201 = (
-            CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature.from_dict(
+            CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureWrite.from_dict(
                 response.json()
             )
         )
@@ -103,7 +105,9 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature | ProblemDetail]:
+) -> Response[
+    CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureWrite | ProblemDetail
+]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -117,7 +121,9 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
     body: FeatureCreate,
-) -> Response[CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature | ProblemDetail]:
+) -> Response[
+    CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureWrite | ProblemDetail
+]:
     """Create Feature
 
      Insert a new GeoJSON feature into a dataset.
@@ -131,7 +137,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature | ProblemDetail]
+        Response[CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureWrite | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -151,7 +157,9 @@ def sync(
     *,
     client: AuthenticatedClient,
     body: FeatureCreate,
-) -> CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature | ProblemDetail | None:
+) -> (
+    CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureWrite | ProblemDetail | None
+):
     """Create Feature
 
      Insert a new GeoJSON feature into a dataset.
@@ -165,7 +173,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature | ProblemDetail
+        CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureWrite | ProblemDetail
     """
 
     return sync_detailed(
@@ -180,7 +188,9 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
     body: FeatureCreate,
-) -> Response[CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature | ProblemDetail]:
+) -> Response[
+    CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureWrite | ProblemDetail
+]:
     """Create Feature
 
      Insert a new GeoJSON feature into a dataset.
@@ -194,7 +204,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature | ProblemDetail]
+        Response[CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureWrite | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -212,7 +222,9 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
     body: FeatureCreate,
-) -> CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature | ProblemDetail | None:
+) -> (
+    CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureWrite | ProblemDetail | None
+):
     """Create Feature
 
      Insert a new GeoJSON feature into a dataset.
@@ -226,7 +238,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature | ProblemDetail
+        CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureWrite | ProblemDetail
     """
 
     return (

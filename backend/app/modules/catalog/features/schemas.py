@@ -3,7 +3,7 @@
 import math
 from typing import Annotated, Any, Literal
 
-from pydantic import AfterValidator, BaseModel, model_validator
+from pydantic import AfterValidator, BaseModel, Field, model_validator
 
 
 MAX_COORDINATE_TUPLES = 100_000
@@ -178,6 +178,34 @@ class GeoJSONFeature(BaseModel):
     id: int
     geometry: GeoJSONGeometryLike | None = None
     properties: dict
+
+
+# The tile routes treat `_v` as a freshness signal only when it is a stored
+# tile_cache_version or a record updated_at timestamp; a write's response
+# carries the version so its caller's next tile reload can use one of those
+# spellings instead of a client timestamp the routes would otherwise ignore.
+_TILE_CACHE_VERSION_DESCRIPTION = (
+    "The dataset's tile_cache_version after this write committed. Send it "
+    "as the tile routes' `_v` query parameter when reloading tiles, so a "
+    "request that reaches a different API worker is forced to re-read the "
+    "dataset instead of serving that worker's own cached snapshot."
+)
+
+
+class GeoJSONFeatureWrite(GeoJSONFeature):
+    """A written GeoJSON Feature, plus the dataset's committed tile version."""
+
+    tile_cache_version: int | None = Field(
+        default=None, description=_TILE_CACHE_VERSION_DESCRIPTION
+    )
+
+
+class FeatureDeleteResult(BaseModel):
+    """Acknowledgement for a deleted feature."""
+
+    tile_cache_version: int | None = Field(
+        default=None, description=_TILE_CACHE_VERSION_DESCRIPTION
+    )
 
 
 class Link(BaseModel):

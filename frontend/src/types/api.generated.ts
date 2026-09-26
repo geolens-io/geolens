@@ -2236,6 +2236,9 @@ export interface paths {
         /**
          * Delete Single Feature
          * @description Delete a feature by gid (hard delete).
+         *
+         *     Returns the dataset's tile_cache_version after the delete committed
+         *     (see GeoJSONFeatureWrite's field of the same name).
          */
         delete: operations["delete_single_feature_datasets__dataset_id__features__gid__delete"];
         options?: never;
@@ -25191,6 +25194,11 @@ export interface operations {
                         properties: {
                             [key: string]: unknown;
                         };
+                        /**
+                         * Tile Cache Version
+                         * @description The dataset's tile_cache_version after this write committed. Send it as the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is forced to re-read the dataset instead of serving that worker's own cached snapshot.
+                         */
+                        tile_cache_version?: number | null;
                     };
                     "application/json": unknown;
                 };
@@ -25478,6 +25486,11 @@ export interface operations {
                         properties: {
                             [key: string]: unknown;
                         };
+                        /**
+                         * Tile Cache Version
+                         * @description The dataset's tile_cache_version after this write committed. Send it as the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is forced to re-read the dataset instead of serving that worker's own cached snapshot.
+                         */
+                        tile_cache_version?: number | null;
                     };
                     "application/json": unknown;
                 };
@@ -25580,11 +25593,19 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Successful Response */
-            204: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": {
+                        /**
+                         * Tile Cache Version
+                         * @description The dataset's tile_cache_version after this write committed. Send it as the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is forced to re-read the dataset instead of serving that worker's own cached snapshot.
+                         */
+                        tile_cache_version?: number | null;
+                    };
+                };
             };
             /** @description Bad request — invalid payload */
             400: {
@@ -25732,6 +25753,11 @@ export interface operations {
                         properties: {
                             [key: string]: unknown;
                         };
+                        /**
+                         * Tile Cache Version
+                         * @description The dataset's tile_cache_version after this write committed. Send it as the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is forced to re-read the dataset instead of serving that worker's own cached snapshot.
+                         */
+                        tile_cache_version?: number | null;
                     };
                     "application/json": unknown;
                 };

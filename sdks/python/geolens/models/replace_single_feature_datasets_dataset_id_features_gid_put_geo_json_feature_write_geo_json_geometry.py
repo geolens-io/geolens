@@ -7,31 +7,31 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
 
-from ..models.patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature_geo_json_geometry_type import (
-    check_patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature_geo_json_geometry_type,
+from ..models.replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_write_geo_json_geometry_type import (
+    check_replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_write_geo_json_geometry_type,
 )
-from ..models.patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature_geo_json_geometry_type import (
-    PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureGeoJSONGeometryType,
+from ..models.replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_write_geo_json_geometry_type import (
+    ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureWriteGeoJSONGeometryType,
 )
 from typing import cast
 
 
 T = TypeVar(
     "T",
-    bound="PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureGeoJSONGeometry",
+    bound="ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureWriteGeoJSONGeometry",
 )
 
 
 @_attrs_define
-class PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureGeoJSONGeometry:
+class ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureWriteGeoJSONGeometry:
     """A GeoJSON geometry object (RFC 7946).
 
     Attributes:
-        type_ (PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureGeoJSONGeometryType):
+        type_ (ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureWriteGeoJSONGeometryType):
         coordinates (list[Any]):
     """
 
-    type_: PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureGeoJSONGeometryType
+    type_: ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureWriteGeoJSONGeometryType
     coordinates: list[Any]
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -54,19 +54,19 @@ class PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureGeoJSONGe
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        type_ = check_patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature_geo_json_geometry_type(
+        type_ = check_replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_write_geo_json_geometry_type(
             d.pop("type")
         )
 
         coordinates = cast(list[Any], d.pop("coordinates"))
 
-        patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature_geo_json_geometry = cls(
+        replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_write_geo_json_geometry = cls(
             type_=type_,
             coordinates=coordinates,
         )
 
-        patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature_geo_json_geometry.additional_properties = d
-        return patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature_geo_json_geometry
+        replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_write_geo_json_geometry.additional_properties = d
+        return replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_write_geo_json_geometry
 
     @property
     def additional_keys(self) -> list[str]:

@@ -11,19 +11,19 @@ from typing import cast
 from typing import Literal
 
 if TYPE_CHECKING:
-    from ..models.patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature_geo_json_geometry_collection_geo_json_geometry import (
-        PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometry,
+    from ..models.create_feature_datasets_dataset_id_features_post_geo_json_feature_write_geo_json_geometry_collection_geo_json_geometry import (
+        CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureWriteGeoJSONGeometryCollectionGeoJSONGeometry,
     )
 
 
 T = TypeVar(
     "T",
-    bound="PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureGeoJSONGeometryCollection",
+    bound="CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureWriteGeoJSONGeometryCollection",
 )
 
 
 @_attrs_define
-class PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureGeoJSONGeometryCollection:
+class CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureWriteGeoJSONGeometryCollection:
     """A GeoJSON GeometryCollection (RFC 7946 §3.1.8).
 
     Geometry collections carry ``geometries`` instead of ``coordinates``.
@@ -34,13 +34,13 @@ class PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureGeoJSONGe
 
         Attributes:
             type_ (Literal['GeometryCollection']):
-            geometries (list[PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureGeoJSONGeometryCollectionGeoJS
-                ONGeometry]):
+            geometries
+                (list[CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureWriteGeoJSONGeometryCollectionGeoJSONGeometry]):
     """
 
     type_: Literal["GeometryCollection"]
     geometries: list[
-        PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometry
+        CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureWriteGeoJSONGeometryCollectionGeoJSONGeometry
     ]
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -65,8 +65,8 @@ class PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureGeoJSONGe
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature_geo_json_geometry_collection_geo_json_geometry import (
-            PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometry,
+        from ..models.create_feature_datasets_dataset_id_features_post_geo_json_feature_write_geo_json_geometry_collection_geo_json_geometry import (
+            CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureWriteGeoJSONGeometryCollectionGeoJSONGeometry,
         )
 
         d = dict(src_dict)
@@ -79,19 +79,19 @@ class PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureGeoJSONGe
         geometries = []
         _geometries = d.pop("geometries")
         for geometries_item_data in _geometries:
-            geometries_item = PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometry.from_dict(
+            geometries_item = CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureWriteGeoJSONGeometryCollectionGeoJSONGeometry.from_dict(
                 geometries_item_data
             )
 
             geometries.append(geometries_item)
 
-        patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature_geo_json_geometry_collection = cls(
+        create_feature_datasets_dataset_id_features_post_geo_json_feature_write_geo_json_geometry_collection = cls(
             type_=type_,
             geometries=geometries,
         )
 
-        patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature_geo_json_geometry_collection.additional_properties = d
-        return patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature_geo_json_geometry_collection
+        create_feature_datasets_dataset_id_features_post_geo_json_feature_write_geo_json_geometry_collection.additional_properties = d
+        return create_feature_datasets_dataset_id_features_post_geo_json_feature_write_geo_json_geometry_collection
 
     @property
     def additional_keys(self) -> list[str]:

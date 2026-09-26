@@ -10,8 +10,8 @@ from ... import errors
 
 from ...models.feature_replace import FeatureReplace
 from ...models.problem_detail import ProblemDetail
-from ...models.replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature import (
-    ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeature,
+from ...models.replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_write import (
+    ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureWrite,
 )
 from uuid import UUID
 
@@ -44,14 +44,12 @@ def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
 ) -> (
     ProblemDetail
-    | ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeature
+    | ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureWrite
     | None
 ):
     if response.status_code == 200:
-        response_200 = (
-            ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeature.from_dict(
-                response.json()
-            )
+        response_200 = ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureWrite.from_dict(
+            response.json()
         )
 
         return response_200
@@ -110,7 +108,8 @@ def _parse_response(
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
 ) -> Response[
-    ProblemDetail | ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeature
+    ProblemDetail
+    | ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureWrite
 ]:
     return Response(
         status_code=HTTPStatus(response.status_code),
@@ -127,7 +126,8 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: FeatureReplace,
 ) -> Response[
-    ProblemDetail | ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeature
+    ProblemDetail
+    | ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureWrite
 ]:
     """Replace Single Feature
 
@@ -143,7 +143,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ProblemDetail | ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeature]
+        Response[ProblemDetail | ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureWrite]
     """
 
     kwargs = _get_kwargs(
@@ -167,7 +167,7 @@ def sync(
     body: FeatureReplace,
 ) -> (
     ProblemDetail
-    | ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeature
+    | ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureWrite
     | None
 ):
     """Replace Single Feature
@@ -184,7 +184,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ProblemDetail | ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeature
+        ProblemDetail | ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureWrite
     """
 
     return sync_detailed(
@@ -202,7 +202,8 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: FeatureReplace,
 ) -> Response[
-    ProblemDetail | ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeature
+    ProblemDetail
+    | ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureWrite
 ]:
     """Replace Single Feature
 
@@ -218,7 +219,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ProblemDetail | ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeature]
+        Response[ProblemDetail | ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureWrite]
     """
 
     kwargs = _get_kwargs(
@@ -240,7 +241,7 @@ async def asyncio(
     body: FeatureReplace,
 ) -> (
     ProblemDetail
-    | ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeature
+    | ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureWrite
     | None
 ):
     """Replace Single Feature
@@ -257,7 +258,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ProblemDetail | ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeature
+        ProblemDetail | ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureWrite
     """
 
     return (
