@@ -88,6 +88,7 @@ def _install(
     monkeypatch,
     info: dict,
     *,
+    stats: dict | None = None,
     stats_status: int = 200,
     stac_item: dict | None = _TITILER_STAC_ITEM,
     stac_status: int = 200,
@@ -104,9 +105,9 @@ def _install(
     def _handler(request: httpx.Request) -> httpx.Response:
         url = str(request.url)
         if "/cog/statistics" in url:
-            return httpx.Response(
-                stats_status, json={} if stats_status == 200 else None
-            )
+            if stats_status != 200:
+                return httpx.Response(stats_status, json=None)
+            return httpx.Response(stats_status, json=stats if stats is not None else {})
         if "/cog/stac" in url:
             return httpx.Response(stac_status, json=stac_item)
         return httpx.Response(200, json=info)
@@ -458,6 +459,35 @@ class TestGeotransform:
         assert result is not None
         assert result["crs_wkt"] is not None
         assert "res_x" not in result
+
+
+class TestBandStatistics:
+    async def test_band_info_stays_in_band_order_past_nine_bands(
+        self, monkeypatch
+    ) -> None:
+        stats = {
+            f"b{n}": {"min": float(n), "max": float(n) + 1, "mean": float(n) + 0.5}
+            for n in range(1, 12)
+        }
+        _install(monkeypatch, {**_TITILER_INFO, "count": 11}, stats=stats)
+        result = await fetch_cog_info("https://origin.test/scene.tif")
+        assert result is not None
+        assert [entry["min"] for entry in result["band_info"]] == [
+            float(n) for n in range(1, 12)
+        ]
+
+    async def test_a_non_numeric_b_key_does_not_drop_the_numbered_bands(
+        self, monkeypatch
+    ) -> None:
+        stats = {
+            f"b{n}": {"min": float(n), "max": float(n) + 1, "mean": float(n) + 0.5}
+            for n in range(1, 4)
+        }
+        stats["blue"] = {"min": -1.0, "max": -1.0, "mean": -1.0}
+        _install(monkeypatch, {**_TITILER_INFO, "count": 3}, stats=stats)
+        result = await fetch_cog_info("https://origin.test/scene.tif")
+        assert result is not None
+        assert [entry["min"] for entry in result["band_info"]] == [1.0, 2.0, 3.0]
 
 
 class TestReconcileEpsg:
