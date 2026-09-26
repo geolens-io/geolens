@@ -58,6 +58,7 @@ BOOKKEEPING = {
     "accepted_refresh_fingerprint": "sha256:4567",
     "archive_error": "Could not archive staging/job/original.tif",
     "archive_pending": True,
+    "superseded_keys": [f"rasters/{uuid.uuid4()}/attempt/source.cog.tif"],
 }
 USER_METADATA = {
     "title": "Campus",

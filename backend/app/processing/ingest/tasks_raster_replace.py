@@ -233,6 +233,7 @@ class _RasterReplace:
         # ones, so this is a second guard.
         self.written_storage_keys: list[str] = []
         self.prior_physical_keys: list[str] = []
+        self.prior_asset_keys: list[str] = []
         # The upload may be deleted only once the COG is known to carry
         # everything it did, or its original is archived.
         self.source_preserved_in_cog = False
@@ -267,6 +268,7 @@ class _RasterReplace:
                 raster_asset.quicklook_256_uri,
                 raster_asset.quicklook_512_uri,
             )
+        self.prior_asset_keys = [key for key in live if key]
         self.prior_physical_keys = _prior_asset_keys_to_reap(
             asset_uri=live[0], quicklook_256_uri=live[1], quicklook_512_uri=live[2]
         )
@@ -499,6 +501,13 @@ class _RasterReplace:
             reaps_staged_upload=(
                 self.source_preserved_in_cog or self.lossy_original_archived
             ),
+            superseded_keys=tuple(
+                key
+                for key, physical in zip(
+                    self.prior_asset_keys, self.prior_physical_keys, strict=True
+                )
+                if physical not in self.written_storage_keys
+            ),
         )
 
     def classify(self, exc: BaseException) -> Failure:
@@ -514,7 +523,9 @@ class _RasterReplace:
     async def release(
         self, *, publication: PublicationCommit | None, failed: bool
     ) -> None:
-        # A cancelled reap must not skip the cleanup after it.
+        # A cancelled reap must not skip the cleanup after it. What a publish
+        # superseded is left to its follow-ups, which delete it once the job
+        # row shows the publish landed, whether or not this task could tell.
         try:
             if publication is None:
                 async with cleanup_step(
@@ -529,20 +540,6 @@ class _RasterReplace:
                         await _cleanup_orphaned_storage_keys(
                             orphans, job_id=self.job_id
                         )
-            elif publication.confirmed:
-                # After an unconfirmed publish the superseded keys may still
-                # be the live raster, so they are kept.
-                async with cleanup_step(
-                    "reupload_raster superseded objects", job_id=self.job_id
-                ):
-                    await _cleanup_orphaned_storage_keys(
-                        [
-                            key
-                            for key in self.prior_physical_keys
-                            if key not in self.written_storage_keys
-                        ],
-                        job_id=self.job_id,
-                    )
         finally:
             await self._clean_up(
                 "complete"

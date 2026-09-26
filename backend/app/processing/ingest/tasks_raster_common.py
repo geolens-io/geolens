@@ -350,30 +350,34 @@ def _resolve_managed_raster_storage_keys(
     )
 
 
-async def _cleanup_orphaned_storage_keys(keys: list[str], *, job_id: str) -> None:
+async def _cleanup_orphaned_storage_keys(keys: list[str], *, job_id: str) -> list[str]:
     """Best-effort delete storage keys written before a failed/rolled-back commit.
 
     GAP-017: raster ingest puts COG/quicklook bytes to storage BEFORE the
     terminal DB commit. If the commit (or a later step) fails, the dataset
     row rolls back and ``delete_dataset`` never runs, orphaning the bytes —
     this reaps exactly the keys that were written. Failures here are
-    swallowed; cleanup must never mask the original ingest error.
+    swallowed; cleanup must never mask the original ingest error. Returns the
+    keys it could not delete.
     """
     from app.platform.storage import get_storage
 
     try:
         storage = get_storage()
     except Exception:  # broad: storage may be unavailable; nothing to clean then
-        return
+        return list(keys)
+    failed: list[str] = []
     for key in keys:
         try:
             await storage.delete(key)
         except Exception:  # broad: best-effort per-key cleanup, keep going
+            failed.append(key)
             structlog.get_logger().warning(
                 "Failed to clean up orphaned raster asset",
                 job_id=job_id,
                 storage_key=key,
             )
+    return failed
 
 
 async def publish_commit_landed(

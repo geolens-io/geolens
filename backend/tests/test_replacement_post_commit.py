@@ -18,7 +18,7 @@ import pytest
 from rasterio.crs import CRS
 from rasterio.io import MemoryFile
 from rasterio.transform import from_bounds
-from sqlalchemy import select, text
+from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -32,7 +32,10 @@ from app.platform.jobs.models import IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.refresh.service import create_pending_run
 from app.platform.storage.local import LocalStorageProvider
-from app.processing.ingest.publish_followups import run_owed_publish_followups
+from app.processing.ingest.publish_followups import (
+    run_owed_publish_followups,
+    run_publish_followups,
+)
 from app.processing.ingest.tasks_postgis_refresh import refresh_postgis
 from app.processing.ingest.tasks_raster_common import PublishObservation
 from app.processing.ingest.tasks_raster_replace import reupload_raster
@@ -40,6 +43,7 @@ from app.processing.ingest.tasks_reupload import reupload_file, reupload_service
 from app.processing.ingest.tasks_stac_refresh import refresh_stac
 from app.processing.raster.models import RasterAsset
 from tests.factories import create_dataset, get_user_id
+from tests.test_publish_followups import _make_due
 
 pytestmark = pytest.mark.anyio
 
@@ -1183,6 +1187,352 @@ async def test_a_lossy_raster_whose_original_was_not_archived_keeps_its_upload(
     assert lost.fired == 1, "the publishing commit never ran"
     await _assert_settled_published(replacement)
     assert replacement.upload.exists(), "the only faithful copy of a lossy upload went"
+
+
+async def _prior_left(replacement: _Replacement, storage) -> list[str]:
+    """The superseded raster objects still in storage."""
+    return [key for key in replacement.prior_keys if await storage.exists(key)]
+
+
+async def _live_raster_keys(dataset_id: uuid.UUID) -> list[str]:
+    import app.core.db as db_module
+
+    async with db_module.async_session() as session:
+        row = (
+            await session.execute(
+                select(
+                    RasterAsset.asset_uri,
+                    RasterAsset.quicklook_256_uri,
+                    RasterAsset.quicklook_512_uri,
+                ).where(RasterAsset.dataset_id == dataset_id)
+            )
+        ).one()
+    return list(row)
+
+
+async def test_a_raster_publish_that_landed_unseen_leaves_what_it_superseded_to_the_sweep(
+    replace, storage
+) -> None:
+    """The task keeps the raster it can't tell was replaced; the sweep deletes it once the publish shows."""
+    replacement = await replace("raster")
+    with _landed_unseen(replacement.job_id):
+        await replacement.run()
+    assert await _prior_left(replacement, storage) == replacement.prior_keys
+
+    await run_owed_publish_followups()
+    assert await _prior_left(replacement, storage) == []
+    await replacement.assert_published()
+
+
+async def test_a_later_replacement_keeps_what_it_made_live_through_the_sweep(
+    replace, storage, test_db_session
+) -> None:
+    """A replacement landing before an earlier one's sweep loses nothing it made live to that sweep."""
+    import app.core.db as db_module
+
+    first = await replace("raster")
+    with _landed_unseen(first.job_id):
+        await first.run()
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    upload = Path(settings.upload_staging_dir) / "second.tif"
+    upload.write_bytes(_geotiff_bytes(seed=77))
+    second = await _seed_job_and_run(
+        test_db_session,
+        dataset_id=first.dataset_id,
+        created_by=admin_id,
+        origin_kind="upload",
+        source_filename="second.tif",
+        file_path=str(upload),
+        user_metadata={"reupload": True, "dataset_id": str(first.dataset_id)},
+    )
+    try:
+        with _quiet_embedding():
+            await reupload_raster.func(
+                job_id=str(second.id),
+                dataset_id=str(first.dataset_id),
+                file_path=str(upload),
+                user_id=str(admin_id),
+                attempt_id=str(second.attempt_id),
+            )
+        live = await _live_raster_keys(first.dataset_id)
+        assert live[0] != first.prior_keys[0]
+
+        await run_owed_publish_followups()
+        assert await _prior_left(first, storage) == []
+        for key in live:
+            assert await storage.exists(key), f"the sweep deleted the live {key}"
+    finally:
+        async with db_module.async_session() as session:
+            await session.execute(
+                text("DELETE FROM catalog.ingest_jobs WHERE id = :id"),
+                {"id": second.id},
+            )
+            await session.commit()
+
+
+@pytest.mark.parametrize(
+    ("column", "index"),
+    [("asset_uri", 0), ("quicklook_256_uri", 1), ("quicklook_512_uri", 2)],
+)
+async def test_the_sweep_keeps_a_superseded_key_the_live_raster_names_again(
+    replace, storage, column: str, index: int
+) -> None:
+    """A recorded key the live raster names when the sweep runs is kept.
+
+    Keys are unique to an attempt, so no swap names one again today. The live
+    raster is pointed back at one old object here to check the sweep reads it.
+    """
+    import app.core.db as db_module
+
+    replacement = await replace("raster")
+    with _landed_unseen(replacement.job_id):
+        await replacement.run()
+    named = replacement.prior_keys[index]
+    async with db_module.async_session() as session:
+        await session.execute(
+            update(RasterAsset)
+            .where(RasterAsset.dataset_id == replacement.dataset_id)
+            .values({column: named})
+        )
+        await session.commit()
+
+    await run_owed_publish_followups()
+    assert await _prior_left(replacement, storage) == [named]
+
+
+async def test_a_superseded_delete_cut_short_is_retried(
+    replace, storage, monkeypatch
+) -> None:
+    """A run stopped inside the delete leaves the record, and the next run deletes."""
+    from app.processing.ingest import tasks_raster_common
+
+    replacement = await replace("raster")
+    with _landed_unseen(replacement.job_id):
+        await replacement.run()
+    real_cleanup = tasks_raster_common._cleanup_orphaned_storage_keys
+    stops: list[list[str]] = []
+
+    async def _stopped_once(keys, *, job_id):
+        if not stops:
+            stops.append(keys)
+            raise asyncio.CancelledError
+        return await real_cleanup(keys, job_id=job_id)
+
+    monkeypatch.setattr(
+        tasks_raster_common, "_cleanup_orphaned_storage_keys", _stopped_once
+    )
+    with pytest.raises(asyncio.CancelledError):
+        await run_publish_followups(replacement.job_id)
+    assert stops, "the delete never ran"
+    assert await _prior_left(replacement, storage) == replacement.prior_keys
+
+    await run_publish_followups(replacement.job_id)
+    assert await _prior_left(replacement, storage) == []
+
+
+async def _owed(job_id: uuid.UUID) -> dict | None:
+    """The job's follow-up record, or None once it's claimed."""
+    metadata = await _fresh_scalar(
+        select(IngestJob.user_metadata).where(IngestJob.id == job_id)
+    )
+    return (metadata or {}).get("publish_followups")
+
+
+async def _owed_keys(job_id: uuid.UUID) -> list[str] | None:
+    """The superseded keys the job's record still owes, or None once it's claimed."""
+    record = await _owed(job_id)
+    return None if record is None else record.get("superseded_keys")
+
+
+@pytest.mark.parametrize(
+    "removed", [False, True], ids=["before-the-delete", "after-the-delete"]
+)
+async def test_a_superseded_delete_that_fails_is_retried_once_due(
+    replace, storage, monkeypatch, removed: bool
+) -> None:
+    """A delete that fails keeps its key owed, and the sweep deletes it once it's due.
+
+    ``after-the-delete`` reports its error once the object is gone, and the
+    retry counts the missing key as deleted.
+    """
+    replacement = await replace("raster")
+    with _landed_unseen(replacement.job_id):
+        await replacement.run()
+    cog = replacement.prior_keys[0]
+    real_delete = storage.delete
+    failures: list[str] = []
+
+    async def _fails_once(key):
+        if key == cog and not failures:
+            failures.append(key)
+            if removed:
+                await real_delete(key)
+            raise OSError("the object store timed out")
+        await real_delete(key)
+
+    monkeypatch.setattr(storage, "delete", _fails_once)
+    await run_owed_publish_followups()
+    assert failures, "the delete never ran"
+    assert await _owed_keys(replacement.job_id) == [cog]
+    assert await _prior_left(replacement, storage) == ([] if removed else [cog])
+
+    await _make_due(replacement.job_id)
+    await run_owed_publish_followups()
+    assert await _owed_keys(replacement.job_id) is None
+    assert await _prior_left(replacement, storage) == []
+
+
+async def test_a_live_read_that_fails_is_retried_once_due(
+    replace, storage, monkeypatch
+) -> None:
+    """When the live keys can't be read, every superseded key stays owed for the retry."""
+    from app.platform.jobs import sweep
+
+    replacement = await replace("raster")
+    with _landed_unseen(replacement.job_id):
+        await replacement.run()
+    real_read = sweep._live_referenced_storage_keys
+    failures: list[tuple[str, ...]] = []
+
+    async def _fails_once(keys):
+        if not failures:
+            failures.append(keys)
+            raise ConnectionResetError("the database dropped the read")
+        return await real_read(keys)
+
+    monkeypatch.setattr(sweep, "_live_referenced_storage_keys", _fails_once)
+    await run_owed_publish_followups()
+    assert failures, "the live keys were never read"
+    assert await _owed_keys(replacement.job_id) == replacement.prior_keys
+    assert await _prior_left(replacement, storage) == replacement.prior_keys
+
+    await _make_due(replacement.job_id)
+    await run_owed_publish_followups()
+    assert await _owed_keys(replacement.job_id) is None
+    assert await _prior_left(replacement, storage) == []
+
+
+async def test_a_delete_that_keeps_failing_stays_owed_and_deletes_the_upload_once(
+    replace, storage, monkeypatch
+) -> None:
+    """A delete that never succeeds is retried each time it's due; the upload goes once."""
+    from app.processing.ingest import publish_followups
+
+    replacement = await replace("raster")
+    with _landed_unseen(replacement.job_id):
+        await replacement.run()
+    cog = replacement.prior_keys[0]
+    real_delete = storage.delete
+    real_upload_delete = publish_followups._delete_staged_upload
+    upload_deletes: list[uuid.UUID] = []
+
+    async def _always_fails(key):
+        if key == cog:
+            raise OSError("access denied")
+        await real_delete(key)
+
+    async def _counted(job_uuid, file_path):
+        upload_deletes.append(job_uuid)
+        return await real_upload_delete(job_uuid, file_path)
+
+    monkeypatch.setattr(storage, "delete", _always_fails)
+    monkeypatch.setattr(publish_followups, "_delete_staged_upload", _counted)
+    for _ in range(3):
+        await run_owed_publish_followups()
+        await _make_due(replacement.job_id)
+
+    assert upload_deletes == [replacement.job_id]
+    assert not replacement.upload.exists()
+    record = await _owed(replacement.job_id)
+    assert (record["superseded_keys"], record["attempts"]) == ([cog], 3)
+    assert await _prior_left(replacement, storage) == [cog]
+
+
+async def test_a_failing_superseded_delete_does_not_crowd_out_a_fresh_record(
+    replace, storage, monkeypatch
+) -> None:
+    """With room for one record a pass, one a failing delete keeps waits out its delay.
+
+    It is the longest due, so it takes the first pass; a fresh record gets a
+    later one instead of the retry.
+    """
+    import app.core.db as db_module
+    from app.processing.ingest import publish_followups
+
+    stuck = await replace("raster")
+    with _landed_unseen(stuck.job_id):
+        await stuck.run()
+    fresh = await replace("raster")
+    with _landed_unseen(fresh.job_id):
+        await fresh.run()
+    async with db_module.async_session() as session:
+        await session.execute(
+            text(
+                "UPDATE catalog.ingest_jobs "
+                "SET completed_at = completed_at - interval '1 hour' WHERE id = :id"
+            ),
+            {"id": stuck.job_id},
+        )
+        await session.commit()
+    real_delete = storage.delete
+    tries: list[str] = []
+
+    async def _stuck_fails(key):
+        if key in stuck.prior_keys:
+            tries.append(key)
+            raise OSError("access denied")
+        await real_delete(key)
+
+    monkeypatch.setattr(storage, "delete", _stuck_fails)
+    monkeypatch.setattr(publish_followups, "_SWEEP_BATCH", 1)
+    await run_owed_publish_followups()
+    assert sorted(tries) == sorted(stuck.prior_keys), "the longest due went unrun"
+    # A pass may go to a record another test left due; the stuck one's never is.
+    for _ in range(3):
+        await run_owed_publish_followups()
+        if await _owed_keys(fresh.job_id) is None:
+            break
+
+    assert await _owed_keys(fresh.job_id) is None
+    assert await _prior_left(fresh, storage) == []
+    assert sorted(tries) == sorted(stuck.prior_keys), "retried before it was due"
+    record = await _owed(stuck.job_id)
+    assert (record["superseded_keys"], record["attempts"]) == (stuck.prior_keys, 1)
+
+
+async def test_a_hosted_install_deletes_the_tenants_superseded_objects(
+    replace, storage, monkeypatch
+) -> None:
+    """With tenant-prefixed storage, the sweep deletes the prior objects and keeps the live ones.
+
+    The record holds logical keys, as the catalog does, and the sweep resolves
+    them for the tenant.
+    """
+    from app.platform.storage import titiler_url
+    from app.processing.ingest import tasks_raster_common, tasks_raster_swap
+
+    tenant = f"tenants/{uuid.uuid4()}"
+
+    def _hosted(key: str) -> str:
+        return f"{tenant}/{key}"
+
+    replacement = await replace("raster")
+    for key in replacement.prior_keys:
+        await storage.put(_hosted(key), io.BytesIO(await storage.get(key)))
+        await storage.delete(key)
+    for module in (titiler_url, tasks_raster_common, tasks_raster_swap):
+        monkeypatch.setattr(module, "resolve_current_storage_key", _hosted)
+    with _landed_unseen(replacement.job_id):
+        await replacement.run()
+    assert await _owed_keys(replacement.job_id) == replacement.prior_keys
+
+    await run_owed_publish_followups()
+
+    for key in replacement.prior_keys:
+        assert not await storage.exists(_hosted(key)), f"{key} outlived the sweep"
+    for key in await _live_raster_keys(replacement.dataset_id):
+        assert await storage.exists(_hosted(key)), f"the sweep deleted the live {key}"
 
 
 @pytest.mark.parametrize("kind", sorted(_BUILDERS))
