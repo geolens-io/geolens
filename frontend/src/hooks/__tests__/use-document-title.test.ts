@@ -17,4 +17,10 @@ describe('useDocumentTitle', () => {
     renderHook(() => useDocumentTitle(''));
     expect(document.title).toBe('GeoLens');
   });
+
+  it('leaves document.title untouched for a nullish title', () => {
+    document.title = 'Untouched - GeoLens';
+    renderHook(() => useDocumentTitle(null));
+    expect(document.title).toBe('Untouched - GeoLens');
+  });
 });

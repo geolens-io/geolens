@@ -3,10 +3,16 @@ import { Route, Routes } from 'react-router';
 import { MapViewerGate } from '../MapViewerGate';
 import { useAuthStore } from '@/stores/auth-store';
 import { useMapAccess } from '@/hooks/use-maps';
+import { useDocumentTitle } from '@/hooks/use-document-title';
 import type { UserResponse } from '@/types/api';
 
+// Mimics the real MapBuilderPage: it owns a more specific title once it
+// mounts (there, from the map's own name once loaded).
 vi.mock('../MapBuilderPage', () => ({
-  MapBuilderPage: () => <div data-testid="builder-page" />,
+  MapBuilderPage: () => {
+    useDocumentTitle('Cached Map Title');
+    return <div data-testid="builder-page" />;
+  },
 }));
 
 vi.mock('../PublicMapViewerPage', () => ({
@@ -35,6 +41,7 @@ function mockUser(overrides?: Partial<UserResponse>): UserResponse {
 
 describe('MapViewerGate', () => {
   beforeEach(() => {
+    document.title = 'GeoLens';
     useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null });
     mockedUseMapAccess.mockReturnValue({
       data: undefined,
@@ -90,6 +97,32 @@ describe('MapViewerGate', () => {
     renderRoute();
 
     expect(await screen.findByTestId('builder-page')).toBeInTheDocument();
+  });
+
+  // Once MapBuilderPage's lazy chunk has resolved once, a later mount renders
+  // it in the SAME commit as this gate — where a child's effect fires before
+  // its parent's — instead of a later, separate commit.
+  it('keeps the builder title when its lazy chunk is already resolved', async () => {
+    mockedUseMapAccess.mockReturnValue({
+      data: { can_view: true, can_edit: true },
+      isLoading: false,
+      isError: false,
+    } as never);
+    useAuthStore.setState({
+      token: 'token',
+      refreshToken: 'refresh',
+      expiresAt: Date.now() + 900_000,
+      user: mockUser({ roles: ['editor'] }),
+    });
+
+    const first = renderRoute();
+    await screen.findByTestId('builder-page');
+    first.unmount();
+
+    renderRoute();
+
+    expect(await screen.findByTestId('builder-page')).toBeInTheDocument();
+    expect(document.title).toBe('Cached Map Title - GeoLens');
   });
 
   it('loads the public viewer when server denies builder access for a stale editor cache', async () => {

@@ -35,9 +35,6 @@ const PublicMapViewerPage = lazy(() =>
  */
 export function MapViewerGate() {
   const { t } = useTranslation('common');
-  // fix(#438): UX-09 — covers the gate's own loading states. Both lazy children
-  // set a more specific title once they mount.
-  useDocumentTitle(t('pageTitle.map'));
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
   const hasToken = useAuthStore((s) => !!s.token);
@@ -45,6 +42,15 @@ export function MapViewerGate() {
   const editorFallback = useAuthStore((s) => s.isEditor());
   const shouldCheckAccess = !!id && hasToken && !!user;
   const accessQuery = useMapAccess(id, { enabled: shouldCheckAccess });
+
+  // Own the title only for the gate's own loading/error UI below — a branch
+  // sets its own once it renders. Passing a title unconditionally can fire
+  // after (and stomp) the branch's, if both mount in the same commit.
+  const isOwnLoadingOrError =
+    (hasToken && !user) ||
+    (shouldCheckAccess && accessQuery.isLoading) ||
+    (shouldCheckAccess && accessQuery.isError);
+  useDocumentTitle(isOwnLoadingOrError ? t('pageTitle.map') : null);
 
   // fix(#1778): React.lazy() only fires its import() at first render of
   // <MapBuilderPage/>, so the chunk download used to serialize BEHIND the
