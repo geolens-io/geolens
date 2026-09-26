@@ -377,6 +377,14 @@ class IngestionError(Exception):
     """Raised when an ingestion subprocess fails."""
 
 
+class MissingCrsError(IngestionError):
+    """A spatial source declares no CRS and no override was given.
+
+    A subclass so a re-upload's failure classifier can give it a stable code
+    without matching on the generic handler's message text.
+    """
+
+
 class IngestBudgetExceededError(IngestionError, IngestCeilingError):
     """Raised when a source exceeds an ingest resource ceiling (fix(#948)).
 

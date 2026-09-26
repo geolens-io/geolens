@@ -17,7 +17,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.failure_reason import coded_failure_reason
+from app.core.failure_reason import FixedReason, coded_failure_reason
 from app.platform.jobs import ledger
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
@@ -266,7 +266,10 @@ async def execute_admitted_refresh(
                 session,
                 ingest_job_id=job_id,
                 error_code="scheduled_job_missing",
-                error_message="The admitted refresh job no longer exists.",
+                error_message=FixedReason(
+                    "The admitted refresh job no longer exists.",
+                    code="scheduled_job_missing",
+                ),
             )
             await session.commit()
             return RefreshExecutionResult(

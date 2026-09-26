@@ -104,6 +104,15 @@ def cog_preserves_source(
     return (compression or "").upper() in LOSSLESS_COG_COMPRESSIONS
 
 
+class MissingRasterCrsError(ValueError):
+    """A raster source declares no CRS and no override was given.
+
+    A ``ValueError`` subclass, not the bare class: a caller can still catch
+    it as one, and its own type lets a handler give it a stable code without
+    matching on the message text.
+    """
+
+
 def resolve_crs_assignment(
     *, crs_wkt: str | None, srid_override: int | None
 ) -> int | None:
@@ -123,7 +132,7 @@ def resolve_crs_assignment(
     if srid_override:
         return srid_override
     if not crs_wkt:
-        raise ValueError(
+        raise MissingRasterCrsError(
             "Missing CRS: raster has no coordinate reference system. "
             "Provide a CRS override (EPSG code) at import time."
         )

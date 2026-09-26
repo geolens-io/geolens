@@ -8,6 +8,7 @@ import {
 } from '@/components/dataset/hooks/use-dataset';
 import { useVrtGenerations, useVrtSources, useVrtStatus } from '@/components/import/hooks/use-vrt';
 import { useAuthStore } from '@/stores/auth-store';
+import { changeTestLanguage } from '@/test/i18n';
 import { SourcePanel } from '../SourcePanel';
 import type { DatasetRefreshRunResponse, DatasetResponse, VrtSourceHealth } from '@/types/api';
 
@@ -855,6 +856,120 @@ describe('SourcePanel', () => {
       ),
     ).toBeInTheDocument();
     expect(screen.queryByText('An unexpected error occurred')).not.toBeInTheDocument();
+  });
+
+  // A scheduled refresh's coded reason must show in the reader's language,
+  // not its stored English sentence.
+  it('renders the translated reason for a coded refresh-run failure, in es', async () => {
+    await changeTestLanguage('es');
+
+    vi.mocked(useDatasetRefreshRuns).mockReturnValue({
+      data: {
+        runs: [
+          {
+            id: 'run-1',
+            dataset_id: 'dataset-1',
+            dataset_version_id: null,
+            ingest_job_id: 'job-1',
+            origin_kind: 'service',
+            trigger: 'api',
+            status: 'failed',
+            triggered_by: 'user-1',
+            triggered_by_username: 'jdoe',
+            started_at: '2026-08-05T00:00:00Z',
+            claimed_at: '2026-08-05T00:00:01Z',
+            finished_at: '2026-08-05T00:01:00Z',
+            feature_count_before: 1200,
+            feature_count_after: null,
+            schema_diff: null,
+            error_code: 'scheduled_execution_timeout',
+            error_message: 'The admitted refresh exceeded its execution time limit.',
+          },
+        ],
+        total: 1,
+      } satisfies { runs: DatasetRefreshRunResponse[]; total: number },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useDatasetRefreshRuns>);
+
+    render(<SourcePanel dataset={makeDataset()} />);
+
+    expect(
+      screen.getByText('La actualización admitida superó su tiempo máximo de ejecución.'),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText('The admitted refresh exceeded its execution time limit.'),
+    ).not.toBeInTheDocument();
+
+    await changeTestLanguage('en');
+  });
+
+  // The sweep settles an abandoned run as `cancelled`, the same terminal
+  // status a deliberate user cancel lands in, so each needs its own reason
+  // shown -- not just a failed run's -- or an abandoned run reads exactly
+  // like a user's own click.
+  it("renders each cancelled run's own translated reason, styled as muted rather than an error", () => {
+    vi.mocked(useDatasetRefreshRuns).mockReturnValue({
+      data: {
+        runs: [
+          {
+            id: 'run-abandoned',
+            dataset_id: 'dataset-1',
+            dataset_version_id: null,
+            ingest_job_id: 'job-1',
+            origin_kind: 'service',
+            trigger: 'scheduled',
+            status: 'cancelled',
+            triggered_by: null,
+            triggered_by_username: null,
+            started_at: '2026-08-05T00:00:00Z',
+            claimed_at: '2026-08-05T00:00:01Z',
+            finished_at: '2026-08-05T00:01:00Z',
+            feature_count_before: 1200,
+            feature_count_after: null,
+            schema_diff: null,
+            error_code: 'abandoned',
+            error_message:
+              'The refresh task was never picked up by a worker, or the worker disappeared before recording an outcome.',
+          },
+          {
+            id: 'run-user-cancelled',
+            dataset_id: 'dataset-1',
+            dataset_version_id: null,
+            ingest_job_id: 'job-2',
+            origin_kind: 'service',
+            trigger: 'api',
+            status: 'cancelled',
+            triggered_by: 'user-1',
+            triggered_by_username: 'jdoe',
+            started_at: '2026-08-04T00:00:00Z',
+            claimed_at: '2026-08-04T00:00:01Z',
+            finished_at: '2026-08-04T00:01:00Z',
+            feature_count_before: 1100,
+            feature_count_after: null,
+            schema_diff: null,
+            error_code: 'user_cancelled',
+            error_message: 'Cancelled by user.',
+          },
+        ],
+        total: 2,
+      } satisfies { runs: DatasetRefreshRunResponse[]; total: number },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useDatasetRefreshRuns>);
+
+    render(<SourcePanel dataset={makeDataset()} />);
+
+    const abandonedReason = screen.getByText(
+      'The refresh task was never picked up by a worker, or the worker disappeared before recording an outcome.',
+    );
+    const userCancelledReason = screen.getByText('Cancelled by user');
+
+    expect(abandonedReason).toBeInTheDocument();
+    expect(userCancelledReason).toBeInTheDocument();
+    expect(abandonedReason.textContent).not.toBe(userCancelledReason.textContent);
+    expect(abandonedReason.className).toContain('text-muted-foreground');
+    expect(abandonedReason.className).not.toContain('text-destructive');
   });
 
   it('shows verification evidence and offers an exact blocked-run retry', async () => {

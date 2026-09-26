@@ -445,6 +445,19 @@ function RefreshRunHistory({
                   {describeFailureReason(
                     run.error_message,
                     t('common:errors.internalFailureReason'),
+                    run.error_code,
+                  )}
+                </p>
+              )}
+              {run.status === 'cancelled' && run.error_message && (
+                // Not text-destructive: the sweep also settles an abandoned
+                // run as `cancelled` (error_code: 'abandoned'), and neither
+                // that nor a deliberate cancel is an error to flag in red.
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {describeFailureReason(
+                    run.error_message,
+                    t('common:errors.internalFailureReason'),
+                    run.error_code,
                   )}
                 </p>
               )}
