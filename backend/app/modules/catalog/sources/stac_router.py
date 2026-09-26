@@ -85,7 +85,9 @@ def _data_asset_import_refusal(
     href: str | None,
 ) -> Literal["not_http", "credentials", "too_long"] | None:
     """Why ``/import``'s own ``StacImportItem.data_asset_href`` field would
-    refuse *href*, or ``None`` if it would be accepted.
+    refuse *href*, or ``None`` if that field's own checks would accept it.
+    Format, length and credentials only: ``/import`` separately checks each
+    asset's host, which this does not predict.
 
     Search is the one place that can tell the caller before an item is
     ticked, rather than after the whole batch 422s on submit — but only if
@@ -282,15 +284,15 @@ class StacItemSummary(BaseModel):
     )
     data_asset_import_refusal: Literal["not_http", "credentials", "too_long"] | None = (
         Field(
-            default=None,
             description=(
-                "Why importing this item's data asset would fail, or null if it "
-                "would be accepted. 'not_http' when the asset is published on a "
-                "scheme other than http/https, such as s3://; 'credentials' when "
-                "its URL carries a credential query parameter GeoLens will not "
-                "store; 'too_long' when the URL is over 4096 characters. Lets a "
-                "client grey out the item before it is ticked, rather than "
-                "after the whole import batch is refused."
+                "Why /import would refuse this item's data asset, based on its "
+                "URL alone, or null if the href passes import's format, length "
+                "and credential checks. 'not_http' for a scheme other than "
+                "http/https, such as s3://; 'credentials' for a URL carrying a "
+                "credential query parameter GeoLens won't store; 'too_long' for "
+                "a URL over the length import allows. Import also checks each "
+                "asset's host, and can still refuse a null item there as a "
+                "per-item failure that leaves the rest of the batch importing."
             ),
         )
     )

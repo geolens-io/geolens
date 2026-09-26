@@ -470,7 +470,11 @@ class TestStacSearchAssetEligibility:
             client, admin_auth_header, "https://example.com/data.tif"
         )
         assert resp.status_code == 200
-        assert resp.json()["items"][0]["data_asset_import_refusal"] is None
+        item = resp.json()["items"][0]
+        # The field is required (no default) rather than optional, so a
+        # client can tell "checked, and clear" from "never checked".
+        assert "data_asset_import_refusal" in item
+        assert item["data_asset_import_refusal"] is None
 
     async def test_does_not_flag_a_missing_asset(
         self, client: AsyncClient, admin_auth_header: dict, mock_stac_ssrf

@@ -13151,9 +13151,9 @@ export interface components {
             data_asset_size_bytes?: number | null;
             /**
              * Data Asset Import Refusal
-             * @description Why importing this item's data asset would fail, or null if it would be accepted. 'not_http' when the asset is published on a scheme other than http/https, such as s3://; 'credentials' when its URL carries a credential query parameter GeoLens will not store; 'too_long' when the URL is over 4096 characters. Lets a client grey out the item before it is ticked, rather than after the whole import batch is refused.
+             * @description Why /import would refuse this item's data asset, based on its URL alone, or null if the href passes import's format, length and credential checks. 'not_http' for a scheme other than http/https, such as s3://; 'credentials' for a URL carrying a credential query parameter GeoLens won't store; 'too_long' for a URL over the length import allows. Import also checks each asset's host, and can still refuse a null item there as a per-item failure that leaves the rest of the batch importing.
              */
-            data_asset_import_refusal?: ("not_http" | "credentials" | "too_long") | null;
+            data_asset_import_refusal: ("not_http" | "credentials" | "too_long") | null;
             /**
              * Thumbnail Href
              * @description Thumbnail URL if available.
