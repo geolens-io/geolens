@@ -18,6 +18,7 @@ from typing import Any
 import structlog
 from sqlalchemy import select, text
 
+from app.core.geo import crs_columns
 from app.platform.dataset_origin import set_dataset_origin
 from app.platform.jobs.models import UNPUBLISHED_STORAGE_KEYS_FIELD
 from app.processing.raster.probe import RasterProbeError, inspect_raster
@@ -244,7 +245,7 @@ async def create_raster_dataset(
         driver=meta.get("driver"),
         storage_backend="local",
         ingested_at=datetime.now(timezone.utc),
-        crs_wkt=meta.get("crs_wkt"),
+        **crs_columns(meta),
         epsg=meta.get("epsg"),
         band_count=meta.get("band_count"),
         dtype=meta.get("dtype"),

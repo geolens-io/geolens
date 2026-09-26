@@ -11,7 +11,6 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.geo import wkt_is_geographic
 from app.processing.raster.models import RasterAsset
 
 
@@ -22,7 +21,7 @@ def _row_to_meta(row: Any, *, include_vrt: bool, include_generation_id: bool) ->
         "epsg": row.epsg,
         # fix(#569): lets consumers render res_x/res_y honestly — degree
         # resolutions must not be formatted as meters.
-        "crs_is_geographic": wkt_is_geographic(row.crs_wkt),
+        "crs_is_geographic": row.crs_is_geographic,
         "res_x": float(row.res_x) if row.res_x is not None else None,
         "res_y": float(row.res_y) if row.res_y is not None else None,
         "width": row.width,
@@ -51,7 +50,7 @@ async def fetch_raster_meta_one(
     columns = [
         RasterAsset.band_count,
         RasterAsset.epsg,
-        RasterAsset.crs_wkt,
+        RasterAsset.crs_is_geographic,
         RasterAsset.res_x,
         RasterAsset.res_y,
         RasterAsset.width,
@@ -90,7 +89,7 @@ async def fetch_raster_meta_bulk(
         RasterAsset.dataset_id,
         RasterAsset.band_count,
         RasterAsset.epsg,
-        RasterAsset.crs_wkt,
+        RasterAsset.crs_is_geographic,
         RasterAsset.res_x,
         RasterAsset.res_y,
         RasterAsset.width,

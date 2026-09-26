@@ -1837,6 +1837,12 @@ class TestPersistedMetadataDescribesTheServedCog:
                 "(#1290 finding 4), or the persisted CRS came from the source "
                 "rather than the converted COG (finding 3)"
             )
+            # The facts describe the converted COG's CRS, not the source's 4326.
+            assert (
+                asset.crs_is_geographic,
+                asset.crs_has_degree_unit,
+                asset.crs_metres_per_unit,
+            ) == (False, False, 1.0)
             assert dataset.srid == 3857
             # round-2 finding 3: the two fields answer different questions.
             # `srid` is what the dataset serves; `original_srid` is documented

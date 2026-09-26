@@ -498,16 +498,17 @@ _RADIANS_PER_DEGREE = math.pi / 180.0
 def _parse_crs(crs_wkt: str) -> object | None:
     """Parse stored CRS WKT with PROJ, or None when PROJ will not accept it.
 
-    fix(#939): a regex scan of WKT structure cannot reliably answer "is this
-    geographic" or "what are its axis units" -- WKT is a nested grammar, so a
-    flat scan can't tell which subtree a unit belongs to (PRIMEM, MERIDIAN,
-    BEARING, conversion PARAMETERs all carry angular units). Ask PROJ instead,
-    which reads the actual tree and handles a BoundCRS's SOURCE units or a 3D
+    A regex scan of WKT structure cannot reliably answer "is this geographic"
+    or "what are its axis units" -- WKT is a nested grammar, so a flat scan
+    can't tell which subtree a unit belongs to (PRIMEM, MERIDIAN, BEARING,
+    conversion PARAMETERs all carry angular units). Ask PROJ instead, which
+    reads the actual tree and handles a BoundCRS's SOURCE units or a 3D
     geographic CRS's axis unit correctly.
 
-    Import is function-scope because rasterio pulls in GDAL and ``core`` is
-    the lowest layer. Results are cached: callers run this per row over a
-    small set of distinct CRSs.
+    PROJ may open files the text names, so only the raster probe child calls
+    this. Import is function-scope because rasterio pulls in GDAL and ``core``
+    is the lowest layer; results are cached because callers repeat the same
+    few CRSs.
     """
     try:
         from rasterio.crs import CRS
@@ -538,7 +539,11 @@ def wkt_is_geographic(crs_wkt: str | None) -> bool | None:
     # mocks; a non-string is an unknown CRS, not a crash.
     if not isinstance(crs_wkt, str) or not crs_wkt:
         return None
-    crs = _parse_crs(crs_wkt)
+    return _is_geographic(_parse_crs(crs_wkt), crs_wkt)
+
+
+def _is_geographic(crs: object | None, crs_wkt: str | None) -> bool | None:
+    """:func:`wkt_is_geographic`'s answer for ``crs``, PROJ's parse of ``crs_wkt``."""
     if crs is not None:
         try:
             if crs.is_geographic:
@@ -548,6 +553,8 @@ def wkt_is_geographic(crs_wkt: str | None) -> bool | None:
         except Exception:  # broad: exotic CRSs raise from PROJ rather than answering; fall through to the sniff
             pass
         # Parsed but neither geographic nor projected: geocentric/engineering.
+    if not isinstance(crs_wkt, str) or not crs_wkt:
+        return None
     # Blank quoted content BEFORE truncating: a pathologically long quoted
     # name could otherwise push a real keyword past the truncation point.
     head = re.sub(r'"[^"]*"', '""', crs_wkt)[:2000].upper()
@@ -646,6 +653,38 @@ def wkt_metres_per_unit(crs_wkt: str | None) -> float | None:
     if not isinstance(crs_wkt, str) or not crs_wkt:
         return None
     return crs_metres_per_unit(_parse_crs(crs_wkt))
+
+
+def crs_facts_of(crs: object | None, crs_wkt: str | None) -> dict:
+    """What request paths read about a raster's CRS, keyed by ``raster_assets`` column.
+
+    ``crs`` is PROJ's parse of ``crs_wkt``, or None when there is none.
+    """
+    return {
+        "crs_is_geographic": _is_geographic(crs, crs_wkt),
+        "crs_has_degree_unit": crs_has_degree_unit(crs),
+        "crs_metres_per_unit": crs_metres_per_unit(crs),
+    }
+
+
+def wkt_crs_facts(crs_wkt: str | None) -> dict:
+    """:func:`crs_facts_of` for CRS text, parsed here."""
+    if not isinstance(crs_wkt, str) or not crs_wkt:
+        return crs_facts_of(None, None)
+    return crs_facts_of(_parse_crs(crs_wkt), crs_wkt)
+
+
+def crs_columns(meta: dict) -> dict:
+    """A raster's CRS text and the facts derived from it, as ``raster_assets`` columns.
+
+    Every writer stores them together, so the facts describe the stored text.
+    """
+    return {
+        "crs_wkt": meta.get("crs_wkt"),
+        "crs_is_geographic": meta.get("crs_is_geographic"),
+        "crs_has_degree_unit": meta.get("crs_has_degree_unit"),
+        "crs_metres_per_unit": meta.get("crs_metres_per_unit"),
+    }
 
 
 def pixel_size_from_affine(

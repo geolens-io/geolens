@@ -432,7 +432,6 @@ async def create_vrt_dataset(
         # fix(#1290): the authoritative staleness input. The timestamp
         # above stays for legacy rows that have no built-from set.
         built_from=built_from,
-        crs_wkt=meta.get("crs_wkt"),
         epsg=meta.get("epsg"),
         band_count=meta.get("band_count"),
         dtype=meta.get("dtype"),
@@ -451,6 +450,7 @@ async def create_vrt_dataset(
         resolution_strategy=resolution_strategy,
         status="ready",
     )
+    raster_asset.set_crs(meta)
     session.add(raster_asset)
     await session.flush()
 
@@ -1329,7 +1329,7 @@ async def regenerate_vrt(
                 if ql512 is not None:
                     vrt_asset.quicklook_512_uri = next_ql512_uri
                 vrt_asset.size_bytes = new_size
-                vrt_asset.crs_wkt = meta.get("crs_wkt")
+                vrt_asset.set_crs(meta)
                 vrt_asset.epsg = meta.get("epsg")
                 vrt_asset.band_count = meta.get("band_count")
                 vrt_asset.dtype = meta.get("dtype")

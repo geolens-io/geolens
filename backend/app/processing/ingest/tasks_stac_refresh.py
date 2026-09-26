@@ -29,7 +29,7 @@ from typing import Any
 import structlog
 from sqlalchemy import func, select, update
 
-from app.core.geo import bbox_to_extent_wkt
+from app.core.geo import bbox_to_extent_wkt, crs_columns
 from app.core.service_tokens import (
     STAC_SERVICE_FORMAT,
     ServiceCredential,
@@ -427,7 +427,7 @@ async def _repoint_remote_asset(
             # info` already reads it off the moved object, and the STAC
             # import path writes it too, so leaving it stale here would
             # disagree with a fresh import of the same asset.
-            crs_wkt=described.get("crs_wkt"),
+            **crs_columns(described),
             # fix(#1375): resolution pair and rotation flag move for the
             # same reason — a re-tiled or reprojected replacement is exactly
             # where the old pixel size stops describing the new object.

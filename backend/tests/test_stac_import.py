@@ -924,19 +924,9 @@ class TestStacImport:
         case where res_x/res_y stay NULL. The sibling test below covers the
         one that does carry it.
         """
-        crs_wkt = (
-            'PROJCS["WGS 84 / UTM zone 21N",GEOGCS["WGS 84",'
-            'DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],'
-            'PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],'
-            'PROJECTION["Transverse_Mercator"],'
-            'PARAMETER["latitude_of_origin",0],'
-            'PARAMETER["central_meridian",-57],'
-            'PARAMETER["scale_factor",0.9996],'
-            'PARAMETER["false_easting",500000],'
-            'PARAMETER["false_northing",0],'
-            'UNIT["metre",1],AXIS["Easting",EAST],AXIS["Northing",NORTH],'
-            'AUTHORITY["EPSG","32621"]]'
-        )
+        from app.modules.catalog.sources.cog_info import _georeferencing
+
+        georeferencing = _georeferencing({"crs": "EPSG:32621"})
         with patch(
             "app.modules.catalog.sources.stac_router.fetch_cog_info",
             new=AsyncMock(
@@ -947,7 +937,7 @@ class TestStacImport:
                     "height": 2667,
                     "nodata": None,
                     "band_info": None,
-                    "crs_wkt": crs_wkt,
+                    **georeferencing,
                 }
             ),
         ):
@@ -977,8 +967,7 @@ class TestStacImport:
         detail = await client.get(f"/datasets/{dataset_id}", headers=admin_auth_header)
         assert detail.status_code == 200
         raster = detail.json()["raster"]
-        # A projected UTM CRS, not geographic — proves crs_wkt round-tripped
-        # far enough for PROJ to classify it, not just landed as a string.
+        # A projected UTM CRS: the probe's facts were stored with its text.
         assert raster["crs_is_geographic"] is False
         # A probe that established no transform leaves these NULL rather
         # than guessing — see the docstring above.
@@ -988,13 +977,14 @@ class TestStacImport:
         row = (
             await test_db_session.execute(
                 text(
-                    "SELECT ra.crs_wkt FROM catalog.raster_assets ra"
+                    "SELECT ra.crs_wkt, ra.crs_is_geographic, ra.crs_has_degree_unit,"
+                    " ra.crs_metres_per_unit FROM catalog.raster_assets ra"
                     " JOIN catalog.datasets d ON d.id = ra.dataset_id"
                     " WHERE d.id = :did"
                 ).bindparams(did=uuid.UUID(dataset_id))
             )
         ).one()
-        assert row.crs_wkt == crs_wkt
+        assert tuple(row) == (georeferencing["crs_wkt"], False, False, 1.0)
 
     async def test_import_records_the_probed_resolution_and_rotation(
         self,

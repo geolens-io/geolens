@@ -3549,5 +3549,10 @@ class TestProbedCrsOfAMovedAsset:
         assert await _asset_uri(dataset.id) == _MOVED_ASSET
         described = await _raster_asset(dataset.id)
         assert described.crs_wkt == _MAIN_CRS84_WKT[crs]
+        assert (
+            described.crs_is_geographic,
+            described.crs_has_degree_unit,
+            described.crs_metres_per_unit,
+        ) == (True, True, None)
         assert described.epsg is None
         assert (await _reload(dataset.id)).srid is None

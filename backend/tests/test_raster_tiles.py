@@ -18,6 +18,7 @@ import pytest
 from httpx import AsyncClient
 
 from app.core.config import settings
+from app.core.geo import wkt_crs_facts
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.processing.raster.models import RasterAsset
 from app.processing.tiles.router import (
@@ -158,6 +159,7 @@ class TestRasterTokenZoomMetadata:
             storage_backend="local",
             epsg=epsg,
             crs_wkt=crs_wkt,
+            **wkt_crs_facts(crs_wkt),
             res_x=self._ETOPO_RES,
             res_y=self._ETOPO_RES,
             width=21600,
@@ -255,17 +257,19 @@ class TestRasterTokenZoomMetadata:
 
     def test_projected_meter_crs_with_wkt_unchanged(self):
         # 3857 and friends keep reading res_x/res_y as metres.
+        wkt = (
+            'PROJCS["WGS 84 / Pseudo-Mercator",GEOGCS["WGS 84",'
+            'DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],'
+            'UNIT["degree",0.0174532925199433]],'
+            'PROJECTION["Mercator_1SP"],UNIT["metre",1]]'
+        )
         asset = RasterAsset(
             dataset_id=uuid.uuid4(),
             asset_uri="rasters/test/dem.tif",
             storage_backend="local",
             epsg=3857,
-            crs_wkt=(
-                'PROJCS["WGS 84 / Pseudo-Mercator",GEOGCS["WGS 84",'
-                'DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],'
-                'UNIT["degree",0.0174532925199433]],'
-                'PROJECTION["Mercator_1SP"],UNIT["metre",1]]'
-            ),
+            crs_wkt=wkt,
+            **wkt_crs_facts(wkt),
             res_x=1.39,
             res_y=1.39,
         )

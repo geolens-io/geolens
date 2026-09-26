@@ -45,6 +45,32 @@ class TestCreateVrtDataset:
         assert dataset.record_id == record.id
         assert raster_asset.dataset_id == dataset.id
 
+    async def test_the_asset_stores_the_crs_text_with_its_facts(self, test_db_session):
+        facts = {
+            "crs_is_geographic": False,
+            "crs_has_degree_unit": False,
+            "crs_metres_per_unit": 0.3048006096012192,
+        }
+        _, _, raster_asset = await create_vrt_dataset(
+            test_db_session,
+            meta={"epsg": 2263, "crs_wkt": "PROJCRS[...]", **facts, "band_count": 1},
+            asset_sha256="c" * 64,
+            vrt_size=512,
+            source_filename="feet-mosaic.vrt",
+            created_by=await _get_admin_id(test_db_session),
+            title=f"Feet VRT {uuid.uuid4().hex[:6]}",
+            summary=None,
+            visibility="private",
+            vrt_type="mosaic",
+            resolution_strategy="finest",
+            source_dataset_ids=[],
+        )
+
+        await test_db_session.commit()
+        await test_db_session.refresh(raster_asset)
+        assert raster_asset.crs_wkt == "PROJCRS[...]"
+        assert {key: getattr(raster_asset, key) for key in facts} == facts
+
     async def test_vrt_mosaic_of_dem_tiles_is_flagged_is_dem(self, test_db_session):
         """A VRT mosaic of single-band float DEM tiles must itself be flagged
         as a DEM, so map terrain + hillshade can use it (#185). Without this the

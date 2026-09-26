@@ -252,6 +252,11 @@ class TestAuthorityCrsOnly:
         assert result["crs_wkt"] == rasterio.crs.CRS.from_epsg(epsg).to_wkt(
             version="WKT2_2019"
         )
+        assert (
+            result["crs_is_geographic"],
+            result["crs_has_degree_unit"],
+            result["crs_metres_per_unit"],
+        ) == (False, False, 1.0)
         assert crs_text_parses == []
 
     @pytest.mark.parametrize(
@@ -285,9 +290,36 @@ class TestAuthorityCrsOnly:
         assert result is not None
         assert result["crs_wkt"] == _MAIN_CRS84_WKT[crs]
         assert result["epsg"] is None
+        assert (
+            result["crs_is_geographic"],
+            result["crs_has_degree_unit"],
+            result["crs_metres_per_unit"],
+        ) == (True, True, None)
         assert "crs_unidentified" not in result
         assert reconcile_epsg(result, 4326) is None
         assert crs_text_parses == []
+
+    @pytest.mark.parametrize(
+        "crs", ["EPSG:4326", "EPSG:32618", "EPSG:2263", "EPSG:4807", _CRS84_FORMS[0]]
+    )
+    async def test_the_registry_facts_match_the_probe_childs(
+        self, monkeypatch, crs
+    ) -> None:
+        """A remote row's facts equal what ingest's probe child says of its text."""
+        from app.processing.raster import probe
+
+        _install(monkeypatch, {**_TITILER_INFO, "crs": crs})
+        result = await fetch_cog_info("https://origin.test/scene.tif")
+
+        assert result is not None
+        assert {
+            key: result[key]
+            for key in (
+                "crs_is_geographic",
+                "crs_has_degree_unit",
+                "crs_metres_per_unit",
+            )
+        } == probe.crs_facts(result["crs_wkt"])
 
     async def test_no_reported_crs_still_takes_the_declared_code(
         self, monkeypatch

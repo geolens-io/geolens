@@ -181,13 +181,13 @@ def _is_degree_based(facts: dict) -> bool:
     unit check is :func:`core.geo.crs_has_degree_unit`.
 
     "Unknown" reads as False here — the opposite of the tile path's
-    ``wkt_has_degree_unit(...) is not False``, which keeps the historical
+    ``crs_has_degree_unit is not False``, which keeps the historical
     degrees assumption. Same question, opposite safe answer.
 
     The shared helper's ``rel_tol`` is correct there and wrong in
     :func:`_offset_text` — don't "fix" that one by symmetry.
     """
-    return facts["is_geographic"] is True and facts["has_degree_unit"] is True
+    return facts["crs_is_geographic"] is True and facts["crs_has_degree_unit"] is True
 
 
 def normalize_lon_span(left: float, right: float) -> tuple[float, float]:

@@ -162,13 +162,9 @@ def _signal_name(returncode: int) -> str | None:
 
 
 def _inspect(path: str, expected_compression: str) -> dict:
-    from app.processing.raster.cog import (
-        _predictor_supported,
-        check_cog_compliance,
-        extract_raster_metadata,
-    )
+    from app.processing.raster.cog import _predictor_supported, check_cog_compliance
 
-    metadata = extract_raster_metadata(path)
+    metadata = _metadata(path)
     compliant, reason = check_cog_compliance(
         path, expected_compression=expected_compression or None
     )
@@ -181,9 +177,12 @@ def _inspect(path: str, expected_compression: str) -> dict:
 
 
 def _metadata(path: str) -> dict:
+    """``extract_raster_metadata`` plus the facts of the CRS text it read."""
+    from app.core.geo import wkt_crs_facts
     from app.processing.raster.cog import extract_raster_metadata
 
-    return extract_raster_metadata(path)
+    metadata = extract_raster_metadata(path)
+    return {**metadata, **wkt_crs_facts(metadata["crs_wkt"])}
 
 
 def _quicklook(path: str, size: str) -> str:
@@ -193,18 +192,9 @@ def _quicklook(path: str, size: str) -> str:
 
 
 def _crs_facts() -> dict:
-    from app.core.geo import (
-        wkt_has_degree_unit,
-        wkt_is_geographic,
-        wkt_metres_per_unit,
-    )
+    from app.core.geo import wkt_crs_facts
 
-    wkt = sys.stdin.read()
-    return {
-        "is_geographic": wkt_is_geographic(wkt),
-        "has_degree_unit": wkt_has_degree_unit(wkt),
-        "metres_per_unit": wkt_metres_per_unit(wkt),
-    }
+    return wkt_crs_facts(sys.stdin.read())
 
 
 def _category(exc: Exception) -> str:

@@ -16,6 +16,7 @@ import pytest
 import sqlalchemy.exc
 from sqlalchemy import select
 
+from app.core.geo import wkt_crs_facts
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.processing.raster.models import DatasetAsset, RasterAsset
 
@@ -156,6 +157,7 @@ class TestGsdUnits:
             dataset_id=uuid.uuid4(),
             asset_uri="/app/storage/x.tif",
             crs_wkt=crs_wkt,
+            **wkt_crs_facts(crs_wkt),
             res_x=res,
             res_y=-res,
         )
