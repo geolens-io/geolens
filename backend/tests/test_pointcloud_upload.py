@@ -237,6 +237,7 @@ async def test_a_point_cloud_publishes_its_dataset_pointer_and_object(
         POINTCLOUD_MEDIA_TYPE,
         len(_CLOUD),
     )
+    assert dataset.pointcloud_attempt_id == job.attempt_id
     assert await pointcloud_objects(dataset.id) == [key]
     assert await storage_provider.get_storage().get(key) == _CLOUD
     assert not Path(staged).exists()

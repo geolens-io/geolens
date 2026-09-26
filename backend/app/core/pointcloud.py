@@ -31,8 +31,13 @@ LAZ_WITHOUT_KIND = (
     f"kind={POINTCLOUD_FILE_TYPE}."
 )
 
+# Every attempt's object has this name, and the route that serves it ends in it.
+POINTCLOUD_FILENAME = "data.copc.laz"
+
 _UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
-_ATTEMPT_KEY = re.compile(rf"pointclouds/{_UUID}/{_UUID}/data\.copc\.laz")
+_ATTEMPT_KEY = re.compile(
+    rf"pointclouds/{_UUID}/(?P<attempt>{_UUID})/{re.escape(POINTCLOUD_FILENAME)}"
+)
 
 
 def pointcloud_prefix(dataset_id: uuid.UUID | str) -> str:
@@ -42,7 +47,7 @@ def pointcloud_prefix(dataset_id: uuid.UUID | str) -> str:
 
 def pointcloud_attempt_key(dataset_id: uuid.UUID, attempt_id: uuid.UUID) -> str:
     """The object one ingest attempt writes the point cloud to."""
-    return f"{pointcloud_prefix(dataset_id)}{attempt_id}/data.copc.laz"
+    return f"{pointcloud_prefix(dataset_id)}{attempt_id}/{POINTCLOUD_FILENAME}"
 
 
 def is_pointcloud_attempt_key(value: object) -> bool:
