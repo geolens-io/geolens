@@ -2,7 +2,7 @@ import userEvent from '@testing-library/user-event';
 import { useParams } from 'react-router';
 import { render, screen } from '@/test/test-utils';
 import { MapBuilderPage } from '@/pages/MapBuilderPage';
-import { analysisAddToMap } from '@/stores/analysis-job-store';
+import { registerAnalysisAddToMap, useAnalysisAddToMapStore } from '@/stores/analysis-job-store';
 
 const dialogsState = {
   showChat: false,
@@ -289,33 +289,45 @@ describe('MapBuilderPage header actions', () => {
   });
 });
 
-// fix(#943): the watcher suite hand-seeds `analysisAddToMap`, so the real
-// registration — the thing that decides whether an analysis result can be added
-// to THIS builder — was covered at neither end. AnalysisJobWatcher gates on
-// both fields: a live `current` AND a `mapId` matching the finished job's.
+// The watcher suite registers builders by hand, so these pin the real
+// registration. The watcher offers "Add to map" only for a registered handler
+// whose map id matches the finished job's.
 describe('MapBuilderPage analysis Add-to-map registration', () => {
   beforeEach(() => {
     mockUseParams.mockReturnValue({ id: 'map-1' });
-    analysisAddToMap.current = null;
-    analysisAddToMap.mapId = null;
+    registerAnalysisAddToMap(null, null);
     mockChatAddDataset.mockReset();
   });
 
   it('registers the builder add-dataset callback and the open map id', () => {
     render(<MapBuilderPage />, { route: '/maps/map-1' });
 
-    expect(analysisAddToMap.current).toBe(mockChatAddDataset);
-    expect(analysisAddToMap.mapId).toBe('map-1');
+    expect(useAnalysisAddToMapStore.getState().add).toBe(mockChatAddDataset);
+    expect(useAnalysisAddToMapStore.getState().mapId).toBe('map-1');
   });
 
   it('clears the registration on unmount so the watcher falls back to View dataset', () => {
     const { unmount } = render(<MapBuilderPage />, { route: '/maps/map-1' });
-    expect(analysisAddToMap.current).toBe(mockChatAddDataset);
+    expect(useAnalysisAddToMapStore.getState().add).toBe(mockChatAddDataset);
 
     unmount();
 
-    expect(analysisAddToMap.current).toBeNull();
-    expect(analysisAddToMap.mapId).toBeNull();
+    expect(useAnalysisAddToMapStore.getState().add).toBeNull();
+    expect(useAnalysisAddToMapStore.getState().mapId).toBeNull();
+  });
+
+  // An open completion toast follows this registration, so clearing and
+  // re-registering on a re-render would flip it to View dataset and back.
+  it('leaves the registration untouched through a re-render', () => {
+    const { rerender } = render(<MapBuilderPage />, { route: '/maps/map-1' });
+    const listener = vi.fn();
+    const unsubscribe = useAnalysisAddToMapStore.subscribe(listener);
+
+    rerender(<MapBuilderPage />);
+    unsubscribe();
+
+    expect(listener).not.toHaveBeenCalled();
+    expect(useAnalysisAddToMapStore.getState().add).toBe(mockChatAddDataset);
   });
 
   it('registers a null map id for an unsaved builder', () => {
@@ -323,6 +335,6 @@ describe('MapBuilderPage analysis Add-to-map registration', () => {
 
     render(<MapBuilderPage />, { route: '/maps/new' });
 
-    expect(analysisAddToMap.mapId).toBeNull();
+    expect(useAnalysisAddToMapStore.getState().mapId).toBeNull();
   });
 });

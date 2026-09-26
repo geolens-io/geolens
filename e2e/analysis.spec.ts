@@ -164,9 +164,8 @@ test.describe('builder analysis tools', () => {
     holdJobRunning = false;
 
     await expect(completionToast).toBeVisible({ timeout: 60_000 });
-    // "View dataset" rather than "Add to map" is deterministic now: the action
-    // label is chosen when the toast is raised, from canAddToMap, which needs
-    // MapBuilderPage mounted — and it provably is not, per the assertions above.
+    // "View dataset" rather than "Add to map": the label follows whether a
+    // builder for this map is mounted, and none is.
     await expect(
       completionToast.getByRole('button', { name: 'View dataset' }),
     ).toBeVisible();

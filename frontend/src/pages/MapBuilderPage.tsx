@@ -119,7 +119,7 @@ import { usePluginStore } from '@/stores/map-plugin-store';
 import type { ViewportContext } from '@/components/builder/chat-suggestions';
 import type { EphemeralAnalysisHandoff } from '@/components/builder/hooks/use-ephemeral-layers';
 import { readStorage, removeStorage, storageKeys } from '@/lib/storage';
-import { analysisAddToMap, useAnalysisJobStore } from '@/stores/analysis-job-store';
+import { registerAnalysisAddToMap, useAnalysisJobStore } from '@/stores/analysis-job-store';
 import { takeChatResult } from '@/lib/chat-result-handoff';
 
 export function MapBuilderPage() {
@@ -960,17 +960,14 @@ export function MapBuilderPage() {
     },
     [setAnalysisJob, id],
   );
-  // No dep array: keeps the registered callback fresh on every render; the
-  // cleanup is what matters, so the watcher falls back to "View dataset" once
-  // this builder is gone.
+  // No dep array: keeps the registered callback fresh on every render. The
+  // clear runs only on unmount, so an open completion toast hears about this
+  // builder arriving, leaving or switching maps, never about a re-render.
+  const addAnalysisOutput = layers.chatLayerActions?.onAddDataset ?? null;
   useEffect(() => {
-    analysisAddToMap.current = layers.chatLayerActions?.onAddDataset ?? null;
-    analysisAddToMap.mapId = id ?? null;
-    return () => {
-      analysisAddToMap.current = null;
-      analysisAddToMap.mapId = null;
-    };
+    registerAnalysisAddToMap(addAnalysisOutput, id ?? null);
   });
+  useEffect(() => () => registerAnalysisAddToMap(null, null), []);
 
   // feat(#675): "Save as dataset" on the ephemeral preview — open the Analysis
   // panel prefilled with the operation behind the chat preview.
