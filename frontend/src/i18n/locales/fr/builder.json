@@ -714,6 +714,7 @@
     "visibilityConfirmCancel": "Annuler",
     "makePublicConfirmTitle": "Rendre cette carte publique ?",
     "makePublicConfirmDescription": "Toute personne disposant du lien pourra voir cette carte.",
+    "makePublicBlockedDescription": "Cette carte ne peut pas être publique tant que ces jeux de données ne sont pas publics : {{datasets}}.",
     "makePublicConfirmAction": "Rendre publique",
     "leavePublicConfirmTitle": "Arrêter le partage public ?",
     "leavePublicConfirmDescription": "Les liens de partage et les codes d'intégration existants cesseront de fonctionner immédiatement.",

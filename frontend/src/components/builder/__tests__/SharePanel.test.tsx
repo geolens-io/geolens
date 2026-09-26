@@ -1276,22 +1276,11 @@ describe('fix(#778) public-boundary visibility confirmation', () => {
     vi.clearAllMocks();
   });
 
-  const privateLayer = {
-    id: 'layer-1',
-    dataset_id: 'ds-1',
-    dataset_name: 'Secret parcels',
-    display_name: null,
-    dataset_visibility: 'private',
-    dataset_status: 'published',
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } as any;
-
   it('private→public opens the confirm dialog and only mutates on confirm', async () => {
     const user = userEvent.setup();
     const { publishMapFn } = setup({
       visibility: 'private',
       hasShareToken: false,
-      layers: [privateLayer],
     });
 
     await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
@@ -1299,14 +1288,12 @@ describe('fix(#778) public-boundary visibility confirmation', () => {
     // Dialog is open, nothing has mutated yet.
     const dialog = await screen.findByRole('alertdialog');
     expect(publishMapFn).not.toHaveBeenCalled();
-    // The audience-hidden layer list is surfaced inside the dialog body,
-    // computed against the TARGET (public) visibility.
-    expect(screen.getByTestId('share-confirm-audience-hidden-warning')).toHaveTextContent(
-      'Secret parcels',
-    );
     expect(dialog).toHaveTextContent(/make this map public\?/i);
 
-    await user.click(screen.getByRole('button', { name: /^make public$/i }));
+    // The action waits on the server's own publish-eligibility check.
+    const makePublicButton = await screen.findByRole('button', { name: /^make public$/i });
+    await waitFor(() => expect(makePublicButton).toBeEnabled());
+    await user.click(makePublicButton);
 
     await waitFor(() => {
       expect(publishMapFn).toHaveBeenCalledOnce();
@@ -1382,6 +1369,86 @@ describe('fix(#778) public-boundary visibility confirmation', () => {
     // The other choices stay usable.
     expect(screen.getByRole('radio', { name: /only you/i })).toBeEnabled();
     expect(screen.getByRole('radio', { name: /all team members/i })).toBeEnabled();
+  });
+});
+
+describe('#2297 public confirm defers to the server publish check', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const privateLayer = {
+    id: 'layer-1',
+    dataset_id: 'ds-1',
+    dataset_name: 'Secret parcels',
+    display_name: null,
+    dataset_visibility: 'private',
+    dataset_status: 'published',
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any;
+
+  it('blocks Make public and names the datasets when the server would refuse', async () => {
+    const user = userEvent.setup();
+    const { publishMapFn } = setup({
+      visibility: 'private',
+      hasShareToken: false,
+      hasNonPublic: true,
+      layers: [privateLayer],
+    });
+
+    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+
+    const dialog = await screen.findByRole('alertdialog');
+    expect(dialog).toHaveTextContent(/make this map public\?/i);
+    await waitFor(() => {
+      expect(dialog).toHaveTextContent('Private dataset');
+    });
+    expect(screen.queryByRole('button', { name: /^make public$/i })).not.toBeInTheDocument();
+    // Superseded by the message above — showing both would say the map can't
+    // go public AND will go public with the layer merely hidden.
+    expect(screen.queryByTestId('share-confirm-audience-hidden-warning')).not.toBeInTheDocument();
+    expect(publishMapFn).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: /^cancel$/i }));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  it('leaves all datasets public unaffected: Make public still offered', async () => {
+    const user = userEvent.setup();
+    const { publishMapFn } = setup({
+      visibility: 'private',
+      hasShareToken: false,
+      hasNonPublic: false,
+    });
+
+    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+    await screen.findByRole('alertdialog');
+
+    const makePublicButton = await screen.findByRole('button', { name: /^make public$/i });
+    await waitFor(() => expect(makePublicButton).toBeEnabled());
+    await user.click(makePublicButton);
+
+    await waitFor(() => {
+      expect(publishMapFn).toHaveBeenCalledWith({ id: 'map-1', visibility: 'public' });
+    });
+  });
+
+  it('leaves All team members unaffected by a non-public layer', async () => {
+    const user = userEvent.setup();
+    const { publishMapFn } = setup({
+      visibility: 'private',
+      hasShareToken: false,
+      hasNonPublic: true,
+      layers: [privateLayer],
+    });
+
+    await user.click(screen.getByRole('radio', { name: /all team members/i }));
+
+    await waitFor(() => {
+      expect(publishMapFn).toHaveBeenCalledWith({ id: 'map-1', visibility: 'internal' });
+    });
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(mockedCheckMapVisibility).not.toHaveBeenCalled();
   });
 });
 

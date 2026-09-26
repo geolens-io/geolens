@@ -1081,6 +1081,30 @@ export function ShareDialog({
     [layers, pendingVisibility],
   );
 
+  // validate_public_visibility (server) decides whether the map can go
+  // public; isLayerHiddenFromMapAudience above only guesses from cached
+  // layer fields and can disagree with it. Null = unchecked/checking.
+  const [pendingNonPublicDatasets, setPendingNonPublicDatasets] = useState<string[] | null>(null);
+  const publicEligibilityRequestId = useRef(0);
+  const isPublicBlocked = (pendingNonPublicDatasets?.length ?? 0) > 0;
+
+  // Guards a stale response from landing after a newer request.
+  function checkPublicEligibility() {
+    const requestId = ++publicEligibilityRequestId.current;
+    setPendingNonPublicDatasets(null);
+    checkMapVisibility(mapId)
+      .then((check) => {
+        if (publicEligibilityRequestId.current === requestId) {
+          setPendingNonPublicDatasets(check.non_public_datasets);
+        }
+      })
+      .catch(() => {
+        if (publicEligibilityRequestId.current === requestId) {
+          setPendingNonPublicDatasets([]);
+        }
+      });
+  }
+
   function handleVisibilitySelect(newVisibility: MapVisibility) {
     if (newVisibility === visibility) return;
     // fix(#1831): a fresh attempt clears any stale refusal from a previous one.
@@ -1091,6 +1115,7 @@ export function ShareDialog({
     // Private↔internal keeps the original one-click behavior.
     if (newVisibility === 'public' || visibility === 'public') {
       setPendingVisibility(newVisibility);
+      if (newVisibility === 'public') checkPublicEligibility();
       return;
     }
     void handleVisibilityChange(newVisibility);
@@ -1324,10 +1349,14 @@ export function ShareDialog({
                   <AlertDialogHeader>
                     <AlertDialogTitle>{t('share.makePublicConfirmTitle')}</AlertDialogTitle>
                     <AlertDialogDescription>
-                      {t('share.makePublicConfirmDescription')}
+                      {isPublicBlocked
+                        ? t('share.makePublicBlockedDescription', {
+                            datasets: (pendingNonPublicDatasets ?? []).join(', '),
+                          })
+                        : t('share.makePublicConfirmDescription')}
                     </AlertDialogDescription>
                   </AlertDialogHeader>
-                  {pendingAudienceHiddenLayers.length > 0 && (
+                  {!isPublicBlocked && pendingAudienceHiddenLayers.length > 0 && (
                     <div
                       data-testid="share-confirm-audience-hidden-warning"
                       className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-foreground"
@@ -1343,9 +1372,18 @@ export function ShareDialog({
                   )}
                   <AlertDialogFooter>
                     <AlertDialogCancel>{t('share.visibilityConfirmCancel')}</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleConfirmVisibilityChange}>
-                      {t('share.makePublicConfirmAction')}
-                    </AlertDialogAction>
+                    {!isPublicBlocked && (
+                      <AlertDialogAction
+                        onClick={handleConfirmVisibilityChange}
+                        disabled={pendingNonPublicDatasets === null}
+                      >
+                        {pendingNonPublicDatasets === null ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                        ) : (
+                          t('share.makePublicConfirmAction')
+                        )}
+                      </AlertDialogAction>
+                    )}
                   </AlertDialogFooter>
                 </>
               ) : (

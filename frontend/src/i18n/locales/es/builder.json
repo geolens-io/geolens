@@ -714,6 +714,7 @@
     "visibilityConfirmCancel": "Cancelar",
     "makePublicConfirmTitle": "¿Hacer público este mapa?",
     "makePublicConfirmDescription": "Cualquier persona con el enlace podrá ver este mapa.",
+    "makePublicBlockedDescription": "Este mapa no puede ser público hasta que estos conjuntos de datos sean públicos: {{datasets}}.",
     "makePublicConfirmAction": "Hacer público",
     "leavePublicConfirmTitle": "¿Dejar de compartir públicamente?",
     "leavePublicConfirmDescription": "Los enlaces para compartir y los códigos de inserción existentes dejarán de funcionar de inmediato.",

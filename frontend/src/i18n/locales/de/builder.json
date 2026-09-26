@@ -714,6 +714,7 @@
     "visibilityConfirmCancel": "Abbrechen",
     "makePublicConfirmTitle": "Diese Karte öffentlich machen?",
     "makePublicConfirmDescription": "Jeder mit dem Link kann diese Karte ansehen.",
+    "makePublicBlockedDescription": "Diese Karte kann erst öffentlich sein, wenn diese Datensätze öffentlich sind: {{datasets}}.",
     "makePublicConfirmAction": "Öffentlich machen",
     "leavePublicConfirmTitle": "Öffentliche Freigabe beenden?",
     "leavePublicConfirmDescription": "Bestehende Freigabelinks und Einbettungscodes funktionieren sofort nicht mehr.",
