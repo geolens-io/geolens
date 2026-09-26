@@ -2571,7 +2571,7 @@ class TestArchiveRunsAfterTheSwapCommit:
             put_side_effect=_recording_put,
         )
 
-        assert put_calls == [f"originals/{dataset.id}/update.geojson"]
+        assert put_calls == [f"originals/{dataset.id}/{job.id}_update.geojson"]
         await test_db_session.refresh(job)
         assert job.status == "complete"
         assert "archive_failed" not in (job.user_metadata or {})
@@ -2599,6 +2599,8 @@ class TestArchiveRunsAfterTheSwapCommit:
     ):
         frozen_key = f"staging/{uuid.uuid4()}/frozen/update.geojson"
         storage = AsyncMock()
+        # A bare mock's truthy exists() would read as a landed archive.
+        storage.exists = AsyncMock(return_value=archived)
 
         async def _put(key, fobj):
             if not archived:
