@@ -1,8 +1,17 @@
 import userEvent from '@testing-library/user-event';
 import { useParams } from 'react-router';
-import { render, screen } from '@/test/test-utils';
+import { toast } from 'sonner';
+import { render, screen, waitFor } from '@/test/test-utils';
 import { MapBuilderPage } from '@/pages/MapBuilderPage';
-import { analysisAddToMap } from '@/stores/analysis-job-store';
+import { AnalysisJobWatcher } from '@/components/analysis/AnalysisJobWatcher';
+import { useJobStatus } from '@/components/import/hooks/use-ingest';
+import { ApiError } from '@/api/client';
+import {
+  ANALYSIS_JOB_STORAGE_KEY,
+  registerAnalysisAddToMap,
+  useAnalysisAddToMapStore,
+  useAnalysisJobStore,
+} from '@/stores/analysis-job-store';
 
 const dialogsState = {
   showChat: false,
@@ -63,23 +72,27 @@ vi.mock('@/components/map-plugins', () => ({
   usePartitionedPlugins: () => ({ byAnchor: {} }),
 }));
 
+const loadedMapQuery = {
+  data: {
+    id: 'map-1',
+    name: 'Operations Map',
+    description: 'Map description',
+    visibility: 'private',
+    created_at: '2026-03-01T00:00:00Z',
+    updated_at: '2026-03-02T00:00:00Z',
+    created_by_username: 'editor-user',
+    layer_count: 0,
+    thumbnail_url: null,
+    layers: [],
+  },
+  isLoading: false,
+  error: null,
+};
+let mockMapQuery: { data?: unknown; isLoading: boolean; error: unknown } = loadedMapQuery;
+let mockLayersMapId: string | null = 'map-1';
+
 vi.mock('@/hooks/use-maps', () => ({
-  useMap: () => ({
-    data: {
-      id: 'map-1',
-      name: 'Operations Map',
-      description: 'Map description',
-      visibility: 'private',
-      created_at: '2026-03-01T00:00:00Z',
-      updated_at: '2026-03-02T00:00:00Z',
-      created_by_username: 'editor-user',
-      layer_count: 0,
-      thumbnail_url: null,
-      layers: [],
-    },
-    isLoading: false,
-    error: null,
-  }),
+  useMap: () => mockMapQuery,
   useAddLayer: () => ({}),
   useRemoveLayer: () => ({}),
   useExportMapStyleJson: () => ({ mutateAsync: vi.fn(), isPending: false }),
@@ -123,6 +136,7 @@ const mockChatAddDataset = vi.fn();
 vi.mock('@/components/builder/hooks/use-builder-layers', () => ({
   useBuilderLayers: () => ({
     localLayers: [],
+    layersMapId: mockLayersMapId,
     localName: 'Operations Map',
     setLocalName: vi.fn(),
     localDescription: 'Map description',
@@ -203,7 +217,28 @@ vi.mock('@/components/builder/hooks/use-builder-save', () => ({
   }),
 }));
 
+vi.mock('sonner', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('sonner')>()),
+  toast: Object.assign(vi.fn(), {
+    success: vi.fn(),
+    error: vi.fn(),
+    warning: vi.fn(),
+    info: vi.fn(),
+    dismiss: vi.fn(),
+  }),
+}));
+
+vi.mock('@/components/import/hooks/use-ingest', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/components/import/hooks/use-ingest')>()),
+  useJobStatus: vi.fn(),
+}));
+
 const mockUseParams = vi.mocked(useParams);
+
+beforeEach(() => {
+  mockMapQuery = loadedMapQuery;
+  mockLayersMapId = 'map-1';
+});
 
 describe('MapBuilderPage header actions', () => {
   beforeEach(() => {
@@ -289,33 +324,45 @@ describe('MapBuilderPage header actions', () => {
   });
 });
 
-// fix(#943): the watcher suite hand-seeds `analysisAddToMap`, so the real
-// registration — the thing that decides whether an analysis result can be added
-// to THIS builder — was covered at neither end. AnalysisJobWatcher gates on
-// both fields: a live `current` AND a `mapId` matching the finished job's.
+// The watcher suite registers builders by hand, so these pin the real
+// registration. The watcher offers "Add to map" only for a registered handler
+// whose map id matches the finished job's.
 describe('MapBuilderPage analysis Add-to-map registration', () => {
   beforeEach(() => {
     mockUseParams.mockReturnValue({ id: 'map-1' });
-    analysisAddToMap.current = null;
-    analysisAddToMap.mapId = null;
+    registerAnalysisAddToMap(null, null);
     mockChatAddDataset.mockReset();
   });
 
   it('registers the builder add-dataset callback and the open map id', () => {
     render(<MapBuilderPage />, { route: '/maps/map-1' });
 
-    expect(analysisAddToMap.current).toBe(mockChatAddDataset);
-    expect(analysisAddToMap.mapId).toBe('map-1');
+    expect(useAnalysisAddToMapStore.getState().add).toBe(mockChatAddDataset);
+    expect(useAnalysisAddToMapStore.getState().mapId).toBe('map-1');
   });
 
   it('clears the registration on unmount so the watcher falls back to View dataset', () => {
     const { unmount } = render(<MapBuilderPage />, { route: '/maps/map-1' });
-    expect(analysisAddToMap.current).toBe(mockChatAddDataset);
+    expect(useAnalysisAddToMapStore.getState().add).toBe(mockChatAddDataset);
 
     unmount();
 
-    expect(analysisAddToMap.current).toBeNull();
-    expect(analysisAddToMap.mapId).toBeNull();
+    expect(useAnalysisAddToMapStore.getState().add).toBeNull();
+    expect(useAnalysisAddToMapStore.getState().mapId).toBeNull();
+  });
+
+  // An open completion toast follows this registration, so clearing and
+  // re-registering on a re-render would flip it to View dataset and back.
+  it('leaves the registration untouched through a re-render', () => {
+    const { rerender } = render(<MapBuilderPage />, { route: '/maps/map-1' });
+    const listener = vi.fn();
+    const unsubscribe = useAnalysisAddToMapStore.subscribe(listener);
+
+    rerender(<MapBuilderPage />);
+    unsubscribe();
+
+    expect(listener).not.toHaveBeenCalled();
+    expect(useAnalysisAddToMapStore.getState().add).toBe(mockChatAddDataset);
   });
 
   it('registers a null map id for an unsaved builder', () => {
@@ -323,6 +370,81 @@ describe('MapBuilderPage analysis Add-to-map registration', () => {
 
     render(<MapBuilderPage />, { route: '/maps/new' });
 
-    expect(analysisAddToMap.mapId).toBeNull();
+    expect(useAnalysisAddToMapStore.getState().mapId).toBeNull();
+  });
+
+  it('withholds the add handler until the layers belong to this map', () => {
+    mockLayersMapId = 'another-map';
+
+    render(<MapBuilderPage />, { route: '/maps/map-1' });
+
+    expect(useAnalysisAddToMapStore.getState().add).toBeNull();
+  });
+
+  describe('with a completion toast open', () => {
+    beforeEach(() => {
+      vi.mocked(toast.success).mockClear();
+      localStorage.removeItem(ANALYSIS_JOB_STORAGE_KEY);
+      useAnalysisJobStore.setState({
+        job: { jobId: 'j1', title: 'Buffered', mapId: 'map-1' },
+        completedAt: null,
+      });
+      vi.mocked(useJobStatus).mockReturnValue({
+        data: { status: 'complete', dataset_id: 'ds9' },
+        error: null,
+      } as unknown as ReturnType<typeof useJobStatus>);
+    });
+
+    // This file's i18n mock returns keys.
+    const VIEW_DATASET = 'analysisTools.viewDataset';
+    const ADD_TO_MAP = 'analysisTools.addToMap';
+
+    function lastToastLabel() {
+      const calls = vi.mocked(toast.success).mock.calls;
+      const options = calls[calls.length - 1]?.[1] as
+        | { action?: { label: string } }
+        | undefined;
+      return options?.action?.label;
+    }
+
+    /** Raise the job's toast with no builder mounted, so it offers View dataset. */
+    async function openToast() {
+      render(<AnalysisJobWatcher />);
+      await waitFor(() => expect(lastToastLabel()).toBe(VIEW_DATASET));
+    }
+
+    it('switches it to Add to map once the map and its layers have loaded', async () => {
+      await openToast();
+
+      render(<MapBuilderPage />, { route: '/maps/map-1' });
+
+      expect(lastToastLabel()).toBe(ADD_TO_MAP);
+    });
+
+    it('keeps it on View dataset while the map is loading', async () => {
+      await openToast();
+      mockMapQuery = { data: undefined, isLoading: true, error: null };
+
+      render(<MapBuilderPage />, { route: '/maps/map-1' });
+
+      expect(lastToastLabel()).toBe(VIEW_DATASET);
+      expect(toast.success).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps it on View dataset when the map fails to load', async () => {
+      await openToast();
+      // A refetch that fails keeps the cached map, and the page still shows
+      // its error screen.
+      mockMapQuery = {
+        data: loadedMapQuery.data,
+        isLoading: false,
+        error: new ApiError('Not Found', 404),
+      };
+
+      render(<MapBuilderPage />, { route: '/maps/map-1' });
+
+      expect(lastToastLabel()).toBe(VIEW_DATASET);
+      expect(toast.success).toHaveBeenCalledTimes(1);
+    });
   });
 });

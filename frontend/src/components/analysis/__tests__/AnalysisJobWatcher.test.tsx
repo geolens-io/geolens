@@ -5,7 +5,7 @@ import { AnalysisJobWatcher } from '../AnalysisJobWatcher';
 import { useAnalysisFormStore } from '@/stores/analysis-form-store';
 import {
   ANALYSIS_JOB_STORAGE_KEY,
-  analysisAddToMap,
+  registerAnalysisAddToMap,
   useAnalysisAddedStore,
   useAnalysisJobStore,
 } from '@/stores/analysis-job-store';
@@ -49,14 +49,24 @@ function mockJob(data: unknown, error: unknown = null) {
   } as unknown as ReturnType<typeof useJobStatus>);
 }
 
+/** Options of the latest success toast. An update in place reuses its id. */
+function lastSuccessOptions() {
+  const calls = vi.mocked(toast.success).mock.calls;
+  return calls[calls.length - 1][1] as {
+    id?: string;
+    position?: string;
+    onDismiss?: () => void;
+    action?: { label: string; onClick: () => void };
+  };
+}
+
 describe('AnalysisJobWatcher', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useAnalysisJobStore.setState({ job: null, completedAt: null });
     localStorage.removeItem(ANALYSIS_JOB_STORAGE_KEY);
     useAnalysisAddedStore.setState({ addedDatasetIds: [], pendingAddIds: [] });
-    analysisAddToMap.current = null;
-    analysisAddToMap.mapId = null;
+    registerAnalysisAddToMap(null, null);
   });
 
   it('fix(#793 review): a completed job clears the remembered form title for its map', async () => {
@@ -529,8 +539,7 @@ describe('AnalysisJobWatcher', () => {
 
   it('offers Add to map only when a builder for that map is mounted', async () => {
     const onAdd = vi.fn();
-    analysisAddToMap.current = onAdd;
-    analysisAddToMap.mapId = 'm1';
+    registerAnalysisAddToMap(onAdd, 'm1');
     useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
     mockJob({ status: 'complete', dataset_id: 'ds9' });
     renderWatcher();
@@ -547,7 +556,7 @@ describe('AnalysisJobWatcher', () => {
   });
 
   it('falls back to viewing the dataset when the builder is gone', async () => {
-    analysisAddToMap.mapId = 'a-different-map';
+    registerAnalysisAddToMap(null, 'a-different-map');
     useAnalysisJobStore.setState({ job: { jobId: 'j1', title: '', mapId: 'm1' } });
     mockJob({ status: 'complete', dataset_id: 'ds9' });
     renderWatcher();
@@ -561,6 +570,82 @@ describe('AnalysisJobWatcher', () => {
     expect(action.label).toBe('View dataset');
     action.onClick();
     expect(navigate).toHaveBeenCalledWith('/datasets/ds9');
+  });
+
+  // The toast has no timeout, so the builder can come and go while it's open.
+  it('switches an open toast to View dataset when the builder leaves', async () => {
+    const onAdd = vi.fn();
+    registerAnalysisAddToMap(onAdd, 'm1');
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
+    mockJob({ status: 'complete', dataset_id: 'ds9' });
+    renderWatcher();
+    await waitFor(() => expect(lastSuccessOptions().action?.label).toBe('Add to map'));
+    expect(lastSuccessOptions().position).toBe('top-center');
+
+    act(() => registerAnalysisAddToMap(null, null));
+
+    const options = lastSuccessOptions();
+    expect(options.id).toBe('analysis-job-j1');
+    expect(options.action?.label).toBe('View dataset');
+    expect(options.position).toBeUndefined();
+    options.action?.onClick();
+    expect(navigate).toHaveBeenCalledWith('/datasets/ds9');
+    expect(onAdd).not.toHaveBeenCalled();
+  });
+
+  it("switches an open toast to Add to map when its map's builder opens", async () => {
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
+    mockJob({ status: 'complete', dataset_id: 'ds9' });
+    renderWatcher();
+    await waitFor(() => expect(lastSuccessOptions().action?.label).toBe('View dataset'));
+    expect(lastSuccessOptions().position).toBeUndefined();
+
+    const onAdd = vi.fn();
+    act(() => registerAnalysisAddToMap(onAdd, 'm1'));
+
+    const options = lastSuccessOptions();
+    expect(options.id).toBe('analysis-job-j1');
+    expect(options.action?.label).toBe('Add to map');
+    expect(options.position).toBe('top-center');
+    options.action?.onClick();
+    expect(onAdd).toHaveBeenCalledWith('ds9');
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('leaves an open toast alone when a builder for another map opens', async () => {
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
+    mockJob({ status: 'complete', dataset_id: 'ds9' });
+    renderWatcher();
+    await waitFor(() => expect(toast.success).toHaveBeenCalledTimes(1));
+
+    act(() => registerAnalysisAddToMap(vi.fn(), 'm2'));
+
+    expect(toast.success).toHaveBeenCalledTimes(1);
+  });
+
+  // Raising a closed toast's id again would show it again.
+  it('does not reopen a toast closed with its close button', async () => {
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
+    mockJob({ status: 'complete', dataset_id: 'ds9' });
+    renderWatcher();
+    await waitFor(() => expect(toast.success).toHaveBeenCalledTimes(1));
+
+    act(() => lastSuccessOptions().onDismiss?.());
+    act(() => registerAnalysisAddToMap(vi.fn(), 'm1'));
+
+    expect(toast.success).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not reopen a toast closed by its action', async () => {
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
+    mockJob({ status: 'complete', dataset_id: 'ds9' });
+    renderWatcher();
+    await waitFor(() => expect(toast.success).toHaveBeenCalledTimes(1));
+
+    act(() => lastSuccessOptions().action?.onClick());
+    act(() => registerAnalysisAddToMap(vi.fn(), 'm1'));
+
+    expect(toast.success).toHaveBeenCalledTimes(1);
   });
 
   it('reports failures with the job error message', async () => {
@@ -577,8 +662,7 @@ describe('AnalysisJobWatcher', () => {
     // Sonner dismisses the toast on action click, but the exit animation
     // leaves a window for a second click — the add must not repeat.
     const onAdd = vi.fn();
-    analysisAddToMap.current = onAdd;
-    analysisAddToMap.mapId = 'm1';
+    registerAnalysisAddToMap(onAdd, 'm1');
     useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
     mockJob({ status: 'complete', dataset_id: 'ds9' });
     renderWatcher();
@@ -598,8 +682,7 @@ describe('AnalysisJobWatcher', () => {
   // so clicking the toast action and then the panel button added twice.
   it('the toast action shares its single-use marker via useAnalysisAddedStore', async () => {
     const onAdd = vi.fn();
-    analysisAddToMap.current = onAdd;
-    analysisAddToMap.mapId = 'm1';
+    registerAnalysisAddToMap(onAdd, 'm1');
     useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
     mockJob({ status: 'complete', dataset_id: 'ds9' });
     renderWatcher();
