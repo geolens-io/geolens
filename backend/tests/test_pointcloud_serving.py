@@ -918,10 +918,13 @@ async def test_parallel_reads_write_one_audit_row(
     assert len(await _audit_rows(test_db_session, dataset_id)) == 1
 
 
+@pytest.mark.parametrize(
+    "failure", [RuntimeError, asyncio.CancelledError], ids=["error", "cancelled"]
+)
 async def test_a_failed_audit_write_is_retried_by_the_next_read(
-    test_db_session, make_pointcloud, storage, monkeypatch
+    test_db_session, make_pointcloud, storage, monkeypatch, failure
 ) -> None:
-    """A read whose audit row can't be written fails, and the caller's next read writes the row."""
+    """A read whose audit row can't be written, or is cancelled writing it, fails, and the caller's next read writes the row."""
     dataset_id, attempt = await _published(make_pointcloud, storage)
     request = Request(
         {
@@ -936,7 +939,7 @@ async def test_a_failed_audit_write_is_retried_by_the_next_read(
     emit = pointcloud_access.audit_emit
 
     async def unavailable(db, event):
-        raise RuntimeError("audit store unavailable")
+        raise failure()
 
     async def read():
         return await pointcloud_access.authorize_pointcloud_read(
@@ -949,7 +952,7 @@ async def test_a_failed_audit_write_is_retried_by_the_next_read(
         )
 
     monkeypatch.setattr(pointcloud_access, "audit_emit", unavailable)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(failure):
         await read()
     await test_db_session.rollback()
     monkeypatch.setattr(pointcloud_access, "audit_emit", emit)
