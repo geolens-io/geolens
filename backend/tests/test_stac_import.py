@@ -1067,12 +1067,7 @@ class TestStacImport:
         mock_stac_ssrf,
         test_db_session,
     ):
-        """The item declares one EPSG (4326, stale or
-        simply wrong) while the probe's own CRS says another (32621) — the
-        raster row and the dataset's srid mirror the probe, not the item, so
-        RasterAsset.to_stac_properties() cannot publish a proj:code and a
-        proj:wkt2 that name different projections.
-        """
+        """The raster row and the dataset's srid follow the probe's CRS, not the item's."""
         crs_wkt = (
             'PROJCS["WGS 84 / UTM zone 21N",GEOGCS["WGS 84",'
             'DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],'

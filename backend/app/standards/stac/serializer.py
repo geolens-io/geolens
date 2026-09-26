@@ -29,7 +29,6 @@ _STAC_EXTENSION_PROPS = (
     "proj:code",
     "proj:wkt2",
     "proj:shape",
-    "gsd",
     "raster:bands",
 )
 
@@ -149,6 +148,7 @@ def ogc_record_to_stac_item(
     collection_id: str | None = None,
     stac_api_url: str,
     derived_from_id: str | None = None,
+    crs_metres_per_unit: float | None = None,
 ) -> dict:
     """Transform an OGC Record Feature dict into a STAC 1.0 Item dict.
 
@@ -160,6 +160,10 @@ def ogc_record_to_stac_item(
         Optional STAC collection this item belongs to.
     stac_api_url:
         Base URL for the STAC API (e.g. ``https://host/api/stac``).
+    crs_metres_per_unit:
+        The raster CRS's metres per unit. The record's ``gsd`` is in CRS units
+        and STAC's is in metres, so without this (a geographic or unknown CRS)
+        the item has no ``gsd``.
     """
     props = record["properties"]
 
@@ -199,6 +203,8 @@ def ogc_record_to_stac_item(
     for key in _STAC_EXTENSION_PROPS:
         if key != "proj:code" and key in props:
             stac_props[key] = props[key]
+    if props.get("gsd") is not None and crs_metres_per_unit is not None:
+        stac_props["gsd"] = props["gsd"] * crs_metres_per_unit
 
     if any(key.startswith("proj:") for key in stac_props):
         _append_unique(stac_extensions, STAC_PROJECTION_EXTENSION_URI)

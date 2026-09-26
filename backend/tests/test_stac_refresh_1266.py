@@ -2669,13 +2669,7 @@ class TestWorker:
     async def test_a_refresh_prefers_the_probed_epsg_over_the_items_declared_one(
         self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
     ) -> None:
-        """fix(#1334 review): the moved item declares EPSG:32633
-        (``_item_doc``'s default ``proj:code``), while the probe that
-        actually opened the new bytes reports a different CRS — the raster
-        row and the dataset's srid follow the probe, not the item, so
-        ``RasterAsset.to_stac_properties()`` cannot publish a ``proj:code``
-        and a ``proj:wkt2`` that name different projections.
-        """
+        """A refresh stores the probe's CRS, not the moved item's declared EPSG."""
         install, _ = stac_transport
         install(
             {

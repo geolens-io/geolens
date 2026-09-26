@@ -231,7 +231,6 @@ UNANCHORED_MARKER_DEBT: dict[str, int] = {
     "core/persistent_config.py": 12,
     "core/processing_port.py": 8,
     "core/public_urls.py": 9,
-    "core/raster_bands.py": 1,
     "core/runtime/staging.py": 2,
     "core/service_tokens.py": 2,
     "core/tenancy.py": 1,
