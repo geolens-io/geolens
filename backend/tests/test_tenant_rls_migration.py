@@ -431,18 +431,10 @@ class TestAlembicCheckNoDrift:
 
 
 class TestAlembicDriftIgnoresRuntimeHnswIndex:
-    """Regression (drift flake): env.include_object must exclude the
-    runtime-managed ``ix_record_embeddings_hnsw`` pgvector index from
-    autogenerate, so ``alembic check`` stays clean even when the index exists in
-    the DB but not the model.
+    """``alembic check`` stays clean while ``ix_record_embeddings_hnsw`` exists.
 
-    ``embeddings/service.py`` creates and drops this HNSW index imperatively
-    once an embedding dimension is configured — it is intentionally absent from
-    the SQLAlchemy metadata. Under ``pytest -n4`` a sibling test that built it on
-    the shared worker DB before the drift check ran turned
-    ``TestAlembicCheckNoDrift.test_alembic_check_no_drift`` into a high-rate
-    flake. This deterministically reproduces that pollution and asserts the
-    drift gate ignores the index.
+    Migrations and ``rebuild_embedding_column`` build that index outside the
+    SQLAlchemy metadata, so ``env.include_object`` must hide it from autogenerate.
     """
 
     async def test_alembic_check_ignores_runtime_hnsw_index(self):
@@ -451,21 +443,23 @@ class TestAlembicDriftIgnoresRuntimeHnswIndex:
         from app.core.config import settings
 
         idx = "ix_record_embeddings_hnsw"
+        index_exists = sa.text(f"SELECT to_regclass('catalog.{idx}') IS NOT NULL")
         engine = create_async_engine(
             settings.test_database_url,
             isolation_level="AUTOCOMMIT",
         )
+        existed_before = None
         try:
-            # A plain btree under the runtime index's name reproduces the
-            # name-keyed autogenerate ``remove_index`` drift without needing a
-            # dimensioned vector column (a real HNSW index requires a fixed dim).
             async with engine.begin() as conn:
-                await conn.execute(
-                    sa.text(
-                        f"CREATE INDEX IF NOT EXISTS {idx} "
-                        "ON catalog.record_embeddings (record_id)"
+                existed_before = (await conn.execute(index_exists)).scalar_one()
+                if not existed_before:
+                    # Autogenerate matches indexes by name, so a plain btree
+                    # stands in when the column is too wide for HNSW.
+                    await conn.execute(
+                        sa.text(
+                            f"CREATE INDEX {idx} ON catalog.record_embeddings (record_id)"
+                        )
                     )
-                )
             r = _run_alembic("check")
             combined = r.stdout + r.stderr
             assert r.returncode == 0, (
@@ -475,8 +469,12 @@ class TestAlembicDriftIgnoresRuntimeHnswIndex:
             assert "No new upgrade operations detected." in combined, combined
         finally:
             async with engine.begin() as conn:
-                await conn.execute(sa.text(f"DROP INDEX IF EXISTS catalog.{idx}"))
+                if existed_before is False:
+                    await conn.execute(sa.text(f"DROP INDEX IF EXISTS catalog.{idx}"))
+                exists_after = (await conn.execute(index_exists)).scalar_one()
             await engine.dispose()
+        # Later tests on this worker's database plan queries against the index.
+        assert exists_after == existed_before, f"the test changed whether {idx} exists"
 
 
 # ---------------------------------------------------------------------------
