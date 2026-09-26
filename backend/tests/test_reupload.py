@@ -2599,6 +2599,8 @@ class TestArchiveRunsAfterTheSwapCommit:
     ):
         frozen_key = f"staging/{uuid.uuid4()}/frozen/update.geojson"
         storage = AsyncMock()
+        # A bare mock's truthy exists() would read as a landed archive.
+        storage.exists = AsyncMock(return_value=archived)
 
         async def _put(key, fobj):
             if not archived:
