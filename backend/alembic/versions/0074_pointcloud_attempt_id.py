@@ -36,21 +36,27 @@ def upgrade() -> None:
             "pointcloud_attempt_id", postgresql.UUID(as_uuid=True), nullable=True
         ),
         schema="catalog",
+        if_not_exists=True,
     )
-    op.execute(
-        sa.text(
-            """
-            UPDATE catalog.datasets AS d
-            SET pointcloud_attempt_id = CAST(split_part(a.href, '/', 3) AS uuid)
-            FROM catalog.dataset_assets AS a
-            WHERE a.dataset_id = d.id
-              AND a.key = 'pointcloud'
-              AND split_part(a.href, '/', 3) ~ :uuid
-              AND a.href = 'pointclouds/' || d.id::text || '/'
-                  || split_part(a.href, '/', 3) || '/data.copc.laz'
-            """
-        ).bindparams(uuid=_UUID)
-    )
+    # Committed first, so readers never queue behind the ADD COLUMN's lock
+    # while the backfill waits on a row. IS NULL keeps what a concurrent
+    # publish wrote and lets a failed backfill be retried.
+    with op.get_context().autocommit_block():
+        op.execute(
+            sa.text(
+                """
+                UPDATE catalog.datasets AS d
+                SET pointcloud_attempt_id = CAST(split_part(a.href, '/', 3) AS uuid)
+                FROM catalog.dataset_assets AS a
+                WHERE a.dataset_id = d.id
+                  AND a.key = 'pointcloud'
+                  AND d.pointcloud_attempt_id IS NULL
+                  AND split_part(a.href, '/', 3) ~ :uuid
+                  AND a.href = 'pointclouds/' || d.id::text || '/'
+                      || split_part(a.href, '/', 3) || '/data.copc.laz'
+                """
+            ).bindparams(uuid=_UUID)
+        )
 
 
 def downgrade() -> None:

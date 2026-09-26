@@ -1,11 +1,16 @@
-"""Migration 0074 copies a point cloud's attempt from a well-formed pointer row, and its downgrade drops the column."""
+"""Migration 0074 copies a point cloud's attempt from a well-formed pointer row without holding readers, and its downgrade drops the column."""
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 import pytest
+from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
+from sqlalchemy.ext.asyncio import create_async_engine
 
+from app.core.config import settings
 from tests.alembic_helpers import (
     enterprise_migrations_present,
     fresh_query,
@@ -108,4 +113,110 @@ async def test_the_downgrade_drops_the_column_and_the_upgrade_refills_it() -> No
         assert up.returncode == 0, up.stderr
         assert await _attempt_of(dataset_id) == attempt
     finally:
+        await _remove_rows_and_restore_head()
+
+
+async def test_a_retry_fills_only_the_attempts_still_empty() -> None:
+    """After a backfill that failed past its ADD COLUMN, the upgrade runs again and keeps any attempt already written."""
+    written, pointed = uuid.uuid4(), uuid.uuid4()
+    empty_attempt = uuid.uuid4()
+    try:
+        down = run_alembic("downgrade", _PREVIOUS)
+        assert down.returncode == 0, down.stderr
+        written_id = await _point_cloud(str(pointed))
+        empty_id = await _point_cloud(str(empty_attempt))
+        await fresh_query(
+            "ALTER TABLE catalog.datasets ADD COLUMN pointcloud_attempt_id uuid"
+        )
+        await fresh_query(
+            "UPDATE catalog.datasets SET pointcloud_attempt_id = CAST(:a AS uuid) "
+            "WHERE id = CAST(:id AS uuid)",
+            {"a": str(written), "id": written_id},
+        )
+
+        up = run_alembic("upgrade", "heads")
+        assert up.returncode == 0, up.stderr
+
+        assert await _attempt_of(written_id) == written
+        assert await _attempt_of(empty_id) == empty_attempt
+    finally:
+        await _remove_rows_and_restore_head()
+
+
+# Holds the backfill's UPDATE on a row lock of the point cloud's record, which
+# another connection holds. A lock on the dataset row itself would hold up the
+# ADD COLUMN instead, whichever transaction the backfill ran in.
+_HOLD_THE_BACKFILL = [
+    """
+    CREATE FUNCTION catalog.test_0074_hold_backfill() RETURNS trigger AS $$
+    BEGIN
+        PERFORM 1 FROM catalog.records WHERE id = NEW.record_id FOR UPDATE;
+        RETURN NEW;
+    END $$ LANGUAGE plpgsql
+    """,
+    "CREATE TRIGGER test_0074_hold_backfill BEFORE UPDATE ON catalog.datasets "
+    "FOR EACH ROW EXECUTE FUNCTION catalog.test_0074_hold_backfill()",
+]
+_RELEASE_THE_BACKFILL = [
+    "DROP TRIGGER IF EXISTS test_0074_hold_backfill ON catalog.datasets",
+    "DROP FUNCTION IF EXISTS catalog.test_0074_hold_backfill()",
+]
+
+
+async def _backfill_is_waiting() -> bool:
+    rows = await fresh_query(
+        "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() "
+        "AND pid <> pg_backend_pid() AND wait_event_type = 'Lock' "
+        "AND query LIKE '%UPDATE catalog.datasets AS d%'"
+    )
+    return rows[0][0] > 0
+
+
+async def test_readers_never_wait_behind_the_backfill() -> None:
+    """While the backfill waits on a row lock another connection holds, catalog.datasets stays readable."""
+    engine = create_async_engine(settings.test_database_url)
+    upgrade = None
+    try:
+        down = run_alembic("downgrade", _PREVIOUS)
+        assert down.returncode == 0, down.stderr
+        dataset_id = await _point_cloud(str(uuid.uuid4()))
+        [(record_id,)] = await fresh_query(
+            "SELECT record_id FROM catalog.datasets WHERE id = CAST(:id AS uuid)",
+            {"id": dataset_id},
+        )
+        for statement in _HOLD_THE_BACKFILL:
+            await fresh_query(statement)
+
+        async with engine.connect() as holder:
+            await holder.begin()
+            await holder.execute(
+                text("SELECT 1 FROM catalog.records WHERE id = :id FOR UPDATE"),
+                {"id": record_id},
+            )
+            upgrade = asyncio.create_task(
+                asyncio.to_thread(run_alembic, "upgrade", "heads")
+            )
+            for _ in range(300):
+                if await _backfill_is_waiting() or upgrade.done():
+                    break
+                await asyncio.sleep(0.1)
+            assert await _backfill_is_waiting(), "precondition: the backfill waits"
+
+            async with engine.connect() as reader:
+                await reader.execute(text("SET lock_timeout = '1s'"))
+                try:
+                    await reader.execute(text("SELECT count(*) FROM catalog.datasets"))
+                except DBAPIError as exc:
+                    pytest.fail(f"a reader waited behind the backfill: {exc.orig}")
+            await holder.rollback()
+
+        up = await upgrade
+        assert up.returncode == 0, up.stderr
+        assert await _attempt_of(dataset_id) is not None
+    finally:
+        if upgrade is not None and not upgrade.done():
+            await upgrade
+        for statement in _RELEASE_THE_BACKFILL:
+            await fresh_query(statement)
+        await engine.dispose()
         await _remove_rows_and_restore_head()
