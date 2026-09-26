@@ -1106,12 +1106,13 @@ export function ShareDialog({
       : [];
 
   // mapId changing while this dialog stays mounted (browser Back with Share
-  // open) must not let map A's in-flight response answer for map B — start
-  // fresh and close any open confirmation instead.
+  // open) must not let map A's in-flight check or its last publish refusal
+  // answer for map B — clear both and close any open confirmation.
   useEffect(() => {
     publicEligibilityRequestId.current += 1;
     setPublicEligibility({ status: 'checking' });
     setPendingVisibility(null);
+    setPublishBlocked(null);
   }, [mapId]);
 
   // Guards a stale response — including a retry's — from landing after a newer request.

@@ -1600,6 +1600,40 @@ describe('#2297 public confirm defers to the server publish check', () => {
     expect(screen.queryByText('Map A secret')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^make public$/i })).not.toBeInTheDocument();
   });
+
+  it('clears a publish refusal from map A when mapId changes to map B', async () => {
+    const user = userEvent.setup();
+    const detail = {
+      message: 'Cannot set visibility to public: map contains non-public datasets',
+      datasets: 'Map A secret',
+    };
+    const publishMapFn = vi
+      .fn()
+      .mockRejectedValue(new ApiError(translateApiErrorDetail(detail, 400), 400, detail));
+    const { rerender } = setup({
+      mapId: 'map-a',
+      visibility: 'private',
+      hasShareToken: false,
+      hasNonPublic: false,
+      publishMapFn,
+    });
+
+    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+    const makePublicButton = await screen.findByRole('button', { name: /^make public$/i });
+    await waitFor(() => expect(makePublicButton).toBeEnabled());
+    await user.click(makePublicButton);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('share-publish-blocked-error')).toHaveTextContent('Map A secret');
+    });
+
+    rerender(
+      <ShareDialog mapId="map-b" visibility="private" open onOpenChange={vi.fn()} />,
+    );
+
+    expect(screen.queryByTestId('share-publish-blocked-error')).not.toBeInTheDocument();
+    expect(screen.queryByText('Map A secret')).not.toBeInTheDocument();
+  });
 });
 
 /* ------------------------------------------------------------------ */
