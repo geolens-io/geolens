@@ -3493,6 +3493,9 @@ async def test_the_finaliser_does_not_wait_on_the_request_connection(
         )
     finally:
         app.dependency_overrides[get_db] = original
+        # FastAPI keeps _capturing cached after the test, so it must not keep
+        # the sessions, or their engine, alive with it.
+        request_sessions.clear()
 
     rows = await _audit_rows(test_db_session)
     assert [row.details["result"] for row in rows] == ["success"]

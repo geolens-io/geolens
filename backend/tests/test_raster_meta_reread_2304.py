@@ -284,6 +284,9 @@ async def test_an_authenticated_forced_re_read_completes_on_a_one_connection_poo
         assert resp.headers["X-GeoLens-Cache-Status"] == "public"
     finally:
         await one_connection.dispose()
+        # FastAPI keeps get_db_on_one_connection cached after the test; drop
+        # the engine it closes over.
+        sessions = None
         _forget(dataset.id)
 
 
@@ -730,6 +733,9 @@ async def test_waiting_api_key_requests_never_move_last_used_at_back(
         held.set()
         event.remove(request_engine.sync_engine, "before_cursor_execute", on_execute)
         await request_engine.dispose()
+        # FastAPI keeps get_db_ordering_waits cached after the test; drop the
+        # engine it closes over.
+        sessions = None
         _forget(dataset.id)
 
 
