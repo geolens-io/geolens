@@ -953,7 +953,69 @@ class TestCsvReuploadDiffMatchesTheStoredType:
 
         assert resp.status_code == 200, resp.text
         assert resp.json()["schema_diff"]["type_changes"] == [
-            {"name": "is_active", "old_type": "boolean", "new_type": "String"}
+            {
+                "name": "is_active",
+                "old_type": "boolean",
+                "new_type": "character varying",
+            }
+        ]
+
+
+class TestTypeChangeReportsTheStoredType:
+    """A reported type change names the type the import will actually
+    store, not the raw OGR label, which can read as unrelated to the
+    stored type it matches or as no change at all for a mapped subtype.
+    """
+
+    async def test_geojson_boolean_over_integer_column_reports_the_real_stored_type(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        mock_ogrinfo_preview,
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            record_type="table",
+            column_info=[{"name": "is_capital", "type": "integer"}],
+        )
+
+        resp = await client.post(
+            f"/datasets/{dataset.id}/reupload",
+            files={
+                "file": (
+                    "update.geojson",
+                    b'{"type":"FeatureCollection","features":[]}',
+                    "application/json",
+                )
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201
+        job_id = resp.json()["job_id"]
+
+        mock_ogrinfo_preview.return_value = {
+            "srid": 4326,
+            "geometry_type": None,
+            "layer_name": "update",
+            "feature_count": 1,
+            "columns": [
+                {"name": "is_capital", "type": "Integer", "subtype": "Boolean"}
+            ],
+            "sample_rows": [{"is_capital": True}],
+            "all_layers": None,
+        }
+
+        resp = await client.post(
+            f"/datasets/{dataset.id}/reupload/{job_id}/preview",
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["schema_diff"]["type_changes"] == [
+            {"name": "is_capital", "old_type": "integer", "new_type": "boolean"}
         ]
 
 
@@ -1502,8 +1564,10 @@ class TestSchemaDiffComputation:
 
         assert result["columns_added"] == [{"name": "new_only", "type": "String"}]
         assert result["columns_removed"] == [{"name": "old_only", "type": "Real"}]
+        # new_type names the stored PostgreSQL type ogr2ogr will create
+        # (double precision for a bare Real), not the raw OGR label.
         assert result["type_changes"] == [
-            {"name": "name", "old_type": "String", "new_type": "Real"}
+            {"name": "name", "old_type": "String", "new_type": "double precision"}
         ]
         assert result["row_count_old"] == 100
         assert result["row_count_new"] == 150
@@ -1564,12 +1628,18 @@ class TestSchemaDiffComputation:
         assert result["type_changes"] == []
 
     def test_schema_diff_subtype_does_not_mask_a_real_type_change(self):
-        """A boolean column that became a plain string is still reported."""
+        """A boolean column that became a plain string is still reported,
+        naming the stored type it will become rather than the raw label.
+        """
         old_cols = [{"name": "is_capital", "type": "boolean"}]
         new_cols = [{"name": "is_capital", "type": "String"}]
         result = compute_schema_diff(old_cols, new_cols, 10, 10)
         assert result["type_changes"] == [
-            {"name": "is_capital", "old_type": "boolean", "new_type": "String"}
+            {
+                "name": "is_capital",
+                "old_type": "boolean",
+                "new_type": "character varying",
+            }
         ]
 
 

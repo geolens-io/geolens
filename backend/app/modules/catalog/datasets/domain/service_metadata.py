@@ -119,7 +119,12 @@ def compute_schema_diff(
             {
                 "name": new_by_lower[n]["name"],
                 "old_type": old_by_lower[n]["type"],
-                "new_type": new_by_lower[n]["type"],
+                # The raw type reads as an unrelated label ("integer" next
+                # to "Integer" for a mapped subtype, or "String" for a
+                # CSV's actual "character varying"). Report the type the
+                # import will actually store, using the same normalization
+                # the comparison above uses.
+                "new_type": _normalize_col_type(new_by_lower[n]),
             }
             for n in sorted(old_keys & new_keys)
             if _normalize_col_type(old_by_lower[n])
