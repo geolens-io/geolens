@@ -1,0 +1,145 @@
+"""Serve a stored object's bytes: HEAD, one byte range, or the whole object.
+
+The caller has already decided access, found the object and its size, and chosen
+its entity-tag. What remains is which representation to send, so HEAD and GET
+share it.
+"""
+
+from collections.abc import Mapping
+
+from fastapi import HTTPException, Request, Response, status
+from fastapi.responses import StreamingResponse
+
+from app.platform.http.ranges import (
+    RANGE_UNSATISFIABLE,
+    if_match_passes,
+    if_none_match_matches,
+    not_modified_response,
+    parse_byte_range,
+    range_bound_to_this_version,
+)
+from app.platform.storage.provider import StorageProvider
+
+
+def evaluate_preconditions(
+    request: Request, etag: str | None, *, changed_detail: str
+) -> Response | None:
+    """Apply ``If-Match`` and ``If-None-Match`` before any byte is served.
+
+    Raises 412, with ``changed_detail`` and the current ETag, when ``If-Match``
+    names another version: a resuming client may send it instead of
+    ``If-Range``, and RFC 9110 gives it no serve-the-whole-object fallback.
+    Returns the 304 when ``If-None-Match`` already holds this one, else None.
+    """
+    if not if_match_passes(request.headers.get("if-match"), etag):
+        raise HTTPException(
+            status_code=status.HTTP_412_PRECONDITION_FAILED,
+            detail=changed_detail,
+            headers={"ETag": etag} if etag is not None else None,
+        )
+    if if_none_match_matches(request.headers.get("if-none-match"), etag):
+        return not_modified_response(etag)
+    return None
+
+
+def _representation_headers(
+    etag: str | None, headers: Mapping[str, str] | None
+) -> dict[str, str]:
+    # Advertising ranges without a validator invites a client to splice two
+    # versions, so every representation names its version.
+    representation = {"Accept-Ranges": "bytes", **(headers or {})}
+    if etag is not None:
+        representation["ETag"] = etag
+    return representation
+
+
+def head_response(
+    total_bytes: int,
+    *,
+    media_type: str,
+    etag: str | None,
+    headers: Mapping[str, str] | None = None,
+) -> Response:
+    """The HEAD answer: the real length, no body and no storage read.
+
+    Range clients such as GDAL's /vsicurl/ open with a HEAD, so reading the
+    object here would cost a full download on every open. A Range on HEAD is
+    ignored, since a 206 would report the range's length as the object's.
+    """
+    # Explicit, because starlette sends `content-length: 0` for an empty body.
+    return Response(
+        status_code=status.HTTP_200_OK,
+        media_type=media_type,
+        headers={
+            **_representation_headers(etag, headers),
+            "Content-Length": str(total_bytes),
+        },
+    )
+
+
+async def serve_stored_bytes(
+    request: Request,
+    storage: StorageProvider,
+    key: str,
+    *,
+    total_bytes: int,
+    media_type: str,
+    etag: str | None,
+    headers: Mapping[str, str] | None = None,
+    strict: bool = False,
+) -> Response:
+    """Serve ``key`` as HEAD, one byte range, or the whole object.
+
+    ``headers`` are the route's own, such as a Content-Disposition. Each
+    representation adds ``Accept-Ranges`` and the ETag; the 416 carries only
+    those and the size. ``strict`` answers an unusable Range with 416 instead
+    of the whole object.
+    """
+    if request.method == "HEAD":
+        return head_response(
+            total_bytes, media_type=media_type, etag=etag, headers=headers
+        )
+
+    byte_range = parse_byte_range(
+        request.headers.get("range"), total_bytes, strict=strict
+    )
+    if byte_range is not None and not range_bound_to_this_version(
+        request.headers.get("if-range"), etag
+    ):
+        # RFC 9110 section 13.1.5: a range of another version is ignored and the
+        # whole current object sent, even when its offsets no longer fit.
+        byte_range = None
+
+    if byte_range == RANGE_UNSATISFIABLE:
+        # The size is how a client that guessed at the length learns the real
+        # one, and the ETag tells it which version that size belongs to. A
+        # client told 416 is the one that needs to know it may retry a range.
+        raise HTTPException(
+            status_code=status.HTTP_416_RANGE_NOT_SATISFIABLE,
+            detail="Requested range not satisfiable",
+            headers={
+                "Accept-Ranges": "bytes",
+                "Content-Range": f"bytes */{total_bytes}",
+                **({"ETag": etag} if etag is not None else {}),
+            },
+        )
+
+    representation = _representation_headers(etag, headers)
+    if byte_range is not None:
+        # One ranged read: no byte outside the window is fetched.
+        start, end = byte_range
+        return StreamingResponse(
+            storage.get_range_stream(key, start, end - start + 1),
+            status_code=status.HTTP_206_PARTIAL_CONTENT,
+            media_type=media_type,
+            headers={
+                **representation,
+                "Content-Range": f"bytes {start}-{end}/{total_bytes}",
+                "Content-Length": str(end - start + 1),
+            },
+        )
+    return StreamingResponse(
+        storage.get_stream(key),
+        media_type=media_type,
+        headers={**representation, "Content-Length": str(total_bytes)},
+    )

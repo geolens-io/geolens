@@ -263,7 +263,7 @@ UNANCHORED_MARKER_DEBT: dict[str, int] = {
     "modules/catalog/collections/models.py": 3,
     "modules/catalog/collections/router.py": 2,
     "modules/catalog/datasets/api/router.py": 3,
-    "modules/catalog/datasets/api/router_export.py": 12,
+    "modules/catalog/datasets/api/router_export.py": 10,
     "modules/catalog/datasets/api/router_health.py": 2,
     "modules/catalog/datasets/api/router_refresh.py": 2,
     "modules/catalog/datasets/api/router_reupload.py": 11,

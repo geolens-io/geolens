@@ -11,13 +11,14 @@ from fastapi import status
 from starlette.responses import Response
 
 # bytes=FIRST-LAST | bytes=FIRST- | bytes=-SUFFIX. `[0-9]` not `\d`: Python's
-# `\d` is unicode-aware and accepts non-ASCII digits. Anything unmatched (a
-# second range, unknown unit, reversed pair) is IGNORED per RFC 9110 section
-# 14.2 — the safe direction, since the client still gets a usable response.
+# `\d` is unicode-aware and accepts non-ASCII digits. Unless the caller parses
+# strictly, anything unmatched (a second range, unknown unit, reversed pair) is
+# ignored as RFC 9110 section 14.2 allows, so the client still gets a usable
+# response.
 #
-# fix(#1540): the unit is case-INSENSITIVE (a token per RFC 9110
-# section 14.1), so `Bytes=0-16383` must match — treating it as unmatched
-# served the whole object as a 200 instead of a 206.
+# The unit is case-insensitive (a token per RFC 9110 section 14.1), so
+# `Bytes=0-16383` matches; an unmatched unit would serve the whole object as a
+# 200 instead of a 206.
 #
 # Only the unit. Digits stay `[0-9]`, and entity-tag comparisons (section
 # 8.8.3.2, including the `W/` prefix) stay case-SENSITIVE.
@@ -52,19 +53,25 @@ def _range_int(digits: str, size: int) -> int:
     return int(trimmed)
 
 
-def parse_byte_range(raw: str | None, size: int) -> tuple[int, int] | str | None:
+def parse_byte_range(
+    raw: str | None, size: int, *, strict: bool = False
+) -> tuple[int, int] | str | None:
     """Resolve a Range header to an inclusive ``(start, end)`` byte pair.
 
     Returns ``None`` for no usable range (serve the whole representation) or
     for a multi-range request — ``multipart/byteranges`` is not implemented,
     and answering just the first range would corrupt a client expecting both.
     Returns ``RANGE_UNSATISFIABLE`` for 416, else the pair, already clamped.
+
+    ``strict`` returns ``RANGE_UNSATISFIABLE`` instead of ``None`` for a Range
+    that is present but unusable (malformed, reversed, or several ranges), for
+    routes whose clients read only ranges and must not get the whole object.
     """
     if not raw:
         return None
     match = BYTE_RANGE_RE.match(raw.strip())
     if match is None:
-        return None
+        return RANGE_UNSATISFIABLE if strict else None
     first, last, suffix = match.groups()
 
     if suffix is not None:
@@ -82,7 +89,8 @@ def parse_byte_range(raw: str | None, size: int) -> tuple[int, int] | str | None
         return (start, size - 1)
     end = _range_int(last, size)
     if end < start:
-        return None  # reversed pair: invalid, so ignore rather than reject
+        # A reversed pair is invalid: ignored, or refused when strict.
+        return RANGE_UNSATISFIABLE if strict else None
     # A last-byte-pos past the end is CLAMPED, not rejected — clients that do
     # not know the size ask for more than exists on purpose.
     return (start, min(end, size - 1))

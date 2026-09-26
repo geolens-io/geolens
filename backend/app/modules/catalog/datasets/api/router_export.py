@@ -13,7 +13,7 @@ from fastapi import (
     Response,
     status,
 )
-from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
@@ -62,13 +62,11 @@ from app.core.db.tenant_session import current_tenant_var
 from app.core.tenancy import is_multi_tenant
 from app.core.public_urls import get_public_urls
 from app.platform.extensions import get_catalog_port, get_permission_extension
-from app.platform.http.ranges import (
-    RANGE_UNSATISFIABLE,
-    if_match_passes,
-    if_none_match_matches,
-    not_modified_response,
-    parse_byte_range,
-    range_bound_to_this_version,
+from app.platform.http.ranges import range_bound_to_this_version
+from app.platform.http.stored_bytes import (
+    evaluate_preconditions,
+    head_response,
+    serve_stored_bytes,
 )
 from app.platform.storage import get_storage
 from app.platform.storage.titiler_url import resolve_storage_key
@@ -1071,24 +1069,11 @@ async def download_cog(
             physical_asset_key=_managed_key(raster_asset),
             dataset_id=dataset_id,
         )
-        if not if_match_passes(request.headers.get("if-match"), etag):
-            # A resuming client may send If-Match instead of If-Range;
-            # ignoring it let a mid-download replacement answer with a
-            # 206 of the new COG at old offsets -- the same splice
-            # through a different header. A failed If-Match is a 412,
-            # not a degradation: unlike If-Range, the RFC gives it no
-            # "ignore and serve the whole thing" fallback.
-            raise HTTPException(
-                status_code=status.HTTP_412_PRECONDITION_FAILED,
-                detail="COG has changed since the version you hold",
-                headers={"ETag": etag} if etag is not None else None,
-            )
-        # fix(#1554): evaluated whatever `etag` is -- the old `etag is
-        # not None` guard was wrong for `*`, which asks whether a
-        # representation exists, not which one, so a legacy row with no
-        # `sha256` answered a wildcard revalidation with the whole COG.
-        if if_none_match_matches(request.headers.get("if-none-match"), etag):
-            return not_modified_response(etag)
+        not_modified = evaluate_preconditions(
+            request, etag, changed_detail="COG has changed since the version you hold"
+        )
+        if not_modified is not None:
+            return not_modified
 
     # 6. Audit log. user_id may be None for anonymous downloads (KNOWN-01);
     # audit_logs.user_id is nullable to match.
@@ -1265,15 +1250,16 @@ async def _s3_cog_response(
     resumes, the multi-GB payloads, never touch this process's bandwidth.
     """
     if request.method == "HEAD":
-        return _cog_head_response(
+        return head_response(
             await _cog_size_once(
                 total_bytes,
                 storage,
                 physical_asset_key=physical_asset_key,
                 dataset_id=dataset_id,
             ),
-            filename,
-            etag,
+            media_type="image/tiff",
+            etag=etag,
+            headers=_cog_disposition(filename),
         )
 
     if request.headers.get("range") and not range_bound_to_this_version(
@@ -1292,13 +1278,14 @@ async def _s3_cog_response(
             physical_asset_key=physical_asset_key,
             dataset_id=dataset_id,
         )
-        return StreamingResponse(
-            storage.get_stream(physical_asset_key),
+        return await serve_stored_bytes(
+            request,
+            storage,
+            physical_asset_key,
+            total_bytes=total_bytes,
             media_type="image/tiff",
-            headers={
-                **_cog_headers(filename, etag),
-                "Content-Length": str(total_bytes),
-            },
+            etag=etag,
+            headers=_cog_disposition(filename),
         )
 
     url = storage.generate_presigned_get_url(
@@ -1407,45 +1394,11 @@ async def _cog_size_once(
     )
 
 
-def _cog_headers(filename: str, etag: str | None) -> dict[str, str]:
-    """Headers every stored-bytes response from this route carries.
-
-    fix(#1528): ``accept-ranges`` goes on all of them, including the 416,
-    since RFC 9110 scopes it to the RESOURCE and a client that just got a
-    416 is exactly the one that needs to know it may retry.
-
-    fix(#1540): ``ETag`` likewise, on 200/206/HEAD: advertising
-    ``Accept-Ranges`` without a validator invites a client that can
-    splice two COGs. Content-Disposition does NOT go on the 416 -- that
-    response's body is the JSON error, not the raster.
-    """
-    headers = {
-        "Accept-Ranges": "bytes",
-        "Content-Disposition": get_catalog_port().safe_content_disposition(filename),
+def _cog_disposition(filename: str) -> dict[str, str]:
+    """The route's own header on each COG representation; the 416 carries none."""
+    return {
+        "Content-Disposition": get_catalog_port().safe_content_disposition(filename)
     }
-    if etag is not None:
-        headers["ETag"] = etag
-    return headers
-
-
-def _cog_head_response(total_bytes: int, filename: str, etag: str | None) -> Response:
-    """The HEAD answer: one stat, no read, a real length.
-
-    A HEAD that streamed the object to learn its length would make every
-    /vsicurl/ open cost a full download. Range on a HEAD is deliberately
-    ignored, since answering 206 would report a tile's length as the COG's.
-
-    Content-Length is passed explicitly to override starlette's own
-    ``content-length: 0`` for this empty body, which reads as an empty
-    COG (``test_head_cog_carries_the_real_content_length`` pins this).
-    ETag matters most here: it's the only answer the ``s3`` backend gets
-    from this process at all.
-    """
-    return Response(
-        status_code=status.HTTP_200_OK,
-        media_type="image/tiff",
-        headers={**_cog_headers(filename, etag), "Content-Length": str(total_bytes)},
-    )
 
 
 async def _local_cog_response(
@@ -1458,81 +1411,23 @@ async def _local_cog_response(
     etag: str | None,
     total_bytes: int | None = None,
 ) -> Response:
-    """Serve stored COG bytes: HEAD, a byte range, or the whole object.
+    """Serve COG bytes through this process: HEAD, a byte range, or the whole object.
 
-    Split out of ``download_cog`` in fix(#1528) — folding three response
-    shapes into a handler that already branches over three storage backends put
-    it past ruff's complexity ceiling (C901, 17 > 15).
-
-    Everything that decides the STATUS has already run in the caller: access
-    control, the raster-type gate, and the RasterAsset lookup. This function
-    only decides which representation to send, which is why it is safe for HEAD
-    and GET to share it.
+    Access, the raster-type gate and the asset lookup have already run in the
+    caller. What is left is one stat for the length, then the representation.
     """
-    # Local storage: stream bytes from disk in 1 MiB chunks (ING-03 / P2-03).
-    # The full file is NOT buffered into memory — a 5 GB COG no longer pins
-    # 5 GB of resident memory before the first byte streams.
     total_bytes = await _cog_size_once(
         total_bytes,
         storage,
         physical_asset_key=physical_asset_key,
         dataset_id=dataset_id,
     )
-    cog_headers = _cog_headers(filename, etag)
-
-    if request.method == "HEAD":
-        return _cog_head_response(total_bytes, filename, etag)
-
-    byte_range = parse_byte_range(request.headers.get("range"), total_bytes)
-
-    if byte_range is not None and not range_bound_to_this_version(
-        request.headers.get("if-range"), etag
-    ):
-        # fix(#1540): the resumed range names a version this object is no
-        # longer at. RFC 9110 §13.1.5 says ignore the Range and serve the
-        # whole current COG with 200 -- before this, a 206 of the NEW
-        # bytes at the OLD offsets got appended to the client's existing
-        # prefix, writing out a half-and-half file with no error anywhere.
-        # Before the 416 check on purpose: "ignore" means ignore, even
-        # when the stale offsets no longer fit the new object.
-        byte_range = None
-
-    if byte_range == RANGE_UNSATISFIABLE:
-        raise HTTPException(
-            status_code=status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
-            detail="Requested range not satisfiable",
-            headers={
-                "Accept-Ranges": "bytes",
-                # The size is the whole point of the 416: it is how a client
-                # that guessed at the length learns the real one and retries.
-                "Content-Range": f"bytes */{total_bytes}",
-                # And the version that size belongs to: a client that retries
-                # against a length it learned here should be able to tell if the
-                # object changed again in between.
-                **({"ETag": etag} if etag is not None else {}),
-            },
-        )
-
-    if byte_range is not None:
-        # The reason the format exists: a client reads the COG header, then
-        # fetches only the tiles it needs. Served through get_range() so the
-        # bytes outside the window are never read — see
-        # `test_range_request_does_not_read_the_whole_object`, which fails if
-        # this is ever implemented by slicing a full-object stream.
-        start, end = byte_range
-        return StreamingResponse(
-            storage.get_range_stream(physical_asset_key, start, end - start + 1),
-            status_code=status.HTTP_206_PARTIAL_CONTENT,
-            media_type="image/tiff",
-            headers={
-                **cog_headers,
-                "Content-Range": f"bytes {start}-{end}/{total_bytes}",
-                "Content-Length": str(end - start + 1),
-            },
-        )
-
-    return StreamingResponse(
-        storage.get_stream(physical_asset_key),
+    return await serve_stored_bytes(
+        request,
+        storage,
+        physical_asset_key,
+        total_bytes=total_bytes,
         media_type="image/tiff",
-        headers={**cog_headers, "Content-Length": str(total_bytes)},
+        etag=etag,
+        headers=_cog_disposition(filename),
     )

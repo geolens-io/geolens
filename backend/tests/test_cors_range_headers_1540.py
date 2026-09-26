@@ -31,6 +31,10 @@ _ORIGIN = "http://cors-1540.example.com"
 _ROUTE_SOURCE = pathlib.Path(__file__).resolve().parents[1] / (
     "app/modules/catalog/datasets/api/router_export.py"
 )
+# The route serves its bytes through this module, so its headers are set here too.
+_STORED_BYTES_SOURCE = pathlib.Path(__file__).resolve().parents[1] / (
+    "app/platform/http/stored_bytes.py"
+)
 
 # Fetch's CORS-safelisted response headers: readable by JavaScript without being
 # named in Access-Control-Expose-Headers. Everything else the route sets has to
@@ -50,14 +54,19 @@ def _route_ast() -> ast.Module:
     return ast.parse(_ROUTE_SOURCE.read_text())
 
 
-def _conditional_headers_the_route_reads() -> set[str]:
-    """Every ``request.headers.get("...")`` in the module that gates on a validator.
+def _stored_bytes_ast() -> ast.Module:
+    return ast.parse(_STORED_BYTES_SOURCE.read_text())
 
-    Module-wide rather than per-function: a conditional or range header read
-    anywhere in this file is one a browser client has to be allowed to send.
+
+def _conditional_headers_the_route_reads() -> set[str]:
+    """Every ``request.headers.get("...")`` that gates on a validator.
+
+    Module-wide, in the route module and the stored-bytes module it serves
+    through: a conditional or range header read anywhere in either is one a
+    browser client has to be allowed to send.
     """
     found: set[str] = set()
-    for node in ast.walk(_route_ast()):
+    for node in (*ast.walk(_route_ast()), *ast.walk(_stored_bytes_ast())):
         if (
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
@@ -75,25 +84,36 @@ def _conditional_headers_the_route_reads() -> set[str]:
 
 
 def _response_headers_the_cog_route_sets() -> set[str]:
-    """Header names in any ``headers=`` dict inside the COG download helpers.
+    """Header names in the COG download helpers and the stored-bytes module.
 
-    Scoped by the ``cog`` in the function names, which is the convention this
-    route already follows, because the DCAT handlers in the same module set
-    headers of their own that no browser client needs to read.
+    In the route module, scoped by the ``cog`` in the function names, which is
+    the convention this route already follows, because the DCAT handlers in the
+    same module set headers of their own that no browser client needs to read.
+    Every function of the stored-bytes module counts: it only serves bytes.
 
-    Reads ``headers=`` keyword values specifically rather than every dict
-    literal: the audit call in ``download_cog`` passes a ``details=`` dict whose
-    keys include ``range``, and demanding that one be exposed would be nonsense.
+    Reads ``headers=`` keyword values and header dicts a helper returns, rather
+    than every dict literal: the audit call in ``download_cog`` passes a
+    ``details=`` dict whose keys include ``range``, and demanding that one be
+    exposed would be nonsense.
     """
+    functions = [
+        node
+        for node in ast.walk(_route_ast())
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and "cog" in node.name
+    ]
+    functions += [
+        node
+        for node in ast.walk(_stored_bytes_ast())
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    ]
     found: set[str] = set()
-    for node in ast.walk(_route_ast()):
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            continue
-        if "cog" not in node.name:
-            continue
+    for node in functions:
         for inner in ast.walk(node):
             values = []
             if isinstance(inner, ast.keyword) and inner.arg == "headers":
+                values.append(inner.value)
+            elif isinstance(inner, ast.Return) and isinstance(inner.value, ast.Dict):
                 values.append(inner.value)
             elif isinstance(inner, ast.Assign) and any(
                 isinstance(t, ast.Name) and "header" in t.id for t in inner.targets
