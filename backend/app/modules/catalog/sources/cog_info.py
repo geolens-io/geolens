@@ -178,7 +178,11 @@ async def fetch_cog_info(url: str) -> dict | None:
                 )
                 if stats_resp.status_code == 200:
                     stats = stats_resp.json()
-                    for key in sorted(k for k in stats if k.startswith("b")):
+                    band_keys = sorted(
+                        (k for k in stats if k[:1] == "b" and k[1:].isdigit()),
+                        key=lambda k: int(k[1:]),
+                    )
+                    for key in band_keys:
                         band_info.append(
                             {
                                 "min": stats[key].get("min"),
