@@ -960,10 +960,15 @@ export function MapBuilderPage() {
     },
     [setAnalysisJob, id],
   );
+  // Only a loaded map whose layers have hydrated can take the add, so the
+  // loading and error screens below leave an open toast on "View dataset".
+  const addAnalysisOutput =
+    !error && mapData && layers.layersMapId === id
+      ? (layers.chatLayerActions?.onAddDataset ?? null)
+      : null;
   // No dep array: keeps the registered callback fresh on every render. The
   // clear runs only on unmount, so an open completion toast hears about this
   // builder arriving, leaving or switching maps, never about a re-render.
-  const addAnalysisOutput = layers.chatLayerActions?.onAddDataset ?? null;
   useEffect(() => {
     registerAnalysisAddToMap(addAnalysisOutput, id ?? null);
   });
