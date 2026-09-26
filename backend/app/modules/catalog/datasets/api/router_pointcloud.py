@@ -50,6 +50,10 @@ _READ_LIMIT = "1200/minute"
 # much tighter _WHOLE_FILE_LIMIT.
 _EXEMPT_RANGE_BYTES = 16 * 1024 * 1024
 _WHOLE_FILE_LIMIT = "10/minute"
+# The ranges that limit exempts draw on a budget of 64 KiB units instead. A heavy
+# viewer reads about a thousand node ranges a minute, some 200 MB; 1 GiB covers it.
+_RANGE_UNIT = 64 * 1024
+_RANGE_BUDGET = "16384/minute"
 # Larger than any stored object, so a Range parsed against it names the most
 # bytes it could select from the real file.
 _ANY_SIZE = 10**19
@@ -59,19 +63,34 @@ def _etag(attempt_id: uuid.UUID) -> str:
     return f'"{attempt_id}"'
 
 
-def _reads_one_small_range(request: Request) -> bool:
-    """Whether the answer carries no body, or at most one range of ``_EXEMPT_RANGE_BYTES``."""
+def _small_range_bytes(request: Request) -> int | None:
+    """The most bytes a GET's one range of up to ``_EXEMPT_RANGE_BYTES`` can carry, else None."""
     if request.method == "HEAD":
-        return True
+        return None
     pair = parse_byte_range(request.headers.get("range"), _ANY_SIZE, strict=True)
     if not isinstance(pair, tuple) or pair[1] - pair[0] + 1 > _EXEMPT_RANGE_BYTES:
-        return False
+        return None
     try:
         etag = _etag(uuid.UUID(request.path_params.get("attempt_id", "")))
     except ValueError:
-        return False
+        return None
     # A validator of another version turns the range into the whole file.
-    return range_bound_to_this_version(request.headers.get("if-range"), etag)
+    if not range_bound_to_this_version(request.headers.get("if-range"), etag):
+        return None
+    return pair[1] - pair[0] + 1
+
+
+def _reads_one_small_range(request: Request) -> bool:
+    """Whether the answer carries no body, or at most one range of ``_EXEMPT_RANGE_BYTES``."""
+    return request.method == "HEAD" or _small_range_bytes(request) is not None
+
+
+def _draws_no_range_bytes(request: Request) -> bool:
+    return _small_range_bytes(request) is None
+
+
+def _range_units(request: Request) -> int:
+    return -(-(_small_range_bytes(request) or 0) // _RANGE_UNIT)
 
 
 @router.head(_PATH, include_in_schema=False)
@@ -99,6 +118,7 @@ def _reads_one_small_range(request: Request) -> bool:
     },
 )
 @limiter.limit(_WHOLE_FILE_LIMIT, exempt_when=_reads_one_small_range)
+@limiter.limit(_RANGE_BUDGET, cost=_range_units, exempt_when=_draws_no_range_bytes)
 @limiter.limit(_READ_LIMIT)
 async def get_pointcloud_file(
     dataset_id: uuid.UUID,
@@ -117,9 +137,11 @@ async def get_pointcloud_file(
     view the dataset can read the file. The response carries a strong ETag and
     honours ``Range``, ``If-Range``, ``If-Match`` and ``If-None-Match``; a
     malformed byte range, or one naming no byte of the file, answers 416.
-    Each client may make 1200 reads a minute. A read that can carry more than
-    one byte range of up to 16 MiB, such as one without ``Range``, also counts
-    against a limit of 10 a minute. Past either limit the read answers 429.
+    Each client may make 1200 reads a minute. A read of one byte range of up
+    to 16 MiB also draws its size on a budget of 1 GiB a minute, in 64 KiB
+    units; any other read of the file, such as one without ``Range``, counts
+    against a limit of 10 a minute instead. Past any of these the read answers
+    429.
     Through the bundled web server a page on any origin can read the file,
     with header credentials or none; the API alone allows only the origins in
     ``CORS_ALLOWED_ORIGINS``. A private, missing or replaced point cloud

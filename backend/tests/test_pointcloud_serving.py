@@ -707,6 +707,68 @@ async def test_only_one_small_range_escapes_the_whole_file_limit(
     _assert_sandboxed(whole[-1])
 
 
+async def test_small_ranges_spend_a_per_client_byte_budget(
+    client: AsyncClient, make_pointcloud, storage, monkeypatch
+) -> None:
+    """Repeated 16 MiB ranges are refused once the byte budget is spent, long before the request cap, while HEAD and whole-file reads neither spend it nor stop at it."""
+    from app.modules.catalog.datasets.api import router_pointcloud as route
+    from app.platform import ratelimit
+    from tests.test_ogc_features_filter import _freeze_rate_limit_window
+
+    _freeze_rate_limit_window(monkeypatch)
+    budget = int(route._RANGE_BUDGET.split("/")[0])
+    affordable = budget // (route._EXEMPT_RANGE_BYTES // route._RANGE_UNIT)
+    dataset_id, attempt = await _published(make_pointcloud, storage)
+    url = _url(dataset_id, attempt)
+    largest = {"Range": f"bytes=0-{route._EXEMPT_RANGE_BYTES - 1}"}
+    ratelimit.limiter.enabled = True
+    ratelimit.limiter._storage.reset()
+    try:
+        free = [(await client.head(url)).status_code for _ in range(5)]
+        free += [(await client.get(url)).status_code for _ in range(9)]
+        spent = [await client.get(url, headers=largest) for _ in range(affordable + 1)]
+        head_after = await client.head(url)
+        whole_after = await client.get(url)
+    finally:
+        ratelimit.limiter.enabled = False
+        ratelimit.limiter._storage.reset()
+
+    assert affordable < int(route._READ_LIMIT.split("/")[0])
+    assert free == [200] * 14
+    assert [resp.status_code for resp in spent] == [206] * affordable + [429]
+    assert int(spent[-1].headers["retry-after"]) > 0
+    _assert_sandboxed(spent[-1])
+    assert head_after.status_code == whole_after.status_code == 200
+
+
+async def test_a_viewer_minute_stays_inside_the_byte_budget(
+    client: AsyncClient, make_pointcloud, storage, monkeypatch
+) -> None:
+    """A thousand ranges of about 150 KB in one window, a heavy viewer's minute, are all served."""
+    from app.platform import ratelimit
+    from tests.test_ogc_features_filter import _freeze_rate_limit_window
+
+    _freeze_rate_limit_window(monkeypatch)
+    dataset_id, attempt = await _published(make_pointcloud, storage)
+    url = _url(dataset_id, attempt)
+    ratelimit.limiter.enabled = True
+    ratelimit.limiter._storage.reset()
+    try:
+        served = [
+            (
+                await client.get(
+                    url, headers={"Range": f"bytes={i % 4000}-{i % 4000 + 149_999}"}
+                )
+            ).status_code
+            for i in range(1000)
+        ]
+    finally:
+        ratelimit.limiter.enabled = False
+        ratelimit.limiter._storage.reset()
+
+    assert served == [206] * 1000
+
+
 async def test_every_read_counts_against_the_request_cap(
     client: AsyncClient, make_pointcloud, storage, monkeypatch
 ) -> None:

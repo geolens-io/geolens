@@ -125,9 +125,11 @@ def sync_detailed(
     view the dataset can read the file. The response carries a strong ETag and
     honours ``Range``, ``If-Range``, ``If-Match`` and ``If-None-Match``; a
     malformed byte range, or one naming no byte of the file, answers 416.
-    Each client may make 1200 reads a minute. A read that can carry more than
-    one byte range of up to 16 MiB, such as one without ``Range``, also counts
-    against a limit of 10 a minute. Past either limit the read answers 429.
+    Each client may make 1200 reads a minute. A read of one byte range of up
+    to 16 MiB also draws its size on a budget of 1 GiB a minute, in 64 KiB
+    units; any other read of the file, such as one without ``Range``, counts
+    against a limit of 10 a minute instead. Past any of these the read answers
+    429.
     Through the bundled web server a page on any origin can read the file,
     with header credentials or none; the API alone allows only the origins in
     ``CORS_ALLOWED_ORIGINS``. A private, missing or replaced point cloud
@@ -177,9 +179,11 @@ def sync(
     view the dataset can read the file. The response carries a strong ETag and
     honours ``Range``, ``If-Range``, ``If-Match`` and ``If-None-Match``; a
     malformed byte range, or one naming no byte of the file, answers 416.
-    Each client may make 1200 reads a minute. A read that can carry more than
-    one byte range of up to 16 MiB, such as one without ``Range``, also counts
-    against a limit of 10 a minute. Past either limit the read answers 429.
+    Each client may make 1200 reads a minute. A read of one byte range of up
+    to 16 MiB also draws its size on a budget of 1 GiB a minute, in 64 KiB
+    units; any other read of the file, such as one without ``Range``, counts
+    against a limit of 10 a minute instead. Past any of these the read answers
+    429.
     Through the bundled web server a page on any origin can read the file,
     with header credentials or none; the API alone allows only the origins in
     ``CORS_ALLOWED_ORIGINS``. A private, missing or replaced point cloud
@@ -224,9 +228,11 @@ async def asyncio_detailed(
     view the dataset can read the file. The response carries a strong ETag and
     honours ``Range``, ``If-Range``, ``If-Match`` and ``If-None-Match``; a
     malformed byte range, or one naming no byte of the file, answers 416.
-    Each client may make 1200 reads a minute. A read that can carry more than
-    one byte range of up to 16 MiB, such as one without ``Range``, also counts
-    against a limit of 10 a minute. Past either limit the read answers 429.
+    Each client may make 1200 reads a minute. A read of one byte range of up
+    to 16 MiB also draws its size on a budget of 1 GiB a minute, in 64 KiB
+    units; any other read of the file, such as one without ``Range``, counts
+    against a limit of 10 a minute instead. Past any of these the read answers
+    429.
     Through the bundled web server a page on any origin can read the file,
     with header credentials or none; the API alone allows only the origins in
     ``CORS_ALLOWED_ORIGINS``. A private, missing or replaced point cloud
@@ -274,9 +280,11 @@ async def asyncio(
     view the dataset can read the file. The response carries a strong ETag and
     honours ``Range``, ``If-Range``, ``If-Match`` and ``If-None-Match``; a
     malformed byte range, or one naming no byte of the file, answers 416.
-    Each client may make 1200 reads a minute. A read that can carry more than
-    one byte range of up to 16 MiB, such as one without ``Range``, also counts
-    against a limit of 10 a minute. Past either limit the read answers 429.
+    Each client may make 1200 reads a minute. A read of one byte range of up
+    to 16 MiB also draws its size on a budget of 1 GiB a minute, in 64 KiB
+    units; any other read of the file, such as one without ``Range``, counts
+    against a limit of 10 a minute instead. Past any of these the read answers
+    429.
     Through the bundled web server a page on any origin can read the file,
     with header credentials or none; the API alone allows only the origins in
     ``CORS_ALLOWED_ORIGINS``. A private, missing or replaced point cloud
