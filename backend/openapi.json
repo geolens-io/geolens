@@ -13271,6 +13271,18 @@
       "PointCloudMetadata": {
         "description": "A COPC point cloud's published file.",
         "properties": {
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "URL path of the COPC file on the app origin, e.g. /api/datasets/{id}/copc/{attempt}/data.copc.laz. A replaced file gets a new URL",
+            "title": "Url"
+          },
           "size_bytes": {
             "anyOf": [
               {
@@ -35341,6 +35353,168 @@
         "summary": "Get Column Values",
         "tags": [
           "Datasets - Metadata"
+        ]
+      }
+    },
+    "/datasets/{dataset_id}/copc/{attempt_id}/{name}.copc.laz": {
+      "get": {
+        "description": "Serve a published COPC point cloud's file, whole or by HTTP byte range.\n\nPoint a client at the dataset's ``pointcloud.url``. The path names the\nupload attempt, so a replaced file gets a new URL and the old one answers\n404. Header credentials (``X-Api-Key`` or ``Authorization``) or the\n``api_key`` query parameter authenticate the read, and any caller who can\nview the dataset can read the file. The response carries a strong ETag and\nhonours ``Range``, ``If-Range``, ``If-Match`` and ``If-None-Match``; a\nmalformed byte range, or one naming no byte of the file, answers 416.\nEach client may make 1200 reads a minute. A read of one byte range of up\nto 16 MiB also draws its size on a budget of 1 GiB a minute, in 64 KiB\nunits; any other read of the file, such as one without ``Range``, counts\nagainst a limit of 10 a minute instead. Past any of these the read answers\n429.\nThrough the bundled web server a page on any origin can read the file,\nwith header credentials or none; the API alone allows only the origins in\n``CORS_ALLOWED_ORIGINS``. A private, missing or replaced point cloud\nanswers 404, and a storage failure answers 502.",
+        "operationId": "get_pointcloud_file_datasets__dataset_id__copc__attempt_id___name__copc_laz_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "attempt_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Attempt Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The whole COPC file, as application/vnd.laszip+copc"
+          },
+          "206": {
+            "description": "One byte range of the COPC file"
+          },
+          "304": {
+            "description": "The caller already holds this version of the file"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A credential was supplied and could not be resolved (expired, revoked or malformed); a read with none is anonymous"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Precondition failed \u2014 the caller's If-Match no longer matches the current representation"
+          },
+          "416": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "The Range names no byte of the file, or is malformed"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many requests \u2014 retry after the advertised interval",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the request may be retried",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Internal server error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad gateway \u2014 an upstream provider failed"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Service unavailable \u2014 the database could not serve the request"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          },
+          {
+            "ApiKeyHeader": []
+          },
+          {
+            "ApiKeyQuery": []
+          }
+        ],
+        "summary": "Get Pointcloud File",
+        "tags": [
+          "Datasets"
         ]
       }
     },

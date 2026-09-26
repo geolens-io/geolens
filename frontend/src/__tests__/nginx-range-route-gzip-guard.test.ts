@@ -31,6 +31,7 @@ const CONF = readFileSync(resolve(__dirname, '../../nginx.conf'), 'utf-8');
 const RANGE_SERVING_PATHS = [
   '/api/datasets/0f8c1a2e-1111-2222-3333-444455556666/export',
   '/api/datasets/0f8c1a2e-1111-2222-3333-444455556666/download/cog',
+  '/api/datasets/0f8c1a2e-1111-2222-3333-444455556666/copc/1b2c3d4e-5555-6666-7777-888899990000/data.copc.laz',
 ];
 
 // Routes that serve exactly one representation and no ranges. They must KEEP

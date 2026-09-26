@@ -2,6 +2,7 @@
 
 import hashlib
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from time import monotonic
 from collections.abc import Mapping
@@ -331,6 +332,38 @@ def request_carries_credentials(request: Request) -> bool:
     request that should have been served anonymously.
     """
     return bool(request.headers.get("Authorization") or _supplied_api_key(request))
+
+
+@dataclass(frozen=True, slots=True)
+class ReadCredential:
+    """The credential a read authenticates with, in a form a dedupe may key on.
+
+    ``fingerprint`` is a SHA-256 digest of the credential, never the
+    credential itself.
+    """
+
+    kind: str
+    fingerprint: str
+
+
+def read_credential(request: Request) -> ReadCredential:
+    """The credential this read authenticates with, from its headers and query alone.
+
+    It covers the whole Authorization header rather than a parsed bearer
+    token, so two different headers never share a fingerprint.
+    """
+    api_key = _supplied_api_key(request) or ""
+    authorization = request.headers.get("Authorization") or ""
+    if api_key and authorization:
+        kind = "api_key+authorization"
+    elif api_key:
+        kind = "api_key"
+    elif authorization:
+        kind = "authorization"
+    else:
+        kind = "anonymous"
+    material = "\0".join((kind, api_key, authorization))
+    return ReadCredential(kind, hashlib.sha256(material.encode()).hexdigest())
 
 
 def reject_unresolvable_credentials(request: Request, user: Identity | None) -> None:

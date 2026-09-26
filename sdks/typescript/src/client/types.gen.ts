@@ -7698,6 +7698,12 @@ export type PermissionsResponse = {
  */
 export type PointCloudMetadata = {
     /**
+     * Url
+     *
+     * URL path of the COPC file on the app origin, e.g. /api/datasets/{id}/copc/{attempt}/data.copc.laz. A replaced file gets a new URL
+     */
+    url?: string | null;
+    /**
      * Size Bytes
      *
      * Size of the COPC file in bytes
@@ -18146,6 +18152,78 @@ export type GetColumnValuesDatasetsDatasetIdColumnsColumnNameValuesGetResponses 
 };
 
 export type GetColumnValuesDatasetsDatasetIdColumnsColumnNameValuesGetResponse = GetColumnValuesDatasetsDatasetIdColumnsColumnNameValuesGetResponses[keyof GetColumnValuesDatasetsDatasetIdColumnsColumnNameValuesGetResponses];
+
+export type GetPointcloudFileDatasetsDatasetIdCopcAttemptIdNameCopcLazGetData = {
+    body?: never;
+    path: {
+        /**
+         * Dataset Id
+         */
+        dataset_id: string;
+        /**
+         * Attempt Id
+         */
+        attempt_id: string;
+        /**
+         * Name
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/datasets/{dataset_id}/copc/{attempt_id}/{name}.copc.laz';
+};
+
+export type GetPointcloudFileDatasetsDatasetIdCopcAttemptIdNameCopcLazGetErrors = {
+    /**
+     * A credential was supplied and could not be resolved (expired, revoked or malformed); a read with none is anonymous
+     */
+    401: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Precondition failed — the caller's If-Match no longer matches the current representation
+     */
+    412: ProblemDetail;
+    /**
+     * The Range names no byte of the file, or is malformed
+     */
+    416: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Bad gateway — an upstream provider failed
+     */
+    502: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type GetPointcloudFileDatasetsDatasetIdCopcAttemptIdNameCopcLazGetError = GetPointcloudFileDatasetsDatasetIdCopcAttemptIdNameCopcLazGetErrors[keyof GetPointcloudFileDatasetsDatasetIdCopcAttemptIdNameCopcLazGetErrors];
+
+export type GetPointcloudFileDatasetsDatasetIdCopcAttemptIdNameCopcLazGetResponses = {
+    /**
+     * The whole COPC file, as application/vnd.laszip+copc
+     */
+    200: unknown;
+    /**
+     * One byte range of the COPC file
+     */
+    206: unknown;
+};
 
 export type GetDcatUs3RecordDatasetsDatasetIdDcatUs30GetData = {
     body?: never;

@@ -494,6 +494,11 @@ class Dataset(Base):
     pointcloud_vertical_crs: Mapped[str | None] = mapped_column(
         String(255), nullable=True
     )
+    # The upload attempt whose file the 'pointcloud' asset row names, which
+    # the file's URL carries. Written in the same transaction as that row.
+    pointcloud_attempt_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
     quicklook_256_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Source info

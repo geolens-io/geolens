@@ -121,6 +121,8 @@ export interface StacAsset {
 
 /** A COPC point cloud's published file. */
 export interface PointCloudMetadata {
+  /** URL path of the COPC file on the app origin; a replaced file gets a new URL. */
+  url: string | null;
   size_bytes: number | null;
   point_count: number | null;
   /** LAS point data record format: 6, 7 (RGB) or 8 (RGB and near infrared). */
