@@ -118,6 +118,12 @@
     "instructions": "Arrastre y suelte archivos aquí, o",
     "dropHere": "Suelte los archivos aquí",
     "unsupportedType": "Este tipo de archivo no es compatible",
+    "rejectionReason": {
+      "fileInvalidType": "El tipo de archivo debe ser uno de: {{types}}",
+      "fileTooLarge": "El archivo supera el límite de {{size}} MB",
+      "fileTooSmall": "El archivo es menor que el tamaño mínimo",
+      "tooManyFiles": "Hasta {{max}} archivos por lote"
+    },
     "sizeLimit": "Máximo 500 MB por archivo",
     "sizeLimitDynamic": "Máximo {{size}} MB por archivo",
     "batchLimit": "Hasta {{max}} archivos por lote",
@@ -229,7 +235,8 @@
     "commitFailed": "Error al iniciar la importación",
     "detectedLabel": "URL de servicio; detectada",
     "clear": "Borrar",
-    "layersAvailable": "{{count}} capas disponibles",
+    "layersAvailable_one": "{{count}} capa disponible",
+    "layersAvailable_other": "{{count}} capas disponibles",
     "noLayers": "No se encontraron capas en este servicio.",
     "probe": "Comprobar →",
     "supported": "Compatible:",

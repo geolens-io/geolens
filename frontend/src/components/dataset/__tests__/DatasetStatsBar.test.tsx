@@ -132,6 +132,17 @@ describe('DatasetStatsBar', () => {
     expect(screen.queryByText('v1')).not.toBeInTheDocument();
   });
 
+  it('keeps the M suffix for a measured (XYM) geometry type', () => {
+    const ds: DatasetResponse = {
+      ...BASE,
+      geometry_type: 'MultiPoint',
+      is_3d: false,
+      n_dims: 3,
+    };
+    render(<DatasetStatsBar dataset={ds} />);
+    expect(screen.getByText('MultiPointM')).toBeInTheDocument();
+  });
+
   it('caps at 6 cells', () => {
     const { container } = render(<DatasetStatsBar dataset={BASE} />);
     const grid = container.firstElementChild!;

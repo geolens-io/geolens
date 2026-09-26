@@ -137,6 +137,12 @@
     "subtext": "GeoLens 会在提交到目录之前检测几何、CRS 和字段结构。每批最多 {{max}} 个文件。",
     "dropHere": "将文件拖到此处",
     "unsupportedType": "不支持此文件类型",
+    "rejectionReason": {
+      "fileInvalidType": "文件类型必须是以下之一：{{types}}",
+      "fileTooLarge": "文件超过 {{size}} MB 的限制",
+      "fileTooSmall": "文件小于最小大小",
+      "tooManyFiles": "每批最多 {{max}} 个文件"
+    },
     "sizeLimit": "每个文件最大 500 MB",
     "sizeLimitDynamic": "每个文件最大 {{size}} MB",
     "batchLimit": "每批最多 {{max}} 个文件",
@@ -224,7 +230,8 @@
     "helpText": "粘贴 WFS、ArcGIS 要素服务或 OGC API Features URL",
     "detectedLabel": "服务 URL；已检测到",
     "clear": "清空",
-    "layersAvailable": "{{count}} 个可用图层",
+    "layersAvailable_one": "{{count}} 个可用图层",
+    "layersAvailable_other": "{{count}} 个可用图层",
     "noLayers": "此服务中未找到图层。",
     "probe": "探测 →",
     "supported": "支持：",

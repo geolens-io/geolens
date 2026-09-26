@@ -16,6 +16,18 @@ const PublicMapViewerPage = lazy(() =>
 );
 
 /**
+ * The Suspense fallback below, not the gate itself: only this is mounted
+ * while a branch's chunk is still loading, so only it can own the title for
+ * that window without racing the branch's own effect once it mounts. A
+ * chunk that fails to load leaves this as the last title set, since
+ * AppErrorBoundary's fallback doesn't touch it.
+ */
+function MapLoadingFallback({ title }: { title: string }) {
+  useDocumentTitle(title);
+  return <LoadingState />;
+}
+
+/**
  * Route-level gate for /maps/:id.
  * Editor/admin users see the full MapBuilderPage (server enforces RBAC).
  * Anonymous and signed-in viewer users see a read-only PublicMapViewerPage.
@@ -35,9 +47,6 @@ const PublicMapViewerPage = lazy(() =>
  */
 export function MapViewerGate() {
   const { t } = useTranslation('common');
-  // fix(#438): UX-09 — covers the gate's own loading states. Both lazy children
-  // set a more specific title once they mount.
-  useDocumentTitle(t('pageTitle.map'));
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
   const hasToken = useAuthStore((s) => !!s.token);
@@ -45,6 +54,15 @@ export function MapViewerGate() {
   const editorFallback = useAuthStore((s) => s.isEditor());
   const shouldCheckAccess = !!id && hasToken && !!user;
   const accessQuery = useMapAccess(id, { enabled: shouldCheckAccess });
+
+  // Own the title only for the gate's own loading/error UI below. A branch
+  // sets its own once it renders; asserting one here too can stomp it if
+  // both happen to mount in the same commit.
+  const isOwnLoadingOrError =
+    (hasToken && !user) ||
+    (shouldCheckAccess && accessQuery.isLoading) ||
+    (shouldCheckAccess && accessQuery.isError);
+  useDocumentTitle(isOwnLoadingOrError ? t('pageTitle.map') : null);
 
   // fix(#1778): React.lazy() only fires its import() at first render of
   // <MapBuilderPage/>, so the chunk download used to serialize BEHIND the
@@ -91,7 +109,7 @@ export function MapViewerGate() {
 
   return (
     <AppErrorBoundary>
-      <Suspense fallback={<LoadingState />}>
+      <Suspense fallback={<MapLoadingFallback title={t('pageTitle.map')} />}>
         {canEdit && !previewAsViewer ? <MapBuilderPage /> : <PublicMapViewerPage />}
       </Suspense>
     </AppErrorBoundary>
