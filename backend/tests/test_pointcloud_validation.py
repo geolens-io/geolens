@@ -262,6 +262,18 @@ def _two_levels_down(pages) -> bytes:
             patched(copc(), 179, "<d", float("nan")), "usable bounds", id="nan"
         ),
         pytest.param(
+            patched(copc(), 179, "<dd", ORIGIN[0], ORIGIN[0] + 1),
+            "usable bounds",
+            id="min-above-max",
+        ),
+        pytest.param(patched(copc(), 131, "<d", 0.0), "usable bounds", id="scale-zero"),
+        pytest.param(
+            patched(copc(), 147, "<d", float("inf")), "usable bounds", id="scale-inf"
+        ),
+        pytest.param(
+            patched(copc(), 155, "<d", float("nan")), "usable bounds", id="offset-nan"
+        ),
+        pytest.param(
             copc(laszip=lambda record: record[:32] + b"\0\0"),
             "LASzip",
             id="laszip-without-items",
@@ -424,6 +436,51 @@ def test_points_outside_the_octree_are_refused(tmp_path) -> None:
         "pointcloud_invalid",
         True,
     )
+
+
+async def test_a_finite_header_that_scales_past_a_double_is_refused(tmp_path) -> None:
+    """A Z scale, Z bound and half-size of 1e308 put inf in the points and NaN in the cells."""
+    data = patched(copc(), 147, "<d", 1e308)
+    data = patched(data, 211, "<d", 1e308)
+    path = write(tmp_path, patched(data, _INFO_AT + 24, "<d", 1e308))
+
+    with pytest.raises(UnsafeUploadError) as door:
+        inspect_pointcloud(path)
+    with pytest.raises(UnsafeUploadError) as worker:
+        await inspect_every_node(path)
+
+    message = "The point cloud's coordinates are too large to represent."
+    assert (door.value.code, str(door.value)) == ("pointcloud_invalid", message)
+    assert (worker.value.code, str(worker.value)) == ("pointcloud_invalid", message)
+
+
+def test_an_octree_past_a_double_is_refused(tmp_path) -> None:
+    """A half-size of 1e308 overflows the cells, and NaN passes every comparison."""
+    refusal = refused(tmp_path, patched(copc(), _INFO_AT + 24, "<d", 1e308))
+
+    assert (refusal.code, str(refusal)) == (
+        "pointcloud_invalid",
+        "The point cloud's octree is too large to represent.",
+    )
+
+
+async def test_facts_json_cannot_carry_are_refused_last(tmp_path, monkeypatch) -> None:
+    """Facts with NaN or inf never leave the checks, whatever produced them."""
+    path = write(tmp_path, copc_nodes())
+    monkeypatch.setattr(
+        pointcloud_module,
+        "_crs_facts",
+        lambda *args: (26912, None, (float("inf"), 0.0, 1.0, 1.0)),
+    )
+
+    with pytest.raises(UnsafeUploadError) as door:
+        inspect_pointcloud(path)
+    with pytest.raises(UnsafeUploadError) as worker:
+        await inspect_every_node(path)
+
+    message = "The point cloud's extent or elevation range isn't finite."
+    assert (door.value.code, str(door.value)) == ("pointcloud_invalid", message)
+    assert (worker.value.code, str(worker.value)) == ("pointcloud_invalid", message)
 
 
 def test_an_octree_larger_than_its_points_passes(tmp_path) -> None:

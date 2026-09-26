@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 import math
 import os
 import re
@@ -20,7 +21,7 @@ import struct
 import tempfile
 import uuid
 from collections.abc import Sequence
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from time import monotonic
 from types import SimpleNamespace
@@ -601,8 +602,25 @@ def _decode(read: Read, layout: _Layout, node: _Node) -> tuple[np.ndarray, np.nd
         (count, 3), dtype="<i4", buffer=points, strides=(header.record_length, 4)
     )
     scales, offsets = np.array(header.scales), np.array(header.offsets)
-    # A negative scale maps the largest raw value to the lowest coordinate.
-    ends = np.stack((xyz.min(axis=0), xyz.max(axis=0))) * scales + offsets
+    edge = 2 * layout.halfsize / 2**node.depth
+    key = np.array((node.x, node.y, node.z))
+    with np.errstate(over="ignore", invalid="ignore"):
+        # A negative scale maps the largest raw value to the lowest coordinate.
+        ends = np.stack((xyz.min(axis=0), xyz.max(axis=0))) * scales + offsets
+        cell = np.array(layout.center) - layout.halfsize + edge * key
+        cell_end = cell + edge
+    # Finite header values can still overflow to inf or NaN, which slip past
+    # the comparisons below.
+    if not np.isfinite(ends).all():
+        raise _invalid(
+            "The point cloud's coordinates are too large to represent.",
+            reason="decode_overflow",
+        )
+    if not np.isfinite((cell, cell_end)).all():
+        raise _invalid(
+            "The point cloud's octree is too large to represent.",
+            reason="cell_overflow",
+        )
     low, high, slack = ends.min(axis=0), ends.max(axis=0), np.abs(scales)
     if (low < np.array(header.mins) - slack).any() or (
         high > np.array(header.maxs) + slack
@@ -610,10 +628,7 @@ def _decode(read: Read, layout: _Layout, node: _Node) -> tuple[np.ndarray, np.nd
         raise _decode_failed(reason="decode_bounds")
     # Each level halves the octree's cube, and a COPC reader reads a node only
     # for a query that meets its cell, so a point outside the cell is hidden.
-    edge = 2 * layout.halfsize / 2**node.depth
-    key = np.array((node.x, node.y, node.z))
-    cell = np.array(layout.center) - layout.halfsize + edge * key
-    if (low < cell - slack).any() or (high > cell + edge + slack).any():
+    if (low < cell - slack).any() or (high > cell_end + slack).any():
         raise _invalid(
             "A node's points lie outside its octree cell.", reason="decode_voxel"
         )
@@ -741,9 +756,21 @@ def _inspect(path: str) -> tuple[PointCloud, _Layout, tuple[np.ndarray, np.ndarr
     return cloud, layout, corners
 
 
+def _publishable(cloud: PointCloud) -> PointCloud:
+    """``cloud``, unless a fact is a number JSON can't carry, such as NaN or inf."""
+    try:
+        json.dumps(asdict(cloud), allow_nan=False)
+    except ValueError as exc:
+        raise _invalid(
+            "The point cloud's extent or elevation range isn't finite.",
+            reason="facts_finite",
+        ) from exc
+    return cloud
+
+
 def inspect_pointcloud(path: str) -> PointCloud:
     """Check a COPC file on local disk, decoding its top node; a refusal is an ``UnsafeUploadError``."""
-    return _inspect(path)[0]
+    return _publishable(_inspect(path)[0])
 
 
 def _decode_node(
@@ -778,7 +805,7 @@ async def inspect_every_node(path: str) -> PointCloud:
     # Some writers round a header's bounds outward, so the points set the extent.
     low, high = low.tolist(), high.tolist()
     _, _, bbox = await asyncio.to_thread(_crs_facts, layout.wkt, low, high)
-    return replace(cloud, extent_bbox=bbox, z_min=low[2], z_max=high[2])
+    return _publishable(replace(cloud, extent_bbox=bbox, z_min=low[2], z_max=high[2]))
 
 
 def _layout_of(path: str) -> _Layout:
