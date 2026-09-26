@@ -47,6 +47,7 @@ AUDIT_ACTIONS: frozenset[str] = frozenset(
         "dataset.delete",
         "dataset.download_cog",
         "dataset.export",
+        "dataset.pointcloud_read",
         "dataset.view",
         "embed_token.bulk_revoke",
         "embed_token.create",
