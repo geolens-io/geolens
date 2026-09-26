@@ -8,6 +8,7 @@ import struct
 import subprocess
 import sys
 import uuid
+from fractions import Fraction
 from pathlib import Path
 
 import boto3
@@ -30,6 +31,7 @@ from app.processing.ingest.pointcloud import (
 )
 from tests.pointcloud_files import (
     Layout,
+    compressed_chunk,
     copc,
     copc_nodes,
     records,
@@ -408,7 +410,8 @@ def _lazrs_calls(monkeypatch) -> list:
     [
         lambda chunk: patched(chunk, 34, "<I", 0xFFFFFFFF),
         lambda chunk: patched(chunk, 30, "<I", 99),
-        lambda chunk: chunk[:40],
+        # Short of the 70-byte chunk header, yet within the decode ratio.
+        lambda chunk: chunk[:50],
     ],
     ids=["layer-size-past-the-chunk", "count-differs", "shorter-than-its-header"],
 )
@@ -537,6 +540,31 @@ def test_a_node_whose_compressed_size_is_past_the_bound_is_refused(
         "pointcloud_invalid",
         True,
     )
+
+
+def _top_node_ratio() -> Fraction:
+    """Exactly how many times its stored size copc()'s one node decodes to."""
+    return Fraction(100 * 30, len(compressed_chunk(records(100))))
+
+
+def test_a_node_at_the_decode_ratio_passes(tmp_path, monkeypatch) -> None:
+    """A node that decodes to exactly the ratio times its stored size is decoded."""
+    monkeypatch.setattr(pointcloud_module, "MAX_DECODE_RATIO", _top_node_ratio())
+
+    assert inspect_pointcloud(write(tmp_path, copc())).point_count == 100
+
+
+def test_a_node_past_the_decode_ratio_is_refused_before_lazrs(
+    tmp_path, monkeypatch
+) -> None:
+    """A node that decodes to one byte more than the ratio allows never reaches lazrs."""
+    stored = len(compressed_chunk(records(100)))
+    monkeypatch.setattr(
+        pointcloud_module, "MAX_DECODE_RATIO", _top_node_ratio() - Fraction(1, stored)
+    )
+    calls = _lazrs_calls(monkeypatch)
+
+    assert (refused(tmp_path, copc()).code, calls) == ("pointcloud_invalid", [])
 
 
 def test_structural_refusals_are_security_events_and_others_are_not(tmp_path) -> None:

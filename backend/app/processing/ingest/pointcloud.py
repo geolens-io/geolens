@@ -48,6 +48,9 @@ MAX_HIERARCHY_ENTRIES = 250_000
 MAX_DEPTH = 24
 # Both the compressed and the decoded size of each node decoded.
 MAX_DECODE_BYTES = 64 * 1024 * 1024
+# The most a node may decode to, as a multiple of its stored size. Real lidar
+# tiles measure near ten, so a node far past it only multiplies decode work.
+MAX_DECODE_RATIO = 64
 MAX_WKT_BYTES = 64 * 1024
 # lazrs builds four 256-symbol models, about 9.6 KB, per extra byte before it
 # reads a point, so the extra bytes a record may carry are bounded too.
@@ -310,8 +313,9 @@ def _walk(
     """Check every hierarchy page and return each node holding points, shallowest first.
 
     A page is read once at most, from inside the hierarchy record; each node's
-    points lie inside the point data and overlap no other node's; and the
-    nodes' counts sum to the header's.
+    points lie inside the point data, overlap no other node's and decode to at
+    most ``MAX_DECODE_RATIO`` times their stored size; and the nodes' counts sum
+    to the header's.
     """
     pages = [root]
     seen_pages: set[tuple[int, int]] = set()
@@ -371,6 +375,13 @@ def _walk(
                 raise _invalid(
                     "A node's points lie outside the file's point data.",
                     reason="node_range",
+                )
+            if count * header.record_length > MAX_DECODE_RATIO * node_size:
+                raise _invalid(
+                    "A node of the octree decodes to more than "
+                    f"{MAX_DECODE_RATIO} times its stored size.",
+                    reason="decode_ratio",
+                    limit=MAX_DECODE_RATIO,
                 )
             total += count
             nodes.append((depth, node_offset, node_size, count))
