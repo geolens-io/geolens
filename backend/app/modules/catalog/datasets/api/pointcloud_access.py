@@ -4,7 +4,7 @@ Each read resolves the caller, checks the dataset and reads the live pointer,
 so a revoked credential, a dataset made private or a replaced file stops
 serving at once. A viewer reads one file in many ranges, so only the audit row
 is deduplicated: one per tenant, dataset, attempt and credential in each
-``AUDIT_WINDOW_SECONDS``. The dedupe grants nothing.
+``AUDIT_WINDOW_SECONDS``, per worker process. The dedupe grants nothing.
 """
 
 from __future__ import annotations
@@ -88,7 +88,12 @@ async def authorize_pointcloud_read(
         attempt_id,
         credential.fingerprint,
     )
-    if audit_key not in _audited:
+    if audit_key in _audited:
+        return grant
+    # Claimed before the first await, so a parallel read on this worker finds
+    # it, and released if the row isn't written, so a later read retries it.
+    _audited[audit_key] = True
+    try:
         await audit_emit(
             db,
             AuditEvent(
@@ -101,7 +106,9 @@ async def authorize_pointcloud_read(
             ),
         )
         await db.commit()
-        _audited[audit_key] = True
+    except BaseException:  # broad: cleanup only; the raise below keeps the failure
+        _audited.pop(audit_key, None)
+        raise
     return grant
 
 

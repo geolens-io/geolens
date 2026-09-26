@@ -1,5 +1,6 @@
 """The point cloud route serves only a live attempt's COPC file, by range and sandboxed, deciding access on every read."""
 
+import asyncio
 import uuid
 
 import boto3
@@ -8,6 +9,7 @@ from cachetools import TTLCache
 from httpx import AsyncClient
 from moto import mock_aws
 from sqlalchemy import select, text
+from starlette.requests import Request
 from structlog.testing import capture_logs
 
 from app.core.pointcloud import (
@@ -863,6 +865,69 @@ async def test_each_credential_writes_one_audit_row_per_window(
     assert await _audit_rows(test_db_session, dataset_id) == [
         (user, {"attempt_id": str(attempt), "credential": kind})
     ]
+
+
+async def test_parallel_reads_write_one_audit_row(
+    client: AsyncClient, test_db_session, make_pointcloud, storage, monkeypatch
+) -> None:
+    """Reads by one credential that run at once on one worker write one audit row between them."""
+    dataset_id, attempt = await _published(make_pointcloud, storage)
+    emit = pointcloud_access.audit_emit
+
+    async def slow_emit(db, event):
+        # Every read reaches the dedupe while the first is still writing.
+        await asyncio.sleep(0.2)
+        await emit(db, event)
+
+    monkeypatch.setattr(pointcloud_access, "audit_emit", slow_emit)
+    url = _url(dataset_id, attempt)
+
+    responses = await asyncio.gather(
+        *(client.get(url, headers={"Range": f"bytes={i}-{i}"}) for i in range(4))
+    )
+
+    assert [resp.status_code for resp in responses] == [206] * 4
+    assert len(await _audit_rows(test_db_session, dataset_id)) == 1
+
+
+async def test_a_failed_audit_write_is_retried_by_the_next_read(
+    test_db_session, make_pointcloud, storage, monkeypatch
+) -> None:
+    """A read whose audit row can't be written fails, and the caller's next read writes the row."""
+    dataset_id, attempt = await _published(make_pointcloud, storage)
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": _url(dataset_id, attempt),
+            "headers": [],
+            "query_string": b"",
+            "client": ("203.0.113.9", 1),
+        }
+    )
+    emit = pointcloud_access.audit_emit
+
+    async def unavailable(db, event):
+        raise RuntimeError("audit store unavailable")
+
+    async def read():
+        return await pointcloud_access.authorize_pointcloud_read(
+            request,
+            test_db_session,
+            None,
+            dataset_id=dataset_id,
+            attempt_id=attempt,
+            name="data",
+        )
+
+    monkeypatch.setattr(pointcloud_access, "audit_emit", unavailable)
+    with pytest.raises(RuntimeError):
+        await read()
+    await test_db_session.rollback()
+    monkeypatch.setattr(pointcloud_access, "audit_emit", emit)
+
+    assert (await read()).attempt_id == attempt
+    assert len(await _audit_rows(test_db_session, dataset_id)) == 1
 
 
 async def test_the_audit_window_is_thirty_seconds(
