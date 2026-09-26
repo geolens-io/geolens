@@ -16,6 +16,7 @@ from sqlalchemy import select
 
 from app.core import geo
 from app.core.geo import crs_columns, raster_crs_facts, wkt_crs_facts
+from app.platform import bounded_child
 from app.platform.jobs.models import IngestJob
 from app.processing.raster import probe
 from app.processing.raster.models import RasterAsset
@@ -426,7 +427,7 @@ class TestVrtSourcesCompareCrsInTheChild:
         def _fail(*args, **kwargs):
             raise raised
 
-        monkeypatch.setattr(probe.subprocess, "run", _fail)
+        monkeypatch.setattr(bounded_child.subprocess, "run", _fail)
 
         assert compare_crs([_UTM_18N_WKT2, _UTM_19N_WKT2]) == {
             _UTM_18N_WKT2: None,
