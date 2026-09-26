@@ -40,11 +40,14 @@ from app.processing.raster.cog import (
     _scratch_dir,
     check_and_prepare_cog,
     cog_preserves_source,
-    extract_raster_metadata,
     resolve_crs_assignment,
     sha256_file,
 )
-from app.processing.raster.quicklook import generate_quicklook
+from app.processing.raster.probe import (
+    RasterProbeError,
+    read_raster_metadata,
+    render_quicklook,
+)
 
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
@@ -70,7 +73,7 @@ from app.processing.ingest.tasks_raster_common import (
     _enforce_strict_cog,
     _resolve_managed_raster_storage_keys,
     attempt_scoped_raster_base_key,
-    extract_source_raster_metadata,
+    inspect_source_raster,
     record_unpublished_storage_keys,
 )
 from app.processing.ingest.tasks_raster_swap import (
@@ -104,7 +107,7 @@ class RasterReplaceError(Exception):
 async def _read_published_cog(cog_path: str) -> dict:
     """Read the freshly written COG back, and return what it actually says.
 
-    Two jobs, one rasterio open pass, on purpose.
+    Two jobs, one read, on purpose.
 
     First is the "verified readable" half of invariant 10 — conversion
     exiting 0 isn't the same fact as the output being openable (truncated
@@ -122,16 +125,15 @@ async def _read_published_cog(cog_path: str) -> dict:
     reading them off the source would place the dataset at the wrong spot
     with no field visibly disagreeing.
 
-    Goes through ``extract_raster_metadata`` — the reader every other
-    raster path uses, so no new GDAL seam for Rule 2 to police.
+    Goes through the probe child, like every other raster read.
     """
     try:
-        return await asyncio.to_thread(extract_raster_metadata, cog_path)
-    except Exception as exc:  # broad: any read failure means do not publish
+        return await asyncio.to_thread(read_raster_metadata, cog_path)
+    except RasterProbeError as exc:
         raise RasterReplaceError(
-            f"Converted COG could not be read back: {exc}. "
+            f"Converted COG could not be read back. {exc} "
             "The dataset still serves its previous raster."
-        ) from exc
+        ) from None
 
 
 async def _stamp_progress(
@@ -163,6 +165,7 @@ async def _convert_and_verify_cog(
     file_path: str,
     tmp_dir: str,
     *,
+    inspection: dict,
     compression: str,
     resampling: str | None,
     nodata: object,
@@ -192,6 +195,7 @@ async def _convert_and_verify_cog(
         check_and_prepare_cog,
         file_path,
         tmp_dir,
+        inspection=inspection,
         compression=compression,
         resampling=resampling,
         nodata=nodata,
@@ -280,19 +284,20 @@ class _RasterReplace:
         self.source_sha256 = await asyncio.to_thread(sha256_file, self.file_path)
         # The source read decides only whether the conversion needs a CRS
         # assignment; every stored field comes from the converted COG.
-        self.source_meta = await asyncio.to_thread(
-            extract_source_raster_metadata,
+        compression = self.options.get("compression") or "DEFLATE"
+        inspection = await asyncio.to_thread(
+            inspect_source_raster,
             self.file_path,
             original_filename=self.source_filename,
+            expected_compression=compression,
         )
-        compression = self.options.get("compression") or "DEFLATE"
+        self.source_meta = inspection["metadata"]
         assign_crs = resolve_crs_assignment(
             crs_wkt=self.source_meta.get("crs_wkt"),
             srid_override=self.options.get("srid_override"),
         )
-        await _enforce_strict_cog(
-            self.file_path,
-            expected_compression=compression,
+        _enforce_strict_cog(
+            inspection,
             is_manifest_vrt=False,
             strict_cog=bool(self.options.get("strict_cog")),
         )
@@ -306,6 +311,7 @@ class _RasterReplace:
         ) = await _convert_and_verify_cog(
             self.file_path,
             self.tmp_dir,
+            inspection=inspection,
             compression=compression,
             resampling=self.options.get("resampling") or None,
             nodata=self.options.get("nodata_override"),
@@ -341,12 +347,8 @@ class _RasterReplace:
             )
 
         await self._progress("quicklook", 0.6)
-        self.ql256 = await asyncio.to_thread(
-            generate_quicklook, self.local_cog_path, 256
-        )
-        self.ql512 = await asyncio.to_thread(
-            generate_quicklook, self.local_cog_path, 512
-        )
+        self.ql256 = await asyncio.to_thread(render_quicklook, self.local_cog_path, 256)
+        self.ql512 = await asyncio.to_thread(render_quicklook, self.local_cog_path, 512)
 
     async def stage(self, session, job, dataset) -> Verdict:
         self.job = job

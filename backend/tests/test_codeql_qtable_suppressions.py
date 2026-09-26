@@ -420,12 +420,24 @@ def _dynamic_sql_lines(source: str) -> set[int]:
     return set(_dynamic_text_sites(source))
 
 
+def _print_call_lines(source: str) -> set[int]:
+    """1-based start line of every call to the builtin ``print``."""
+    return {
+        node.lineno
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "print"
+    }
+
+
 # The construct each rule reports at. `py/full-ssrf` is absent because the two
 # tests above already pin its markers in both directions, against one shared
 # definition of an SSRF sink.
 MARKER_CONSTRUCTS = {
     "py/sql-injection": _dynamic_sql_lines,
     "py/path-injection": _path_sink_lines,
+    "py/clear-text-logging-sensitive-data": _print_call_lines,
 }
 RULES_CHECKED_ELSEWHERE = frozenset({"py/full-ssrf"})
 

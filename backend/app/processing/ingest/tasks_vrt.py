@@ -4,8 +4,8 @@ Storage portability (STOR-03/04, Phase 1210):
   VRTs are stored with provider-agnostic SourceFilename nodes (logical keys +
   relativeToVRT="1"). The rewrite pass (rewrite_vrt_sources) runs AFTER metadata
   extraction and quicklook generation at each store site — the in-flight tmp .vrt
-  used by extract_raster_metadata / generate_quicklook must hold concrete,
-  resolvable paths; only the stored copy is normalised to logical keys.
+  those probe reads open must hold concrete, resolvable paths; only the stored
+  copy is normalised to logical keys.
 
   At open-time, resolve_open_path (app.platform.storage.titiler_url) reconstructs
   the concrete VSI path from the logical key + current STORAGE_PROVIDER config, so
@@ -35,13 +35,13 @@ from app.platform.jobs.heartbeat import (
 from app.core.failure_reason import redact_failure_reason
 from app.core.db import tenant_task
 from app.processing.embeddings.helpers import defer_embedding
-from app.processing.raster.cog import extract_raster_metadata, sha256_file
-from app.processing.raster.quicklook import generate_quicklook
-from app.processing.raster.vrt import (
-    build_vrt,
-    gdal_safe_open_env,
-    resolve_vrt_source_path,
+from app.processing.raster.cog import sha256_file
+from app.processing.raster.probe import (
+    RENDER_TIMEOUT_SECONDS,
+    read_raster_metadata,
+    render_quicklook,
 )
+from app.processing.raster.vrt import build_vrt, resolve_vrt_source_path
 from app.processing.raster.vrt_rewrite import rewrite_vrt_sources
 from app.platform.storage import get_storage
 
@@ -97,35 +97,12 @@ def _log_publish_wait_failure(
 
 
 def read_vrt_metadata(vrt_path: str) -> dict:
-    """``extract_raster_metadata`` on a built VRT, under the safe open env.
+    """Metadata of a built VRT, read in the probe child.
 
-    fix(#1778): steps 6 and 8 below open every ``/vsis3`` source the
-    assembled VRT names in-process rather than through a subprocess, so
-    they're the one place ``GDAL_SUBPROCESS_TIMEOUT_SECONDS`` doesn't
-    reach. A rasterio ``Env`` sets thread-local GDAL config, so
-    ``_VRT_SAFE_ENV`` must be entered INSIDE the ``asyncio.to_thread`` call
-    rather than around it — the whole reason this is a function, not a
-    ``with`` block at the call site.
-
-    fix(#1778): lives in THIS module and calls
-    ``extract_raster_metadata`` through the module global (not a local
-    import) because that name is a patch target for
-    ``test_regenerate_vrt_integration``; a function-level import there
-    made the patch a no-op.
+    Opening the VRT reads every ``/vsis3`` source it names, so it gets the
+    render timeout rather than the read one.
     """
-    with gdal_safe_open_env():
-        return extract_raster_metadata(vrt_path)
-
-
-def render_vrt_quicklook(vrt_path: str, size: int) -> bytes:
-    """``generate_quicklook`` on a built VRT, under the safe open env.
-
-    fix(#1778): the peer of :func:`read_vrt_metadata` and the heavier of the
-    two, since it reads pixels from every source rather than headers. Same
-    module-global call for the same reason.
-    """
-    with gdal_safe_open_env():
-        return generate_quicklook(vrt_path, size)
+    return read_raster_metadata(vrt_path, timeout=RENDER_TIMEOUT_SECONDS)
 
 
 async def _reap_superseded_generation_objects(
@@ -677,8 +654,8 @@ async def ingest_vrt(
         ql256: bytes | None = None
         ql512: bytes | None = None
         try:
-            ql256 = await asyncio.to_thread(render_vrt_quicklook, vrt_path, 256)
-            ql512 = await asyncio.to_thread(render_vrt_quicklook, vrt_path, 512)
+            ql256 = await asyncio.to_thread(render_quicklook, vrt_path, 256)
+            ql512 = await asyncio.to_thread(render_quicklook, vrt_path, 512)
         except Exception:  # broad: quicklook generation is non-fatal
             logger_vrt.warning(
                 "Quicklook generation failed for VRT %s", job_id, exc_info=True
@@ -1204,8 +1181,8 @@ async def regenerate_vrt(
         ql256: bytes | None = None
         ql512: bytes | None = None
         try:
-            ql256 = await asyncio.to_thread(render_vrt_quicklook, vrt_path, 256)
-            ql512 = await asyncio.to_thread(render_vrt_quicklook, vrt_path, 512)
+            ql256 = await asyncio.to_thread(render_quicklook, vrt_path, 256)
+            ql512 = await asyncio.to_thread(render_quicklook, vrt_path, 512)
         except Exception:  # broad: quicklook generation is non-fatal
             logger_regen.warning(
                 "Quicklook regeneration failed for VRT %s",

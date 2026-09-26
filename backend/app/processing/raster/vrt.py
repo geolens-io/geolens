@@ -3,14 +3,8 @@
 import math
 import os
 import subprocess
-from contextlib import ExitStack
-from xml.etree.ElementTree import Element, ElementTree, SubElement
 
-from app.core.geo import (
-    LON_EPSILON_DEGREES,
-    crs_has_degree_unit,
-    wrap_longitude,
-)
+from app.core.geo import LON_EPSILON_DEGREES, wrap_longitude
 
 # fix(#1857): re-export. The clamps live in platform/ so
 # modules/catalog/ can reach them; both import paths are credited by the
@@ -78,9 +72,8 @@ def gdal_safe_open_env():
     """In-process twin of :func:`gdal_safe_env`, for ``rasterio.open`` calls.
 
     ``gdal_safe_env`` clamps SUBPROCESS environments only. Built from the
-    same ``_VRT_SAFE_ENV`` so the two can't drift. Used by
-    :func:`_write_python_vrt`, the only in-process source access in this
-    module.
+    same ``_VRT_SAFE_ENV`` so the two can't drift. The raster probe child
+    enters it around every read.
     """
     import rasterio
 
@@ -139,17 +132,6 @@ _RES_MAP: dict[str, str] = {
     "average": "average",
 }
 
-_GDAL_DTYPE_MAP = {
-    "uint8": "Byte",
-    "int16": "Int16",
-    "uint16": "UInt16",
-    "int32": "Int32",
-    "uint32": "UInt32",
-    "float32": "Float32",
-    "float64": "Float64",
-}
-
-
 # fix(#887): the absolute noise floor for a DstRect value, in PIXELS. Distinct
 # from LON_EPSILON_DEGREES, which is a longitude tolerance -- these are different
 # units and must not share a constant just because they share a magnitude.
@@ -161,8 +143,7 @@ def _offset_text(value: float) -> str:
 
     fix(#887): ``gdalbuildvrt`` emits sub-pixel geometry for misaligned
     sources (``xOff="17751.5"``); rounding to whole pixels slides the
-    source by up to half a pixel and changes resampling. Shared by both
-    writers (codex round 7 caught them disagreeing).
+    source by up to half a pixel and changes resampling.
 
     ``rel_tol=0`` is load-bearing: the default grows the tolerance with the
     offset (0.1 at 1e8 pixels, 1.0 at 1e9), silently rounding a real
@@ -183,20 +164,9 @@ def _containing_pixels(span_px: float) -> int:
     fix(#887): a mosaic ending at pixel 298.5 needs 299 pixels; 298 clips
     the last half pixel (measured: GDAL sizes its own mosaics the same way,
     298.5->299, 440.51->441). ``round`` first so float noise can't add a
-    stray pixel. Shared by both writers, same reasoning as
-    :func:`_offset_text`.
+    stray pixel.
     """
     return max(1, math.ceil(round(span_px, 6)))
-
-
-def _resolve_target_resolution(values: list[float], resolution_strategy: str) -> float:
-    if resolution_strategy == "finest":
-        return min(values)
-    if resolution_strategy == "coarsest":
-        return max(values)
-    if resolution_strategy == "average":
-        return sum(values) / len(values)
-    raise KeyError(resolution_strategy)
 
 
 # fix(#887): seam logic is degree-based throughout — EPSG:4807 (NTF Paris)
@@ -204,23 +174,20 @@ def _resolve_target_resolution(values: list[float], resolution_strategy: str) ->
 # would misplace it. Compare the CRS's own unit factor, not a name.
 
 
-def _is_degree_based(crs) -> bool:
+def _is_degree_based(facts: dict) -> bool:
     """True only for a geographic CRS whose angular unit is degrees.
 
-    fix(#961): the unit check is shared with :func:`core.geo.
-    crs_has_degree_unit`, which takes a CRS OBJECT so this site avoids
-    round-tripping through WKT.
+    ``facts`` is :func:`app.processing.raster.probe.crs_facts`'s answer, whose
+    unit check is :func:`core.geo.crs_has_degree_unit`.
 
     "Unknown" reads as False here — the opposite of the tile path's
     ``wkt_has_degree_unit(...) is not False``, which keeps the historical
     degrees assumption. Same question, opposite safe answer.
 
-    fix(#887): the shared helper's ``rel_tol`` is correct there and wrong
-    in :func:`_offset_text` — don't "fix" that one by symmetry.
+    The shared helper's ``rel_tol`` is correct there and wrong in
+    :func:`_offset_text` — don't "fix" that one by symmetry.
     """
-    if crs is None or not crs.is_geographic:
-        return False
-    return crs_has_degree_unit(crs) is True
+    return facts["is_geographic"] is True and facts["has_degree_unit"] is True
 
 
 def normalize_lon_span(left: float, right: float) -> tuple[float, float]:
@@ -276,178 +243,6 @@ def _seam_frame_origin(spans: list[tuple[float, float]]) -> float | None:
     return best_origin
 
 
-def _write_python_vrt(
-    source_paths: list[str],
-    output_path: str,
-    resolution_strategy: str,
-    *,
-    separate: bool = False,
-) -> str:
-    import rasterio
-
-    if not source_paths:
-        raise ValueError("At least one source raster is required to build a VRT")
-
-    # fix(#887): same clamp as the seam probe — this builder opens every source
-    # in-process, and on a CLI-less host it is the ONLY thing that touches them,
-    # so there is no clamped subprocess behind it (AGENTS.md Rule 2).
-    with gdal_safe_open_env(), ExitStack() as stack:
-        datasets = [stack.enter_context(rasterio.open(path)) for path in source_paths]
-        first = datasets[0]
-        first_crs = first.crs.to_wkt() if first.crs is not None else None
-
-        res_x = _resolve_target_resolution(
-            [abs(ds.transform.a) for ds in datasets], resolution_strategy
-        )
-        res_y = _resolve_target_resolution(
-            [abs(ds.transform.e) for ds in datasets], resolution_strategy
-        )
-
-        # fix(#887): only a degree-based geographic CRS wraps at ±180 — a
-        # projected CRS's numbers are metres (a +360 shift would move a
-        # source 360m), and a grads CRS turns at 400, not 360.
-        raw_spans = [(ds.bounds.left, ds.bounds.right) for ds in datasets]
-        # fix(#887): normalized into a single turn for the seam decision, because
-        # the frame chooser shifts by exactly one (see normalize_lon_span).
-        normalized_spans = [
-            normalize_lon_span(left, right) for left, right in raw_spans
-        ]
-        seam_origin = (
-            _seam_frame_origin(normalized_spans)
-            if all(_is_degree_based(ds.crs) for ds in datasets)
-            else None
-        )
-        # Only a mosaic actually being re-framed adopts the normalized
-        # longitudes; every other build keeps the coordinates its sources carry.
-        spans = normalized_spans if seam_origin is not None else raw_spans
-        lon_offsets = [
-            360.0
-            if seam_origin is not None and left < seam_origin - LON_EPSILON_DEGREES
-            else 0.0
-            for left, _ in spans
-        ]
-        placed = [
-            (left + offset, right + offset)
-            for (left, right), offset in zip(spans, lon_offsets, strict=True)
-        ]
-        shifted = list(zip(datasets, [left for left, _ in placed], strict=True))
-
-        left = min(left for left, _ in placed)
-        right = max(right for _, right in placed)
-        bottom = min(ds.bounds.bottom for ds in datasets)
-        top = max(ds.bounds.top for ds in datasets)
-        # fix(#887): same containment rule as the gdalbuildvrt rewrite. Rounding
-        # to nearest sized a 298.5-pixel hull at 298 and clipped the edge.
-        width = _containing_pixels((right - left) / res_x)
-        height = _containing_pixels((top - bottom) / res_y)
-
-        root = Element("VRTDataset", rasterXSize=str(width), rasterYSize=str(height))
-        if first_crs is not None:
-            SubElement(root, "SRS").text = first_crs
-        SubElement(
-            root, "GeoTransform"
-        ).text = f"{left}, {res_x}, 0.0, {top}, 0.0, {-res_y}"
-
-        def add_simple_source(
-            parent: Element,
-            dataset,
-            *,
-            band_index: int,
-            placed_left: float,
-        ) -> None:
-            source = SubElement(parent, "SimpleSource")
-            # STOR-03 (Phase 1210): writes logical key + relativeToVRT="1"
-            # so the stored XML is provider-agnostic; rewrite_vrt_sources
-            # (tasks_vrt.py) is the enforcement gate that normalises it.
-            SubElement(source, "SourceFilename", relativeToVRT="1").text = dataset.name
-            SubElement(source, "SourceBand").text = str(band_index)
-            block_height, block_width = dataset.block_shapes[band_index - 1]
-            SubElement(
-                source,
-                "SourceProperties",
-                RasterXSize=str(dataset.width),
-                RasterYSize=str(dataset.height),
-                DataType=_GDAL_DTYPE_MAP.get(
-                    dataset.dtypes[band_index - 1], dataset.dtypes[band_index - 1]
-                ),
-                BlockXSize=str(block_width),
-                BlockYSize=str(block_height),
-            )
-            SubElement(
-                source,
-                "SrcRect",
-                xOff="0",
-                yOff="0",
-                xSize=str(dataset.width),
-                ySize=str(dataset.height),
-            )
-            # fix(#887): destination geometry stays fractional (via
-            # _offset_text) — integer rounding put xOff 248.5 at 248,
-            # sliding the source half a pixel and changing its resampling.
-            dst_width = dataset.width * abs(dataset.transform.a) / res_x
-            dst_height = dataset.height * abs(dataset.transform.e) / res_y
-            # `placed_left` is in the SAME frame as `left` (normalized,
-            # then shifted). Mixing frames here put a seam-straddling
-            # source half a world from its own pixels.
-            dst_x_off = (placed_left - left) / res_x
-            dst_y_off = (top - dataset.bounds.top) / res_y
-            SubElement(
-                source,
-                "DstRect",
-                xOff=_offset_text(dst_x_off),
-                yOff=_offset_text(dst_y_off),
-                xSize=_offset_text(dst_width),
-                ySize=_offset_text(dst_height),
-            )
-
-        if separate:
-            band_number = 1
-            for dataset, placed_left in shifted:
-                for source_band in range(1, dataset.count + 1):
-                    band = SubElement(
-                        root,
-                        "VRTRasterBand",
-                        dataType=_GDAL_DTYPE_MAP.get(
-                            dataset.dtypes[source_band - 1],
-                            dataset.dtypes[source_band - 1],
-                        ),
-                        band=str(band_number),
-                    )
-                    add_simple_source(
-                        band,
-                        dataset,
-                        band_index=source_band,
-                        placed_left=placed_left,
-                    )
-                    band_number += 1
-        else:
-            band_count = first.count
-            for dataset in datasets[1:]:
-                if dataset.count != band_count:
-                    raise ValueError(
-                        "All mosaic sources must have the same number of bands"
-                    )
-            for band_number in range(1, band_count + 1):
-                band = SubElement(
-                    root,
-                    "VRTRasterBand",
-                    dataType=_GDAL_DTYPE_MAP.get(
-                        first.dtypes[band_number - 1], first.dtypes[band_number - 1]
-                    ),
-                    band=str(band_number),
-                )
-                for dataset, placed_left in shifted:
-                    add_simple_source(
-                        band,
-                        dataset,
-                        band_index=band_number,
-                        placed_left=placed_left,
-                    )
-
-        ElementTree(root).write(output_path, encoding="utf-8", xml_declaration=True)
-        return output_path
-
-
 def resolve_vrt_source_path(asset_uri: str, *, tenant_id: str | None = None) -> str:
     """Delegate to the storage seam's resolve_open_path (STOR-01 / Phase 1210).
 
@@ -468,11 +263,10 @@ def shift_vrt_longitude_frame(vrt_path: str) -> None:
     """Re-anchor a built VRT's longitude frame so the seam falls inside it.
 
     fix(#887): ``gdalbuildvrt`` gets everything right except the geometry;
-    correcting via XML rewrite (not rebuilding with
-    :func:`_write_python_vrt`) preserves ``NoDataValue``/``ColorInterp``/
-    mask bands — without the ``<NODATA>`` inside a ``ComplexSource``, an
-    overlapping source's fill pixels overwrite valid ones (measured: an
-    overlap that should read 7 read 0).
+    correcting via XML rewrite (not rebuilding the VRT by hand) preserves
+    ``NoDataValue``/``ColorInterp``/mask bands — without the ``<NODATA>``
+    inside a ``ComplexSource``, an overlapping source's fill pixels overwrite
+    valid ones (measured: an overlap that should read 7 read 0).
 
     Rewrites exactly three things — ``rasterXSize``, the ``GeoTransform``
     origin, and every ``DstRect`` ``xOff`` (including inside a
@@ -481,16 +275,11 @@ def shift_vrt_longitude_frame(vrt_path: str) -> None:
     Each source's left edge is recoverable from its own ``xOff``
     (``old_left + xOff * res_x``), so this needs no second source pass.
 
-    It DECIDES, from the XML alone, opening nothing (fix(#887), codex
-    round 9) — the previous version probed every source with
-    ``rasterio.open``, and a stalled object-storage read pinned a pool
-    thread forever (Python threads aren't killable; no ``run_gdal``
-    timeout applied to the probe).
-
-    fix(#1778): the hazard isn't gone from the pipeline — later steps open
-    every ``/vsis3`` source in-thread for metadata + quicklook, bounded by
-    the ``GDAL_HTTP_*`` clamps via :func:`gdal_safe_open_env` INSIDE the
-    worker thread (a rasterio ``Env`` is thread-local).
+    It decides from the XML alone and opens no source. The one question it
+    can't answer from the XML, whether the SRS is in degrees, goes to the
+    probe child, since PROJ may open files while parsing a CRS. A probe that
+    fails raises ``RasterProbeError``, failing the build, because the frame
+    it would have checked may be wrong.
 
     Returns without writing when the VRT isn't a degree-based geographic
     mosaic, doesn't straddle the seam, or lacks the geometry this needs —
@@ -500,7 +289,7 @@ def shift_vrt_longitude_frame(vrt_path: str) -> None:
     """
     from xml.etree.ElementTree import parse
 
-    from rasterio.crs import CRS
+    from app.processing.raster.probe import crs_facts
 
     try:
         tree = parse(vrt_path)
@@ -523,17 +312,12 @@ def shift_vrt_longitude_frame(vrt_path: str) -> None:
     if geotransform[2] or geotransform[4]:
         return
 
-    # Parsing the SRS text is pure string work -- CRS.from_wkt does no I/O -- so
-    # the degree-based gate costs nothing and still rejects grads (EPSG:4807,
-    # which turns at 400) and every projected CRS.
+    # The degree-based gate rejects grads (EPSG:4807, which turns at 400) and
+    # every projected CRS.
     srs_node = root.find("SRS")
     if srs_node is None or not srs_node.text:
         return
-    try:
-        crs = CRS.from_wkt(srs_node.text)
-    except Exception:  # broad: an SRS PROJ cannot parse is one we must not re-frame
-        return
-    if not _is_degree_based(crs):
+    if not _is_degree_based(crs_facts(srs_node.text)):
         return
 
     sources = [
@@ -613,15 +397,7 @@ def _build_vrt(
     if separate:
         cmd.append("-separate")
     cmd.extend(["-resolution", gdal_res, output_path, *source_paths])
-    try:
-        result = run_gdal(cmd, env=gdal_safe_env(), tool="gdalbuildvrt")
-    except FileNotFoundError:
-        return _write_python_vrt(
-            source_paths,
-            output_path,
-            resolution_strategy,
-            separate=separate,
-        )
+    result = run_gdal(cmd, env=gdal_safe_env(), tool="gdalbuildvrt")
     if result.returncode != 0:
         raise RuntimeError(f"gdalbuildvrt failed: {result.stderr}")
     # fix(#887): corrects the antimeridian frame AFTER the build, from the

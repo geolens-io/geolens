@@ -5,6 +5,7 @@ uploaded raster, ``rasterio.open`` (via ``extract_raster_metadata``) raises
 ``RasterioIOError``, and its message — whatever shape it takes — used to land
 verbatim in ``IngestJob.error_message``, echoing the internal
 ``/app/staging/<uuid>_...`` path instead of the original upload filename.
+The read now runs in the probe child, which reports only the failure's kind.
 
 Mirrors ``test_ingest_ogr_pure.py`` (pure message-builder unit tests) and
 ``test_ingest_open_failure_message.py`` (real-binaries end-to-end coverage)
@@ -27,8 +28,9 @@ import structlog
 
 from app.processing.ingest.tasks_raster_common import (
     _friendly_raster_open_failure_message,
-    extract_source_raster_metadata,
+    inspect_source_raster,
 )
+from app.processing.raster.probe import RasterProbeError
 
 
 class TestFriendlyRasterOpenFailureMessage:
@@ -75,7 +77,7 @@ class TestFriendlyRasterOpenFailureMessage:
         assert "/app/staging" not in msg
 
 
-class TestExtractSourceRasterMetadataFriendlyOpenFailure:
+class TestInspectSourceRasterFriendlyOpenFailure:
     """Real-binaries coverage against the actual rasterio/GDAL install.
 
     Two DIFFERENT corrupt-file shapes both reach ``rasterio.open`` and both
@@ -110,7 +112,7 @@ class TestExtractSourceRasterMetadataFriendlyOpenFailure:
     def test_unrecognized_source_raises_friendly_message(self, tmp_path):
         source = self._write_unrecognized_raster(tmp_path)
         with pytest.raises(ValueError) as exc_info:
-            extract_source_raster_metadata(source, original_filename="survey.tif")
+            inspect_source_raster(source, original_filename="survey.tif")
         message = str(exc_info.value)
         assert message == (
             "Could not open 'survey.tif' as a raster dataset — the file may "
@@ -127,7 +129,7 @@ class TestExtractSourceRasterMetadataFriendlyOpenFailure:
         same friendly translation, not the raw message."""
         source = self._write_corrupt_ifd_raster(tmp_path)
         with pytest.raises(ValueError) as exc_info:
-            extract_source_raster_metadata(source, original_filename="survey.tif")
+            inspect_source_raster(source, original_filename="survey.tif")
         message = str(exc_info.value)
         assert message == (
             "Could not open 'survey.tif' as a raster dataset — the file may "
@@ -136,43 +138,24 @@ class TestExtractSourceRasterMetadataFriendlyOpenFailure:
         assert str(tmp_path) not in message
         assert source not in message
 
-    def test_full_message_still_reaches_structured_logs(self, tmp_path):
-        """The diagnostic is not lost — it moves to the log, not nowhere."""
-        source = self._write_unrecognized_raster(tmp_path)
-        with structlog.testing.capture_logs() as captured:
-            with pytest.raises(ValueError):
-                extract_source_raster_metadata(source, original_filename="survey.tif")
-
-        error_events = [e for e in captured if e.get("log_level") == "error"]
-        assert error_events, [e for e in captured]
-        logged = error_events[0]
-        assert "not recognized as being in a supported file format" in logged["error"]
-        # The staging path DOES appear in the logged raw message (that's the
-        # point — full diagnostics for us) even though it never reaches the
-        # user-facing message asserted above.
-        assert source in logged["error"]
-        assert logged["original_filename"] == "survey.tif"
-
-    def test_corrupt_ifd_message_also_reaches_structured_logs(self, tmp_path):
+    def test_the_log_names_the_kind_and_never_the_child_text(self, tmp_path):
+        """Only the failure's kind and the upload's name reach the log."""
         source = self._write_corrupt_ifd_raster(tmp_path)
         with structlog.testing.capture_logs() as captured:
             with pytest.raises(ValueError):
-                extract_source_raster_metadata(source, original_filename="survey.tif")
+                inspect_source_raster(source, original_filename="survey.tif")
 
-        error_events = [e for e in captured if e.get("log_level") == "error"]
-        assert error_events, [e for e in captured]
-        logged = error_events[0]
-        assert "TIFFReadDirectory" in logged["error"]
-        # This shape's rasterio message quotes only the basename, not the
-        # full staging path (unlike the "not recognized" shape above) — the
-        # point stands either way: the full diagnostic reaches the log.
-        assert os.path.basename(source) in logged["error"]
-        assert logged["original_filename"] == "survey.tif"
+        events = [e for e in captured if e.get("event") == "raster source probe failed"]
+        assert events, captured
+        assert events[0]["kind"] == "open"
+        assert events[0]["original_filename"] == "survey.tif"
+        assert "TIFFReadDirectory" not in repr(captured)
+        assert os.path.basename(source) not in repr(captured)
 
     def test_no_original_filename_uses_generic_message(self, tmp_path):
         source = self._write_unrecognized_raster(tmp_path)
         with pytest.raises(ValueError) as exc_info:
-            extract_source_raster_metadata(source, original_filename=None)
+            inspect_source_raster(source, original_filename=None)
         message = str(exc_info.value)
         assert message == (
             "Could not open the uploaded file as a raster dataset — it may "
@@ -180,28 +163,22 @@ class TestExtractSourceRasterMetadataFriendlyOpenFailure:
         )
         assert source not in message
 
-    def test_post_open_failure_keeps_real_message(self, tmp_path, monkeypatch):
-        """The boundary is "the open call itself", not "anything
-        ``extract_raster_metadata`` can raise". A failure from something
-        OTHER than ``rasterio.open`` — e.g. a non-``RasterioIOError`` raised
-        while parsing metadata off an already-opened dataset — must keep its
-        real message, not get relabeled as an open failure. Simulated via
-        monkeypatch (a real post-open, non-open-time rasterio failure isn't
-        cheaply reproducible with fixture bytes) so this pins the boundary
-        decision itself rather than any one rasterio internal."""
+    def test_a_failure_after_the_open_is_not_called_an_open_failure(
+        self, tmp_path, monkeypatch
+    ):
+        """The boundary is "the open call itself". Any later failure reads as
+        the probe's own "could not be read" text, not as an open failure and
+        not as the child's exception message."""
         source = self._write_unrecognized_raster(tmp_path)
 
-        def _raise_unrelated(_file_path):
-            raise ValueError("malformed TIFFTAG_DATETIME tag: not a date")
+        def _read_failure(*_args, **_kwargs):
+            raise RasterProbeError("read", timeout=120)
 
         monkeypatch.setattr(
-            "app.processing.ingest.tasks_raster_common.extract_raster_metadata",
-            _raise_unrelated,
+            "app.processing.ingest.tasks_raster_common.inspect_raster",
+            _read_failure,
         )
 
         with pytest.raises(ValueError) as exc_info:
-            extract_source_raster_metadata(source, original_filename="survey.tif")
-        message = str(exc_info.value)
-        assert message == "malformed TIFFTAG_DATETIME tag: not a date"
-        assert "Could not open" not in message
-        assert "raster dataset" not in message
+            inspect_source_raster(source, original_filename="survey.tif")
+        assert str(exc_info.value) == "The raster's metadata could not be read."

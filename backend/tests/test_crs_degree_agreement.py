@@ -80,9 +80,14 @@ async def test_every_site_agrees_on_the_same_crs(
     if is_geographic:
         assert crs_has_degree_unit(crs) is is_degrees, srtext
 
-    # 3. processing/raster/vrt.py, over the live CRS object it already holds.
-    # It folds the geographic precondition in, so it answers the conjunction.
-    assert _is_degree_based(crs) is (is_geographic and is_degrees), srtext
+    # 3. processing/raster/vrt.py, over the facts the probe child reports,
+    # which are these same helpers over the SRS text. It folds the geographic
+    # precondition in, so it answers the conjunction.
+    facts = {
+        "is_geographic": wkt_is_geographic(srtext),
+        "has_degree_unit": wkt_has_degree_unit(srtext),
+    }
+    assert _is_degree_based(facts) is (is_geographic and is_degrees), srtext
 
     # 4. The #906 degenerate-envelope floor's inline predicate, which its own
     # comment says is "the same keyword logic as core.geo.wkt_is_geographic, in
@@ -195,7 +200,9 @@ def test_unknown_units_resolve_to_the_safe_side_at_each_caller():
         def units_factor(self):
             raise ValueError("PROJ cannot answer")
 
-    crs = _NoUnits()
-    assert crs_has_degree_unit(crs) is None
-    assert _is_degree_based(crs) is False
-    assert (crs_has_degree_unit(crs) is not False) is True
+    unknown = crs_has_degree_unit(_NoUnits())
+    assert unknown is None
+    assert (
+        _is_degree_based({"is_geographic": True, "has_degree_unit": unknown}) is False
+    )
+    assert (unknown is not False) is True

@@ -121,61 +121,34 @@ class TestVrtSourceReadTimeouts:
         for key, value in _VRT_SAFE_ENV.items():
             assert env.options[key] == value
 
-    def test_the_vrt_task_reads_sources_through_the_safe_env_wrappers(self) -> None:
-        """Both steps that open every source in-thread, in both VRT tails."""
-        source = _source("processing/ingest/tasks_vrt.py")
-        assert "asyncio.to_thread(extract_raster_metadata, vrt_path)" not in source
-        assert "asyncio.to_thread(generate_quicklook, vrt_path" not in source
-        assert source.count("asyncio.to_thread(read_vrt_metadata, vrt_path)") == 2
-        assert source.count("asyncio.to_thread(render_vrt_quicklook, vrt_path") == 4
+    def test_the_vrt_task_reads_sources_in_the_probe_child(self) -> None:
+        """Both steps that open every source run in the child, in both tails.
 
-    def test_the_wrappers_enter_the_env_inside_the_worker_thread(self) -> None:
-        """A rasterio Env is thread-local, so the ``with`` must be in the
-        function ``to_thread`` runs, not around the await."""
-        tree = ast.parse(_source("processing/ingest/tasks_vrt.py"))
-        for name in ("read_vrt_metadata", "render_vrt_quicklook"):
-            fn = next(
-                node
-                for node in tree.body
-                if isinstance(node, ast.FunctionDef) and node.name == name
-            )
-            withs = [n for n in ast.walk(fn) if isinstance(n, ast.With)]
-            assert any(
-                isinstance(item.context_expr, ast.Call)
-                and getattr(item.context_expr.func, "id", None) == "gdal_safe_open_env"
-                for w in withs
-                for item in w.items
-            ), f"{name} does not enter gdal_safe_open_env"
-
-    @pytest.mark.parametrize(
-        "wrapper,patched",
-        [
-            ("read_vrt_metadata", "extract_raster_metadata"),
-            ("render_vrt_quicklook", "generate_quicklook"),
-        ],
-    )
-    def test_the_wrapper_calls_through_the_patchable_module_attribute(
-        self, monkeypatch, wrapper: str, patched: str
-    ) -> None:
-        """fix(#1778 codex r3): the names the integration fixtures patch.
-
-        `test_regenerate_vrt_integration`'s `quicklook_stub` does
-        `monkeypatch.setattr("app.processing.ingest.tasks_vrt.generate_quicklook",
-        ...)`, so the wrapper has to both keep that attribute on the module and
-        resolve it at call time. A local import inside the wrapper satisfies
-        neither: it removes the attribute (AttributeError at fixture setup) and,
-        once restored by hand, would silently ignore the stub and run the real
-        renderer against a VRT built from remote sources.
+        The child is killed when it runs over, which a thread can't be; the
+        render timeout covers a read that reaches object storage.
         """
-        from app.processing.ingest import tasks_vrt
+        source = _source("processing/ingest/tasks_vrt.py")
+        assert "extract_raster_metadata" not in source
+        assert "generate_quicklook" not in source
+        assert source.count("asyncio.to_thread(read_vrt_metadata, vrt_path)") == 2
+        assert source.count("asyncio.to_thread(render_quicklook, vrt_path, 256)") == 2
+        assert source.count("asyncio.to_thread(render_quicklook, vrt_path, 512)") == 2
+        assert (
+            "read_raster_metadata(vrt_path, timeout=RENDER_TIMEOUT_SECONDS)" in source
+        )
 
-        seen: list[tuple] = []
-
-        def _stub(*args):
-            seen.append(args)
-            return "stubbed"
-
-        monkeypatch.setattr(tasks_vrt, patched, _stub)
-        args = ("some.vrt",) if wrapper == "read_vrt_metadata" else ("some.vrt", 256)
-        assert getattr(tasks_vrt, wrapper)(*args) == "stubbed"
-        assert seen == [args]
+    def test_the_probe_child_reads_under_the_open_env(self) -> None:
+        """The child enters the in-process clamps around every read it makes."""
+        tree = ast.parse(_source("processing/raster/probe.py"))
+        main = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "main"
+        )
+        withs = [n for n in ast.walk(main) if isinstance(n, ast.With)]
+        assert any(
+            isinstance(item.context_expr, ast.Call)
+            and getattr(item.context_expr.func, "id", None) == "gdal_safe_open_env"
+            for w in withs
+            for item in w.items
+        )

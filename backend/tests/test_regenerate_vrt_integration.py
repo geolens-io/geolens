@@ -11,7 +11,7 @@ Phase 219 extracts 3 helpers from regenerate_vrt. Any drift in behavior will
 fail this test — that is the whole point of shipping this phase first.
 
 DO NOT mock subprocess, rasterio, or async_session in this file. Use mocks
-ONLY for generate_quicklook (see D-05) and optionally the non-fatal cache
+ONLY for the quicklook render (see D-05) and optionally the non-fatal cache
 invalidation / embedding deferral calls.
 """
 
@@ -110,19 +110,18 @@ async def local_storage(
 
 @pytest.fixture
 def quicklook_stub(monkeypatch: pytest.MonkeyPatch):
-    """Stub generate_quicklook at the test boundary (D-05).
+    """Stub the quicklook render at the test boundary (D-05).
 
-    Returns fixed bytes regardless of inputs. The real generate_quicklook
-    requires PIL/matplotlib and touches rasterio in non-trivial ways; the
-    failures are non-fatal inside regenerate_vrt (tasks.py:2228 swallows
-    them), so a stub keeps the test deterministic and dependency-light.
+    Returns fixed bytes regardless of inputs. The real render runs PIL in the
+    probe child; its failures are non-fatal inside regenerate_vrt, so a stub
+    keeps the test deterministic and dependency-light.
     """
 
     def _stub(vrt_path: str, size: int) -> bytes:
         return b"\x00" * 256  # fixed-size fake PNG bytes
 
     # Patch at tasks_vrt where regenerate_vrt imports it directly
-    monkeypatch.setattr("app.processing.ingest.tasks_vrt.generate_quicklook", _stub)
+    monkeypatch.setattr("app.processing.ingest.tasks_vrt.render_quicklook", _stub)
     return _stub
 
 
@@ -283,7 +282,7 @@ async def test_regenerate_vrt_happy_path_end_to_end(
     test_db_session,
     vrt_db_state: dict,
     local_storage,  # fixture wires up storage + settings.upload_staging_dir
-    quicklook_stub,  # fixture stubs generate_quicklook
+    quicklook_stub,  # fixture stubs the quicklook render
     clean_tables,  # opt-in truncate after test (Research Open Question #1)
 ):
     """Full integration test: invoke regenerate_vrt and assert on 16 state mutations.
