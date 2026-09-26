@@ -2,7 +2,7 @@
 # query that lets `# codeql[<rule>]` comments mark an alert as suppressed.
 #
 # Referenced from .github/workflows/codeql.yml via the init step's `queries:`
-# input, for the python analysis only. See AGENTS.md > Standing CodeQL policy.
+# input, for the python analysis only. See AGENTS.md > Security > CodeQL.
 name: geolens/python-alert-suppression
 version: 0.0.1
 extractor: python

@@ -2248,7 +2248,7 @@ their own remediation in the error message; neither is auto-coerced.
 
 `catalog.audit_logs` has no built-in expiry: every login, dataset mutation,
 share change, and export is a permanent row (see `AGENTS.md`'s Security
-pre-commit checklist and `backend/app/modules/audit/router.py`'s module
+section and `backend/app/modules/audit/router.py`'s module
 docstring, which already flags that the table can reach millions of rows on a
 busy instance). Community ships bounded CSV/JSON export
 (`GET /admin/audit-logs/export/{format}`, capped at 100,000 rows per request)

@@ -22,7 +22,7 @@
 // With that class dropped, the only thing that can suppress an alert is an
 // explicit `# codeql[<rule-id>]` comment on its own line directly above the
 // alert, naming the rule it suppresses. That is a reviewable, greppable,
-// per-rule decision, which is what AGENTS.md > Standing CodeQL policy
+// per-rule decision, which is what AGENTS.md > Security > CodeQL
 // intended to adopt.
 //
 // The `lgtm[<rule-id>]` form also still works: it comes from the shared
