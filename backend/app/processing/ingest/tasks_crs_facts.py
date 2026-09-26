@@ -81,13 +81,14 @@ class RepairOutcome:
 def _timeout(deadline: float) -> float:
     """The run's remaining time, capped at a probe's own timeout.
 
-    The cap leaves time to ask one text at a time after a whole batch stalls.
+    The control and each batch take this. The cap leaves time to ask one text
+    at a time after a whole batch stalls.
     """
     return min(deadline - _clock(), probe.CRS_FACTS_TIMEOUT_SECONDS)
 
 
 def _cut_short(exc: probe.RasterProbeError, timeout: float) -> bool:
-    """A timeout the run's budget shortened says nothing about the text."""
+    """A batch timeout the run's budget shortened says nothing about its texts."""
     return exc.kind == "timeout" and timeout < probe.CRS_FACTS_TIMEOUT_SECONDS
 
 
@@ -100,9 +101,9 @@ def _back_off(digest: str) -> None:
 def _ask(texts: list[CrsText], deadline: float) -> dict[CrsText, dict | None]:
     """The child's facts for each text it was asked about, None where it failed.
 
-    A text the child fails on backs off at once. Asking stops when the run's
-    time runs out; a text missing from the answer wasn't asked and doesn't
-    back off.
+    A batch that fails is asked again one text at a time, so a text that stalls
+    every batch is found. A text the child fails on alone backs off at once. A
+    text missing from the answer wasn't asked and doesn't back off.
     """
     timeout = _timeout(deadline)
     if timeout <= 0:
@@ -110,11 +111,10 @@ def _ask(texts: list[CrsText], deadline: float) -> dict[CrsText, dict | None]:
     try:
         facts = probe.crs_facts_many([wkt for _, wkt in texts], timeout=timeout)
     except probe.RasterProbeError as exc:
-        if len(texts) > 1:
-            # One text can stall the whole batch; asking one at a time isolates it.
-            return _ask_one_at_a_time(texts, deadline)
         if _cut_short(exc, timeout):
             return {}
+        if len(texts) > 1:
+            return _ask_one_at_a_time(texts, deadline)
         _back_off(texts[0][0])
         return {texts[0]: None}
     return dict(zip(texts, facts))
@@ -123,16 +123,20 @@ def _ask(texts: list[CrsText], deadline: float) -> dict[CrsText, dict | None]:
 def _ask_one_at_a_time(
     texts: list[CrsText], deadline: float
 ) -> dict[CrsText, dict | None]:
+    """Each text alone with a probe's full timeout, starting none past the deadline.
+
+    A shortened timeout would let a stalling text run out the budget without
+    blame, and the next run would meet it first again.
+    """
     answers: dict[CrsText, dict | None] = {}
     for key in texts:
-        timeout = _timeout(deadline)
-        if timeout <= 0:
+        if _clock() >= deadline:
             break
         try:
-            answers[key] = probe.crs_facts(key[1], timeout=timeout)
-        except probe.RasterProbeError as exc:
-            if _cut_short(exc, timeout):
-                break
+            answers[key] = probe.crs_facts(
+                key[1], timeout=probe.CRS_FACTS_TIMEOUT_SECONDS
+            )
+        except probe.RasterProbeError:
             _back_off(key[0])
             answers[key] = None
     return answers
@@ -153,7 +157,11 @@ def _control_passes(deadline: float) -> bool:
 async def repair_missing_crs_facts(
     *, run_texts: int = RUN_TEXTS, run_seconds: float = RUN_SECONDS
 ) -> RepairOutcome:
-    """Fill missing facts for up to ``run_texts`` texts or ``run_seconds``."""
+    """Fill missing facts for up to ``run_texts`` texts or ``run_seconds``.
+
+    No probe starts after ``run_seconds``, so a run lasts at most
+    ``run_seconds`` plus one probe timeout.
+    """
     from app.core.db import async_session
 
     outcome = RepairOutcome()

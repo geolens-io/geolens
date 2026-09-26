@@ -48,7 +48,9 @@ _FEET_WKT1 = rasterio.crs.CRS.from_epsg(2263).to_wkt()
 _TRUNCATED = 'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84"'
 
 
-async def _seed(session, crs_wkt: str | None) -> uuid.UUID:
+async def _seed(
+    session, crs_wkt: str | None, asset_id: uuid.UUID | None = None
+) -> uuid.UUID:
     """One raster row holding ``crs_wkt`` and no facts, as the old writers left it."""
     dataset = await create_dataset(
         session,
@@ -57,7 +59,7 @@ async def _seed(session, crs_wkt: str | None) -> uuid.UUID:
         source_format="geotiff",
         source_filename="scene.tif",
     )
-    asset_id = uuid.uuid4()
+    asset_id = asset_id or uuid.uuid4()
     await session.execute(
         sa.text(
             "INSERT INTO catalog.raster_assets (id, dataset_id, asset_uri, crs_wkt) "
@@ -142,6 +144,14 @@ async def _repair(**bounds):
     )
 
 
+async def _every_fifteen_minutes(clock, runs: int) -> None:
+    """Run the job ``runs`` times, a cron tick apart on the test's clock."""
+    for _ in range(runs):
+        started = clock.value
+        await tasks_crs_facts.repair_missing_crs_facts()
+        clock.value = max(clock.value, started + 15 * 60)
+
+
 @pytest.fixture
 def clock(monkeypatch):
     """A clock the test moves, and a backoff table of this test's own."""
@@ -170,6 +180,28 @@ def child(monkeypatch, clock):
 
     monkeypatch.setattr(probe, "crs_facts_many", _many)
     monkeypatch.setattr(probe, "crs_facts", _one)
+    return state
+
+
+@pytest.fixture
+def timed_child(monkeypatch, clock):
+    """The probe child on the test's clock; ``stalls`` use up each timeout they get."""
+    state = SimpleNamespace(stalls=set(), seconds=0.5, started=[])
+
+    def _run(wkts, timeout):
+        state.started.append(clock.value)
+        if state.stalls & set(wkts) or state.seconds > timeout:
+            clock.value += timeout
+            raise probe.RasterProbeError("timeout", timeout=timeout)
+        clock.value += state.seconds
+        return [wkt_crs_facts(wkt) for wkt in wkts]
+
+    monkeypatch.setattr(
+        probe, "crs_facts_many", lambda wkts, timeout=None: _run(wkts, timeout)
+    )
+    monkeypatch.setattr(
+        probe, "crs_facts", lambda wkt, timeout=None: _run([wkt], timeout)[0]
+    )
     return state
 
 
@@ -465,7 +497,95 @@ class TestTextChangesClearStaleFacts:
 
 
 class TestRunBudget:
-    async def test_a_run_ends_on_time_when_every_probe_stalls(
+    async def test_a_staller_ahead_of_valid_rows_is_backed_off_and_they_fill(
+        self, test_db_session, timed_child, clock
+    ):
+        staller = await _seed(test_db_session, _GRADS, uuid.UUID(int=1))
+        valid = {
+            wkt: await _seed(test_db_session, wkt, uuid.UUID(int=2 + i))
+            for i, wkt in enumerate((_WGS84, _FEET, _FEET_WKT1))
+        }
+        timed_child.stalls.add(_GRADS)
+        try:
+            await _every_fifteen_minutes(clock, runs=1)
+            assert _digest(_GRADS) in tasks_crs_facts._backoff
+
+            await _every_fifteen_minutes(clock, runs=1)
+
+            stored = await _stored([staller, *valid.values()])
+            assert stored[staller] == (None, None, None)
+            for wkt, asset_id in valid.items():
+                assert stored[asset_id] == _expected(wkt)
+        finally:
+            await _delete([staller, *valid.values()])
+
+    async def test_a_staller_mid_batch_is_backed_off_and_the_rows_after_it_fill(
+        self, test_db_session, timed_child, clock
+    ):
+        ids = {
+            wkt: await _seed(test_db_session, wkt, uuid.UUID(int=1 + i))
+            for i, wkt in enumerate((_WGS84, _GRADS, _FEET))
+        }
+        timed_child.stalls.add(_GRADS)
+        try:
+            await _every_fifteen_minutes(clock, runs=2)
+
+            stored = await _stored(list(ids.values()))
+            assert _digest(_GRADS) in tasks_crs_facts._backoff
+            assert stored[ids[_GRADS]] == (None, None, None)
+            assert stored[ids[_WGS84]] == _expected(_WGS84)
+            assert stored[ids[_FEET]] == _expected(_FEET)
+        finally:
+            await _delete(list(ids.values()))
+
+    @pytest.mark.parametrize("seconds", [0.5, 9.5, 29.5])
+    async def test_a_run_outlasts_its_budget_by_at_most_one_probe_timeout(
+        self, test_db_session, timed_child, clock, seconds
+    ):
+        texts = [rasterio.crs.CRS.from_epsg(32601 + i).to_wkt() for i in range(6)]
+        ids = [
+            await _seed(test_db_session, wkt, uuid.UUID(int=1 + i))
+            for i, wkt in enumerate(texts)
+        ]
+        timed_child.stalls.update(texts[3:])
+        timed_child.seconds = seconds
+        deadline = clock.value + tasks_crs_facts.RUN_SECONDS
+        try:
+            await tasks_crs_facts.repair_missing_crs_facts()
+
+            assert max(timed_child.started) < deadline
+            assert clock.value <= deadline + probe.CRS_FACTS_TIMEOUT_SECONDS
+            # A text asked alone near the deadline still gets a full timeout.
+            assert set(tasks_crs_facts._backoff) <= {_digest(t) for t in texts[3:]}
+        finally:
+            await _delete(ids)
+
+    @pytest.mark.parametrize("batch_texts", [1, 2])
+    async def test_a_batch_the_budget_cuts_short_blames_no_text(
+        self, test_db_session, timed_child, clock, monkeypatch, batch_texts
+    ):
+        monkeypatch.setattr(tasks_crs_facts, "BATCH_TEXTS", batch_texts)
+        ids = {
+            wkt: await _seed(test_db_session, wkt, uuid.UUID(int=1 + i))
+            for i, wkt in enumerate((_WGS84, _FEET, _GRADS, _FEET_WKT1))
+        }
+        timed_child.stalls.add(_GRADS)
+        # 16 s answers leave the batch holding the staller under a full timeout.
+        timed_child.seconds = 16
+        try:
+            await _every_fifteen_minutes(clock, runs=1)
+            assert tasks_crs_facts._backoff == {}
+
+            timed_child.seconds = 0.5
+            await _every_fifteen_minutes(clock, runs=2)
+
+            stored = await _stored(list(ids.values()))
+            assert _digest(_GRADS) in tasks_crs_facts._backoff
+            assert stored[ids[_FEET_WKT1]] == _expected(_FEET_WKT1)
+        finally:
+            await _delete(list(ids.values()))
+
+    async def test_a_run_ends_within_one_probe_of_its_budget_when_every_probe_stalls(
         self, test_db_session, monkeypatch
     ):
         monkeypatch.setattr(tasks_crs_facts, "_backoff", {})
@@ -484,15 +604,14 @@ class TestRunBudget:
         monkeypatch.setattr(probe, "CRS_FACTS_TIMEOUT_SECONDS", 2)
         try:
             started = time.monotonic()
-            outcome = await tasks_crs_facts.repair_missing_crs_facts(
+            await tasks_crs_facts.repair_missing_crs_facts(
                 run_texts=10_000, run_seconds=4
             )
             elapsed = time.monotonic() - started
 
-            assert elapsed < 4 + 1.5, f"a 4 s run took {elapsed:.1f} s"
-            # Probes the budget cut short blame no text.
-            assert outcome.unanswered == []
-            assert tasks_crs_facts._backoff == {}
+            assert elapsed < 4 + 2 + 1.5, f"a 4 s run took {elapsed:.1f} s"
+            # The batch had a full timeout, so the first text asked alone is blamed.
+            assert len(tasks_crs_facts._backoff) == 1
             assert set((await _stored(ids)).values()) == {(None, None, None)}
         finally:
             await _delete(ids)
