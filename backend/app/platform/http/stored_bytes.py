@@ -38,21 +38,39 @@ async def _chained(first: bytes, rest: AsyncIterator[bytes]) -> AsyncIterator[by
             yield chunk
 
 
-async def _opened(stream: AsyncIterator[bytes]) -> AsyncIterator[bytes]:
+async def _opened(
+    storage: StorageProvider, key: str, stream: AsyncIterator[bytes], expected: int
+) -> AsyncIterator[bytes]:
     """``stream`` with its first chunk already read.
 
     A read that fails once the status line is sent can only cut the body short,
     so the first one happens while the caller can still answer with a status.
+    ``expected`` is the body's length: a non-empty body whose stream ends before
+    its first byte means the object changed after it was sized.
     """
+    first = b""
     try:
-        first = await anext(stream)
+        while not first:
+            first = await anext(stream)
     except FileNotFoundError:
         raise StoredObjectMissing from None
     except StopAsyncIteration:
-        first = b""
+        if expected:
+            raise await _missing_or_unreadable(storage, key) from None
     except Exception as exc:  # broad: each store raises its own errors, and the caller maps them to one status
         raise StoredObjectUnreadable from exc
     return _chained(first, stream)
+
+
+async def _missing_or_unreadable(storage: StorageProvider, key: str) -> Exception:
+    """Why an object gave no byte of a body it was sized for: gone, or changed."""
+    try:
+        await storage.size(key)
+    except FileNotFoundError:
+        return StoredObjectMissing()
+    except Exception:  # broad: a store that fails this probe fails the read too
+        return StoredObjectUnreadable()
+    return StoredObjectUnreadable()
 
 
 def evaluate_preconditions(
@@ -130,8 +148,9 @@ async def serve_stored_bytes(
     of the whole object.
 
     Raises ``StoredObjectMissing`` when the object is gone at its first read and
-    ``StoredObjectUnreadable`` when the store fails before it, for the caller to
-    answer as it answers the same failure of its stat.
+    ``StoredObjectUnreadable`` when the store fails before it or ends a non-empty
+    body before its first byte, for the caller to answer as it answers the same
+    failure of its stat.
     """
     if request.method == "HEAD":
         return head_response(
@@ -167,7 +186,12 @@ async def serve_stored_bytes(
         # One ranged read: no byte outside the window is fetched.
         start, end = byte_range
         return StreamingResponse(
-            await _opened(storage.get_range_stream(key, start, end - start + 1)),
+            await _opened(
+                storage,
+                key,
+                storage.get_range_stream(key, start, end - start + 1),
+                end - start + 1,
+            ),
             status_code=status.HTTP_206_PARTIAL_CONTENT,
             media_type=media_type,
             headers={
@@ -177,7 +201,7 @@ async def serve_stored_bytes(
             },
         )
     return StreamingResponse(
-        await _opened(storage.get_stream(key)),
+        await _opened(storage, key, storage.get_stream(key), total_bytes),
         media_type=media_type,
         headers={**representation, "Content-Length": str(total_bytes)},
     )

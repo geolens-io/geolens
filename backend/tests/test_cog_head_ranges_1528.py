@@ -497,6 +497,36 @@ async def test_a_cog_read_failing_before_its_first_byte_is_a_503(
     assert resp.json()["detail"] == "COG download temporarily unavailable"
 
 
+@pytest.mark.parametrize(
+    ("stored", "request_headers"),
+    [(b"x" * 30, {"Range": "bytes=50-60"}), (b"", {})],
+    ids=["range-past-the-new-end", "whole-object-emptied"],
+)
+async def test_a_cog_that_shrank_after_its_stat_is_a_503(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    monkeypatch,
+    stored: bytes,
+    request_headers: dict,
+):
+    """A COG sized and then rewritten shorter answers 503, never a success with no bytes."""
+    dataset, raster_asset = await _raster_dataset(
+        test_db_session, sha256=hashlib.sha256(_COG_BYTES).hexdigest()
+    )
+    storage = get_storage()
+    await storage.put(raster_asset.asset_uri, stored)
+    monkeypatch.setattr(storage, "size", AsyncMock(return_value=len(_COG_BYTES)))
+
+    resp = await client.get(
+        f"/datasets/{dataset.id}/download/cog",
+        headers={**admin_auth_header, **request_headers},
+    )
+
+    assert resp.status_code == 503, resp.text
+    assert resp.json()["detail"] == "COG download temporarily unavailable"
+
+
 async def test_head_cog_matches_get_on_non_raster(
     client: AsyncClient, admin_auth_header: dict, test_db_session
 ):
