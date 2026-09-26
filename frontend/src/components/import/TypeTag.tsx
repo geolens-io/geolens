@@ -32,6 +32,12 @@ const KIND_CONFIG: Record<DataKind, { label: string; fg: string; bg: string; bor
     bg: 'bg-type-tiles3d-bg',
     border: 'border-type-tiles3d/20',
   },
+  pointcloud: {
+    label: 'PTS',
+    fg: 'text-type-tiles3d',
+    bg: 'bg-type-tiles3d-bg',
+    border: 'border-type-tiles3d/20',
+  },
 };
 
 interface TypeTagProps {
@@ -81,6 +87,7 @@ export function FormatPill({ kind, ext }: { kind: DataKind; ext: string }) {
 export function kindFromExtension(ext: string): DataKind {
   const e = ext.toLowerCase();
   if (['.tif', '.tiff', '.cog', '.nc', '.vrt'].includes(e)) return 'raster';
+  if (e === '.laz') return 'pointcloud';
   // .parquet is vector: GeoParquet carries geometry; plain tabular parquet
   // degrades to a joinable table at import like a geometry-less CSV.
   // .fgb/.kml/.kmz fall through to vector for the same reason .gpkg does:

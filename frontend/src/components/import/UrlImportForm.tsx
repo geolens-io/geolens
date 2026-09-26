@@ -18,9 +18,10 @@ import type {
   FilePreviewResponse,
   RasterPreviewResponse,
   TilesetPreviewResponse,
+  PointCloudPreviewResponse,
   UploadKind,
 } from '@/types/api';
-import { allowedTilesetExtensions, isFilePreview, isRasterPreview, isTilesetPreview } from './utils';
+import { allowedTilesetExtensions, isFilePreview, isPointCloudPreview, isRasterPreview, isTilesetPreview } from './utils';
 import { ImportPreview } from './ImportPreview';
 import { ImportMetadataForm } from './ImportMetadataForm';
 import { UploadKindChoice } from './UploadKindChoice';
@@ -91,7 +92,7 @@ export function UrlImportForm() {
   const [filename, setFilename] = useState('');
   const [jobId, setJobId] = useState<string | null>(null);
   const [previewData, setPreviewData] = useState<
-    FilePreviewResponse | RasterPreviewResponse | TilesetPreviewResponse | null
+    FilePreviewResponse | RasterPreviewResponse | TilesetPreviewResponse | PointCloudPreviewResponse | null
   >(null);
   const [error, setError] = useState<string | null>(null);
   // fix(#1708 codex r22): survives a resume, where previewData does not.
@@ -103,7 +104,9 @@ export function UrlImportForm() {
   const { data: uploadConfig } = useUploadConfig();
   const tilesetAvailable =
     allowedTilesetExtensions(uploadConfig?.allowed_extensions?.split(',').map((e) => e.trim())).length > 0;
-  const kind = tilesetAvailable ? chosenKind : null;
+  const pointcloudAvailable = uploadConfig?.allowed_extensions?.split(',').some((ext) => ext.trim().toLowerCase() === '.laz') ?? true;
+  const kind = (chosenKind === 'tiles3d' && !tilesetAvailable) ||
+    (chosenKind === 'pointcloud' && !pointcloudAvailable) ? null : chosenKind;
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
@@ -539,6 +542,7 @@ export function UrlImportForm() {
           isCommitting={commitInFlight}
           isRaster={raster}
           isTileset={isTilesetPreview(previewData)}
+          isPointCloud={isPointCloudPreview(previewData)}
           previewData={raster ? previewData : undefined}
           previewColumns={fp?.columns}
           detectedGeometryType={fp?.geometry_type}
@@ -614,6 +618,7 @@ export function UrlImportForm() {
           onChange={setChosenKind}
           disabled={!!jobId}
           tilesetAvailable={tilesetAvailable}
+          pointcloudAvailable={pointcloudAvailable}
         />
         <div>
           <label className="eyebrow mb-2.5 block" htmlFor="file-url-input">
@@ -641,8 +646,7 @@ export function UrlImportForm() {
               {t('urlImport.fetch')}
             </button>
           </div>
-          {/* The tileset choice's own hint names the archive formats. */}
-          {kind !== 'tiles3d' && (
+          {kind === null && (
             <div className="mt-2.5 flex flex-wrap gap-4 text-xs text-muted-foreground">
               <span>
                 {t('urlImport.supported')}{' '}

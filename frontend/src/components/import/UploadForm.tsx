@@ -157,12 +157,15 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
   );
   const tilesetExtensions = useMemo(() => allowedTilesetExtensions(configExtensions), [configExtensions]);
   const tilesetAvailable = tilesetExtensions.length > 0;
-  // A tileset choice the config rules out falls back to files, queued drops included.
-  const uploadKind = tilesetAvailable ? chosenKind : null;
+  const pointcloudAvailable = configExtensions?.some((ext) => ext.toLowerCase() === '.laz') ?? true;
+  const uploadKind = (chosenKind === 'tiles3d' && !tilesetAvailable) ||
+    (chosenKind === 'pointcloud' && !pointcloudAvailable) ? null : chosenKind;
   const allowedExtensions = useMemo(
     () =>
       uploadKind === 'tiles3d'
         ? tilesetExtensions
+        : uploadKind === 'pointcloud'
+          ? ['.laz']
         : configExtensions?.filter((ext) => !KIND_ONLY_EXTENSIONS.has(ext.toLowerCase())),
     [uploadKind, tilesetExtensions, configExtensions],
   );
@@ -771,6 +774,7 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
         disabled={pendingFiles !== null}
         lockedHint={t('upload.kindLocked')}
         tilesetAvailable={tilesetAvailable}
+        pointcloudAvailable={pointcloudAvailable}
       />
       <FileDropzone
         onFilesAccepted={handleFilesAccepted}
@@ -778,6 +782,7 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
         maxSizeMb={configFetching ? undefined : maxSizeMb}
         remainingQuota={configFetching ? null : (uploadConfig?.remaining_dataset_quota ?? null)}
         tileset={uploadKind === 'tiles3d'}
+        pointcloud={uploadKind === 'pointcloud'}
       />
     </div>
   );

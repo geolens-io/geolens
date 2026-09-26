@@ -83,7 +83,10 @@
     "kindTileset": "3D Tiles 瓦片集",
     "kindTilesetHint": "根目录或单个文件夹中包含 tileset.json 的 .zip 或 .3tz 压缩包",
     "kindTilesetUnavailable": "需管理员允许上传 .zip 或 .3tz 文件后才能使用",
-    "kindLocked": "已锁定：拖入的文件正在等待上传设置加载"
+    "kindLocked": "已锁定：拖入的文件正在等待上传设置加载",
+    "kindPointCloud": "COPC 点云",
+    "kindPointCloudHint": "COPC 格式的 .laz 文件；其他 LAS/LAZ 文件需先转换",
+    "kindPointCloudUnavailable": "管理员允许上传 .laz 文件后可用"
   },
   "warnings": {
     "bannerTitle": "导入已完成，但存在警告",
@@ -127,7 +130,9 @@
     "next": "下一步：",
     "viewCatalog": "在目录中查看",
     "importMore": "导入更多",
-    "aiMetadata": "添加 AI 元数据"
+    "aiMetadata": "添加 AI 元数据",
+    "statPointClouds": "点云",
+    "heroDescPointClouds": "可在 COPC 客户端中打开。文件 URL 位于数据集的“访问”选项卡。"
   },
   "dropzone": {
     "ariaLabel": "上传文件",
@@ -546,7 +551,10 @@
     "tilesetSummary": "3D Tiles {{version}} · {{size}} · {{volume}}",
     "tilesetCount_one": "{{value}} 个瓦片集",
     "tilesetCount_other": "{{value}} 个瓦片集",
-    "tilesetActionSummary": "{{files}} · {{tilesets}}"
+    "tilesetActionSummary": "{{files}} · {{tilesets}}",
+    "pointcloudSummary": "{{points}} 个点 · {{crs}} · {{size}}",
+    "pointcloudCount_one": "{{value}} 个点云",
+    "pointcloudCount_other": "{{value}} 个点云"
   },
   "detect": {
     "rasterInfo": "栅格信息",
@@ -629,5 +637,11 @@
     "importing": "正在导入",
     "ready": "已就绪",
     "failed": "已失败"
+  },
+  "pointcloud": {
+    "points": "点数",
+    "crs": "坐标参考系",
+    "pointFormat": "点格式",
+    "size": "大小"
   }
 }

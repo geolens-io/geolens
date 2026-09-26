@@ -25,10 +25,11 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en' } }),
 }));
 
-let metadataProps: { isTileset?: boolean; defaultName: string } | null = null;
+let metadataProps: { isTileset?: boolean; isPointCloud?: boolean; defaultName: string } | null = null;
 vi.mock('../ImportMetadataForm', () => ({
   ImportMetadataForm: (props: {
     isTileset?: boolean;
+    isPointCloud?: boolean;
     defaultName: string;
     onCommit: (m: CommitImportRequest) => void;
   }) => {
@@ -165,5 +166,61 @@ describe('UrlImportForm with a 3D Tiles archive', () => {
 
     await waitFor(() => expect(screen.getByText('urlImport.fetchFailed')).toBeInTheDocument());
     expect(screen.getByRole('radio', { name: 'upload.kindTileset' })).toBeChecked();
+  });
+});
+
+describe('UrlImportForm with a COPC point cloud', () => {
+  test('the point cloud choice sends kind=pointcloud with the URL', async () => {
+    mockGetUploadConfig.mockResolvedValue(uploadConfig('.geojson,.laz'));
+    mockUploadFromUrl.mockReturnValue(new Promise(() => {}));
+    const user = userEvent.setup();
+    render(<UrlImportForm />);
+
+    await user.click(screen.getByRole('radio', { name: 'upload.kindPointCloud' }));
+    await submit(user, 'https://files.example.test/terrain.copc.laz');
+
+    expect(mockUploadFromUrl).toHaveBeenCalledWith(
+      'https://files.example.test/terrain.copc.laz', undefined, 'pointcloud',
+    );
+  });
+
+  test('the choice is unavailable when the deployment disallows .laz', async () => {
+    mockGetUploadConfig.mockResolvedValue(uploadConfig('.geojson,.zip'));
+    render(<UrlImportForm />);
+
+    await waitFor(() =>
+      expect(screen.getByRole('radio', { name: 'upload.kindPointCloud' })).toBeDisabled(),
+    );
+    expect(screen.getByText('upload.kindPointCloudUnavailable')).toBeInTheDocument();
+  });
+
+  test('a COPC preview shows its facts and commits without a CRS override', async () => {
+    mockGetUploadConfig.mockResolvedValue(uploadConfig('.geojson,.laz'));
+    mockUploadFromUrl.mockResolvedValue({ job_id: 'job-t', status: 'running' });
+    mockPreviewFile.mockResolvedValue({
+      job_id: 'job-t',
+      source_filename: 'terrain.copc.laz',
+      point_count: 1200,
+      point_format: 7,
+      srid: 26912,
+      vertical_crs: null,
+      extent_bbox: [-111, 40, -110, 41],
+      z_min: 100,
+      z_max: 200,
+      size_bytes: 4096,
+    });
+    mockCommitImport.mockResolvedValue({ job_id: 'job-t', status: 'queued' });
+    const user = userEvent.setup();
+    render(<UrlImportForm />);
+
+    await user.click(screen.getByRole('radio', { name: 'upload.kindPointCloud' }));
+    await submit(user, 'https://files.example.test/terrain.copc.laz');
+
+    await waitFor(() => expect(screen.getByText('terrain.copc.laz')).toBeInTheDocument());
+    expect(screen.getByText('pointcloud.points: 1,200')).toBeInTheDocument();
+    expect(metadataProps).toMatchObject({ isPointCloud: true, defaultName: 'terrain.copc.laz' });
+
+    await user.click(screen.getByRole('button', { name: 'commit-stub' }));
+    await waitFor(() => expect(mockCommitImport).toHaveBeenCalledWith('job-t', { title: 'Campus' }));
   });
 });

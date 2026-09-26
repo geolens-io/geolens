@@ -83,7 +83,10 @@
     "kindTileset": "Tileset de 3D Tiles",
     "kindTilesetHint": "Un archivo .zip o .3tz con tileset.json en la raíz o en una carpeta",
     "kindTilesetUnavailable": "No disponible hasta que un administrador permita subir archivos .zip o .3tz",
-    "kindLocked": "Bloqueado mientras los archivos soltados esperan a que se cargue la configuración de subida"
+    "kindLocked": "Bloqueado mientras los archivos soltados esperan a que se cargue la configuración de subida",
+    "kindPointCloud": "Nube de puntos COPC",
+    "kindPointCloudHint": "Un archivo .laz en formato COPC; otros archivos LAS/LAZ requieren conversión previa",
+    "kindPointCloudUnavailable": "No disponible hasta que un administrador permita subir archivos .laz"
   },
   "warnings": {
     "bannerTitle": "Importación completada con advertencias",
@@ -492,7 +495,10 @@
     "tilesetSummary": "3D Tiles {{version}} · {{size}} · {{volume}}",
     "tilesetCount_one": "{{value}} tileset",
     "tilesetCount_other": "{{value}} tilesets",
-    "tilesetActionSummary": "{{files}} · {{tilesets}}"
+    "tilesetActionSummary": "{{files}} · {{tilesets}}",
+    "pointcloudSummary": "{{points}} puntos · {{crs}} · {{size}}",
+    "pointcloudCount_one": "{{value}} nube de puntos",
+    "pointcloudCount_other": "{{value}} nubes de puntos"
   },
   "detect": {
     "rasterInfo": "Info del ráster",
@@ -582,7 +588,9 @@
     "next": "Siguiente:",
     "viewCatalog": "Ver en el catálogo",
     "importMore": "Importar más",
-    "aiMetadata": "Añadir metadatos con IA"
+    "aiMetadata": "Añadir metadatos con IA",
+    "statPointClouds": "Nubes de puntos",
+    "heroDescPointClouds": "Lista para abrir en un cliente COPC. La URL del archivo está en la pestaña Acceso del conjunto de datos."
   },
   "rail": {
     "stageTitle": "Preparar archivos",
@@ -629,5 +637,11 @@
     "importing": "Importando",
     "ready": "Listo",
     "failed": "Error"
+  },
+  "pointcloud": {
+    "points": "Puntos",
+    "crs": "SRC",
+    "pointFormat": "Formato de puntos",
+    "size": "Tamaño"
   }
 }

@@ -4,11 +4,12 @@ import type {
   FilePreviewResponse,
   RasterPreviewResponse,
   TilesetPreviewResponse,
+  PointCloudPreviewResponse,
 } from '@/types/api';
 import type { DataKind } from './TypeTag';
 import { kindFromExtension } from './TypeTag';
 
-type AnyPreview = FilePreviewResponse | RasterPreviewResponse | TilesetPreviewResponse;
+type AnyPreview = FilePreviewResponse | RasterPreviewResponse | TilesetPreviewResponse | PointCloudPreviewResponse;
 
 // Every upload door checks the deployment's extension list before it requires a tileset archive.
 const TILESET_EXTENSIONS = ['.zip', '.3tz'];
@@ -30,6 +31,10 @@ export function isTilesetPreview(data: AnyPreview): data is TilesetPreviewRespon
   return 'bounding_volume' in data;
 }
 
+export function isPointCloudPreview(data: AnyPreview): data is PointCloudPreviewResponse {
+  return 'point_count' in data && 'point_format' in data;
+}
+
 export function stripExtension(filename: string): string {
   const dot = filename.lastIndexOf('.');
   return dot > 0 ? filename.slice(0, dot) : filename;
@@ -41,6 +46,7 @@ export function inferImportedKind(
 ): NonNullable<FileEntry['submittedKind']> {
   if (!entry.previewData) return 'table';
   if (isTilesetPreview(entry.previewData)) return 'tiles3d';
+  if (isPointCloudPreview(entry.previewData)) return 'pointcloud';
   if (isRasterPreview(entry.previewData)) return 'raster';
 
   if (request?.x_column || request?.y_column || request?.geom_column) {
@@ -74,6 +80,7 @@ export function isSpreadsheetExt(ext: string): boolean {
 export function kindFromEntry(entry: Pick<FileEntry, 'previewData' | 'fileName' | 'uploadKind'>): DataKind {
   if (entry.previewData) {
     if (isTilesetPreview(entry.previewData)) return 'tiles3d';
+    if (isPointCloudPreview(entry.previewData)) return 'pointcloud';
     if (isRasterPreview(entry.previewData)) return 'raster';
     if ((entry.previewData as FilePreviewResponse).geometry_type) return 'vector';
     return 'table';

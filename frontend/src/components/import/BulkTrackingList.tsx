@@ -24,6 +24,7 @@ const KIND_LABEL_KEYS = {
   vrt: 'complete.statRaster',
   table: 'complete.statTabular',
   tiles3d: 'complete.statTilesets',
+  pointcloud: 'complete.statPointClouds',
 } as const satisfies Record<DataKind, string>;
 
 interface BulkTrackingListProps {
@@ -142,18 +143,21 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false }: Bulk
             <p className="text-sm text-muted-foreground">
               {completedEntries.length > 0 && completedEntries.every((e) => e.kind === 'tiles3d')
                 ? t('complete.heroDescTilesets')
+                : completedEntries.length > 0 && completedEntries.every((e) => e.kind === 'pointcloud')
+                  ? t('complete.heroDescPointClouds')
                 : t('complete.heroDesc', { defaultValue: 'All files ingested, tiled, and indexed. Ready to query, style, and map.' })}
             </p>
           </div>
 
           {/* Summary stats */}
-          <div className="grid grid-cols-2 divide-x divide-border border-b border-border sm:grid-cols-5">
+          <div className="grid grid-cols-2 divide-x divide-border border-b border-border sm:grid-cols-3 lg:grid-cols-6">
             {[
               { label: t('complete.statDatasets', { defaultValue: 'Datasets' }), value: completedEntries.length },
               { label: t('complete.statVector', { defaultValue: 'Vector' }), value: completedEntries.filter((e) => e.kind === 'vector').length },
               { label: t('complete.statRaster', { defaultValue: 'Raster' }), value: completedEntries.filter((e) => e.kind === 'raster').length },
               { label: t('complete.statTabular', { defaultValue: 'Tabular' }), value: completedEntries.filter((e) => e.kind === 'table').length },
               { label: t('complete.statTilesets'), value: completedEntries.filter((e) => e.kind === 'tiles3d').length },
+              { label: t('complete.statPointClouds'), value: completedEntries.filter((e) => e.kind === 'pointcloud').length },
             ].map((stat, i) => (
               <div key={i} className="px-5 py-4">
                 <dt className="eyebrow mb-1.5">{stat.label}</dt>

@@ -10,7 +10,7 @@ import { ImportMetadataForm } from './ImportMetadataForm';
 import { TilesetFacts } from './TilesetFacts';
 import { TypeTag } from './TypeTag';
 import { StatusPill } from './StatusPill';
-import { isRasterPreview, isFilePreview, isTilesetPreview, fileExt, kindFromEntry, isSpreadsheetExt } from './utils';
+import { isRasterPreview, isFilePreview, isTilesetPreview, isPointCloudPreview, fileExt, kindFromEntry, isSpreadsheetExt } from './utils';
 import { getBoundingVolumeLabel, getGeometryTypeLabel } from '@/i18n/labels';
 import { formatBytes, formatNumber } from '@/lib/format';
 import { useReportDialog } from '@/lib/report';
@@ -52,6 +52,18 @@ function DetectionPanel({ entry }: { entry: FileEntry }) {
     return (
       <div className="col-span-full mt-3 border-t border-dashed border-border pt-4">
         <TilesetFacts preview={preview} />
+      </div>
+    );
+  }
+
+  if (isPointCloudPreview(preview)) {
+    return (
+      <div className="col-span-full mt-3 border-t border-dashed border-border pt-4 text-xs">
+        {t('review.pointcloudSummary', {
+          points: formatNumber(preview.point_count),
+          crs: `EPSG:${preview.srid}`,
+          size: formatBytes(preview.size_bytes),
+        })}
       </div>
     );
   }
@@ -168,7 +180,7 @@ function ReviewFormBlock({
   const preview = entry.previewData;
   if (!preview) return null;
 
-  if (isTilesetPreview(preview)) {
+  if (isTilesetPreview(preview) || isPointCloudPreview(preview)) {
     return (
       <div className="col-span-full border-t border-border pt-4 mt-2">
         <ImportMetadataForm
@@ -176,7 +188,8 @@ function ReviewFormBlock({
           detectedCrs={null}
           onCommit={(req) => onCommitSingle(entry.id, req)}
           isCommitting={isCommitting}
-          isTileset
+          isTileset={isTilesetPreview(preview)}
+          isPointCloud={isPointCloudPreview(preview)}
         />
       </div>
     );
@@ -237,8 +250,8 @@ export function BulkReviewList({
   const { t } = useTranslation('import');
   const [expandedId, setExpandedId] = useState<string | null>(entries[0]?.id ?? null);
 
-  const { readyCount, rasterReadyCount, vectorCount, rasterCount, tableCount, tilesetCount, hasMultiLayerFile } = useMemo(() => {
-    let ready = 0, rasterReady = 0, vec = 0, ras = 0, tab = 0, tiles = 0, multiLayer = false;
+  const { readyCount, rasterReadyCount, vectorCount, rasterCount, tableCount, tilesetCount, pointcloudCount, hasMultiLayerFile } = useMemo(() => {
+    let ready = 0, rasterReady = 0, vec = 0, ras = 0, tab = 0, tiles = 0, clouds = 0, multiLayer = false;
     for (const e of entries) {
       if (e.status === 'preview') {
         ready++;
@@ -246,6 +259,7 @@ export function BulkReviewList({
       }
       if (!e.previewData) continue;
       if (isTilesetPreview(e.previewData)) { tiles++; }
+      else if (isPointCloudPreview(e.previewData)) { clouds++; }
       else if (isRasterPreview(e.previewData)) { ras++; }
       else if ((e.previewData as FilePreviewResponse).geometry_type) { vec++; }
       else { tab++; }
@@ -258,6 +272,7 @@ export function BulkReviewList({
       rasterCount: ras,
       tableCount: tab,
       tilesetCount: tiles,
+      pointcloudCount: clouds,
       hasMultiLayerFile: multiLayer,
     };
   }, [entries]);
@@ -274,6 +289,14 @@ export function BulkReviewList({
         version: preview.version,
         size: formatBytes(preview.unpacked_bytes),
         volume: getBoundingVolumeLabel(t, preview.bounding_volume),
+      });
+    }
+
+    if (isPointCloudPreview(preview)) {
+      return t('review.pointcloudSummary', {
+        points: formatNumber(preview.point_count),
+        crs: `EPSG:${preview.srid}`,
+        size: formatBytes(preview.size_bytes),
       });
     }
 
@@ -321,7 +344,7 @@ export function BulkReviewList({
   }
 
   function formatReviewCount(
-    key: 'fileCount' | 'vectorCount' | 'rasterCount' | 'tableCount' | 'tilesetCount',
+    key: 'fileCount' | 'vectorCount' | 'rasterCount' | 'tableCount' | 'tilesetCount' | 'pointcloudCount',
     count: number,
   ) {
     return t(`review.${key}`, { count, value: formatNumber(count) });
@@ -524,7 +547,7 @@ export function BulkReviewList({
       <div className="flex items-center gap-3 border-t border-dashed border-border pt-4">
         <div className="flex-1">
           <p className="text-xs font-semibold">
-            {tilesetCount > 0
+            {(tilesetCount > 0
               ? t('review.tilesetActionSummary', {
                   files: formatReviewCount('fileCount', entries.length),
                   tilesets: formatReviewCount('tilesetCount', tilesetCount),
@@ -534,7 +557,7 @@ export function BulkReviewList({
                   vectors: formatReviewCount('vectorCount', vectorCount),
                   rasters: formatReviewCount('rasterCount', rasterCount),
                   tables: formatReviewCount('tableCount', tableCount),
-                })}
+                })) + (pointcloudCount > 0 ? ` · ${formatReviewCount('pointcloudCount', pointcloudCount)}` : '')}
           </p>
           <p className="font-mono text-mini text-muted-foreground tracking-wide">
             {t(hasMultiLayerFile ? 'review.actionHintMultiLayer' : 'review.actionHint')}

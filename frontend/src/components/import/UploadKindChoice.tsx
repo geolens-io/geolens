@@ -3,13 +3,14 @@ import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import type { UploadKind } from '@/types/api';
 
-/** Chooses, before the upload, whether the files are geospatial data or 3D Tiles tilesets. */
+/** Chooses the import pipeline before upload. */
 export function UploadKindChoice({
   value,
   onChange,
   disabled,
   lockedHint,
   tilesetAvailable,
+  pointcloudAvailable,
 }: {
   value: UploadKind | null;
   onChange: (kind: UploadKind | null) => void;
@@ -17,6 +18,7 @@ export function UploadKindChoice({
   /** Says why the choice is locked; shown only while it is. */
   lockedHint?: string;
   tilesetAvailable: boolean;
+  pointcloudAvailable: boolean;
 }) {
   const { t } = useTranslation('import');
   const id = useId();
@@ -30,6 +32,13 @@ export function UploadKindChoice({
       hint: tilesetAvailable ? t('upload.kindTilesetHint') : t('upload.kindTilesetUnavailable'),
       available: tilesetAvailable,
     },
+    {
+      kind: 'pointcloud' as const,
+      key: 'pointcloud',
+      label: t('upload.kindPointCloud'),
+      hint: pointcloudAvailable ? t('upload.kindPointCloudHint') : t('upload.kindPointCloudUnavailable'),
+      available: pointcloudAvailable,
+    },
   ];
 
   return (
@@ -40,7 +49,7 @@ export function UploadKindChoice({
           {lockedHint}
         </p>
       )}
-      <div className="grid gap-2 sm:grid-cols-2">
+      <div className="grid gap-2 sm:grid-cols-3">
         {options.map((option) => (
           <div
             key={option.key}
