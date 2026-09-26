@@ -7,14 +7,7 @@ import type { DatasetVisibility } from '@/types/api';
 
 type Client = 'qgis' | 'potree' | 'copc';
 
-function clientSnippet(client: Client, url: string, withKey: boolean): string {
-  if (client === 'qgis') {
-    const steps = `QGIS 3.26+ → Layer > Add Layer > Add Point Cloud Layer\nSource type: Protocol: HTTP(S), cloud, etc.\nURL: ${url}`;
-    return withKey
-      ? `${steps}\nAuthentication: API Header → X-Api-Key: YOUR_API_KEY`
-      : steps;
-  }
-
+function clientSnippet(client: Exclude<Client, 'qgis'>, url: string, withKey: boolean): string {
   if (client === 'potree') {
     const potreeUrl = withKey ? `${url}?api_key=YOUR_API_KEY` : url;
     return [
@@ -54,7 +47,12 @@ export function PointCloudAccess({ url: path, visibility }: { url: string; visib
   const [client, setClient] = useState<Client>('qgis');
   const url = appOriginUrl(path);
   const withKey = visibility !== 'public';
-  const snippet = clientSnippet(client, url, withKey);
+  const snippet = client === 'qgis'
+    ? [
+        t('pointcloud.qgisSteps', { url }),
+        ...(withKey ? [t('pointcloud.qgisAuthentication')] : []),
+      ].join('\n')
+    : clientSnippet(client, url, withKey);
 
   return (
     <section aria-labelledby="pointcloud-access-title" className="space-y-3">

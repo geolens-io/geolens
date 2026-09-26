@@ -1177,6 +1177,8 @@
     "clientLabel": "点云客户端",
     "potreeHint": "Potree 无法为 COPC 发送 X-Api-Key 请求头。请将 URL 中的占位符替换为只读密钥，并将生成的 URL 作为机密信息保管。",
     "copySnippet": "复制客户端示例",
+    "qgisSteps": "QGIS 3.26+ → 图层 > 添加图层 > 添加点云图层\n来源类型：协议：HTTP(S)、云端等\nURL：{{url}}",
+    "qgisAuthentication": "身份验证：API Header → X-Api-Key: YOUR_API_KEY",
     "instructions": "QGIS、Potree 和 copc.js"
   },
   "tileset": {

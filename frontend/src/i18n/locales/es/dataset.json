@@ -1177,6 +1177,8 @@
     "clientLabel": "Cliente de nubes de puntos",
     "potreeHint": "Potree no puede enviar el encabezado X-Api-Key para COPC. Sustituya el marcador de la URL por su clave de solo lectura y trate la URL resultante como secreta.",
     "copySnippet": "Copiar ejemplo del cliente",
+    "qgisSteps": "QGIS 3.26+ → Capa > Añadir capa > Añadir capa de nube de puntos\nTipo de fuente: Protocolo: HTTP(S), nube, etc.\nURL: {{url}}",
+    "qgisAuthentication": "Autenticación: API Header → X-Api-Key: YOUR_API_KEY",
     "instructions": "QGIS, Potree y copc.js"
   },
   "tileset": {

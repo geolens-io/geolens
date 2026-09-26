@@ -1177,6 +1177,8 @@
     "clientLabel": "Point cloud client",
     "potreeHint": "Potree cannot send an X-Api-Key header for COPC. Replace the placeholder in its URL with your read-only key; treat the resulting URL as a secret.",
     "copySnippet": "Copy client snippet",
+    "qgisSteps": "QGIS 3.26+ → Layer > Add Layer > Add Point Cloud Layer\nSource type: Protocol: HTTP(S), cloud, etc.\nURL: {{url}}",
+    "qgisAuthentication": "Authentication: API Header → X-Api-Key: YOUR_API_KEY",
     "instructions": "QGIS, Potree, and copc.js"
   },
   "tileset": {

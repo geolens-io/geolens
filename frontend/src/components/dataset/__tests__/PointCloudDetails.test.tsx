@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { PointCloudCard } from '../PointCloudCard';
 import { PointCloudAccess } from '../PointCloudAccess';
 import type { DatasetResponse } from '@/types/api';
+import { changeTestLanguage } from '@/test/i18n';
 
 const PATH = '/api/datasets/ds-1/copc/attempt-1/data.copc.laz';
 const URL = `${window.location.origin}${PATH}`;
@@ -36,6 +37,22 @@ describe('PointCloudCard', () => {
 });
 
 describe('PointCloudAccess', () => {
+  it('shows the QGIS steps in the selected locale while preserving the URL and key placeholder', async () => {
+    await changeTestLanguage('es');
+    try {
+      const user = userEvent.setup();
+      render(<PointCloudAccess url={PATH} visibility="private" />);
+
+      const steps = screen.getByText(/Añadir capa de nube de puntos/);
+      expect(steps).toHaveTextContent(`URL: ${URL}`);
+      expect(steps).toHaveTextContent('Autenticación: API Header → X-Api-Key: YOUR_API_KEY');
+      await user.click(screen.getByRole('button', { name: 'Copiar ejemplo del cliente' }));
+      expect(await navigator.clipboard.readText()).toContain('Tipo de fuente: Protocolo: HTTP(S), nube, etc.');
+    } finally {
+      await changeTestLanguage('en');
+    }
+  });
+
   it('offers public QGIS, Potree and copc.js instructions with the versioned URL', async () => {
     const user = userEvent.setup();
     render(<PointCloudAccess url={PATH} visibility="public" />);

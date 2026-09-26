@@ -1177,6 +1177,8 @@
     "clientLabel": "Punktwolken-Client",
     "potreeHint": "Potree kann für COPC keinen X-Api-Key-Header senden. Ersetzen Sie den Platzhalter in der URL durch Ihren schreibgeschützten Schlüssel und behandeln Sie die URL vertraulich.",
     "copySnippet": "Client-Beispiel kopieren",
+    "qgisSteps": "QGIS 3.26+ → Layer > Layer hinzufügen > Punktwolken-Layer hinzufügen\nQuelltyp: Protokoll: HTTP(S), Cloud usw.\nURL: {{url}}",
+    "qgisAuthentication": "Authentifizierung: API Header → X-Api-Key: YOUR_API_KEY",
     "instructions": "QGIS, Potree und copc.js"
   },
   "tileset": {
