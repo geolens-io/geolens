@@ -94,6 +94,19 @@ function normalizeGeometryType(value: string | null | undefined): string {
   return value?.trim().toUpperCase() ?? '';
 }
 
+// No base OGC type name ends in Z or M, so stripping the longest match first
+// (ZM before Z or M alone) never misreads part of the base name as a suffix.
+const COORD_SUFFIXES = ['ZM', 'Z', 'M'] as const;
+
+function splitCoordSuffix(value: string): { base: string; suffix: string } {
+  for (const suffix of COORD_SUFFIXES) {
+    if (value.length > suffix.length && value.endsWith(suffix)) {
+      return { base: value.slice(0, -suffix.length), suffix };
+    }
+  }
+  return { base: value, suffix: '' };
+}
+
 function normalizeEnumValue(value: string | null | undefined): string {
   return value?.trim().toLowerCase() ?? '';
 }
@@ -127,10 +140,34 @@ export function getGeometryTypeLabel(
     return '';
   }
 
-  const key = GEOMETRY_TYPE_KEYS[normalized as keyof typeof GEOMETRY_TYPE_KEYS];
-  const defaultValue = defaultGeometryTypeLabel(normalized);
+  // A measured/3D type (e.g. MULTIPOINTM) carries its Z/M/ZM suffix past the
+  // base-type lookup below; translate the base and reattach the suffix as-is
+  // rather than losing it to (or mangling it through) the fallback humanizer.
+  const { base, suffix } = splitCoordSuffix(normalized);
+  const key = GEOMETRY_TYPE_KEYS[base as keyof typeof GEOMETRY_TYPE_KEYS];
 
-  return key ? resolveLabel(t, key, defaultValue) : defaultValue;
+  if (!key) {
+    return defaultGeometryTypeLabel(normalized);
+  }
+
+  return resolveLabel(t, key, defaultGeometryTypeLabel(base)) + suffix;
+}
+
+/**
+ * Reattaches the Z/M/ZM coordinate suffix a catalog-normalized geometry_type
+ * never carries — `chk_datasets_geometry_type` only allows the plain OGC
+ * name, so a dataset's measured/3D-ness has to come from is_3d + n_dims
+ * (backend `metadata_extent.py`) instead of the type string itself.
+ */
+export function withCoordSuffix(
+  geometryType: string | null | undefined,
+  is3d: boolean | null | undefined,
+  nDims: number | null | undefined,
+): string | null | undefined {
+  if (!geometryType) return geometryType;
+  if (is3d) return `${geometryType}${nDims === 4 ? 'ZM' : 'Z'}`;
+  if (nDims === 3) return `${geometryType}M`;
+  return geometryType;
 }
 
 export function getVisibilityLabel(
