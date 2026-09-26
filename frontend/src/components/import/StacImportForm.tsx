@@ -104,7 +104,13 @@ function assetUnavailableReasonText(
 ): string {
   switch (availability.reason) {
     case 'not_http':
-      return t('stac.unsupportedAssetScheme', { scheme: availability.scheme ?? '' });
+      // A scheme names the address's actual problem; without one (the
+      // href didn't parse even client-side, e.g. a malformed authority)
+      // there is nothing to name, so fall back to a generic reason rather
+      // than an empty "://" fragment.
+      return availability.scheme
+        ? t('stac.unsupportedAssetScheme', { scheme: availability.scheme })
+        : t('stac.assetUrlInvalid');
     case 'credentials':
       return t('stac.assetHasCredentials');
     case 'too_long':

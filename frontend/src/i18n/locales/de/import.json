@@ -170,6 +170,7 @@
     "assetCount_other": "{{count}} Assets",
     "noCogAsset": "Kein COG-Asset",
     "unsupportedAssetScheme": "Veröffentlicht unter einer {{scheme}}://-Adresse, die GeoLens nicht lesen kann",
+    "assetUrlInvalid": "Die Adresse ist keine gültige http- oder https-URL",
     "assetHasCredentials": "Verwendet eine signierte oder anmeldedatenbehaftete URL, die GeoLens nicht speichert",
     "assetHrefTooLong": "Die Adresse ist zu lang, um von GeoLens gespeichert zu werden",
     "catalogHelp": "Durchsuchen und importieren Sie Rasterdatensätze aus öffentlichen STAC-Katalogen wie",

@@ -184,6 +184,27 @@ describe('StacImportForm — items whose data asset GeoLens cannot fetch', () =>
     );
   });
 
+  test('an item flagged not_http with an unparsable href shows a generic reason, not an empty scheme', async () => {
+    const items: StacItemSummary[] = [
+      makeItem({
+        id: 'malformed-item',
+        data_asset_href: 'https://[invalid',
+        data_asset_import_refusal: 'not_http',
+      }),
+    ];
+
+    await driveToItemsStep(items);
+
+    const [, checkbox] = screen.getAllByRole('checkbox');
+    expect(checkbox).toBeDisabled();
+    const describedById = checkbox.getAttribute('aria-describedby');
+    expect(describedById).toBeTruthy();
+    const reasonNode = document.getElementById(describedById!);
+    expect(reasonNode).toHaveTextContent('stac.assetUrlInvalid');
+    // Never the empty-scheme artifact of a URL the browser also can't parse.
+    expect(reasonNode?.textContent).not.toContain('unsupportedAssetScheme');
+  });
+
   test('an item with no data asset at all is disabled the same way', async () => {
     const items: StacItemSummary[] = [makeItem({ id: 'no-asset-item', data_asset_href: null })];
 
