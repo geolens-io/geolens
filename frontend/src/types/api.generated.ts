@@ -2944,7 +2944,8 @@ export interface paths {
          *
          *     Stores user metadata on the job and queues the ingest task.
          *     Only callable on jobs with status 'pending'. A 3D Tiles tileset's unpacked
-         *     size is checked against the storage quota again here.
+         *     size and a point cloud's size are checked against the storage quota again
+         *     here.
          */
         post: operations["commit_import_ingest_commit__job_id__post"];
         delete?: never;
@@ -3016,6 +3017,8 @@ export interface paths {
          *     For a 3D Tiles tileset: returns its version, root geometric error, bounding
          *     volume kind, extent and unpacked size, read from the archive's directory
          *     and tileset.json without unpacking it.
+         *     For a COPC point cloud: returns its point count and format, CRS, extent,
+         *     elevation range and size, read from its header and hierarchy.
          *     Only callable on jobs with status 'pending'.
          */
         post: operations["preview_file_ingest_preview__job_id__post"];
@@ -6533,7 +6536,7 @@ export interface components {
             file: string;
             /**
              * Kind
-             * @description 'tiles3d' uploads a 3D Tiles tileset as a .zip or .3tz archive holding tileset.json. Omit it for any other file; a .zip without it is read as geospatial data, and a .3tz without it is refused.
+             * @description 'tiles3d' uploads a 3D Tiles tileset as a .zip or .3tz archive holding tileset.json. Omit it for any other file; a .zip without it is read as geospatial data, and a .3tz without it is refused. 'pointcloud' uploads a COPC point cloud as a .laz file; a .laz without it is refused.
              */
             kind?: string | null;
         };
@@ -11153,6 +11156,64 @@ export interface components {
             vertical_crs?: string | null;
         };
         /**
+         * PointCloudPreviewResponse
+         * @description What a staged COPC point cloud holds, read from its header and hierarchy.
+         */
+        PointCloudPreviewResponse: {
+            /**
+             * Job Id
+             * Format: uuid
+             * @description Identifier of the point cloud ingestion job being previewed.
+             */
+            job_id: string;
+            /**
+             * Source Filename
+             * @description Original filename of the uploaded point cloud.
+             */
+            source_filename: string | null;
+            /**
+             * Point Count
+             * @description Number of points in the file.
+             */
+            point_count: number;
+            /**
+             * Point Format
+             * @description The file's LAS point data record format.
+             * @enum {integer}
+             */
+            point_format: 6 | 7 | 8;
+            /**
+             * Srid
+             * @description EPSG code of the horizontal coordinate reference system.
+             */
+            srid: number;
+            /**
+             * Vertical Crs
+             * @description Name of the vertical coordinate reference system, if any.
+             */
+            vertical_crs: string | null;
+            /**
+             * Extent Bbox
+             * @description The extent as [west, south, east, north] in degrees; west > east when it crosses the antimeridian.
+             */
+            extent_bbox: number[];
+            /**
+             * Z Min
+             * @description Lowest elevation, in the file's units.
+             */
+            z_min: number;
+            /**
+             * Z Max
+             * @description Highest elevation, in the file's units.
+             */
+            z_max: number;
+            /**
+             * Size Bytes
+             * @description Size of the file in bytes.
+             */
+            size_bytes: number;
+        };
+        /**
          * PopupConfig
          * @description Per-layer popup configuration: enable/disable + custom title template
          *     + ordered visible-fields allowlist. Persisted as JSONB on map_layers.
@@ -11213,9 +11274,9 @@ export interface components {
             content_type: string;
             /**
              * Kind
-             * @description 'tiles3d' uploads a 3D Tiles tileset as a .zip or .3tz archive holding tileset.json. Omit it for any other file; a .zip without it is read as geospatial data, and a .3tz without it is refused.
+             * @description 'tiles3d' uploads a 3D Tiles tileset as a .zip or .3tz archive holding tileset.json. Omit it for any other file; a .zip without it is read as geospatial data, and a .3tz without it is refused. 'pointcloud' uploads a COPC point cloud as a .laz file; a .laz without it is refused.
              */
-            kind?: "tiles3d" | null;
+            kind?: ("tiles3d" | "pointcloud") | null;
         };
         /** PresignedUploadResponse */
         PresignedUploadResponse: {
@@ -29358,7 +29419,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PreviewResponse"] | components["schemas"]["RasterPreviewResponse"] | components["schemas"]["TilesetPreviewResponse"];
+                    "application/json": components["schemas"]["PreviewResponse"] | components["schemas"]["RasterPreviewResponse"] | components["schemas"]["TilesetPreviewResponse"] | components["schemas"]["PointCloudPreviewResponse"];
                 };
             };
             /** @description Bad request — invalid payload */

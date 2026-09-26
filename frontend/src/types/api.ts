@@ -167,8 +167,8 @@ export interface RasterMetadata {
 /** What a staged 3D Tiles tileset archive holds, read without unpacking it. */
 export type TilesetPreviewResponse = components['schemas']['TilesetPreviewResponse'];
 
-/** The upload doors' `kind`: 'tiles3d' marks the file as a 3D Tiles tileset archive. */
-export type UploadKind = NonNullable<components['schemas']['PresignedUploadRequest']['kind']>;
+/** The upload `kind` the import form sends: 'tiles3d' marks the file as a 3D Tiles tileset archive. */
+export type UploadKind = Extract<NonNullable<components['schemas']['PresignedUploadRequest']['kind']>, 'tiles3d'>;
 
 export interface RasterPreviewResponse {
   job_id: string;

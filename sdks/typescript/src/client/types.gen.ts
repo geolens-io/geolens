@@ -1423,7 +1423,7 @@ export type BodyUploadFileIngestUploadPost = {
     /**
      * Kind
      *
-     * 'tiles3d' uploads a 3D Tiles tileset as a .zip or .3tz archive holding tileset.json. Omit it for any other file; a .zip without it is read as geospatial data, and a .3tz without it is refused.
+     * 'tiles3d' uploads a 3D Tiles tileset as a .zip or .3tz archive holding tileset.json. Omit it for any other file; a .zip without it is read as geospatial data, and a .3tz without it is refused. 'pointcloud' uploads a COPC point cloud as a .laz file; a .laz without it is refused.
      */
     kind?: string | null;
 };
@@ -7724,6 +7724,74 @@ export type PointCloudMetadata = {
 };
 
 /**
+ * PointCloudPreviewResponse
+ *
+ * What a staged COPC point cloud holds, read from its header and hierarchy.
+ */
+export type PointCloudPreviewResponse = {
+    /**
+     * Job Id
+     *
+     * Identifier of the point cloud ingestion job being previewed.
+     */
+    job_id: string;
+    /**
+     * Source Filename
+     *
+     * Original filename of the uploaded point cloud.
+     */
+    source_filename: string | null;
+    /**
+     * Point Count
+     *
+     * Number of points in the file.
+     */
+    point_count: number;
+    /**
+     * Point Format
+     *
+     * The file's LAS point data record format.
+     */
+    point_format: 6 | 7 | 8;
+    /**
+     * Srid
+     *
+     * EPSG code of the horizontal coordinate reference system.
+     */
+    srid: number;
+    /**
+     * Vertical Crs
+     *
+     * Name of the vertical coordinate reference system, if any.
+     */
+    vertical_crs: string | null;
+    /**
+     * Extent Bbox
+     *
+     * The extent as [west, south, east, north] in degrees; west > east when it crosses the antimeridian.
+     */
+    extent_bbox: Array<number>;
+    /**
+     * Z Min
+     *
+     * Lowest elevation, in the file's units.
+     */
+    z_min: number;
+    /**
+     * Z Max
+     *
+     * Highest elevation, in the file's units.
+     */
+    z_max: number;
+    /**
+     * Size Bytes
+     *
+     * Size of the file in bytes.
+     */
+    size_bytes: number;
+};
+
+/**
  * PopupConfig
  *
  * Per-layer popup configuration: enable/disable + custom title template
@@ -7803,9 +7871,9 @@ export type PresignedUploadRequest = {
     /**
      * Kind
      *
-     * 'tiles3d' uploads a 3D Tiles tileset as a .zip or .3tz archive holding tileset.json. Omit it for any other file; a .zip without it is read as geospatial data, and a .3tz without it is refused.
+     * 'tiles3d' uploads a 3D Tiles tileset as a .zip or .3tz archive holding tileset.json. Omit it for any other file; a .zip without it is read as geospatial data, and a .3tz without it is refused. 'pointcloud' uploads a COPC point cloud as a .laz file; a .laz without it is refused.
      */
-    kind?: 'tiles3d' | null;
+    kind?: 'tiles3d' | 'pointcloud' | null;
 };
 
 /**
@@ -21371,7 +21439,7 @@ export type PreviewFileIngestPreviewJobIdPostResponses = {
      *
      * Successful Response
      */
-    200: PreviewResponse | RasterPreviewResponse | TilesetPreviewResponse;
+    200: PreviewResponse | RasterPreviewResponse | TilesetPreviewResponse | PointCloudPreviewResponse;
 };
 
 export type PreviewFileIngestPreviewJobIdPostResponse = PreviewFileIngestPreviewJobIdPostResponses[keyof PreviewFileIngestPreviewJobIdPostResponses];

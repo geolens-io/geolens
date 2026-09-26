@@ -122,6 +122,7 @@ async def _owes(job_id) -> bool:
     [
         ("ingest_raster", _RASTER),
         ("ingest_tileset", _RASTER),
+        ("ingest_pointcloud", _RASTER),
         ("ingest_vrt", [("cache",), ("embed",)]),
     ],
 )

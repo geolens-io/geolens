@@ -23,6 +23,7 @@ from app.processing.ingest.service import (
     safe_upload_basename,
     validate_file_extension,
 )
+from app.processing.ingest.pointcloud import require_pointcloud_file
 from app.processing.ingest.tileset import require_tileset_archive, tileset_job_metadata
 from app.processing.ingest.url_fetch import (
     PREFLIGHT_DNS_MAX_SECONDS,
@@ -144,6 +145,7 @@ async def upload_from_url(
         _reject_standalone_vrt(filename)
         try:
             require_tileset_archive(body.kind, filename)
+            require_pointcloud_file(body.kind, filename)
         except UnsafeUploadError as exc:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,

@@ -20,6 +20,7 @@ from app.core.upload_errors import UnsafeUploadError, refusal_detail
 from app.modules.quota.service import check_replacement_quota, check_upload_quota
 from app.platform.storage import StorageProvider
 from app.platform.storage.titiler_url import resolve_current_storage_key
+from app.processing.ingest.pointcloud import inspect_stored_pointcloud
 from app.processing.ingest.tileset import (
     TILESET_UNPACKED_BYTES_FIELD,
     inspect_stored_tileset,
@@ -607,3 +608,30 @@ async def admit_presigned_tileset(
         **metadata,
         TILESET_UNPACKED_BYTES_FIELD: tileset.layout.unpacked_bytes,
     }
+
+
+async def admit_presigned_pointcloud(
+    storage: StorageProvider, job: "IngestJob", *, frozen_key: str
+) -> None:
+    """Check a frozen point cloud's header, hierarchy and top node, or drop both objects.
+
+    Runs after ``finalize_presigned_object``, on the frozen copy, and reads
+    only the ranges those checks need. Follows that function's failure
+    contract: a refusal deletes both objects, any other failure only the
+    frozen copy.
+    """
+    physical_frozen_key = resolve_current_storage_key(frozen_key)
+    try:
+        await inspect_stored_pointcloud(storage, physical_frozen_key)
+    except UnsafeUploadError as exc:
+        await _cleanup_presigned_object(storage, physical_frozen_key, job.id)
+        await _cleanup_presigned_object(
+            storage, resolve_current_storage_key(job.user_metadata["s3_key"]), job.id
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=refusal_detail(exc),
+        ) from exc
+    except BaseException:
+        await _cleanup_presigned_object(storage, physical_frozen_key, job.id)
+        raise

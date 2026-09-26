@@ -3043,12 +3043,13 @@ def test_every_default_upload_extension_is_clamped_or_scanned():
 
     An extension missing from the driver table falls back to the archive
     driver union, which includes GPKG and SQLite, so it must be a scanned
-    container or a content-checked database instead.
+    container, a content-checked database, or refused by the driver lookup.
     """
     from app.core.config import Settings
+    from app.core.upload_errors import UnsafeUploadError
     from app.processing.ingest.gdal_drivers import (
         ARCHIVE_MEMBER_DRIVERS,
-        _DRIVERS_BY_EXTENSION,
+        allowed_input_drivers,
     )
     from app.processing.ingest.ogr import _is_parquet
     from app.processing.ingest.service import raster_stamped_metadata
@@ -3065,7 +3066,10 @@ def test_every_default_upload_extension_is_clamped_or_scanned():
         # so neither reaches a vector GDAL subprocess.
         if raster_stamped_metadata(None, name) or _is_parquet(name):
             continue
-        clamped = _DRIVERS_BY_EXTENSION.get(extension, ARCHIVE_MEMBER_DRIVERS)
+        try:
+            clamped = allowed_input_drivers(name)
+        except UnsafeUploadError:
+            continue
         if (
             clamped is ARCHIVE_MEMBER_DRIVERS
             and extension not in ZIP_CONTAINER_EXTENSIONS

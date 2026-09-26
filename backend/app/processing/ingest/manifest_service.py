@@ -65,6 +65,7 @@ from app.processing.ingest.manifest_sources import (
     publication_to_catalog_fields,
     validate_publication_intent,
 )
+from app.processing.ingest.pointcloud import require_pointcloud_file
 from app.processing.ingest.service import queue_ingest_job, validate_file_extension
 
 # fix(#435): batch download writes so a 64 KiB httpx chunk doesn't cost one
@@ -159,6 +160,7 @@ async def _validate_prepared_source(
 ) -> None:
     allowed = await get_allowed_extensions_list(db)
     validate_file_extension(prepared.source_filename, allowed)
+    require_pointcloud_file(None, prepared.source_filename)
 
 
 async def _authorize_prepared_source(

@@ -24,6 +24,7 @@ from defusedxml import ElementTree as ET
 import puremagic
 import structlog
 
+from app.core.pointcloud import POINTCLOUD_SUFFIX
 from app.core.upload_errors import (  # noqa: F401  (re-exported)
     CodedRefusal,
     UnsafeUploadError,
@@ -1015,6 +1016,12 @@ def validate_file_content(file_path: str, filename: str) -> None:
 
     if len(header) == 0:
         raise UnsafeUploadError("The uploaded file is empty.", code="empty_upload")
+
+    # The point cloud path runs the COPC checks; this keeps a renamed database out.
+    if suffix == POINTCLOUD_SUFFIX and not header.startswith(b"LASF"):
+        raise UnsafeUploadError(
+            "The file is not a LAS or LAZ point cloud.", code="pointcloud_invalid"
+        )
 
     # Skip magic-byte validation for extensions without known content rules
     if suffix not in EXTENSION_CONTENT_MAP:

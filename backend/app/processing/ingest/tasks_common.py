@@ -228,6 +228,7 @@ task_app = App(
         "app.processing.ingest.tasks_raster",
         "app.processing.ingest.tasks_crs_facts",
         "app.processing.ingest.tasks_tileset",
+        "app.processing.ingest.tasks_pointcloud",
         "app.processing.ingest.tasks_vrt",
         "app.processing.ingest.tasks_reupload",
         "app.processing.embeddings.tasks",

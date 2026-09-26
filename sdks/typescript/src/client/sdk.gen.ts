@@ -3129,7 +3129,8 @@ export const commitFanOutIngestCommitFanOutJobIdPost = <ThrowOnError extends boo
  *
  * Stores user metadata on the job and queues the ingest task.
  * Only callable on jobs with status 'pending'. A 3D Tiles tileset's unpacked
- * size is checked against the storage quota again here.
+ * size and a point cloud's size are checked against the storage quota again
+ * here.
  */
 export const commitImportIngestCommitJobIdPost = <ThrowOnError extends boolean = false>(options: Options<CommitImportIngestCommitJobIdPostData, ThrowOnError>): RequestResult<CommitImportIngestCommitJobIdPostResponses, CommitImportIngestCommitJobIdPostErrors, ThrowOnError> => (options.client ?? client).post<CommitImportIngestCommitJobIdPostResponses, CommitImportIngestCommitJobIdPostErrors, ThrowOnError>({
     security: [
@@ -3206,6 +3207,8 @@ export const applyManifestEndpointIngestManifestApplyPost = <ThrowOnError extend
  * For a 3D Tiles tileset: returns its version, root geometric error, bounding
  * volume kind, extent and unpacked size, read from the archive's directory
  * and tileset.json without unpacking it.
+ * For a COPC point cloud: returns its point count and format, CRS, extent,
+ * elevation range and size, read from its header and hierarchy.
  * Only callable on jobs with status 'pending'.
  */
 export const previewFileIngestPreviewJobIdPost = <ThrowOnError extends boolean = false>(options: Options<PreviewFileIngestPreviewJobIdPostData, ThrowOnError>): RequestResult<PreviewFileIngestPreviewJobIdPostResponses, PreviewFileIngestPreviewJobIdPostErrors, ThrowOnError> => (options.client ?? client).post<PreviewFileIngestPreviewJobIdPostResponses, PreviewFileIngestPreviewJobIdPostErrors, ThrowOnError>({

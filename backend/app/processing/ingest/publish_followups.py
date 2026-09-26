@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 _LABELS: dict[str, str | None] = {
     "ingest_raster": "Raster",
     "ingest_tileset": "3D Tiles",
+    "ingest_pointcloud": "Point cloud",
     "ingest_vrt": None,
 }
 

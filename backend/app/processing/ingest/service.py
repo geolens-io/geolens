@@ -24,6 +24,7 @@ from app.core.identity import Identity
 from app.core.config import settings
 from app.core.upload_errors import CodedRefusal
 from app.core.failure_reason import is_composed_exception, redact_failure_reason
+from app.core.pointcloud import POINTCLOUD_FILE_TYPE
 from app.core.tiles3d import TILESET_FILE_TYPE
 from app.core.service_tokens import (
     ServiceCredential,
@@ -1258,9 +1259,9 @@ async def queue_ingest_job(
     """Route a committed ingest job to the right Procrastinate task.
 
     Chooses between ``ingest_service`` (source_url set), ``ingest_raster``
-    (file_type=raster), ``ingest_tileset`` (file_type=tiles3d) and
-    ``ingest_file`` (default vector path), and sends small vector files to the
-    priority queue.
+    (file_type=raster), ``ingest_tileset`` (file_type=tiles3d),
+    ``ingest_pointcloud`` (file_type=pointcloud) and ``ingest_file`` (default
+    vector path), and sends small vector files to the priority queue.
 
     Each ``defer_async`` call is wrapped in ``defer_with_orphan_guard`` so a
     queue outage flips the committed pending job to ``failed`` and surfaces
@@ -1295,6 +1296,7 @@ async def queue_ingest_job(
     from app.processing.ingest.constants import PRIORITY_QUEUE_THRESHOLD_BYTES
     from app.processing.ingest.tasks import (
         ingest_file,
+        ingest_pointcloud,
         ingest_raster,
         ingest_service,
         ingest_tileset,
@@ -1405,9 +1407,11 @@ async def queue_ingest_job(
         )
     file_path = job.file_path
 
-    whole_file_task = {"raster": ingest_raster, TILESET_FILE_TYPE: ingest_tileset}.get(
-        (job.user_metadata or {}).get("file_type")
-    )
+    whole_file_task = {
+        "raster": ingest_raster,
+        TILESET_FILE_TYPE: ingest_tileset,
+        POINTCLOUD_FILE_TYPE: ingest_pointcloud,
+    }.get((job.user_metadata or {}).get("file_type"))
     if whole_file_task is not None:
 
         async def _defer_whole_file() -> None:

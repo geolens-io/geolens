@@ -40,8 +40,9 @@ import type { FileEntry, BatchPhase, CommitImportRequest, UploadKind } from '@/t
 import { ApiError } from '@/api/client';
 import { randomId } from '@/lib/random-id';
 
-// A .3tz holds only a tileset, so the files choice never takes one.
-const TILESET_ONLY_EXTENSION = '.3tz';
+// A .3tz holds only a tileset and a .laz only a point cloud, so the files
+// choice never takes either.
+const KIND_ONLY_EXTENSIONS = new Set(['.3tz', '.laz']);
 
 function getErrorHint(errorMsg: string, t: (key: string) => string): string | null {
   const lower = errorMsg.toLowerCase();
@@ -162,7 +163,7 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     () =>
       uploadKind === 'tiles3d'
         ? tilesetExtensions
-        : configExtensions?.filter((ext) => ext.toLowerCase() !== TILESET_ONLY_EXTENSION),
+        : configExtensions?.filter((ext) => !KIND_ONLY_EXTENSIONS.has(ext.toLowerCase())),
     [uploadKind, tilesetExtensions, configExtensions],
   );
   const maxSizeMb = uploadConfig ? Math.round(uploadConfig.max_file_size_bytes / (1024 * 1024)) : undefined;

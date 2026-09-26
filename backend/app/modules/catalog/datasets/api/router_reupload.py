@@ -68,6 +68,7 @@ from app.platform.dataset_origin import classify_origin
 from app.platform.extensions import get_catalog_port
 from app.core.persistent_config import UPLOAD_MAX_SIZE_MB, get_allowed_extensions_list
 from app.core.record_types import is_table_or_raster_backed
+from app.core.pointcloud import LAZ_WITHOUT_KIND, POINTCLOUD_FILE_TYPE, is_laz
 from app.core.tiles3d import TILESET_ARCHIVE_SUFFIX
 from app.modules.quota.service import check_replacement_quota
 from app.modules.catalog.sources.preview import build_gdal_source, run_service_preview
@@ -291,6 +292,18 @@ def _assert_compatible_record_type(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=refusal_detail(_NO_REUPLOAD.get(record_type, _NO_REUPLOAD_DEFAULT)),
+        )
+
+    if is_laz(filename):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=refusal_detail(
+                CodedRefusal(
+                    LAZ_WITHOUT_KIND,
+                    code="pointcloud_kind_required",
+                    values={"file_type": POINTCLOUD_FILE_TYPE},
+                )
+            ),
         )
 
     if ext == TILESET_ARCHIVE_SUFFIX:

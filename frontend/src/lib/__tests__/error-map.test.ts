@@ -730,6 +730,16 @@ describe('describeUploadRefusal', () => {
     expect(translateApiErrorDetail(detail, 422)).not.toContain('{{');
   });
 
+  it('interpolates the kind for a .laz sent without the point cloud kind', () => {
+    const detail = {
+      code: 'pointcloud_kind_required',
+      message: 'A .laz file holds a point cloud. Upload it as a new dataset with kind=pointcloud.',
+      file_type: 'pointcloud',
+    };
+
+    expect(translateApiErrorDetail(detail, 422)).toBe(detail.message);
+  });
+
   it('interpolates the limit for a size refusal aborted mid-stream, with no actual size', () => {
     const detail = {
       code: 'file_size_limit_exceeded',

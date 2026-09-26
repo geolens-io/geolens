@@ -1271,7 +1271,7 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 _MODULE_LOC_CAPS: dict[str, int] = {
     # Manifest reservation, staging, run admission and fenced settlement share one
     # apply workflow.
-    "backend/app/processing/ingest/manifest_service.py": 1218,
+    "backend/app/processing/ingest/manifest_service.py": 1220,
     # Endpoint parsing, SSRF checks and credential forwarding share one security
     # boundary.
     "backend/app/platform/service_endpoints.py": 1360,
@@ -1299,10 +1299,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # callers.
     "backend/app/processing/ingest/metadata.py": 161,
     # Ingest API router debt; split upload, import and registration endpoints before
-    # raising further. Each upload door branches once for a 3D Tiles tileset.
-    "backend/app/processing/ingest/router.py": 1679,
+    # raising further. Each upload door branches once per 3D upload kind: a 3D
+    # Tiles tileset and a COPC point cloud.
+    "backend/app/processing/ingest/router.py": 1712,
+    # One reader for untrusted COPC files: header, VLRs, hierarchy lookups,
+    # chunk table, bounded per-node decoding and the published extent.
+    "backend/app/processing/ingest/pointcloud.py": 1019,
     # Shared ingest finalization carries verification, bounded ArcGIS requests and lifecycle context.
-    "backend/app/processing/ingest/tasks_common.py": 1717,
+    "backend/app/processing/ingest/tasks_common.py": 1718,
     # The file and service strategies: retrieval, staging, verification and cleanup.
     "backend/app/processing/ingest/tasks_reupload.py": 1225,
     # Refresh strategies share access, admission and dispatch rules at this API
@@ -1312,7 +1316,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/platform/config_ops/service.py": 1175,
     # One settlement pass, its precheck and its reapers serve startup recovery, the
     # lifespan sweep, admin cleanup, the job status poll and manifest expiry.
-    "backend/app/platform/jobs/sweep.py": 1753,
+    "backend/app/platform/jobs/sweep.py": 1756,
     # Refresh admission, claim fencing, terminal transitions and the job-scoped
     # abandoned-run sweep stay domain-neutral.
     "backend/app/platform/refresh/service.py": 1160,
@@ -1326,7 +1330,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # semantics.
     "backend/app/processing/embeddings/backfill.py": 933,
     # Reupload preview, compatibility and staged commit share an endpoint lifecycle.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1527,
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1540,
     # VRT creation and regeneration share publication and superseded-object cleanup.
     "backend/app/processing/ingest/tasks_vrt.py": 1661,
     # The raster strategy: conversion, read-back, object puts and their cleanup.
@@ -1339,14 +1343,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/ogr.py": 1369,
     # Archive and GDAL content validation remain centralized at the upload security
     # boundary.
-    "backend/app/processing/ingest/validation.py": 1199,
+    "backend/app/processing/ingest/validation.py": 1206,
     # OAuth destination validation, account linking and role reconciliation share one
     # boundary.
     "backend/app/modules/auth/oauth/service.py": 1111,
     # Admin mutations share locking and audit outcomes.
     "backend/app/modules/admin/service.py": 1022,
     # Ingest admission, staging and job settlement share one orchestration boundary.
-    "backend/app/processing/ingest/service.py": 1458,
+    "backend/app/processing/ingest/service.py": 1462,
     # The PostGIS strategy: geometry repair, the snapshot measurement and its
     # catalog writes.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 660,
@@ -1862,8 +1866,11 @@ _PROCESSING_OTHER_DOMAINS_IMPORT_BURNDOWN: dict[str, set[str]] = {
     "ingest/tasks_raster_swap.py": {
         "app.modules.quota.service",
     },
-    # The tileset publish reserves its dataset slot and unpacked bytes under
-    # the per-user lock, as the raster tails do.
+    # The point cloud and tileset publishes reserve their dataset slot and bytes
+    # under the per-user lock, as the raster tails do.
+    "ingest/tasks_pointcloud.py": {
+        "app.modules.quota.service",
+    },
     "ingest/tasks_tileset.py": {
         "app.modules.quota.service",
     },

@@ -50,6 +50,7 @@ from app.processing.ingest.validation import (
     SQLITE_FAMILY_EXTENSIONS,
     UnsafeUploadError,
     validate_content_directives,
+    validate_file_content,
 )
 from app.processing.raster.vrt import gdal_service_safe_env, gdal_vector_safe_env
 
@@ -694,6 +695,40 @@ def test_a_database_inside_an_archive_is_refused_under_any_name(
 
     with pytest.raises(UnsafeUploadError):
         validate_content_directives(str(archive), "upload.zip")
+
+
+@pytest.mark.parametrize("name", ["upload.laz", "nested/SITE.COPC.LAZ"])
+def test_no_driver_may_open_a_point_cloud(name):
+    """A .laz is refused by the driver lookup instead of taking the archive union."""
+    with pytest.raises(UnsafeUploadError, match="kind=pointcloud"):
+        allowed_input_drivers(name)
+    with pytest.raises(UnsafeUploadError, match="kind=pointcloud"):
+        local_input_driver_args(name)
+
+
+def test_a_database_named_as_a_point_cloud_is_refused_by_its_content(
+    tmp_path, outside_file
+):
+    """A .laz whose bytes are a database is refused on its content.
+
+    First proves GDAL WOULD open the database under the archive driver union,
+    so the refusal below is of a real threat.
+    """
+    path = _database_with_external_source(tmp_path, outside_file, name="upload.laz")
+
+    if shutil.which("ogrinfo") is not None:
+        _require_if_flag()
+        code, driver, listing = _ogrinfo(
+            str(path),
+            env_extra={"GDAL_SKIP": gdal_vector_safe_env()["GDAL_SKIP"]},
+            args=[arg for d in ARCHIVE_MEMBER_DRIVERS for arg in ("-if", d)],
+        )
+        assert (code, driver) == (0, "SQLite"), (
+            "GDAL did not open the .laz as SQLite, so this case proves nothing"
+        )
+
+    with pytest.raises(ValueError, match="not a LAS or LAZ point cloud"):
+        validate_file_content(str(path), "upload.laz")
 
 
 @pytest.mark.parametrize("suffix", [".zip", ".3tz"])

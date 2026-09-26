@@ -8,6 +8,7 @@ from ...client import AuthenticatedClient, Client
 from ...types import Response, UNSET
 from ... import errors
 
+from ...models.point_cloud_preview_response import PointCloudPreviewResponse
 from ...models.preview_response import PreviewResponse
 from ...models.problem_detail import ProblemDetail
 from ...models.raster_preview_response import RasterPreviewResponse
@@ -47,7 +48,8 @@ def _get_kwargs(
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
 ) -> (
-    PreviewResponse
+    PointCloudPreviewResponse
+    | PreviewResponse
     | RasterPreviewResponse
     | TilesetPreviewResponse
     | ProblemDetail
@@ -57,7 +59,12 @@ def _parse_response(
 
         def _parse_response_200(
             data: object,
-        ) -> PreviewResponse | RasterPreviewResponse | TilesetPreviewResponse:
+        ) -> (
+            PointCloudPreviewResponse
+            | PreviewResponse
+            | RasterPreviewResponse
+            | TilesetPreviewResponse
+        ):
             try:
                 if not isinstance(data, dict):
                     raise TypeError()
@@ -74,11 +81,19 @@ def _parse_response(
                 return response_200_type_1
             except (TypeError, ValueError, AttributeError, KeyError):
                 pass
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                response_200_type_2 = TilesetPreviewResponse.from_dict(data)
+
+                return response_200_type_2
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
             if not isinstance(data, dict):
                 raise TypeError()
-            response_200_type_2 = TilesetPreviewResponse.from_dict(data)
+            response_200_type_3 = PointCloudPreviewResponse.from_dict(data)
 
-            return response_200_type_2
+            return response_200_type_3
 
         response_200 = _parse_response_200(response.json())
 
@@ -138,7 +153,11 @@ def _parse_response(
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
 ) -> Response[
-    PreviewResponse | RasterPreviewResponse | TilesetPreviewResponse | ProblemDetail
+    PointCloudPreviewResponse
+    | PreviewResponse
+    | RasterPreviewResponse
+    | TilesetPreviewResponse
+    | ProblemDetail
 ]:
     return Response(
         status_code=HTTPStatus(response.status_code),
@@ -154,7 +173,11 @@ def sync_detailed(
     client: AuthenticatedClient,
     layer_name: None | str | Unset = UNSET,
 ) -> Response[
-    PreviewResponse | RasterPreviewResponse | TilesetPreviewResponse | ProblemDetail
+    PointCloudPreviewResponse
+    | PreviewResponse
+    | RasterPreviewResponse
+    | TilesetPreviewResponse
+    | ProblemDetail
 ]:
     """Preview File
 
@@ -165,6 +188,8 @@ def sync_detailed(
     For a 3D Tiles tileset: returns its version, root geometric error, bounding
     volume kind, extent and unpacked size, read from the archive's directory
     and tileset.json without unpacking it.
+    For a COPC point cloud: returns its point count and format, CRS, extent,
+    elevation range and size, read from its header and hierarchy.
     Only callable on jobs with status 'pending'.
 
     Args:
@@ -176,7 +201,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[PreviewResponse | RasterPreviewResponse | TilesetPreviewResponse | ProblemDetail]
+        Response[PointCloudPreviewResponse | PreviewResponse | RasterPreviewResponse | TilesetPreviewResponse | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -197,7 +222,8 @@ def sync(
     client: AuthenticatedClient,
     layer_name: None | str | Unset = UNSET,
 ) -> (
-    PreviewResponse
+    PointCloudPreviewResponse
+    | PreviewResponse
     | RasterPreviewResponse
     | TilesetPreviewResponse
     | ProblemDetail
@@ -212,6 +238,8 @@ def sync(
     For a 3D Tiles tileset: returns its version, root geometric error, bounding
     volume kind, extent and unpacked size, read from the archive's directory
     and tileset.json without unpacking it.
+    For a COPC point cloud: returns its point count and format, CRS, extent,
+    elevation range and size, read from its header and hierarchy.
     Only callable on jobs with status 'pending'.
 
     Args:
@@ -223,7 +251,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        PreviewResponse | RasterPreviewResponse | TilesetPreviewResponse | ProblemDetail
+        PointCloudPreviewResponse | PreviewResponse | RasterPreviewResponse | TilesetPreviewResponse | ProblemDetail
     """
 
     return sync_detailed(
@@ -239,7 +267,11 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     layer_name: None | str | Unset = UNSET,
 ) -> Response[
-    PreviewResponse | RasterPreviewResponse | TilesetPreviewResponse | ProblemDetail
+    PointCloudPreviewResponse
+    | PreviewResponse
+    | RasterPreviewResponse
+    | TilesetPreviewResponse
+    | ProblemDetail
 ]:
     """Preview File
 
@@ -250,6 +282,8 @@ async def asyncio_detailed(
     For a 3D Tiles tileset: returns its version, root geometric error, bounding
     volume kind, extent and unpacked size, read from the archive's directory
     and tileset.json without unpacking it.
+    For a COPC point cloud: returns its point count and format, CRS, extent,
+    elevation range and size, read from its header and hierarchy.
     Only callable on jobs with status 'pending'.
 
     Args:
@@ -261,7 +295,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[PreviewResponse | RasterPreviewResponse | TilesetPreviewResponse | ProblemDetail]
+        Response[PointCloudPreviewResponse | PreviewResponse | RasterPreviewResponse | TilesetPreviewResponse | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -280,7 +314,8 @@ async def asyncio(
     client: AuthenticatedClient,
     layer_name: None | str | Unset = UNSET,
 ) -> (
-    PreviewResponse
+    PointCloudPreviewResponse
+    | PreviewResponse
     | RasterPreviewResponse
     | TilesetPreviewResponse
     | ProblemDetail
@@ -295,6 +330,8 @@ async def asyncio(
     For a 3D Tiles tileset: returns its version, root geometric error, bounding
     volume kind, extent and unpacked size, read from the archive's directory
     and tileset.json without unpacking it.
+    For a COPC point cloud: returns its point count and format, CRS, extent,
+    elevation range and size, read from its header and hierarchy.
     Only callable on jobs with status 'pending'.
 
     Args:
@@ -306,7 +343,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        PreviewResponse | RasterPreviewResponse | TilesetPreviewResponse | ProblemDetail
+        PointCloudPreviewResponse | PreviewResponse | RasterPreviewResponse | TilesetPreviewResponse | ProblemDetail
     """
 
     return (

@@ -59,6 +59,7 @@ COG = "processing/raster/cog.py"
 QUICKLOOK = "processing/raster/quicklook.py"
 VRT = "processing/raster/vrt.py"
 COG_INFO = "modules/catalog/sources/cog_info.py"
+POINTCLOUD = "processing/ingest/pointcloud.py"
 _CHILD = "runs only in the probe child"
 _WKT_HELPER = "a core.geo WKT helper; only these sites may reach it"
 
@@ -97,6 +98,7 @@ RASTERIO_SITES: dict[tuple[str, str], tuple[int, str]] = {
         "from_epsg on a validated integer code, which reads only the PROJ database",
     ),
     (COG_INFO, "_georeferencing"): (3, "from_epsg on a code, the pinned CRS84 parse"),
+    (POINTCLOUD, "_crs_facts"): (4, "from_epsg on its own tokenizer's code"),
     (PROBE, "_crs_same"): (4, _CHILD),
     (PROBE, "_category"): (8, _CHILD),
     (COG, "extract_raster_metadata"): (2, _CHILD),
@@ -122,6 +124,12 @@ RASTERIO_NAMES: dict[tuple[str, str], dict[str, int]] = {
         "rasterio.crs": 1,
         _FROM_EPSG: 1,
         f"{_CRS_CLASS}.from_user_input": 1,
+    },
+    (POINTCLOUD, "_crs_facts"): {
+        "rasterio.coords": 1,
+        "rasterio.coords.BoundingBox": 1,
+        "rasterio.crs": 1,
+        _FROM_EPSG: 1,
     },
     (COG, "_wgs84_bbox"): {
         "rasterio.warp": 1,
@@ -164,6 +172,7 @@ WGS84_BBOX = (COG, "_wgs84_bbox")
 # (module under app/, enclosing function) -> (references, why its CRS isn't text)
 WGS84_BBOX_CALLERS: dict[tuple[str, str], tuple[int, str]] = {
     (COG, "extract_raster_metadata"): (1, _CHILD),
+    (POINTCLOUD, "_crs_facts"): (1, "a CRS built by from_epsg"),
 }
 
 

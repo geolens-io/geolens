@@ -468,6 +468,7 @@ class TestIdenticalReplacementKeepsTheLiveAsset:
                 "already_published="
             ), rel
         assert found == {
+            "processing/ingest/tasks_pointcloud.py",
             "processing/ingest/tasks_raster.py",
             "processing/ingest/tasks_raster_replace.py",
             "processing/ingest/tasks_tileset.py",
@@ -749,6 +750,12 @@ PUT_SITES_WITH_ANOTHER_OWNER: dict[tuple[str, str], tuple[int, str]] = {
         1,
         "tiles3d/{dataset_id}/{attempt_id}/: ingest_tileset records that prefix "
         "on the job row before calling it, and the job sweep reaps it",
+    ),
+    ("processing/ingest/tasks_pointcloud.py", "store_pointcloud"): (
+        1,
+        "pointclouds/{dataset_id}/{attempt_id}/data.copc.laz: ingest_pointcloud "
+        "records that key on the job row before calling it, and the job sweep "
+        "reaps it",
     ),
 }
 

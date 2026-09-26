@@ -123,7 +123,8 @@ def sync_detailed(
 
     Stores user metadata on the job and queues the ingest task.
     Only callable on jobs with status 'pending'. A 3D Tiles tileset's unpacked
-    size is checked against the storage quota again here.
+    size and a point cloud's size are checked against the storage quota again
+    here.
 
     Args:
         job_id (UUID):
@@ -178,7 +179,8 @@ def sync(
 
     Stores user metadata on the job and queues the ingest task.
     Only callable on jobs with status 'pending'. A 3D Tiles tileset's unpacked
-    size is checked against the storage quota again here.
+    size and a point cloud's size are checked against the storage quota again
+    here.
 
     Args:
         job_id (UUID):
@@ -228,7 +230,8 @@ async def asyncio_detailed(
 
     Stores user metadata on the job and queues the ingest task.
     Only callable on jobs with status 'pending'. A 3D Tiles tileset's unpacked
-    size is checked against the storage quota again here.
+    size and a point cloud's size are checked against the storage quota again
+    here.
 
     Args:
         job_id (UUID):
@@ -281,7 +284,8 @@ async def asyncio(
 
     Stores user metadata on the job and queues the ingest task.
     Only callable on jobs with status 'pending'. A 3D Tiles tileset's unpacked
-    size is checked against the storage quota again here.
+    size and a point cloud's size are checked against the storage quota again
+    here.
 
     Args:
         job_id (UUID):
