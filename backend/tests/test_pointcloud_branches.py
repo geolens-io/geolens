@@ -229,7 +229,9 @@ async def test_every_reupload_door_refuses_a_point_cloud(
     resp = await client.post(path, headers=admin_auth_header, **body)
 
     assert resp.status_code == 400, resp.text
-    assert "Point cloud datasets do not support reupload" in resp.json()["detail"]
+    detail = resp.json()["detail"]
+    assert detail["code"] == "pointcloud_reupload_unsupported"
+    assert detail["message"].startswith("Point cloud datasets do not support reupload")
 
 
 def _dataset_of(record_type: str) -> SimpleNamespace:
@@ -237,22 +239,35 @@ def _dataset_of(record_type: str) -> SimpleNamespace:
 
 
 @pytest.mark.parametrize(
-    ("record_type", "detail"),
+    ("record_type", "code", "message"),
     [
-        ("tiles3d_dataset", "3D Tiles datasets do not support reupload"),
-        ("pointcloud_dataset", "Point cloud datasets do not support reupload"),
-        ("hologram_dataset", "Datasets of this type do not support reupload"),
+        (
+            "tiles3d_dataset",
+            "tileset_reupload_unsupported",
+            "3D Tiles datasets do not support reupload",
+        ),
+        (
+            "pointcloud_dataset",
+            "pointcloud_reupload_unsupported",
+            "Point cloud datasets do not support reupload",
+        ),
+        (
+            "hologram_dataset",
+            "reupload_unsupported",
+            "Datasets of this type do not support reupload",
+        ),
     ],
 )
 def test_reupload_refuses_every_type_without_a_table_or_raster(
-    record_type: str, detail: str
+    record_type: str, code: str, message: str
 ) -> None:
-    """A tileset keeps its refusal; a point cloud and an unknown type are refused too."""
+    """A tileset keeps its refusal text; a point cloud and an unknown type are refused too."""
     with pytest.raises(HTTPException) as refused:
         _assert_compatible_record_type(_dataset_of(record_type), "data.zip")
 
     assert refused.value.status_code == 400
-    assert refused.value.detail.startswith(detail)
+    assert refused.value.detail["code"] == code
+    assert refused.value.detail["message"].startswith(message)
 
 
 @pytest.mark.parametrize("record_type", ["vector_dataset", "table", "raster_dataset"])

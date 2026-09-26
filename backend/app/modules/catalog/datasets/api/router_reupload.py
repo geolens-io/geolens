@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.failure_reason import redact_failure_reason
 from app.core.geo import unknown_srid_refusal
 from app.core.upload_errors import (
+    CodedRefusal,
     IngestCeilingError,
     UnsafeUploadError,
     geometry_loss_refusal,
@@ -105,18 +106,21 @@ _RASTER_EXTENSIONS: frozenset[str] = frozenset({".tif", ".tiff"})
 
 # Refusals for record types stored as files; any other such type gets the last.
 _NO_REUPLOAD = {
-    "tiles3d_dataset": (
+    "tiles3d_dataset": CodedRefusal(
         "3D Tiles datasets do not support reupload. "
-        "Upload the new tileset as a new dataset instead."
+        "Upload the new tileset as a new dataset instead.",
+        code="tileset_reupload_unsupported",
     ),
-    "pointcloud_dataset": (
+    "pointcloud_dataset": CodedRefusal(
         "Point cloud datasets do not support reupload. "
-        "Upload the new point cloud as a new dataset instead."
+        "Upload the new point cloud as a new dataset instead.",
+        code="pointcloud_reupload_unsupported",
     ),
 }
-_NO_REUPLOAD_DEFAULT = (
+_NO_REUPLOAD_DEFAULT = CodedRefusal(
     "Datasets of this type do not support reupload. "
-    "Upload the new data as a new dataset instead."
+    "Upload the new data as a new dataset instead.",
+    code="reupload_unsupported",
 )
 
 
@@ -286,7 +290,7 @@ def _assert_compatible_record_type(
     if not is_table_or_raster_backed(record_type):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=_NO_REUPLOAD.get(record_type, _NO_REUPLOAD_DEFAULT),
+            detail=refusal_detail(_NO_REUPLOAD.get(record_type, _NO_REUPLOAD_DEFAULT)),
         )
 
     if ext == TILESET_ARCHIVE_SUFFIX:
