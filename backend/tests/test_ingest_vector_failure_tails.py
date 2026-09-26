@@ -114,6 +114,109 @@ class TestValidationExitKeepsTheLocalOriginal:
             await _drop_job(test_db_session, job_id)
 
 
+class TestAnUnarchivedOriginalKeepsItsUpload:
+    """A completed import deletes its upload only once the original is archived."""
+
+    @staticmethod
+    async def _fake_ogr2ogr(file_path, table_name, db_conn_str, *, schema, **kwargs):
+        """Loads the one point ``_GEOJSON`` holds, as ogr2ogr would."""
+        from sqlalchemy import text
+
+        from app.core.db import async_session
+
+        async with async_session() as session:
+            await session.execute(
+                text(
+                    f'CREATE TABLE "{schema}"."{table_name}" '
+                    "(gid serial PRIMARY KEY, name text, geom geometry(Point, 4326))"
+                )
+            )
+            await session.execute(
+                text(
+                    f'INSERT INTO "{schema}"."{table_name}" (name, geom) '
+                    "VALUES ('a', ST_SetSRID(ST_Point(1, 2), 4326))"
+                )
+            )
+            await session.commit()
+
+    async def _import(self, session, tmp_path, *, archived: bool, staged_key=None):
+        """Run the import on ``points.geojson``, staged in place or, with
+        ``staged_key``, in object storage and downloaded to that file."""
+        source = tmp_path / "points.geojson"
+        source.write_bytes(_GEOJSON)
+        file_path = staged_key or str(source)
+        admin_id = await _admin_id(session)
+        job = await _queue_upload(session, file_path=file_path, user_id=admin_id)
+        job_id, attempt_id = job.id, job.attempt_id
+        storage = AsyncMock()
+        if not archived:
+            storage.put.side_effect = RuntimeError("S3 unreachable")
+        ogrinfo = {
+            "srid": 4326,
+            "geometry_type": "Point",
+            "columns": [{"name": "name", "type": "String"}],
+        }
+        with (
+            patch(
+                "app.processing.ingest.service.resolve_file_path",
+                AsyncMock(return_value=str(source)),
+            ),
+            patch(
+                "app.processing.ingest.ogr.run_ogrinfo",
+                AsyncMock(return_value=ogrinfo),
+            ),
+            patch("app.processing.ingest.ogr.run_ogr2ogr", new=self._fake_ogr2ogr),
+            patch("app.processing.ingest.metadata.grant_reader_access", AsyncMock()),
+            patch(
+                "app.processing.ingest.tasks_common.invalidate_catalog_cache",
+                AsyncMock(),
+            ),
+            patch("app.processing.ingest.tasks_common.defer_embedding", AsyncMock()),
+            patch("app.processing.ingest.tasks_common.get_storage", lambda: storage),
+            patch("app.processing.ingest.tasks_staging.get_storage", lambda: storage),
+            patch("app.platform.storage.get_storage", lambda: storage),
+        ):
+            await ingest_file.func(
+                job_id=str(job_id),
+                file_path=file_path,
+                user_id=str(admin_id),
+                attempt_id=str(attempt_id),
+            )
+        session.expire_all()
+        finished = await session.get(IngestJob, job_id)
+        assert finished.status == "complete", finished.error_message
+        flagged = bool((finished.user_metadata or {}).get("archive_failed"))
+        assert flagged is not archived
+        return job_id, storage, source
+
+    @pytest.mark.parametrize("archived", [True, False], ids=["archived", "unarchived"])
+    async def test_a_local_upload_goes_only_once_its_original_is_archived(
+        self, test_db_session, tmp_path, archived
+    ) -> None:
+        job_id, _storage, source = await self._import(
+            test_db_session, tmp_path, archived=archived
+        )
+        try:
+            assert source.exists() is not archived
+        finally:
+            await _drop_job(test_db_session, job_id)
+
+    @pytest.mark.parametrize("archived", [True, False], ids=["archived", "unarchived"])
+    async def test_a_presigned_upload_goes_only_once_its_original_is_archived(
+        self, test_db_session, tmp_path, archived
+    ) -> None:
+        frozen_key = f"staging/{uuid.uuid4()}/frozen/points.geojson"
+        job_id, storage, source = await self._import(
+            test_db_session, tmp_path, archived=archived, staged_key=frozen_key
+        )
+        try:
+            deleted = [call.args[0] for call in storage.delete.await_args_list]
+            assert (frozen_key in deleted) is archived
+            assert not source.exists()
+        finally:
+            await _drop_job(test_db_session, job_id)
+
+
 class TestVectorFailureEmitsTheOperatorNotification:
     """The terminal failure write goes through the shared helper.
 
