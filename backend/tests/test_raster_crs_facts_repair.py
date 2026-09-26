@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import inspect
 import json
 import sys
+import threading
 import time
 import uuid
 from types import SimpleNamespace
@@ -14,7 +17,10 @@ import pytest
 import rasterio.crs
 import sqlalchemy as sa
 import structlog
+from procrastinate import testing
 from procrastinate.exceptions import AlreadyEnqueued
+from procrastinate.jobs import Status
+from sqlalchemy import event
 
 from app.core.geo import wkt_crs_facts
 from app.processing.ingest import tasks_crs_facts
@@ -84,6 +90,27 @@ async def _delete(ids: list[uuid.UUID]) -> None:
     await fresh_query(
         "DELETE FROM catalog.raster_assets WHERE id = ANY(:ids)", {"ids": ids}
     )
+
+
+def _digest(crs_wkt: str) -> str:
+    return hashlib.sha256(crs_wkt.encode("utf-8")).hexdigest()
+
+
+def _strings(value) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        value = list(value.values())
+    if isinstance(value, (list, tuple)):
+        return [text for item in value for text in _strings(item)]
+    return []
+
+
+def _batch_fails(wkts, timeout=None):
+    """Answers the control and fails every batch."""
+    if wkts == [tasks_crs_facts._CONTROL_WKT]:
+        return [tasks_crs_facts._CONTROL_FACTS]
+    raise probe.RasterProbeError("timeout", timeout=30)
 
 
 async def _repair(**bounds):
@@ -274,6 +301,87 @@ class TestRepairJob:
         finally:
             await _delete([asset_id])
 
+    async def test_a_failed_text_backs_off_before_the_run_goes_on(
+        self, test_db_session, clock, monkeypatch
+    ):
+        ids = [await _seed(test_db_session, wkt) for wkt in (_WGS84, _FEET, _GRADS)]
+        asked = []
+
+        def _one(wkt, timeout=None):
+            asked.append(wkt)
+            if len(asked) == 1:
+                raise probe.RasterProbeError("internal", timeout=30)
+            raise RuntimeError("the run ends before the batch returns")
+
+        monkeypatch.setattr(probe, "crs_facts_many", _batch_fails)
+        monkeypatch.setattr(probe, "crs_facts", _one)
+        try:
+            with pytest.raises(RuntimeError):
+                await _repair()
+
+            assert set(tasks_crs_facts._backoff) == {_digest(asked[0])}
+        finally:
+            await _delete(ids)
+
+    async def test_a_run_out_of_time_backs_off_only_the_text_it_asked(
+        self, test_db_session, clock, monkeypatch
+    ):
+        ids = [await _seed(test_db_session, wkt) for wkt in (_WGS84, _FEET, _GRADS)]
+        asked = []
+
+        def _one(wkt, timeout=None):
+            asked.append(wkt)
+            clock.value += 3600
+            raise probe.RasterProbeError("internal", timeout=30)
+
+        monkeypatch.setattr(probe, "crs_facts_many", _batch_fails)
+        monkeypatch.setattr(probe, "crs_facts", _one)
+        try:
+            await _repair(run_seconds=60)
+
+            assert len(asked) == 1
+            assert tasks_crs_facts._backoff.keys() == {_digest(asked[0])}
+            assert tasks_crs_facts._backoff[_digest(asked[0])][0] == 1
+        finally:
+            await _delete(ids)
+
+    async def test_a_text_is_keyed_by_the_sha256_of_its_utf8(
+        self, test_db_session, child, clock
+    ):
+        # Non-ASCII, and a backslash that a text-to-bytea cast would misread.
+        wkt = _GRADS.replace('"NTF (Paris)"', '"NTF (Paris) é \\ 中"', 1)
+        asset_id = await _seed(test_db_session, wkt)
+        child.failing.add(wkt)
+        try:
+            await _repair()
+            assert _digest(wkt) in tasks_crs_facts._backoff
+
+            child.failing.clear()
+            clock.value += tasks_crs_facts.FIRST_BACKOFF_SECONDS + 1
+            await _repair()
+
+            assert (await _stored([asset_id]))[asset_id] == _expected(wkt)
+        finally:
+            await _delete([asset_id])
+
+    async def test_no_statement_binds_a_crs_text(self, test_db_session, child):
+        ids = [await _seed(test_db_session, wkt) for wkt in (_WGS84, _FEET, _GRADS)]
+        bound = []
+
+        def _record(conn, cursor, statement, parameters, context, executemany):
+            bound.extend(_strings(parameters))
+
+        event.listen(sa.engine.Engine, "before_cursor_execute", _record)
+        try:
+            await _repair()
+        finally:
+            event.remove(sa.engine.Engine, "before_cursor_execute", _record)
+            await _delete(ids)
+
+        # The fill binds the text's digest, so the listener saw the run's writes.
+        assert _digest(_FEET) in bound
+        assert [value for value in bound if "CS[" in value] == []
+
     async def test_a_run_stops_at_its_text_bound(self, test_db_session, child):
         await _repair()
         ids = [await _seed(test_db_session, wkt) for wkt in (_WGS84, _FEET)]
@@ -355,6 +463,54 @@ class TestRunBudget:
             assert list(tasks_crs_facts._backoff.values())[0][0] == 1
         finally:
             await _delete([stalls, answers])
+
+
+class TestOneRunAtATime:
+    async def test_a_second_worker_does_not_probe_while_a_run_is_going(
+        self, test_db_session, clock, monkeypatch
+    ):
+        asset_id = await _seed(test_db_session, _FEET)
+        probing = threading.Event()
+        release = threading.Event()
+        asked = []
+
+        def _many(wkts, timeout=None):
+            asked.append(wkts)
+            if len(asked) == 1:
+                probing.set()
+                release.wait(10)
+            return [wkt_crs_facts(wkt) for wkt in wkts]
+
+        monkeypatch.setattr(probe, "crs_facts_many", _many)
+        manager = task_app.job_manager
+
+        async def run_next(worker_id: int) -> bool:
+            job = await manager.fetch_job(queues=["raster"], worker_id=worker_id)
+            if job is None:
+                return False
+            await task_app.tasks[job.task_name](**job.task_kwargs)
+            await manager.finish_job(job, status=Status.SUCCEEDED, delete_job=False)
+            return True
+
+        try:
+            with task_app.replace_connector(testing.InMemoryConnector()):
+                async with task_app.open_async():
+                    first, second = [await manager.register_worker() for _ in "ab"]
+                    await tasks_crs_facts.repair_crs_facts.defer_async()
+                    running = asyncio.create_task(run_next(first))
+                    try:
+                        await asyncio.to_thread(probing.wait, 10)
+                        # The next tick's run, queued while the first is probing.
+                        await tasks_crs_facts.repair_crs_facts.defer_async()
+
+                        assert await run_next(second) is False
+                        assert len(asked) == 1
+                    finally:
+                        release.set()
+                        assert await running is True
+                    assert await run_next(second) is True
+        finally:
+            await _delete([asset_id])
 
 
 class TestScheduling:
