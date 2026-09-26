@@ -2,6 +2,7 @@
 
 import asyncio
 import uuid
+from unittest.mock import patch
 
 import boto3
 import pytest
@@ -1100,6 +1101,27 @@ async def test_visibility_changes_apply_on_the_next_read(
 
     assert hidden.status_code == 404
     assert shown.status_code == 200
+
+
+async def test_a_deleted_point_cloud_is_404_on_the_next_read(
+    client: AsyncClient, admin_auth_header: dict, make_pointcloud, storage
+) -> None:
+    """Right after its dataset is deleted, the file's URL answers 404."""
+    dataset_id, attempt = await _published(make_pointcloud, storage)
+    url = _url(dataset_id, attempt)
+    assert (await client.get(url)).status_code == 200
+    detail = await client.get(f"/datasets/{dataset_id}", headers=admin_auth_header)
+
+    with patch("app.platform.storage.provider.get_storage", return_value=storage.inner):
+        deleted = await client.request(
+            "DELETE",
+            f"/datasets/{dataset_id}",
+            json={"confirm_title": detail.json()["title"]},
+            headers=admin_auth_header,
+        )
+    assert deleted.status_code == 204, deleted.text
+
+    assert (await client.get(url)).status_code == 404
 
 
 async def test_a_replaced_file_stops_serving_at_once(
