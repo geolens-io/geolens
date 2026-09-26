@@ -37,6 +37,7 @@ from app.modules.auth.dependencies import (
 from app.modules.catalog.authorization import (
     apply_visibility_filter,
     can_download_raster_cog,
+    can_export,
     get_user_roles,
     visible_lineage_summaries,
     visible_lineage_summary,
@@ -266,6 +267,7 @@ async def _dataset_to_stac_item(
     user: Identity | None = None,
     user_roles: set[str] | None = None,
     lineage_summary: Any = _LINEAGE_UNRESOLVED,
+    may_export: bool | None = None,
 ) -> dict:
     """Convert a Dataset ORM object to a STAC Item dict with presigned URLs.
 
@@ -313,7 +315,9 @@ async def _dataset_to_stac_item(
         storage_backend=settings.storage_provider,
         storage_provider=storage,
         public_app_url=public_app_url,
-        cog_download=await can_download_raster_cog(db, dataset, user, user_roles),
+        cog_download=await can_download_raster_cog(
+            db, dataset, user, user_roles, may_export=may_export
+        ),
     )
 
     # Look up collection membership if not provided
@@ -1078,6 +1082,9 @@ async def get_collection_items(
     lineage_map = await visible_lineage_summaries(
         db, [d.record for d in datasets], user, user_roles or set()
     )
+    may_export = any(
+        d.record.record_type == "raster_dataset" for d in datasets
+    ) and await can_export(db, user, user_roles)
 
     features = []
     coll_id_str = str(collection_id)
@@ -1096,6 +1103,7 @@ async def get_collection_items(
             user=user,
             user_roles=user_roles,
             lineage_summary=lineage_map[dataset.record.id],
+            may_export=may_export,
         )
         features.append(item)
 
@@ -1570,6 +1578,9 @@ async def _execute_search(
     lineage_map = await visible_lineage_summaries(
         db, [d.record for d in datasets], user, user_roles or set()
     )
+    may_export = any(
+        d.record.record_type == "raster_dataset" for d in datasets
+    ) and await can_export(db, user, user_roles)
 
     features = []
     for dataset in datasets:
@@ -1588,6 +1599,7 @@ async def _execute_search(
             user=user,
             user_roles=user_roles,
             lineage_summary=lineage_map[dataset.record.id],
+            may_export=may_export,
         )
         features.append(item)
 
