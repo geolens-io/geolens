@@ -715,7 +715,7 @@
     "makePublicConfirmTitle": "Make this map public?",
     "makePublicBlockedTitle": "This map can't be public yet",
     "makePublicConfirmDescription": "Anyone with the link will be able to view this map.",
-    "makePublicBlockedDescription": "This map can't be public until these datasets are public: {{datasets}}.",
+    "makePublicBlockedDescription": "This map uses datasets that aren't public: {{datasets}}. Remove those layers and save the map, or make the datasets public if everyone should see them.",
     "makePublicCheckFailed": "Couldn't check whether this map can be public.",
     "makePublicCheckRetry": "Retry",
     "makePublicConfirmAction": "Make public",

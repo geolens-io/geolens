@@ -715,7 +715,7 @@
     "makePublicConfirmTitle": "Diese Karte öffentlich machen?",
     "makePublicBlockedTitle": "Diese Karte kann noch nicht öffentlich sein",
     "makePublicConfirmDescription": "Jeder mit dem Link kann diese Karte ansehen.",
-    "makePublicBlockedDescription": "Diese Karte kann erst öffentlich sein, wenn diese Datensätze öffentlich sind: {{datasets}}.",
+    "makePublicBlockedDescription": "Diese Karte verwendet Datensätze, die nicht öffentlich sind: {{datasets}}. Entfernen Sie diese Layer und speichern Sie die Karte, oder machen Sie die Datensätze öffentlich, wenn sie für alle sichtbar sein sollen.",
     "makePublicCheckFailed": "Es konnte nicht geprüft werden, ob diese Karte öffentlich sein kann.",
     "makePublicCheckRetry": "Erneut versuchen",
     "makePublicConfirmAction": "Öffentlich machen",
