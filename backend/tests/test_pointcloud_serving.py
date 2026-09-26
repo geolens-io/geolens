@@ -7,7 +7,7 @@ from unittest.mock import patch
 import boto3
 import pytest
 from cachetools import TTLCache
-from httpx import AsyncClient
+from httpx import ASGITransport, AsyncClient
 from moto import mock_aws
 from sqlalchemy import select, text
 from starlette.requests import Request
@@ -988,6 +988,29 @@ async def test_each_caller_and_credential_writes_its_own_audit_row(
             ("None", "anonymous"),
         ]
     )
+
+
+async def test_each_client_address_writes_its_own_audit_row(
+    client: AsyncClient, test_db_session, make_pointcloud, storage
+) -> None:
+    """Anonymous readers at two addresses in one window each get a row carrying their own address."""
+    from app.api.main import app
+
+    dataset_id, attempt = await _published(make_pointcloud, storage)
+    url = _url(dataset_id, attempt)
+    elsewhere = ASGITransport(app=app, client=("203.0.113.9", 4321))
+
+    async with AsyncClient(transport=elsewhere, base_url="http://test") as other:
+        for reader in (client, other, client, other):
+            assert (await reader.get(url)).status_code == 200
+
+    addresses = await test_db_session.execute(
+        select(AuditLog.ip_address).where(
+            AuditLog.action == "dataset.pointcloud_read",
+            AuditLog.resource_id == dataset_id,
+        )
+    )
+    assert sorted(addresses.scalars()) == ["127.0.0.1", "203.0.113.9"]
 
 
 async def test_a_key_revoked_beside_a_token_audits_the_token_user(
