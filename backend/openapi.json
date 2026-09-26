@@ -12259,8 +12259,15 @@
             "type": "string"
           },
           "type": {
-            "title": "Type",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type"
           },
           "title": {
             "anyOf": [
@@ -12289,8 +12296,7 @@
           }
         },
         "required": [
-          "href",
-          "type"
+          "href"
         ],
         "title": "OGCAsset",
         "type": "object"

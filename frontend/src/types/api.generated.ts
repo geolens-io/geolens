@@ -10724,7 +10724,7 @@ export interface components {
             /** Href */
             href: string;
             /** Type */
-            type: string;
+            type?: string | null;
             /** Title */
             title?: string | null;
             /** Roles */
