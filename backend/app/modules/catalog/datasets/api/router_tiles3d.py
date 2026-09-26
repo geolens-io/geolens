@@ -5,8 +5,8 @@ from __future__ import annotations
 import posixpath
 import re
 import uuid
-from collections.abc import AsyncIterator
-from contextlib import aclosing
+from collections.abc import AsyncIterator, Iterator
+from contextlib import aclosing, contextmanager
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -87,6 +87,20 @@ def _relative_key(path: str) -> str | None:
     return path
 
 
+@contextmanager
+def _storage_errors(dataset_id: uuid.UUID) -> Iterator[None]:
+    """Answer a missing file 404 and any other storage failure 502, neither naming the key."""
+    try:
+        yield
+    except (FileNotFoundError, IsADirectoryError):
+        raise _not_found() from None
+    except Exception:  # broad: each storage backend raises its own errors, and none may reach the client
+        logger.exception("tileset_storage_read_failed", dataset_id=str(dataset_id))
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail="Storage unavailable"
+        ) from None
+
+
 async def _chained(first: bytes, rest: AsyncIterator[bytes]) -> AsyncIterator[bytes]:
     # Closing this generator on a client disconnect closes the storage stream too.
     async with aclosing(rest):
@@ -127,10 +141,11 @@ async def get_tileset_file(
     ``Resource`` query parameters. A browser client on another origin also
     needs that origin on the deployment's CORS allowlist
     (``CORS_ALLOWED_ORIGINS``). Every file carries the published tileset's
-    ETag and asks the client to revalidate before each reuse: after the access
-    check, an ``If-None-Match`` naming the current version answers 304 and an
-    ``If-Match`` naming another answers 412. A private or missing tileset and
-    a missing file all answer 404, and a storage failure answers 502.
+    ETag and asks the client to revalidate before each reuse. Once the caller
+    has access and the file exists, an ``If-None-Match`` naming the current
+    version answers 304 and an ``If-Match`` naming another answers 412. A
+    private or missing tileset and a missing file all answer 404, conditional
+    requests included, and a storage failure answers 502.
     """
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
@@ -156,24 +171,23 @@ async def get_tileset_file(
     # the rollback discards nothing.
     await db.rollback()
     etag = _etag(attempt)
-    not_modified = evaluate_preconditions(
-        request, etag, changed_detail="The tileset has changed since that version"
-    )
-    if not_modified is not None:
-        not_modified.headers["Cache-Control"] = _CACHE_CONTROL
-        return not_modified
-    stream = get_storage().get_stream(key)
-    try:
-        first = await anext(stream)
-    except (FileNotFoundError, IsADirectoryError):
-        raise _not_found() from None
-    except StopAsyncIteration:
-        first = b""
-    except Exception:  # broad: each storage backend raises its own errors, and none may reach the client
-        logger.exception("tileset_storage_read_failed", dataset_id=str(dataset_id))
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY, detail="Storage unavailable"
-        ) from None
+    storage = get_storage()
+    if "if-none-match" in request.headers or "if-match" in request.headers:
+        # The ETag names the attempt, not this file, so the file is opened first
+        # and a missing one answers as a plain read would. Local storage's
+        # exists() is true for a directory, which a read answers 404.
+        with _storage_errors(dataset_id):
+            async with aclosing(storage.get_range_stream(key, 0, 1)) as probe:
+                await anext(probe, b"")
+        not_modified = evaluate_preconditions(
+            request, etag, changed_detail="The tileset has changed since that version"
+        )
+        if not_modified is not None:
+            not_modified.headers["Cache-Control"] = _CACHE_CONTROL
+            return not_modified
+    stream = storage.get_stream(key)
+    with _storage_errors(dataset_id):
+        first = await anext(stream, b"")
 
     content_type = _CONTENT_TYPES.get(
         posixpath.splitext(relative)[1].lower(), _OCTET_STREAM

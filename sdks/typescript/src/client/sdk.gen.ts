@@ -2968,10 +2968,11 @@ export const setTargetStatusDatasetsDatasetIdTargetStatusPatch = <ThrowOnError e
  * ``Resource`` query parameters. A browser client on another origin also
  * needs that origin on the deployment's CORS allowlist
  * (``CORS_ALLOWED_ORIGINS``). Every file carries the published tileset's
- * ETag and asks the client to revalidate before each reuse: after the access
- * check, an ``If-None-Match`` naming the current version answers 304 and an
- * ``If-Match`` naming another answers 412. A private or missing tileset and
- * a missing file all answer 404, and a storage failure answers 502.
+ * ETag and asks the client to revalidate before each reuse. Once the caller
+ * has access and the file exists, an ``If-None-Match`` naming the current
+ * version answers 304 and an ``If-Match`` naming another answers 412. A
+ * private or missing tileset and a missing file all answer 404, conditional
+ * requests included, and a storage failure answers 502.
  */
 export const getTilesetFileDatasetsDatasetIdTiles3dPathGet = <ThrowOnError extends boolean = false>(options: Options<GetTilesetFileDatasetsDatasetIdTiles3dPathGetData, ThrowOnError>): RequestResult<GetTilesetFileDatasetsDatasetIdTiles3dPathGetResponses, GetTilesetFileDatasetsDatasetIdTiles3dPathGetErrors, ThrowOnError> => (options.client ?? client).get<GetTilesetFileDatasetsDatasetIdTiles3dPathGetResponses, GetTilesetFileDatasetsDatasetIdTiles3dPathGetErrors, ThrowOnError>({
     security: [
