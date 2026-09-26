@@ -4,6 +4,7 @@ import { MapViewerGate } from '../MapViewerGate';
 import { useAuthStore } from '@/stores/auth-store';
 import { useMapAccess } from '@/hooks/use-maps';
 import { useDocumentTitle } from '@/hooks/use-document-title';
+import { ApiError } from '@/api/client';
 import type { UserResponse } from '@/types/api';
 
 // Mimics the real MapBuilderPage: it owns a more specific title once it
@@ -174,6 +175,87 @@ describe('MapViewerGate', () => {
     renderRoute('/maps/map-1?preview=viewer');
 
     expect(await screen.findByTestId('public-map-page')).toBeInTheDocument();
+  });
+
+  it('shows the not-found state instead of the retry prompt when the access check 404s', () => {
+    mockedUseMapAccess.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      error: new ApiError('Not Found', 404),
+    } as never);
+    useAuthStore.setState({
+      token: 'token',
+      refreshToken: 'refresh',
+      expiresAt: Date.now() + 900_000,
+      user: mockUser({ roles: ['editor'] }),
+    });
+
+    renderRoute();
+
+    expect(screen.getByRole('heading', { name: /map not found/i })).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('builder-page')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('public-map-page')).not.toBeInTheDocument();
+  });
+
+  // React Query keeps a query's previous data across a failed refetch: a user
+  // who had can_edit: true cached from before a map was deleted or hidden
+  // still has isError: true alongside that stale data. The not-found state
+  // must win regardless, or the deleted map's builder renders anyway.
+  it('shows the not-found state, not the builder, when a refetch 404s but can_edit: true is still cached', async () => {
+    mockedUseMapAccess.mockReturnValue({
+      data: { can_view: true, can_edit: true },
+      isLoading: false,
+      isError: false,
+      error: null,
+    } as never);
+    useAuthStore.setState({
+      token: 'token',
+      refreshToken: 'refresh',
+      expiresAt: Date.now() + 900_000,
+      user: mockUser({ roles: ['editor'] }),
+    });
+
+    const { rerender } = renderRoute();
+    expect(await screen.findByTestId('builder-page')).toBeInTheDocument();
+
+    mockedUseMapAccess.mockReturnValue({
+      data: { can_view: true, can_edit: true },
+      isLoading: false,
+      isError: true,
+      error: new ApiError('Not Found', 404),
+    } as never);
+    rerender(
+      <Routes>
+        <Route path="/maps/:id" element={<MapViewerGate />} />
+      </Routes>,
+    );
+
+    expect(screen.getByRole('heading', { name: /map not found/i })).toBeInTheDocument();
+    expect(screen.queryByTestId('builder-page')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('keeps the retry prompt when the access check fails with a 500', () => {
+    mockedUseMapAccess.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      error: new ApiError('Internal Server Error', 500),
+    } as never);
+    useAuthStore.setState({
+      token: 'token',
+      refreshToken: 'refresh',
+      expiresAt: Date.now() + 900_000,
+      user: mockUser({ roles: ['editor'] }),
+    });
+
+    renderRoute();
+
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+    expect(screen.queryByTestId('public-map-page')).not.toBeInTheDocument();
   });
 
   describe('optimistic builder-chunk warmup (#1778)', () => {

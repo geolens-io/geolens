@@ -4,6 +4,8 @@ import { useAuthStore } from '@/stores/auth-store';
 import { LoadingState } from '@/components/layout/LoadingState';
 import { ErrorState } from '@/components/layout/ErrorState';
 import { AppErrorBoundary } from '@/components/error';
+import { ApiError } from '@/api/client';
+import { MapUnavailableState } from '@/components/map/MapUnavailableState';
 import { useMapAccess } from '@/hooks/use-maps';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { useTranslation } from 'react-i18next';
@@ -88,9 +90,15 @@ export function MapViewerGate() {
     return <LoadingState />;
   }
 
-  // fix(#438): UX-14 — a failed access check used to fall through to
-  // `data?.can_edit === true` → false, silently downgrading an editor to the
-  // read-only viewer. Surface the failure with a retry instead of guessing.
+  // A failed check offers a retry so an editor is never silently downgraded.
+  // A 404 is final for a missing or hidden map, and it has to win over the
+  // last good access data React Query keeps across a failed refetch.
+  const isAccessCheckNotFound =
+    accessQuery.error instanceof ApiError && accessQuery.error.status === 404;
+  if (shouldCheckAccess && accessQuery.isError && isAccessCheckNotFound) {
+    return <MapUnavailableState error={accessQuery.error} mapId={id} />;
+  }
+
   if (shouldCheckAccess && accessQuery.isError) {
     return (
       <div className="flex flex-1 items-center justify-center p-6">
