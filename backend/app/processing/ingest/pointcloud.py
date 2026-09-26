@@ -30,7 +30,7 @@ from collections.abc import Sequence
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, BinaryIO, Callable, NamedTuple
+from typing import TYPE_CHECKING, BinaryIO, Callable, NamedTuple, TypeVar
 
 import structlog
 
@@ -66,6 +66,9 @@ DECODE_SECONDS_PER_MB = 1
 # The doors' deadline for the chunk table and the top node. The largest node
 # decodes in about a second, and the proxies in front of the API allow 100 s.
 TOP_NODE_DECODE_SECONDS = 30
+# Decode children one process runs at once: a child decoding the largest node
+# the caps allow peaks near 300 MB.
+MAX_DECODE_CHILDREN = 2
 MAX_WKT_BYTES = 64 * 1024
 # lazrs builds four 256-symbol models, about 9.6 KB, per extra byte before it
 # reads a point, so the extra bytes a record may carry are bounded too.
@@ -129,6 +132,7 @@ _DECODE_FAILED = "The point cloud's points don't decode as its header describes.
 _CHUNK_TABLE = "The file's LAZ chunk table doesn't match its octree."
 
 Read = Callable[[int, int], bytes]
+_T = TypeVar("_T")
 
 
 @dataclass(frozen=True)
@@ -895,12 +899,31 @@ def inspect_pointcloud(path: str) -> PointCloud:
     return _publishable(_inspect(path, every=False)[0])
 
 
+_decode_slots: tuple[asyncio.AbstractEventLoop, asyncio.Semaphore] | None = None
+
+
+async def _in_decode_slot(
+    func: Callable[..., _T], /, *args: object, **kwargs: object
+) -> _T:
+    """``asyncio.to_thread(func, ...)`` once one of this process's decode slots is free.
+
+    The wait is on the event loop, so a queued decode holds no executor thread.
+    """
+    global _decode_slots
+    loop = asyncio.get_running_loop()
+    if _decode_slots is None or _decode_slots[0] is not loop:
+        # A semaphore belongs to the loop that first waits on it.
+        _decode_slots = (loop, asyncio.Semaphore(MAX_DECODE_CHILDREN))
+    async with _decode_slots[1]:
+        return await asyncio.to_thread(func, *args, **kwargs)
+
+
 async def _at_a_door(func: Callable[[str], PointCloud], path: str) -> PointCloud:
-    """``func(path)`` in a thread, a decode the server stopped raising a retriable 503."""
+    """``func(path)`` in a decode slot, a decode the server stopped raising a retriable 503."""
     from fastapi import HTTPException, status
 
     try:
-        return await asyncio.to_thread(func, path)
+        return await _in_decode_slot(func, path)
     except PointCloudDecodeTimeout as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -914,7 +937,7 @@ async def inspect_every_node(path: str) -> PointCloud:
     One child decodes them all under the file's decode budget. The extent and
     the elevation range are the ones the decoded points cover, not the header's.
     """
-    cloud, layout, (low, high) = await asyncio.to_thread(_inspect, path, every=True)
+    cloud, layout, (low, high) = await _in_decode_slot(_inspect, path, every=True)
     # Some writers round a header's bounds outward, so the points set the extent.
     _, _, bbox = await asyncio.to_thread(
         _crs_facts, layout.wkt, low, high, (low[3], high[3], low[4], high[4])

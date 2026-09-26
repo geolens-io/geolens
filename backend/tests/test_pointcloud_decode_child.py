@@ -500,6 +500,37 @@ async def test_a_decoder_crash_refuses_the_presigned_upload(
     assert not await storage.exists(frozen)
 
 
+async def test_no_more_than_the_cap_of_children_decode_at_once(
+    monkeypatch, tmp_path
+) -> None:
+    """Decodes past the cap wait for a slot, on the event loop."""
+    path = _write(tmp_path, copc())
+    _decoder_with(monkeypatch, "time.sleep(0.5)")
+    running = peak = 0
+    lock = threading.Lock()
+    run = pointcloud_module.run_child
+
+    def _run(argv, **kwargs):
+        nonlocal running, peak
+        with lock:
+            running += 1
+            peak = max(peak, running)
+        try:
+            return run(argv, **kwargs)
+        finally:
+            with lock:
+                running -= 1
+
+    monkeypatch.setattr(pointcloud_module, "run_child", _run)
+    cap = pointcloud_module.MAX_DECODE_CHILDREN
+
+    await asyncio.gather(
+        *(staged_pointcloud_metadata(path, "pointcloud") for _ in range(cap + 1))
+    )
+
+    assert peak == cap
+
+
 def _slow_node(count: int) -> bytes:
     """A COPC whose one node holds ``count`` scattered points in one chunk."""
     rng = np.random.default_rng(7)
