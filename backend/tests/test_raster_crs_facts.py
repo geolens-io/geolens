@@ -179,14 +179,42 @@ class TestRowsTheRepairHasNotReached:
         assert token.json()["maxzoom"] == _DEFAULT_RASTER_MAXZOOM
         assert crs_parses == []
 
-    def test_stored_facts_win_over_the_epsg_code(self):
-        stored = {
-            "crs_is_geographic": False,
-            "crs_has_degree_unit": False,
-            "crs_metres_per_unit": 1.0,
-        }
+    @pytest.mark.parametrize(
+        "stored",
+        [(False, False, 1.0), (None, False, None), (True, None, None)],
+    )
+    def test_stored_facts_win_over_the_epsg_code(self, stored):
+        facts = dict(zip(_NAD83_FACTS, stored))
 
-        assert raster_crs_facts(SimpleNamespace(epsg=4326, **stored)) == stored
+        assert raster_crs_facts(SimpleNamespace(epsg=4326, **facts)) == facts
+
+    async def test_a_request_reads_stored_facts_over_a_mismatched_code(
+        self, client, admin_auth_header, test_db_session
+    ):
+        """The text's facts say projected; the lenient EPSG match says NAD83."""
+        dataset = await create_raster_dataset(
+            test_db_session,
+            created_by=await get_user_id(test_db_session, "admin"),
+            name=f"CRS facts {uuid.uuid4().hex[:10]}",
+            create_raster_asset=True,
+            raster_asset_kwargs={
+                "epsg": 4269,
+                **crs_columns(
+                    {"crs_wkt": _UTM_18N_WKT2, **wkt_crs_facts(_UTM_18N_WKT2)}
+                ),
+                "res_x": _RES,
+                "res_y": _RES,
+                "width": 21600,
+                "height": 10800,
+            },
+        )
+
+        detail = await client.get(f"/datasets/{dataset.id}", headers=admin_auth_header)
+        token = await client.get(f"/tiles/token/{dataset.id}/")
+
+        assert detail.json()["raster"]["crs_is_geographic"] is False
+        # Read as metres, as the stored facts say; the NAD83 degrees would give 7.
+        assert token.json()["maxzoom"] == 22
 
     def test_missing_facts_come_from_the_epsg_code(self):
         row = SimpleNamespace(epsg=4269, **dict.fromkeys(_NAD83_FACTS))

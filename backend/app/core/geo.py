@@ -709,8 +709,9 @@ def crs_facts_for_epsg(epsg: int) -> dict:
 def raster_crs_facts(raster: object) -> dict:
     """A raster row's stored CRS facts or, while none are stored, its EPSG code's.
 
-    The facts of a row stored before they existed stay NULL until the worker's
-    repair job fills them; its EPSG code answers for it meanwhile.
+    Stored facts always win. A row's facts stay NULL until the worker's repair
+    job fills them, and its EPSG code answers meanwhile; that code is PROJ's
+    lenient match for the text, so the job replaces these with the text's own.
     """
     stored = {column: getattr(raster, column, None) for column in CRS_FACT_COLUMNS}
     if any(value is not None for value in stored.values()):
