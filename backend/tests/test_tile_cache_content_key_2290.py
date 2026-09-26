@@ -470,10 +470,10 @@ async def test_an_unreached_version_re_reads_the_row_at_most_once_per_interval(
 async def test_concurrent_requests_for_an_unreached_version_share_each_read(
     test_db_session,
 ):
-    """Five requests share two reads.
+    """Five requests share one read.
 
-    The four that arrive after the first read began cannot be answered by it,
-    so they share the next interval's read.
+    They arrive inside the interval the priming read opened, and a read that
+    began before they arrived cannot answer them, so they share the next one.
     """
     table = (await _registered_dataset(test_db_session)).table_name
     try:
@@ -488,7 +488,7 @@ async def test_concurrent_requests_for_an_unreached_version_share_each_read(
             )
             elapsed = time.monotonic() - started
         assert [meta.tile_cache_version for meta in metas] == [1] * 5
-        assert len(reads) == 2
+        assert len(reads) == 1
         assert elapsed < tile_router._FORCED_REREAD_INTERVAL + 1.0
     finally:
         tile_router._evict_dataset_meta(table)
@@ -592,11 +592,14 @@ async def test_a_failed_re_read_fails_every_waiting_request_alike(test_db_sessio
 
 
 async def test_a_forced_re_read_checks_out_no_connection_of_its_own(
-    test_db_session,
+    test_db_session, monkeypatch
 ):
     """The claimant reads on the connection its request already holds."""
     import app.core.db as db_module
 
+    # Claimed at once: a request that first waited out the priming read's
+    # interval would have given its connection back.
+    monkeypatch.setattr(tile_router, "_FORCED_REREAD_INTERVAL", 0.0)
     dataset = await _registered_dataset(test_db_session)
     table = dataset.table_name
     checkouts: list[object] = []

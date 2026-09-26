@@ -1628,9 +1628,9 @@ _CLIENT_STATE_PARAM = "_v"
 
 # A caller chooses its own version param (`_v` for vector tiles, `v` for
 # raster), so one newer than the cached snapshot re-reads it at most once per
-# interval for each cache key. The request that claims the re-read runs it on
-# its own session, needing no connection beyond the one it already holds, and
-# requests arriving meanwhile wait on the future it publishes.
+# interval for each cache key. The request that claims a read, forced or not,
+# runs it on its own session, needing no connection beyond the one it already
+# holds, and requests arriving meanwhile wait on the future it publishes.
 _FORCED_REREAD_INTERVAL = 1.0  # seconds
 _forced_rereads: LRUCache[str, float] = LRUCache(maxsize=256)
 _rereads_in_flight: dict[str, asyncio.Future[_DatasetMeta | None]] = {}
@@ -1735,7 +1735,7 @@ async def _lead_reread(
     read: Callable[[], Awaitable[_Snapshot]],
     now: float,
 ) -> _Snapshot:
-    """Run a claimed re-read on the claimant's session and publish the result.
+    """Run a claimed read on the claimant's session and publish the result.
 
     A failed read hands every waiting request the same error. A cancelled one
     publishes ``None``, so a waiting request takes the read over instead of
@@ -1778,10 +1778,14 @@ async def _cached_snapshot(
     least as new, or else the result of a read that started after it arrived:
     a read already running, or one run earlier in the interval, is not enough
     on its own. Each key allows one such forced re-read per
-    ``_FORCED_REREAD_INTERVAL``, run by the request that claims it through its
-    own ``read``, so on its own session. The others ``release`` their
-    session's connection and wait, for the running read or for the next
-    interval's, taking the read over if its claimant is cancelled.
+    ``_FORCED_REREAD_INTERVAL``. A missing or expired entry is read without
+    waiting for the interval, and that read opens the interval as a forced
+    one does.
+
+    Each read is run by the request that claims it, through its own ``read``,
+    so on its own session. The others ``release`` their session's connection
+    and wait, for the running read or for the next interval's, taking the read
+    over if its claimant is cancelled, and then judge its result as above.
     """
     arrived = time.monotonic()
     taking_over = False
@@ -1791,17 +1795,18 @@ async def _cached_snapshot(
         cooldown = 0.0
         with snapshots.lock:
             cached = snapshots.entries.get(key)
-            if cached is None or now - cached[0] >= snapshots.ttl:
-                break
-            # An entry's timestamp is when the read behind it started.
-            read_at, snapshot = cached
-            if read_at > arrived or not names_newer(snapshot):
-                return snapshot
+            fresh = cached is not None and now - cached[0] < snapshots.ttl
+            if fresh:
+                # An entry's timestamp is when the read behind it started.
+                read_at, snapshot = cached
+                if read_at > arrived or not names_newer(snapshot):
+                    return snapshot
             reread = snapshots.in_flight.get(key)
             if reread is None:
                 claimed_at = snapshots.claims.get(key)
                 if (
-                    taking_over
+                    not fresh
+                    or taking_over
                     or claimed_at is None
                     or now - claimed_at >= _FORCED_REREAD_INTERVAL
                 ):
@@ -1818,11 +1823,6 @@ async def _cached_snapshot(
         else:
             # A cancelled claimant publishes None; its read is then taken over.
             taking_over = await asyncio.shield(reread) is None
-
-    snapshot = await read()
-    with snapshots.lock:
-        snapshots.entries[key] = (now, snapshot)
-    return snapshot
 
 
 async def _resolve_dataset_meta(

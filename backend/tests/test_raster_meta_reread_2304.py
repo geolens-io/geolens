@@ -5,14 +5,17 @@ and store them under the row's version, so a ``v`` the row had not reached,
 or one it had moved past, missed on every request and ran the joined raster
 query each time. Raster now shares the vector path's snapshot: one per
 dataset, re-read when a request names a newer version, at most once per
-interval, with concurrent requests waiting on that one read.
+interval, with concurrent requests waiting on that one read. On both paths,
+requests that find the snapshot missing or expired share one read too.
 """
 
 import asyncio
 import contextlib
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from types import SimpleNamespace
+from typing import Any, NamedTuple
 from unittest.mock import patch
 
 import pytest
@@ -272,8 +275,20 @@ async def test_an_authenticated_forced_re_read_completes_on_a_one_connection_poo
         _forget(dataset.id)
 
 
-async def _vector_case(session):
-    """A registered vector dataset, how to resolve it, and how to advance it."""
+class _Case(NamedTuple):
+    """A dataset on one tile path, with how to resolve, advance and forget it."""
+
+    key: str
+    dataset_id: uuid.UUID
+    snapshots: tile_router._Snapshots
+    resolve: Callable[..., Awaitable[Any]]
+    advance: Callable[[], Awaitable[None]]
+    forget: Callable[[], None]
+    counting_reads: Callable[[], contextlib.AbstractContextManager[list[float]]]
+
+
+async def _vector_case(session) -> _Case:
+    """A registered vector dataset."""
     from tests.test_tile_cache_content_key_2290 import (
         _bump_tile_cache_version,
         _registered_dataset,
@@ -288,14 +303,19 @@ async def _vector_case(session):
     async def advance():
         await _bump_tile_cache_version(session, dataset.id)
 
-    def forget():
-        tile_router._evict_dataset_meta(table)
+    return _Case(
+        table,
+        dataset.id,
+        tile_router._VECTOR_SNAPSHOTS,
+        resolve,
+        advance,
+        lambda: tile_router._evict_dataset_meta(table),
+        lambda: _counting_statements("catalog.records", table),
+    )
 
-    return table, tile_router._rereads_in_flight, resolve, advance, forget
 
-
-async def _raster_case(session):
-    """A public raster, how to resolve it, and how to replace it."""
+async def _raster_case(session) -> _Case:
+    """A public raster, advanced by a replace."""
     dataset = await _public_raster(session)
 
     async def resolve(db, version=None):
@@ -304,16 +324,20 @@ async def _raster_case(session):
     async def advance():
         await _swap_raster_pointer(session, dataset.id)
 
-    def forget():
-        _forget(dataset.id)
-
-    return (
+    return _Case(
         str(dataset.id),
-        tile_router._raster_rereads_in_flight,
+        dataset.id,
+        tile_router._RASTER_SNAPSHOTS,
         resolve,
         advance,
-        forget,
+        lambda: _forget(dataset.id),
+        lambda: _counting_raster_reads(dataset.id),
     )
+
+
+_CASES = pytest.mark.parametrize(
+    "make_case", [_vector_case, _raster_case], ids=["vector", "raster"]
+)
 
 
 async def _claimed(in_flight: dict, key: str) -> None:
@@ -321,9 +345,9 @@ async def _claimed(in_flight: dict, key: str) -> None:
         await asyncio.sleep(0.01)
 
 
-@pytest.mark.parametrize("case", [_vector_case, _raster_case], ids=["vector", "raster"])
+@_CASES
 async def test_a_waiter_holding_the_only_connection_lets_the_claimant_read(
-    test_db_session, case
+    test_db_session, make_case
 ):
     """An authenticated waiter must not sit on the connection its claimant needs.
 
@@ -334,20 +358,20 @@ async def test_a_waiter_holding_the_only_connection_lets_the_claimant_read(
 
     from app.core.config import settings
 
-    key, in_flight, resolve, advance, forget = await case(test_db_session)
+    case = await make_case(test_db_session)
     one_connection = create_async_engine(
         settings.test_database_url, pool_size=1, max_overflow=0, pool_timeout=2
     )
     sessions = async_sessionmaker(one_connection, expire_on_commit=False)
     waiter_session, claimant_session = sessions(), sessions()
     try:
-        await resolve(test_db_session)
-        await advance()
+        await case.resolve(test_db_session)
+        await case.advance()
         await waiter_session.execute(text("SELECT 1"))
 
-        claimant = asyncio.create_task(resolve(claimant_session, "2"))
-        await asyncio.wait_for(_claimed(in_flight, key), timeout=5)
-        waiter = asyncio.create_task(resolve(waiter_session, "2"))
+        claimant = asyncio.create_task(case.resolve(claimant_session, "2"))
+        await asyncio.wait_for(_claimed(case.snapshots.in_flight, case.key), timeout=5)
+        waiter = asyncio.create_task(case.resolve(waiter_session, "2"))
         metas = await asyncio.wait_for(asyncio.gather(claimant, waiter), timeout=10)
 
         assert [meta.tile_cache_version for meta in metas] == [2, 2]
@@ -355,7 +379,7 @@ async def test_a_waiter_holding_the_only_connection_lets_the_claimant_read(
         await waiter_session.close()
         await claimant_session.close()
         await one_connection.dispose()
-        forget()
+        case.forget()
 
 
 async def _on_own_session(resolve, version):
@@ -366,9 +390,9 @@ async def _on_own_session(resolve, version):
         return await resolve(session, version)
 
 
-@pytest.mark.parametrize("case", [_vector_case, _raster_case], ids=["vector", "raster"])
+@_CASES
 async def test_the_first_request_after_a_commit_is_not_served_a_speculative_read(
-    test_db_session, case
+    test_db_session, make_case
 ):
     """A read forced for a version before it committed cannot answer for it after.
 
@@ -376,27 +400,27 @@ async def test_the_first_request_after_a_commit_is_not_served_a_speculative_read
     old version. The request naming the new version after the commit waits
     for the next read instead of taking the snapshot the first one left.
     """
-    _, _, resolve, advance, forget = await case(test_db_session)
+    case = await make_case(test_db_session)
     try:
-        await resolve(test_db_session)
-        speculative = await _on_own_session(resolve, "2")
-        await advance()
-        after = await asyncio.wait_for(_on_own_session(resolve, "2"), timeout=5)
+        await case.resolve(test_db_session)
+        speculative = await _on_own_session(case.resolve, "2")
+        await case.advance()
+        after = await asyncio.wait_for(_on_own_session(case.resolve, "2"), timeout=5)
 
         assert speculative.tile_cache_version == 1
         assert after.tile_cache_version == 2
     finally:
-        forget()
+        case.forget()
 
 
-@pytest.mark.parametrize("case", [_vector_case, _raster_case], ids=["vector", "raster"])
+@_CASES
 async def test_a_read_that_began_before_the_commit_cannot_answer_after_it(
-    test_db_session, case
+    test_db_session, make_case
 ):
     """The same rule while the old read is still running when the request arrives."""
     import app.core.db as db_module
 
-    _, _, resolve, advance, forget = await case(test_db_session)
+    case = await make_case(test_db_session)
     queried, released, waiting = asyncio.Event(), asyncio.Event(), asyncio.Event()
 
     async def speculative_request():
@@ -411,7 +435,7 @@ async def test_a_read_that_began_before_the_commit_cannot_answer_after_it(
                 return result
 
             session.execute = query_then_hold
-            return await resolve(session, "2")
+            return await case.resolve(session, "2")
 
     async def request_after_the_commit():
         async with db_module.async_session() as session:
@@ -423,13 +447,13 @@ async def test_a_read_that_began_before_the_commit_cannot_answer_after_it(
                 waiting.set()
 
             session.commit = commit_then_signal
-            return await resolve(session, "2")
+            return await case.resolve(session, "2")
 
     try:
-        await resolve(test_db_session)
+        await case.resolve(test_db_session)
         speculative = asyncio.create_task(speculative_request())
         await asyncio.wait_for(queried.wait(), timeout=5)
-        await advance()
+        await case.advance()
         after = asyncio.create_task(request_after_the_commit())
         await asyncio.wait_for(waiting.wait(), timeout=5)
         released.set()
@@ -438,7 +462,100 @@ async def test_a_read_that_began_before_the_commit_cannot_answer_after_it(
         assert [meta.tile_cache_version for meta in metas] == [1, 2]
     finally:
         released.set()
-        forget()
+        case.forget()
+
+
+@_CASES
+async def test_concurrent_requests_on_a_cold_cache_share_one_read(
+    test_db_session, make_case
+):
+    case = await make_case(test_db_session)
+    try:
+        with case.counting_reads() as reads:
+            metas = await asyncio.wait_for(
+                asyncio.gather(
+                    *(_on_own_session(case.resolve, None) for _ in range(5))
+                ),
+                timeout=10,
+            )
+
+        assert len(reads) == 1
+        assert [meta.tile_cache_version for meta in metas] == [1] * 5
+    finally:
+        case.forget()
+
+
+@_CASES
+async def test_concurrent_requests_after_the_ttl_share_one_read(
+    test_db_session, make_case
+):
+    case = await make_case(test_db_session)
+    try:
+        await case.resolve(test_db_session)
+        await case.advance()
+        with case.snapshots.lock:
+            read_at, snapshot = case.snapshots.entries[case.key]
+            case.snapshots.entries[case.key] = (
+                read_at - case.snapshots.ttl,
+                snapshot,
+            )
+        with case.counting_reads() as reads:
+            metas = await asyncio.wait_for(
+                asyncio.gather(
+                    *(_on_own_session(case.resolve, None) for _ in range(5))
+                ),
+                timeout=10,
+            )
+
+        assert len(reads) == 1
+        assert [meta.tile_cache_version for meta in metas] == [2] * 5
+    finally:
+        case.forget()
+
+
+@_CASES
+async def test_a_cancelled_cold_claimant_s_read_is_taken_over(
+    test_db_session, make_case
+):
+    """Requests waiting on a cancelled claimant's cold read make one read."""
+    import app.core.db as db_module
+
+    case = await make_case(test_db_session)
+    entered, release = asyncio.Event(), asyncio.Event()
+    started: list[str] = []
+
+    async def request_meta():
+        async with db_module.async_session() as session:
+            execute = session.execute
+
+            # Holds each read open, so the cancel lands while one is in flight.
+            async def read_once_released(*args, **kwargs):
+                started.append("read")
+                entered.set()
+                await release.wait()
+                return await execute(*args, **kwargs)
+
+            session.execute = read_once_released
+            return await case.resolve(session)
+
+    try:
+        with case.counting_reads() as reads:
+            claimant = asyncio.create_task(request_meta())
+            await asyncio.wait_for(entered.wait(), timeout=5)
+            waiting = [asyncio.create_task(request_meta()) for _ in range(4)]
+            await asyncio.sleep(0)
+            claimant.cancel()
+            release.set()
+            metas = await asyncio.wait_for(asyncio.gather(*waiting), timeout=5)
+
+        assert len(reads) == 1
+        assert claimant.cancelled()
+        assert [meta.tile_cache_version for meta in metas] == [1] * 4
+        # The claimant's read never reached the database; one waiter's did.
+        assert started == ["read", "read"]
+    finally:
+        release.set()
+        case.forget()
 
 
 async def _vector_http_case(client, session, tmp_path):
