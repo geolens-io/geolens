@@ -11,10 +11,9 @@ from fastapi import status
 from starlette.responses import Response
 
 # bytes=FIRST-LAST | bytes=FIRST- | bytes=-SUFFIX. `[0-9]` not `\d`: Python's
-# `\d` is unicode-aware and accepts non-ASCII digits. Unless the caller parses
-# strictly, anything unmatched (a second range, unknown unit, reversed pair) is
-# ignored as RFC 9110 section 14.2 allows, so the client still gets a usable
-# response.
+# `\d` is unicode-aware and accepts non-ASCII digits. Lenient parsing ignores
+# anything unmatched (a second range, unknown unit, reversed pair), as RFC 9110
+# section 14.2 allows, so the client still gets a usable response.
 #
 # The unit is case-insensitive (a token per RFC 9110 section 14.1), so
 # `Bytes=0-16383` matches; an unmatched unit would serve the whole object as a
@@ -23,6 +22,10 @@ from starlette.responses import Response
 # Only the unit. Digits stay `[0-9]`, and entity-tag comparisons (section
 # 8.8.3.2, including the `W/` prefix) stay case-SENSITIVE.
 BYTE_RANGE_RE = re.compile(r"^bytes=(?:([0-9]+)-([0-9]*)|-([0-9]+))$", re.IGNORECASE)
+
+# Strict parsing reads the unit and each range-spec of the set separately.
+_BYTES_UNIT_RE = re.compile(r"^bytes=", re.IGNORECASE)
+_RANGE_SPEC_RE = re.compile(r"^(?:([0-9]+)-([0-9]*)|-([0-9]+))$")
 
 # No byte of the representation was named (first-byte-pos past the end, or a
 # zero-length suffix). RFC 9110 section 15.5.17 wants 416 with the real size,
@@ -63,17 +66,41 @@ def parse_byte_range(
     and answering just the first range would corrupt a client expecting both.
     Returns ``RANGE_UNSATISFIABLE`` for 416, else the pair, already clamped.
 
-    ``strict`` returns ``RANGE_UNSATISFIABLE`` instead of ``None`` for a Range
-    that is present but unusable (malformed, reversed, or several ranges), for
-    routes whose clients read only ranges and must not get the whole object.
+    ``strict`` refuses an invalid ``bytes`` range, one malformed or holding a
+    reversed pair, with ``RANGE_UNSATISFIABLE`` instead of ignoring it, which
+    RFC 9110 section 14.2 allows. It still ignores a Range in another unit, as
+    that section requires, and serves a valid multi-range whole.
     """
-    if not raw:
+    header = (raw or "").strip()
+    if not header:
         return None
-    match = BYTE_RANGE_RE.match(raw.strip())
+    if strict:
+        return _parse_strictly(header, size)
+    match = BYTE_RANGE_RE.match(header)
     if match is None:
-        return RANGE_UNSATISFIABLE if strict else None
-    first, last, suffix = match.groups()
+        return None
+    return _resolve(*match.groups(), size)
 
+
+def _parse_strictly(header: str, size: int) -> tuple[int, int] | str | None:
+    """``parse_byte_range`` for a present header, refusing an invalid bytes range."""
+    if not _BYTES_UNIT_RE.match(header):
+        return None
+    # An empty list element is ignored, as RFC 9110 section 5.6.1.2 requires.
+    specs = [spec.strip() for spec in header[len("bytes=") :].split(",")]
+    matches = [_RANGE_SPEC_RE.match(spec) for spec in specs if spec]
+    if not matches or not all(matches):
+        return RANGE_UNSATISFIABLE
+    resolved = [_resolve(*match.groups(), size) for match in matches]
+    if None in resolved:
+        return RANGE_UNSATISFIABLE
+    return resolved[0] if len(resolved) == 1 else None
+
+
+def _resolve(
+    first: str | None, last: str | None, suffix: str | None, size: int
+) -> tuple[int, int] | str | None:
+    """One well-formed range-spec against the size; None for a reversed pair."""
     if suffix is not None:
         # bytes=-N: the final N bytes. A zero-length suffix names nothing.
         wanted = _range_int(suffix, size)
@@ -89,8 +116,7 @@ def parse_byte_range(
         return (start, size - 1)
     end = _range_int(last, size)
     if end < start:
-        # A reversed pair is invalid: ignored, or refused when strict.
-        return RANGE_UNSATISFIABLE if strict else None
+        return None
     # A last-byte-pos past the end is CLAMPED, not rejected — clients that do
     # not know the size ask for more than exists on purpose.
     return (start, min(end, size - 1))

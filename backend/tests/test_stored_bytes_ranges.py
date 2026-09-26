@@ -1,4 +1,4 @@
-"""Strict range parsing refuses an unusable Range with 416; lenient parsing ignores it."""
+"""Strict range parsing refuses an invalid bytes range with 416; both modes ignore other units and valid multi-ranges."""
 
 import pytest
 from fastapi import HTTPException
@@ -10,7 +10,18 @@ from app.platform.http.stored_bytes import serve_stored_bytes
 
 _SIZE = 1000
 _ETAG = '"v1"'
-_UNUSABLE = ["bytes=0--1", "bytes=100-99", "bytes=0-1,5-6", "items=0-5", "bytes=abc"]
+# Invalid bytes ranges: malformed, reversed, or an empty range set.
+_REFUSED = [
+    "bytes=0--1",
+    "bytes=100-99",
+    "bytes=abc",
+    "bytes=0-1,5-4",
+    "bytes=0-1,x",
+    "bytes=",
+]
+# Not invalid: RFC 9110 section 14.2 makes a server ignore an unknown unit, and a
+# valid multi-range is served whole because multipart/byteranges isn't implemented.
+_IGNORED = ["items=0-5", "bytes=0-1,5-6"]
 
 
 class _Store:
@@ -54,11 +65,24 @@ async def _serve(store: _Store, range_header: str | None, *, strict: bool):
     )
 
 
-@pytest.mark.parametrize("raw", _UNUSABLE)
-def test_a_strict_parse_refuses_a_range_it_cannot_serve(raw: str) -> None:
-    """Malformed, reversed, multi-range and unknown-unit ranges are unsatisfiable when strict."""
+@pytest.mark.parametrize("raw", _REFUSED)
+def test_a_strict_parse_refuses_an_invalid_bytes_range(raw: str) -> None:
+    """A malformed or reversed bytes range is unsatisfiable when strict and ignored otherwise."""
     assert parse_byte_range(raw, _SIZE, strict=True) == RANGE_UNSATISFIABLE
     assert parse_byte_range(raw, _SIZE) is None
+
+
+@pytest.mark.parametrize("raw", _IGNORED)
+def test_both_parses_ignore_another_unit_and_a_valid_multi_range(raw: str) -> None:
+    """Another unit and a valid multi-range mean the whole object, strict or not."""
+    assert parse_byte_range(raw, _SIZE, strict=True) is None
+    assert parse_byte_range(raw, _SIZE) is None
+
+
+@pytest.mark.parametrize("raw", ["bytes=0-9,", "bytes=, 0-9"])
+def test_a_strict_parse_skips_empty_list_elements(raw: str) -> None:
+    """An empty element of the range set is ignored rather than refused."""
+    assert parse_byte_range(raw, _SIZE, strict=True) == (0, 9)
 
 
 @pytest.mark.parametrize(
@@ -71,14 +95,14 @@ def test_a_strict_parse_serves_every_usable_range(raw: str) -> None:
     assert strict == parse_byte_range(raw, _SIZE)
 
 
-@pytest.mark.parametrize("raw", [None, ""])
+@pytest.mark.parametrize("raw", [None, "", "  "])
 def test_a_strict_parse_treats_no_range_as_the_whole_object(raw: str | None) -> None:
     """An absent Range still means the whole object when strict."""
     assert parse_byte_range(raw, _SIZE, strict=True) is None
 
 
-@pytest.mark.parametrize("raw", _UNUSABLE)
-async def test_strict_serving_answers_an_unusable_range_with_416(raw: str) -> None:
+@pytest.mark.parametrize("raw", _REFUSED)
+async def test_strict_serving_answers_an_invalid_range_with_416(raw: str) -> None:
     """A strict route answers 416 with the size and version, and reads nothing."""
     store = _Store(b"x" * _SIZE)
 
@@ -92,6 +116,20 @@ async def test_strict_serving_answers_an_unusable_range_with_416(raw: str) -> No
         "ETag": _ETAG,
     }
     assert store.reads == []
+
+
+@pytest.mark.parametrize("raw", _IGNORED)
+async def test_strict_serving_sends_the_whole_object_for_an_ignored_range(
+    raw: str,
+) -> None:
+    """Another unit or a valid multi-range is served whole on a strict route too."""
+    store = _Store(b"x" * _SIZE)
+
+    response = await _serve(store, raw, strict=True)
+
+    assert response.status_code == 200
+    assert [chunk async for chunk in response.body_iterator] == [b"x" * _SIZE]
+    assert store.reads == [("whole", "objects/o.bin")]
 
 
 async def test_lenient_serving_sends_the_whole_object_for_an_unusable_range() -> None:
