@@ -131,3 +131,71 @@ def test_existing_client_sample_must_have_the_expected_published_asset():
             "pointcloud",
             "summary",
         )
+
+
+class EnrichApi:
+    """The list still reports upload while the detail shows the committed conversion."""
+
+    def __init__(self):
+        self.patches = []
+
+    def list_own_datasets(self):
+        return [{"title": seed.QUAKES_TITLE, "id": "quakes", "origin": "upload"}]
+
+    def dataset_origin(self, _):
+        return "service"
+
+    def patch_dataset(self, _dataset_id, **fields):
+        self.patches.append(fields)
+
+    def dataset_record_id(self, _):
+        return "record"
+
+    def existing_keywords(self, _):
+        return set(seed.SHOWCASE_METADATA[seed.QUAKES_TITLE].get("keywords", ()))
+
+
+def test_enrich_rechecks_a_lagging_list_origin_before_holding_live_metadata():
+    api = EnrichApi()
+    seed.enrich_showcase_metadata(api)
+    gated = seed.SHOWCASE_METADATA[seed.QUAKES_TITLE]["gated"]
+    assert api.patches and gated.items() <= api.patches[0].items()
+
+
+def test_titles_created_this_run_resolve_while_the_listing_lags():
+    api = object.__new__(seed.Api)
+    api.created = {}
+    api.list_own_datasets = lambda: [{"title": "older", "id": "old-id"}]
+    api._created(seed.COPC_TITLE, "copc-id")
+    assert api.datasets_by_title() == {seed.COPC_TITLE: "copc-id", "older": "old-id"}
+
+
+STATE_SCRIPT = repo_root(__file__) / "scripts" / "showcase-121-state.py"
+state_spec = importlib.util.spec_from_file_location("showcase_121_state", STATE_SCRIPT)
+state = importlib.util.module_from_spec(state_spec)
+state_spec.loader.exec_module(state)
+
+
+def _layer(dataset_id, name, opacity=1.0):
+    return {
+        "dataset_id": dataset_id,
+        "fields": {"display_name": name, "opacity": opacity},
+    }
+
+
+def test_restore_follows_a_layer_the_seed_replaced_under_a_new_id():
+    saved = {"maps": {"m": {"layers": {"old": _layer("ds", "Subway", 1.0)}}}}
+    current = {"maps": {"m": {"layers": {"new": _layer("ds", "Subway", 0.4)}}}}
+    state.rebind_replaced_layers(saved, current)
+    assert saved["maps"]["m"]["layers"] == {"new": _layer("ds", "Subway", 1.0)}
+
+
+def test_restore_does_not_guess_between_two_replacement_candidates():
+    saved = {"maps": {"m": {"layers": {"old": _layer("ds", "Subway")}}}}
+    current = {
+        "maps": {
+            "m": {"layers": {"a": _layer("ds", "Subway"), "b": _layer("ds", "Subway")}}
+        }
+    }
+    state.rebind_replaced_layers(saved, current)
+    assert list(saved["maps"]["m"]["layers"]) == ["old"]

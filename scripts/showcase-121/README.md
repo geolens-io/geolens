@@ -4,8 +4,9 @@ This is the operator record for the [showcase seed](../seed-showcase.py), its
 [state snapshot tool](../showcase-121-state.py), and the [issues found during
 rehearsal](ISSUES.md). It does not authorize a public demo change. As checked on
 September 27, 2026, the latest GitHub release was `v1.20.0`; the isolated
-rehearsal checkout started at `66a76cd2c1f3c4cd18061c4a892fc9e93f25a07d`.
-`origin/main` had subsequently advanced to `41d51d9c1`.
+rehearsal checkout started at `66a76cd2c1f3c4cd18061c4a892fc9e93f25a07d` and
+was rebased onto `origin/main` `8653c4b79` the same evening; the staging API
+bind-mounts the checkout, so it now runs that code.
 Recheck the release, deployed build, and current main before applying this plan.
 
 The public demo had seven maps, 28 public datasets, and two collections in the
@@ -60,12 +61,13 @@ error in that staging check. These are local staging results, not public demo
 results. GeoLens catalogs and serves both formats; its own map viewer does not
 render them.
 
-The full staging seed created the other showcase content but exited nonzero
-because the USGS earthquake service probe failed. The staging Restless Earth
-view was then built using a 2,000-feature export of the existing public demo
-earthquake snapshot. It is **not service-bound and not a verified refresh**.
-The currently overdue public earthquake datasets must keep honest snapshot
-wording until the service path works. An Overpass 504 left Matterhorn's OSM
+The first full staging seed exited nonzero because the USGS earthquake service
+was down upstream, and Restless Earth was built from a 2,000-feature snapshot.
+Once the service recovered, a guarded `--only restless` run converted both
+quake datasets to the service binding in place, and `--refresh-quakes` pulled
+1,971 current features with source health `healthy`. No deployment config
+schedules `--refresh-quakes`, so the public quakes stay overdue until an
+operator runs it. An Overpass 504 left Matterhorn's OSM
 overlays incomplete in that run. A subsequent retry used checksum-pinned route
 and peak exports from the public datasets and restored all three layers on the
 same map ID. The route file has 22 features and SHA-256
@@ -90,13 +92,17 @@ overflow. Matterhorn also reached `data-terrain-ready`. Ignored local evidence
 is in `.playwright-mcp/showcase121-{name}-{size}.png` in the primary checkout;
 it must be attached separately for PR review. This network/readiness check
 does not make every scene visually complete: Matterhorn routes/peaks were
-missing during this first pass and need a visual recheck after their retry. A first
+missing during this first pass. After their retry, a 1440×900 check showed
+routes, casing, peak labels, and terrain. A first
 Manhattan pass exposed a subway-route legend that displaced building eras;
 the route legend was hidden and Playwright then showed building eras in the
 legend. Orbit's first camera showed an eastern imagery edge. The revised
 camera `[-74.015, 40.725, 11.1]` had no image edge in
 `.playwright-mcp/showcase121-orbit-final-v2.png`. Those findings are recorded
-in [ISSUES.md](ISSUES.md). Cold/warm load timings are unmeasured.
+in [ISSUES.md](ISSUES.md). No separate load-timing study was run. As a rough
+observation, the demo smoke's Matterhorn test took 9.7-10.4 s on a server-cold
+staging stack and 8.6-8.9 s warm, measured from gallery search to a ready,
+terrain-loaded map on this laptop. That is not a performance guarantee.
 
 After a metadata replay, the staging API showed the corrected East Village
 source summary and nonempty CC BY attribution for both client sample datasets.
@@ -160,6 +166,13 @@ examples. No AI step is required.
    Avoid `--force`, `--force-pinned`, `--prune`, and `--prune-userdata`. If a
    source or expected-state check fails, stop and inspect the target. The
    guarded seed does not provide a database transaction over all builders.
+   After an interrupted or partial run, the original bundle no longer matches
+   and the seed refuses it. Keep that bundle for rollback, write a new
+   snapshot to a different path, and pass the new file as `--expected-state`
+   for the retry. Several logins in a minute can hit the login rate limit
+   (HTTP 429); wait a minute before retrying.
+   Then refresh the quakes from their service binding:
+   `python3 scripts/seed-showcase.py --base-url "$GEOLENS_BASE_URL" --refresh-quakes`.
 4. Verify unchanged public URLs and embeds, metadata, collections, analysis
    provenance, anonymous asset access, byte ranges, and browser rendering at
    desktop, laptop-height, and mobile widths. Inspect final thumbnails. The
@@ -177,6 +190,9 @@ examples. No AI step is required.
    identities, restores captured editable fields and collection membership,
    unpublishes newly named showcase maps/datasets, and removes a new Client
    Connections collection only when it contains only new showcase datasets.
+   The seed restyles some layers by deleting and re-adding them. Restore
+   matches such a layer to its replacement by dataset and display name, and
+   refuses when the match is missing or ambiguous.
    It does not delete the new datasets or restore the whole database. Confirm
    the original pinned URLs, access, and embed behavior after restoration.
 
@@ -188,20 +204,39 @@ it is local evidence, not a file to commit or publish.
 | --- | --- | --- |
 | Anonymous | Public map/dataset 200, private map/dataset 404, COPC range 206, 3D Tiles manifest 200, public export 200 | Public deployment still untested |
 | Authenticated viewer | Same public reads and private denials; map creation and showcase edit 403; public export 200 | Public deployment still untested |
-| Editor/owner | Own map creation 201, public canopy layer add 201, own map edit 200, analysis preview/materialize 200 with job complete, own derived refresh accepted 202; showcase edit/refresh 403 | A separate service-bound earthquake refresh is blocked upstream |
-| Administrator | Public and private map/dataset 200; COPC 206 and 3D Tiles manifest 200 | Job/source inspection and scheduled-sync capability were not in this report |
-| Restricted export | A temporary viewer export-disabled permission matrix kept public reads at 200, denied export with 403, and was restored with 200 | This was not a custom role: custom-role creation returned 422 |
+| Editor/owner | Own map creation 201, public canopy layer add 201, own map edit 200, analysis preview/materialize 200 with job complete, own derived refresh accepted 202; showcase edit/refresh 403 | Public deployment still untested |
+| Administrator | Public and private map/dataset 200; COPC 206 and 3D Tiles manifest 200; job list, per-dataset jobs, refresh runs, and source health (`healthy`, service origin) all respond | Staging runs Community: scheduled sync is a paid capability and absent; the manual refresh path passed |
+| Restricted export | A temporary viewer export-disabled permission matrix kept public reads at 200, denied export with 403, and was restored with 200 | Community roles are fixed (`admin`, `editor`, `viewer`), so creating a `restricted_custom` user correctly returned 422; the matrix is the configurable control |
 
-These are staging results only. The custom-role 422 is recorded in
-[ISSUES.md](ISSUES.md) and needs a separate diagnosis.
-The focused staging demo E2E run passed five of ten tests. The wrong short
-Orbit title in the test was corrected afterward; Matterhorn emitted a
-`shaderPreludeCode` page error, and Manhattan and Hurricane Exposure saw 429
-tile responses after repeated QA. A fresh run and diagnosis remain required.
-Backfill generated nine staging
-thumbnails; the gallery and corrected Orbit image were inspected. Public
-target thumbnails need the same check after rollout. The full live smoke must
-wait for the deployed target version.
+These are staging results only.
+
+The full demo smoke on staging passed every map except Matterhorn, which
+intermittently throws a MapLibre `shaderPreludeCode` error on a server-cold
+load ([#2428](https://github.com/geolens-io/geolens/issues/2428); one failure
+in four repeats). The earlier Orbit failures came from a wrong short title, and
+the 429s did not recur. The SSO and DCAT-US failures come from staging
+configuration: no SSO providers and no DCAT contact address. Backfill generated
+nine staging thumbnails. Orbit and Matterhorn were recaptured with a builder
+Save after their scenes settled. Public thumbnails need the same check after
+rollout, and the full live smoke has to wait for the deployed target version.
+
+### Upgrade rehearsal
+
+A second isolated project (`showcase121u`, ports 63586-63588) was seeded with
+`origin/main`'s seed script, the generation the public demo runs. A share link
+was minted on Restless Earth; the seed's private embed token was also kept.
+The guarded update above then exited 0. All seven map IDs and every existing
+dataset ID survived. City in Shade and five datasets were added. Restyling
+replaced one layer each on Manhattan, Hurricane Exposure, and Restless Earth,
+with the same dataset and name. That run skipped the Client Connections
+collection because the cached admin dataset list had not yet shown the new
+samples. The seed now reads titles it created itself. A retry with a fresh
+precondition snapshot created that collection and changed nothing else: no
+layer churn, no duplicate maps or datasets. Restoring the pre-update bundle
+then reproduced every captured map, layer, dataset, and collection field (zero
+differences), unpublished the new map and datasets, and removed Client
+Connections. The share link (200) and embed (204, 403 without its token)
+worked before, during, and after.
 The standard post-deployment smoke is
 `E2E_DEMO_BASE_URL=https://demo.getgeolens.com E2E_EXPECT_VERSION=1.21.0 npm run e2e:smoke:demo`.
 

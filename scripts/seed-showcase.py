@@ -476,6 +476,10 @@ class Api:
         self.base = base_url.rstrip("/")
         self.client = httpx.Client(timeout=180.0, follow_redirects=True)
         self.h = {"Authorization": f"Bearer {token}"}
+        # A job reports complete before its follow-ups clear the cached admin
+        # dataset list, so a title created in this run can be missing from the
+        # next listing. datasets_by_title reads these first.
+        self.created: dict[str, str] = {}
         # This token's identity as the SERVER has it, not as it was typed on
         # the command line: the two lookups below scope to what this account
         # owns, and a login spelling that differs from the stored username
@@ -571,7 +575,11 @@ class Api:
         job = self.upload_geojson(name, data)
         self.preview(job)
         self.commit(job, title, summary, visibility=visibility)
-        return self.poll(job, timeout=timeout)["dataset_id"]
+        return self._created(title, self.poll(job, timeout=timeout)["dataset_id"])
+
+    def _created(self, title: str, dataset_id: str) -> str:
+        self.created[title] = dataset_id
+        return dataset_id
 
     def ingest_binary(self, path: str, kind: str, title: str, summary: str) -> str:
         media_type = "application/zip" if kind == "tiles3d" else "application/octet-stream"
@@ -591,7 +599,7 @@ class Api:
             json={"title": title, "summary": summary, "visibility": "public"},
         )
         committed.raise_for_status()
-        return self.poll(job_id, timeout=900)["dataset_id"]
+        return self._created(title, self.poll(job_id, timeout=900)["dataset_id"])
 
     def reupload_geojson(self, dataset_id: str, name: str, data: bytes) -> None:
         """Swap a dataset's data in place (upload -> preview -> commit -> poll).
@@ -797,7 +805,8 @@ class Api:
             json={"operation": operation, "title": title, **params},
         )
         r.raise_for_status()
-        return self.poll(r.json()["job_id"], timeout=timeout)["dataset_id"]
+        job = self.poll(r.json()["job_id"], timeout=timeout)
+        return self._created(title, job["dataset_id"])
 
     def add_layer(self, map_id: str, body: dict) -> dict:
         r = self.client.post(
@@ -955,7 +964,7 @@ class Api:
         Ownership scoping comes from list_own_datasets - see there for why a
         stranger's same-titled dataset must not resolve here.
         """
-        out: dict[str, str] = {}
+        out = dict(self.created)
         for x in self.list_own_datasets():
             out.setdefault(x["title"], x["id"])
         return out
@@ -5936,10 +5945,13 @@ def enrich_showcase_metadata(api: "Api") -> None:
             # origin are written only when the dataset OBSERVABLY has it. This
             # pass runs whether or not the builder that was supposed to make it
             # true succeeded, so "the seeder tried" is not evidence. The list
-            # response already carries origin, so this costs no extra request.
+            # response can lag a service conversion committed moments earlier,
+            # so a mismatch is rechecked against the dataset detail.
             gated = spec.get("gated")
             if gated:
                 origin = ds.get("origin")
+                if origin != spec.get("requires_origin"):
+                    origin = api.dataset_origin(dataset_id)
                 if origin == spec.get("requires_origin"):
                     fields.update(gated)
                 else:
