@@ -7,6 +7,8 @@ import pytest
 from app.core import config as config_module
 from app.core.config import MIN_SIGNABLE_JOB_LIFETIME_SECONDS, Settings
 
+from tests.repo_paths import repo_root
+
 # Settings constructor kwargs (lowercase field names).
 # JWT_SECRET_KEY must be ≥ 32 chars to satisfy validate_jwt_secret_length.
 BASE_ENV = {
@@ -1248,3 +1250,16 @@ class TestComponentFieldDsnCarriesTls:
             database_ssl_mode="verify-full", database_ssl_ca_cert="/c.pem"
         )
         assert "options='-c search_path=catalog,public'" in s.procrastinate_conninfo
+
+
+class TestS3PresignedDownloads:
+    def test_presigned_downloads_are_off_by_default(self):
+        assert _make_settings().s3_presigned_downloads is False
+        assert _make_settings(s3_presigned_downloads="true").s3_presigned_downloads
+
+    @pytest.mark.parametrize(
+        "manifest", ["docker-compose.yml", "docker-compose.prod.yml"]
+    )
+    def test_compose_passes_the_setting_to_the_app(self, manifest):
+        text = (repo_root(__file__) / manifest).read_text()
+        assert 'S3_PRESIGNED_DOWNLOADS: "${S3_PRESIGNED_DOWNLOADS:-false}"' in text

@@ -2,7 +2,8 @@
 
 Every writer tags a managed raster ``local`` whatever the provider, so a row
 exactly as a first import or a replacement leaves it has to reach the S3
-redirect once the install stores its COGs in a bucket.
+redirect once the install stores its COGs in a bucket and enables presigned
+downloads.
 """
 
 from __future__ import annotations
@@ -54,12 +55,14 @@ def bucket(monkeypatch):
 
 
 async def _serve_from_the_bucket(monkeypatch, local, bucket, key: str) -> None:
-    """Hold the COG where an S3 install keeps it, and configure the install so."""
+    """Hold the COG where an S3 install keeps it, and configure the install so,
+    presigned downloads enabled."""
     import app.platform.storage.provider as provider_module
 
     await bucket.put(key, await local.get(key))
     monkeypatch.setattr(provider_module, "_storage", bucket)
     monkeypatch.setattr(settings, "storage_provider", "s3")
+    monkeypatch.setattr(settings, "s3_presigned_downloads", True)
 
 
 async def _asset(session, dataset_id) -> RasterAsset:

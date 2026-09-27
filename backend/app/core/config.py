@@ -435,6 +435,7 @@ class Settings(BaseSettings):
     s3_region: str = "us-east-1"
     s3_allow_http: bool = False
     s3_addressing_style: Literal["auto", "path", "virtual"] = "auto"
+    s3_presigned_downloads: bool = False
 
     # Ambient AWS credential markers, injected by the runtime not an operator:
     # EKS IRSA/Pod Identity set AWS_ROLE_ARN + AWS_WEB_IDENTITY_TOKEN_FILE;
@@ -680,7 +681,6 @@ class Settings(BaseSettings):
         "smtp_from_address",
         "notification_webhook_url",
         "notification_webhook_secret",
-        # Phase 1230 EVENT-05 recipient field — blank env value normalizes to None
         "notification_admin_email",
         # fix(#441): compose passes ENVIRONMENT through as "${ENVIRONMENT:-}",
         # so an unset value arrives as "" — normalize to None (LOG_JSON fallback)

@@ -120,12 +120,12 @@ def sync_detailed(
 
      Download the Cloud-Optimized GeoTIFF for a raster dataset.
 
-    Local and Azure storage: streams the COG file with Content-Type image/tiff.
-    S3 storage: returns a 302 redirect to a presigned GET URL valid for at most
-    5 minutes, and never past the expiry of a ``?token=`` download token. A GET
-    carrying a specific If-Match, or a resume whose If-Range no longer matches,
-    is served directly instead. A COG imported by reference redirects to its
-    origin.
+    On S3 storage with presigned downloads enabled, answers 302 to a
+    short-lived presigned URL (at most 5 minutes, and never past the expiry of
+    a ``?token=`` download token); otherwise streams the object with
+    Content-Type image/tiff. Even then, a GET carrying a specific If-Match, or
+    a resume whose If-Range no longer matches, is streamed. A COG imported by
+    reference redirects to its origin.
     Accepts standard auth or ?token= JWT query parameter for browser downloads.
 
     ``user`` may be None when a no-sub anonymous
@@ -165,12 +165,12 @@ def sync(
 
      Download the Cloud-Optimized GeoTIFF for a raster dataset.
 
-    Local and Azure storage: streams the COG file with Content-Type image/tiff.
-    S3 storage: returns a 302 redirect to a presigned GET URL valid for at most
-    5 minutes, and never past the expiry of a ``?token=`` download token. A GET
-    carrying a specific If-Match, or a resume whose If-Range no longer matches,
-    is served directly instead. A COG imported by reference redirects to its
-    origin.
+    On S3 storage with presigned downloads enabled, answers 302 to a
+    short-lived presigned URL (at most 5 minutes, and never past the expiry of
+    a ``?token=`` download token); otherwise streams the object with
+    Content-Type image/tiff. Even then, a GET carrying a specific If-Match, or
+    a resume whose If-Range no longer matches, is streamed. A COG imported by
+    reference redirects to its origin.
     Accepts standard auth or ?token= JWT query parameter for browser downloads.
 
     ``user`` may be None when a no-sub anonymous
@@ -205,12 +205,12 @@ async def asyncio_detailed(
 
      Download the Cloud-Optimized GeoTIFF for a raster dataset.
 
-    Local and Azure storage: streams the COG file with Content-Type image/tiff.
-    S3 storage: returns a 302 redirect to a presigned GET URL valid for at most
-    5 minutes, and never past the expiry of a ``?token=`` download token. A GET
-    carrying a specific If-Match, or a resume whose If-Range no longer matches,
-    is served directly instead. A COG imported by reference redirects to its
-    origin.
+    On S3 storage with presigned downloads enabled, answers 302 to a
+    short-lived presigned URL (at most 5 minutes, and never past the expiry of
+    a ``?token=`` download token); otherwise streams the object with
+    Content-Type image/tiff. Even then, a GET carrying a specific If-Match, or
+    a resume whose If-Range no longer matches, is streamed. A COG imported by
+    reference redirects to its origin.
     Accepts standard auth or ?token= JWT query parameter for browser downloads.
 
     ``user`` may be None when a no-sub anonymous
@@ -248,12 +248,12 @@ async def asyncio(
 
      Download the Cloud-Optimized GeoTIFF for a raster dataset.
 
-    Local and Azure storage: streams the COG file with Content-Type image/tiff.
-    S3 storage: returns a 302 redirect to a presigned GET URL valid for at most
-    5 minutes, and never past the expiry of a ``?token=`` download token. A GET
-    carrying a specific If-Match, or a resume whose If-Range no longer matches,
-    is served directly instead. A COG imported by reference redirects to its
-    origin.
+    On S3 storage with presigned downloads enabled, answers 302 to a
+    short-lived presigned URL (at most 5 minutes, and never past the expiry of
+    a ``?token=`` download token); otherwise streams the object with
+    Content-Type image/tiff. Even then, a GET carrying a specific If-Match, or
+    a resume whose If-Range no longer matches, is streamed. A COG imported by
+    reference redirects to its origin.
     Accepts standard auth or ?token= JWT query parameter for browser downloads.
 
     ``user`` may be None when a no-sub anonymous

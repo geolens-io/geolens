@@ -104,6 +104,9 @@ def real_s3_storage(monkeypatch):
 
     monkeypatch.setattr(storage_provider_module, "_storage", provider)
     monkeypatch.setattr(settings, "storage_provider", "s3")
+    monkeypatch.setattr(settings, "s3_endpoint", _ENDPOINT)
+    # The test client reaches this endpoint, as the operator would declare.
+    monkeypatch.setattr(settings, "s3_presigned_downloads", True)
     return provider
 
 

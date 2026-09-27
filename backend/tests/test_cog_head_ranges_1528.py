@@ -684,6 +684,7 @@ def s3_storage(monkeypatch):
         )
         monkeypatch.setattr(storage_provider_module, "_storage", provider)
         monkeypatch.setattr(settings, "storage_provider", "s3")
+        monkeypatch.setattr(settings, "s3_presigned_downloads", True)
         yield provider
 
 
@@ -2810,17 +2811,37 @@ async def test_cog_head_stays_out_of_the_openapi_schema(client: AsyncClient):
     )
 
 
-async def test_a_managed_row_on_an_s3_install_redirects_its_get(
+@pytest.mark.parametrize(
+    ("endpoint", "presigned", "expected"),
+    [
+        (None, "default", 200),
+        ("http://minio:9000", "default", 200),
+        (None, True, 302),
+        ("http://minio:9000", True, 302),
+    ],
+)
+async def test_a_managed_row_on_s3_redirects_only_with_presigned_downloads(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session,
     s3_storage,
+    monkeypatch,
+    endpoint: str | None,
+    presigned: bool | str,
+    expected: int,
 ):
-    """The configured provider picks the redirect, whatever the row's tag says.
+    """The configured provider picks the redirect, whatever the row's tag says,
+    and only once the operator enables presigned downloads.
 
     Every writer tags a managed raster ``local``, S3 or not, so a row as ingest
-    leaves it has to reach the bucket's presigned URL.
+    leaves it has to reach the bucket's presigned URL when enabled. Left at the
+    default, the download streams on any endpoint, since a client may not reach
+    the endpoint or follow the redirect.
     """
+    if presigned == "default":
+        presigned = type(settings).model_fields["s3_presigned_downloads"].default
+    monkeypatch.setattr(settings, "s3_endpoint", endpoint)
+    monkeypatch.setattr(settings, "s3_presigned_downloads", presigned)
     dataset, raster_asset = await _raster_dataset(
         test_db_session,
         asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/managed.cog.tif",
@@ -2834,11 +2855,15 @@ async def test_a_managed_row_on_an_s3_install_redirects_its_get(
         follow_redirects=False,
     )
 
-    assert get.status_code == 302, (
-        f"a managed COG on an S3 install answered {get.status_code}; its whole-"
-        f"object GET belongs to the bucket, not to this process."
+    assert get.status_code == expected, (
+        f"endpoint {endpoint!r}, presigned downloads {presigned!r}: a managed "
+        f"COG on S3 answered {get.status_code}, expected {expected}"
     )
-    assert raster_asset.asset_uri in get.headers["location"]
+    if expected == 302:
+        assert raster_asset.asset_uri in get.headers["location"]
+    else:
+        assert "location" not in get.headers
+        assert get.content == _COG_BYTES
 
 
 async def test_a_caller_the_route_refuses_gets_no_redirect_on_s3(
