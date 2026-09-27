@@ -4,7 +4,6 @@ import os
 import time
 import uuid
 import tempfile
-import warnings
 import zipfile
 from contextlib import ExitStack, asynccontextmanager, contextmanager
 from unittest.mock import patch
@@ -94,61 +93,6 @@ def _make_test_async_engine(test_database_url: str):
             echo=False,
         )
     )
-
-
-# Per-worker setup stagger — spreads the startup connection spike across time.
-#
-# Root-cause: when N workers run _test_db_lifecycle simultaneously, each opens
-# a sync SQLAlchemy connection to the main DB (dev_engine) PLUS connections to
-# their test DB (test_engine_sync, alembic, _saml_bridge_engine). With
-# N=16 workers and max_connections=30 (db/postgresql.conf:11), and the running
-# API/worker services already holding 8 persistent idle connections, the
-# concurrent setup fan-out saturates Postgres before any test runs.
-#
-# Fix: stagger each worker's startup by SETUP_STAGGER_SECONDS × worker_num.
-# Alembic migration (22 steps) takes ≈ 3-5s per worker. With a 5.0s stagger:
-#   - Worker 0 starts immediately (no delay)
-#   - Worker 1 starts after 5.0s (worker 0 is already past migration)
-#   - Worker k starts after k × 5.0s
-# Peak concurrent main-DB connections during stagger window: ~1-2.
-# Safe under max_connections=30.
-#
-# This approach is O(STAGGER_SECONDS × worker_num) total overhead vs. O(N × setup_time)
-# for a hard serialiser — wall-clock impact is bounded by the LAST worker's stagger
-# (15 × 5.0s = 75s), not the sum.
-#
-# See .planning/audits/PYTEST-XDIST-SPIKE-v1019.md for measured numbers + rationale.
-# Combined with NullPool for async engines (no idle connections post-setup),
-# the fix addresses both the setup-phase spike and the test-phase connection budget.
-# Setup phase per worker: dev_engine + test_engine_sync + alembic (22 steps) +
-# _saml_bridge_engine ≈ 3-5 seconds total. Stagger must be ≥ setup time so at
-# most 1 worker is in the migration phase at any time. Use 5s with some headroom.
-# Impact: last worker (gw15) delays 15 × 5 = 75s. Total parallel wall clock:
-#   75s (stagger overhead) + ~80s (test execution) ≈ 155s vs sequential 539s.
-_SETUP_STAGGER_SECONDS = 5.0
-
-
-def _get_setup_stagger_delay() -> float:
-    """Return the number of seconds this worker should sleep before running setup.
-
-    Sequential mode (master) or unrecognised worker ID returns 0.0 — no stagger needed.
-    xdist worker gw0 returns 0.0, gw1 returns 5.0, gw15 returns 75.0.
-
-    Note: if xdist changes its worker ID format (currently 'gwN'), unrecognised
-    IDs silently return 0.0, defeating the stagger for those workers.
-    """
-    worker_id = os.environ.get("PYTEST_XDIST_WORKER", "master")
-    if not worker_id.startswith("gw"):
-        return 0.0
-    try:
-        worker_num = int(worker_id[2:])
-    except ValueError:
-        warnings.warn(
-            f"Unexpected PYTEST_XDIST_WORKER format: {worker_id!r}; stagger disabled",
-            stacklevel=2,
-        )
-        return 0.0
-    return worker_num * _SETUP_STAGGER_SECONDS
 
 
 def pytest_configure(config):
@@ -828,16 +772,17 @@ def _create_test_db_with_retry(
             the regression pin patches this to a no-op so retries do not
             actually wait.
         backoffs: Tuple of per-attempt sleep durations (seconds) between
-            failed attempts. Length determines retry budget. Total wait
-            budget under contention with the default ``(1.0, 2.0, 4.0)`` is
-            7s, bounded below the staggered-startup window's 75s ceiling.
+            failed attempts. Length determines retry budget. The default
+            ``(1.0, 2.0, 4.0)`` waits up to 7s: every worker creates its
+            database as the session starts, so connections refused in that
+            burst get time to free up, and a server that stays saturated
+            still fails setup within seconds.
 
     Raises:
         OperationalError: If every attempt raises an OperationalError whose
             message contains ``"too many clients already"``. Re-raised so
-            the caller surfaces the contention loudly as a fixture error
-            (NOT swallowed silently — that was the v1019 defect at audit
-            Section 4.1, 407/648 failures, 62.8% of total).
+            setup fails with it instead of running the worker's tests
+            without a database.
         OperationalError: Re-raised immediately for any other OperationalError
             (DNS failure, refused connection, authentication, etc.) — the
             caller decides whether to translate that into a `pytest.skip` or
@@ -875,11 +820,9 @@ def _create_test_db_with_retry(
         raise last_exc
 
 
-# Retry budget for transient "too many clients already" contention during
-# per-fixture async-session setup (e.g., `_ensure_roles_and_admin`). Same
-# shape as `_CREATE_DB_RETRY_BACKOFFS` above — bounded below the staggered-
-# startup window's 75s ceiling. See Plan 1088-03 and audit Section 4.2
-# (`.planning/audits/PYTEST-XDIST-FIXTURE-AUDIT-v1020.md`).
+# Retry budget for "too many clients already" when a fixture opens a
+# connection: the init lock, `_ensure_roles_and_admin`, the tile pool and the
+# test engine. Same 7s ceiling and reason as `_CREATE_DB_RETRY_BACKOFFS`.
 _SETUP_PHASE_RETRY_BACKOFFS = (1.0, 2.0, 4.0)
 
 
@@ -913,39 +856,14 @@ async def _run_with_too_many_clients_retry(
 ):
     """Run an async fixture-setup callable with retry on transient contention.
 
-    Plan 1088-03 / audit Section 4.2: After Plan 1088-01's silent-swallow
-    fix closed the dominant per-worker DB lifecycle race (category 4.1,
-    407/648 failures), the residual setup-phase contention category 4.2
-    remained at 188 failures (re-measure at
-    `.planning/audits/PYTEST-XDIST-REMEASURE-AFTER-1088-01.md`). The failure
-    shape is identical across all 188 occurrences:
-
-        "failed on setup with 'asyncpg.exceptions.TooManyConnectionsError:
-         sorry, too many clients already'"
-
-    Root cause: the `client` fixture's first async-session connection
-    acquisition (inside `_ensure_roles_and_admin` at conftest.py:644-691)
-    races the connection ceiling. With max_connections=30 and 16 xdist
-    workers staggered at 5.0s intervals, the cascade window briefly opens
-    when several workers complete the staggered-startup gate simultaneously
-    and concurrently request session-factory connections.
-
-    This helper mirrors the shape of `_create_test_db_with_retry` (Plan
-    1088-01) but for async callables: it invokes ``coro_fn`` (a zero-arg
-    async callable that performs the DB operation), retries on the
-    transient contention exception family (`OperationalError`,
-    `asyncpg.TooManyConnectionsError`, `asyncpg.CannotConnectNowError`),
-    and re-raises after the budget is exhausted — NOT silently swallowed.
-
-    IMPORTANT — exception-family scope (see ``_TRANSIENT_CONTENTION_EXCEPTIONS``
-    above the helper): the helper must catch BOTH the SQLAlchemy-wrapped
-    OperationalError shape AND the raw asyncpg exception classes. During
-    initial Plan 1088-03 measurement, catching only ``OperationalError``
-    yielded a retry-coverage rate of ~42% (188 → 109) because the
-    majority of contention errors surface as raw
-    ``asyncpg.exceptions.TooManyConnectionsError`` through the
-    ``bind.connect()`` → ``greenlet_spawn`` path. Widening the catch to
-    include the asyncpg classes is what actually closes the 4.2 cascade.
+    The async twin of `_create_test_db_with_retry`: a fixture's first
+    connection, such as the one `_ensure_roles_and_admin` opens for every
+    `client`, can be refused with "too many clients already" while other
+    workers hold connections. ``coro_fn`` is retried on
+    ``_TRANSIENT_CONTENTION_EXCEPTIONS`` and the last error is re-raised
+    once the budget is spent. The asyncpg classes are in that tuple because
+    most refusals escape through ``greenlet_spawn`` before SQLAlchemy wraps
+    them in ``OperationalError``.
 
     Args:
         coro_fn: Zero-arg async callable that performs the DB-touching
@@ -957,31 +875,18 @@ async def _run_with_too_many_clients_retry(
             ``asyncio.sleep``; the regression pin patches this to a no-op
             so retries do not actually wait.
         backoffs: Tuple of per-attempt sleep durations (seconds) between
-            failed attempts. Length determines retry budget. Total wait
-            budget under contention with the default ``(1.0, 2.0, 4.0)``
-            is 7s, bounded below the staggered-startup window's 75s
-            ceiling.
+            failed attempts. Length determines retry budget. The default
+            is ``_SETUP_PHASE_RETRY_BACKOFFS``, up to 7s.
 
     Raises:
         Exception: If every attempt raises one of
             ``_TRANSIENT_CONTENTION_EXCEPTIONS`` whose message contains
             ``"too many clients already"``, the last exception is re-raised
-            so the caller surfaces the contention loudly as a fixture
-            error (NOT swallowed silently).
-        Exception: Re-raised immediately for any
-            ``OperationalError`` whose message does NOT contain
-            ``"too many clients already"`` (DNS failure, refused
-            connection, authentication, etc.) — non-contention shapes
-            propagate so the caller can route them appropriately.
-        Exception: Any other exception (non-contention, non-OperationalError)
-            propagates immediately on the first attempt.
-
-    The helper is async-native (awaits ``coro_fn()`` and ``sleep_fn(...)``)
-    so it integrates cleanly with the existing async `client` fixture
-    body. The signature mirrors `_create_test_db_with_retry` so future
-    callers (or test pins) have a consistent retry-wrapper API for both
-    sync setup work (DDL CREATE/DROP) and async setup work (session
-    factories / asyncpg).
+            so the fixture fails with it.
+        Exception: Re-raised immediately for any ``OperationalError`` whose
+            message does NOT contain ``"too many clients already"`` (DNS
+            failure, refused connection, authentication, etc.).
+        Exception: Any other exception propagates on the first attempt.
     """
     last_exc: BaseException | None = None
     attempt_budget = 1 + len(backoffs)
@@ -1056,23 +961,10 @@ async def _init_tile_pool_for_tests(request):
     pool_module._tile_pool = None
 
 
-# Retry budget for transient "too many clients already" contention during
-# in-test session-factory acquisition (per-request `override_get_db` ->
-# `test_session_factory()`). Distinct from `_SETUP_PHASE_RETRY_BACKOFFS`:
-#
-# - Setup phase budget (1.0 + 2.0 + 4.0 = 7s): fires ONCE per worker at the
-#   `_ensure_roles_and_admin` call; bounded below the 75s staggered-startup
-#   window's ceiling.
-# - In-test phase budget (0.5 + 1.0 = 1.5s): fires per-request inside a
-#   test body; a single test may issue several sequential `TestClient.post`
-#   calls, each opening a new connection. The budget MUST be tight or
-#   stalls compound across requests within one test. 1.5s is the smallest
-#   window that empirically clears the connection-saturation peak (see
-#   Plan 1088-04 and audit Section 4.3).
-#
-# See Plan 1088-04 and audit Section 4.3
-# (`.planning/audits/PYTEST-XDIST-FIXTURE-AUDIT-v1020.md:1109-1135` +
-# Section 5 suggestion at lines 1296-1299).
+# Retry budget for "too many clients already" when a test's request opens a
+# session (`override_get_db` -> `test_session_factory()`). One test can make
+# several requests, each with its own connection, so waits here add up; it is
+# kept to 1.5s, where the setup-phase budget allows 7s.
 _IN_TEST_RETRY_BACKOFFS = (0.5, 1.0)
 
 
@@ -1391,9 +1283,9 @@ class _RetryingAsyncEngine:
     - REUSES `_TRANSIENT_CONTENTION_EXCEPTIONS` verbatim — no new catch.
     - REUSES `_SETUP_PHASE_RETRY_BACKOFFS = (1.0, 2.0, 4.0)` verbatim.
     - Preserves the underlying engine's `.pool` accessor via `@property`
-      delegation (required for `test_xdist_engine_uses_nullpool` at
-      `test_conftest_pool_sizing.py:261` and
-      `test_sequential_engine_uses_queuepool` at `:281`).
+      delegation (required for `test_xdist_engine_uses_nullpool` and
+      `test_sequential_engine_uses_queuepool` in
+      `test_conftest_pool_sizing.py`).
     - Preserves the `sync_engine` accessor used by `async_sessionmaker`
       via `engine._get_sync_engine_or_connection` (module-level function
       in `sqlalchemy.ext.asyncio.engine`).
@@ -1598,10 +1490,7 @@ class _RetryingAsyncEngine:
 
     @property
     def pool(self):
-        """Pass-through accessor preserving the underlying engine's
-        pool class. CRITICAL for `test_conftest_pool_sizing.py:261` /
-        `:281` pins which check `type(engine.pool).__name__`.
-        """
+        """The underlying engine's pool, whose class the pool sizing tests check."""
         return self._underlying.pool
 
     @property
@@ -1768,37 +1657,11 @@ def _test_db_lifecycle():
     os.environ["POSTGRES_DB_TEST"] = db_name
     should_drop_db = False
 
-    # Stagger startup to prevent simultaneous connection spikes.
-    # See _get_setup_stagger_delay() and _SETUP_STAGGER_SECONDS for rationale.
-    _stagger_delay = _get_setup_stagger_delay()
-    if _stagger_delay > 0:
-        time.sleep(_stagger_delay)
-
     init_lock = ExitStack()
     try:
         # --- Setup: create test database ---
-        #
-        # Audit Section 4.1 / Phase 1088-01 / FI-02: the original block here was a
-        # broad `except Exception: yield; return` that silently swallowed any
-        # failure from `dev_engine.connect()`. Under `pytest -n auto` against
-        # max_connections=30, the staggered-startup window placed the highest-
-        # numbered worker (gw15, 75s stagger) into the connection-saturation
-        # window, where `dev_engine.connect()` raised OperationalError("too many
-        # clients already"). The silent-swallow yielded with should_drop_db=False
-        # and returned, leaving the per-worker test DB uncreated. The 407
-        # downstream `InvalidCatalogNameError` failures (62.8% of all -n auto
-        # failures in the v1020 audit) all traced back to this single defect.
-        #
-        # The replacement structure below distinguishes:
-        #   - transient connection contention (`too many clients already`):
-        #     retry-with-backoff via `_create_test_db_with_retry`, fail loudly
-        #     on exhaustion so the issue surfaces as a fixture error (NOT as
-        #     downstream InvalidCatalogNameError).
-        #   - genuinely unreachable host (DNS failure, refused connection):
-        #     preserve the existing pytest.skip semantics so pure unit-test
-        #     runs outside Docker still work.
-        # See `.planning/audits/PYTEST-XDIST-FIXTURE-AUDIT-v1020.md` §4.1 and
-        # `.planning/phases/1088-fixture-isolation-fixes-regression-pins/1088-01-PLAN.md`.
+        # Saturation is retried and then fails setup, so a worker never runs
+        # without its database; an unreachable host skips only DB-backed tests.
         quoted_db_name = _quote_database_identifier(db_name)
 
         def _open_dev_engine():
