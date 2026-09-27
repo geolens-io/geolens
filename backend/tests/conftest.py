@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.modules.auth.models import Role, User, UserRole
 from app.modules.auth.providers.local import hash_password
 from app.platform.cache import init_cache
-from app.core.config import settings
+from app.core.config import Settings, settings
 
 from tests.factories import create_user
 
@@ -297,6 +297,19 @@ def _dispose_shared_app_engine_after_test(request):
         _dispose()
 
 
+def _repoint_stale_settings(original, skip_modules=None) -> None:
+    """Point every app-module attribute holding another ``Settings`` at ``original``.
+
+    Modules named in ``skip_modules`` are not checked.
+    """
+    for name, module in list(sys.modules.items()):
+        if not name.startswith("app.") or (skip_modules and name in skip_modules):
+            continue
+        for attr, value in list(getattr(module, "__dict__", {}).items()):
+            if isinstance(value, Settings) and value is not original:
+                setattr(module, attr, original)
+
+
 @pytest.fixture(autouse=True)
 def _restore_process_global_config():
     """Put the config singleton and the tenancy-mode env var back after each test.
@@ -306,8 +319,9 @@ def _restore_process_global_config():
     to the xdist worker. A fresh ``Settings()`` lacks the per-worker
     ``postgres_db_test`` name set on the original at session setup, and a leaked
     multi_tenant mode changes RLS, schema and migration behaviour for later tests.
-    App modules bind ``settings`` when imported, so one first imported while a test
-    had it rebound would keep that test's object; those are pointed back as well.
+    App modules bind the singleton when imported, under ``settings`` or another
+    name, so a module that bound a test's object keeps it; those bindings are
+    pointed back too.
 
     ``monkeypatch.setattr(settings, ...)`` changes attributes on the singleton itself
     and monkeypatch undoes it; nothing here interferes with that.
@@ -315,18 +329,17 @@ def _restore_process_global_config():
     import app.core.config as cfg_mod
 
     original_settings = cfg_mod.settings
+    modules_before = set(sys.modules)
     _MODE_KEY = "GEOLENS_TENANCY_MODE"
     _mode_was_set = _MODE_KEY in os.environ
     _original_mode = os.environ.get(_MODE_KEY)
     try:
         yield
     finally:
+        rebound = cfg_mod.settings is not original_settings
         cfg_mod.settings = original_settings
-        for name, module in list(sys.modules.items()):
-            if name.startswith("app.") and isinstance(
-                getattr(module, "settings", None), cfg_mod.Settings
-            ):
-                module.settings = original_settings
+        # A test that put the singleton back itself leaves only its new imports to check.
+        _repoint_stale_settings(original_settings, None if rebound else modules_before)
         if _mode_was_set:
             os.environ[_MODE_KEY] = _original_mode  # type: ignore[assignment]
         else:
