@@ -20,7 +20,8 @@ from app.modules.catalog.maps.schemas import (
     MapLayerResponse,
     MapResponse,
 )
-from app.modules.catalog.maps.service import LayerRow
+from app.modules.catalog.maps.service import LayerRow, validate_public_visibility
+from app.modules.catalog.maps.sharing import can_read_every_map_dataset
 from app.platform.extensions import get_permission_extension
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -250,6 +251,43 @@ async def _check_map_read_access(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Map not found",
             )
+
+
+async def _reject_non_public_datasets(db: AsyncSession, map_obj: Map) -> None:
+    """Raise 400 when a public map's layers include a non-public dataset.
+
+    Publishing runs the same check, but a map that is already public only
+    meets it again when its layers change.
+    """
+    if map_obj.visibility != "public":
+        return
+    non_public = await validate_public_visibility(db, map_obj.id)
+    if non_public:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "message": "A public map can't contain non-public datasets",
+                "datasets": ", ".join(non_public),
+            },
+        )
+
+
+async def _stored_image_cache_control(
+    db: AsyncSession, map_obj: Map, user: Identity | None, *, max_age: int
+) -> str | None:
+    """Cache-Control for a map's stored thumbnail or OG image; None withholds it.
+
+    A stored image can't leave out a layer the way live map responses do, so
+    it goes only to a caller who can read every dataset the map draws. It is
+    publicly cacheable only when an anonymous caller could read them all too.
+    """
+    if not await can_read_every_map_dataset(db, map_obj, user):
+        return None
+    if map_obj.visibility == "public" and (
+        user is None or await can_read_every_map_dataset(db, map_obj, None)
+    ):
+        return f"public, max-age={max_age}"
+    return "private, no-cache"
 
 
 async def _can_edit_map(
