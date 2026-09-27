@@ -806,21 +806,18 @@ class TestSearchEnrichmentVrt:
                 return self._rows
 
         class FakeSession:
-            def __init__(self):
-                self.execute_count = 0
-
             async def execute(self, _stmt):
-                # PERF-02: blocks 1 and 4 use inner sessions (mocked below).
-                # The caller's `db` only sees the VRT source_count merge query
-                # in block 3, so the FIRST execute on the FakeSession is the
-                # VRT lookup.
-                self.execute_count += 1
-                if self.execute_count == 1:
-                    row = MagicMock()
-                    row.dataset_id = vrt.id
-                    row.source_count = 2
-                    return FakeExecuteResult(rows=[row])
                 return FakeExecuteResult()
+
+        counted: list[uuid.UUID] = []
+
+        async def fake_visible_vrt_source_counts(_db, vrt_ids, _user, _roles):
+            counted.extend(vrt_ids)
+            return {vrt_id: 2 for vrt_id in vrt_ids}
+
+        monkeypatch.setattr(
+            search_module, "visible_vrt_source_counts", fake_visible_vrt_source_counts
+        )
 
         # PERF-02: stub out the inner-session factory used by blocks 1 + 4.
         # Each inner block opens `async with async_session() as inner_db:`,
@@ -845,12 +842,13 @@ class TestSearchEnrichmentVrt:
         monkeypatch.setattr(_db_module, "async_session", _fake_async_session)
 
         _, raster_meta, _ = await search_module._bulk_fetch_dataset_metadata(
-            FakeSession(), [vector, raster, vrt]
+            FakeSession(), [vector, raster, vrt], None, set()
         )
 
         assert set(seen_ids) == {raster.id, vrt.id}
         assert vector.id not in seen_ids
         assert raster_meta[str(vrt.id)]["vrt_type"] == "mosaic"
+        assert counted == [vrt.id]
         assert raster_meta[str(vrt.id)]["source_count"] == 2
 
     def test_dataset_to_ogc_record_exposes_vrt_raster_meta_from_facade(self):

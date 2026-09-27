@@ -183,17 +183,6 @@ async def get_vrt_status(
     last_gen = gen_result.scalar_one_or_none()
     last_generation_at = last_gen.completed_at if last_gen else None
 
-    # Raw total link count, intentionally including ALL links, while
-    # source_health below reflects only accessible members.
-    # Recomputing from the filtered set would leak the unauthorized delta.
-    count_result = await db.execute(
-        text(
-            "SELECT COUNT(*) FROM catalog.vrt_source_links WHERE vrt_dataset_id = :id"
-        ),
-        {"id": str(dataset_id)},
-    )
-    source_count = count_result.scalar() or 0
-
     # Active generation (if regenerating)
     active_generation = None
     if vrt_status == "regenerating":
@@ -316,7 +305,7 @@ async def get_vrt_status(
     return VrtStatusResponse(
         status=vrt_status,
         last_generation_at=last_generation_at,
-        source_count=source_count,
+        source_count=len(source_health_list),
         active_generation=active_generation,
         source_health=source_health_list,
     )
@@ -325,10 +314,11 @@ async def get_vrt_status(
 def _vrt_generation_item(generation: Any, *, include_detail: bool) -> VrtGenerationItem:
     """One row of a VRT dataset's regeneration history.
 
-    ``error_message`` can name server paths and ``triggered_by`` contains a
-    raw user id. ``include_detail`` is the
-    ``can_view_dataset_provenance`` answer; both fields are null otherwise,
-    matching what ``DatasetRefreshRunResponse`` redacts for the same reader.
+    ``error_message`` can name server paths, ``triggered_by`` contains a
+    raw user id and ``source_count`` counts members the reader may not be
+    able to see. ``include_detail`` is the ``can_view_dataset_provenance``
+    answer; all three fields are null otherwise, matching what
+    ``DatasetRefreshRunResponse`` redacts for the same reader.
 
     No per-row "you triggered this one" arm: every ``VrtGeneration``
     writer goes through ``check_dataset_write_access`` (owner-or-admin),
@@ -341,7 +331,7 @@ def _vrt_generation_item(generation: Any, *, include_detail: bool) -> VrtGenerat
         completed_at=generation.completed_at,
         duration_seconds=generation.duration_seconds,
         error_message=generation.error_message if include_detail else None,
-        source_count=generation.source_count,
+        source_count=generation.source_count if include_detail else None,
         triggered_by=generation.triggered_by if include_detail else None,
     )
 

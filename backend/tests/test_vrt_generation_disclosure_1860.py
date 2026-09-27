@@ -77,15 +77,16 @@ class TestVrtGenerationDisclosure:
         # Kept: the timeline get_vrt_status already publishes to this reader.
         assert row["id"] == str(generation.id)
         assert row["status"] == "failed"
-        assert row["source_count"] == 3
         assert row["started_at"] is not None
         assert row["completed_at"] is not None
         assert row["duration_seconds"] == 300.0
 
         # Redacted: the two fields DatasetRefreshRunResponse nulls for the
-        # same reader.
+        # same reader, and a member count that can include members this
+        # reader cannot see.
         assert row["error_message"] is None
         assert row["triggered_by"] is None
+        assert row["source_count"] is None
 
         body = resp.text
         assert "private-staging" not in body
@@ -113,6 +114,7 @@ class TestVrtGenerationDisclosure:
         row = resp.json()["generations"][0]
         assert row["error_message"] == _ERROR_TEXT
         assert row["triggered_by"] == str(admin_id)
+        assert row["source_count"] == 3
 
     async def test_admin_sees_the_detail_on_another_users_dataset(
         self,
@@ -135,6 +137,7 @@ class TestVrtGenerationDisclosure:
         row = resp.json()["generations"][0]
         assert row["error_message"] == _ERROR_TEXT
         assert row["triggered_by"] == str(owner_id)
+        assert row["source_count"] == 3
 
     async def test_invisible_dataset_is_still_404(
         self,

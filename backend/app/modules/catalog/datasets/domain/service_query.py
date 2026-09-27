@@ -23,6 +23,7 @@ from app.core.tiles3d import TILESET_ASSET_KEY
 from app.modules.catalog.authorization import (
     apply_visibility_filter,
     can_view_dataset_provenance,
+    visible_vrt_source_counts,
 )
 from app.modules.catalog.datasets.domain._sql_safety import (
     SAFE_TABLE_NAME_RE,
@@ -160,16 +161,7 @@ async def get_datasets_list(
         for d in datasets
         if getattr(d.record, "record_type", None) == "vrt_dataset"
     ]
-    source_counts: dict[str, int] = {}
-    if vrt_ids:
-        sc_result = await db.execute(
-            text(
-                "SELECT vrt_dataset_id, COUNT(*) AS cnt FROM catalog.vrt_source_links WHERE vrt_dataset_id = ANY(:ids) GROUP BY vrt_dataset_id"
-            ),
-            {"ids": [str(v) for v in vrt_ids]},
-        )
-        for row in sc_result.all():
-            source_counts[row.vrt_dataset_id] = row.cnt
+    source_counts = await visible_vrt_source_counts(db, vrt_ids, user, user_roles)
 
     # One visibility query for the page, not one per row.
     from app.modules.catalog.authorization import visible_lineage_summaries
@@ -184,7 +176,7 @@ async def get_datasets_list(
             actors_by_id=actors_by_id,
             raster_asset=raster_assets_by_dataset_id.get(d.id),
             is_admin=is_admin,
-            source_count=source_counts.get(str(d.id)),
+            source_count=source_counts.get(d.id),
             base_url=base_url,
             lineage_summary=lineage[d.record_id],
             # Per-row — the page can mix the caller's own
@@ -230,7 +222,7 @@ async def get_dataset_detail(
         [dataset.record.created_by, dataset.record.updated_by],
     )
 
-    # Fetch RasterAsset, vrt_source_links count, and DatasetAsset rows
+    # Fetch RasterAsset, the VRT member count, and DatasetAsset rows
     # sequentially on the caller's own session through CatalogPort so catalog
     # does not import processing-owned raster ORM classes directly.
     #
@@ -247,15 +239,17 @@ async def get_dataset_detail(
     if needs_raster:
         raster_asset = await get_catalog_port().get_raster_asset(db, dataset.id)
 
+    if user_roles is None:
+        from app.modules.catalog.authorization import get_user_roles
+
+        user_roles = await get_user_roles(db, user) if user is not None else set()
+    is_admin = "admin" in user_roles
+
     source_count = None
     if needs_vrt_count:
-        sc_result = await db.execute(
-            text(
-                "SELECT COUNT(*) FROM catalog.vrt_source_links WHERE vrt_dataset_id = :id"
-            ),
-            {"id": str(dataset.id)},
-        )
-        source_count = sc_result.scalar()
+        source_count = (
+            await visible_vrt_source_counts(db, [dataset.id], user, user_roles)
+        )[dataset.id]
 
     dataset_asset_rows = await get_catalog_port().get_dataset_assets(db, dataset.id)
     tileset_asset = _carrier(dataset_asset_rows, TILESET_ASSET_KEY)
@@ -273,12 +267,6 @@ async def get_dataset_detail(
             roles=da.roles,
             size_bytes=da.size_bytes,
         )
-
-    if user_roles is None:
-        from app.modules.catalog.authorization import get_user_roles
-
-        user_roles = await get_user_roles(db, user) if user is not None else set()
-    is_admin = "admin" in user_roles
 
     from app.modules.catalog.authorization import (
         visible_derived_from,

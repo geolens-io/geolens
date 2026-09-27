@@ -12,7 +12,7 @@ from collections.abc import Iterable, Sequence
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import Select, select
+from sqlalchemy import Select, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -363,6 +363,39 @@ async def visible_lineage_summary(
 ) -> str | None:
     """One record's access-checked lineage prose. See visible_lineage_summaries."""
     return (await visible_lineage_summaries(db, [record], user, user_roles))[record.id]
+
+
+async def visible_vrt_source_counts(
+    db: AsyncSession,
+    vrt_dataset_ids: Iterable[uuid.UUID],
+    user: Identity | None,
+    user_roles: set[str],
+) -> dict[uuid.UUID, int]:
+    """How many of each VRT's member datasets this requester may read.
+
+    Member lists omit the members a requester cannot read, so a count of every
+    link would tell them how many are hidden. Each requested VRT gets an entry.
+    """
+    wanted = set(vrt_dataset_ids)
+    if not wanted:
+        return {}
+    rows = (
+        await db.execute(
+            text(
+                "SELECT vrt_dataset_id, source_dataset_id "
+                "FROM catalog.vrt_source_links WHERE vrt_dataset_id = ANY(:ids)"
+            ),
+            {"ids": list(wanted)},
+        )
+    ).all()
+    accessible = await _accessible_dataset_ids(
+        db, {row.source_dataset_id for row in rows}, user, user_roles
+    )
+    counts = dict.fromkeys(wanted, 0)
+    for row in rows:
+        if row.source_dataset_id in accessible:
+            counts[row.vrt_dataset_id] += 1
+    return counts
 
 
 def can_view_dataset_provenance(
