@@ -11,7 +11,6 @@ go wrong — shapefile DBF truncates to 10 characters — and is reported to
 the user rather than repaired.
 """
 
-import math
 import re
 
 import structlog
@@ -28,21 +27,34 @@ from app.processing.ingest.metadata_sql import (
 
 logger = structlog.stdlib.get_logger(__name__)
 
-_WS = r"[ \t\n\r\f\v]*"
-# nan/inf(inity) are valid double precision input on their own; the finite
-# range check right after this one is what rejects them as out-of-range.
-_FLOAT8_SPECIAL_RE = re.compile(
-    rf"\A{_WS}[+-]?(nan|inf(?:inity)?){_WS}\Z", re.IGNORECASE
-)
-_FLOAT8_DECIMAL_RE = re.compile(rf"\A{_WS}[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?{_WS}\Z")
+_FLOAT8_SPECIAL_RE = r"^\s*[+-]?(nan|inf(inity)?)\s*$"
+# SQLAlchemy's text() reads a bare ":" as a bind parameter, which POSIX's
+# [[:space:]] class would trip; \s (also valid in Postgres's regex dialect)
+# avoids it.
+_FLOAT8_DECIMAL_RE = r"^\s*[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d{1,4})?\s*$"
+_FLOAT8_MIN_POSITIVE = "4.9e-324"
+_FLOAT8_MAX = "1.7976931348623157e308"
 
 
-def _is_float8_literal(value: str) -> bool:
-    if _FLOAT8_SPECIAL_RE.match(value):
-        return True
-    # A shape match can still overflow (e.g. "1e400"), which raises rather
-    # than casting, so the shape alone isn't enough to call it parseable.
-    return bool(_FLOAT8_DECIMAL_RE.match(value)) and not math.isinf(float(value))
+def _float8_predicate(col_expr: str) -> str:
+    """SQL predicate: does col_expr's text cast to double precision without error?
+
+    Replaces pg_input_is_valid (PG16+) with regex operators available on
+    PG13. A shape match can still overflow double precision on cast (e.g.
+    "1e400"), so it's also bounded via ::numeric, which accepts any
+    magnitude; capping the exponent at 4 digits keeps that cast itself from
+    overflowing numeric's own range.
+    """
+    return (
+        f"CASE "
+        f"WHEN {col_expr} ~* '{_FLOAT8_SPECIAL_RE}' THEN true "
+        f"WHEN {col_expr} ~ '{_FLOAT8_DECIMAL_RE}' THEN ("
+        f"abs({col_expr}::numeric) = 0 OR "
+        f"abs({col_expr}::numeric) BETWEEN {_FLOAT8_MIN_POSITIVE} AND {_FLOAT8_MAX}"
+        f") "
+        f"ELSE false "
+        f"END"
+    )
 
 
 async def construct_point_geometry(
@@ -67,17 +79,16 @@ async def construct_point_geometry(
     y_col = _sql_quote_ident(y_column)
     finite_floor = "-1.7976931348623157e308"
     finite_ceiling = "1.7976931348623157e308"
-    coordinate_text = await session.execute(
+    x_is_float8 = _float8_predicate(f"{x_col}::text")
+    y_is_float8 = _float8_predicate(f"{y_col}::text")
+    unparseable = await session.execute(
         text(
-            f"SELECT {x_col}::text, {y_col}::text FROM {tref} "
-            f"WHERE {x_col} IS NOT NULL AND {y_col} IS NOT NULL"
+            f"SELECT COUNT(*) FROM {tref} "
+            f"WHERE {x_col} IS NOT NULL AND {y_col} IS NOT NULL "
+            f"AND (NOT ({x_is_float8}) OR NOT ({y_is_float8}))"
         )
     )
-    unparseable_count = sum(
-        1
-        for x_text, y_text in coordinate_text
-        if not (_is_float8_literal(x_text) and _is_float8_literal(y_text))
-    )
+    unparseable_count = int(unparseable.scalar_one())
     if unparseable_count:
         raise ValueError(
             f"{unparseable_count} row(s) contain X/Y values that are not numbers"

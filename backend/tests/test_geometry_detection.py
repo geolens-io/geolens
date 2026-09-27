@@ -311,12 +311,12 @@ class TestConstructPointGeometry:
 
 
 # ---------------------------------------------------------------------------
-# _is_float8_literal — the PG13-compatible replacement for pg_input_is_valid
+# _float8_predicate — the PG13-compatible replacement for pg_input_is_valid
 # ---------------------------------------------------------------------------
 
 
-class TestIsFloat8LiteralMatchesPostgresCast:
-    """A value the regex accepts must cast with ::double precision without
+class TestFloat8PredicateMatchesPostgresCast:
+    """A value the predicate accepts must cast with ::double precision without
     error, or the range-check query construct_point_geometry runs right
     after would raise instead of the intended ValueError."""
 
@@ -339,11 +339,19 @@ class TestIsFloat8LiteralMatchesPostgresCast:
             "-Infinity",
             "1e",
             "e5",
+            "1e-400",
+            "4.9e-324",
+            "1e-320",
+            "1e308",
+            "1.8e308",
+            "1e99999",
+            "-0",
+            "1E+05",
         ],
     )
     @pytest.mark.anyio
     async def test_accepted_values_always_cast(self, test_db_session, value):
-        from app.processing.ingest.metadata_geometry import _is_float8_literal
+        from app.processing.ingest.metadata_geometry import _float8_predicate
 
         castable = True
         try:
@@ -356,9 +364,22 @@ class TestIsFloat8LiteralMatchesPostgresCast:
         finally:
             await test_db_session.rollback()
 
-        if _is_float8_literal(value):
+        async with test_db_session.begin_nested():
+            # A CTE materializes the bind param into a plain column reference
+            # once; feeding ":v" straight into the predicate's repeated
+            # ``col_expr::numeric`` casts left later occurrences unbound.
+            result = await test_db_session.execute(
+                text(
+                    f"WITH t(v) AS (SELECT CAST(:v AS text)) "
+                    f"SELECT {_float8_predicate('t.v')} FROM t"
+                ).bindparams(v=value)
+            )
+            accepted = result.scalar_one()
+        await test_db_session.rollback()
+
+        if accepted:
             assert castable, (
-                f"{value!r} passed the regex but ::double precision rejects it"
+                f"{value!r} passed the predicate but ::double precision rejects it"
             )
 
 
