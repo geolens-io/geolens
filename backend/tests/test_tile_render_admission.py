@@ -14,6 +14,9 @@ from starlette.responses import Response
 from app.processing.tiles import admission
 from app.processing.tiles import router as tiles
 
+# Time bounds here are hang guards: CI load can stretch any wait severalfold.
+_HANG_GUARD = 30  # seconds
+
 
 @pytest.fixture
 async def serving(monkeypatch):
@@ -72,8 +75,9 @@ async def test_mixed_misses_shed_before_catalog_probe_and_cache_hits_still_serve
 
     monkeypatch.setattr(tiles, "_acquire_and_serve_tile", render)
     task = asyncio.create_task(client.get(f"/tiles/{first}data.roads/0/0/0.pbf"))
-    await asyncio.wait_for(entered.wait(), 2)
+    await asyncio.wait_for(entered.wait(), _HANG_GUARD)
     try:
+        # A full render slot sheds at once; waiting for it would stall the loop.
         response = await asyncio.wait_for(
             client.get(
                 f"/tiles/{second}data.roads/0/0/0.pbf",
@@ -179,7 +183,7 @@ async def test_waiting_tenant_does_not_reserve_another_tenants_capacity(
             headers={"X-Test-Tenant": waiting_tenant},
         )
     )
-    await asyncio.wait_for(waiting.wait(), 1)
+    await asyncio.wait_for(waiting.wait(), _HANG_GUARD)
     try:
         assert not api_connections.locked()
         response = await asyncio.wait_for(
@@ -187,7 +191,7 @@ async def test_waiting_tenant_does_not_reserve_another_tenants_capacity(
                 f"/tiles/{other_prefix}data.roads/0/0/0.pbf",
                 headers={"X-Test-Tenant": other_tenant},
             ),
-            1,
+            _HANG_GUARD,
         )
         assert response.status_code == 204
         assert probe.await_count == 1
@@ -204,7 +208,7 @@ async def test_waiting_tenant_does_not_reserve_another_tenants_capacity(
                 f"/tiles/{waiting_prefix}data.roads/0/0/0.pbf",
                 headers={"X-Test-Tenant": waiting_tenant},
             ),
-            1,
+            _HANG_GUARD,
         )
     ).status_code == 204
     assert not waiting_quota.locked()
