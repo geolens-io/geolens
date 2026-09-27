@@ -16,16 +16,20 @@ vi.mock('@/hooks/use-permissions', () => ({
 }));
 vi.mock('sonner', () => ({ toast: { error: vi.fn() } }));
 const mockMapsData = vi.hoisted(() => ({
-  maps: [] as Array<{ id: string; name: string }>,
+  maps: [] as Array<{ id: string; name: string; created_by?: string | null }>,
   isLoading: false,
   isPending: false,
 }));
 
+const auth = vi.hoisted(() => ({ user: { id: 'user-1', roles: ['viewer'] } }));
+const queryParams = vi.hoisted(() => vi.fn());
+vi.mock('@/stores/auth-store', () => ({ useAuthStore: (selector: (state: typeof auth) => unknown) => selector(auth) }));
+
 vi.mock('@/hooks/use-maps', () => ({
-  useMaps: () => ({
-    data: { maps: mockMapsData.maps },
-    isLoading: mockMapsData.isLoading,
-  }),
+  useMaps: (params: unknown) => {
+    queryParams(params);
+    return { data: { maps: mockMapsData.maps }, isLoading: mockMapsData.isLoading };
+  },
   useCreateMap: () => ({
     mutateAsync: mockMutateAsync,
     isPending: mockMapsData.isPending,
@@ -44,6 +48,8 @@ describe('AddToMapButton', () => {
     mockCan.mockReset();
     mockCan.mockReturnValue(true);
     vi.mocked(toast.error).mockClear();
+    auth.user.roles = ['viewer'];
+    queryParams.mockClear();
   });
 
   it('renders the trigger button', () => {
@@ -61,8 +67,8 @@ describe('AddToMapButton', () => {
 
   it('lists existing maps in dropdown', async () => {
     mockMapsData.maps = [
-      { id: 'map-1', name: 'My First Map' },
-      { id: 'map-2', name: 'Another Map' },
+      { id: 'map-1', name: 'My First Map', created_by: 'user-1' },
+      { id: 'map-2', name: 'Another Map', created_by: 'user-1' },
     ];
 
     render(<AddToMapButton datasetId="ds-1" />);
@@ -74,7 +80,7 @@ describe('AddToMapButton', () => {
   });
 
   it('navigates to existing map builder with add_dataset param', async () => {
-    mockMapsData.maps = [{ id: 'map-1', name: 'Test Map' }];
+    mockMapsData.maps = [{ id: 'map-1', name: 'Test Map', created_by: 'user-1' }];
 
     render(<AddToMapButton datasetId="ds-1" />);
     await user.click(screen.getByRole('button', { name: /Add to Map/i }));
@@ -122,15 +128,33 @@ describe('AddToMapButton', () => {
     expect(toast.error).not.toHaveBeenCalled();
   });
 
-  it('keeps existing maps available without offering new-map creation to readers', async () => {
+  it('hides the map mutation entry point without the effective capability', () => {
     mockCan.mockReturnValue(false);
     mockMapsData.maps = [{ id: 'map-1', name: 'Existing Map' }];
 
     render(<AddToMapButton datasetId="ds-1" />);
-    await user.click(screen.getByRole('button', { name: /Add to Map/i }));
-
     expect(mockCan).toHaveBeenCalledWith('edit_metadata');
-    expect(screen.getByRole('menuitem', { name: 'Existing Map' })).toBeInTheDocument();
-    expect(screen.queryByRole('menuitem', { name: /New map/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Add to Map/i })).not.toBeInTheDocument();
+  });
+
+  it('requests owned maps before pagination and excludes nonowner choices', async () => {
+    mockMapsData.maps = [
+      { id: 'map-1', name: 'Owned map', created_by: 'user-1' },
+      { id: 'map-2', name: 'Other map', created_by: 'user-2' },
+    ];
+    render(<AddToMapButton datasetId="ds-1" />);
+    await user.click(screen.getByRole('button', { name: /Add to Map/i }));
+    expect(queryParams).toHaveBeenCalledWith(expect.objectContaining({ owned_only: true }));
+    expect(screen.getByRole('menuitem', { name: 'Owned map' })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Other map' })).not.toBeInTheDocument();
+  });
+
+  it('allows admins to choose maps owned by other users', async () => {
+    auth.user.roles = ['admin'];
+    mockMapsData.maps = [{ id: 'map-2', name: 'Other map', created_by: 'user-2' }];
+    render(<AddToMapButton datasetId="ds-1" />);
+    await user.click(screen.getByRole('button', { name: /Add to Map/i }));
+    expect(queryParams).toHaveBeenCalledWith(expect.objectContaining({ owned_only: false }));
+    expect(screen.getByRole('menuitem', { name: 'Other map' })).toBeInTheDocument();
   });
 });

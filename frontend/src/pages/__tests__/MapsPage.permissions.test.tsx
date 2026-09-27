@@ -68,6 +68,7 @@ it.each(['list', 'grid'])('allows a custom permission holder to confirm deletion
   render(<MapsPage />);
   if (view === 'grid') await user.click(screen.getByRole('radio', { name: 'Grid view' }));
   expect(screen.getByRole('button', { name: 'Create Map' })).toBeInTheDocument();
+  expect(screen.getByRole('combobox', { name: 'Visibility' })).toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: 'Delete map' }));
   const dialog = screen.getByRole('alertdialog');
   expect(within(dialog).getByText('My map')).toBeInTheDocument();

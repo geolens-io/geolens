@@ -12,6 +12,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useMaps, useCreateMap } from '@/hooks/use-maps';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAuthStore } from '@/stores/auth-store';
+import { canMutateResource } from '@/lib/ownership';
 
 interface AddToMapButtonProps {
   datasetId: string;
@@ -22,11 +24,13 @@ export function AddToMapButton({ datasetId, datasetTitle }: AddToMapButtonProps)
   const { t } = useTranslation('dataset');
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const { data, isLoading } = useMaps({ limit: 20, sort_by: 'updated_at', sort_dir: 'desc' });
+  const user = useAuthStore((s) => s.user);
+  const isAdmin = user?.roles.includes('admin') ?? false;
+  const { data, isLoading } = useMaps({ limit: 20, sort_by: 'updated_at', sort_dir: 'desc', owned_only: !isAdmin });
   const createMap = useCreateMap();
   const { can } = usePermissions();
 
-  const maps = data?.maps ?? [];
+  const maps = data?.maps.filter((map) => canMutateResource(map, user?.id, isAdmin)) ?? [];
 
   function handleSelect(mapId: string) {
     setOpen(false);
@@ -45,6 +49,8 @@ export function AddToMapButton({ datasetId, datasetTitle }: AddToMapButtonProps)
       // useCreateMap reports the failure.
     }
   }
+
+  if (!can('edit_metadata')) return null;
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -66,18 +72,14 @@ export function AddToMapButton({ datasetId, datasetTitle }: AddToMapButtonProps)
             </DropdownMenuItem>
           ))
         )}
-        {can('edit_metadata') && (
-          <>
-            {maps.length > 0 && <DropdownMenuSeparator />}
-            <DropdownMenuItem onClick={handleNewMap} disabled={createMap.isPending}>
-              {createMap.isPending ? (
-                <><Loader2 className="me-1 size-3.5 animate-spin" /> {t('addToMap.creating')}</>
-              ) : (
-                t('addToMap.newMap')
-              )}
-            </DropdownMenuItem>
-          </>
-        )}
+        {maps.length > 0 && <DropdownMenuSeparator />}
+        <DropdownMenuItem onClick={handleNewMap} disabled={createMap.isPending}>
+          {createMap.isPending ? (
+            <><Loader2 className="me-1 size-3.5 animate-spin" /> {t('addToMap.creating')}</>
+          ) : (
+            t('addToMap.newMap')
+          )}
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

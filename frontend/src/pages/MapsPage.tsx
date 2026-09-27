@@ -31,6 +31,7 @@ import { useDocumentTitle } from '@/hooks/use-document-title';
 import { useAuthStore } from '@/stores/auth-store';
 import { readStorage, writeStorage, storageKeys } from '@/lib/storage';
 import type { MapSummaryResponse } from '@/types/api';
+import { canMutateResource } from '@/lib/ownership';
 
 const PAGE_SIZE = 20;
 // fix(#438): ARC-06 — key + access via the typed storage helper.
@@ -42,7 +43,6 @@ export function MapsPage() {
   const { t } = useTranslation();
   const { can } = usePermissions();
   const canEditMaps = can('edit_metadata');
-  const isEditor = useAuthStore((s) => s.isEditor());
   const user = useAuthStore((s) => s.user);
   const [skip, setSkip] = useState(0);
   const [search, setSearch] = useState('');
@@ -105,9 +105,7 @@ export function MapsPage() {
   }
 
   function canDeleteMap(map: MapSummaryResponse) {
-    return canEditMaps && !!user && (
-      user.roles.includes('admin') || map.created_by === user.id
-    );
+    return canEditMaps && canMutateResource(map, user?.id, user?.roles.includes('admin') ?? false);
   }
 
   return (
@@ -158,7 +156,7 @@ export function MapsPage() {
           </SelectContent>
         </Select>
 
-        {isEditor && (
+        {user && (
           <Select value={visibility} onValueChange={setVisibility}>
             <SelectTrigger
               className="w-[140px]"

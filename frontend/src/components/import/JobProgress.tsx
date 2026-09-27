@@ -25,6 +25,7 @@ import {
 import { ApiError } from '@/api/client';
 import { downloadCog, getCogDownloadUrl } from '@/api/datasets';
 import { IngestWarningsBanner } from './IngestWarningsBanner';
+import { usePermissions } from '@/hooks/use-permissions';
 
 interface JobProgressProps {
   jobId: string;
@@ -95,6 +96,7 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgressProps) {
+  const { can } = usePermissions();
   const { t } = useTranslation('import');
   const { data: job, isLoading, isError, error, refetch, isFetching } = useJobStatus(jobId);
   const retryMutation = useRetryJob();
@@ -302,12 +304,14 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
                   <Download className="me-1 size-3" />
                   {t('jobProgress.downloadCog')}
                 </Button>
-                <Button variant="outline" size="sm" asChild>
-                  <Link to={`/datasets/${job.dataset_id}`}>
-                    <Map className="me-1 size-3" />
-                    {t('jobProgress.addToMap')}
-                  </Link>
-                </Button>
+                {can('edit_metadata') && (
+                  <Button variant="outline" size="sm" asChild>
+                    <Link to={`/datasets/${job.dataset_id}`}>
+                      <Map className="me-1 size-3" />
+                      {t('jobProgress.addToMap')}
+                    </Link>
+                  </Button>
+                )}
                 <ConnectDropdownInline datasetId={job.dataset_id} />
               </>
             )}

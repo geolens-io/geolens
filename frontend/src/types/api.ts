@@ -1500,6 +1500,7 @@ export interface MapBrowseParams {
   sort_by?: string;
   sort_dir?: string;
   visibility?: string;
+  owned_only?: boolean;
 }
 
 export interface MapCreateRequest {
