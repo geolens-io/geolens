@@ -118,7 +118,7 @@ def snapshot(api):
         }
     datasets = {}
     for item in api.list_own_datasets():
-        if item["title"] not in seed.SHOWCASE_METADATA:
+        if seed._metadata_spec(item["title"]) is None:
             continue
         if item["title"] in datasets:
             raise RuntimeError(f"ambiguous owned dataset: {item['title']}")
@@ -189,6 +189,17 @@ def unrestorable_changes(api):
 def verify_restorable(api, saved, current):
     if saved["base_url"] != api.base or saved["owner"] != api.username:
         raise RuntimeError("snapshot target or owner differs from this session")
+    removable = {
+        dataset["id"]
+        for title, dataset in current["datasets"].items()
+        if title not in saved["datasets"]
+        or title in (seed.COPC_TITLE, seed.TILES3D_TITLE)
+    }
+    for name, item in current["collections"].items():
+        if name not in saved["collections"] and (
+            name != "Client Connections" or not set(item["dataset_ids"]) <= removable
+        ):
+            raise RuntimeError(f"new collection has unexpected members: {name}")
     for name, original in saved["maps"].items():
         now = current["maps"].get(name)
         if not now or (now["id"], now["created_by"]) != (
@@ -325,13 +336,6 @@ def hide_new_content(api, saved, current):
             print(f"unpublished new dataset {title}")
     for name, item in current["collections"].items():
         if name not in saved["collections"]:
-            new_ids = {
-                dataset["id"]
-                for title, dataset in current["datasets"].items()
-                if title not in saved["datasets"]
-            }
-            if name != "Client Connections" or not set(item["dataset_ids"]) <= new_ids:
-                raise RuntimeError(f"new collection has unexpected members: {name}")
             api.delete_collection(item["id"])
             print(f"removed new collection {name}")
 

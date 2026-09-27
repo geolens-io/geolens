@@ -808,6 +808,14 @@ class Api:
         job = self.poll(r.json()["job_id"], timeout=timeout)
         return self._created(title, job["dataset_id"])
 
+    def swap_layer(self, map_id: str, layer_id: str, body: dict) -> None:
+        r = self.client.patch(
+            f"{self.base}/api/maps/{map_id}/layers",
+            headers=self.h,
+            json={"added": [body], "removed": [layer_id]},
+        )
+        r.raise_for_status()
+
     def add_layer(self, map_id: str, body: dict) -> dict:
         r = self.client.post(
             f"{self.base}/api/maps/{map_id}/layers", headers=self.h, json=body
@@ -3895,7 +3903,7 @@ def build_client_sample(
         or not asset.get("url")
         or asset.get("size_bytes") != expected_size
     ):
-        raise RuntimeError(f"{title} is missing its published {kind} asset")
+        raise RuntimeError(f"{title} is not public or lacks its published {kind} asset")
     return dataset_id
 
 
@@ -6184,23 +6192,19 @@ _LAYER_WRITABLE_FIELDS = (
 def _restyle_layer(
     api: "Api", map_id: str, layer: dict, paint=None, builder=None, fields=None
 ) -> None:
-    """Apply a style delta to an EXISTING layer by re-creating it.
+    """Apply a style delta to an EXISTING layer by swapping in a new copy.
 
-    Delete-and-re-add rather than PATCH, deliberately: the layer-diff path has a
-    known style-clobbering hazard where touching one key nulls out style_config,
-    and a full POST either lands whole or fails whole. The body is the layer's
-    own state read back from the server, so nothing is invented and nothing is
-    dropped - only the keys in the delta differ.
+    One layer-diff request adds the replacement and removes the original. A
+    field PATCH is avoided because the diff's update path can null style_config
+    when one key changes. A separate DELETE is avoided because it leaves the
+    dataset off the map for a moment, and the server then revokes every embed
+    token scoped to that dataset. The body is the layer's own state read back
+    from the server, so only the keys in the delta differ.
 
-    There is a window between the DELETE and the POST, and the caller swallows
-    exceptions so one bad map cannot fail a seed. Without the restore below,
-    a timeout in that window would silently cost a showcase map one of its
-    layers and the seed would still report success. So a failed replacement
-    puts the ORIGINAL body back and re-raises: worst case the styling delta
-    does not land, which is what the caller's warning already means.
+    A lost response is resolved by re-reading the map: the swap is atomic, so
+    the original being gone means the replacement landed.
     """
-    original = {k: layer[k] for k in _LAYER_WRITABLE_FIELDS if layer.get(k) is not None}
-    body = dict(original)
+    body = {k: layer[k] for k in _LAYER_WRITABLE_FIELDS if layer.get(k) is not None}
     if fields:
         # Whole-value replacement, not a merge: these are settings like
         # popup_config whose old contents are the thing being corrected.
@@ -6211,63 +6215,14 @@ def _restyle_layer(
         style_config = dict(body.get("style_config") or {})
         style_config["builder"] = {**(style_config.get("builder") or {}), **builder}
         body["style_config"] = style_config
-    # The DELETE is ambiguous on failure, not merely failed: a lost response or
-    # a timeout can follow a deletion the server already committed. Raising here
-    # without checking would leave the layer gone with no attempt to put it
-    # back, and the caller only logs. So re-read the map and let what is
-    # actually true decide - still present means nothing was lost and the delta
-    # simply does not apply, absent means the delete landed and the re-add below
-    # is now the recovery path rather than an optimisation.
     try:
-        api.delete_layer(map_id, layer["id"])
+        api.swap_layer(map_id, layer["id"], body)
     except (httpx.HTTPStatusError, httpx.TimeoutException):
-        try:
-            survived = any(
-                x.get("id") == layer["id"]
-                for x in (api.get_map(map_id).get("layers") or [])
-            )
-        except (httpx.HTTPStatusError, httpx.TimeoutException):
+        if any(
+            x.get("id") == layer["id"]
+            for x in (api.get_map(map_id).get("layers") or [])
+        ):
             raise
-        if survived:
-            raise
-    display = layer.get("display_name")
-    try:
-        api.add_layer(map_id, body)
-    except Exception:
-        # The POST is ambiguous exactly like the DELETE above: a lost response
-        # can follow a layer the server already created. Layer creation is not
-        # idempotent, so restoring blindly would leave the map with BOTH the
-        # replacement and a copy - and a duplicate survives every later pass,
-        # which restyles both, so it never resolves itself.
-        try:
-            committed = any(
-                x.get("display_name") == display
-                for x in (api.get_map(map_id).get("layers") or [])
-            )
-        except (httpx.HTTPStatusError, httpx.TimeoutException):
-            # Cannot tell. Restore, because a map missing a layer is a visible
-            # hole while a duplicate merely draws twice, and only one of those
-            # is recoverable by an operator who can see it.
-            committed = False
-        if committed:
-            print(
-                f"  ! restyle POST reported failure but {display!r} is present; "
-                "leaving it rather than adding a duplicate",
-                file=sys.stderr,
-            )
-            raise
-        try:
-            api.add_layer(map_id, original)
-            print(
-                f"  ! restyle failed; restored the original layer {display!r}",
-                file=sys.stderr,
-            )
-        except (httpx.HTTPStatusError, httpx.TimeoutException):
-            print(
-                f"  !! restyle failed AND the layer {display!r} could not be restored",
-                file=sys.stderr,
-            )
-        raise
 
 
 def _basin_context_layer_body(regions_ds: str) -> dict:

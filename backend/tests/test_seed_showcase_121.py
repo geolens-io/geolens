@@ -122,7 +122,7 @@ def test_existing_client_sample_must_have_the_expected_published_asset():
                 "pointcloud": {"url": "/api/other.copc.laz", "size_bytes": 16},
             }
 
-    with pytest.raises(RuntimeError, match="missing its published pointcloud asset"):
+    with pytest.raises(RuntimeError, match="lacks its published pointcloud asset"):
         seed.build_client_sample(
             SampleApi(),
             None,
@@ -233,12 +233,12 @@ def test_guarded_update_names_changes_restore_cannot_undo(api):
     assert state.unrestorable_changes(api)
 
 
-def _verify(name, extra_name):
+def _verify(name, extra_name, collections=None, datasets=None):
     saved = {
         "base_url": "b",
         "owner": "o",
         "maps": {name: {"id": "m", "created_by": "o", "layers": {}}},
-        "datasets": {},
+        "datasets": {seed.COPC_TITLE: {"id": "copc", "created_by": "o"}},
         "collections": {},
     }
     current = {
@@ -246,15 +246,80 @@ def _verify(name, extra_name):
             name: {
                 "id": "m",
                 "created_by": "o",
-                "layers": {"new": _layer("ds", extra_name)},
+                "layers": {"new": _layer("ds", extra_name)} if extra_name else {},
             }
-        }
+        },
+        "datasets": {
+            seed.COPC_TITLE: {"id": "copc", "created_by": "o"},
+            **(datasets or {}),
+        },
+        "collections": collections or {},
     }
     api = type("A", (), {"base": "b", "username": "o"})()
     state.verify_restorable(api, saved, current)
+
+
+def test_restore_removes_a_new_client_collection_only_when_it_holds_samples():
+    _verify("Restless Earth", None, {"Client Connections": {"dataset_ids": ["copc"]}})
+    with pytest.raises(RuntimeError, match="unexpected members"):
+        _verify(
+            "Restless Earth",
+            None,
+            {"Client Connections": {"dataset_ids": ["copc", "visitor"]}},
+        )
 
 
 def test_restore_accepts_matterhorn_overlay_repair_only_on_matterhorn():
     _verify("The Matterhorn in 3D", "Peaks")
     with pytest.raises(RuntimeError, match="unexpected new layer"):
         _verify("Restless Earth", "Peaks")
+
+
+class SnapshotApi:
+    base = "b"
+    username = "o"
+
+    def list_all_maps(self):
+        return []
+
+    def list_own_datasets(self):
+        return [{"title": "Sentinel-2 TCI S2A_T18TXL_20260918", "id": "scene"}]
+
+    def get_dataset(self, dataset_id):
+        return {"id": dataset_id, "created_by": "o", "record_id": "r"}
+
+    def list_collections(self):
+        return []
+
+
+def test_snapshot_captures_datasets_the_seed_patches_by_title_prefix(monkeypatch):
+    monkeypatch.setattr(state, "get", lambda _api, _path: {"keywords": []})
+    captured = state.snapshot(SnapshotApi())["datasets"]
+    assert list(captured) == ["Sentinel-2 TCI S2A_T18TXL_20260918"]
+
+
+class SwapApi:
+    def __init__(self, landed):
+        self.landed = landed
+        self.swaps = []
+
+    def swap_layer(self, map_id, layer_id, body):
+        self.swaps.append((layer_id, body))
+        raise seed.httpx.TimeoutException("lost response")
+
+    def get_map(self, _):
+        return {"layers": [] if self.landed else [{"id": "old"}]}
+
+
+@pytest.mark.parametrize("landed", [True, False])
+def test_restyle_swaps_in_one_request_and_trusts_the_map_after_a_lost_reply(landed):
+    api = SwapApi(landed)
+    layer = {"id": "old", "dataset_id": "ds", "display_name": "Subway"}
+    if landed:
+        seed._restyle_layer(api, "m", layer, fields={"show_in_legend": False})
+    else:
+        with pytest.raises(seed.httpx.TimeoutException):
+            seed._restyle_layer(api, "m", layer, fields={"show_in_legend": False})
+    assert api.swaps == [
+        ("old", {"dataset_id": "ds", "display_name": "Subway", "show_in_legend": False})
+    ]
