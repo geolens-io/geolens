@@ -30,6 +30,11 @@
  * (SSE) calls don't read the `fetch` option, so their manual mode comes from
  * the request alone, which a later request interceptor can replace.
  *
+ * Every hop, and the browser's resend, keeps the request's `mode`, `cache`,
+ * `referrerPolicy`, `integrity` and abort signal. A `mode: 'same-origin'`
+ * request redirected to another origin rejects with a TypeError, as fetch
+ * does.
+ *
  * All of the above applies to the default `redirect: 'follow'`. A caller
  * that sets `redirect` per call or on the client gets what fetch gives:
  * `'manual'` returns the redirect unfollowed, and `'error'` rejects it with
@@ -107,11 +112,11 @@ async function followRedirect(
     }
     return globalThis.fetch(
       new Request(request.url, {
+        ...carried(request),
         method: request.method,
         headers: forwarded(request.headers),
         redirect: 'follow',
         credentials: 'omit',
-        signal: request.signal,
       }),
     );
   }
@@ -128,17 +133,30 @@ async function followRedirect(
     if (target.protocol !== 'http:' && target.protocol !== 'https:') {
       throw new RedirectError(`Redirected to an unsupported URL scheme: ${target.protocol}`);
     }
+    if (request.mode === 'same-origin' && target.origin !== origin) {
+      throw new TypeError('A same-origin request was redirected to another origin');
+    }
     await response.body?.cancel();
     leftOrigin ||= target.origin !== origin;
     current = new Request(target, {
+      ...carried(request),
       method: request.method,
       headers: leftOrigin ? forwarded(current.headers) : current.headers,
       redirect: 'manual',
-      signal: request.signal,
     });
     response = await (leftOrigin ? globalThis.fetch(current) : clientFetch(current));
   }
   return response;
+}
+
+function carried(request: Request): RequestInit {
+  return {
+    mode: request.mode,
+    cache: request.cache,
+    referrerPolicy: request.referrerPolicy,
+    integrity: request.integrity,
+    signal: request.signal,
+  };
 }
 
 function forwarded(headers: Headers): Headers {

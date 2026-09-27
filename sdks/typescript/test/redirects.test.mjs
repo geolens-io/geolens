@@ -388,6 +388,52 @@ for (const policy of ['error', 'manual']) {
   }
 }
 
+test("mode: 'same-origin' rejects a redirect to another origin", async () => {
+  reset();
+  api.respond = (req, res) => redirect(res, `${origin(storage)}/cog.tif`);
+
+  const result = await downloadCog({
+    client: client({}, 'c'),
+    path: { dataset_id: 'd1' },
+    mode: 'same-origin',
+  });
+
+  assert.ok(result.error instanceof TypeError, `expected a TypeError, got ${result.error}`);
+  assert.equal(storage.seen.length, 0);
+});
+
+test("mode: 'same-origin' still follows a redirect on the same origin", async () => {
+  reset();
+  api.respond = (req, res) =>
+    req.url.startsWith('/files/') ? res.end(BODY) : redirect(res, '/files/cog.tif', 307);
+
+  const result = await downloadCog({
+    client: client({}, 'c'),
+    path: { dataset_id: 'd1' },
+    mode: 'same-origin',
+  });
+
+  assert.equal(result.error, undefined);
+  assert.deepEqual(await bytes(result.data), BODY);
+});
+
+test("cache: 'no-store' is kept on a hop to another origin", async () => {
+  reset();
+  api.respond = (req, res) => redirect(res, `${origin(storage)}/cog.tif`);
+
+  const result = await downloadCog({
+    client: client({ apiKey: randomUUID() }, 'c'),
+    path: { dataset_id: 'd1' },
+    cache: 'no-store',
+  });
+
+  assert.deepEqual(await bytes(result.data), BODY);
+  // Node's fetch sends these for a no-store request; the header allowlist
+  // doesn't carry them, so they come from the hop's own cache mode.
+  assert.equal(storage.seen[0].headers['cache-control'], 'no-cache');
+  assert.equal(storage.seen[0].headers.pragma, 'no-cache');
+});
+
 // A browser answers a manual redirect with an opaque response: type
 // 'opaqueredirect', status 0, no readable headers. A mock fetch stands in.
 function browserFetch(calls) {
@@ -468,3 +514,37 @@ for (const policy of ['error', 'manual']) {
     assert.equal(calls.length, 1);
   });
 }
+
+test("browser: the resend keeps mode: 'same-origin' and cache: 'no-store'", async () => {
+  const calls = [];
+  const resent = [];
+  const sdk = client({}, 'c');
+  sdk.setConfig({ fetch: browserFetch(calls) });
+  const realFetch = globalThis.fetch;
+  // The browser follows the resend itself and refuses a same-origin
+  // request's redirect to another origin.
+  globalThis.fetch = async (request) => {
+    resent.push(request);
+    if (request.mode === 'same-origin') {
+      throw new TypeError('Failed to fetch');
+    }
+    return new Response(BODY, { headers: { 'Content-Type': 'image/tiff' } });
+  };
+
+  let result;
+  try {
+    result = await downloadCog({
+      client: sdk,
+      path: { dataset_id: 'd1' },
+      mode: 'same-origin',
+      cache: 'no-store',
+    });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.ok(result.error instanceof TypeError, `expected a TypeError, got ${result.error}`);
+  assert.equal(resent.length, 1);
+  assert.equal(resent[0].mode, 'same-origin');
+  assert.equal(resent[0].cache, 'no-store');
+});
