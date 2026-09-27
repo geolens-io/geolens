@@ -119,6 +119,8 @@ class Published:
     # archiving its original under this key when there is one.
     reaps_staged_upload: bool = False
     upload_archive_key: str | None = None
+    # And the objects it superseded, as logical keys.
+    superseded_keys: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -329,7 +331,7 @@ class _Attempt:
     # be cancelled, so cleanup never reaps what the commit published.
     publication: PublicationCommit | None = None
     reembed: bool = True
-    # The publish recorded follow-ups for its staged upload.
+    # The publish recorded follow-ups for its staged upload or what it superseded.
     owes_followups: bool = False
 
 
@@ -525,12 +527,16 @@ async def _publish(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
         if published.tiles_changed:
             await bump_tile_cache_version_on(session, dataset)
         values = dict(published.job_values or {})
-        if published.reaps_staged_upload:
+        owes_followups = published.reaps_staged_upload or bool(
+            published.superseded_keys
+        )
+        if owes_followups:
             values["user_metadata"] = owed_followups(
                 attempt_id,
                 strategy.task,
-                reaps_staged_upload=True,
+                reaps_staged_upload=published.reaps_staged_upload,
                 archive_key=published.upload_archive_key,
+                superseded_keys=published.superseded_keys,
             )
         await _complete(
             session,
@@ -551,7 +557,7 @@ async def _publish(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
         attempt.publication = await commit_publication(
             session, job_id=job_id, attempt_id=attempt_id, task=strategy.task
         )
-        attempt.owes_followups = published.reaps_staged_upload
+        attempt.owes_followups = owes_followups
 
         # Published, so each step below logs its own failure instead of
         # failing the replacement.

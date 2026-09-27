@@ -2,12 +2,13 @@
 
 A first ingest owes its completion follow-ups, and a rejected replacement its
 failure notice. A publish that consumed a staged upload also owes items: the
-upload's archive and then its deletion. The terminal transaction records them
-on the job row, so the record exists exactly when the commit does. The task
-runs them after its commit, or the stale-job sweep when the task could not.
-The rest runs once, at the first claim, without waiting on the items. Each
-item is confirmed on its own and retried, after a doubling delay capped at a
-few hours, until it is; the record goes once it is claimed and no item is left.
+upload's archive and then its deletion. A raster replacement owes deleting the
+objects it superseded. The terminal transaction records them on the job row, so
+the record exists exactly when the commit does. The task runs them after its
+commit, or the stale-job sweep when the task could not. The rest runs once, at
+the first claim, without waiting on the items. Each item is confirmed on its own
+and retried, after a doubling delay capped at a few hours, until it is; the
+record goes once it is claimed and no item is left.
 """
 
 from __future__ import annotations
@@ -32,7 +33,7 @@ from sqlalchemy import (
     true,
     update,
 )
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import joinedload
 
 from app.core.config import settings
@@ -52,6 +53,8 @@ from app.processing.ingest.tasks_staging import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from sqlalchemy.ext.asyncio import AsyncSession
 
 # Each first ingest's completion-notice label, or None when it sends no notice
@@ -73,7 +76,8 @@ _ITEMS_ONLY = frozenset({"reupload_file", "reupload_raster", "ingest_file"})
 # once it is confirmed.
 _ARCHIVE_KEY = "archive_key"
 _REAPS_STAGED_UPLOAD = "reaps_staged_upload"
-_ITEMS = (_ARCHIVE_KEY, _REAPS_STAGED_UPLOAD)
+_SUPERSEDED_KEYS = "superseded_keys"
+_ITEMS = (_ARCHIVE_KEY, _REAPS_STAGED_UPLOAD, _SUPERSEDED_KEYS)
 
 # Retry state kept in the record. An owed item has no last attempt, since
 # nothing else is sure to archive or delete a published upload; the sweep
@@ -92,6 +96,7 @@ def owed_followups(
     *,
     reaps_staged_upload: bool = False,
     archive_key: str | None = None,
+    superseded_keys: Sequence[str] = (),
     sweep_waits: bool = False,
 ):
     """The job's ``user_metadata`` with this attempt's ``task`` follow-ups owed.
@@ -107,6 +112,8 @@ def owed_followups(
     if archive_key is not None:
         fields += [_ARCHIVE_KEY, archive_key]
         marks = [ARCHIVE_PENDING_METADATA_KEY, true()]
+    if superseded_keys:
+        fields += [_SUPERSEDED_KEYS, literal(list(superseded_keys), JSONB)]
     if sweep_waits:
         fields += [_NEXT_ATTEMPT_AT, func.now() + _RETRY_BASE]
     owed = func.jsonb_build_object(
@@ -334,6 +341,51 @@ async def _confirm_archive(job_uuid: uuid.UUID, attempt_id: str) -> bool:
     return True
 
 
+async def _reap_superseded(
+    job_uuid: uuid.UUID, dataset_id: uuid.UUID | None, keys: list[str]
+) -> list[str]:
+    """Delete what a landed raster replacement superseded; returns the keys still owed.
+
+    Keeps any key a live catalog row names now. A key whose delete fails stays
+    owed, and so does every key when anything else fails. A key already gone
+    counts as deleted.
+    """
+    from app.platform.jobs.sweep import _live_referenced_storage_keys
+    from app.platform.storage.titiler_url import resolve_current_storage_key
+    from app.processing.ingest.tasks_raster_common import (
+        _cleanup_orphaned_storage_keys,
+    )
+
+    job_id = str(job_uuid)
+    try:
+        live_keys = await _live_referenced_storage_keys(tuple(keys))
+        doomed = {
+            resolve_current_storage_key(key): key
+            for key in keys
+            if key not in live_keys
+        }
+        failed = await _cleanup_orphaned_storage_keys(list(doomed), job_id=job_id)
+    except Exception:  # broad: an undecided key stays owed for the next attempt
+        structlog.get_logger().warning(
+            "superseded_objects_undecided",
+            job_id=job_id,
+            dataset_id=str(dataset_id),
+            exc_info=True,
+        )
+        return list(keys)
+    return [doomed[key] for key in failed]
+
+
+async def _owe_superseded_keys(
+    job_uuid: uuid.UUID, attempt_id: str, keys: list[str]
+) -> None:
+    """Leave the superseded-keys item of the record ``attempt_id`` wrote owing only ``keys``."""
+    path = literal([PUBLISH_FOLLOWUPS_FIELD, _SUPERSEDED_KEYS], ARRAY(Text))
+    # Without create_missing, an item already confirmed stays confirmed.
+    owed = func.jsonb_set(IngestJob.user_metadata, path, literal(keys, JSONB), False)
+    await _write_record(job_uuid, attempt_id, owed)
+
+
 async def _schedule_retry(job_uuid: uuid.UUID, attempt_id: str, attempts: int) -> None:
     """Count ``attempts`` on the job's record and set when the next one is due."""
     delay = _RETRY_BASE * min(2 ** (attempts - 1), _RETRY_CAP // _RETRY_BASE)
@@ -359,8 +411,9 @@ async def _settle_owed_items(
     archive reads only ``file_path``. With a live dataset the upload's
     original is archived first, and the upload is deleted only once that
     archive is confirmed. The delete is confirmed only once nothing it should
-    remove is left. An item left over is tried again after a doubling delay
-    capped at ``_RETRY_CAP``, however many attempts it takes.
+    remove is left. What a raster replacement superseded is deleted unless a
+    live catalog row names it. An item left over is tried again after a
+    doubling delay capped at ``_RETRY_CAP``, however many attempts it takes.
     """
     job_id = str(job_uuid)
     attempt_id = row.owed_attempt
@@ -393,6 +446,14 @@ async def _settle_owed_items(
             if reaped and deleted:
                 await _confirm_owed_item(job_uuid, attempt_id, _REAPS_STAGED_UPLOAD)
                 left.discard(_REAPS_STAGED_UPLOAD)
+    if _SUPERSEDED_KEYS in left:
+        keys = record[_SUPERSEDED_KEYS]
+        still_owed = await _reap_superseded(job_uuid, row.dataset_id, keys)
+        if not still_owed:
+            await _confirm_owed_item(job_uuid, attempt_id, _SUPERSEDED_KEYS)
+            left.discard(_SUPERSEDED_KEYS)
+        elif still_owed != keys:
+            await _owe_superseded_keys(job_uuid, attempt_id, still_owed)
     if left:
         await _schedule_retry(job_uuid, attempt_id, int(record.get(_ATTEMPTS) or 0) + 1)
 
