@@ -194,7 +194,7 @@ sdks:
 	    echo "Either a previous make sdks run was interrupted before it restored its stashed files there, or another make sdks is already running in this checkout. Restore the files listed in SDK_PRESERVED_FILES yourself (or confirm the working tree is already correct), then remove that directory before running make sdks again." >&2; \
 	    exit 1; \
 	  }
-	@$(foreach f,$(SDK_PRESERVED_FILES),mkdir -p "$(SDKS_TMPDIR)/$(dir $(f))"; cp "$(f)" "$(SDKS_TMPDIR)/$(f)" 2>/dev/null;) true
+	@$(foreach f,$(SDK_PRESERVED_FILES),mkdir -p "$(SDKS_TMPDIR)/$(dir $(f))"; if [ -e "$(f)" ]; then cp "$(f)" "$(SDKS_TMPDIR)/$(f)" || { echo "ERROR: failed to back up $(f) to $(SDKS_TMPDIR); nothing has been generated yet." >&2; rm -rf -- "$(SDKS_TMPDIR)"; exit 1; }; fi;)
 	@$(MAKE) _sdks_generate; echo $$? > "$(SDKS_TMPDIR)/.generate-exit"
 	@restore_failed=0; \
 	$(foreach f,$(SDK_PRESERVED_FILES),if [ -e "$(SDKS_TMPDIR)/$(f)" ]; then cp "$(SDKS_TMPDIR)/$(f)" "$(f)" || restore_failed=1; fi;) \
