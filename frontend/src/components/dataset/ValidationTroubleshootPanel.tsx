@@ -18,6 +18,7 @@ interface ValidationTroubleshootPanelProps {
   onOpenChange: (open: boolean) => void;
   errors: ValidationIssue[];
   warnings: ValidationIssue[];
+  canEdit?: boolean;
   onNavigateToField?: (field: string) => void;
 }
 
@@ -136,6 +137,7 @@ export function ValidationTroubleshootPanel({
   onOpenChange,
   errors,
   warnings,
+  canEdit = false,
   onNavigateToField,
 }: ValidationTroubleshootPanelProps) {
   const { t } = useTranslation('dataset');
@@ -146,14 +148,14 @@ export function ValidationTroubleshootPanel({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl" data-testid="validation-troubleshoot-dialog">
         <DialogHeader>
-          <DialogTitle>{t('validation.troubleshoot.title')}</DialogTitle>
+          <DialogTitle>{t(canEdit ? 'validation.troubleshoot.title' : 'overview.reviewIssues')}</DialogTitle>
           <DialogDescription>
             {t('validation.troubleshoot.description', { count: issueCount })}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 max-h-[70vh] overflow-y-auto pe-1">
-          <div className="space-y-2" data-testid="validation-troubleshoot-next-steps">
+          {canEdit ? <div className="space-y-2" data-testid="validation-troubleshoot-next-steps">
             <p className="text-sm font-medium">{t('validation.troubleshoot.likelyNextSteps')}</p>
             {remediationGroups.length === 0 ? (
               <p className="text-sm text-muted-foreground">
@@ -178,7 +180,9 @@ export function ValidationTroubleshootPanel({
                 ))}
               </ul>
             )}
-          </div>
+          </div> : (
+            <p className="text-sm text-muted-foreground">{t('validation.readOnlyGuidance')}</p>
+          )}
 
           {errors.length > 0 && (
             <section className="space-y-2" data-testid="validation-troubleshoot-errors">
@@ -197,7 +201,7 @@ export function ValidationTroubleshootPanel({
                         <span className="font-medium">{formatFieldLabel(issue.field)}:</span>{' '}
                         {issue.message}
                       </p>
-                      {onNavigateToField && getValidationNavigationAction(issue.field) && (
+                      {canEdit && onNavigateToField && getValidationNavigationAction(issue.field) && (
                         <Button
                           type="button"
                           variant="ghost"
@@ -235,7 +239,7 @@ export function ValidationTroubleshootPanel({
                         <span className="font-medium">{formatFieldLabel(issue.field)}:</span>{' '}
                         {issue.message}
                       </p>
-                      {onNavigateToField && getValidationNavigationAction(issue.field) && (
+                      {canEdit && onNavigateToField && getValidationNavigationAction(issue.field) && (
                         <Button
                           type="button"
                           variant="ghost"

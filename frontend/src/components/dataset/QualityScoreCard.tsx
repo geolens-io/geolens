@@ -10,13 +10,14 @@ type QualityScore = NonNullable<DatasetResponse['quality_detail']>;
 interface QualityScoreCardProps {
   qualityScore: QualityScore | null | undefined;
   updateFrequency?: DatasetResponse['update_frequency'];
+  canEdit?: boolean;
 }
 
-const dimensions: { key: keyof QualityScore; labelKey: string; weight: string }[] = [
-  { key: 'metadata_completeness', labelKey: 'quality.metadataCompleteness', weight: '30%' },
-  { key: 'geometry_validity', labelKey: 'quality.geometryValidity', weight: '30%' },
-  { key: 'attribute_completeness', labelKey: 'quality.attributeCompleteness', weight: '25%' },
-  { key: 'crs_defined', labelKey: 'quality.crsDefined', weight: '15%' },
+const dimensions: { key: keyof QualityScore; labelKey: string; weight: number }[] = [
+  { key: 'metadata_completeness', labelKey: 'quality.metadataCompleteness', weight: 30 },
+  { key: 'geometry_validity', labelKey: 'quality.geometryValidity', weight: 30 },
+  { key: 'attribute_completeness', labelKey: 'quality.attributeCompleteness', weight: 25 },
+  { key: 'crs_defined', labelKey: 'quality.crsDefined', weight: 15 },
 ];
 
 function barColor(score: number): string {
@@ -31,7 +32,7 @@ function freshnessBadgeClass(state: 'fresh' | 'stale' | 'missing'): string {
   return 'bg-muted text-muted-foreground border-border';
 }
 
-export function QualityScoreCard({ qualityScore, updateFrequency }: QualityScoreCardProps) {
+export function QualityScoreCard({ qualityScore, updateFrequency, canEdit = false }: QualityScoreCardProps) {
   const { t, i18n } = useTranslation('dataset');
   if (!qualityScore) return null;
 
@@ -46,9 +47,15 @@ export function QualityScoreCard({ qualityScore, updateFrequency }: QualityScore
       : `quality.freshness.cadence${freshness.cadence.charAt(0).toUpperCase()}${freshness.cadence.slice(1)}`,
   );
   const freshnessBadgeLabel = t(`quality.freshness.state.${freshness.state}`);
-  const remediationHint = t(`quality.freshness.remediation.${freshness.state}`);
+  const remediationHint = t(canEdit
+    ? `quality.freshness.remediation.${freshness.state}`
+    : 'quality.freshness.readOnlyGuidance');
   const absoluteTimestamp = freshness.absoluteTimestamp ?? t('quality.freshness.notAvailable');
   const relativeAge = freshness.relativeAge ?? t('quality.freshness.unknownAge');
+  const activeWeight = dimensions.reduce(
+    (sum, { key, weight }) => sum + (qualityScore[key] == null ? 0 : weight),
+    0,
+  );
 
   return (
     <Card>
@@ -56,7 +63,7 @@ export function QualityScoreCard({ qualityScore, updateFrequency }: QualityScore
         <div className="space-y-1">
           <CardTitle level={2}>{t('quality.title')}</CardTitle>
           <p className="text-xs text-muted-foreground" data-testid="quality-freshness-time">
-            {absoluteTimestamp} ({relativeAge})
+            {t('quality.assessedAt', { date: absoluteTimestamp, age: relativeAge })}
           </p>
         </div>
         <CardAction>
@@ -82,8 +89,12 @@ export function QualityScoreCard({ qualityScore, updateFrequency }: QualityScore
             {remediationHint}
           </p>
         )}
+        <p className="col-span-full text-xs text-muted-foreground">
+          {t('quality.assessmentVsSource')}
+        </p>
       </CardHeader>
       <CardContent className="space-y-3">
+        <p className="text-xs text-muted-foreground">{t('quality.scoreExplanation')}</p>
         {dimensions.map(({ key, labelKey, weight }) => {
           type NumericScoreKey = Exclude<keyof QualityScore, 'computed_at' | 'overall'>;
           const raw = qualityScore[key as NumericScoreKey];
@@ -92,7 +103,7 @@ export function QualityScoreCard({ qualityScore, updateFrequency }: QualityScore
             <div key={key} className="space-y-1">
               <div className="flex items-center justify-between text-xs text-muted-foreground">
                 <span>{t(labelKey)}</span>
-                <span>{raw != null ? `${Math.round(value)} (${weight})` : `— (${weight})`}</span>
+                <span>{raw != null ? `${Math.round(value)} (${Math.round(weight / activeWeight * 100)}%)` : '—'}</span>
               </div>
               <div className="h-2 rounded-full bg-muted">
                 <div
@@ -103,6 +114,7 @@ export function QualityScoreCard({ qualityScore, updateFrequency }: QualityScore
             </div>
           );
         })}
+        <p className="text-xs text-muted-foreground">{t('quality.metadataExplanation')}</p>
       </CardContent>
     </Card>
   );

@@ -339,6 +339,10 @@
   },
   "quality": {
     "title": "质量评分",
+    "assessedAt": "质量评估时间：{{date}}（{{age}}）",
+    "assessmentVsSource": "此日期仅表示质量评估时间。请在“来源”中查看数据更新时间和来源时效。",
+    "scoreExplanation": "总分由可用的质量维度组成。百分比表示各维度的权重。",
+    "metadataExplanation": "质量元数据完整度统计已填写的可选记录字段（共 10 项）。“元数据”中的验证进度另行计算。",
     "metadataCompleteness": "元数据完整性",
     "geometryValidity": "几何有效性",
     "attributeCompleteness": "属性完整性",
@@ -348,24 +352,25 @@
       "absolute": "上次检查：{{date}}",
       "relative": "上次检查：{{relative}}",
       "cadence": "预期的刷新频率为{{cadence}}。",
-      "cadenceDaily": "预期每日刷新。",
-      "cadenceWeekly": "预期每周刷新。",
-      "cadenceMonthly": "预期每月刷新。",
-      "cadenceQuarterly": "预期每季度刷新。",
-      "cadenceAnnually": "预期每年刷新。",
-      "cadenceUnknown": "刷新频率未知；请确认刷新计划。",
+      "cadenceDaily": "评估时效按所填的每日更新频率判断。",
+      "cadenceWeekly": "评估时效按所填的每周更新频率判断。",
+      "cadenceMonthly": "评估时效按所填的每月更新频率判断。",
+      "cadenceQuarterly": "评估时效按所填的每季度更新频率判断。",
+      "cadenceAnnually": "评估时效按所填的每年更新频率判断。",
+      "cadenceUnknown": "未设置定期更新频率；评估时效采用 45 天参考值。",
       "state": {
-        "fresh": "时效正常",
-        "stale": "需要更新",
-        "missing": "缺少时效信息"
+        "fresh": "近期已评估",
+        "stale": "需要重新评估",
+        "missing": "无评估日期"
       },
       "remediation": {
-        "fresh": "无需立即刷新。",
-        "stale": "请重新计算质量指标，并验证最近的数据源更新是否已导入。",
-        "missing": "请运行质量校验以生成时效时间戳。"
+        "fresh": "无需更新评估。",
+        "stale": "请重新计算质量评估，以检查当前数据集。",
+        "missing": "请运行质量验证以生成评估日期。"
       },
       "notAvailable": "不可用",
-      "unknownAge": "时效未知"
+      "unknownAge": "时效未知",
+      "readOnlyGuidance": "请联系数据集所有者或上方列出的联系人，更新质量评估。"
     }
   },
   "serviceUrls": {
@@ -484,6 +489,7 @@
     "helperWarnings": "发现 {{warningCount}} 个警告。请在发布前查看可能的原因。",
     "likelyCompact": "可能原因：",
     "troubleshootAction": "疑难解答",
+    "readOnlyGuidance": "请联系数据集所有者或上方列出的联系人，处理这些验证问题。",
     "health": {
       "title": "数据集健康度",
       "required": "必填项 {{count}}",
@@ -546,12 +552,15 @@
     "editingDisabled": "此部署已禁用属性编辑。"
   },
   "distributions": {
-    "title": "访问点",
+    "title": "下载与连接",
     "download": "下载",
     "api": "API 端点",
     "tiles": "瓦片服务",
     "other": "其他访问方式",
-    "noDistributions": "无可用分发。",
+    "noDistributions": "此处未列出其他下载项或服务。",
+    "connectWithClient": "使用 QGIS、Python 或 curl 连接",
+    "otherFormats": "下载其他格式",
+    "accessPermissions": "谁可以访问此数据集",
     "auto": "自动",
     "primary": "主要",
     "copyUrl": "复制 URL",
@@ -680,6 +689,9 @@
     "nodata": "无数据值",
     "ogcApiFeatures": "OGC API Features",
     "percentComplete": "已完成 {{percent}}%",
+    "validationProgress": "通过的验证检查：{{percent}}%",
+    "validationProgressHelp": "估算方式：以 12 项基础检查减去报告的错误和警告。质量元数据分数另行统计可选字段。",
+    "askMaintainer": "请联系数据集所有者或下方列出的联系人，填写{{field}}",
     "rasterProperties": "栅格属性",
     "recommendedCount_one": "{{count}} 个建议项",
     "recommendedCount_other": "{{count}} 个建议项",

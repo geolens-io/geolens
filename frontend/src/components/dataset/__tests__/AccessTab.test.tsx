@@ -157,7 +157,9 @@ describe('AccessTab', () => {
   it('renders a distribution-backed OGC snippet and csv-only export for table datasets', () => {
     render(<AccessTab dataset={makeDataset()} />);
 
-    expect(screen.getByText('Access via API')).toBeInTheDocument();
+    expect(screen.getByText('Connect with QGIS, Python, or curl')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Download another format' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Export' })).not.toBeInTheDocument();
 
     const codeBlock = document.querySelector('pre');
     expect(codeBlock).not.toBeNull();
@@ -173,6 +175,10 @@ describe('AccessTab', () => {
   });
 
   it('hides the API snippet for raster datasets that do not expose OGC features', () => {
+    mockUseDistributions.mockReturnValue({
+      data: { distributions: [], total: 0 },
+      isLoading: false,
+    } as unknown as ReturnType<typeof useDistributions>);
     render(
       <AccessTab
         dataset={makeDataset({
@@ -189,7 +195,9 @@ describe('AccessTab', () => {
       />,
     );
 
-    expect(screen.queryByText('Access via API')).not.toBeInTheDocument();
+    expect(screen.queryByText('Connect with QGIS, Python, or curl')).not.toBeInTheDocument();
+    expect(screen.getByText('No additional downloads or services are listed here.')).toBeInTheDocument();
+    expect(screen.getByText('https://tiles.example.com/{z}/{x}/{y}.png')).toBeInTheDocument();
   });
 
   describe('a tileset', () => {
@@ -216,8 +224,8 @@ describe('AccessTab', () => {
       expect(
         screen.getByText(`${window.location.origin}/api/datasets/ds-1/tiles3d/tileset.json`),
       ).toBeInTheDocument();
-      expect(screen.queryByRole('heading', { name: 'Access Points' })).not.toBeInTheDocument();
-      expect(screen.queryByText('Access via API')).not.toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: 'Downloads and connections' })).not.toBeInTheDocument();
+      expect(screen.queryByText('Connect with QGIS, Python, or curl')).not.toBeInTheDocument();
       expect(screen.queryByRole('combobox', { name: 'Export format' })).not.toBeInTheDocument();
     });
 
@@ -235,21 +243,21 @@ describe('AccessTab', () => {
     it('keeps the access points when it has distributions', () => {
       render(<AccessTab dataset={tilesetDataset} />);
 
-      expect(screen.getByRole('heading', { name: 'Access Points' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Downloads and connections' })).toBeInTheDocument();
     });
 
     it('leaves the access points of other record types alone when they have no distributions', () => {
       mockUseDistributions.mockReturnValue(noDistributions);
       render(<AccessTab dataset={makeDataset()} />);
 
-      expect(screen.getByRole('heading', { name: 'Access Points' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Downloads and connections' })).toBeInTheDocument();
     });
   });
 
   it('offers no API snippet or export for an unknown record type', () => {
     render(<AccessTab dataset={makeDataset({ record_type: 'hologram_dataset' as RecordType })} />);
 
-    expect(screen.queryByText('Access via API')).not.toBeInTheDocument();
+    expect(screen.queryByText('Connect with QGIS, Python, or curl')).not.toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: 'Export format' })).not.toBeInTheDocument();
   });
   // fix(#927): visibility was read-only after import — the only way to publish a

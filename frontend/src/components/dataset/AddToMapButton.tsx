@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Map, Loader2 } from 'lucide-react';
-import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -12,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useMaps, useCreateMap } from '@/hooks/use-maps';
+import { usePermissions } from '@/hooks/use-permissions';
 
 interface AddToMapButtonProps {
   datasetId: string;
@@ -24,6 +24,7 @@ export function AddToMapButton({ datasetId, datasetTitle }: AddToMapButtonProps)
   const [open, setOpen] = useState(false);
   const { data, isLoading } = useMaps({ limit: 20, sort_by: 'updated_at', sort_dir: 'desc' });
   const createMap = useCreateMap();
+  const { can } = usePermissions();
 
   const maps = data?.maps ?? [];
 
@@ -41,7 +42,7 @@ export function AddToMapButton({ datasetId, datasetTitle }: AddToMapButtonProps)
       const newMap = await createMap.mutateAsync({ name });
       navigate(`/maps/${newMap.id}?add_dataset=${datasetId}`);
     } catch {
-      toast.error(t('addToMap.createFailed'));
+      // useCreateMap reports the failure.
     }
   }
 
@@ -65,14 +66,18 @@ export function AddToMapButton({ datasetId, datasetTitle }: AddToMapButtonProps)
             </DropdownMenuItem>
           ))
         )}
-        {maps.length > 0 && <DropdownMenuSeparator />}
-        <DropdownMenuItem onClick={handleNewMap} disabled={createMap.isPending}>
-          {createMap.isPending ? (
-            <><Loader2 className="me-1 size-3.5 animate-spin" /> {t('addToMap.creating')}</>
-          ) : (
-            t('addToMap.newMap')
-          )}
-        </DropdownMenuItem>
+        {can('edit_metadata') && (
+          <>
+            {maps.length > 0 && <DropdownMenuSeparator />}
+            <DropdownMenuItem onClick={handleNewMap} disabled={createMap.isPending}>
+              {createMap.isPending ? (
+                <><Loader2 className="me-1 size-3.5 animate-spin" /> {t('addToMap.creating')}</>
+              ) : (
+                t('addToMap.newMap')
+              )}
+            </DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

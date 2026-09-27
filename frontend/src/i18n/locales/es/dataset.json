@@ -388,6 +388,10 @@
   },
   "quality": {
     "title": "Puntuación de calidad",
+    "assessedAt": "Calidad evaluada el {{date}} ({{age}})",
+    "assessmentVsSource": "Esta fecha corresponde a la evaluación de calidad. Consulte Origen para saber cuándo se actualizaron los datos y conocer su vigencia.",
+    "scoreExplanation": "La puntuación total combina las dimensiones de calidad disponibles. Los porcentajes indican el peso de cada dimensión.",
+    "metadataExplanation": "La completitud de metadatos de calidad cuenta los campos opcionales del registro con valor (10 en total). El progreso de validación de Metadatos se calcula aparte.",
     "metadataCompleteness": "Completitud de metadatos",
     "geometryValidity": "Validez de geometría",
     "attributeCompleteness": "Completitud de atributos",
@@ -397,24 +401,25 @@
       "absolute": "Última verificación {{date}}",
       "relative": "Verificado {{relative}}",
       "cadence": "Cadencia esperada de actualización: {{cadence}}.",
-      "cadenceDaily": "Se espera una actualización diaria.",
-      "cadenceWeekly": "Se espera una actualización semanal.",
-      "cadenceMonthly": "Se espera una actualización mensual.",
-      "cadenceQuarterly": "Se espera una actualización trimestral.",
-      "cadenceAnnually": "Se espera una actualización anual.",
-      "cadenceUnknown": "La cadencia es desconocida; confirme el calendario de actualización.",
+      "cadenceDaily": "La vigencia de la evaluación se compara con la frecuencia diaria indicada.",
+      "cadenceWeekly": "La vigencia de la evaluación se compara con la frecuencia semanal indicada.",
+      "cadenceMonthly": "La vigencia de la evaluación se compara con la frecuencia mensual indicada.",
+      "cadenceQuarterly": "La vigencia de la evaluación se compara con la frecuencia trimestral indicada.",
+      "cadenceAnnually": "La vigencia de la evaluación se compara con la frecuencia anual indicada.",
+      "cadenceUnknown": "Sin una frecuencia periódica, la vigencia de la evaluación usa una referencia de 45 días.",
       "state": {
-        "fresh": "Reciente",
-        "stale": "Desactualizado",
-        "missing": "Falta la información de vigencia"
+        "fresh": "Evaluación reciente",
+        "stale": "Evaluación pendiente",
+        "missing": "Sin fecha de evaluación"
       },
       "remediation": {
-        "fresh": "No se requiere una actualización inmediata.",
-        "stale": "Recalcule las métricas de calidad y verifique que se hayan ingerido las actualizaciones recientes de la fuente.",
-        "missing": "Ejecute la validación de calidad para generar una marca de tiempo de vigencia."
+        "fresh": "No es necesario actualizar la evaluación.",
+        "stale": "Vuelva a calcular la evaluación de calidad para comprobar los datos actuales.",
+        "missing": "Ejecute la validación de calidad para crear una fecha de evaluación."
       },
       "notAvailable": "No disponible",
-      "unknownAge": "Antigüedad desconocida"
+      "unknownAge": "Antigüedad desconocida",
+      "readOnlyGuidance": "Pida al propietario del conjunto de datos o a un contacto indicado arriba que actualice la evaluación de calidad."
     }
   },
   "serviceUrls": {
@@ -492,6 +497,7 @@
     "helperWarnings": "Se encontraron {{warningCount}} advertencia(s). Revise las causas probables antes de publicar.",
     "likelyCompact": "Probable:",
     "troubleshootAction": "Solucionar problemas",
+    "readOnlyGuidance": "Pida al propietario del conjunto de datos o a un contacto indicado arriba que resuelva estos problemas de validación.",
     "health": {
       "title": "Estado del conjunto de datos",
       "required": "Obligatorio {{count}}",
@@ -595,12 +601,15 @@
     "editingDisabled": "La edición de atributos está deshabilitada en esta instalación."
   },
   "distributions": {
-    "title": "Puntos de acceso",
+    "title": "Descargas y conexiones",
     "download": "Descargas",
     "api": "Endpoints API",
     "tiles": "Servicios de teselas",
     "other": "Acceso adicional",
-    "noDistributions": "No hay distribuciones disponibles.",
+    "noDistributions": "No se muestran aquí otras descargas ni servicios.",
+    "connectWithClient": "Conectar con QGIS, Python o curl",
+    "otherFormats": "Descargar en otro formato",
+    "accessPermissions": "Quién puede acceder a este conjunto de datos",
     "auto": "auto",
     "primary": "Primario",
     "copyUrl": "Copiar URL",
@@ -729,6 +738,9 @@
     "nodata": "Nodata",
     "ogcApiFeatures": "OGC API Features",
     "percentComplete": "{{percent}}% completo",
+    "validationProgress": "Comprobaciones de validación superadas: {{percent}}%",
+    "validationProgressHelp": "Estimación basada en 12 comprobaciones iniciales menos los errores y avisos registrados. La puntuación de metadatos de calidad cuenta otros campos opcionales.",
+    "askMaintainer": "Pida al propietario del conjunto de datos o a un contacto indicado abajo que complete {{field}}",
     "rasterProperties": "Propiedades del ráster",
     "recommendedCount_one": "{{count}} recomendado",
     "recommendedCount_other": "{{count}} recomendados",

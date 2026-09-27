@@ -375,7 +375,7 @@ export function SourceQualityTab({
       </Card>
 
       {/* Quality Score */}
-      <QualityScoreCard qualityScore={dataset.quality_detail} updateFrequency={dataset.update_frequency} />
+      <QualityScoreCard qualityScore={dataset.quality_detail} updateFrequency={dataset.update_frequency} canEdit={canEdit} />
 
       {/* Theme Category */}
       <Card>

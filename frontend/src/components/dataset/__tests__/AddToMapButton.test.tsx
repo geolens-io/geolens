@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { AddToMapButton } from '@/components/dataset/AddToMapButton';
+import { toast } from 'sonner';
 
 const mockNavigate = vi.fn();
 vi.mock('react-router', async () => {
@@ -9,6 +10,11 @@ vi.mock('react-router', async () => {
 });
 
 const mockMutateAsync = vi.fn();
+const mockCan = vi.fn();
+vi.mock('@/hooks/use-permissions', () => ({
+  usePermissions: () => ({ can: mockCan }),
+}));
+vi.mock('sonner', () => ({ toast: { error: vi.fn() } }));
 const mockMapsData = vi.hoisted(() => ({
   maps: [] as Array<{ id: string; name: string }>,
   isLoading: false,
@@ -35,6 +41,9 @@ describe('AddToMapButton', () => {
     mockMapsData.maps = [];
     mockMapsData.isLoading = false;
     mockMapsData.isPending = false;
+    mockCan.mockReset();
+    mockCan.mockReturnValue(true);
+    vi.mocked(toast.error).mockClear();
   });
 
   it('renders the trigger button', () => {
@@ -110,5 +119,18 @@ describe('AddToMapButton', () => {
       expect(mockMutateAsync).toHaveBeenCalled();
     });
     expect(mockNavigate).not.toHaveBeenCalled();
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it('keeps existing maps available without offering new-map creation to readers', async () => {
+    mockCan.mockReturnValue(false);
+    mockMapsData.maps = [{ id: 'map-1', name: 'Existing Map' }];
+
+    render(<AddToMapButton datasetId="ds-1" />);
+    await user.click(screen.getByRole('button', { name: /Add to Map/i }));
+
+    expect(mockCan).toHaveBeenCalledWith('edit_metadata');
+    expect(screen.getByRole('menuitem', { name: 'Existing Map' })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: /New map/i })).not.toBeInTheDocument();
   });
 });
