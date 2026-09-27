@@ -7,17 +7,20 @@ from sqlalchemy import delete, select
 
 from app.core.config import settings
 from app.modules.catalog.datasets.domain.models import Dataset
-from app.platform.jobs.models import IngestJob
+from app.platform.jobs.models import ARCHIVE_PENDING_METADATA_KEY, IngestJob
 from app.platform.jobs.sweep import fail_stale_jobs
 from tests.factories import create_dataset, get_user_id
 
 
 @pytest.mark.parametrize(
-    "archive_failed", [True, False], ids=["unarchived", "archived"]
+    "mark",
+    [{"archive_failed": True}, {ARCHIVE_PENDING_METADATA_KEY: True}, None],
+    ids=["failed", "pending", "archived"],
 )
 async def test_the_purge_keeps_an_unarchived_original_and_its_upload(
-    test_db_session, tmp_path, monkeypatch, archive_failed
+    test_db_session, tmp_path, monkeypatch, mark
 ):
+    held = mark is not None
     monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path))
     monkeypatch.setattr(settings, "ingest_jobs_retention_days", 30)
     user_id = await get_user_id(test_db_session, "admin")
@@ -31,7 +34,7 @@ async def test_the_purge_keeps_an_unarchived_original_and_its_upload(
 
     now = datetime.now(timezone.utc)
     old = now - timedelta(days=90)
-    metadata = {"archive_failed": True} if archive_failed else None
+    metadata = mark
     rows = {
         # A replacement, superseded by the dataset's latest job below.
         "replacement": IngestJob(
@@ -79,12 +82,12 @@ async def test_the_purge_keeps_an_unarchived_original_and_its_upload(
     )
     assert ids["latest"] in remaining
     assert ids["parent"] not in remaining
-    assert (ids["replacement"] in remaining) is archive_failed
-    assert upload.exists() is archive_failed
-    assert (ids["layer"] in remaining) is archive_failed
-    assert shared_upload.exists() is archive_failed, (
+    assert (ids["replacement"] in remaining) is held
+    assert upload.exists() is held
+    assert (ids["layer"] in remaining) is held
+    assert shared_upload.exists() is held, (
         "the purged parent's path is also the kept layer's only copy"
-        if archive_failed
+        if held
         else "an archived upload goes with its purged rows"
     )
 

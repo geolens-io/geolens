@@ -15,6 +15,7 @@ from sqlalchemy import (
     func,
     or_,
     text,
+    true,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -89,6 +90,11 @@ MANIFEST_FINGERPRINT_METADATA_KEY = "manifest_fingerprint"
 # The unpacked total the tileset upload door measured, which the commit door
 # checks against the quota again.
 TILESET_UNPACKED_BYTES_FIELD = "tileset_unpacked_bytes"
+
+# Written by the transaction that publishes a staged upload whose original is
+# still to be archived, and removed only once that archive is confirmed. Until
+# then the upload may be the original's only copy.
+ARCHIVE_PENDING_METADATA_KEY = "archive_pending"
 
 # Artifact records. A worker names each object, table or owed follow-up here no
 # later than it creates it, so a killed attempt still leaves an owner, and the
@@ -280,16 +286,28 @@ class IngestJob(Base):
     )
 
 
-def holds_unarchived_original():
-    """Predicate: the row published an original that never reached ``originals/``.
+def with_archive_pending():
+    """``user_metadata`` with the archive-pending mark set, as SQL for a job UPDATE."""
+    return func.coalesce(IngestJob.user_metadata, text("'{}'::jsonb")).op("||")(
+        func.jsonb_build_object(ARCHIVE_PENDING_METADATA_KEY, true())
+    )
 
-    Its staged upload may then be that original's only copy. A failed job never
-    published one, and deleting the dataset clears ``dataset_id``.
+
+def holds_unarchived_original():
+    """Predicate: the row published an original not yet confirmed in ``originals/``.
+
+    Its archive failed or is still pending, so the staged upload may be that
+    original's only copy. A failed job never published one, and deleting the
+    dataset clears ``dataset_id``.
     """
+    metadata = IngestJob.user_metadata
     return and_(
         IngestJob.status == "complete",
         IngestJob.dataset_id.is_not(None),
-        IngestJob.user_metadata["archive_failed"].astext.is_not(None),
+        or_(
+            metadata["archive_failed"].astext.is_not(None),
+            metadata[ARCHIVE_PENDING_METADATA_KEY].astext.is_not(None),
+        ),
     )
 
 

@@ -16,13 +16,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import structlog
-from sqlalchemy import Text, func, literal, select, text, true, update
+from sqlalchemy import Text, func, literal, or_, select, text, true, update
 from sqlalchemy.orm import joinedload
 
 from app.core.config import settings
 from app.core.failure_reason import redact_failure_reason
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.jobs.models import (
+    ARCHIVE_PENDING_METADATA_KEY,
     PUBLISH_FOLLOWUPS_FIELD,
     IngestJob,
     owned_presigned_staging_key,
@@ -63,14 +64,20 @@ def owed_followups(
     reaps_staged_upload: bool = False,
     archive_key: str | None = None,
 ):
-    """The job's ``user_metadata`` with this attempt's ``task`` follow-ups owed."""
+    """The job's ``user_metadata`` with this attempt's ``task`` follow-ups owed.
+
+    With ``archive_key`` it also marks the upload's archive pending, which the
+    follow-ups remove once that archive exists.
+    """
     fields = ["task", task, "attempt_id", str(attempt_uuid)]
+    marks = []
     if reaps_staged_upload:
         fields += [_REAPS_STAGED_UPLOAD, true()]
     if archive_key is not None:
         fields += [_ARCHIVE_KEY, archive_key]
+        marks = [ARCHIVE_PENDING_METADATA_KEY, true()]
     owed = func.jsonb_build_object(
-        PUBLISH_FOLLOWUPS_FIELD, func.jsonb_build_object(*fields)
+        PUBLISH_FOLLOWUPS_FIELD, func.jsonb_build_object(*fields), *marks
     )
     return func.coalesce(IngestJob.user_metadata, text("'{}'::jsonb")).op("||")(owed)
 
@@ -108,20 +115,26 @@ def _in_staging_dir(path: str) -> bool:
 
 
 async def _note_archive_outcome(job_uuid: uuid.UUID, error: str | None) -> None:
-    """Flag the job's archive as failed with ``error``, or clear the flag with None; never raises.
+    """Flag the job's archive as failed with ``error``, or with None as made; never raises.
 
-    It is the flag ``_archive_original_file`` sets. Edits the stored metadata
-    in place, since writing back a copy could restore a record a concurrent
-    claim has cleared.
+    It is the flag ``_archive_original_file`` sets. A made archive clears it
+    and the archive-pending mark. Edits the stored metadata in place, since
+    writing back a copy could restore a record a concurrent claim has cleared.
     """
     import app.core.db as db_module
 
     stored = IngestJob.user_metadata
     outcome = update(IngestJob).where(IngestJob.id == job_uuid)
     if error is None:
-        outcome = outcome.where(stored.has_key("archive_failed"))
+        outcome = outcome.where(
+            or_(
+                stored.has_key("archive_failed"),
+                stored.has_key(ARCHIVE_PENDING_METADATA_KEY),
+            )
+        )
         metadata = stored.op("-")(literal("archive_failed", Text))
         metadata = metadata.op("-")(literal("archive_error", Text))
+        metadata = metadata.op("-")(literal(ARCHIVE_PENDING_METADATA_KEY, Text))
     else:
         flag = func.jsonb_build_object(
             "archive_failed", true(), "archive_error", error[:500]

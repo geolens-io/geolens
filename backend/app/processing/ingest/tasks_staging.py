@@ -15,9 +15,12 @@ from pathlib import Path
 from typing import Any
 
 import structlog
+from sqlalchemy import Text, literal, update
+from sqlalchemy.orm.attributes import set_committed_value
 
 from app.core.async_io import await_draining, run_in_thread_draining
 from app.core.failure_reason import redact_failure_reason
+from app.platform.jobs.models import ARCHIVE_PENDING_METADATA_KEY, IngestJob
 from app.platform.storage import get_storage
 from app.processing.ingest.source_format import derive_source_format
 from app.processing.ingest.tasks_common import (
@@ -206,23 +209,17 @@ async def _archive_original_file(
 ) -> bool:
     """Upload the original source file to the storage provider (best-effort).
 
-    Returns True when the archive landed. fix(#1290): raster tails call this
-    to satisfy ADR-002 Decision 7 when a conversion was lossy and must not
-    delete the staged upload unless the durable copy exists — for them the
-    return value is a decision input, not just a breadcrumb. Vector callers
-    ignore it.
+    Returns True when the archive landed, the one fact that lets a caller
+    delete the staged upload; a lossy raster may publish only once it holds.
+    With ``commit`` True a landed archive also removes the job's
+    archive-pending mark.
 
-    Archive failures must NOT fail the ingest (the dataset is already
-    committed) — instead the failure is recorded on ``job.user_metadata``
-    for UI/operator audit (R-2). ``commit=False`` lets ``reupload_file``'s
-    caller fold that metadata write into its own ``job.status="complete"``
-    commit instead of a second round trip.
-
-    When ``commit`` is True, the metadata-update commit is wrapped in its
-    own try/except: a transient DB error there must not flip an
-    already-successful ingest into a ``failed`` job — on failure this logs
-    and gives up, and the operator just loses the ``archive_failed``
-    breadcrumb.
+    A failure never fails the ingest, since the dataset is already committed.
+    It is recorded on ``job.user_metadata`` as ``archive_failed`` and
+    ``archive_error`` for the operator. ``commit=False`` leaves that write to
+    the caller's own commit; otherwise a failed commit of it is logged, not
+    raised, so a transient DB error can't turn a published ingest into a
+    failed job.
     """
 
     logger = structlog.get_logger()
@@ -237,7 +234,6 @@ async def _archive_original_file(
         )
         with open(file_path, "rb") as fobj:
             await storage.put(physical_archive_key, fobj)
-        return True
     except Exception as archive_exc:  # broad: archive is best-effort; S3/local I/O can fail for any reason
         logger.warning(
             log_message,
@@ -263,6 +259,38 @@ async def _archive_original_file(
                 error=str(commit_exc)[:500],
             )
         return False
+    if commit and ARCHIVE_PENDING_METADATA_KEY in (job.user_metadata or {}):
+        await _clear_archive_pending(session, job)
+    return True
+
+
+async def _clear_archive_pending(session, job) -> None:
+    """Remove ``job``'s archive-pending mark now that its archive exists; never raises.
+
+    Edits the stored metadata in place and shows ``job`` the result. A mark
+    that stays only keeps the job and its upload through retention.
+    """
+    try:
+        remaining = await session.scalar(
+            update(IngestJob)
+            .where(IngestJob.id == job.id)
+            .values(
+                user_metadata=IngestJob.user_metadata.op("-")(
+                    literal(ARCHIVE_PENDING_METADATA_KEY, Text)
+                )
+            )
+            .returning(IngestJob.user_metadata)
+            .execution_options(synchronize_session=False)
+        )
+        await session.commit()
+    except Exception:  # broad: the archive exists, so a mark left behind loses nothing
+        with suppress(Exception):  # broad: a dead connection can't roll back
+            await session.rollback()
+        structlog.get_logger().warning(
+            "archive_pending_not_cleared", job_id=str(job.id)
+        )
+        return
+    set_committed_value(job, "user_metadata", remaining)
 
 
 async def _run_staging_pipeline(

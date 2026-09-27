@@ -12,15 +12,16 @@ from unittest.mock import patch
 
 import pytest
 import structlog
-from sqlalchemy import delete, select, text
+from sqlalchemy import delete, select, text, update
 
 import app.core.db as db_module
 from app.core.config import settings
 from app.modules.catalog.datasets.domain.models import Dataset, Record
-from app.platform.jobs.models import IngestJob
+from app.platform.jobs.models import ARCHIVE_PENDING_METADATA_KEY, IngestJob
 from app.platform.storage.local import LocalStorageProvider
 from app.processing.ingest.publish_followups import (
     PUBLISH_FOLLOWUPS_FIELD,
+    owed_followups,
     run_owed_publish_followups,
     run_publish_followups,
 )
@@ -685,6 +686,101 @@ async def test_an_archive_in_place_clears_an_earlier_archive_failure(
                 select(IngestJob.user_metadata).where(IngestJob.id == job_id)
             )
         assert not {"archive_failed", "archive_error"} & metadata.keys()
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def _stored_metadata(job_id) -> dict:
+    async with db_module.async_session() as session:
+        return await session.scalar(
+            select(IngestJob.user_metadata).where(IngestJob.id == job_id)
+        )
+
+
+@pytest.mark.parametrize(
+    "archive_key", [None, "originals/d/upload.tif"], ids=["no-archive", "archive"]
+)
+async def test_a_record_marks_the_archive_pending_only_when_it_names_one(
+    test_db_session, archive_key
+) -> None:
+    """The UPDATE that records the follow-ups marks an archive pending only with its key."""
+    job_id, _, record_id = await _owed_job(test_db_session, task="reupload_file")
+    try:
+        async with db_module.async_session() as session:
+            attempt_id = await session.scalar(
+                select(IngestJob.attempt_id).where(IngestJob.id == job_id)
+            )
+            await session.execute(
+                update(IngestJob)
+                .where(IngestJob.id == job_id)
+                .values(
+                    user_metadata=owed_followups(
+                        attempt_id,
+                        "reupload_file",
+                        reaps_staged_upload=True,
+                        archive_key=archive_key,
+                    )
+                )
+            )
+            await session.commit()
+
+        metadata = await _stored_metadata(job_id)
+        assert (ARCHIVE_PENDING_METADATA_KEY in metadata) is (archive_key is not None)
+        assert metadata[PUBLISH_FOLLOWUPS_FIELD]["reaps_staged_upload"] is True
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+@pytest.mark.parametrize("found", [False, True], ids=["made", "found"])
+async def test_a_confirmed_archive_takes_the_pending_mark_off(
+    test_db_session, raster_storage, followups, found
+) -> None:
+    """The mark goes once the archive exists, and the upload with it."""
+    job_id, dataset_id, record_id = await _owed_job(
+        test_db_session, task="reupload_file", reaps_staged_upload=True
+    )
+    try:
+        await _point_job_at(
+            job_id, file_path=None, **{ARCHIVE_PENDING_METADATA_KEY: True}
+        )
+        left = await _stage_upload(raster_storage, job_id, "storage")
+        key = await _owe_archive(job_id, dataset_id, "upload.tif")
+        if found:
+            await raster_storage.put(key, b"staged")
+
+        assert await run_publish_followups(job_id) is True
+        assert await left() == []
+        assert ARCHIVE_PENDING_METADATA_KEY not in await _stored_metadata(job_id)
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def test_a_failed_archive_keeps_the_pending_mark_and_the_upload(
+    test_db_session, raster_storage, followups, monkeypatch
+) -> None:
+    job_id, dataset_id, record_id = await _owed_job(
+        test_db_session, task="reupload_file", reaps_staged_upload=True
+    )
+    try:
+        await _point_job_at(
+            job_id, file_path=None, **{ARCHIVE_PENDING_METADATA_KEY: True}
+        )
+        left = await _stage_upload(raster_storage, job_id, "storage")
+        key = await _owe_archive(job_id, dataset_id, "upload.tif")
+        real_put = raster_storage.put
+
+        async def _refused(written, data):
+            if written == key:
+                raise RuntimeError("the object store refused the write")
+            await real_put(written, data)
+
+        monkeypatch.setattr(raster_storage, "put", _refused)
+
+        assert await run_publish_followups(job_id) is True
+        assert await left() == [f"staging/{job_id}/frozen/upload.tif"]
+        metadata = await _stored_metadata(job_id)
+        assert metadata[ARCHIVE_PENDING_METADATA_KEY] is True
+        assert metadata["archive_failed"] is True
     finally:
         await _drop(test_db_session, job_id, record_id)
 

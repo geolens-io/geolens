@@ -32,7 +32,11 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.platform.jobs.models import STAGING_REAPED_FINAL_MARKER, IngestJob
+from app.platform.jobs.models import (
+    ARCHIVE_PENDING_METADATA_KEY,
+    STAGING_REAPED_FINAL_MARKER,
+    IngestJob,
+)
 from app.platform.jobs.staging_reconcile import (
     STAGING_PREFIX,
     _job_id_from_key,
@@ -380,10 +384,12 @@ class TestReconciliationDecision:
         assert outcome.orphans_deleted == 1
 
     @pytest.mark.parametrize(
-        "archive_failed", [True, False], ids=["unarchived", "archived"]
+        "mark",
+        [{"archive_failed": True}, {ARCHIVE_PENDING_METADATA_KEY: True}, {}],
+        ids=["failed", "pending", "archived"],
     )
     async def test_an_unarchived_original_keeps_the_upload_its_row_names(
-        self, test_db_session: AsyncSession, archive_failed: bool
+        self, test_db_session: AsyncSession, mark: dict
     ) -> None:
         """Only the key in ``file_path`` is kept, not the rest of the job's prefix."""
         dataset = await create_dataset(
@@ -391,7 +397,6 @@ class TestReconciliationDecision:
             created_by=await get_user_id(test_db_session, "admin"),
             name="Unarchived original",
         )
-        flag = {"archive_failed": True} if archive_failed else {}
         job_id = uuid.uuid4()
         recreated = f"staging/{job_id}/roads.geojson"
         upload = f"staging/{job_id}/frozen/roads.geojson"
@@ -403,7 +408,7 @@ class TestReconciliationDecision:
             user_metadata={
                 "s3_key": recreated,
                 STAGING_REAPED_FINAL_MARKER: True,
-                **flag,
+                **mark,
             },
             dataset_id=dataset.id,
         )
@@ -413,7 +418,7 @@ class TestReconciliationDecision:
             test_db_session,
             status="complete",
             file_path=shared_upload,
-            user_metadata=flag or None,
+            user_metadata=mark or None,
             dataset_id=dataset.id,
         )
         storage = FakeStorage(
@@ -422,7 +427,7 @@ class TestReconciliationDecision:
 
         await _run(test_db_session, storage)
 
-        kept = {upload, shared_upload} if archive_failed else set()
+        kept = {upload, shared_upload} if mark else set()
         assert set(storage.objects) == kept
 
     async def test_a_reference_that_appears_before_the_delete_saves_the_object(
