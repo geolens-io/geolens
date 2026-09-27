@@ -1307,6 +1307,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # One reader for untrusted COPC files: header, VLRs, hierarchy lookups,
     # chunk table, the checks before the decode child and the published extent.
     "backend/app/processing/ingest/pointcloud.py": 1085,
+    # Owed publish follow-ups and their retry schedule, plus settling the archive
+    # flags of jobs that owe no follow-up.
+    "backend/app/processing/ingest/publish_followups.py": 1005,
     # Shared ingest finalization carries verification, bounded ArcGIS requests and lifecycle context.
     "backend/app/processing/ingest/tasks_common.py": 1731,
     # The file and service strategies: retrieval, staging, verification and cleanup.
