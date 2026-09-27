@@ -95,8 +95,8 @@ def build_assets(
     """Build a modality-aware unified assets dict for a dataset.
 
     ``cog_download``: the caller may use the COG download route, so a
-    raster's stored data-role assets are advertised: the route on local
-    storage, a signed URL on S3.
+    raster's stored data-role assets are advertised: a signed URL on S3,
+    the route on any other store.
 
     The raster/VRT ``raster_tiles`` asset uses ``public_app_url``
     (nginx-rewritten to the tile proxy), not ``/api``; every other
@@ -193,7 +193,7 @@ def build_assets(
         storage_backend=storage_backend,
         public_api_url=public_api_url,
         storage_provider=storage_provider,
-        local_routes=_local_raster_asset_routes(
+        proxy_routes=_proxied_raster_asset_routes(
             dataset, record_type, record_status, storage_backend
         ),
         cog_download=cog_download,
@@ -203,21 +203,21 @@ def build_assets(
     return assets
 
 
-def _local_raster_asset_routes(
+def _proxied_raster_asset_routes(
     dataset: Dataset,
     record_type: str,
     record_status: str,
     storage_backend: str,
 ) -> dict[str, str] | None:
-    """API routes serving a published raster's stored files on local storage.
+    """API routes serving a published raster's stored files on local or Azure storage.
 
-    A local storage key has no URL of its own, but these routes serve the
-    same files behind the dataset's access checks. VRTs have no single COG.
+    Those keys have no URL of their own, but these routes serve the same
+    files behind the dataset's access checks. VRTs have no single COG.
     The quicklook URLs carry the tile cache-key params: that route is cached
     publicly, and a replaced raster must not show the old images.
     """
     if not (
-        storage_backend == "local"
+        storage_backend != "s3"
         and record_status == "published"
         and record_type == "raster_dataset"
     ):
@@ -241,7 +241,7 @@ def _build_stac_assets(
     storage_backend: str = "local",
     public_api_url: str = "",
     storage_provider: "StorageProvider | None" = None,
-    local_routes: dict[str, str] | None = None,
+    proxy_routes: dict[str, str] | None = None,
     cog_download: bool = False,
 ) -> dict:
     if not asset_rows:
@@ -274,8 +274,8 @@ def _build_stac_assets(
             public_api_url=public_api_url,
             storage_provider=storage_provider,
         )
-        if resolved_href is None and local_routes and row["key"] in local_routes:
-            resolved_href = build_url(local_routes[row["key"]], base_url=public_api_url)
+        if resolved_href is None and proxy_routes and row["key"] in proxy_routes:
+            resolved_href = build_url(proxy_routes[row["key"]], base_url=public_api_url)
         # No safe authorized URL (e.g. a local key with no serving route):
         # skip the entry rather than publish a dead /assets/{key} href.
         if resolved_href is None:
