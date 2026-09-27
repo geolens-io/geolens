@@ -2522,17 +2522,19 @@ you are not surprised later by what a restore does and does not contain.
 
 | Upload | Where the data ends up | The uploaded file |
 | --- | --- | --- |
-| Vector (Shapefile, GPKG, GeoJSON, CSV, …) | PostGIS table | **Archived to `originals/`**, and the staging copy deleted |
+| Vector (Shapefile, GPKG, GeoJSON, CSV, …) | PostGIS table | **Archived to `originals/`**, and the staging copy deleted once the archive is written |
+| Vector replace (re-upload onto an existing vector dataset) | The dataset's table is swapped for the new one | **Archived to `originals/`**, and the staging copy deleted once the archive is written |
 | Raster (GeoTIFF) | A Cloud-Optimized GeoTIFF in object storage | Deleted after a **lossless** conversion; archived to `originals/` otherwise |
 | Raster replace (re-upload onto an existing raster dataset) | The dataset's COG is swapped for the new one | Deleted after a **lossless** conversion; archived to `originals/` otherwise |
 
-Vector uploads are archived rather than discarded: after a successful ingest
-the file is copied to `originals/<dataset-id>/<filename>` and only the staging
-copy is removed. That archive is best-effort — if the copy fails the ingest
-still succeeds, because the data is already in PostGIS, and the job records an
-`archive_failed` flag you can see on the admin Jobs page. So treat a vector
-original as present-but-not-guaranteed, and check the flag if you are relying
-on one.
+Vector uploads are archived rather than discarded. After a vector import or
+re-upload publishes, the file is copied to `originals/<dataset-id>/`, under a
+name that starts with an import job's ID and ends with the uploaded filename.
+The staging copy is removed only after the archive is written. If the copy
+fails, the ingest still succeeds, because the data is already in PostGIS.
+GeoLens then keeps the staging copy and retries the archive; [When a vector
+archive fails](#when-a-vector-archive-fails) below covers the schedule and what
+to do.
 
 A raster dataset **is** its COG. When the conversion is lossless the converted
 asset carries everything the upload did, and every re-processing case an
@@ -2674,6 +2676,124 @@ Failed uploads are visible on the admin Jobs page with their error message.
 The files themselves live under `staging/<job-id>/` — in the `upload_staging`
 volume on local storage, or under that prefix in your bucket on S3/MinIO.
 
+### When a vector archive fails
+
+Until its archive is confirmed, the staged upload may be the only copy of the
+original, so GeoLens holds on to it. The job's metadata carries
+`archive_pending` from the moment the dataset publishes until the archive is
+confirmed, and `archive_failed` with an `archive_error` message once an
+attempt has failed. To see them, open **Admin > Jobs**, find the import job and
+expand its row: the **User Metadata** block lists `archive_failed` and, for a
+job GeoLens has stopped retrying, `archive_review` (below). `archive_pending`
+and `archive_error` are internal and not shown there; the query below reads
+them from the database.
+
+While either flag is set and the dataset still exists:
+
+- the retention purge keeps the job, however old it is;
+- the retention purge, the object-storage staging reconciliation and the local
+  staging sweep all keep the file the job's `file_path` names.
+
+**Retry schedule.** The stale-job sweep retries the archive. The API runs that
+sweep every five minutes, and it also runs when a worker starts and when an
+administrator calls `POST /api/jobs/cleanup/stale/`. The first retry is due
+five minutes after a failed attempt. The delay then doubles (10, 20, 40, 80 and
+160 minutes) until it reaches four hours, and from then on the archive is
+retried every four hours. There is no attempt limit, so an archive that keeps
+failing is retried for as long as the job holds its upload.
+
+Each retry first compares any object already at the archive key with the
+staged upload. An object of the same size counts as the archive and nothing is
+copied again; an object of any other size is replaced by a fresh copy. When the
+staged upload can't be read, an existing object counts only if no attempt has
+failed, because on a local install a copy that failed in an earlier version
+could leave a truncated object behind. Once the archive is confirmed, the flags
+come off and the staged upload is released: the follow-up deletes it, or the
+retention purge and the staging sweeps do once no job still needs it, as with
+one layer of a multi-layer upload.
+
+Two cases end another way:
+
+- If the dataset was deleted, no archive is owed any more, because deleting a
+  vector dataset clears its `originals/<dataset-id>/` prefix. The job stops
+  holding its upload, a pending retry removes the flags, and the job ages out
+  with retention like any other.
+- If the job names no staged upload, nothing can be archived, and a missing
+  path is not proof that the original was archived either. An archive in
+  storage confirms the job only if no attempt has failed. Otherwise the job
+  keeps its flags, leaves the retry schedule and gets a review reason,
+  described below: `original_missing`, or `archive_unverified` when an object
+  exists but an attempt had failed. If storage can't answer, the job stays on
+  the retry schedule.
+
+**Jobs flagged by earlier versions.** Earlier versions recorded
+`archive_failed` without recording that the archive was still owed, so nothing
+retried those jobs and retention kept their uploads indefinitely. Each sweep now
+looks for complete jobs that ended more than a day ago and have a live dataset,
+an archive flag, no recorded follow-ups and no review reason, and settles each
+one:
+
+- If the staged upload is a local file in the staging directory whose name
+  starts with the job's ID (or, for a layer of a multi-layer upload, its parent
+  job's ID), the archive key is `originals/<dataset-id>/<that file name>`, a
+  name no other upload to that dataset uses. When the file is still there, the
+  archive is owed again and follows the retry schedule above, which replaces a
+  truncated object at the key. When only an archive exists at the key, it is
+  owed again and confirmed if the job's archive never failed.
+- Otherwise the job keeps its flags and its upload. GeoLens writes the reason
+  to `archive_review` in the job's metadata, where the admin Jobs page shows
+  it, and logs `archive_needs_review` once with the job ID, the dataset ID and
+  the reason. The job is not checked again.
+  - `archive_unknown`: the job doesn't show where its original belongs. Every
+    upload staged in object storage lands here: most earlier imports from
+    object storage named the archive after a temporary download that no job
+    records, and a job doesn't show which naming it used. So does a job from
+    before jobs recorded an attempt ID, and one whose archive key storage
+    would refuse, such as a file name containing `..`.
+  - `original_missing`: the archive key is known, but neither the staged
+    upload nor the archive exists. A job that names no staged upload gets this
+    reason too.
+  - `archive_unverified`: an object exists at the archive key, but the staged
+    upload is gone and an earlier archive attempt failed, so GeoLens can't tell
+    whether the object is complete. Compare it with any copy you hold before
+    relying on it.
+- If storage can't answer, the job is left for a later sweep.
+
+To list the jobs still holding an upload:
+
+```bash
+docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
+SELECT id, dataset_id, completed_at, file_path,
+       user_metadata->>'archive_review' AS review,
+       user_metadata->>'archive_error' AS archive_error,
+       user_metadata->'publish_followups'->>'next_attempt_at' AS next_attempt_at
+FROM catalog.ingest_jobs
+WHERE status = 'complete'
+  AND dataset_id IS NOT NULL
+  AND (user_metadata->>'archive_failed' IS NOT NULL
+       OR user_metadata->>'archive_pending' IS NOT NULL)
+ORDER BY completed_at;
+SQL
+```
+
+#### Recovering
+
+1. Read `archive_error` from the query above for the cause, such as a storage
+   credential or a full disk, and fix that first. Jobs on the retry schedule
+   then archive and release themselves on their next due retry. An
+   administrator's `POST /api/jobs/cleanup/stale/`, which also runs the rest of
+   the stale-job cleanup, runs retries that are already due. It does not bring
+   a later one forward, so a job on the four-hour interval can wait up to four
+   hours.
+2. Don't delete a held job's staged upload by hand. Until its archive exists it
+   may be the only copy of what the user uploaded.
+3. A job with an `archive_review` reason is held, with its upload, until an
+   operator acts on it. GeoLens does not retry or release it by itself. To keep
+   the original somewhere safe, copy the file its `file_path` names: in the
+   `upload_staging` volume on local storage, or that key in your bucket on
+   object storage. Deleting the dataset also ends the hold, together with the
+   dataset's data.
+
 ### Interaction with backups
 
 §1's `staging-<timestamp>.tar.gz` archives the `upload_staging` volume. What
@@ -2684,6 +2804,8 @@ that does and does not recover depends on which case put the file there.
 | Failed upload, still inside the retention window | Yes |
 | **Vector original, local storage** | **Yes** — archived under `originals/` in that volume |
 | Vector original, object-storage install | No — in your bucket under `originals/` |
+| Staged upload of a vector archive not yet confirmed, local storage | Yes, still in that volume |
+| Staged upload of a vector archive not yet confirmed, object-storage install | No, it is in your bucket under `staging/<job-id>/` |
 | **Retained original from a lossy ingest, local storage** | **Yes** — it lives under `originals/` inside that same volume |
 | Retained original, object-storage install | No — it is in your bucket under `originals/`, covered by whatever backs up the bucket, not by this tar |
 | Successfully ingested original from a **lossless** conversion | No — deleted before the backup ran |

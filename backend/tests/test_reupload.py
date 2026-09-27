@@ -2770,16 +2770,16 @@ class TestArchiveRunsAfterTheSwapCommit:
         self, client: AsyncClient, test_db_session, tmp_path, staged
     ):
         """A job that can't be loaded for its archive stays complete, marked and flagged."""
-        from sqlalchemy.ext.asyncio import AsyncSession
+        import app.processing.ingest.publish_followups as publish_followups
 
-        real_get = AsyncSession.get
+        real_lock = publish_followups._lock_owed_archive
         calls = {"n": 0}
 
-        async def _raising_once_get(self, entity, *args, **kwargs):
-            if entity is IngestJob and calls["n"] == 0:
+        async def _raising_once_lock(*args, **kwargs):
+            if calls["n"] == 0:
                 calls["n"] += 1
                 raise RuntimeError("pool checkout timed out")
-            return await real_get(self, entity, *args, **kwargs)
+            return await real_lock(*args, **kwargs)
 
         put_calls = []
 
@@ -2801,9 +2801,8 @@ class TestArchiveRunsAfterTheSwapCommit:
             put_side_effect=_recording_put,
             staged_key=frozen_key,
             extra_patches=(
-                patch(
-                    "sqlalchemy.ext.asyncio.AsyncSession.get",
-                    new=_raising_once_get,
+                patch.object(
+                    publish_followups, "_lock_owed_archive", _raising_once_lock
                 ),
                 patch("app.platform.storage.get_storage", lambda: storage),
             ),
