@@ -110,7 +110,7 @@ def _build_response(
 def sync_detailed(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     include_removed: bool | Unset = False,
 ) -> Response[AttributeMetadataListResponse | ProblemDetail]:
     """List Attributes Endpoint
@@ -144,7 +144,7 @@ def sync_detailed(
 def sync(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     include_removed: bool | Unset = False,
 ) -> AttributeMetadataListResponse | ProblemDetail | None:
     """List Attributes Endpoint
@@ -173,7 +173,7 @@ def sync(
 async def asyncio_detailed(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     include_removed: bool | Unset = False,
 ) -> Response[AttributeMetadataListResponse | ProblemDetail]:
     """List Attributes Endpoint
@@ -205,7 +205,7 @@ async def asyncio_detailed(
 async def asyncio(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     include_removed: bool | Unset = False,
 ) -> AttributeMetadataListResponse | ProblemDetail | None:
     """List Attributes Endpoint

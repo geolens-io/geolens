@@ -156,7 +156,7 @@ def sync_detailed(
     y: int,
     fmt: str,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     colormap_name: None
     | RasterTileProxyTilesRasterProxyDatasetIdZXYFmtGetColormapNameType0
     | Unset = UNSET,
@@ -265,7 +265,7 @@ def sync(
     y: int,
     fmt: str,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     colormap_name: None
     | RasterTileProxyTilesRasterProxyDatasetIdZXYFmtGetColormapNameType0
     | Unset = UNSET,
@@ -369,7 +369,7 @@ async def asyncio_detailed(
     y: int,
     fmt: str,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     colormap_name: None
     | RasterTileProxyTilesRasterProxyDatasetIdZXYFmtGetColormapNameType0
     | Unset = UNSET,
@@ -476,7 +476,7 @@ async def asyncio(
     y: int,
     fmt: str,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     colormap_name: None
     | RasterTileProxyTilesRasterProxyDatasetIdZXYFmtGetColormapNameType0
     | Unset = UNSET,

@@ -100,7 +100,7 @@ def _build_response(
 def sync_detailed(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     x_embed_token: None | str | Unset = UNSET,
 ) -> Response[Any | ProblemDetail]:
     """Get Features Geojson Z Endpoint
@@ -145,7 +145,7 @@ def sync_detailed(
 def sync(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     x_embed_token: None | str | Unset = UNSET,
 ) -> Any | ProblemDetail | None:
     """Get Features Geojson Z Endpoint
@@ -185,7 +185,7 @@ def sync(
 async def asyncio_detailed(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     x_embed_token: None | str | Unset = UNSET,
 ) -> Response[Any | ProblemDetail]:
     """Get Features Geojson Z Endpoint
@@ -228,7 +228,7 @@ async def asyncio_detailed(
 async def asyncio(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     x_embed_token: None | str | Unset = UNSET,
 ) -> Any | ProblemDetail | None:
     """Get Features Geojson Z Endpoint

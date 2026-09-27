@@ -88,7 +88,7 @@ def sync_detailed(
     collection_id: str,
     item_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Response[ProblemDetail | StacItemResponse]:
     """Get Collection Item
 
@@ -122,7 +122,7 @@ def sync(
     collection_id: str,
     item_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> ProblemDetail | StacItemResponse | None:
     """Get Collection Item
 
@@ -151,7 +151,7 @@ async def asyncio_detailed(
     collection_id: str,
     item_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Response[ProblemDetail | StacItemResponse]:
     """Get Collection Item
 
@@ -183,7 +183,7 @@ async def asyncio(
     collection_id: str,
     item_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> ProblemDetail | StacItemResponse | None:
     """Get Collection Item
 

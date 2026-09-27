@@ -98,7 +98,7 @@ def _build_response(
 def sync_detailed(
     map_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Response[Any | ProblemDetail]:
     """Get Thumbnail
 
@@ -129,7 +129,7 @@ def sync_detailed(
 def sync(
     map_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Any | ProblemDetail | None:
     """Get Thumbnail
 
@@ -155,7 +155,7 @@ def sync(
 async def asyncio_detailed(
     map_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Response[Any | ProblemDetail]:
     """Get Thumbnail
 
@@ -184,7 +184,7 @@ async def asyncio_detailed(
 async def asyncio(
     map_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Any | ProblemDetail | None:
     """Get Thumbnail
 

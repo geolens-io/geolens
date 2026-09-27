@@ -113,7 +113,7 @@ def _build_response(
 def sync_detailed(
     record_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     skip: int | Unset = 0,
     limit: int | Unset = 100,
 ) -> Response[ContactListResponse | ProblemDetail]:
@@ -150,7 +150,7 @@ def sync_detailed(
 def sync(
     record_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     skip: int | Unset = 0,
     limit: int | Unset = 100,
 ) -> ContactListResponse | ProblemDetail | None:
@@ -182,7 +182,7 @@ def sync(
 async def asyncio_detailed(
     record_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     skip: int | Unset = 0,
     limit: int | Unset = 100,
 ) -> Response[ContactListResponse | ProblemDetail]:
@@ -217,7 +217,7 @@ async def asyncio_detailed(
 async def asyncio(
     record_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     skip: int | Unset = 0,
     limit: int | Unset = 100,
 ) -> ContactListResponse | ProblemDetail | None:

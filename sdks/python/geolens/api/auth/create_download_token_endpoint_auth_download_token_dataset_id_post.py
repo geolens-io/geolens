@@ -95,7 +95,7 @@ def _build_response(
 def sync_detailed(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Response[DownloadTokenResponse | ProblemDetail]:
     """Create Download Token Endpoint
 
@@ -134,7 +134,7 @@ def sync_detailed(
 def sync(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> DownloadTokenResponse | ProblemDetail | None:
     """Create Download Token Endpoint
 
@@ -168,7 +168,7 @@ def sync(
 async def asyncio_detailed(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Response[DownloadTokenResponse | ProblemDetail]:
     """Create Download Token Endpoint
 
@@ -205,7 +205,7 @@ async def asyncio_detailed(
 async def asyncio(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> DownloadTokenResponse | ProblemDetail | None:
     """Create Download Token Endpoint
 

@@ -156,6 +156,9 @@ jobs:
               # script would otherwise skip Backend Tests and never run the
               # assertion that says whether it still works.
               - 'scripts/fix_sdk_optional_body.py'
+              # test_sdks_round_trip.py checks that every anonymous-capable
+              # operation accepts a plain Client, which this script produces.
+              - 'scripts/fix_sdk_anonymous_client.py'
               # fix(#1607): test_seed_showcase_pins_1607.py imports this seeder
               # and walks its AST to prove every builder routes its map-exists
               # check through _keep_existing_map, so the maps geolens-examples

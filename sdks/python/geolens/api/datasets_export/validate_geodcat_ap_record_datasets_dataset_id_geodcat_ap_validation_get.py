@@ -83,7 +83,7 @@ def _build_response(
 def sync_detailed(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Response[Any | ProblemDetail]:
     """Validate Geodcat Ap Record
 
@@ -114,7 +114,7 @@ def sync_detailed(
 def sync(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Any | ProblemDetail | None:
     """Validate Geodcat Ap Record
 
@@ -140,7 +140,7 @@ def sync(
 async def asyncio_detailed(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Response[Any | ProblemDetail]:
     """Validate Geodcat Ap Record
 
@@ -169,7 +169,7 @@ async def asyncio_detailed(
 async def asyncio(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Any | ProblemDetail | None:
     """Validate Geodcat Ap Record
 

@@ -100,7 +100,7 @@ def _build_response(
 def sync_detailed(
     collection_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Response[CollectionResponse | ProblemDetail]:
     """Get Collection Endpoint
 
@@ -131,7 +131,7 @@ def sync_detailed(
 def sync(
     collection_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> CollectionResponse | ProblemDetail | None:
     """Get Collection Endpoint
 
@@ -157,7 +157,7 @@ def sync(
 async def asyncio_detailed(
     collection_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Response[CollectionResponse | ProblemDetail]:
     """Get Collection Endpoint
 
@@ -186,7 +186,7 @@ async def asyncio_detailed(
 async def asyncio(
     collection_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> CollectionResponse | ProblemDetail | None:
     """Get Collection Endpoint
 

@@ -100,7 +100,7 @@ def _build_response(
 def sync_detailed(
     record_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Response[ProblemDetail | TranslationListResponse]:
     """List Translations Endpoint
 
@@ -131,7 +131,7 @@ def sync_detailed(
 def sync(
     record_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> ProblemDetail | TranslationListResponse | None:
     """List Translations Endpoint
 
@@ -157,7 +157,7 @@ def sync(
 async def asyncio_detailed(
     record_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Response[ProblemDetail | TranslationListResponse]:
     """List Translations Endpoint
 
@@ -186,7 +186,7 @@ async def asyncio_detailed(
 async def asyncio(
     record_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> ProblemDetail | TranslationListResponse | None:
     """List Translations Endpoint
 

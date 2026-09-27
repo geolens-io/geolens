@@ -104,7 +104,7 @@ def _build_response(
 def sync_detailed(
     map_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Response[ExportMapStyleEndpointMapsMapIdStyleJsonGetResponse200 | ProblemDetail]:
     """Export Map Style Endpoint
 
@@ -135,7 +135,7 @@ def sync_detailed(
 def sync(
     map_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> ExportMapStyleEndpointMapsMapIdStyleJsonGetResponse200 | ProblemDetail | None:
     """Export Map Style Endpoint
 
@@ -161,7 +161,7 @@ def sync(
 async def asyncio_detailed(
     map_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Response[ExportMapStyleEndpointMapsMapIdStyleJsonGetResponse200 | ProblemDetail]:
     """Export Map Style Endpoint
 
@@ -190,7 +190,7 @@ async def asyncio_detailed(
 async def asyncio(
     map_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> ExportMapStyleEndpointMapsMapIdStyleJsonGetResponse200 | ProblemDetail | None:
     """Export Map Style Endpoint
 

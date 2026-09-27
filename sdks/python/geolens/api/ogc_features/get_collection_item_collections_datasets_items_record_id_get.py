@@ -85,7 +85,7 @@ def _build_response(
 def sync_detailed(
     record_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Response[OGCRecordResponse | ProblemDetail]:
     """Get Collection Item
 
@@ -116,7 +116,7 @@ def sync_detailed(
 def sync(
     record_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> OGCRecordResponse | ProblemDetail | None:
     """Get Collection Item
 
@@ -142,7 +142,7 @@ def sync(
 async def asyncio_detailed(
     record_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Response[OGCRecordResponse | ProblemDetail]:
     """Get Collection Item
 
@@ -171,7 +171,7 @@ async def asyncio_detailed(
 async def asyncio(
     record_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> OGCRecordResponse | ProblemDetail | None:
     """Get Collection Item
 

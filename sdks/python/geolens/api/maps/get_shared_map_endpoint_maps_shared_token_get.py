@@ -111,7 +111,7 @@ def _build_response(
 def sync_detailed(
     token: str,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     x_embed_token: None | str | Unset = UNSET,
 ) -> Response[ProblemDetail | SharedMapResponse]:
     """Get Shared Map Endpoint
@@ -154,7 +154,7 @@ def sync_detailed(
 def sync(
     token: str,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     x_embed_token: None | str | Unset = UNSET,
 ) -> ProblemDetail | SharedMapResponse | None:
     """Get Shared Map Endpoint
@@ -192,7 +192,7 @@ def sync(
 async def asyncio_detailed(
     token: str,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     x_embed_token: None | str | Unset = UNSET,
 ) -> Response[ProblemDetail | SharedMapResponse]:
     """Get Shared Map Endpoint
@@ -233,7 +233,7 @@ async def asyncio_detailed(
 async def asyncio(
     token: str,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     x_embed_token: None | str | Unset = UNSET,
 ) -> ProblemDetail | SharedMapResponse | None:
     """Get Shared Map Endpoint
