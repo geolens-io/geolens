@@ -300,10 +300,11 @@ async def service_egress_proxy(*, idle_seconds: float) -> AsyncIterator[ServiceE
     try:
         yield egress
     finally:
-        # A handler that has not started yet sees `closing` and returns.
+        # A handler that has not started yet sees `closing` and returns. The
+        # others close their client when cancelled; uvloop's server has no
+        # close_clients().
         closing = True
         server.close()
-        server.close_clients()
         for task in handlers:
             task.cancel()
         await asyncio.gather(*handlers, return_exceptions=True)

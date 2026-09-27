@@ -32,6 +32,7 @@ from urllib.parse import parse_qs, urlsplit
 import httpx
 import pytest
 import structlog
+import uvloop
 from sqlalchemy import select, text
 
 from app.modules.catalog.sources.preview import run_service_preview
@@ -532,6 +533,19 @@ class TestTheProxyRelaysOnlyToCheckedAddresses:
 
         assert response.startswith(b"HTTP/1.0 200"), response
         assert requests == ["getcapabilities"]
+
+    def test_a_relay_completes_on_uvloop(self, resolver_calls):
+        """Uvicorn runs the API on uvloop when it is installed."""
+
+        async def relay() -> bytes:
+            with _wfs_service() as (port, _requests):
+                async with service_egress_proxy(idle_seconds=30) as egress:
+                    return await _exchange(
+                        egress,
+                        _get(f"http://{_HOST}:{port}/?REQUEST=GetCapabilities", _HOST),
+                    )
+
+        assert uvloop.run(relay()).startswith(b"HTTP/1.0 200")
 
     async def test_an_idle_tunnel_is_closed(self, resolver_calls):
         with _silent_upstream() as (port, upstream_closed):
