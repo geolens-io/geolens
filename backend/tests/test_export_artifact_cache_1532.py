@@ -2330,17 +2330,14 @@ def test_the_gzip_exclusion_is_scoped_to_the_export_path():
     )
     excluded = set(gzip_layer.kwargs["exclude_content_types"])
 
-    assert "image/tiff" in excluded, (
-        "the COG exclusion fix(#1540) added must survive this change"
-    )
+    assert "image/tiff" in excluded, "the COG exclusion must survive this change"
     for media in ("application/geo+json", "text/csv"):
         assert media not in excluded, (
             f"{media} is excluded app-wide, which also silences compression on "
             f"the feature and CSV-stream endpoints that share the type"
         )
     assert any(
-        m.cls.__name__ == "NoCompressionForExportMiddleware"
-        for m in app.user_middleware
+        m.cls.__name__ == "NoCompressionByPathMiddleware" for m in app.user_middleware
     ), "the export route has no path-scoped opt-out, so it would be compressed"
 
 

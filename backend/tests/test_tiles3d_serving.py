@@ -853,3 +853,43 @@ async def test_an_empty_file_is_served_and_revalidated(
     assert plain.status_code == 200
     assert plain.content == b""
     assert revalidated.status_code == 304
+
+
+_COMPRESSIBLE = [
+    pytest.param(
+        "tileset.json",
+        _ROOT[:-1] + b', "extras": {"pad": "' + b"a" * 2048 + b'"}}',
+        id="tileset-json",
+    ),
+    pytest.param("tiles/0.glb", b"glTF" + b"\0" * 2048, id="tile-content"),
+]
+
+
+@pytest.mark.parametrize(("path", "body"), _COMPRESSIBLE)
+async def test_a_file_is_never_gzipped(
+    client: AsyncClient, make_tileset, storage, path, body
+) -> None:
+    """A client offering gzip gets the stored bytes, uncompressed, under the strong ETag."""
+    dataset_id = await make_tileset()
+    await _publish(storage, dataset_id, "a1", path, body)
+
+    resp = await client.get(_url(dataset_id, path), headers={"Accept-Encoding": "gzip"})
+
+    assert resp.status_code == 200
+    assert "content-encoding" not in resp.headers
+    assert resp.content == body
+    assert resp.headers["etag"] == '"a1"'
+
+
+async def test_the_datasets_other_json_routes_are_still_gzipped(
+    client: AsyncClient, make_tileset
+) -> None:
+    """The tileset's opt-out from gzip leaves a sibling JSON route of the dataset compressed."""
+    dataset_id = await make_tileset()
+
+    resp = await client.get(
+        f"/datasets/{dataset_id}/dcat", headers={"Accept-Encoding": "gzip"}
+    )
+
+    assert resp.status_code == 200
+    assert resp.headers.get("content-encoding") == "gzip"

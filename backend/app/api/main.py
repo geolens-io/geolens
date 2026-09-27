@@ -37,7 +37,7 @@ from app.core.async_io import run_in_thread_draining
 from app.core.db.tenant_session import tenant_job_context
 from app.core.logging_config import setup_logging
 from app.core.tenancy import is_multi_tenant
-from app.api.no_compress_export import NoCompressionForExportMiddleware
+from app.api.no_compress_paths import NoCompressionByPathMiddleware
 from app.core.runtime.staging import (
     EXPORTS_PERIODIC_SWEEP_AGE_SECONDS,
     ensure_staging_ready,
@@ -1044,18 +1044,11 @@ app.add_middleware(
     exclude_content_types=DEFAULT_EXCLUDED_CONTENT_TYPES
     + ("image/tiff", POINTCLOUD_MEDIA_TYPE),
 )
-# fix(#1532): export route excluded by PATH, not media type — excluding
-# `application/geo+json`/`text/csv` app-wide also stopped compressing
-# feature GeoJSON and admin/audit CSV, a straight bandwidth regression for
-# endpoints that never serve a range. `image/tiff` stays a type exclusion
-# since the COG download is its only producer.
-#
-# Implemented by dropping gzip from Accept-Encoding before GZipMiddleware
-# reads it (the documented opt-out) rather than `Content-Encoding: identity`,
-# which RFC 9110 defines for Accept-Encoding, not Content-Encoding. Added
-# AFTER the middleware above so it wraps it (starlette runs the most
-# recently added outermost).
-app.add_middleware(NoCompressionForExportMiddleware)
+# The export download and the 3D Tiles files are excluded by path: their media
+# types also come from routes that serve one representation and gain from gzip.
+# Added after GZipMiddleware so it runs first and strips gzip from the
+# Accept-Encoding that GZipMiddleware reads.
+app.add_middleware(NoCompressionByPathMiddleware)
 app.add_middleware(DynamicCORSMiddleware)
 
 app.include_router(api_router)
