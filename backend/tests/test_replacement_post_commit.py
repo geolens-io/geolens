@@ -622,7 +622,7 @@ _STEPS = {
         "tile cache": (
             "app.processing.ingest.publication.invalidate_tile_cache_for_table"
         ),
-        "archive": "app.processing.ingest.tasks_reupload._archive_original_file",
+        "archive": "app.processing.ingest.publish_followups._archive_original_file",
         "embedding": "app.processing.embeddings.helpers.defer_embedding",
     },
     "service": {
@@ -743,9 +743,10 @@ async def test_a_failing_post_commit_step_leaves_the_replacement_published(
     assert failing.await_count >= 1, f"the {step} step never ran"
     await _assert_settled_published(replacement)
     if replacement.upload is not None:
-        assert not replacement.upload.exists(), (
-            "a completed replacement deletes its upload even when a "
-            "post-commit step fails"
+        # Without its archive, the upload is the original's only copy.
+        assert replacement.upload.exists() is (step == "archive"), (
+            "a completed replacement deletes its upload when any other "
+            "post-commit step fails, and keeps it when its archive does"
         )
 
 

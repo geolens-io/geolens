@@ -56,7 +56,6 @@ from app.processing.ingest.tasks_common import (
 )
 from app.processing.ingest.tasks_staging import (
     StagingResult,
-    _archive_original_file,
     original_archive_key,
     reap_downloaded_staging_source,
     reap_presigned_staging_object,
@@ -205,17 +204,14 @@ class _FileReupload:
     raster_row = False
     catalog_event = "reupload_swap_catalog"
 
-    def __init__(self, *, job_id: str, dataset_id: str, file_path: str, user_id: str):
+    def __init__(self, *, job_id: str, file_path: str, user_id: str):
         self.job_id = job_id
-        self.dataset_uuid = uuid.UUID(dataset_id)
         self.file_path = file_path
         self.original_file_path = file_path
         self.user_id = user_id
         # Set when the upload fails the safety checks: recorded, not raised.
         self.refused = False
         self.owned_staging_key: str | None = None
-        # Set when the original fails to archive, leaving the upload its only copy.
-        self.archive_failed = False
 
     def prepare(self, job, dataset, staging_table: str) -> None:
         # Read off the row, not the local `file_path` a download rebinds.
@@ -391,39 +387,25 @@ class _FileReupload:
     async def release(
         self, *, publication: PublicationCommit | None, failed: bool
     ) -> None:
-        # A cancelled archive must not skip the cleanup after it.
-        try:
-            # An unconfirmed publish may not have landed, and an archive made for
-            # it would outlive a version that never went live; the follow-ups
-            # archive the upload once the publish is visible.
-            if publication is not None and publication.confirmed:
-                async with cleanup_step("reupload_file archive", job_id=self.job_id):
-                    await self._archive()
-        finally:
-            await self._clean_up(
-                "complete"
-                if publication is PublicationCommit.ACKNOWLEDGED
-                else "failed"
-                if failed
-                else "pending"
-            )
+        await self._clean_up(
+            "complete"
+            if publication is PublicationCommit.ACKNOWLEDGED
+            else "failed"
+            if failed
+            else "pending"
+        )
 
     async def _clean_up(self, final_status: str) -> None:
-        # A publish seen only through the probe is "pending", which keeps the
-        # upload for the follow-ups, and so does one whose original didn't
-        # archive, the upload being its only copy. Otherwise the local file goes
-        # on success, and on failure only when unsafe; a download always goes.
+        # The follow-ups archive a published upload's original before deleting
+        # it, and a publish seen only through the probe keeps it too. A refused
+        # upload and a download go here, and so does a failed attempt's copy.
         async with cleanup_step("reupload_file local file", job_id=self.job_id):
-            if (
-                (final_status == "complete" and not self.archive_failed)
-                or self.refused
-                or self.file_path != self.original_file_path
-            ):
+            if self.refused or self.file_path != self.original_file_path:
                 Path(self.file_path).unlink(missing_ok=True)
         # The object the task downloaded from, which after a presigned
         # completion is the frozen copy the job is bound to.
         async with cleanup_step("reupload_file downloaded source", job_id=self.job_id):
-            if not self.archive_failed:
+            if final_status == "failed":
                 await reap_downloaded_staging_source(
                     self.job_id,
                     original_file_path=self.original_file_path,
@@ -447,22 +429,6 @@ class _FileReupload:
 
         return f"{self.job_id}_{safe_upload_basename(self.source_filename)}"
 
-    async def _archive(self) -> None:
-        from app.core.db import async_session
-        from app.platform.jobs.models import IngestJob
-
-        async with async_session() as session:
-            job = await session.get(IngestJob, uuid.UUID(self.job_id))
-            if job is not None:
-                self.archive_failed = not await _archive_original_file(
-                    session,
-                    job=job,
-                    dataset_id=self.dataset_uuid,
-                    file_path=self.file_path,
-                    log_message="Failed to archive re-uploaded file to storage",
-                    archive_name=self._archive_name(),
-                )
-
 
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.reupload_file"])
 @tenant_task
@@ -479,9 +445,7 @@ async def reupload_file(
         task_name="reupload_file", job_id=job_id, dataset_id=dataset_id
     )
     await settle_replacement(
-        _FileReupload(
-            job_id=job_id, dataset_id=dataset_id, file_path=file_path, user_id=user_id
-        ),
+        _FileReupload(job_id=job_id, file_path=file_path, user_id=user_id),
         job_id=job_id,
         dataset_id=dataset_id,
         attempt_id=attempt_id,

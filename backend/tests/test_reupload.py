@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.core.config import settings
 from app.core.service_tokens import CredentialMethod, ServiceCredential
 from fastapi import HTTPException, UploadFile
 from httpx import AsyncClient
@@ -27,7 +28,7 @@ from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.modules.catalog.datasets.domain.service import compute_schema_diff
 from app.modules.catalog.datasets.api import router_reupload
-from app.platform.jobs.models import IngestJob
+from app.platform.jobs.models import ARCHIVE_PENDING_METADATA_KEY, IngestJob
 from app.platform.security import SSRFError
 
 from tests.factories import create_dataset, get_user_id
@@ -2429,9 +2430,12 @@ class TestArchiveRunsAfterTheSwapCommit:
         put_side_effect,
         extra_patches: tuple = (),
         staged_key: str | None = None,
+        raises: type[BaseException] | None = None,
     ):
         """Run the task on ``update.geojson``, staged in place or, with
-        ``staged_key``, in object storage and downloaded to that file."""
+        ``staged_key``, in object storage and downloaded to that file.
+
+        ``raises`` is what the task is expected to raise."""
         local_file = tmp_path / "update.geojson"
         local_file.write_text('{"type":"FeatureCollection","features":[]}')
         file_path = staged_key or str(local_file)
@@ -2442,13 +2446,21 @@ class TestArchiveRunsAfterTheSwapCommit:
         mock_storage = AsyncMock()
         mock_storage.put = AsyncMock(side_effect=put_side_effect)
 
+        async def _resolve(path, job_id):
+            if staged_key is None:
+                return str(local_file)
+            # Each reader of a staged object gets its own download of it.
+            download = tmp_path / f"download-{uuid.uuid4().hex}.geojson"
+            download.write_bytes(local_file.read_bytes())
+            return str(download)
+
         from app.processing.ingest.tasks import reupload_file
 
         with contextlib.ExitStack() as stack:
             stack.enter_context(
                 patch(
                     "app.processing.ingest.service.resolve_file_path",
-                    new=AsyncMock(return_value=str(local_file)),
+                    new=AsyncMock(side_effect=_resolve),
                 )
             )
             stack.enter_context(
@@ -2483,8 +2495,14 @@ class TestArchiveRunsAfterTheSwapCommit:
                     lambda: mock_storage,
                 )
             )
+            # The follow-ups archive a local upload only from the staging dir.
+            stack.enter_context(
+                patch.object(settings, "upload_staging_dir", str(tmp_path))
+            )
             for extra in extra_patches:
                 stack.enter_context(extra)
+            if raises is not None:
+                stack.enter_context(pytest.raises(raises))
             await reupload_file(
                 job_id=str(job.id),
                 dataset_id=str(dataset.id),
@@ -2584,7 +2602,7 @@ class TestArchiveRunsAfterTheSwapCommit:
             if not archived:
                 raise RuntimeError("S3 unreachable")
 
-        await self._run_reupload(
+        _dataset, job = await self._run_reupload(
             test_db_session,
             tmp_path,
             table_name=f"reup_{uuid.uuid4().hex[:10]}",
@@ -2592,6 +2610,8 @@ class TestArchiveRunsAfterTheSwapCommit:
         )
 
         assert (tmp_path / "update.geojson").exists() is not archived
+        await test_db_session.refresh(job)
+        assert (ARCHIVE_PENDING_METADATA_KEY in job.user_metadata) is not archived
 
     @pytest.mark.parametrize("archived", [True, False], ids=["archived", "unarchived"])
     async def test_a_presigned_upload_goes_only_once_its_original_is_archived(
@@ -2606,7 +2626,7 @@ class TestArchiveRunsAfterTheSwapCommit:
             if not archived:
                 raise RuntimeError("S3 unreachable")
 
-        await self._run_reupload(
+        _dataset, job = await self._run_reupload(
             test_db_session,
             tmp_path,
             table_name=f"reup_{uuid.uuid4().hex[:10]}",
@@ -2617,7 +2637,9 @@ class TestArchiveRunsAfterTheSwapCommit:
 
         deleted = [call.args[0] for call in storage.delete.await_args_list]
         assert (frozen_key in deleted) is archived
-        assert not (tmp_path / "update.geojson").exists()
+        assert not list(tmp_path.glob("download-*"))
+        await test_db_session.refresh(job)
+        assert (ARCHIVE_PENDING_METADATA_KEY in job.user_metadata) is not archived
 
     async def test_caches_are_invalidated_before_the_archive_runs(
         self, client: AsyncClient, test_db_session, tmp_path
@@ -2658,35 +2680,51 @@ class TestArchiveRunsAfterTheSwapCommit:
 
         assert calls == ["catalog", "tile", "put"], calls
 
-    async def test_a_cancellation_during_the_archive_still_completes_cleanup(
-        self, client: AsyncClient, test_db_session, tmp_path
+    @staticmethod
+    def _upload_left(tmp_path, storage, frozen_key: str | None) -> bool:
+        """Whether the upload survived: the local file, or the frozen object."""
+        if frozen_key is None:
+            return (tmp_path / "update.geojson").exists()
+        deleted = [call.args[0] for call in storage.delete.await_args_list]
+        return frozen_key not in deleted
+
+    @pytest.mark.parametrize("staged", ["local", "object_storage"])
+    async def test_a_cancelled_archive_keeps_the_upload_and_its_mark(
+        self, client: AsyncClient, test_db_session, tmp_path, staged
     ):
-        """A cancelled archive must not skip the completed-job cleanup path.
-
-        The local upload file is deleted only when ``final_status ==
-        "complete"``; setting that before the archive runs (not after) is
-        what the finally block's cleanup depends on.
-        """
-
         async def _cancelling_put(key, fobj):
             raise asyncio.CancelledError()
 
-        local_file = tmp_path / "update.geojson"
+        frozen_key = (
+            f"staging/{uuid.uuid4()}/frozen/update.geojson"
+            if staged == "object_storage"
+            else None
+        )
+        storage = AsyncMock()
+        storage.exists = AsyncMock(return_value=False)
 
-        with pytest.raises(asyncio.CancelledError):
-            await self._run_reupload(
-                test_db_session,
-                tmp_path,
-                table_name=f"reup2175_{uuid.uuid4().hex[:10]}",
-                put_side_effect=_cancelling_put,
-            )
+        _dataset, job = await self._run_reupload(
+            test_db_session,
+            tmp_path,
+            table_name=f"reup_{uuid.uuid4().hex[:10]}",
+            put_side_effect=_cancelling_put,
+            staged_key=frozen_key,
+            extra_patches=(patch("app.platform.storage.get_storage", lambda: storage),),
+            raises=asyncio.CancelledError,
+        )
 
-        assert not local_file.exists()
+        await test_db_session.refresh(job)
+        assert job.status == "complete"
+        assert job.user_metadata[ARCHIVE_PENDING_METADATA_KEY] is True
+        assert "archive_failed" not in job.user_metadata
+        assert self._upload_left(tmp_path, storage, frozen_key)
+        assert not list(tmp_path.glob("download-*"))
 
-    async def test_a_failed_archive_job_load_does_not_fail_the_task(
-        self, client: AsyncClient, test_db_session, tmp_path
+    @pytest.mark.parametrize("staged", ["local", "object_storage"])
+    async def test_a_failed_archive_job_load_keeps_the_upload_and_its_mark(
+        self, client: AsyncClient, test_db_session, tmp_path, staged
     ):
-        """A failure loading the job for the archive leaves the published job complete."""
+        """A job that can't be loaded for its archive stays complete, marked and flagged."""
         from sqlalchemy.ext.asyncio import AsyncSession
 
         real_get = AsyncSession.get
@@ -2703,16 +2741,26 @@ class TestArchiveRunsAfterTheSwapCommit:
         async def _recording_put(key, fobj):
             put_calls.append(key)
 
+        frozen_key = (
+            f"staging/{uuid.uuid4()}/frozen/update.geojson"
+            if staged == "object_storage"
+            else None
+        )
+        storage = AsyncMock()
+        storage.exists = AsyncMock(return_value=False)
+
         dataset, job = await self._run_reupload(
             test_db_session,
             tmp_path,
-            table_name=f"reup2175_{uuid.uuid4().hex[:10]}",
+            table_name=f"reup_{uuid.uuid4().hex[:10]}",
             put_side_effect=_recording_put,
+            staged_key=frozen_key,
             extra_patches=(
                 patch(
                     "sqlalchemy.ext.asyncio.AsyncSession.get",
                     new=_raising_once_get,
                 ),
+                patch("app.platform.storage.get_storage", lambda: storage),
             ),
         )
 
@@ -2721,6 +2769,10 @@ class TestArchiveRunsAfterTheSwapCommit:
         assert put_calls == []
         await test_db_session.refresh(job)
         assert job.status == "complete"
+        assert job.user_metadata[ARCHIVE_PENDING_METADATA_KEY] is True
+        assert job.user_metadata["archive_failed"] is True
+        assert self._upload_left(tmp_path, storage, frozen_key)
+        assert not list(tmp_path.glob("download-*"))
 
         from app.platform.refresh.models import DatasetRefreshRun
 
