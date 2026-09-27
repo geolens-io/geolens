@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import structlog
-from sqlalchemy import or_, text, update
+from sqlalchemy import or_, select, text, update
 from sqlalchemy.exc import DBAPIError
 
 from app.core.db.tenant_session import tenant_task
@@ -51,7 +51,7 @@ from app.processing.ingest.tasks_staging import (
     _cleanup_staging_on_failure,
     _validate_upload_file_safety,
 )
-from app.platform.jobs.models import owned_presigned_staging_key
+from app.platform.jobs.models import IngestJob, owned_presigned_staging_key
 
 
 _SERVICE_IMPORT_INITIAL_PROGRESS = 0.1
@@ -148,8 +148,6 @@ async def _service_import_heartbeat_tick(
     trusting the earlier read. Zero rows affected means the job moved on:
     log and do nothing.
     """
-    from app.platform.jobs.models import IngestJob
-
     _timeout_ms = int(_SERVICE_IMPORT_HEARTBEAT_TICK_DB_TIMEOUT_SECONDS * 1000)
     async with _job_phase_session(
         job_uuid,
@@ -407,7 +405,7 @@ async def ingest_file(
     job_uuid, attempt_uuid = resolved
     original_file_path = file_path
     final_status: str = "pending"
-    # Set when the original fails to archive, leaving the upload its only copy.
+    # Set when the original isn't archived, leaving the upload its only copy.
     archive_failed = False
     staging_table_name = ""
     heartbeat_task: asyncio.Task[None] | None = None
@@ -670,8 +668,15 @@ async def ingest_file(
                 )
             )
 
-            # Archive the original file to the storage provider.
-            archive_failed = not await _archive_original_file(
+            # A dataset delete locks its jobs' rows before it reaps originals/
+            # after its commit, so a write made holding this one is reaped too.
+            # Without the row the archive stays owed, and the upload with it.
+            holds_job_row = await session.scalar(
+                select(IngestJob.id)
+                .where(IngestJob.id == job_uuid, IngestJob.dataset_id == dataset.id)
+                .with_for_update(skip_locked=True)
+            )
+            archive_failed = holds_job_row is None or not await _archive_original_file(
                 session,
                 job=job,
                 dataset_id=dataset.id,
