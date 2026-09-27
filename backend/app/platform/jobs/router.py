@@ -216,8 +216,10 @@ async def cleanup_stale_jobs(
             from app.processing.ingest.publish_followups import (
                 run_owed_publish_followups,
             )
+            from app.processing.raster.vrt_members import reclaim_retained_cogs
 
             await run_owed_publish_followups()
+            await reclaim_retained_cogs()
             details = outcome.as_dict()
     except Exception as exc:  # broad: cleanup spans DB and artifact deletion
         await db.rollback()

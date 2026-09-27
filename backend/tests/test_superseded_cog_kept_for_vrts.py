@@ -912,3 +912,32 @@ async def test_an_unpublished_key_a_replacement_still_owes_as_its_cog_is_not_rea
     finally:
         await test_db_session.execute(delete(IngestJob).where(IngestJob.id == job_id))
         await test_db_session.commit()
+
+
+async def test_an_admin_cleanup_reclaims_a_kept_cog_nothing_reads(
+    client, admin_auth_header, test_db_session, raster_storage
+) -> None:
+    """The explicit stale-job cleanup reclaims kept COGs, as the background sweep does."""
+    admin_id = await _admin_id(test_db_session)
+    member = await _make_live_raster(
+        test_db_session, raster_storage, created_by=admin_id
+    )
+    member_id, member_record = member.dataset.id, member.dataset.record_id
+    kept = f"rasters/{member_id}/superseded/source.cog.tif"
+    await raster_storage.put(kept, io.BytesIO(b"kept"))
+    await vrt_members.retain_cog(
+        test_db_session,
+        dataset_id=member_id,
+        attempt_id=uuid.uuid4(),
+        asset_uri=kept,
+        size_bytes=OLD_BYTES,
+    )
+    await test_db_session.commit()
+    try:
+        response = await client.post("/jobs/cleanup/stale/", headers=admin_auth_header)
+
+        assert response.status_code == 200, response.text
+        assert await _left(raster_storage, (kept,)) == []
+        assert await _retained(test_db_session, member_id) == []
+    finally:
+        await _purge(test_db_session, dataset_id=member_id, record_id=member_record)
