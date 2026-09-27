@@ -1628,6 +1628,74 @@ async def test_a_record_asking_for_the_delete_of_no_upload_deletes_nothing(
         await _drop(test_db_session, job_id, record_id)
 
 
+async def _owe_archive_of_a_presigned_upload(job_id, dataset_id, file_path, storage):
+    """Owe the archive and the delete of a presigned upload bound to ``file_path``; returns the client's key and the archive key."""
+    client_key = f"staging/{job_id}/upload.tif"
+    await storage.put(client_key, b"staged")
+    await _point_job_at(
+        job_id,
+        file_path=file_path,
+        s3_key=client_key,
+        **{ARCHIVE_PENDING_METADATA_KEY: True},
+    )
+    return client_key, await _owe_archive(job_id, dataset_id, "upload.tif")
+
+
+@pytest.mark.parametrize("file_path", [None, ""], ids=["null", "empty"])
+async def test_a_presigned_upload_no_path_names_stays_until_its_archive_is_confirmed(
+    test_db_session, raster_storage, followups, file_path
+) -> None:
+    """With no file_path the client's object may be the original's only copy, so its delete stays owed."""
+    job_id, dataset_id, record_id = await _owed_job(
+        test_db_session, task="ingest_file", reaps_staged_upload=True
+    )
+    try:
+        client_key, _ = await _owe_archive_of_a_presigned_upload(
+            job_id, dataset_id, file_path, raster_storage
+        )
+
+        await run_publish_followups(job_id)
+        await _make_due(job_id)
+        await run_publish_followups(job_id)
+
+        assert await raster_storage.exists(client_key)
+        metadata = await _stored_metadata(job_id)
+        assert metadata[PUBLISH_FOLLOWUPS_FIELD]["reaps_staged_upload"] is True
+        assert metadata["archive_review"] == "original_missing"
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+@pytest.mark.parametrize("upload", ["frozen-copy", "no-path-archive-in-place"])
+async def test_a_presigned_upload_goes_once_its_archive_is_confirmed(
+    test_db_session, raster_storage, followups, upload
+) -> None:
+    """The client's object goes in the pass that confirms the archive."""
+    job_id, dataset_id, record_id = await _owed_job(
+        test_db_session, task="ingest_file", reaps_staged_upload=True
+    )
+    try:
+        frozen = f"staging/{job_id}/frozen/upload.tif"
+        file_path = frozen if upload == "frozen-copy" else None
+        client_key, archive_key = await _owe_archive_of_a_presigned_upload(
+            job_id, dataset_id, file_path, raster_storage
+        )
+        if upload == "frozen-copy":
+            await raster_storage.put(frozen, b"staged")
+        else:
+            await raster_storage.put(archive_key, b"staged")
+
+        await run_publish_followups(job_id)
+
+        assert await raster_storage.get(archive_key) == b"staged"
+        assert not await raster_storage.exists(client_key)
+        metadata = await _stored_metadata(job_id)
+        assert PUBLISH_FOLLOWUPS_FIELD not in metadata
+        assert not {"archive_failed", ARCHIVE_PENDING_METADATA_KEY} & metadata.keys()
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
 # --- Through the real tasks ------------------------------------------------
 
 

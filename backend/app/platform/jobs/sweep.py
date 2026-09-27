@@ -366,6 +366,13 @@ async def _sweep_expired_presigned_staging(
                 IngestJob.status.not_in(ACTIVE_STATUSES),
                 IngestJob.user_metadata["s3_key"].astext.is_not(None),
                 IngestJob.user_metadata[_STAGING_REAPED_FINAL_MARKER].astext.is_(None),
+                # With no file_path the key may hold the job's original alone.
+                not_(
+                    and_(
+                        func.coalesce(IngestJob.file_path, "") == "",
+                        holds_unarchived_original(),
+                    )
+                ),
                 or_(
                     and_(not_yet_reaped, IngestJob.created_at < first_pass_cutoff),
                     and_(

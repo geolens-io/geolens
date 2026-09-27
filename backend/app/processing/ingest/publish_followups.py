@@ -417,6 +417,34 @@ async def _confirm_archive(job_uuid: uuid.UUID, attempt_id: str) -> bool:
     return True
 
 
+async def _reap_presigned_object(
+    job_uuid: uuid.UUID, user_metadata, file_path: str | None
+) -> bool:
+    """Delete the job's own presigned object; returns False while it stays.
+
+    With no ``file_path`` the object may hold the job's original alone, so it
+    stays while the job's row holds an unarchived original, or can't be read.
+    """
+    import app.core.db as db_module
+
+    key = owned_presigned_staging_key(job_uuid, user_metadata, file_path)
+    if key and not file_path:
+        try:
+            async with db_module.async_session() as session:
+                held = await session.scalar(
+                    select(IngestJob.id).where(
+                        IngestJob.id == job_uuid, holds_unarchived_original()
+                    )
+                )
+        except Exception:  # broad: an unreadable row keeps what may be the only copy
+            return False
+        if held is not None:
+            return False
+    return await reap_presigned_staging_object(
+        str(job_uuid), key, final_status="complete"
+    )
+
+
 async def _review_archive_of_no_upload(
     job_uuid: uuid.UUID,
     attempt_id: str,
@@ -604,9 +632,11 @@ async def _settle_owed_items(
     """Run the items a published job's record owes, confirming each one that lands.
 
     The client's presigned key goes whatever the archive does, since the
-    archive reads only ``file_path``. With a live dataset the upload's
-    original is archived first, and the upload is deleted only once that
-    archive is confirmed. A deleted dataset owes no archive, so the item and
+    archive reads only ``file_path``. A job naming no ``file_path`` may hold
+    its original only under that key, so the key stays, and its delete owed,
+    until the job holds no unarchived original. With a live dataset the
+    upload's original is archived first, and the upload is deleted only once
+    that archive is confirmed. A deleted dataset owes no archive, so the item and
     the job's archive flags go together. A job naming no upload keeps its
     flags and is marked for review, unless storage already holds its archive.
     The delete is confirmed only once nothing it should remove is left. What a
@@ -615,7 +645,6 @@ async def _settle_owed_items(
     after a doubling delay capped at ``_RETRY_CAP``, however many attempts it
     takes.
     """
-    job_id = str(job_uuid)
     attempt_id = row.owed_attempt
     record = row.user_metadata[PUBLISH_FOLLOWUPS_FIELD]
     left = {item for item in _ITEMS if item in record}
@@ -647,11 +676,7 @@ async def _settle_owed_items(
     ):
         left.discard(_ARCHIVE_KEY)
     if _REAPS_STAGED_UPLOAD in left:
-        reaped = await reap_presigned_staging_object(
-            job_id,
-            owned_presigned_staging_key(job_uuid, row.user_metadata, file_path),
-            final_status="complete",
-        )
+        reaped = await _reap_presigned_object(job_uuid, row.user_metadata, file_path)
         if _ARCHIVE_KEY not in left:
             deleted = await _delete_staged_upload(job_uuid, file_path)
             if reaped and deleted:

@@ -902,6 +902,80 @@ class TestPostExpirySweep:
         final_row = await _row()
         assert final_row.user_metadata["s3_key_reaped_final"] is True
 
+    @pytest.mark.parametrize("reaped_before", [False, True], ids=["first", "recheck"])
+    @pytest.mark.parametrize("archived", [False, True], ids=["unarchived", "archived"])
+    async def test_a_presigned_object_that_may_be_the_only_original_is_kept(
+        self, test_db_session, monkeypatch, reaped_before, archived
+    ) -> None:
+        """A job naming no file_path may hold its original only at its s3_key."""
+        from datetime import timedelta, timezone
+
+        from sqlalchemy import delete, select, update
+
+        from app.core.config import MAX_PRESIGNED_URL_LIFETIME_SECONDS
+        from app.modules.catalog.datasets.domain.models import Record
+        from app.platform.jobs import router as jobs_router
+        from app.platform.jobs.models import ARCHIVE_PENDING_METADATA_KEY, IngestJob
+        from app.platform.jobs.router import _RECHECK_TRANSFER_MARGIN_SECONDS
+        from tests.factories import create_dataset
+
+        job, staging_key = await self._make_job(test_db_session, age_seconds=10_000)
+        dataset = await create_dataset(test_db_session, created_by=job.created_by)
+        metadata = {"presigned": True, "s3_key": staging_key}
+        if not archived:
+            metadata[ARCHIVE_PENDING_METADATA_KEY] = True
+        if reaped_before:
+            metadata["s3_key_reaped"] = True
+        await test_db_session.execute(
+            update(IngestJob)
+            .where(IngestJob.id == job.id)
+            .values(file_path=None, dataset_id=dataset.id, user_metadata=metadata)
+        )
+        await test_db_session.commit()
+        storage = AsyncMock()
+        monkeypatch.setattr(
+            "app.platform.storage.get_storage", lambda: storage, raising=True
+        )
+        try:
+            created_at = (
+                await test_db_session.execute(
+                    select(IngestJob.created_at).where(IngestJob.id == job.id)
+                )
+            ).scalar_one()
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            now = None
+            if reaped_before:
+                now = created_at + timedelta(
+                    seconds=MAX_PRESIGNED_URL_LIFETIME_SECONDS
+                    + _RECHECK_TRANSFER_MARGIN_SECONDS
+                    + 1
+                )
+
+            await jobs_router._sweep_expired_presigned_staging(
+                test_db_session, self._outcome(), now=now
+            )
+
+            deleted = staging_key in {c.args[0] for c in storage.delete.await_args_list}
+            stored = (
+                await test_db_session.execute(
+                    select(IngestJob.user_metadata).where(IngestJob.id == job.id)
+                )
+            ).scalar_one()
+            assert deleted is archived
+            assert (stored.get("s3_key_reaped") is True) is (archived or reaped_before)
+            assert (stored.get("s3_key_reaped_final") is True) is (
+                archived and reaped_before
+            )
+        finally:
+            await test_db_session.execute(
+                delete(IngestJob).where(IngestJob.id == job.id)
+            )
+            await test_db_session.execute(
+                delete(Record).where(Record.id == dataset.record_id)
+            )
+            await test_db_session.commit()
+
     async def test_retention_purge_defers_a_presigned_job_within_the_url_lifetime(
         self, test_db_session, monkeypatch
     ) -> None:

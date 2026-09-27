@@ -1309,7 +1309,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/pointcloud.py": 1085,
     # Owed publish follow-ups and their retry schedule, plus settling the archive
     # flags of jobs that owe no follow-up.
-    "backend/app/processing/ingest/publish_followups.py": 1044,
+    "backend/app/processing/ingest/publish_followups.py": 1069,
     # Shared ingest finalization carries verification, bounded ArcGIS requests and lifecycle context.
     "backend/app/processing/ingest/tasks_common.py": 1731,
     # The file and service strategies: retrieval, staging, verification and cleanup.
@@ -1321,7 +1321,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/platform/config_ops/service.py": 1175,
     # One settlement pass, its precheck and its reapers serve startup recovery, the
     # lifespan sweep, admin cleanup, the job status poll and manifest expiry.
-    "backend/app/platform/jobs/sweep.py": 1784,
+    "backend/app/platform/jobs/sweep.py": 1791,
     # Refresh admission, claim fencing, terminal transitions and the job-scoped
     # abandoned-run sweep stay domain-neutral.
     "backend/app/platform/refresh/service.py": 1160,

@@ -241,8 +241,9 @@ def _owner_still_manages():
 
     Existence alone is no shield: a PUT that lands after the post-expiry
     sweep's final delete recreates an object every row-driven reaper is done
-    with. A row holding an unarchived original keeps only the key its
-    ``file_path`` names, through ``_can_still_consume``.
+    with. A row holding an unarchived original keeps the key its
+    ``file_path`` names through ``_can_still_consume``. With no ``file_path``
+    the post-expiry sweep never finalizes it, so this keeps its ``s3_key``.
 
     The ``s3_key IS NOT NULL`` half matters as much as the marker half: a
     job that never presigned has no such key, so treating a missing marker
