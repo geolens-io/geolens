@@ -451,6 +451,7 @@ async def list_maps(
                 else None,
                 "thumbnail_updated_at": map_obj.thumbnail_updated_at,
                 "layer_count": layer_counts.get(map_obj.id, 0),
+                "created_by": map_obj.created_by,
                 "created_by_username": row[1],
                 "created_at": map_obj.created_at,
                 "updated_at": map_obj.updated_at,

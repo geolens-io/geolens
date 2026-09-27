@@ -1295,8 +1295,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Application composition debt; preserve lifespan and middleware ordering when
     # splitting.
     "backend/app/api/main.py": 1715,
-    # Published map schema debt; separate validation helpers before raising.
-    "backend/app/modules/catalog/maps/schemas.py": 1396,
+    # Map request validation and published response contracts share this module.
+    "backend/app/modules/catalog/maps/schemas.py": 1397,
     # Metadata facade preserves the import and patch surface used by extensions and
     # callers.
     "backend/app/processing/ingest/metadata.py": 161,
