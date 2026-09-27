@@ -1305,8 +1305,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Tiles tileset and a COPC point cloud.
     "backend/app/processing/ingest/router.py": 1712,
     # One reader for untrusted COPC files: header, VLRs, hierarchy lookups,
-    # chunk table, bounded per-node decoding and the published extent.
-    "backend/app/processing/ingest/pointcloud.py": 1019,
+    # chunk table, the checks before the decode child and the published extent.
+    "backend/app/processing/ingest/pointcloud.py": 1085,
     # Shared ingest finalization carries verification, bounded ArcGIS requests and lifecycle context.
     "backend/app/processing/ingest/tasks_common.py": 1718,
     # The file and service strategies: retrieval, staging, verification and cleanup.

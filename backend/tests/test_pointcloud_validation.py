@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 import os
 import struct
 import subprocess
@@ -23,6 +24,7 @@ from app.core.upload_errors import UnsafeUploadError, refusal_detail
 from app.platform.storage.local import LocalStorageProvider
 from app.platform.storage.s3 import S3StorageProvider
 from app.processing.ingest import pointcloud as pointcloud_module
+from app.processing.ingest import pointcloud_decode
 from app.processing.ingest.pointcloud import (
     MAX_EXTRA_BYTES,
     inspect_every_node,
@@ -45,6 +47,7 @@ from tests.pointcloud_files import (
     scrambled,
     two_ends,
 )
+from tests.test_pointcloud_decode_child import _burning_decoder
 
 
 def write(tmp_path: Path, data: bytes, name: str = "cloud.copc.laz") -> str:
@@ -599,14 +602,25 @@ def _lazrs_raising(
     def _raise(*args, **kwargs):
         raise exc
 
-    monkeypatch.setattr(pointcloud_module.lazrs, name, _raise)
+    monkeypatch.setattr(pointcloud_decode.lazrs, name, _raise)
 
 
-def test_a_lazrs_panic_is_a_decode_refusal(tmp_path, monkeypatch) -> None:
+def _refusal_of_the_child_here(tmp_path, capsys) -> UnsafeUploadError:
+    """The refusal the decode child names for copc()'s top node, run in this process."""
+    assert pointcloud_decode.main(["top", write(tmp_path, copc())]) == 0
+    result = json.loads(capsys.readouterr().out)["result"]
+    with pytest.raises(UnsafeUploadError) as refusal:
+        pointcloud_module._corners_of(result)
+    return refusal.value
+
+
+def test_a_lazrs_panic_is_a_decode_refusal(tmp_path, monkeypatch, capsys) -> None:
     """A Rust panic inside lazrs, which is no Exception, still becomes a refusal."""
     _lazrs_raising(monkeypatch, _lazrs_panic())
 
-    assert refused(tmp_path, copc()).code == "pointcloud_decode_failed"
+    assert _refusal_of_the_child_here(tmp_path, capsys).code == (
+        "pointcloud_decode_failed"
+    )
 
 
 def test_an_interrupt_during_the_decode_is_not_swallowed(tmp_path, monkeypatch) -> None:
@@ -614,7 +628,7 @@ def test_an_interrupt_during_the_decode_is_not_swallowed(tmp_path, monkeypatch) 
     _lazrs_raising(monkeypatch, KeyboardInterrupt())
 
     with pytest.raises(KeyboardInterrupt):
-        inspect_pointcloud(write(tmp_path, copc()))
+        pointcloud_decode.main(["top", write(tmp_path, copc())])
 
 
 @pytest.mark.parametrize(
@@ -653,18 +667,17 @@ def test_a_refusal_names_the_bound_it_hit(tmp_path, monkeypatch) -> None:
     }
 
 
-def _lazrs_calls(monkeypatch) -> list:
-    """Each call that reaches lazrs, which then fails as a damaged chunk would."""
-    calls: list = []
+def _children(monkeypatch) -> list:
+    """Each decode child the checks start, with its arguments; the child still runs."""
+    started: list = []
+    run = pointcloud_module.run_child
 
-    def _decompress(*args, **kwargs):
-        calls.append(args)
-        raise lazrs.LazrsError("called")
+    def _run(argv, **kwargs):
+        started.append((argv, kwargs))
+        return run(argv, **kwargs)
 
-    monkeypatch.setattr(
-        pointcloud_module.lazrs, "decompress_points_with_chunk_table", _decompress
-    )
-    return calls
+    monkeypatch.setattr(pointcloud_module, "run_child", _run)
+    return started
 
 
 @pytest.mark.parametrize(
@@ -682,9 +695,22 @@ def test_a_chunk_whose_header_disagrees_is_refused_before_lazrs(
 ) -> None:
     """lazrs sizes its buffers from the chunk header, so the header is checked first."""
     data = copc(chunk=chunk)
-    calls = _lazrs_calls(monkeypatch)
+    children = _children(monkeypatch)
 
-    assert (refused(tmp_path, data).code, calls) == ("pointcloud_decode_failed", [])
+    assert (refused(tmp_path, data).code, children) == ("pointcloud_decode_failed", [])
+
+
+def test_the_child_checks_a_chunk_header_again_before_lazrs(
+    tmp_path, monkeypatch
+) -> None:
+    """The child holds each chunk to its header before lazrs sizes buffers from it."""
+    path = write(tmp_path, copc(chunk=lambda chunk: patched(chunk, 30, "<I", 99)))
+    decoded = _decoded_chunks(monkeypatch)
+
+    with pytest.raises(pointcloud_decode._Refused) as refused:
+        pointcloud_decode.decode_file(path, every=False)
+
+    assert (refused.value.args, decoded) == (("chunk_header",), [])
 
 
 @pytest.mark.parametrize(
@@ -701,14 +727,14 @@ async def test_nodes_whose_points_overlap_are_refused_before_lazrs(
 ) -> None:
     """A chunk two nodes name is refused before any node is decoded."""
     path = write(tmp_path, copc(pages=_pages(second), header_point_count=200))
-    calls = _lazrs_calls(monkeypatch)
+    children = _children(monkeypatch)
 
     with pytest.raises(UnsafeUploadError) as door:
         inspect_pointcloud(path)
     with pytest.raises(UnsafeUploadError) as worker:
         await inspect_every_node(path)
 
-    assert (door.value.code, worker.value.code, calls) == (
+    assert (door.value.code, worker.value.code, children) == (
         "pointcloud_invalid",
         "pointcloud_invalid",
         [],
@@ -755,9 +781,9 @@ def test_extra_bytes_outside_one_item_are_refused_before_lazrs(
 ) -> None:
     """lazrs decodes every item for each point, so extra bytes form one non-empty item."""
     data = copc(extra_bytes=extra_bytes, laszip=_byte14_items(*sizes))
-    calls = _lazrs_calls(monkeypatch)
+    children = _children(monkeypatch)
 
-    assert (refused(tmp_path, data).code, calls) == ("pointcloud_invalid", [])
+    assert (refused(tmp_path, data).code, children) == ("pointcloud_invalid", [])
 
 
 def test_extra_bytes_within_the_bound_decode(tmp_path) -> None:
@@ -772,11 +798,11 @@ def test_extra_bytes_past_the_bound_are_refused_before_lazrs(
 ) -> None:
     """lazrs builds models per extra byte before reading a point, so the count is capped."""
     data = copc(extra_bytes=MAX_EXTRA_BYTES + 1)
-    calls = _lazrs_calls(monkeypatch)
+    children = _children(monkeypatch)
 
     detail = refusal_detail(refused(tmp_path, data))
 
-    assert calls == []
+    assert children == []
     assert detail == {
         "code": "pointcloud_invalid",
         "message": f"The file's points carry more than {MAX_EXTRA_BYTES} extra bytes.",
@@ -845,9 +871,9 @@ def test_a_node_past_the_decode_ratio_is_refused_before_lazrs(
     monkeypatch.setattr(
         pointcloud_module, "MAX_DECODE_RATIO", _top_node_ratio() - Fraction(1, stored)
     )
-    calls = _lazrs_calls(monkeypatch)
+    children = _children(monkeypatch)
 
-    assert (refused(tmp_path, copc()).code, calls) == ("pointcloud_invalid", [])
+    assert (refused(tmp_path, copc()).code, children) == ("pointcloud_invalid", [])
 
 
 def test_structural_refusals_are_security_events_and_others_are_not(tmp_path) -> None:
@@ -967,6 +993,7 @@ def test_a_chunk_table_stating_another_count_is_refused_before_lazrs(
 ) -> None:
     """lazrs allocates a chunk table from its stated count, so the count is checked first."""
     data = _with_table(copc(), patched(chunk_table([_ROOT_CHUNK]), 4, "<I", 2))
+    children = _children(monkeypatch)
     calls: list = []
     read_table = lazrs.read_chunk_table_only
 
@@ -974,18 +1001,21 @@ def test_a_chunk_table_stating_another_count_is_refused_before_lazrs(
         calls.append(args)
         return read_table(*args)
 
-    monkeypatch.setattr(pointcloud_module.lazrs, "read_chunk_table_only", _read)
+    monkeypatch.setattr(pointcloud_decode.lazrs, "read_chunk_table_only", _read)
 
-    assert (refused(tmp_path, data).code, calls) == ("pointcloud_invalid", [])
+    assert (refused(tmp_path, data).code, children) == ("pointcloud_invalid", [])
+    with pytest.raises(UnsafeUploadError):
+        pointcloud_decode.decode_file(write(tmp_path, data), every=False)
+    assert calls == []
 
 
 def test_a_lazrs_panic_reading_the_chunk_table_is_a_refusal(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, capsys
 ) -> None:
     """A Rust panic while lazrs reads the chunk table becomes a refusal, as in the decode."""
     _lazrs_raising(monkeypatch, _lazrs_panic(), "read_chunk_table_only")
 
-    assert refused(tmp_path, copc()).code == "pointcloud_invalid"
+    assert _refusal_of_the_child_here(tmp_path, capsys).code == "pointcloud_invalid"
 
 
 def test_an_interrupt_reading_the_chunk_table_is_not_swallowed(
@@ -995,7 +1025,7 @@ def test_an_interrupt_reading_the_chunk_table_is_not_swallowed(
     _lazrs_raising(monkeypatch, KeyboardInterrupt(), "read_chunk_table_only")
 
     with pytest.raises(KeyboardInterrupt):
-        inspect_pointcloud(write(tmp_path, copc()))
+        pointcloud_decode.main(["top", write(tmp_path, copc())])
 
 
 # --- The probe reads only what the checks need ---------------------------
@@ -1143,7 +1173,7 @@ def _decoded_chunks(monkeypatch) -> list[int]:
         return decompress(chunk, *args)
 
     monkeypatch.setattr(
-        pointcloud_module.lazrs, "decompress_points_with_chunk_table", _decompress
+        pointcloud_decode.lazrs, "decompress_points_with_chunk_table", _decompress
     )
     return sizes
 
@@ -1152,9 +1182,10 @@ async def test_every_node_of_a_point_cloud_is_decoded(tmp_path, monkeypatch) -> 
     """Each node holding points reaches lazrs, and the facts match the top node check's."""
     path = write(tmp_path, copc_nodes())
     top_node_only = inspect_pointcloud(path)
-    decoded = _decoded_chunks(monkeypatch)
 
     cloud = await inspect_every_node(path)
+    decoded = _decoded_chunks(monkeypatch)
+    pointcloud_decode.decode_file(path, every=True)
 
     assert cloud == top_node_only
     assert (cloud.point_count, len(decoded)) == (370, 3)
@@ -1339,15 +1370,17 @@ async def test_a_damaged_node_below_the_top_passes_the_door_and_not_the_worker(
     """The door passes it on its top node; the worker refuses it, a disagreeing header before lazrs."""
     path = write(tmp_path, data)
     inspect_pointcloud(path)
-    chunks = _decoded_chunks(monkeypatch)
 
     with pytest.raises(UnsafeUploadError) as refusal:
         await inspect_every_node(path)
+    chunks = _decoded_chunks(monkeypatch)
+    with pytest.raises((UnsafeUploadError, pointcloud_decode._Refused)):
+        pointcloud_decode.decode_file(path, every=True)
 
     assert (refusal.value.code, len(chunks)) == ("pointcloud_decode_failed", decoded)
 
 
-async def test_a_node_below_the_top_past_the_decode_bound_is_refused(
+def test_a_node_below_the_top_past_the_decode_bound_is_refused(
     tmp_path, monkeypatch
 ) -> None:
     """Every node is held to the decode bound, not only the top one."""
@@ -1356,47 +1389,68 @@ async def test_a_node_below_the_top_past_the_decode_bound_is_refused(
     inspect_pointcloud(path)
     chunks = _decoded_chunks(monkeypatch)
 
+    with pytest.raises(pointcloud_decode._Refused) as refused:
+        pointcloud_decode.decode_file(path, every=True)
     with pytest.raises(UnsafeUploadError, match="decode limit") as refusal:
-        await inspect_every_node(path)
+        pointcloud_module._corners_of({"refused": refused.value.args[0]})
 
     assert (refusal.value.code, len(chunks)) == ("pointcloud_invalid", 2)
 
 
-class _Clock:
-    """A monotonic clock that moves a fixed step each time it is read."""
-
-    def __init__(self, step: float) -> None:
-        self.now, self.step = 0.0, step
-
-    def __call__(self) -> float:
-        self.now += self.step
-        return self.now
-
-
-async def test_a_decode_past_its_time_budget_is_refused_between_nodes(
+async def test_the_worker_leaves_the_checks_below_the_top_node_to_the_child(
     tmp_path, monkeypatch
 ) -> None:
-    """Once the file's decode budget is spent, no further node is decoded."""
-    floor = pointcloud_module.DECODE_FLOOR_SECONDS
-    path = write(tmp_path, copc_nodes())
-    monkeypatch.setattr(pointcloud_module, "monotonic", _Clock(floor * 2 / 3))
-    chunks = _decoded_chunks(monkeypatch)
+    """The parent checks only the top node; the child checks the rest under its deadline."""
+    path = write(tmp_path, copc_nodes(count_error=-1))
+    checked: list[int] = []
+    fault = pointcloud_module._node_fault
+
+    def _checked(read, layout, node):
+        checked.append(node.depth)
+        return fault(read, layout, node)
+
+    monkeypatch.setattr(pointcloud_module, "_node_fault", _checked)
+
+    with capture_logs() as logs:
+        with pytest.raises(UnsafeUploadError) as refusal:
+            await inspect_every_node(path)
+
+    assert (refusal.value.code, checked) == ("pointcloud_decode_failed", [0])
+    refused = [log["reason"] for log in logs if log["event"] == "Point cloud refused"]
+    assert refused == ["chunk_header"]
+
+
+async def test_a_decode_past_its_time_budget_is_refused(tmp_path, monkeypatch) -> None:
+    """A decode that uses up its share of the file's budget in CPU time is refused."""
+    _burning_decoder(monkeypatch)
+    monkeypatch.setattr(pointcloud_module, "DECODE_FLOOR_SECONDS", 3)
 
     with pytest.raises(UnsafeUploadError) as refusal:
-        await inspect_every_node(path)
+        await inspect_every_node(write(tmp_path, copc_nodes()))
 
     assert refusal_detail(refusal.value) == {
         "code": "pointcloud_invalid",
-        "message": f"The point cloud takes more than {floor} seconds to decode.",
-        "limit": floor,
+        "message": "The point cloud takes more than 1 seconds to decode.",
+        "limit": 1,
     }
-    assert len(chunks) == 2
 
 
 async def test_a_decode_within_its_time_budget_passes(tmp_path, monkeypatch) -> None:
-    """A file whose nodes decode inside its budget passes the check."""
-    floor = pointcloud_module.DECODE_FLOOR_SECONDS
-    path = write(tmp_path, copc_nodes())
-    monkeypatch.setattr(pointcloud_module, "monotonic", _Clock(floor / 3))
+    """The worker gives its one child the file's budget, and the door its own deadline.
 
+    Each child may spend a third of its deadline in CPU time.
+    """
+    path = write(tmp_path, copc_nodes())
+    children = _children(monkeypatch)
+
+    inspect_pointcloud(path)
     assert (await inspect_every_node(path)).point_count == 370
+
+    door, worker = (
+        pointcloud_module.TOP_NODE_DECODE_SECONDS,
+        pointcloud_module.DECODE_FLOOR_SECONDS,
+    )
+    assert [(argv[-3:-1], kwargs["timeout"]) for argv, kwargs in children] == [
+        (["top", str(door // 3)], door),
+        (["every", str(worker // 3)], worker),
+    ]

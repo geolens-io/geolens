@@ -7,38 +7,41 @@ declared: the top node at the upload doors, every node in the worker before
 the copy. Every check reads a local file: the staged upload, a copy the worker
 downloads, or a sparse probe holding only the ranges the doors' checks read
 from an object in storage.
+
+lazrs holds the GIL while it decodes, and a decode that never returned would
+hold its thread for good, so ``pointcloud_decode`` decodes in a child process
+killed at a deadline, once the file's layout and top node pass the checks
+here. That child imports this module with only ``PATH`` set, so settings,
+storage and schemas load inside the functions that use them.
 """
 
 from __future__ import annotations
 
 import asyncio
-import io
 import json
 import math
 import os
 import re
 import struct
+import sys
 import tempfile
 import uuid
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
-from time import monotonic
 from types import SimpleNamespace
-from typing import BinaryIO, Callable, NamedTuple
+from typing import TYPE_CHECKING, BinaryIO, Callable, NamedTuple, TypeVar
 
-import lazrs
-import numpy as np
 import structlog
 
-from app.core.config import settings
-from app.core.geo import rollup_bbox
+from app.core.async_io import await_draining
 from app.core.pointcloud import LAZ_WITHOUT_KIND, POINTCLOUD_FILE_TYPE, is_laz
 from app.core.upload_errors import UnsafeUploadError
-from app.platform.storage import StorageProvider
-from app.platform.storage.titiler_url import resolve_current_storage_key
-from app.processing.ingest.schemas import PointCloudPreviewResponse
-from app.processing.ingest.tileset import _copy_range
+from app.platform.bounded_child import ChildFailure, run_child
+
+if TYPE_CHECKING:
+    from app.platform.storage import StorageProvider
+    from app.processing.ingest.schemas import PointCloudPreviewResponse
 
 logger = structlog.get_logger(__name__)
 
@@ -61,6 +64,12 @@ MAX_DECODE_RATIO = 64
 # of the file when that is longer, so no file holds the raster queue for long.
 DECODE_FLOOR_SECONDS = 60
 DECODE_SECONDS_PER_MB = 1
+# The doors' deadline for the chunk table and the top node. The largest node
+# decodes in about a second, and the proxies in front of the API allow 100 s.
+TOP_NODE_DECODE_SECONDS = 30
+# Decode children one process runs at once: a child decoding the largest node
+# the caps allow peaks near 300 MB.
+MAX_DECODE_CHILDREN = 2
 MAX_WKT_BYTES = 64 * 1024
 # lazrs builds four 256-symbol models, about 9.6 KB, per extra byte before it
 # reads a point, so the extra bytes a record may carry are bounded too.
@@ -124,6 +133,7 @@ _DECODE_FAILED = "The point cloud's points don't decode as its header describes.
 _CHUNK_TABLE = "The file's LAZ chunk table doesn't match its octree."
 
 Read = Callable[[int, int], bytes]
+_T = TypeVar("_T")
 
 
 @dataclass(frozen=True)
@@ -217,9 +227,54 @@ def _decode_failed(*, reason: str) -> UnsafeUploadError:
     )
 
 
-def _lazrs_failed(exc: BaseException) -> bool:
-    """Whether lazrs raised ``exc`` as an error or a Rust panic, not an interrupt."""
-    return isinstance(exc, Exception) or type(exc).__name__ == "PanicException"
+# The refusal for each check the decode child can report, by the name it
+# reports it under; the child's reply carries the name alone.
+_DECODE_REFUSALS: dict[str, Callable[[], UnsafeUploadError]] = {
+    "decode_limit": lambda: _invalid(
+        "A node of the octree exceeds the "
+        f"{MAX_DECODE_BYTES // 1024**2} MB decode limit.",
+        reason="decode_limit",
+        limit_mb=MAX_DECODE_BYTES // 1024**2,
+    ),
+    "chunk_size": lambda: _decode_failed(reason="chunk_size"),
+    "chunk_header": lambda: _decode_failed(reason="chunk_header"),
+    "chunk_table": lambda: _invalid(_CHUNK_TABLE, reason="chunk_table"),
+    "decode": lambda: _decode_failed(reason="decode"),
+    "decode_bounds": lambda: _decode_failed(reason="decode_bounds"),
+    "decode_overflow": lambda: _invalid(
+        "The point cloud's coordinates are too large to represent.",
+        reason="decode_overflow",
+    ),
+    "cell_overflow": lambda: _invalid(
+        "The point cloud's octree is too large to represent.", reason="cell_overflow"
+    ),
+    "decode_voxel": lambda: _invalid(
+        "A node's points lie outside its octree cell.", reason="decode_voxel"
+    ),
+}
+# The signals a decoder ends on when it fails on its input. Any other signal,
+# such as the OOM killer's SIGKILL or an operator's SIGTERM, says nothing about
+# the file.
+_CRASH_SIGNALS = frozenset({"SIGSEGV", "SIGBUS", "SIGABRT", "SIGILL", "SIGFPE"})
+
+
+class PointCloudDecodeError(Exception):
+    """A decode that failed for a reason of the server's, not of the file's."""
+
+    def __init__(
+        self, message: str = "Decoding the point cloud failed unexpectedly."
+    ) -> None:
+        super().__init__(message)
+
+
+class PointCloudDecodeTimeout(PointCloudDecodeError):
+    """A decode its deadline stopped with CPU time to spare: the host was busy, or the child blocked."""
+
+    def __init__(self, seconds: int) -> None:
+        super().__init__(
+            f"Decoding the point cloud took longer than {seconds} seconds, "
+            "so it was stopped."
+        )
 
 
 def _read_header(data: bytes, size: int) -> _Header:
@@ -566,16 +621,9 @@ def _chunk_table_span(
     )
 
 
-def _check_chunk_table(read: Read, layout: _Layout, size: int) -> None:
-    """Refuse a file a LAZ reader would read differently from its octree.
-
-    A LAZ reader takes each chunk's point count and byte size from the chunk
-    table, and finds the chunks one after another from the start of the point
-    data, past the table's 8-byte offset. The table must list every node's
-    chunk that way, in file order.
-    """
-    point_offset = layout.header.point_offset
-    (table_offset,) = struct.unpack("<q", read(point_offset, 8))
+def _chunk_table_frame(read: Read, layout: _Layout, size: int) -> tuple[int, int]:
+    """The chunk table's range, refusing a table that can't lie there or states another count."""
+    (table_offset,) = struct.unpack("<q", read(layout.header.point_offset, 8))
     span = _chunk_table_span(layout, table_offset, size)
     if span is None:
         raise _invalid(_CHUNK_TABLE, reason="chunk_table")
@@ -583,111 +631,29 @@ def _check_chunk_table(read: Read, layout: _Layout, size: int) -> None:
     # lazrs allocates the table from its stated count before reading it.
     if version != 0 or count != len(layout.nodes):
         raise _invalid(_CHUNK_TABLE, reason="chunk_table")
-    try:
-        table = lazrs.read_chunk_table_only(
-            io.BytesIO(read(*span)), lazrs.LazVlr(layout.laszip)
-        )
-    except BaseException as exc:  # broad: a Rust panic reaches Python as pyo3's PanicException, which is no Exception
-        if not _lazrs_failed(exc):
-            raise
-        raise _invalid(_CHUNK_TABLE, reason="chunk_table") from exc
-    start = point_offset + 8
-    for node, entry in zip(sorted(layout.nodes, key=lambda node: node.offset), table):
-        if (node.offset, (node.count, node.size)) != (start, entry):
-            raise _invalid(_CHUNK_TABLE, reason="chunk_table")
-        start += node.size
+    return span
 
 
-def _check_chunk(chunk: bytes, layout: _Layout, count: int) -> None:
-    """Refuse a chunk whose header would size lazrs's buffers past the chunk.
+def _node_fault(read: Read, layout: _Layout, node: _Node) -> str | None:
+    """The check a node fails before it may be decoded, as a ``_DECODE_REFUSALS`` name, or None.
 
-    A layered chunk opens with its first point stored raw, its point count and
-    one byte size per layer, and lazrs allocates each layer from that size
-    before reading it. The count must match the hierarchy's and the sizes must
-    add up to the chunk.
+    A node must fit the decode limit. A layered chunk opens with its first
+    point stored raw, its point count and one byte size per layer, and lazrs
+    allocates each layer from that size before reading it, so the count must
+    match the hierarchy's and the sizes must add up to the chunk.
     """
     record_length = layout.header.record_length
+    if max(node.size, node.count * record_length) > MAX_DECODE_BYTES:
+        return "decode_limit"
     fixed = record_length + 4 + 4 * layout.layers
-    if len(chunk) < fixed:
-        raise _decode_failed(reason="chunk_size")
-    points = struct.unpack_from("<I", chunk, record_length)[0]
-    sizes = struct.unpack_from(f"<{layout.layers}I", chunk, record_length + 4)
-    if points != count or fixed + sum(sizes) != len(chunk):
-        raise _decode_failed(reason="chunk_header")
-
-
-def _decode(read: Read, layout: _Layout, node: _Node) -> tuple[np.ndarray, np.ndarray]:
-    """Decode one node with lazrs, check where its points sit, and return their low and high corners.
-
-    Each corner also carries X wrapped into [-180, 180) and into [0, 360).
-    """
-    header = layout.header
-    offset, size, count = node.offset, node.size, node.count
-    if max(size, count * header.record_length) > MAX_DECODE_BYTES:
-        raise _invalid(
-            "A node of the octree exceeds the "
-            f"{MAX_DECODE_BYTES // 1024**2} MB decode limit.",
-            reason="decode_limit",
-            limit_mb=MAX_DECODE_BYTES // 1024**2,
-        )
-    chunk = read(offset, size)
-    _check_chunk(chunk, layout, count)
-    points = bytearray(count * header.record_length)
-    try:
-        lazrs.decompress_points_with_chunk_table(
-            chunk,
-            layout.laszip,
-            points,
-            [(count, size)],
-            lazrs.DecompressionSelection(lazrs.SELECTIVE_DECOMPRESS_ALL),
-        )
-    except BaseException as exc:  # broad: a Rust panic reaches Python as pyo3's PanicException, which is no Exception
-        if not _lazrs_failed(exc):
-            raise
-        raise _decode_failed(reason="decode") from exc
-    xyz = np.ndarray(
-        (count, 3), dtype="<i4", buffer=points, strides=(header.record_length, 4)
-    )
-    scales, offsets = np.array(header.scales), np.array(header.offsets)
-    edge = 2 * layout.halfsize / 2**node.depth
-    key = np.array((node.x, node.y, node.z))
-    with np.errstate(over="ignore", invalid="ignore"):
-        # A negative scale maps the largest raw value to the lowest coordinate.
-        ends = np.stack((xyz.min(axis=0), xyz.max(axis=0))) * scales + offsets
-        cell = np.array(layout.center) - layout.halfsize + edge * key
-        cell_end = cell + edge
-    # Finite header values can still overflow to inf or NaN, which slip past
-    # the comparisons below.
-    if not np.isfinite(ends).all():
-        raise _invalid(
-            "The point cloud's coordinates are too large to represent.",
-            reason="decode_overflow",
-        )
-    if not np.isfinite((cell, cell_end)).all():
-        raise _invalid(
-            "The point cloud's octree is too large to represent.",
-            reason="cell_overflow",
-        )
-    low, high, slack = ends.min(axis=0), ends.max(axis=0), np.abs(scales)
-    if (low < np.array(header.mins) - slack).any() or (
-        high > np.array(header.maxs) + slack
-    ).any():
-        raise _decode_failed(reason="decode_bounds")
-    # Each level halves the octree's cube, and a COPC reader reads a node only
-    # for a query that meets its cell, so a point outside the cell is hidden.
-    if (low < cell - slack).any() or (high > cell_end + slack).any():
-        raise _invalid(
-            "A node's points lie outside its octree cell.", reason="decode_voxel"
-        )
-    # A cloud each side of one encoding's seam is narrow in the other, so a
-    # geographic CRS's extent reads longitudes both ways, in place.
-    x = xyz[:, 0] * scales[0]
-    x += offsets[0] + 180
-    np.remainder(x, 360, out=x)
-    x -= 180
-    west, east = x.min(), x.max()
-    np.remainder(x, 360, out=x)
-    return np.append(low, (west, x.min())), np.append(high, (east, x.max()))
+    if node.size < fixed:
+        return "chunk_size"
+    head = read(node.offset, fixed)
+    points = struct.unpack_from("<I", head, record_length)[0]
+    sizes = struct.unpack_from(f"<{layout.layers}I", head, record_length + 4)
+    if points != node.count or fixed + sum(sizes) != node.size:
+        return "chunk_header"
+    return None
 
 
 def _parse_wkt(text: str) -> list:
@@ -768,6 +734,7 @@ def _crs_facts(
     from rasterio.coords import BoundingBox
     from rasterio.crs import CRS
 
+    from app.core.geo import rollup_bbox
     from app.processing.raster.cog import _wgs84_bbox
 
     try:
@@ -810,16 +777,95 @@ def _reader(source: BinaryIO) -> Read:
     return read
 
 
-def _inspect(path: str) -> tuple[PointCloud, _Layout, tuple[np.ndarray, np.ndarray]]:
-    """``inspect_pointcloud``, with the layout it read and the top node's corners."""
+def _decoder_command(every: bool, cpu_seconds: int, path: str) -> list[str]:
+    module = "app.processing.ingest.pointcloud_decode"
+    nodes = "every" if every else "top"
+    return [sys.executable, "-m", module, nodes, str(cpu_seconds), path]
+
+
+def _decoded_corners(
+    path: str, *, every: bool, timeout: int
+) -> tuple[list[float], list[float]]:
+    """The low and high corners of the decoded points, from a child killed at ``timeout`` seconds.
+
+    Each corner is X, Y and Z, then X wrapped into [-180, 180) and into
+    [0, 360). A child that uses up its CPU time is refused as too slow to
+    decode, and one a crash signal ends as undecodable. The deadline stopping
+    a child with CPU time to spare is a ``PointCloudDecodeTimeout``, and any
+    other failure, such as a SIGKILL from the OOM killer, a
+    ``PointCloudDecodeError``.
+    """
+    # A third of the deadline: a decode spinning on its input dies of SIGXCPU
+    # long before the deadline, which then stops only a starved or blocked child.
+    cpu_seconds = max(1, timeout // 3)
+    try:
+        result = run_child(
+            _decoder_command(every, cpu_seconds, os.path.abspath(path)),
+            env={"PATH": os.environ.get("PATH", os.defpath)},
+            timeout=timeout,
+            reported=("internal",),
+        )
+    except ChildFailure as failure:
+        logger.warning("Point cloud decode failed", **failure.details)
+        signal_name = failure.details.get("signal")
+        if signal_name == "SIGXCPU":
+            raise _invalid(
+                f"The point cloud takes more than {cpu_seconds} seconds to decode.",
+                reason="decode_time",
+                limit=cpu_seconds,
+            ) from None
+        if signal_name in _CRASH_SIGNALS:
+            raise _decode_failed(reason="decode_crash") from None
+        if failure.category == "timeout":
+            raise PointCloudDecodeTimeout(timeout) from None
+        raise PointCloudDecodeError() from None
+    return _corners_of(result)
+
+
+def _corners_of(result: object) -> tuple[list[float], list[float]]:
+    """The corners a decode child's result holds, or the refusal it names."""
+    if isinstance(result, dict) and result.keys() == {"refused"}:
+        check = result["refused"]
+        if isinstance(check, str) and check in _DECODE_REFUSALS:
+            raise _DECODE_REFUSALS[check]()
+    elif isinstance(result, dict) and result.keys() == {"low", "high"}:
+        low, high = _corner(result["low"]), _corner(result["high"])
+        if low is not None and high is not None:
+            return low, high
+    logger.warning("Point cloud decode failed", category="bad_result")
+    raise PointCloudDecodeError()
+
+
+def _corner(value: object) -> list[float] | None:
+    if not isinstance(value, list) or len(value) != 5:
+        return None
+    if not all(type(v) is float and math.isfinite(v) for v in value):
+        return None
+    return value
+
+
+def _inspect(
+    path: str, *, every: bool
+) -> tuple[PointCloud, _Layout, tuple[list[float], list[float]]]:
+    """``inspect_pointcloud`` decoding every node or the top one, with the layout and the points' corners."""
     size = os.path.getsize(path)
     with open(path, "rb") as source:
         read = _reader(source)
         layout = _read_layout(read, size)
-        _check_chunk_table(read, layout, size)
-        corners = _decode(read, layout, layout.nodes[0])
+        _chunk_table_frame(read, layout, size)
+        # The child checks each node again before decoding it, under its
+        # deadline; the top one is checked here too, so a door can refuse it
+        # without starting a child.
+        fault = _node_fault(read, layout, layout.nodes[0])
+    if fault:
+        raise _DECODE_REFUSALS[fault]()
     header = layout.header
     srid, vertical, bbox = _crs_facts(layout.wkt, header.mins, header.maxs)
+    if every:
+        timeout = max(DECODE_FLOOR_SECONDS, size * DECODE_SECONDS_PER_MB // 1024**2)
+    else:
+        timeout = TOP_NODE_DECODE_SECONDS
+    corners = _decoded_corners(path, every=every, timeout=timeout)
     cloud = PointCloud(
         point_count=header.point_count,
         point_format=header.point_format,
@@ -846,41 +892,55 @@ def _publishable(cloud: PointCloud) -> PointCloud:
 
 
 def inspect_pointcloud(path: str) -> PointCloud:
-    """Check a COPC file on local disk, decoding its top node; a refusal is an ``UnsafeUploadError``."""
-    return _publishable(_inspect(path)[0])
+    """Check a COPC file on local disk, decoding its top node.
+
+    A refusal is an ``UnsafeUploadError``, and a decode that fails for the
+    server's reasons a ``PointCloudDecodeError``.
+    """
+    return _publishable(_inspect(path, every=False)[0])
 
 
-def _decode_node(
-    path: str, layout: _Layout, node: _Node
-) -> tuple[np.ndarray, np.ndarray]:
-    with open(path, "rb") as source:
-        return _decode(_reader(source), layout, node)
+_decode_slots: tuple[asyncio.AbstractEventLoop, asyncio.Semaphore] | None = None
+
+
+async def _in_decode_slot(
+    func: Callable[..., _T], /, *args: object, **kwargs: object
+) -> _T:
+    """``asyncio.to_thread(func, ...)`` once one of this process's decode slots is free.
+
+    The wait is on the event loop, so a queued decode holds no executor thread.
+    A cancelled caller keeps its slot until the thread, and so its child, is done.
+    """
+    global _decode_slots
+    loop = asyncio.get_running_loop()
+    if _decode_slots is None or _decode_slots[0] is not loop:
+        # A semaphore belongs to the loop that first waits on it.
+        _decode_slots = (loop, asyncio.Semaphore(MAX_DECODE_CHILDREN))
+    async with _decode_slots[1]:
+        return await await_draining(asyncio.to_thread(func, *args, **kwargs))
+
+
+async def _at_a_door(func: Callable[[str], PointCloud], path: str) -> PointCloud:
+    """``func(path)`` in a decode slot, a decode the server stopped raising a retriable 503."""
+    from fastapi import HTTPException, status
+
+    try:
+        return await _in_decode_slot(func, path)
+    except PointCloudDecodeTimeout as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Checking the point cloud took too long. Try again.",
+        ) from exc
 
 
 async def inspect_every_node(path: str) -> PointCloud:
-    """``inspect_pointcloud``, then every other node holding points decoded as the top one is.
+    """``inspect_pointcloud``, with every node holding points decoded as the top one is.
 
-    lazrs holds the GIL while it decodes, so each node gets a thread call of
-    its own and the event loop runs between nodes. Between nodes the time
-    spent is checked against the file's decode budget. The extent and the
-    elevation range are the ones the decoded points cover, not the header's.
+    One child decodes them all under the file's decode budget. The extent and
+    the elevation range are the ones the decoded points cover, not the header's.
     """
-    started = monotonic()
-    cloud, layout, (low, high) = await asyncio.to_thread(_inspect, path)
-    budget = max(
-        DECODE_FLOOR_SECONDS, cloud.size_bytes * DECODE_SECONDS_PER_MB // 1024**2
-    )
-    for node in layout.nodes[1:]:
-        if monotonic() - started > budget:
-            raise _invalid(
-                f"The point cloud takes more than {budget} seconds to decode.",
-                reason="decode_time",
-                limit=budget,
-            )
-        node_low, node_high = await asyncio.to_thread(_decode_node, path, layout, node)
-        low, high = np.minimum(low, node_low), np.maximum(high, node_high)
+    cloud, layout, (low, high) = await _in_decode_slot(_inspect, path, every=True)
     # Some writers round a header's bounds outward, so the points set the extent.
-    low, high = low.tolist(), high.tolist()
     _, _, bbox = await asyncio.to_thread(
         _crs_facts, layout.wkt, low, high, (low[3], high[3], low[4], high[4])
     )
@@ -904,6 +964,9 @@ async def inspect_stored_pointcloud(storage: StorageProvider, key: str) -> Point
     read: the header and VLRs, the EVLRs with the hierarchy, the chunk table,
     and the one node decoded. ``key`` is the physical key.
     """
+    from app.core.config import settings
+    from app.processing.ingest.tileset import _copy_range
+
     size = await storage.size(key)
     handle, probe = tempfile.mkstemp(
         prefix="pointcloud-probe-", suffix=".laz", dir=settings.upload_staging_dir
@@ -925,7 +988,7 @@ async def inspect_stored_pointcloud(storage: StorageProvider, key: str) -> Point
             and evlr_bytes <= MAX_EVLR_BLOCK_BYTES
         ):
             await _copy_range(storage, key, probe, header.evlr_start, evlr_bytes)
-        layout = await asyncio.to_thread(_layout_of, probe)
+        layout = await await_draining(asyncio.to_thread(_layout_of, probe))
         top = layout.nodes[0]
         if top.size <= MAX_DECODE_BYTES:
             await _copy_range(storage, key, probe, top.offset, top.size)
@@ -933,7 +996,7 @@ async def inspect_stored_pointcloud(storage: StorageProvider, key: str) -> Point
         span = _chunk_table_span(layout, struct.unpack("<q", field)[0], size)
         if span:
             await _copy_range(storage, key, probe, *span)
-        return await asyncio.to_thread(inspect_pointcloud, probe)
+        return await _at_a_door(inspect_pointcloud, probe)
     finally:
         if handle >= 0:
             os.close(handle)
@@ -943,6 +1006,7 @@ async def inspect_stored_pointcloud(storage: StorageProvider, key: str) -> Point
 def staged_source(file_path: str) -> tuple[bool, str]:
     """Whether a staged upload is a local file, and its path or physical key."""
     from app.core.tenancy import is_multi_tenant
+    from app.platform.storage.titiler_url import resolve_current_storage_key
 
     local = Path(file_path)
     if local.exists() and (local.is_absolute() or not is_multi_tenant()):
@@ -958,7 +1022,7 @@ async def inspect_staged_pointcloud(file_path: str) -> PointCloud:
 
     is_local, source = staged_source(file_path)
     if is_local:
-        return await asyncio.to_thread(inspect_pointcloud, source)
+        return await _at_a_door(inspect_pointcloud, source)
     return await inspect_stored_pointcloud(get_storage(), source)
 
 
@@ -992,7 +1056,7 @@ async def staged_pointcloud_metadata(path: str, kind: str | None) -> dict:
     """What a point cloud upload's job row binds, once its file passes every check."""
     if kind != POINTCLOUD_FILE_TYPE:
         return {}
-    await asyncio.to_thread(inspect_pointcloud, path)
+    await _at_a_door(inspect_pointcloud, path)
     return {"file_type": POINTCLOUD_FILE_TYPE}
 
 
@@ -1004,6 +1068,8 @@ async def preview_staged_pointcloud(
     Lets ``UnsafeUploadError`` propagate: the caller (``preview_file``) is
     the door that converts it.
     """
+    from app.processing.ingest.schemas import PointCloudPreviewResponse
+
     cloud = await inspect_staged_pointcloud(file_path)
     return PointCloudPreviewResponse(
         job_id=job_id,

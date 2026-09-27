@@ -30,6 +30,7 @@ from app.core.geo import (
     wkt_is_geographic,
     wkt_metres_per_unit,
 )
+from app.platform import bounded_child
 from app.platform.jobs.models import IngestJob
 from app.processing.raster import probe
 from app.processing.raster.cog import (
@@ -151,7 +152,7 @@ class TestTheParentBoundsTheChild:
         def _fail(*args, **kwargs):
             raise raised
 
-        monkeypatch.setattr(probe.subprocess, "run", _fail)
+        monkeypatch.setattr(bounded_child.subprocess, "run", _fail)
 
         with structlog.testing.capture_logs() as captured:
             with pytest.raises(probe.RasterProbeError) as exc_info:

@@ -13,14 +13,12 @@ from __future__ import annotations
 
 import base64
 import json
-import re
-import signal
-import subprocess
 import sys
-from pathlib import Path
 from typing import Any
 
 import structlog
+
+from app.platform.bounded_child import ChildFailure, run_child
 
 logger = structlog.get_logger(__name__)
 
@@ -33,15 +31,9 @@ READ_TIMEOUT_SECONDS = 120
 RENDER_TIMEOUT_SECONDS = 900
 CRS_FACTS_TIMEOUT_SECONDS = 30
 
-_BACKEND_ROOT = Path(__file__).resolve().parents[3]
-
 # The child's verdicts, and the kind each surfaces as. "invalid" is a raster
 # GDAL or PROJ refused to read; "internal" is any other failure in the child.
 _CHILD_KINDS = {"open": "open", "invalid": "read", "internal": "internal"}
-
-# An exception's class name, the one part of a traceback the log may carry:
-# its message can quote the file.
-_EXCEPTION_NAME = re.compile(r"[A-Za-z_][\w.]{0,99}(?:Error|Exception|Exit|Interrupt)")
 
 
 class RasterProbeError(Exception):
@@ -127,67 +119,20 @@ def _run(op: str, *args: str, stdin: str | None = None, timeout: float) -> Any:
     from app.processing.raster.vrt import gdal_safe_env
 
     try:
-        done = subprocess.run(
+        return run_child(
             _command(op, *args),
-            input=stdin,
-            stdin=subprocess.DEVNULL if stdin is None else None,
-            capture_output=True,
-            text=True,
-            cwd=_BACKEND_ROOT,
+            stdin=stdin,
             env=gdal_safe_env(extras={"PROJ_NETWORK": "OFF"}),
             timeout=timeout,
+            reported=_CHILD_KINDS,
         )
-    except subprocess.TimeoutExpired:
-        logger.warning("raster probe failed", op=op, category="timeout")
-        raise RasterProbeError("timeout", timeout=timeout) from None
-    except (OSError, UnicodeDecodeError) as exc:
-        # The child couldn't start, or its reply wasn't text: the failure is
-        # ours, not the raster's.
-        logger.warning(
-            "raster probe failed",
-            op=op,
-            category="spawn" if isinstance(exc, OSError) else "undecodable",
-            exception=type(exc).__name__,
-        )
-        raise RasterProbeError("internal", timeout=timeout) from None
-    try:
-        reply = json.loads(done.stdout)
-    except ValueError:
-        reply = None
-    if done.returncode == 0 and isinstance(reply, dict) and "result" in reply:
-        return reply["result"]
-    if not isinstance(reply, dict):
-        reply = {}
-    category, exception = reply.get("error"), reply.get("exception")
-    if done.returncode < 0:
-        category, exception = "killed", None
-    elif category not in _CHILD_KINDS:
-        # No verdict: the child died before it could give one, as a failed
-        # import or an interpreter crash does. Its traceback ends with the
-        # exception's class name.
-        category = "no_reply"
-        lines = done.stderr.strip().splitlines()
-        exception = lines[-1].split(":", 1)[0] if lines else None
-    logger.warning(
-        "raster probe failed",
-        op=op,
-        category=category,
-        returncode=done.returncode,
-        signal=_signal_name(done.returncode),
-        exception=exception
-        if isinstance(exception, str) and _EXCEPTION_NAME.fullmatch(exception)
-        else None,
-    )
-    raise RasterProbeError(_CHILD_KINDS.get(category, "internal"), timeout=timeout)
-
-
-def _signal_name(returncode: int) -> str | None:
-    if returncode >= 0:
-        return None
-    try:
-        return signal.Signals(-returncode).name
-    except ValueError:
-        return str(-returncode)
+    except ChildFailure as failure:
+        logger.warning("raster probe failed", op=op, **failure.details)
+        if failure.category == "timeout":
+            kind = "timeout"
+        else:
+            kind = _CHILD_KINDS.get(failure.category, "internal")
+        raise RasterProbeError(kind, timeout=timeout) from None
 
 
 def _inspect(path: str, expected_compression: str) -> dict:
