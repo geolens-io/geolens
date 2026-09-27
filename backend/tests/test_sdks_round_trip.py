@@ -235,11 +235,7 @@ class TestPointCloudDownload:
 
 
 class TestCogDownload:
-    """fix(#2361): the COG download's 200/206 used to publish no OpenAPI body,
-    so sync()/asyncio() returned None and dropped the bytes — only
-    sync_detailed()/asyncio_detailed() kept them, in .content. Mirrors
-    TestPointCloudDownload's shape for the same convenience-call contract.
-    """
+    """sync() and asyncio() return the COG download's bytes for 200 and 206."""
 
     @pytest.mark.parametrize("status", [200, 206])
     def test_sync_and_asyncio_return_the_file(self, status: int) -> None:
@@ -271,7 +267,7 @@ class TestCogDownload:
 
 
 class TestExportDownload:
-    """fix(#2361): same regression as TestCogDownload, for /export.
+    """sync() and asyncio() return the export's bytes.
 
     One format stands in for the whole set here (schemas.ExportFormat) —
     every format is declared with the identical binary schema
@@ -310,7 +306,7 @@ class TestExportDownload:
 
 
 class TestTiles3dFileDownload:
-    """fix(#2361): same regression as TestCogDownload, for /tiles3d/{path}.
+    """sync() and asyncio() return a 3D Tiles file's bytes.
 
     Parametrized across a JSON file (tileset.json) and a binary one (a GLB
     tile) — both must come back as bytes, not a parsed dict, which is the
@@ -352,13 +348,8 @@ class TestTiles3dFileDownload:
 
 
 class TestCogAndExportNotModified:
-    """fix(P2 review of #2382): the COG download and export handlers answer
-    304 to a matching If-None-Match (evaluate_preconditions /
-    not_modified_response), but their declared responses only listed 200
-    and 206 — an undeclared status code, so a client constructed with
-    raise_on_unexpected_status=True raised errors.UnexpectedStatus on a
-    plain cache hit. Declaring 304 (bodyless, following tiles3d's own
-    304 declaration) fixes both the same way.
+    """A 304 from the COG download or export is a declared status, so
+    raise_on_unexpected_status=True doesn't raise on a cache hit.
     """
 
     def test_cog_304_does_not_raise(self) -> None:

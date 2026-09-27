@@ -21,10 +21,5 @@ export { notModified } from './fileReads.js';
 // API stable across regenerations.)
 export * from './client/index.js';
 
-// fix(P1 review of #2382): a caller who invokes a root-exported generated
-// function directly (e.g. with a per-call `baseUrl`, for an anonymous
-// public file) never calls createGeolensClient(), so the interceptor was
-// never installed on the generated singleton every such call falls back
-// to. Idempotent (a WeakSet), so this and createGeolensClient()'s own
-// install of it never conflict.
+// Generated functions called without createGeolensClient() use this singleton.
 installFileReadHandling(client);

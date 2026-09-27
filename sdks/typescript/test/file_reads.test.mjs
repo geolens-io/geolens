@@ -1,18 +1,8 @@
 /**
- * fix(#2361/#2374): the file-read routes (COG download, dataset export, a
- * 3D Tiles file, a COPC point cloud file) declare a binary body, but the
- * generated fetch client only infers a Blob from a handful of Content-Type
- * prefixes (`getParseAs`, client/client/utils.gen.ts). `installFileReadHandling`
- * (fileReads.ts), wired into every client `createGeolensClient()` returns,
- * forces these routes to parse as a Blob unless the caller asked for
- * something else (e.g. `parseAs: 'stream'` for a large download).
- *
- * A 304 from a conditional read is still an error to the generated client
- * (any non-2xx status is), and stays exactly that here — a synthesized
- * 204 made `ok` true while `status`/`clone().status` disagreed about what
- * actually happened. `notModified(result)` reads the real, unmodified
- * response instead, so a caller checks one thing rather than relying on
- * response identity the client itself doesn't preserve.
+ * File-read routes (COG download, export, 3D Tiles file, COPC file) return
+ * a Blob whatever their Content-Type, unless the caller passes its own
+ * parseAs. A 304 stays the generated client's error result; notModified()
+ * reports it.
  *
  * Run: node --test test/file_reads.test.mjs
  */
@@ -91,9 +81,6 @@ test('a CSV export body parses as a Blob, not text', async () => {
 });
 
 test('an explicit parseAs is honoured, not overridden to blob', async () => {
-  // fix(P1 review of #2382): the request interceptor used to force
-  // parseAs: 'blob' unconditionally, which would buffer a large COG or
-  // export in memory even when the caller explicitly asked to stream it.
   const sdk = createGeolensClient({ baseUrl: BASE_URL });
   const bytes = new Uint8Array([1, 2, 3, 4]);
   sdk.client.setConfig({
@@ -132,9 +119,6 @@ test('a 304 on a file route leaves the original Response, and notModified() repo
     headers: { 'If-None-Match': '"abc123"' },
   });
 
-  // fix(P1 review of #2382): a synthesized 204 made `ok` true while
-  // `status`/`clone().status` still disagreed about what happened — no
-  // rewrite here, so every view of the response agrees: not ok, still 304.
   assert.equal(result.response.status, 304);
   assert.equal(result.response.ok, false);
   assert.equal(
