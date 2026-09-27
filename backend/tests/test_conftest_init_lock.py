@@ -6,7 +6,10 @@ them at once on a fresh server fail with a duplicate key on pg_authid.
 """
 
 import threading
+import time
+from collections import defaultdict
 from contextlib import contextmanager
+from unittest.mock import MagicMock
 
 import pytest
 import sqlalchemy
@@ -110,6 +113,108 @@ def test_a_lock_connection_refused_past_the_budget_raises(monkeypatch):
     assert slept == [0.1, 0.2]
 
 
+def test_a_waiting_worker_holds_no_connection(monkeypatch):
+    real_connect = sqlalchemy.engine.Engine.connect
+    backend_pids = defaultdict(list)
+
+    def tracking_connect(engine):
+        conn = real_connect(engine)
+        pid = conn.connection.dbapi_connection.info.backend_pid
+        backend_pids[threading.current_thread().name].append(pid)
+        return conn
+
+    monkeypatch.setattr(sqlalchemy.engine.Engine, "connect", tracking_connect)
+    holder_holds = threading.Event()
+    release_holder = threading.Event()
+    waiter_between_attempts = threading.Event()
+    resume_waiter = threading.Event()
+    waiter_entered = threading.Event()
+
+    def holder():
+        with _cluster_init_lock():
+            holder_holds.set()
+            release_holder.wait(timeout=30)
+
+    def pause_once(seconds):
+        if not waiter_between_attempts.is_set():
+            waiter_between_attempts.set()
+            resume_waiter.wait(timeout=30)
+        time.sleep(seconds)
+
+    def waiter():
+        with _cluster_init_lock(sleep_fn=pause_once):
+            waiter_entered.set()
+
+    observer = sqlalchemy.create_engine(settings.database_url_sync)
+
+    def live_backends(pids):
+        with observer.connect() as conn:
+            return conn.execute(
+                text("SELECT count(*) FROM pg_stat_activity WHERE pid = ANY(:pids)"),
+                {"pids": pids},
+            ).scalar()
+
+    holder_thread = threading.Thread(target=holder, name="holder")
+    waiter_thread = threading.Thread(target=waiter, name="waiter")
+    holder_thread.start()
+    try:
+        assert holder_holds.wait(timeout=30)
+        waiter_thread.start()
+        assert waiter_between_attempts.wait(timeout=5), (
+            "the waiter kept its connection open while the lock was held"
+        )
+        assert live_backends(backend_pids["holder"]) == 1
+        assert backend_pids["waiter"]
+        deadline = time.monotonic() + 5
+        while live_backends(backend_pids["waiter"]) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert live_backends(backend_pids["waiter"]) == 0
+
+        release_holder.set()
+        resume_waiter.set()
+        assert waiter_entered.wait(timeout=30)
+    finally:
+        release_holder.set()
+        resume_waiter.set()
+        holder_thread.join(timeout=30)
+        if waiter_thread.ident is not None:
+            waiter_thread.join(timeout=30)
+        observer.dispose()
+
+
+def test_the_wait_for_the_lock_is_bounded():
+    holder_holds = threading.Event()
+    release_holder = threading.Event()
+
+    def holder():
+        with _cluster_init_lock():
+            holder_holds.set()
+            release_holder.wait(timeout=30)
+
+    holder_thread = threading.Thread(target=holder)
+    holder_thread.start()
+    try:
+        assert holder_holds.wait(timeout=30)
+        with pytest.raises(TimeoutError, match="init lock"):
+            with _cluster_init_lock(wait_seconds=0.5):
+                pytest.fail("the lock was taken while another worker held it")
+    finally:
+        release_holder.set()
+        holder_thread.join(timeout=30)
+
+
+def _leftover_worker_databases(session_db: str) -> list:
+    maintenance = sqlalchemy.create_engine(settings.database_url_sync)
+    try:
+        with maintenance.connect() as conn:
+            return conn.execute(
+                text("SELECT datname FROM pg_database WHERE datname LIKE :prefix"),
+                {"prefix": f"{session_db}\\_%"},
+            ).all()
+    finally:
+        maintenance.dispose()
+
+
 def test_a_lock_that_cannot_be_taken_fails_setup_instead_of_skipping_init(
     monkeypatch,
 ):
@@ -133,13 +238,73 @@ def test_a_lock_that_cannot_be_taken_fails_setup_instead_of_skipping_init(
         setup.close()
 
     assert settings.postgres_db_test == session_db
-    maintenance = sqlalchemy.create_engine(settings.database_url_sync)
+    assert _leftover_worker_databases(session_db) == []
+
+
+def _start_setup_with_init_engine(monkeypatch, init_engine):
+    """Run the session setup with ``init_engine`` standing in for the new database's.
+
+    Returns the setup generator and the worker databases that existed when
+    ``init_engine`` was handed out.
+    """
+    import tests.conftest as conftest
+
+    session_db = settings.postgres_db_test
+    databases_at_init = []
+
+    @contextmanager
+    def free_lock():
+        yield
+
+    real_create_engine = sqlalchemy.create_engine
+
+    def create_engine(url, *args, **kwargs):
+        if url == settings.test_database_url_sync:
+            databases_at_init.extend(_leftover_worker_databases(session_db))
+            return init_engine
+        return real_create_engine(url, *args, **kwargs)
+
+    monkeypatch.setattr(conftest, "_SETUP_STAGGER_SECONDS", 0)
+    monkeypatch.setattr(conftest, "_cluster_init_lock", free_lock)
+    monkeypatch.setattr(sqlalchemy, "create_engine", create_engine)
+    return conftest._test_db_lifecycle.__wrapped__(), databases_at_init
+
+
+def test_a_saturated_server_during_init_fails_setup(monkeypatch):
+    session_db = settings.postgres_db_test
+    init_engine = MagicMock()
+    init_engine.connect.side_effect = _too_many_clients()
+    setup, databases_at_init = _start_setup_with_init_engine(monkeypatch, init_engine)
+
     try:
-        with maintenance.connect() as conn:
-            leftover = conn.execute(
-                text("SELECT datname FROM pg_database WHERE datname LIKE :prefix"),
-                {"prefix": f"{session_db}\\_%"},
-            ).all()
+        with pytest.raises(OperationalError, match="too many clients"):
+            next(setup)
     finally:
-        maintenance.dispose()
-    assert leftover == []
+        setup.close()
+
+    assert init_engine.connect.called
+    assert databases_at_init
+    assert settings.postgres_db_test == session_db
+    assert _leftover_worker_databases(session_db) == []
+
+
+def test_a_missing_extension_still_lets_setup_continue(monkeypatch):
+    session_db = settings.postgres_db_test
+    init_engine = MagicMock()
+    conn = init_engine.connect.return_value.__enter__.return_value
+    conn.execute.side_effect = OperationalError(
+        "CREATE EXTENSION IF NOT EXISTS vector",
+        {},
+        Exception('extension "vector" is not available'),
+    )
+    setup, databases_at_init = _start_setup_with_init_engine(monkeypatch, init_engine)
+
+    try:
+        next(setup)
+        assert _leftover_worker_databases(session_db) == []
+    finally:
+        setup.close()
+
+    assert conn.execute.called
+    assert databases_at_init
+    assert settings.postgres_db_test == session_db

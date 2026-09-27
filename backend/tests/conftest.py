@@ -1664,11 +1664,24 @@ def _skip_if_db_unavailable(request):
     pytest.skip(f"Postgres unreachable: {_db_unavailable_reason}")
 
 
+def _reraise_if_saturated(error: SQLAlchemyError) -> None:
+    """Re-raise ``error`` when the server refused a connection as "too many clients already"."""
+    if "too many clients already" in str(error).lower():
+        raise error
+
+
 _CLUSTER_INIT_LOCK_KEY = 861501
+_CLUSTER_INIT_LOCK_POLL_SECONDS = 0.2
+# Well above sixteen workers' inits run one after another, at about 5 s each.
+_CLUSTER_INIT_LOCK_WAIT_SECONDS = 300.0
 
 
 @contextmanager
-def _cluster_init_lock(sleep_fn=time.sleep, backoffs=_SETUP_PHASE_RETRY_BACKOFFS):
+def _cluster_init_lock(
+    sleep_fn=time.sleep,
+    backoffs=_SETUP_PHASE_RETRY_BACKOFFS,
+    wait_seconds=_CLUSTER_INIT_LOCK_WAIT_SECONDS,
+):
     """Hold the lock that lets one worker at a time create server-wide roles.
 
     Each worker's init and migrations create and grant roles that belong to
@@ -1678,27 +1691,38 @@ def _cluster_init_lock(sleep_fn=time.sleep, backoffs=_SETUP_PHASE_RETRY_BACKOFFS
     DATABASE. Held in the worker's own database, it would also stall the
     CREATE INDEX CONCURRENTLY its migrations run.
 
-    A connection refused for "too many clients already" is retried on the
-    ``backoffs`` budget, then re-raised.
+    A waiting worker holds no connection: it polls with a fresh one and raises
+    ``TimeoutError`` after ``wait_seconds``. A connection refused for "too many
+    clients already" is retried on the ``backoffs`` budget, then re-raised.
     """
     engine = sqlalchemy.create_engine(settings.database_url_sync, poolclass=NullPool)
+    deadline = time.monotonic() + wait_seconds
     try:
-        for attempt in range(1 + len(backoffs)):
-            try:
-                conn = engine.connect()
-                break
-            except OperationalError as e:
-                if "too many clients already" not in str(e).lower():
-                    raise
-                if attempt == len(backoffs):
-                    raise
-                sleep_fn(backoffs[attempt])
-        with conn, conn.begin():
-            conn.execute(
-                text("SELECT pg_advisory_xact_lock(:key)"),
-                {"key": _CLUSTER_INIT_LOCK_KEY},
-            )
-            yield
+        while True:
+            for attempt in range(1 + len(backoffs)):
+                try:
+                    conn = engine.connect()
+                    break
+                except OperationalError as e:
+                    if "too many clients already" not in str(e).lower():
+                        raise
+                    if attempt == len(backoffs):
+                        raise
+                    sleep_fn(backoffs[attempt])
+            with conn, conn.begin():
+                taken = conn.execute(
+                    text("SELECT pg_try_advisory_xact_lock(:key)"),
+                    {"key": _CLUSTER_INIT_LOCK_KEY},
+                ).scalar()
+                if taken:
+                    yield
+                    return
+            if time.monotonic() >= deadline:
+                raise TimeoutError(
+                    f"waited {wait_seconds:.0f}s for the database init lock "
+                    f"({_CLUSTER_INIT_LOCK_KEY}) another worker holds"
+                )
+            sleep_fn(_CLUSTER_INIT_LOCK_POLL_SECONDS)
     finally:
         engine.dispose()
 
@@ -1863,11 +1887,12 @@ def _test_db_lifecycle():
                         )
                     )
                 conn.commit()
-        except SQLAlchemyError:
+        except SQLAlchemyError as e:
+            test_engine_sync.dispose()
+            _reraise_if_saturated(e)
             # DB is reachable but missing required extensions (for example pgvector).
             # Let DB-light tests run; DB-backed tests will fail when they request DB fixtures.
             init_lock.close()
-            test_engine_sync.dispose()
             _drop_test_database_if_exists(db_name)
             should_drop_db = False
             yield
