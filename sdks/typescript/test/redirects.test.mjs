@@ -489,6 +489,70 @@ test('keepalive, the referrer and its policy are kept on every request', async (
   ]);
 });
 
+test('priority is kept on every hop', async () => {
+  reset();
+  api.respond = (req, res) =>
+    req.url.startsWith('/files/')
+      ? redirect(res, `${origin(storage)}/cog.tif`)
+      : redirect(res, '/files/cog.tif', 307);
+  // A Request doesn't expose its priority, so record the init each URL is built with.
+  const RealRequest = globalThis.Request;
+  const built = [];
+  globalThis.Request = class extends RealRequest {
+    constructor(input, init) {
+      super(input, init);
+      if (!(input instanceof RealRequest)) {
+        built.push([new URL(this.url).pathname, init?.priority]);
+      }
+    }
+  };
+
+  let result;
+  try {
+    result = await downloadCog({
+      client: client({ apiKey: randomUUID() }, 'c'),
+      path: { dataset_id: 'd1' },
+      priority: 'high',
+    });
+  } finally {
+    globalThis.Request = RealRequest;
+  }
+
+  assert.deepEqual(await bytes(result.data), BODY);
+  assert.deepEqual(built, [
+    ['/datasets/d1/download/cog', 'high'],
+    ['/files/cog.tif', 'high'],
+    ['/cog.tif', 'high'],
+  ]);
+});
+
+for (const [label, location, responses] of [
+  ['a 21st redirect', '/again', 21],
+  ['a non-http(s) Location', 'ftp://files.example/cog.tif', 1],
+]) {
+  test(`${label} is refused with every redirect body cancelled`, async () => {
+    let [sent, cancelled] = [0, 0];
+    const sdk = client({ apiKey: randomUUID() }, 'c');
+    sdk.setConfig({
+      fetch: async () => {
+        sent++;
+        const body = new ReadableStream({
+          cancel() {
+            cancelled++;
+          },
+        });
+        return new Response(body, { status: 302, headers: { location } });
+      },
+    });
+
+    const result = await downloadCog({ client: sdk, path: { dataset_id: 'd1' } });
+
+    assert.ok(result.error instanceof RedirectError, `expected a RedirectError, got ${result.error}`);
+    assert.equal(sent, responses);
+    assert.equal(cancelled, responses);
+  });
+}
+
 test("cache: 'no-store' is kept on a hop to another origin", async () => {
   reset();
   api.respond = (req, res) => redirect(res, `${origin(storage)}/cog.tif`);

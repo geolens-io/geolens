@@ -31,7 +31,8 @@
  * the request alone, which a later request interceptor can replace.
  *
  * Every hop, and the browser's resend, keeps the request's `mode`, `cache`,
- * `keepalive`, `referrer`, `referrerPolicy`, `integrity` and abort signal. A hop on the GeoLens
+ * `keepalive`, `priority`, `referrer`, `referrerPolicy`, `integrity` and
+ * abort signal. A hop on the GeoLens
  * origin also keeps its `credentials` mode. A `mode: 'same-origin'` request
  * redirected to another origin rejects with a TypeError, as fetch does.
  *
@@ -82,7 +83,9 @@ export function installRedirectHandling(target: Client): void {
     return manual(request);
   });
   target.interceptors.response.use((response, request, options) =>
-    following(options) ? followRedirect(response, request, options.fetch!) : response,
+    following(options)
+      ? followRedirect(response, request, options.fetch!, options.priority)
+      : response,
   );
 }
 
@@ -106,6 +109,7 @@ async function followRedirect(
   response: Response,
   request: Request,
   clientFetch: typeof fetch,
+  priority?: RequestPriority,
 ): Promise<Response> {
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     return response;
@@ -119,7 +123,7 @@ async function followRedirect(
     }
     return globalThis.fetch(
       new Request(request.url, {
-        ...carried(request),
+        ...carried(request, priority),
         method: request.method,
         headers: forwarded(request.headers),
         redirect: 'follow',
@@ -132,6 +136,7 @@ async function followRedirect(
   let current = request;
   let leftOrigin = false;
   for (let hops = 0; isRedirect(response); hops++) {
+    await response.body?.cancel();
     if (hops === MAX_REDIRECTS) {
       throw new RedirectError(`Stopped after ${MAX_REDIRECTS} redirects`);
     }
@@ -143,10 +148,9 @@ async function followRedirect(
     if (request.mode === 'same-origin' && target.origin !== origin) {
       throw new TypeError('A same-origin request was redirected to another origin');
     }
-    await response.body?.cancel();
     leftOrigin ||= target.origin !== origin;
     current = new Request(target, {
-      ...carried(request),
+      ...carried(request, priority),
       method: request.method,
       headers: leftOrigin ? forwarded(current.headers) : current.headers,
       credentials: leftOrigin ? 'omit' : request.credentials,
@@ -157,8 +161,10 @@ async function followRedirect(
   return response;
 }
 
-function carried(request: Request): RequestInit {
+// A Request doesn't expose its priority, so it comes from the call's options.
+function carried(request: Request, priority?: RequestPriority): RequestInit {
   return {
+    priority,
     mode: request.mode,
     cache: request.cache,
     keepalive: request.keepalive,
