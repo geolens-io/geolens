@@ -63,6 +63,7 @@ import uuid
 
 import pytest
 
+from app.core.config import settings
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.processing.raster.models import RasterAsset
 
@@ -102,6 +103,7 @@ def real_s3_storage(monkeypatch):
         pass
 
     monkeypatch.setattr(storage_provider_module, "_storage", provider)
+    monkeypatch.setattr(settings, "storage_provider", "s3")
     return provider
 
 
@@ -142,7 +144,6 @@ async def s3_cog(client, test_db_session, real_s3_storage):
         RasterAsset(
             dataset_id=dataset.id,
             asset_uri=asset_uri,
-            storage_backend="s3",
             sha256=hashlib.sha256(_COG_BYTES).hexdigest(),
         )
     )

@@ -57,6 +57,9 @@ class RasterAsset(Base):
     sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     size_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     driver: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # Who owns the bytes, not where they are: "local" is a COG GeoLens manages
+    # in whichever store is configured, "remote" one it only references by
+    # URL. A hand-set "s3" is read as managed.
     storage_backend: Mapped[str] = mapped_column(
         String(20), nullable=False, server_default="local"
     )
