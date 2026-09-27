@@ -25,14 +25,19 @@ _BACKEND_ROOT = Path(__file__).resolve().parents[2]
 # its message can quote the file.
 _EXCEPTION_NAME = re.compile(r"[A-Za-z_][\w.]{0,99}(?:Error|Exception|Exit|Interrupt)")
 
+# Far above any reply or log a child writes: a 512 px quicklook, base64
+# encoded, is under 2 MB.
+_MAX_OUTPUT_BYTES = 16 * 1024 * 1024
+
 
 class ChildFailure(Exception):
     """A child that didn't answer.
 
     ``category`` is "timeout", "spawn" (it couldn't start), "undecodable"
-    (its output wasn't text), "killed" (a signal ended it), "no_reply", or a
-    category the child reported. ``details`` are the fields that describe the
-    failure to an operator log, starting with the category.
+    (its output wasn't text), "oversized" (it wrote more than the parent
+    reads), "killed" (a signal ended it), "no_reply", or a category the child
+    reported. ``details`` are the fields that describe the failure to an
+    operator log, starting with the category.
     """
 
     def __init__(self, category: str, **details: Any) -> None:
@@ -55,16 +60,21 @@ def run_child(
     failure is "no_reply".
     """
     try:
-        with _stdin_file(stdin) as request:
+        with (
+            _stdin_file(stdin) as request,
+            tempfile.TemporaryFile() as out,
+            tempfile.TemporaryFile() as err,
+        ):
             done = subprocess.run(
                 argv,
                 stdin=request,
-                capture_output=True,
-                text=True,
+                stdout=out,
+                stderr=err,
                 cwd=_BACKEND_ROOT,
                 env=env,
                 timeout=timeout,
             )
+            stdout, stderr = _read_output(out, "stdout"), _read_output(err, "stderr")
     except subprocess.TimeoutExpired:
         raise ChildFailure("timeout") from None
     except (OSError, UnicodeDecodeError) as exc:
@@ -75,7 +85,7 @@ def run_child(
             exception=type(exc).__name__,
         ) from None
     try:
-        reply = json.loads(done.stdout)
+        reply = json.loads(stdout)
     except (ValueError, RecursionError):
         # RecursionError: JSON nested deeper than the parser's stack.
         reply = None
@@ -91,7 +101,7 @@ def run_child(
         # import or an interpreter crash does. Its traceback ends with the
         # exception's class name.
         category = "no_reply"
-        lines = done.stderr.strip().splitlines()
+        lines = stderr.strip().splitlines()
         exception = lines[-1].split(":", 1)[0] if lines else None
     raise ChildFailure(
         category,
@@ -120,6 +130,15 @@ def _stdin_file(text: str | None) -> Iterator[IO[str] | int]:
         request.write(text)
         request.seek(0)
         yield request
+
+
+def _read_output(output: IO[bytes], stream: str) -> str:
+    """What the child wrote to ``stream``, reading no more than the cap."""
+    output.seek(0)
+    data = output.read(_MAX_OUTPUT_BYTES + 1)
+    if len(data) > _MAX_OUTPUT_BYTES:
+        raise ChildFailure("oversized", stream=stream)
+    return data.decode(locale.getpreferredencoding(False))
 
 
 def _signal_name(returncode: int) -> str | None:

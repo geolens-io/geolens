@@ -8,10 +8,12 @@ import subprocess
 import sys
 import tempfile
 import time
+import tracemalloc
 from pathlib import Path
 
 import pytest
 
+from app.platform import bounded_child
 from app.platform.bounded_child import ChildFailure, run_child
 
 
@@ -111,3 +113,51 @@ def test_a_request_reaches_a_child_intact_under_the_c_locale() -> None:
 
     assert done.returncode == 0, done.stderr
     assert json.loads(done.stdout) == "78°W"
+
+
+@pytest.mark.parametrize(
+    "script",
+    [
+        pytest.param(
+            "import json; print(json.dumps({'result': 'x' * 64 * 2**20}))",
+            id="stdout",
+        ),
+        pytest.param(
+            "import json, sys; sys.stderr.write('x' * 64 * 2**20); "
+            "print(json.dumps({'result': 1}))",
+            id="stderr",
+        ),
+    ],
+)
+def test_output_past_the_cap_is_refused_without_being_read(monkeypatch, script) -> None:
+    monkeypatch.setattr(bounded_child, "_MAX_OUTPUT_BYTES", 2**20)
+
+    tracemalloc.start()
+    try:
+        with pytest.raises(ChildFailure) as failure:
+            run_child(
+                [sys.executable, "-c", script],
+                env={"PATH": os.environ["PATH"]},
+                timeout=30,
+                reported=(),
+            )
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert failure.value.category == "oversized"
+    assert peak < 8 * 2**20, f"the parent held {peak / 2**20:.0f} MiB"
+
+
+def test_output_up_to_the_cap_is_read(monkeypatch) -> None:
+    reply = json.dumps({"result": "x" * 1000}) + "\n"
+    monkeypatch.setattr(bounded_child, "_MAX_OUTPUT_BYTES", len(reply))
+
+    result = run_child(
+        [sys.executable, "-c", f"import sys; sys.stdout.write({reply!r})"],
+        env={"PATH": os.environ["PATH"]},
+        timeout=30,
+        reported=(),
+    )
+
+    assert result == "x" * 1000
