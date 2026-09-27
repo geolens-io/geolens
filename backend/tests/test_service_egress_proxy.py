@@ -17,8 +17,10 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import shutil
 import socket
+import subprocess
 import threading
 import uuid
 from collections.abc import Iterator
@@ -57,6 +59,23 @@ pytestmark = pytest.mark.anyio
 needs_ogr = pytest.mark.skipif(
     shutil.which("ogrinfo") is None or shutil.which("ogr2ogr") is None,
     reason="needs the GDAL command line tools",
+)
+
+
+def _ogrinfo_takes_limit() -> bool:
+    # The preview passes -limit, which ogrinfo gained in GDAL 3.9. The worker
+    # image ships a newer GDAL; CI's distro package can be older.
+    if shutil.which("ogrinfo") is None:
+        return False
+    out = subprocess.run(
+        ["ogrinfo", "--version"], capture_output=True, text=True, check=False
+    ).stdout
+    match = re.search(r"GDAL (\d+)\.(\d+)", out)
+    return bool(match) and (int(match[1]), int(match[2])) >= (3, 9)
+
+
+needs_preview_ogrinfo = pytest.mark.skipif(
+    not _ogrinfo_takes_limit(), reason="the preview needs ogrinfo -limit (GDAL 3.9+)"
 )
 
 _HOST = "wfs.example.test"
@@ -746,6 +765,7 @@ class TestGdalReachesOnlyAllowedHosts:
             f"ogr2ogr failed (exit 1): {SERVICE_ADDRESS_REFUSED}"
         )
 
+    @needs_preview_ogrinfo
     async def test_a_wfs_preview_reads_an_allowed_service_through_the_proxy(
         self, resolver_calls
     ):
@@ -758,6 +778,7 @@ class TestGdalReachesOnlyAllowedHosts:
         assert "getfeature" in requests
         assert set(resolver_calls) == {_HOST}
 
+    @needs_preview_ogrinfo
     async def test_an_inherited_no_proxy_does_not_route_around_it(
         self, monkeypatch, resolver_calls
     ):
