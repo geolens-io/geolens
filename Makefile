@@ -148,11 +148,15 @@ SDK_PRESERVED_FILES := \
   sdks/typescript/README.md \
   sdks/typescript/LICENSE
 
-# Each `make sdks` run gets its own scratch directory for the flattened
-# schema, the stashed preserved files and the generator log, instead of fixed
-# /tmp paths — two checkouts regenerating at once no longer share a path and
-# can't swap files. $(CURDIR) makes it absolute so it still resolves
-# correctly from recipe lines that `cd` into a subdirectory first.
+# make sdks stashes/restores through this checkout-local scratch directory
+# instead of fixed /tmp paths, so two checkouts regenerating at once no
+# longer share a path and can't swap files. It's one fixed directory per
+# checkout, not a fresh one per run: a leftover directory from an interrupted
+# run is a signal to investigate, not something the next run should delete
+# (see the guard in the sdks recipe below). $(CURDIR) makes it absolute so it
+# still resolves correctly from recipe lines that `cd` into a subdirectory
+# first, and every expansion of it below is quoted because $(CURDIR) is the
+# checkout's real path and may contain spaces.
 SDKS_TMPDIR := $(CURDIR)/.sdks-tmp
 
 # `make sdks` regenerates Python + TypeScript SDKs from backend/openapi.json.
@@ -166,41 +170,54 @@ SDKS_TMPDIR := $(CURDIR)/.sdks-tmp
 #      The flatten script rewrites every `#/$defs/X` reference into
 #      `#/components/schemas/X`, promoting non-matching inline schemas under
 #      deterministic synthetic names (`X__inline_<sha1[:8]>`). The committed
-#      backend/openapi.json snapshot is NEVER modified — it stays as the
+#      backend/openapi.json snapshot is NEVER modified, it stays as the
 #      contract source-of-truth, and only the SDK generators consume the
 #      flattened intermediate. See scripts/flatten_openapi_defs.py docstring.
 #   3. Run the Python + TypeScript generators against the flat intermediate.
 #   4. sync_sdk_versions.py pins both SDK package versions to the OpenAPI
-#      info.version (closes Pitfall 9 — version drift caught alongside code
+#      info.version (closes Pitfall 9, version drift caught alongside code
 #      drift in `make sdks-check`).
 #
 # `sdks` itself only stashes $(SDK_PRESERVED_FILES), delegates the pipeline to
-# _sdks_generate, and always restores them and removes $(SDKS_TMPDIR) —
-# whether generation succeeded or failed. Recipe lines each run in their own
-# shell, so there's no single process to hang a `trap` off of; the exit code
-# is threaded through a file in $(SDKS_TMPDIR) instead.
+# _sdks_generate, and always restores them and removes $(SDKS_TMPDIR), whether
+# generation succeeded or failed. Recipe lines each run in their own shell, so
+# there's no single process to hang a `trap` off of; the exit code is
+# threaded through a file in $(SDKS_TMPDIR) instead. If $(SDKS_TMPDIR) already
+# exists, a previous run was interrupted before it restored its stashed
+# files, so this refuses rather than deleting what may be the only good copy.
 sdks:
-	@rm -rf $(SDKS_TMPDIR)
-	@mkdir -p $(SDKS_TMPDIR)
+	@if [ -e "$(SDKS_TMPDIR)" ]; then \
+	    echo "ERROR: $(SDKS_TMPDIR) already exists." >&2; \
+	    echo "A previous make sdks run was interrupted before it restored its stashed files there. Restore the files listed in SDK_PRESERVED_FILES yourself (or confirm the working tree is already correct), then remove that directory before running make sdks again." >&2; \
+	    exit 1; \
+	  fi
+	@mkdir -p "$(SDKS_TMPDIR)"
 	@$(foreach f,$(SDK_PRESERVED_FILES),mkdir -p "$(SDKS_TMPDIR)/$(dir $(f))"; cp "$(f)" "$(SDKS_TMPDIR)/$(f)" 2>/dev/null;) true
-	@$(MAKE) _sdks_generate; echo $$? > $(SDKS_TMPDIR)/.generate-exit
-	@$(foreach f,$(SDK_PRESERVED_FILES),cp "$(SDKS_TMPDIR)/$(f)" "$(f)" 2>/dev/null;) true
-	@ec=$$(cat $(SDKS_TMPDIR)/.generate-exit 2>/dev/null || echo 1); rm -rf $(SDKS_TMPDIR); exit $$ec
+	@$(MAKE) _sdks_generate; echo $$? > "$(SDKS_TMPDIR)/.generate-exit"
+	@restore_failed=0; \
+	$(foreach f,$(SDK_PRESERVED_FILES),if [ -e "$(SDKS_TMPDIR)/$(f)" ]; then cp "$(SDKS_TMPDIR)/$(f)" "$(f)" || restore_failed=1; fi;) \
+	ec=$$(cat "$(SDKS_TMPDIR)/.generate-exit" 2>/dev/null || echo 1); \
+	if [ "$$restore_failed" != 0 ]; then \
+	    echo "ERROR: failed to restore one or more hand-maintained files from $(SDKS_TMPDIR); left in place, fix manually then remove it." >&2; \
+	    exit 1; \
+	  fi; \
+	  rm -rf -- "$(SDKS_TMPDIR)"; \
+	  exit $$ec
 
 _sdks_generate:
 	cd backend && PYTHONPATH=. uv run python scripts/dump_openapi.py
 	uv run --no-project python scripts/flatten_openapi_defs.py \
 	  --input backend/openapi.json \
-	  --output $(SDKS_TMPDIR)/openapi-flat.json
+	  --output "$(SDKS_TMPDIR)/openapi-flat.json"
 	# Post-hook ruff is pinned to the backend's version (keep in sync with
 	# backend uv.lock): left unpinned, the ruff 0.16.0 release (2026-07)
 	# rewrote generated output and broke `make sdks-check` on every PR.
 	uvx --with "ruff==0.15.22" openapi-python-client@0.28.3 generate \
-	  --path $(SDKS_TMPDIR)/openapi-flat.json \
+	  --path "$(SDKS_TMPDIR)/openapi-flat.json" \
 	  --output-path sdks/python/geolens \
 	  --overwrite --meta none \
 	  --config sdks/python/.openapi-python-client.yaml \
-	  2>&1 | tee $(SDKS_TMPDIR)/openapi-python-client.log
+	  2>&1 | tee "$(SDKS_TMPDIR)/openapi-python-client.log"
 	# PEP 561 marker — generator with --meta none doesn't emit it; touch so
 	# typecheckers consume the inline annotations on consumers' machines.
 	touch sdks/python/geolens/py.typed
@@ -222,7 +239,7 @@ _sdks_generate:
 	# crashes the generator (`ts.NewLineKind` undefined) — and npm lets the peer
 	# range beat even an explicit `-p typescript@5.9.x`. package.json pins the
 	# generator + typescript exactly; package-lock.json makes it reproducible.
-	cd sdks/typescript && npm install --silent && ./node_modules/.bin/openapi-ts -i $(SDKS_TMPDIR)/openapi-flat.json
+	cd sdks/typescript && npm install --silent && ./node_modules/.bin/openapi-ts -i "$(SDKS_TMPDIR)/openapi-flat.json"
 	uv run --no-project python scripts/sync_sdk_versions.py
 	# SDK-gen gate: openapi-python-client emits `WARNING parsing <METHOD> <ROUTE>`
 	# when a route's body shape is unparseable (e.g., text/plain), and silently drops the
@@ -234,22 +251,22 @@ _sdks_generate:
 	# a missing log (e.g., generator crashed before tee opened the file, or
 	# the build env wiped the scratch directory between recipe lines) prints a
 	# clear error rather than the misleading "emitted  warning(s)" with empty count.
-	@if [ ! -f $(SDKS_TMPDIR)/openapi-python-client.log ]; then \
+	@if [ ! -f "$(SDKS_TMPDIR)/openapi-python-client.log" ]; then \
 	    echo "ERROR: $(SDKS_TMPDIR)/openapi-python-client.log missing — openapi-python-client did not run or its output was discarded." >&2; \
 	    exit 1; \
 	  fi; \
-	  _count=$$(grep -c '^WARNING parsing' $(SDKS_TMPDIR)/openapi-python-client.log || true); \
+	  _count=$$(grep -c '^WARNING parsing' "$(SDKS_TMPDIR)/openapi-python-client.log" || true); \
 	  if [ "$$_count" != "0" ]; then \
 	    echo "" >&2; \
 	    echo "ERROR: openapi-python-client emitted $$_count warning(s) — endpoint(s) silently dropped from Python SDK:" >&2; \
-	    grep '^WARNING parsing' $(SDKS_TMPDIR)/openapi-python-client.log >&2; \
+	    grep '^WARNING parsing' "$(SDKS_TMPDIR)/openapi-python-client.log" >&2; \
 	    echo "" >&2; \
 	    echo "Fix the FastAPI route schema at the source (typically by replacing a non-JSON body shape with a Pydantic JSON body)." >&2; \
 	    exit 1; \
 	  fi
 
 # `make sdks-check` regenerates and fails if anything changed.
-# $(SDK_PRESERVED_FILES) are excluded via :! pathspecs — hand-maintained, not
+# $(SDK_PRESERVED_FILES) are excluded via :! pathspecs, hand-maintained, not
 # generator output.
 sdks-check:
 	$(MAKE) sdks
