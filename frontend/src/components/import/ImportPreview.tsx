@@ -4,8 +4,9 @@ import type {
   RasterPreviewResponse,
   ServicePreviewResponse,
   TilesetPreviewResponse,
+  PointCloudPreviewResponse,
 } from '@/types/api';
-import { formatNumber } from '@/lib/format';
+import { formatBytes, formatNumber } from '@/lib/format';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -19,14 +20,15 @@ import {
 import { getGeometryTypeLabel } from '@/i18n/labels';
 import { semanticBadgeColors } from '@/lib/status-colors';
 import { TilesetFacts } from './TilesetFacts';
-import { isRasterPreview, isTilesetPreview } from './utils';
+import { isPointCloudPreview, isRasterPreview, isTilesetPreview } from './utils';
 
 interface ImportPreviewProps {
   preview:
     | FilePreviewResponse
     | RasterPreviewResponse
     | ServicePreviewResponse
-    | TilesetPreviewResponse;
+    | TilesetPreviewResponse
+    | PointCloudPreviewResponse;
 }
 
 const MAX_VISIBLE_COLUMNS = 8;
@@ -40,6 +42,20 @@ export function ImportPreview({ preview }: ImportPreviewProps) {
         <span className="text-sm font-medium">{preview.source_filename}</span>
         <div>
           <TilesetFacts preview={preview} />
+        </div>
+      </Card>
+    );
+  }
+
+  if (isPointCloudPreview(preview)) {
+    return (
+      <Card density="compact" className="px-4">
+        <span className="text-sm font-medium">{preview.source_filename}</span>
+        <div className="grid grid-cols-2 gap-2 text-sm">
+          <div>{t('pointcloud.points')}: {formatNumber(preview.point_count)}</div>
+          <div>{t('pointcloud.crs')}: EPSG:{preview.srid}</div>
+          <div>{t('pointcloud.pointFormat')}: {preview.point_format}</div>
+          <div>{t('pointcloud.size')}: {formatBytes(preview.size_bytes)}</div>
         </div>
       </Card>
     );

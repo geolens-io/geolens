@@ -10,6 +10,9 @@ import type {
   JobCancelResponse,
   JobStatusResponse,
   FilePreviewResponse,
+  RasterPreviewResponse,
+  TilesetPreviewResponse,
+  PointCloudPreviewResponse,
   CommitImportRequest,
   CommitImportResponse,
   ProbeResponse,
@@ -21,6 +24,7 @@ import type {
   UploadConfig,
   PresignedUploadResponse,
   UploadKind,
+  UrlUploadKind,
   VrtCreateRequest,
   VrtCreateResponse,
   ArcgisSigninRequest,
@@ -197,7 +201,7 @@ const URL_SUBMIT_TIMEOUT_MS = 90_000;
 export async function uploadFromUrl(
   url: string,
   filename?: string,
-  kind?: UploadKind | null,
+  kind?: UrlUploadKind | null,
 ): Promise<UploadResponse> {
   try {
     return await apiFetch<UploadResponse>('/ingest/upload/url', {
@@ -241,12 +245,12 @@ export async function getJobStatusByDataset(
 // form as a real verdict rather than a client-side abort.
 const PREVIEW_TIMEOUT_MS = 630_000;
 
-export async function previewFile(jobId: string, layerName?: string): Promise<FilePreviewResponse> {
+export async function previewFile(jobId: string, layerName?: string): Promise<FilePreviewResponse | RasterPreviewResponse | TilesetPreviewResponse | PointCloudPreviewResponse> {
   const url = layerName
     ? `/ingest/preview/${jobId}?layer_name=${encodeURIComponent(layerName)}`
     : `/ingest/preview/${jobId}`;
   try {
-    return await apiFetch<FilePreviewResponse>(url, {
+    return await apiFetch<FilePreviewResponse | RasterPreviewResponse | TilesetPreviewResponse | PointCloudPreviewResponse>(url, {
       method: 'POST',
       timeoutMs: PREVIEW_TIMEOUT_MS,
     });

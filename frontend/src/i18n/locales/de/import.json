@@ -83,7 +83,10 @@
     "kindTileset": "3D-Tiles-Tileset",
     "kindTilesetHint": "Ein .zip- oder .3tz-Archiv mit tileset.json im Stammverzeichnis oder in einem Ordner",
     "kindTilesetUnavailable": "Nicht verfügbar, bis ein Administrator .zip- oder .3tz-Uploads erlaubt",
-    "kindLocked": "Gesperrt, während die abgelegten Dateien auf die Upload-Einstellungen warten"
+    "kindLocked": "Gesperrt, während die abgelegten Dateien auf die Upload-Einstellungen warten",
+    "kindPointCloud": "COPC-Punktwolke",
+    "kindPointCloudHint": "Eine .laz-Datei im COPC-Format; andere LAS/LAZ-Dateien müssen zuerst konvertiert werden",
+    "kindPointCloudUnavailable": "Nicht verfügbar, bis ein Administrator .laz-Uploads erlaubt"
   },
   "warnings": {
     "bannerTitle": "Import mit Warnungen abgeschlossen",
@@ -492,7 +495,10 @@
     "tilesetSummary": "3D Tiles {{version}} · {{size}} · {{volume}}",
     "tilesetCount_one": "{{value}} Tileset",
     "tilesetCount_other": "{{value}} Tilesets",
-    "tilesetActionSummary": "{{files}} · {{tilesets}}"
+    "tilesetActionSummary": "{{files}} · {{tilesets}}",
+    "pointcloudSummary": "{{points}} Punkte · {{crs}} · {{size}}",
+    "pointcloudCount_one": "{{value}} Punktwolke",
+    "pointcloudCount_other": "{{value}} Punktwolken"
   },
   "detect": {
     "rasterInfo": "Raster-Info",
@@ -582,7 +588,9 @@
     "next": "Weiter:",
     "viewCatalog": "Im Katalog anzeigen",
     "importMore": "Mehr importieren",
-    "aiMetadata": "KI-Metadaten hinzufügen"
+    "aiMetadata": "KI-Metadaten hinzufügen",
+    "statPointClouds": "Punktwolken",
+    "heroDescPointClouds": "Bereit für einen COPC-Client. Die Datei-URL steht auf der Registerkarte Zugriff des Datensatzes."
   },
   "rail": {
     "stageTitle": "Dateien bereitstellen",
@@ -629,5 +637,11 @@
     "importing": "Import",
     "ready": "Bereit",
     "failed": "Fehlgeschlagen"
+  },
+  "pointcloud": {
+    "points": "Punkte",
+    "crs": "KBS",
+    "pointFormat": "Punktformat",
+    "size": "Größe"
   }
 }

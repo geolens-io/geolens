@@ -4,6 +4,7 @@ import type {
   FilePreviewResponse,
   RasterPreviewResponse,
   TilesetPreviewResponse,
+  PointCloudPreviewResponse,
   UploadKind,
 } from '@/types/api';
 
@@ -48,7 +49,7 @@ export interface UploadSessionEntry {
   fileName: string;
   status: UploadSessionEntryStatus;
   jobId: string | null;
-  previewData: FilePreviewResponse | RasterPreviewResponse | TilesetPreviewResponse | null;
+  previewData: FilePreviewResponse | RasterPreviewResponse | TilesetPreviewResponse | PointCloudPreviewResponse | null;
   kind: UploadKind | null;
   error: unknown;
   /** Byte-transfer progress (0-1) during `uploading`; null once known/done. */

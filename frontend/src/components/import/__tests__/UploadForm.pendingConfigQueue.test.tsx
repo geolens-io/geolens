@@ -61,6 +61,12 @@ vi.mock('../FileDropzone', async (importOriginal) => {
         data-max-size-mb={String(maxSizeMb)}
       >
         <button
+          data-testid="drop-pointcloud"
+          onClick={() => onFilesAccepted([new File(['LASF'], 'terrain.copc.laz')])}
+        >
+          Drop point cloud
+        </button>
+        <button
           data-testid="drop-one"
           onClick={() => onFilesAccepted([new File(['{}'], 'a.geojson')])}
         >
@@ -270,5 +276,24 @@ describe('UploadForm — queued drops during config fetch', () => {
 
     await waitFor(() => expect(mockUploadFile).toHaveBeenCalledTimes(1));
     expect(vi.mocked(toast.error)).not.toHaveBeenCalled();
+  });
+
+  it('sends a .laz file with the pointcloud kind', async () => {
+    mockConfig = {
+      data: { remaining_dataset_quota: null, allowed_extensions: '.geojson,.laz' },
+      isFetching: false,
+    };
+    render(<UploadForm />);
+
+    await act(async () => {
+      screen.getByRole('radio', { name: 'upload.kindPointCloud' }).click();
+    });
+    await act(async () => {
+      screen.getByTestId('drop-pointcloud').click();
+    });
+
+    await waitFor(() => expect(mockUploadFile).toHaveBeenCalledTimes(1));
+    expect(mockUploadFile.mock.calls[0][0].name).toBe('terrain.copc.laz');
+    expect(mockUploadFile.mock.calls[0][2]).toBe('pointcloud');
   });
 });

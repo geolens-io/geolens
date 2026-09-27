@@ -168,9 +168,11 @@ export interface RasterMetadata {
 
 /** What a staged 3D Tiles tileset archive holds, read without unpacking it. */
 export type TilesetPreviewResponse = components['schemas']['TilesetPreviewResponse'];
+export type PointCloudPreviewResponse = components['schemas']['PointCloudPreviewResponse'];
 
-/** The upload `kind` the import form sends: 'tiles3d' marks the file as a 3D Tiles tileset archive. */
-export type UploadKind = Extract<NonNullable<components['schemas']['PresignedUploadRequest']['kind']>, 'tiles3d'>;
+/** Upload kinds for 3D Tiles archives and COPC point clouds. */
+export type UploadKind = NonNullable<components['schemas']['PresignedUploadRequest']['kind']>;
+export type UrlUploadKind = NonNullable<components['schemas']['UrlUploadRequest']['kind']>;
 
 export interface RasterPreviewResponse {
   job_id: string;
@@ -1936,7 +1938,7 @@ export interface FileEntry {
   fileName: string;
   status: FileEntryStatus;
   jobId: string | null;
-  previewData: FilePreviewResponse | RasterPreviewResponse | TilesetPreviewResponse | null;
+  previewData: FilePreviewResponse | RasterPreviewResponse | TilesetPreviewResponse | PointCloudPreviewResponse | null;
   uploadKind?: UploadKind | null;
   error: string | null;
   /** Byte-transfer progress (0–1) during the `uploading` phase; null when unknown/done. */
@@ -1947,7 +1949,7 @@ export interface FileEntry {
 }
 
 /** Canonical data-kind union used by TypeTag, StatusPill, and import utilities */
-export type DataKind = 'vector' | 'raster' | 'table' | 'vrt' | 'tiles3d';
+export type DataKind = 'vector' | 'raster' | 'table' | 'vrt' | 'tiles3d' | 'pointcloud';
 
 // Table discovery types
 export interface DiscoveredTable {

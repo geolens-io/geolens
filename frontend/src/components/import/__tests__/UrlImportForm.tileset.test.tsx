@@ -167,3 +167,11 @@ describe('UrlImportForm with a 3D Tiles archive', () => {
     expect(screen.getByRole('radio', { name: 'upload.kindTileset' })).toBeChecked();
   });
 });
+
+test('the File URL form does not offer point clouds even when .laz uploads are allowed', async () => {
+  mockGetUploadConfig.mockResolvedValue(uploadConfig('.geojson,.zip,.laz'));
+  render(<UrlImportForm />);
+
+  await waitFor(() => expect(screen.getByRole('radio', { name: 'upload.kindTileset' })).toBeEnabled());
+  expect(screen.queryByRole('radio', { name: 'upload.kindPointCloud' })).not.toBeInTheDocument();
+});

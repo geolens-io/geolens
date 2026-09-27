@@ -15,10 +15,7 @@ import { useJobStatus, useUploadConfig } from '@/components/import/hooks/use-ing
 import { describeFailureReason } from '@/lib/failure-reason';
 import type {
   CommitImportRequest,
-  FilePreviewResponse,
-  RasterPreviewResponse,
-  TilesetPreviewResponse,
-  UploadKind,
+  UrlUploadKind,
 } from '@/types/api';
 import { allowedTilesetExtensions, isFilePreview, isRasterPreview, isTilesetPreview } from './utils';
 import { ImportPreview } from './ImportPreview';
@@ -90,16 +87,14 @@ export function UrlImportForm() {
   const [url, setUrl] = useState('');
   const [filename, setFilename] = useState('');
   const [jobId, setJobId] = useState<string | null>(null);
-  const [previewData, setPreviewData] = useState<
-    FilePreviewResponse | RasterPreviewResponse | TilesetPreviewResponse | null
-  >(null);
+  const [previewData, setPreviewData] = useState<Awaited<ReturnType<typeof previewFile>> | null>(null);
   const [error, setError] = useState<string | null>(null);
   // fix(#1708 codex r22): survives a resume, where previewData does not.
   const [isRaster, setIsRaster] = useState(false);
   // fix(review #1800 P2): disables "Cancel and start over" for the duration
   // of the cancel call, so a double-click cannot fire two cancels.
   const [isCancelling, setIsCancelling] = useState(false);
-  const [chosenKind, setChosenKind] = useState<UploadKind | null>(null);
+  const [chosenKind, setChosenKind] = useState<UrlUploadKind | null>(null);
   const { data: uploadConfig } = useUploadConfig();
   const tilesetAvailable =
     allowedTilesetExtensions(uploadConfig?.allowed_extensions?.split(',').map((e) => e.trim())).length > 0;
@@ -611,7 +606,7 @@ export function UrlImportForm() {
       <form onSubmit={handleFetch} className="space-y-5">
         <UploadKindChoice
           value={kind}
-          onChange={setChosenKind}
+          onChange={(next) => setChosenKind(next === 'tiles3d' ? next : null)}
           disabled={!!jobId}
           tilesetAvailable={tilesetAvailable}
         />
@@ -641,8 +636,7 @@ export function UrlImportForm() {
               {t('urlImport.fetch')}
             </button>
           </div>
-          {/* The tileset choice's own hint names the archive formats. */}
-          {kind !== 'tiles3d' && (
+          {kind === null && (
             <div className="mt-2.5 flex flex-wrap gap-4 text-xs text-muted-foreground">
               <span>
                 {t('urlImport.supported')}{' '}

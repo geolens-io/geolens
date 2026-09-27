@@ -83,7 +83,10 @@
     "kindTileset": "3D Tiles tileset",
     "kindTilesetHint": "A .zip or .3tz archive with tileset.json at its root or in one folder",
     "kindTilesetUnavailable": "Unavailable until an administrator allows .zip or .3tz uploads",
-    "kindLocked": "Locked while your dropped files wait for the upload settings to load"
+    "kindLocked": "Locked while your dropped files wait for the upload settings to load",
+    "kindPointCloud": "COPC point cloud",
+    "kindPointCloudHint": "A .laz file in COPC format; other LAS/LAZ files need conversion first",
+    "kindPointCloudUnavailable": "Unavailable until an administrator allows .laz uploads"
   },
   "warnings": {
     "bannerTitle": "Import completed with warnings",
@@ -127,7 +130,9 @@
     "next": "Next:",
     "viewCatalog": "View in Catalog",
     "importMore": "Import more",
-    "aiMetadata": "Add AI metadata"
+    "aiMetadata": "Add AI metadata",
+    "statPointClouds": "Point clouds",
+    "heroDescPointClouds": "Ready to open in a COPC client. The file URL is on the dataset’s Access tab."
   },
   "dropzone": {
     "ariaLabel": "Upload files",
@@ -546,7 +551,10 @@
     "tilesetSummary": "3D Tiles {{version}} · {{size}} · {{volume}}",
     "tilesetCount_one": "{{value}} tileset",
     "tilesetCount_other": "{{value}} tilesets",
-    "tilesetActionSummary": "{{files}} · {{tilesets}}"
+    "tilesetActionSummary": "{{files}} · {{tilesets}}",
+    "pointcloudSummary": "{{points}} points · {{crs}} · {{size}}",
+    "pointcloudCount_one": "{{value}} point cloud",
+    "pointcloudCount_other": "{{value}} point clouds"
   },
   "detect": {
     "rasterInfo": "Raster info",
@@ -629,5 +637,11 @@
     "importing": "Importing",
     "ready": "Ready",
     "failed": "Failed"
+  },
+  "pointcloud": {
+    "points": "Points",
+    "crs": "CRS",
+    "pointFormat": "Point format",
+    "size": "Size"
   }
 }

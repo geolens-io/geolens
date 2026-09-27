@@ -33,6 +33,8 @@ interface FileDropzoneProps {
   remainingQuota?: number | null;
   /** The drop takes 3D Tiles tileset archives rather than geospatial files. */
   tileset?: boolean;
+  /** The drop takes COPC point clouds. */
+  pointcloud?: boolean;
 }
 
 /** Group deduped extensions by data kind for the format pills */
@@ -56,7 +58,7 @@ function groupByKind(extensions: string[], only?: DataKind): { kind: DataKind; e
   return result;
 }
 
-export function FileDropzone({ onFilesAccepted, allowedExtensions, maxSizeMb, remainingQuota, tileset = false }: FileDropzoneProps) {
+export function FileDropzone({ onFilesAccepted, allowedExtensions, maxSizeMb, remainingQuota, tileset = false, pointcloud = false }: FileDropzoneProps) {
   const { t } = useTranslation('import');
 
   // Client-side UX guard only; the cap is enforced server-side at
@@ -72,8 +74,8 @@ export function FileDropzone({ onFilesAccepted, allowedExtensions, maxSizeMb, re
 
   const formatPills = useMemo(() => {
     if (!allowedExtensions || allowedExtensions.length === 0) return [];
-    return groupByKind(allowedExtensions, tileset ? 'tiles3d' : undefined);
-  }, [allowedExtensions, tileset]);
+    return groupByKind(allowedExtensions, tileset ? 'tiles3d' : pointcloud ? 'pointcloud' : undefined);
+  }, [allowedExtensions, tileset, pointcloud]);
 
   // react-dropzone's own FileError.message is English-only. rejectAll's
   // validator (below) already builds a translated file-invalid-type message;
