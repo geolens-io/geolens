@@ -2,12 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { AlertCircle, Loader2, Map, RotateCcw, SendHorizontal, Sparkles, Square, X } from 'lucide-react';
-import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { ApiError } from '@/api/client';
 import { streamDatasetChatMessage } from '@/api/maps';
 import { useCreateMap } from '@/hooks/use-maps';
 import { useAIAvailability } from '@/hooks/use-ai-availability';
+import { usePermissions } from '@/hooks/use-permissions';
 import { QueryResultTable, type QueryResult } from '@/components/viewer/ViewerChatPanel';
 import { stashChatResult, toChatResultHandoff, type ChatResultHandoff } from '@/lib/chat-result-handoff';
 import { chatOverlayCompleteness, overlayFeatureCount } from '@/lib/chat-result-completeness';
@@ -78,7 +78,9 @@ export function DatasetChatPanel({ datasetId, datasetTitle, showOpenInBuilder, o
   const { t, i18n } = useTranslation('dataset');
   const navigate = useNavigate();
   const { isAIAvailable } = useAIAvailability();
+  const { can } = usePermissions();
   const createMap = useCreateMap();
+  const canOpenInBuilder = showOpenInBuilder && can('edit_metadata');
 
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -206,7 +208,7 @@ export function DatasetChatPanel({ datasetId, datasetTitle, showOpenInBuilder, o
       const carried = spatial ? stashChatResult(spatial) : false;
       navigate(`/maps/${newMap.id}?add_dataset=${datasetId}${carried ? '&chat_result=1' : ''}`);
     } catch {
-      toast.error(t('addToMap.createFailed'));
+      // useCreateMap reports the failure.
     }
   }, [createMap, datasetId, datasetTitle, navigate, t]);
 
@@ -272,7 +274,7 @@ export function DatasetChatPanel({ datasetId, datasetTitle, showOpenInBuilder, o
                     {msg.queryResult && (
                       <>
                         <QueryResultTable result={msg.queryResult} />
-                        {showOpenInBuilder && (
+                        {canOpenInBuilder && (
                           <div className="mt-2 flex justify-end">
                             <Button
                               variant="outline"
