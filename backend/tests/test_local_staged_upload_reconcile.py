@@ -145,6 +145,17 @@ class TestDeletes:
         assert not path.exists()
         assert outcome.uploads_deleted == 1
 
+    async def test_an_upload_whose_name_starts_with_a_newline(
+        self, test_db_session: AsyncSession, root: Path, now: datetime
+    ) -> None:
+        job_id = uuid.uuid4()
+        path = _staged(root, f"{job_id}_\nroads.geojson", now)
+        await _job(test_db_session, path, now, job_id=job_id)
+
+        await _run(test_db_session, now)
+
+        assert not path.exists()
+
     async def test_a_manifest_copy_is_deleted(
         self, test_db_session: AsyncSession, root: Path, now: datetime
     ) -> None:

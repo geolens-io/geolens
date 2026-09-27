@@ -57,7 +57,8 @@ log = structlog.get_logger()
 # manifest's copy of its source.
 _UPLOAD_NAME = re.compile(
     r"^(?:(?P<job>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"
-    r"|manifest_[0-9a-f]{32})_."
+    r"|manifest_[0-9a-f]{32})_.",
+    re.DOTALL,
 )
 
 _MAX_CANDIDATES_PER_PASS = 20_000
