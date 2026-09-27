@@ -47,9 +47,10 @@ export function PointCloudAccess({ url: path, visibility }: { url: string; visib
   const [client, setClient] = useState<Client>('qgis');
   const url = appOriginUrl(path);
   const withKey = visibility !== 'public';
+  const qgisVersion = withKey ? '4.0+' : '3.26+';
   const snippet = client === 'qgis'
     ? [
-        t('pointcloud.qgisSteps', { url }),
+        t('pointcloud.qgisSteps', { version: qgisVersion, url }),
         ...(withKey ? [t('pointcloud.qgisAuthentication')] : []),
       ].join('\n')
     : clientSnippet(client, url, withKey);
@@ -85,17 +86,20 @@ export function PointCloudAccess({ url: path, visibility }: { url: string; visib
             onClick={() => setClient(option)}
             className={`rounded-md px-3 py-1.5 text-xs font-medium ${client === option ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
           >
-            {option === 'qgis' ? 'QGIS 3.26+' : option === 'potree' ? 'Potree' : 'copc.js'}
+            {option === 'qgis' ? `QGIS ${qgisVersion}` : option === 'potree' ? 'Potree' : 'copc.js'}
           </button>
         ))}
       </div>
+      {client === 'qgis' && withKey && (
+        <p className="text-xs text-muted-foreground">{t('pointcloud.qgisPrivateVersionHint')}</p>
+      )}
       {client === 'potree' && withKey && (
         <p className="text-xs text-muted-foreground">{t('pointcloud.potreeHint')}</p>
       )}
       <div className="rounded-lg overflow-hidden border bg-(--code-bg) text-(--code-text)">
         <div className="flex items-center gap-2 px-3.5 py-2 bg-(--code-chrome) border-b border-(--code-chrome-border)">
           <span className="font-mono text-mini text-(--code-muted)">
-            {client === 'qgis' ? 'QGIS 3.26+' : client === 'potree' ? 'Potree' : 'copc.js'}
+            {client === 'qgis' ? `QGIS ${qgisVersion}` : client === 'potree' ? 'Potree' : 'copc.js'}
           </span>
           <span className="flex-1" />
           <CopyButton value={snippet} label={t('pointcloud.copySnippet')} />

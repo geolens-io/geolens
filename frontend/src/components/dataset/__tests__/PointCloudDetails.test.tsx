@@ -44,8 +44,10 @@ describe('PointCloudAccess', () => {
       render(<PointCloudAccess url={PATH} visibility="private" />);
 
       const steps = screen.getByText(/Añadir capa de nube de puntos/);
+      expect(steps).toHaveTextContent('QGIS 4.0+');
       expect(steps).toHaveTextContent(`URL: ${URL}`);
       expect(steps).toHaveTextContent('Autenticación: API Header → X-Api-Key: YOUR_API_KEY');
+      expect(screen.getByText(/Se necesita QGIS 4.0 o posterior/)).toBeInTheDocument();
       await user.click(screen.getByRole('button', { name: 'Copiar ejemplo del cliente' }));
       expect(await navigator.clipboard.readText()).toContain('Tipo de fuente: Protocolo: HTTP(S), nube, etc.');
     } finally {
@@ -60,7 +62,12 @@ describe('PointCloudAccess', () => {
     expect(screen.getByText(URL)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Copy COPC URL' }));
     await expect(navigator.clipboard.readText()).resolves.toBe(URL);
-    expect(screen.getByText(/Add Point Cloud Layer/)).toHaveTextContent('Protocol: HTTP(S), cloud, etc.');
+    expect(screen.getByRole('button', { name: 'QGIS 3.26+' })).toBeInTheDocument();
+    const qgisSteps = screen.getByText(/Add Point Cloud Layer/);
+    expect(qgisSteps).toHaveTextContent('QGIS 3.26+');
+    expect(qgisSteps).toHaveTextContent('Protocol: HTTP(S), cloud, etc.');
+    expect(qgisSteps).not.toHaveTextContent('API Header');
+    expect(screen.queryByText(/QGIS 4.0 or later is required/)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Potree' }));
     expect(screen.getByText(/Potree\.loadPointCloud/)).toHaveTextContent(URL);
@@ -79,7 +86,11 @@ describe('PointCloudAccess', () => {
       render(<PointCloudAccess url={PATH} visibility={visibility} />);
 
       expect(screen.getByText(/needs a read-only API key/)).toBeInTheDocument();
-      expect(screen.getByText(/X-Api-Key: YOUR_API_KEY/)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'QGIS 4.0+' })).toBeInTheDocument();
+      const qgisSteps = screen.getByText(/X-Api-Key: YOUR_API_KEY/);
+      expect(qgisSteps).toHaveTextContent('QGIS 4.0+');
+      expect(qgisSteps).not.toHaveTextContent('QGIS 3.26+');
+      expect(screen.getByText(/QGIS 4.0 or later is required/)).toBeInTheDocument();
 
       await user.click(screen.getByRole('button', { name: 'Potree' }));
       expect(screen.getByText(/cannot send an X-Api-Key header/)).toBeInTheDocument();
