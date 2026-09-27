@@ -22,6 +22,7 @@ from sqlalchemy import (
     DateTime,
     Integer,
     Text,
+    case,
     cast,
     func,
     literal,
@@ -397,12 +398,25 @@ def _owes_items(row) -> bool:
     )
 
 
+def _next_attempt_at(record):
+    """The record's next attempt, or NULL when it names none or one not shaped like a time.
+
+    Only ``_schedule_retry`` writes it, so its ISO shape is enough to make the
+    cast safe.
+    """
+    value = record[_NEXT_ATTEMPT_AT].astext
+    return case(
+        (
+            value.regexp_match("^[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}"),
+            cast(value, DateTime(timezone=True)),
+        )
+    )
+
+
 def _due_at(record):
     """When a follow-up record is due: its next attempt, or else when its job ended."""
     return func.coalesce(
-        cast(record[_NEXT_ATTEMPT_AT].astext, DateTime(timezone=True)),
-        IngestJob.completed_at,
-        IngestJob.created_at,
+        _next_attempt_at(record), IngestJob.completed_at, IngestJob.created_at
     )
 
 
@@ -452,8 +466,17 @@ async def run_publish_followups(
         owed.is_not(None),
     )
     async with db_module.async_session() as session:
+        # The job's end time comes from the worker's clock, so only a retry
+        # delay the database set holds the items back.
         pending = (
-            await session.execute(owed_row.where(_due_at(owed) <= func.now()))
+            await session.execute(
+                owed_row.where(
+                    or_(
+                        _next_attempt_at(owed).is_(None),
+                        _next_attempt_at(owed) <= func.now(),
+                    )
+                )
+            )
         ).one_or_none()
     if pending is not None and _owes_items(pending):
         await _settle_owed_items(job_uuid, pending, local_copy=local_copy)
@@ -566,10 +589,10 @@ async def notify_ingest_failed(
 async def run_owed_publish_followups() -> int:
     """Run the follow-ups landed terminal commits still owe, a bounded batch a call; never raises.
 
-    Takes only records that are due, the longest due first, so records that
-    keep failing wait out their delay instead of crowding out fresh ones.
-    Returns how many jobs this call claimed. A job whose follow-ups fail is
-    logged and skipped.
+    Takes only records that are due: those never attempted first, then the
+    longest due, so records that keep failing wait out their delay and can't
+    hold up fresh ones such as failure notices. Returns how many jobs this
+    call claimed. A job whose follow-ups fail is logged and skipped.
     """
     import app.core.db as db_module
 
@@ -585,7 +608,7 @@ async def run_owed_publish_followups() -> int:
                         record.is_not(None),
                         _due_at(record) <= func.now(),
                     )
-                    .order_by(_due_at(record))
+                    .order_by(record[_ATTEMPTS].is_not(None), _due_at(record))
                     .limit(_SWEEP_BATCH)
                 )
             ).all()

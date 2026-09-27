@@ -853,8 +853,22 @@ async def test_a_failed_archive_is_made_by_a_later_sweep(
         await _drop(test_db_session, job_id, record_id)
 
 
+async def _sweep_selections(monkeypatch) -> list:
+    """Record, in order, the jobs the sweep hands to the follow-ups, and run none."""
+    import app.processing.ingest.publish_followups as publish_followups
+
+    selected: list = []
+
+    async def _selected(job_uuid, **kwargs):
+        selected.append(job_uuid)
+        return False
+
+    monkeypatch.setattr(publish_followups, "run_publish_followups", _selected)
+    return selected
+
+
 async def test_a_record_not_yet_due_is_left_by_the_sweep(
-    test_db_session, raster_storage, followups
+    test_db_session, raster_storage, followups, monkeypatch
 ) -> None:
     job_id, dataset_id, record_id = await _owed_job(
         test_db_session, task="reupload_file", reaps_staged_upload=True
@@ -875,7 +889,10 @@ async def test_a_record_not_yet_due_is_left_by_the_sweep(
             job.user_metadata = {**job.user_metadata, PUBLISH_FOLLOWUPS_FIELD: owed}
             await session.commit()
 
-        await run_owed_publish_followups()
+        with monkeypatch.context() as spied:
+            selected = await _sweep_selections(spied)
+            await run_owed_publish_followups()
+        assert job_id not in selected
         assert await run_publish_followups(job_id) is False
 
         assert not await raster_storage.exists(key)
@@ -936,6 +953,104 @@ async def test_records_that_keep_failing_do_not_crowd_out_a_fresh_one(
             delete(IngestJob).where(IngestJob.id.in_(failing_ids))
         )
         await test_db_session.commit()
+
+
+async def test_the_sweep_takes_records_never_attempted_first_then_the_longest_due(
+    test_db_session, monkeypatch
+) -> None:
+    """Records that keep failing, due longer than a fresh one, don't hold it back."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await create_dataset(test_db_session, created_by=admin_id)
+    since = datetime.now(timezone.utc) - timedelta(days=1)
+    # Inserted newest due first, so the table's own order is no help.
+    failing = [
+        IngestJob(
+            dataset_id=dataset.id,
+            status="complete",
+            created_by=admin_id,
+            user_metadata={
+                PUBLISH_FOLLOWUPS_FIELD: {
+                    "task": "reupload_file",
+                    "archive_key": f"originals/{dataset.id}/keep-{n}.tif",
+                    "attempts": 3,
+                    "claimed": True,
+                    "next_attempt_at": (since + timedelta(minutes=n)).isoformat(),
+                }
+            },
+        )
+        for n in reversed(range(55))
+    ]
+    test_db_session.add_all(failing)
+    await test_db_session.flush()
+    failing_ids = [job.id for job in reversed(failing)]
+    await test_db_session.commit()
+    fresh_id, _, fresh_record = await _owed_job(
+        test_db_session, status="failed", error_message="refused"
+    )
+    try:
+        selected = await _sweep_selections(monkeypatch)
+        await run_owed_publish_followups()
+
+        ours = [job for job in selected if job in {fresh_id, *failing_ids}]
+        assert ours[0] == fresh_id
+        assert ours[1:] == failing_ids[: len(ours) - 1]
+        assert len(ours) > 1
+    finally:
+        await _drop(test_db_session, fresh_id, fresh_record)
+        await test_db_session.execute(
+            delete(IngestJob).where(IngestJob.id.in_(failing_ids))
+        )
+        await test_db_session.commit()
+
+
+async def test_a_direct_call_runs_the_items_whatever_the_workers_clock_says(
+    test_db_session, raster_storage, followups
+) -> None:
+    """A job ended by a worker whose clock runs ahead still has its items run at once."""
+    job_id, _, record_id = await _owed_job(
+        test_db_session, task="reupload_file", reaps_staged_upload=True
+    )
+    try:
+        left = await _stage_upload(raster_storage, job_id, "local")
+        async with db_module.async_session() as session:
+            await session.execute(
+                update(IngestJob)
+                .where(IngestJob.id == job_id)
+                .values(completed_at=datetime.now(timezone.utc) + timedelta(hours=1))
+            )
+            await session.commit()
+
+        assert await run_publish_followups(job_id) is True
+
+        assert await left() == []
+        assert not await _owes(job_id)
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def test_a_record_with_an_unreadable_next_attempt_counts_as_due(
+    test_db_session, followups
+) -> None:
+    """A ``next_attempt_at`` that isn't a time neither stops the sweep nor holds the record."""
+    job_id, _, record_id = await _owed_job(
+        test_db_session, status="failed", error_message="refused"
+    )
+    try:
+        async with db_module.async_session() as session:
+            job = await session.get(IngestJob, job_id)
+            owed = {
+                **job.user_metadata[PUBLISH_FOLLOWUPS_FIELD],
+                "next_attempt_at": "not a time",
+            }
+            job.user_metadata = {PUBLISH_FOLLOWUPS_FIELD: owed}
+            await session.commit()
+
+        await run_owed_publish_followups()
+
+        assert not await _owes(job_id)
+        assert ("notice", "ingest_failed") in followups
+    finally:
+        await _drop(test_db_session, job_id, record_id)
 
 
 async def test_followup_records_do_not_crowd_the_artifact_reap(test_db_session) -> None:
