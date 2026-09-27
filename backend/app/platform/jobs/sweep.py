@@ -20,12 +20,14 @@ from sqlalchemy import (
     and_,
     delete,
     func,
+    literal,
     not_,
     or_,
     select,
     text,
     update,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -394,15 +396,19 @@ async def _sweep_expired_presigned_staging(
                 recheck_pass=is_recheck_pass,
             )
             continue
-        # Fresh dict, not an in-place mutation — JSONB doesn't track
-        # mutation, so an in-place edit would never flush.
-        new_metadata = {**(metadata or {}), _STAGING_REAPED_MARKER: True}
+        # Merged into the stored metadata, so a key another writer changed
+        # since the select above is not written back over.
+        markers = {_STAGING_REAPED_MARKER: True}
         if is_recheck_pass and created_at < recheck_final_cutoff:
-            new_metadata[_STAGING_REAPED_FINAL_MARKER] = True
+            markers[_STAGING_REAPED_FINAL_MARKER] = True
         await db.execute(
             update(IngestJob)
             .where(IngestJob.id == job_row_id)
-            .values(user_metadata=new_metadata)
+            .values(
+                user_metadata=func.coalesce(
+                    IngestJob.user_metadata, text("'{}'::jsonb")
+                ).op("||")(literal(markers, JSONB))
+            )
         )
         reaped += 1
 

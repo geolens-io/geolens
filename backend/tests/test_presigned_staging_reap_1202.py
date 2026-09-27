@@ -555,6 +555,53 @@ class TestPostExpirySweep:
         # re-sweep, not deleting the record of which key it was.
         assert refreshed.user_metadata["s3_key"] == staging_key
 
+    async def test_a_key_another_writer_clears_during_the_sweep_stays_cleared(
+        self, test_db_session, monkeypatch
+    ) -> None:
+        from sqlalchemy import select, text
+
+        import app.core.db as db_module
+        from app.platform.jobs import router as jobs_router
+        from app.platform.jobs.models import ARCHIVE_PENDING_METADATA_KEY, IngestJob
+
+        job, _staging_key = await self._make_job(test_db_session, age_seconds=10_000)
+
+        async def _set_mark(sql: str) -> None:
+            async with db_module.async_session() as session:
+                await session.execute(
+                    text(sql), {"id": job.id, "key": ARCHIVE_PENDING_METADATA_KEY}
+                )
+                await session.commit()
+
+        await _set_mark(
+            "UPDATE catalog.ingest_jobs SET user_metadata = user_metadata || "
+            "jsonb_build_object(CAST(:key AS text), true) WHERE id = :id"
+        )
+
+        async def _cleared_meanwhile(key):
+            await _set_mark(
+                "UPDATE catalog.ingest_jobs SET user_metadata = user_metadata - "
+                "CAST(:key AS text) WHERE id = :id"
+            )
+
+        storage = AsyncMock()
+        storage.delete = AsyncMock(side_effect=_cleared_meanwhile)
+        monkeypatch.setattr(
+            "app.platform.storage.get_storage", lambda: storage, raising=True
+        )
+
+        await jobs_router._sweep_expired_presigned_staging(
+            test_db_session, self._outcome()
+        )
+
+        metadata = (
+            await test_db_session.execute(
+                select(IngestJob.user_metadata).where(IngestJob.id == job.id)
+            )
+        ).scalar_one()
+        assert metadata["s3_key_reaped"] is True
+        assert ARCHIVE_PENDING_METADATA_KEY not in metadata
+
     async def test_a_second_pass_costs_no_storage_call(
         self, test_db_session, monkeypatch
     ) -> None:
