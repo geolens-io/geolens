@@ -235,6 +235,7 @@ class TestBuildStacAssets:
             storage_backend="s3",
             record_status="published",
             storage_provider=mock_provider,
+            cog_download=True,
         )
         assert "data" in result
         assert result["data"]["href"] == "https://s3.example.com/signed"

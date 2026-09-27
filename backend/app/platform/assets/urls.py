@@ -21,6 +21,11 @@ if TYPE_CHECKING:
     from app.platform.storage.provider import StorageProvider
 
 
+def is_remote_href(href: str) -> bool:
+    """True for an absolute http(s) URL, which names no managed storage object."""
+    return href.startswith(("http://", "https://"))
+
+
 def resolve_asset_url(
     href: str,
     *,
@@ -40,7 +45,7 @@ def resolve_asset_url(
     # publisher's already-public absolute URL as its href — not managed
     # storage, so the presign branch and the GAP-031 refusal below would
     # both mishandle it. Checked first and passed through untouched.
-    if href.startswith(("http://", "https://")):
+    if is_remote_href(href):
         return href
 
     # S3 + published data assets: signed URL (always safe — signed by provider)

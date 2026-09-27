@@ -1,9 +1,9 @@
-"""STAC items of local-storage rasters advertise the routes serving their files.
+"""STAC items offer a stored raster's data files only to callers the COG download route serves.
 
 A local storage key has no URL of its own, so the ``data`` asset points at the
-COG download route and the quicklooks at the quicklook route. ``data`` is only
-advertised to a caller that route would serve: anonymous callers get public
-datasets, authenticated ones also need the export capability.
+COG download route and the quicklooks at the quicklook route; on S3 each is a
+signed URL. Anonymous callers get public datasets, authenticated ones also
+need the export capability.
 
 Requirements: the test database (``set -a && source ../.env.test && set +a``).
 """
@@ -15,7 +15,10 @@ import pytest
 from httpx import AsyncClient
 
 import app.modules.catalog.authorization as authorization
+import app.standards.stac.router as stac_router
+from app.core.config import settings
 from app.modules.auth.permissions import DEFAULT_ROLE_PERMISSIONS
+from app.modules.catalog.collections.models import Collection, CollectionDataset
 from app.processing.raster.models import DatasetAsset
 
 from tests.factories import create_raster_dataset, get_user_id
@@ -23,7 +26,38 @@ from tests.factories import create_raster_dataset, get_user_id
 pytestmark = pytest.mark.anyio
 
 
-async def _published_raster_with_assets(session) -> str:
+class _FakeS3Provider:
+    def generate_presigned_get_url(self, key: str, expiration: int = 3600) -> str:
+        return f"https://s3.example.com/{key}?sig=abc"
+
+
+def _use_s3(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "storage_provider", "s3")
+    monkeypatch.setattr(stac_router, "get_storage", _FakeS3Provider)
+
+
+@pytest.fixture
+async def viewer_without_export(client: AsyncClient, admin_auth_header: dict):
+    matrix = copy.deepcopy(DEFAULT_ROLE_PERMISSIONS)
+    matrix["viewer"]["export"] = False
+    resp = await client.put(
+        "/settings/",
+        json={"settings": {"role_permissions": matrix}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200, resp.text
+    yield
+    resp = await client.post(
+        "/settings/reset/",
+        json={"keys": ["role_permissions"]},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200, resp.text
+
+
+async def _published_raster_with_assets(
+    session, record_type: str = "raster_dataset"
+) -> str:
     admin_id = await get_user_id(session, "admin")
     dataset = await create_raster_dataset(
         session,
@@ -31,11 +65,17 @@ async def _published_raster_with_assets(session) -> str:
         name="STAC local COG assets",
         visibility="public",
         record_status="published",
+        record_type=record_type,
         create_raster_asset=True,
     )
     base = f"rasters/{dataset.id}/abc"
+    primary = (
+        ("vrt", f"{base}/source.vrt", "application/xml")
+        if record_type == "vrt_dataset"
+        else ("data", f"{base}/source.cog.tif", "image/tiff; application=geotiff")
+    )
     for key, href, media_type in (
-        ("data", f"{base}/source.cog.tif", "image/tiff; application=geotiff"),
+        primary,
         ("thumbnail", f"{base}/quicklook_256.png", "image/png"),
         ("overview", f"{base}/quicklook_512.png", "image/png"),
     ):
@@ -45,11 +85,36 @@ async def _published_raster_with_assets(session) -> str:
                 key=key,
                 href=href,
                 media_type=media_type,
-                roles=[key],
+                roles=["data" if key == "vrt" else key],
             )
         )
     await session.commit()
     return str(dataset.id)
+
+
+async def _page_of_one_raster(client, session, surface: str, headers: dict) -> dict:
+    dataset_id = await _published_raster_with_assets(session)
+    if surface == "search":
+        resp = await client.get(
+            "/stac/search", params={"ids": dataset_id}, headers=headers
+        )
+    else:
+        collection = Collection(name=f"STAC page {dataset_id}", description="Page")
+        session.add(collection)
+        await session.flush()
+        session.add(
+            CollectionDataset(
+                collection_id=collection.id, dataset_id=uuid.UUID(dataset_id)
+            )
+        )
+        await session.commit()
+        resp = await client.get(
+            f"/stac/collections/{collection.id}/items", headers=headers
+        )
+    assert resp.status_code == 200, resp.text
+    [feature] = resp.json()["features"]
+    assert feature["id"] == dataset_id
+    return feature["assets"]
 
 
 async def test_anonymous_item_points_at_the_serving_routes(
@@ -71,40 +136,117 @@ async def test_anonymous_item_points_at_the_serving_routes(
     assert not [a for a in assets.values() if "/assets/" in a["href"]]
 
 
+async def test_anonymous_item_of_a_public_raster_on_s3_signs_data(
+    client: AsyncClient, test_db_session, monkeypatch
+):
+    dataset_id = await _published_raster_with_assets(test_db_session)
+    _use_s3(monkeypatch)
+
+    resp = await client.get(f"/stac/items/{dataset_id}")
+
+    assert resp.status_code == 200, resp.text
+    assets = resp.json()["assets"]
+    base = f"https://s3.example.com/rasters/{dataset_id}/abc"
+    assert assets["data"]["href"] == f"{base}/source.cog.tif?sig=abc"
+    assert assets["thumbnail"]["href"] == f"{base}/quicklook_256.png?sig=abc"
+
+
+async def test_reader_with_export_on_s3_gets_signed_data(
+    client: AsyncClient, test_db_session, viewer_auth_header: dict, monkeypatch
+):
+    dataset_id = await _published_raster_with_assets(test_db_session)
+    _use_s3(monkeypatch)
+
+    resp = await client.get(f"/stac/items/{dataset_id}", headers=viewer_auth_header)
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["assets"]["data"]["href"] == (
+        f"https://s3.example.com/rasters/{dataset_id}/abc/source.cog.tif?sig=abc"
+    )
+
+
+async def test_vrt_item_on_s3_omits_the_vrt_file_even_with_export(
+    client: AsyncClient, test_db_session, admin_auth_header: dict, monkeypatch
+):
+    dataset_id = await _published_raster_with_assets(
+        test_db_session, record_type="vrt_dataset"
+    )
+    _use_s3(monkeypatch)
+
+    resp = await client.get(f"/stac/items/{dataset_id}", headers=admin_auth_header)
+
+    assert resp.status_code == 200, resp.text
+    assets = resp.json()["assets"]
+    assert "vrt" not in assets
+    assert not [a for a in assets.values() if "source.vrt" in a["href"]]
+    assert assets["overview"]["href"] == (
+        f"https://s3.example.com/rasters/{dataset_id}/abc/quicklook_512.png?sig=abc"
+    )
+
+
+@pytest.mark.parametrize("backend", ["local", "s3"])
 async def test_reader_without_export_gets_no_data_asset(
     client: AsyncClient,
     test_db_session,
-    admin_auth_header: dict,
     viewer_auth_header: dict,
+    viewer_without_export,
+    monkeypatch,
+    backend: str,
 ):
     dataset_id = await _published_raster_with_assets(test_db_session)
-    matrix = copy.deepcopy(DEFAULT_ROLE_PERMISSIONS)
-    matrix["viewer"]["export"] = False
-    resp = await client.put(
-        "/settings/",
-        json={"settings": {"role_permissions": matrix}},
-        headers=admin_auth_header,
-    )
-    assert resp.status_code == 200, resp.text
-    try:
-        resp = await client.get(f"/stac/items/{dataset_id}", headers=viewer_auth_header)
-        assert resp.status_code == 200, resp.text
-        assets = resp.json()["assets"]
-        assert "data" not in assets
-        assert "thumbnail" in assets
-        assert "overview" in assets
+    if backend == "s3":
+        _use_s3(monkeypatch)
 
-        cog = await client.get(
-            f"/datasets/{dataset_id}/download/cog", headers=viewer_auth_header
-        )
-        assert cog.status_code == 403
-    finally:
-        resp = await client.post(
-            "/settings/reset/",
-            json={"keys": ["role_permissions"]},
-            headers=admin_auth_header,
-        )
-        assert resp.status_code == 200, resp.text
+    resp = await client.get(f"/stac/items/{dataset_id}", headers=viewer_auth_header)
+    assert resp.status_code == 200, resp.text
+    assets = resp.json()["assets"]
+    assert "data" not in assets
+    assert "thumbnail" in assets
+    assert "overview" in assets
+    assert not [a for a in assets.values() if "source.cog.tif" in a["href"]]
+
+    cog = await client.get(
+        f"/datasets/{dataset_id}/download/cog", headers=viewer_auth_header
+    )
+    assert cog.status_code == 403
+
+
+@pytest.mark.parametrize("surface", ["collection_items", "search"])
+async def test_s3_pages_withhold_data_from_a_reader_without_export(
+    client: AsyncClient,
+    test_db_session,
+    viewer_auth_header: dict,
+    viewer_without_export,
+    monkeypatch,
+    surface: str,
+):
+    _use_s3(monkeypatch)
+
+    assets = await _page_of_one_raster(
+        client, test_db_session, surface, viewer_auth_header
+    )
+
+    assert "data" not in assets
+    assert assets["thumbnail"]["href"].startswith("https://s3.example.com/")
+    assert not [a for a in assets.values() if "source.cog.tif" in a["href"]]
+
+
+@pytest.mark.parametrize("surface", ["collection_items", "search"])
+async def test_s3_pages_sign_data_for_a_reader_with_export(
+    client: AsyncClient,
+    test_db_session,
+    viewer_auth_header: dict,
+    monkeypatch,
+    surface: str,
+):
+    _use_s3(monkeypatch)
+
+    assets = await _page_of_one_raster(
+        client, test_db_session, surface, viewer_auth_header
+    )
+
+    assert assets["data"]["href"].startswith("https://s3.example.com/rasters/")
+    assert assets["data"]["href"].endswith("/abc/source.cog.tif?sig=abc")
 
 
 async def test_a_page_resolves_the_export_capability_once(

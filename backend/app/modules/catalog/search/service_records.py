@@ -94,10 +94,11 @@ def build_assets(
 ) -> dict:
     """Build a modality-aware unified assets dict for a dataset.
 
-    ``cog_download``: the caller may use the COG download route, so a local
-    raster's ``data`` asset can point at it.
+    ``cog_download``: the caller may use the COG download route, so a
+    raster's stored data-role assets are advertised: the route on local
+    storage, a signed URL on S3.
 
-    fix(#315): the raster/VRT ``raster_tiles`` asset uses ``public_app_url``
+    The raster/VRT ``raster_tiles`` asset uses ``public_app_url``
     (nginx-rewritten to the tile proxy), not ``/api``; every other
     asset/link stays on ``public_api_url``.
     """
@@ -193,12 +194,9 @@ def build_assets(
         public_api_url=public_api_url,
         storage_provider=storage_provider,
         local_routes=_local_raster_asset_routes(
-            dataset,
-            record_type,
-            record_status,
-            storage_backend,
-            cog_download=cog_download,
+            dataset, record_type, record_status, storage_backend
         ),
+        cog_download=cog_download,
     )
     assets.update(stac_built)
 
@@ -210,8 +208,6 @@ def _local_raster_asset_routes(
     record_type: str,
     record_status: str,
     storage_backend: str,
-    *,
-    cog_download: bool,
 ) -> dict[str, str] | None:
     """API routes serving a published raster's stored files on local storage.
 
@@ -231,13 +227,11 @@ def _local_raster_asset_routes(
         getattr(dataset, "publication_version", None),
     )
     quicklook = f"/datasets/{dataset.id}/quicklook?"
-    routes = {
+    return {
+        "data": cog_download_path(dataset.id),
         "thumbnail": quicklook + urlencode({"size": 256, **version}),
         "overview": quicklook + urlencode({"size": 512, **version}),
     }
-    if cog_download:
-        routes["data"] = cog_download_path(dataset.id)
-    return routes
 
 
 def _build_stac_assets(
@@ -248,11 +242,12 @@ def _build_stac_assets(
     public_api_url: str = "",
     storage_provider: "StorageProvider | None" = None,
     local_routes: dict[str, str] | None = None,
+    cog_download: bool = False,
 ) -> dict:
     if not asset_rows:
         return {}
 
-    from app.platform.assets.urls import resolve_asset_url
+    from app.platform.assets.urls import is_remote_href, resolve_asset_url
 
     from app.platform.assets.keys import is_public_asset_key
 
@@ -261,6 +256,15 @@ def _build_stac_assets(
         # fix(#1290): shared boundary — see app/platform/assets/keys.py for
         # why it is an allowlist.
         if not is_public_asset_key(row["key"]):
+            continue
+        # Stored data files go only to callers the COG download route serves,
+        # which excludes every VRT; a remote URL is public at its origin.
+        # The primary keys count too, since roles is nullable.
+        if (
+            ("data" in (row.get("roles") or ()) or row["key"] in ("data", "vrt"))
+            and not cog_download
+            and not is_remote_href(row["href"])
+        ):
             continue
         resolved_href = resolve_asset_url(
             row["href"],
