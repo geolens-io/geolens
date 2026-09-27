@@ -31,7 +31,7 @@
  * the request alone, which a later request interceptor can replace.
  *
  * Every hop, and the browser's resend, keeps the request's `mode`, `cache`,
- * `referrerPolicy`, `integrity` and abort signal. A hop on the GeoLens
+ * `keepalive`, `referrer`, `referrerPolicy`, `integrity` and abort signal. A hop on the GeoLens
  * origin also keeps its `credentials` mode. A `mode: 'same-origin'` request
  * redirected to another origin rejects with a TypeError, as fetch does.
  *
@@ -78,8 +78,8 @@ export function installRedirectHandling(target: Client): void {
     // The client reads `fetch` after every request interceptor has run, so a
     // later interceptor that rebuilds the request can't turn following back on.
     const clientFetch = options.fetch ?? globalThis.fetch;
-    options.fetch = (input, init) => clientFetch(new Request(input, { ...init, redirect: 'manual' }));
-    return new Request(request, { redirect: 'manual' });
+    options.fetch = (input, init) => clientFetch(manual(input, init));
+    return manual(request);
   });
   target.interceptors.response.use((response, request, options) =>
     following(options) ? followRedirect(response, request, options.fetch!) : response,
@@ -88,6 +88,18 @@ export function installRedirectHandling(target: Client): void {
 
 function following(options: { redirect?: RequestRedirect }): boolean {
   return (options.redirect ?? 'follow') === 'follow';
+}
+
+// Copying a Request resets its referrer and referrer policy unless the init
+// names them.
+function manual(input: RequestInfo | URL, init?: RequestInit): Request {
+  const from = input instanceof Request ? input : undefined;
+  return new Request(input, {
+    referrer: from?.referrer,
+    referrerPolicy: from?.referrerPolicy,
+    ...init,
+    redirect: 'manual',
+  });
 }
 
 async function followRedirect(
@@ -149,6 +161,8 @@ function carried(request: Request): RequestInit {
   return {
     mode: request.mode,
     cache: request.cache,
+    keepalive: request.keepalive,
+    referrer: request.referrer,
     referrerPolicy: request.referrerPolicy,
     integrity: request.integrity,
     signal: request.signal,

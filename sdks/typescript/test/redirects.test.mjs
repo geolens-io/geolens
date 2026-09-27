@@ -451,6 +451,44 @@ test("mode: 'same-origin' still follows a redirect on the same origin", async ()
   assert.deepEqual(await bytes(result.data), BODY);
 });
 
+test('keepalive, the referrer and its policy are kept on every request', async () => {
+  reset();
+  api.respond = (req, res) =>
+    req.url.startsWith('/files/')
+      ? redirect(res, `${origin(storage)}/cog.tif`)
+      : redirect(res, '/files/cog.tif', 307);
+  const referrer = `${origin(api)}/maps/m1`;
+  const seen = [];
+  const realFetch = globalThis.fetch;
+  const record = (request) => {
+    seen.push([request.keepalive, request.referrer, request.referrerPolicy]);
+    return realFetch(request);
+  };
+  const sdk = client({ apiKey: randomUUID() }, 'c');
+  sdk.setConfig({ fetch: record });
+  globalThis.fetch = record;
+
+  let result;
+  try {
+    result = await downloadCog({
+      client: sdk,
+      path: { dataset_id: 'd1' },
+      keepalive: true,
+      referrer,
+      referrerPolicy: 'unsafe-url',
+    });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.deepEqual(await bytes(result.data), BODY);
+  assert.deepEqual(seen, [
+    [true, referrer, 'unsafe-url'],
+    [true, referrer, 'unsafe-url'],
+    [true, referrer, 'unsafe-url'],
+  ]);
+});
+
 test("cache: 'no-store' is kept on a hop to another origin", async () => {
   reset();
   api.respond = (req, res) => redirect(res, `${origin(storage)}/cog.tif`);
