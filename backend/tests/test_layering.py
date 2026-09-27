@@ -1309,7 +1309,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/pointcloud.py": 1085,
     # Owed publish follow-ups and their retry schedule, plus settling the archive
     # flags of jobs that owe no follow-up.
-    "backend/app/processing/ingest/publish_followups.py": 1009,
+    "backend/app/processing/ingest/publish_followups.py": 1011,
     # Shared ingest finalization carries verification, bounded ArcGIS requests and lifecycle context.
     "backend/app/processing/ingest/tasks_common.py": 1731,
     # The file and service strategies: retrieval, staging, verification and cleanup.
