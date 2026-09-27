@@ -254,8 +254,11 @@ async def _archive_upload(
     bytes as the upload, and is written again otherwise. Reads the upload from
     ``local_copy`` when the caller holds one, and otherwise the way its task
     did, through ``resolve_file_path``, but never a local file outside the
-    staging directory. Any other failure flags the job's archive as failed;
-    the caller clears the flags when it confirms the archive.
+    staging directory. Writes only while holding the job's row with
+    ``dataset_id`` still its dataset, and leaves the archive owed when another
+    holder has the row or the dataset is gone. Any other failure flags the
+    job's archive as failed; the caller clears the flags when it confirms the
+    archive.
     """
     import app.core.db as db_module
     from app.platform.storage import get_storage
@@ -290,7 +293,13 @@ async def _archive_upload(
         if await _stored_size(archive_key) == size:
             return True
         async with db_module.async_session() as session:
-            job = await session.get(IngestJob, job_uuid)
+            # A dataset delete locks its jobs' rows before it reaps originals/
+            # after its commit, so a write made holding this one is reaped too.
+            job = await session.scalar(
+                select(IngestJob)
+                .where(IngestJob.id == job_uuid, IngestJob.dataset_id == dataset_id)
+                .with_for_update(skip_locked=True)
+            )
             archived = job is not None and await _archive_original_file(
                 session,
                 job=job,
@@ -902,8 +911,8 @@ async def _review_reason(row, key: str | None) -> str | None:
     return None
 
 
-async def _owe_unowed_archives() -> None:
-    """Owe the archive again for each job holding an original that nothing will archive.
+async def _owe_unowed_archives(limit: int) -> None:
+    """Owe the archive again for up to ``limit`` jobs holding an original that nothing will archive.
 
     A job flagged before archives were owed has no record, so no retry ever
     confirms its archive and retention keeps its upload for good. When its row
@@ -929,7 +938,7 @@ async def _owe_unowed_archives() -> None:
                 .where(_unowed_archive())
                 # Jobs a store can't decide stay eligible and must not fill every batch.
                 .order_by(func.random())
-                .limit(_SWEEP_BATCH)
+                .limit(limit)
             )
         ).all()
     for row in rows:
@@ -970,20 +979,17 @@ async def _owe_unowed_archives() -> None:
 async def run_owed_publish_followups() -> int:
     """Run the follow-ups landed terminal commits still owe, a bounded batch a call; never raises.
 
-    First owes the archive again for jobs holding an original that nothing
-    will archive, so this call runs those too. Takes only records that are
-    due: those never attempted first, then the longest due, so records that
-    keep failing wait out their delay and can't hold up fresh ones such as
-    failure notices. Returns how many jobs this call claimed. A job whose
-    follow-ups fail is logged and skipped.
+    Takes only records that are due: those never attempted first, then the
+    longest due, so records that keep failing wait out their delay and can't
+    hold up fresh ones such as failure notices. Only the room the batch left
+    then goes to owing the archive again for jobs holding an original that
+    nothing will archive, which the next call runs, so a backlog of those
+    never crowds out the follow-ups already owed. Returns how many jobs this
+    call claimed. A job whose follow-ups fail is logged and skipped.
     """
     import app.core.db as db_module
 
     log = structlog.get_logger()
-    try:
-        await _owe_unowed_archives()
-    except Exception:  # broad: those archives wait for the next pass
-        log.warning("unowed_archives_not_settled", exc_info=True)
     record = IngestJob.user_metadata[PUBLISH_FOLLOWUPS_FIELD]
     try:
         async with db_module.async_session() as session:
@@ -1008,4 +1014,9 @@ async def run_owed_publish_followups() -> int:
             claimed += await run_publish_followups(job_uuid)
         except Exception:  # broad: one job's follow-ups must not stop the rest
             log.warning("publish_followups_failed", job_id=str(job_uuid), exc_info=True)
+    if len(owed) < _SWEEP_BATCH:
+        try:
+            await _owe_unowed_archives(_SWEEP_BATCH - len(owed))
+        except Exception:  # broad: those archives wait for the next pass
+            log.warning("unowed_archives_not_settled", exc_info=True)
     return claimed

@@ -124,6 +124,12 @@ def _touched(calls, *ids) -> list[str]:
     ]
 
 
+async def _adopt_and_run() -> None:
+    """One sweep owes a flagged job's archive again, and the next runs it."""
+    await run_owed_publish_followups()
+    await run_owed_publish_followups()
+
+
 def _review_logs(logs) -> list:
     return [entry for entry in logs if entry["event"] == "archive_needs_review"]
 
@@ -353,7 +359,7 @@ async def test_a_flagged_local_upload_is_archived_and_released(
         upload = _stage(staging, parent_id if extra else job_id)
         await _set_path(job_id, str(upload))
 
-        await run_owed_publish_followups()
+        await _adopt_and_run()
 
         key = f"originals/{dataset_id}/{upload.name}"
         assert await raster_storage.get(key) == b"original"
@@ -402,7 +408,7 @@ async def test_a_flagged_upload_whose_full_archive_is_in_place_is_released_witho
         await raster_storage.put(key, b"original")
 
         with _storage_calls(raster_storage) as calls:
-            await run_owed_publish_followups()
+            await _adopt_and_run()
 
         assert _touched(calls, job_id, dataset_id) == []
         metadata = await _stored_metadata(job_id)
@@ -432,7 +438,7 @@ async def test_a_truncated_archive_is_written_again_before_it_counts(
             await real_put(written, data)
 
         monkeypatch.setattr(raster_storage, "put", _refused)
-        await run_owed_publish_followups()
+        await _adopt_and_run()
         if refused_once:
             assert await raster_storage.get(key) == b"orig"
             metadata = await _stored_metadata(job_id)
@@ -462,7 +468,7 @@ async def test_a_pending_archive_in_place_without_its_upload_is_released(
             f"originals/{dataset_id}/{job_id}_roads.gpkg", b"original"
         )
 
-        await run_owed_publish_followups()
+        await _adopt_and_run()
 
         metadata = await _stored_metadata(job_id)
         assert not (_FLAGS | {PUBLISH_FOLLOWUPS_FIELD}) & metadata.keys()
@@ -616,7 +622,7 @@ async def test_a_store_that_cannot_answer_decides_nothing_until_it_can(
         assert await _held(job_id)
 
         outage.clear()
-        await run_owed_publish_followups()
+        await _adopt_and_run()
 
         metadata = await _stored_metadata(job_id)
         assert not (_FLAGS | {ARCHIVE_REVIEW_METADATA_KEY}) & metadata.keys()
@@ -683,7 +689,7 @@ async def test_an_archive_the_store_refuses_is_retried_until_it_lands(
             await real_put(written, data)
 
         monkeypatch.setattr(raster_storage, "put", _refused)
-        await run_owed_publish_followups()
+        await _adopt_and_run()
 
         metadata = await _stored_metadata(job_id)
         assert metadata[PUBLISH_FOLLOWUPS_FIELD]["archive_key"] == key
@@ -731,6 +737,7 @@ async def test_concurrent_sweeps_settle_each_flag_once(
 
         with structlog.testing.capture_logs() as logs:
             await asyncio.gather(*(run_owed_publish_followups() for _ in range(sweeps)))
+        await run_owed_publish_followups()
 
         key = f"originals/{owed_dataset}/{upload.name}"
         assert await raster_storage.get(key) == b"original"
@@ -776,6 +783,144 @@ async def test_a_dataset_deleted_while_its_flag_is_decided_owes_nothing(
         await _drop(test_db_session, job_id, record_id)
 
 
+async def _delete_as_the_api_does(dataset_id, record_id, storage) -> None:
+    """Delete a dataset in the order its route does: lock its jobs, delete, commit, then reap originals/."""
+    from app.platform.catalog_locks import lock_ingest_jobs
+
+    async with db_module.async_session() as session:
+        await lock_ingest_jobs(session, job_cls=IngestJob, dataset_id=dataset_id)
+        await session.execute(delete(Dataset).where(Dataset.id == dataset_id))
+        await session.execute(delete(Record).where(Record.id == record_id))
+        await session.commit()
+    for key in await storage.list(f"originals/{dataset_id}/"):
+        await storage.delete(key)
+
+
+async def test_a_dataset_deleted_before_its_archive_is_written_gets_none(
+    test_db_session, raster_storage, followups, staging, monkeypatch
+) -> None:
+    """A delete that commits and reaps after the job was read leaves no archive behind it."""
+    upload_name = "roads.gpkg"
+    job_id, dataset_id, record_id, key = await _owing_archive(
+        test_db_session, file_path=None, failed=False
+    )
+    try:
+        upload = staging / f"{job_id}_{upload_name}"
+        upload.write_bytes(b"original")
+        await _set_path(job_id, str(upload))
+        real_exists = raster_storage.exists
+        deleted: list[bool] = []
+
+        async def _deleted_after_the_read(checked):
+            if checked == key and not deleted:
+                deleted.append(True)
+                await _delete_as_the_api_does(dataset_id, record_id, raster_storage)
+            return await real_exists(checked)
+
+        monkeypatch.setattr(raster_storage, "exists", _deleted_after_the_read)
+        await run_owed_publish_followups()
+
+        assert deleted
+        assert not await real_exists(key)
+        await _make_due(job_id)
+        await run_owed_publish_followups()
+        assert not await real_exists(key)
+        metadata = await _stored_metadata(job_id)
+        assert not (_FLAGS | {PUBLISH_FOLLOWUPS_FIELD}) & metadata.keys()
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def test_a_dataset_delete_waits_for_an_archive_being_written_then_reaps_it(
+    test_db_session, raster_storage, followups, staging, monkeypatch
+) -> None:
+    """The delete takes the job's row only once the write is done, so its reap removes the archive."""
+    job_id, dataset_id, record_id, key = await _owing_archive(
+        test_db_session, file_path=None, failed=False
+    )
+    try:
+        upload = staging / f"{job_id}_roads.gpkg"
+        upload.write_bytes(b"original")
+        await _set_path(job_id, str(upload))
+        real_put = raster_storage.put
+        deletion: list[asyncio.Task] = []
+        finished_before_the_write: list[bool] = []
+
+        async def _deleted_during_the_write(written, data):
+            if written == key and not deletion:
+                deletion.append(
+                    asyncio.create_task(
+                        _delete_as_the_api_does(dataset_id, record_id, raster_storage)
+                    )
+                )
+                await asyncio.sleep(0.5)
+                finished_before_the_write.append(deletion[0].done())
+            await real_put(written, data)
+
+        monkeypatch.setattr(raster_storage, "put", _deleted_during_the_write)
+        await run_owed_publish_followups()
+        await deletion[0]
+
+        assert finished_before_the_write == [False]
+        assert not await raster_storage.exists(key)
+        metadata = await _stored_metadata(job_id)
+        assert not (_FLAGS | {PUBLISH_FOLLOWUPS_FIELD}) & metadata.keys()
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def _owed_notices(session, count: int) -> list[uuid.UUID]:
+    """``count`` failed jobs owing their failure notice, due before anything a test leaves behind."""
+    long_ago = datetime(2000, 1, 1, tzinfo=timezone.utc)
+    jobs = [
+        IngestJob(status="failed", created_at=long_ago, completed_at=long_ago)
+        for _ in range(count)
+    ]
+    session.add_all(jobs)
+    await session.flush()
+    for job in jobs:
+        job.user_metadata = {
+            PUBLISH_FOLLOWUPS_FIELD: {
+                "task": "reupload_file",
+                "attempt_id": str(job.attempt_id),
+            }
+        }
+    await session.commit()
+    return [job.id for job in jobs]
+
+
+@pytest.mark.parametrize("owed", [3, 2], ids=["batch-full", "room-left"])
+async def test_flagged_jobs_are_owed_again_only_with_the_room_owed_followups_leave(
+    test_db_session, raster_storage, followups, staging, monkeypatch, owed
+) -> None:
+    """Follow-ups already owed take the batch first; flagged jobs get only what is left."""
+    import app.processing.ingest.publish_followups as publish_followups
+
+    monkeypatch.setattr(publish_followups, "_SWEEP_BATCH", 3)
+    notices = await _owed_notices(test_db_session, owed)
+    flagged = [await _flagged_job(test_db_session) for _ in range(2)]
+    try:
+        for job_id, _, _ in flagged:
+            await _set_path(job_id, str(_stage(staging, job_id)))
+
+        await run_owed_publish_followups()
+
+        for job_id in notices:
+            assert PUBLISH_FOLLOWUPS_FIELD not in (await _stored_metadata(job_id) or {})
+        adopted = [
+            job_id
+            for job_id, _, _ in flagged
+            if PUBLISH_FOLLOWUPS_FIELD in await _stored_metadata(job_id)
+        ]
+        assert len(adopted) == 3 - owed
+    finally:
+        async with db_module.async_session() as session:
+            await session.execute(delete(IngestJob).where(IngestJob.id.in_(notices)))
+            await session.commit()
+        for job_id, _, record_id in flagged:
+            await _drop(test_db_session, job_id, record_id)
+
+
 async def test_an_admin_cleanup_releases_a_flagged_local_upload(
     client, admin_auth_header, test_db_session, raster_storage, followups
 ) -> None:
@@ -785,7 +930,10 @@ async def test_an_admin_cleanup_releases_a_flagged_local_upload(
         upload = _stage(Path(settings.upload_staging_dir), job_id)
         await _set_path(job_id, str(upload))
 
-        response = await client.post("/jobs/cleanup/stale/", headers=admin_auth_header)
+        for _ in range(2):
+            response = await client.post(
+                "/jobs/cleanup/stale/", headers=admin_auth_header
+            )
 
         assert response.status_code == 200, response.text
         key = f"originals/{dataset_id}/{upload.name}"
