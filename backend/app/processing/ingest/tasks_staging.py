@@ -15,9 +15,12 @@ from pathlib import Path
 from typing import Any
 
 import structlog
+from sqlalchemy import Text, func, literal, text, true, update
+from sqlalchemy.orm.attributes import set_committed_value
 
 from app.core.async_io import await_draining, run_in_thread_draining
 from app.core.failure_reason import redact_failure_reason
+from app.platform.jobs.models import ARCHIVE_PENDING_METADATA_KEY, IngestJob
 from app.platform.storage import get_storage
 from app.processing.ingest.source_format import derive_source_format
 from app.processing.ingest.tasks_common import (
@@ -50,43 +53,37 @@ async def reap_downloaded_staging_source(
     final_status: str,
     failed_source_replayable: bool,
     is_fan_out_child: bool = False,
-) -> None:
-    """Delete the storage object this task DOWNLOADED its source from.
+) -> bool:
+    """Delete the storage object this task downloaded its source from.
 
-    fix(#430): without this the `staging/{job_id}/` key a task downloaded
-    from lives forever when a run fails before creating a dataset.
+    Without it the ``staging/{job_id}/`` key a task downloaded from outlives a
+    run that fails before creating a dataset. After a presigned completion
+    ``original_file_path`` is the frozen copy, not the client-writable
+    original: this reaps the frozen object and ``reap_presigned_staging_object``
+    reaps the client's key, so every terminal tail calls both.
 
-    fix(#1213): after a presigned completion, `original_file_path` is the
-    FROZEN copy, not the client-writable original. This reaps the frozen
-    object; `reap_presigned_staging_object` reaps the client's key. Both
-    are required — shared between vector and reupload tails so they can't
-    drift (reupload previously shipped without this reaper).
+    The reap signal is the ``staging/`` prefix on ``original_file_path``, not
+    a difference from ``file_path``: a download that raises never rewrites the
+    path, and only a presigned completion (S3-only) produces a ``staging/``
+    path. Fan-out children are skipped, since siblings share the original and
+    retention reaps it.
 
-    fix(#1213): the reap signal is the `staging/` PREFIX on
-    `original_file_path`, not `file_path != original_file_path` — a
-    download that raises never performs that rewrite, so the equality
-    check skipped reaping on exactly the error path, leaking a possibly
-    multi-GB frozen snapshot. The prefix alone is a sound discriminator:
-    only a presigned completion (S3-only) produces a `staging/`-shaped
-    path. Fan-out children are skipped (siblings share the original; a
-    retention policy reaps those).
+    ``failed_source_replayable`` is required so each caller states whether a
+    failed job may be reaped. Ordinary imports pass True and keep the object
+    on failure, since ``_retry_capability`` in ``platform/jobs/router.py`` can
+    retry them while it exists. The reupload caller passes False because
+    reupload jobs can't be retried, so nothing else would reap them.
 
-    fix(#1213): `failed_source_replayable` is required, not defaulted, so
-    each caller states whether a FAILED job may be reaped. Ordinary
-    imports pass True and retain on failure (`_retry_capability` in
-    `platform/jobs/router.py` allows retrying them while the object still
-    exists); the reupload caller passes False because `_retry_capability`
-    refuses reupload jobs outright, so nothing else will ever reap them.
-
-    Never raises — a failed sweep leaves an orphan, which beats failing a
-    job whose work is already committed.
+    Returns False only when a delete it attempted failed. Never raises: a
+    failed delete leaves an orphan, which beats failing a job whose work is
+    already committed.
     """
     if final_status not in ("complete", "failed"):
-        return
+        return True
     if final_status == "failed" and failed_source_replayable:
-        return
+        return True
     if is_fan_out_child or not original_file_path.startswith("staging/"):
-        return
+        return True
     try:
         from app.platform.storage import get_storage
         from app.platform.storage.titiler_url import resolve_current_storage_key
@@ -102,30 +99,33 @@ async def reap_downloaded_staging_source(
             job_id=job_id,
             storage_key=original_file_path,
         )
+        return False
+    return True
 
 
 async def reap_presigned_staging_object(
     job_id: str, owned_staging_key: str | None, *, final_status: str
-) -> None:
-    """Best-effort delete of a job's OWN presigned staging object.
+) -> bool:
+    """Delete a job's own presigned staging object.
 
-    fix(#1202): a completed presigned upload points ``file_path`` at the
-    frozen copy, so a reaper keyed off ``file_path`` misses the staging key
-    the client's PUT URL can still recreate outside size/quota accounting.
-    Called by every terminal task tail.
+    A completed presigned upload points ``file_path`` at the frozen copy, so a
+    reaper keyed off ``file_path`` misses the staging key the client's PUT URL
+    can still recreate outside size and quota accounting. Called by every
+    terminal task tail.
 
     Pass the result of ``owned_presigned_staging_key``, which declines a
-    fan-out child's inherited parent key so a child can't reap the
-    original its siblings still read.
+    fan-out child's inherited parent key so a child can't reap the original
+    its siblings still read.
 
-    Never raises — a failed sweep leaves an orphan, better than failing a
-    job whose work is already committed.
+    Returns False only when the delete failed. Never raises: a failed delete
+    leaves an orphan, better than failing a job whose work is already
+    committed.
     """
     # fix(#1207): terminal-status guard lives HERE, not per tail — a
     # non-terminal exit (missing job/dataset, lost heartbeat claim) must not
     # sweep, since the attempt may be re-claimed and still need these bytes.
     if final_status not in ("complete", "failed") or not owned_staging_key:
-        return
+        return True
     try:
         from app.platform.storage import get_storage
         from app.platform.storage.titiler_url import resolve_current_storage_key
@@ -141,6 +141,8 @@ async def reap_presigned_staging_object(
             job_id=job_id,
             storage_key=owned_staging_key,
         )
+        return False
+    return True
 
 
 async def _validate_upload_file_safety(
@@ -206,23 +208,19 @@ async def _archive_original_file(
 ) -> bool:
     """Upload the original source file to the storage provider (best-effort).
 
-    Returns True when the archive landed. fix(#1290): raster tails call this
-    to satisfy ADR-002 Decision 7 when a conversion was lossy and must not
-    delete the staged upload unless the durable copy exists — for them the
-    return value is a decision input, not just a breadcrumb. Vector callers
-    ignore it.
+    Returns True when the archive landed, the one fact that lets a caller
+    delete the staged upload; a lossy raster may publish only once it holds.
+    With ``commit`` True a landed archive also removes the job's
+    archive-pending mark.
 
-    Archive failures must NOT fail the ingest (the dataset is already
-    committed) — instead the failure is recorded on ``job.user_metadata``
-    for UI/operator audit (R-2). ``commit=False`` lets ``reupload_file``'s
-    caller fold that metadata write into its own ``job.status="complete"``
-    commit instead of a second round trip.
-
-    When ``commit`` is True, the metadata-update commit is wrapped in its
-    own try/except: a transient DB error there must not flip an
-    already-successful ingest into a ``failed`` job — on failure this logs
-    and gives up, and the operator just loses the ``archive_failed``
-    breadcrumb.
+    A failure never fails the ingest, since the dataset is already committed.
+    It is merged into the stored metadata as ``archive_failed`` and
+    ``archive_error`` for the operator, only while ``job``'s attempt owns the
+    row and, for a job marked pending, the mark is still there: another run
+    may have made this archive meanwhile. ``commit=False`` leaves that write
+    to the caller's own commit; otherwise a failed commit of it is logged, not
+    raised, so a transient DB error can't turn a published ingest into a
+    failed job.
     """
 
     logger = structlog.get_logger()
@@ -237,7 +235,6 @@ async def _archive_original_file(
         )
         with open(file_path, "rb") as fobj:
             await storage.put(physical_archive_key, fobj)
-        return True
     except Exception as archive_exc:  # broad: archive is best-effort; S3/local I/O can fail for any reason
         logger.warning(
             log_message,
@@ -245,24 +242,76 @@ async def _archive_original_file(
             dataset_id=str(dataset_id),
             error=str(archive_exc)[:500],
         )
-        job.user_metadata = {
-            **(job.user_metadata or {}),
-            "archive_failed": True,
-            "archive_error": str(archive_exc)[:500],
-        }
-        if not commit:
-            return False
-        try:
-            await session.commit()
-        except Exception as commit_exc:  # broad: transient DB errors (deadlock, pooler drop) during flag persistence
-            await session.rollback()
-            logger.warning(
-                "Failed to persist archive_failed flag on job",
-                archive_key=archive_key,
-                dataset_id=str(dataset_id),
-                error=str(commit_exc)[:500],
+        flag = func.jsonb_build_object(
+            "archive_failed", true(), "archive_error", str(archive_exc)[:500]
+        )
+        owned = [IngestJob.id == job.id, IngestJob.attempt_id == job.attempt_id]
+        if ARCHIVE_PENDING_METADATA_KEY in (job.user_metadata or {}):
+            owned.append(IngestJob.user_metadata.has_key(ARCHIVE_PENDING_METADATA_KEY))
+        stamp = (
+            update(IngestJob)
+            .where(*owned)
+            # A job created without metadata can hold JSON null, which ``||``
+            # would turn into an array.
+            .values(
+                user_metadata=func.coalesce(
+                    func.nullif(IngestJob.user_metadata, text("'null'::jsonb")),
+                    text("'{}'::jsonb"),
+                ).op("||")(flag)
             )
+            .returning(IngestJob.user_metadata)
+            .execution_options(synchronize_session=False)
+        )
+        if not commit:
+            stamped = await session.scalar(stamp)
+        else:
+            try:
+                stamped = await session.scalar(stamp)
+                await session.commit()
+            except Exception as commit_exc:  # broad: transient DB errors (deadlock, pooler drop) during flag persistence
+                await session.rollback()
+                logger.warning(
+                    "Failed to persist archive_failed flag on job",
+                    archive_key=archive_key,
+                    dataset_id=str(dataset_id),
+                    error=str(commit_exc)[:500],
+                )
+                return False
+        if stamped is not None:
+            set_committed_value(job, "user_metadata", stamped)
         return False
+    if commit and ARCHIVE_PENDING_METADATA_KEY in (job.user_metadata or {}):
+        await _clear_archive_pending(session, job)
+    return True
+
+
+async def _clear_archive_pending(session, job) -> None:
+    """Remove ``job``'s archive-pending mark now that its archive exists; never raises.
+
+    Edits the stored metadata in place and shows ``job`` the result. A mark
+    that stays only keeps the job and its upload through retention.
+    """
+    try:
+        remaining = await session.scalar(
+            update(IngestJob)
+            .where(IngestJob.id == job.id)
+            .values(
+                user_metadata=IngestJob.user_metadata.op("-")(
+                    literal(ARCHIVE_PENDING_METADATA_KEY, Text)
+                )
+            )
+            .returning(IngestJob.user_metadata)
+            .execution_options(synchronize_session=False)
+        )
+        await session.commit()
+    except Exception:  # broad: the archive exists, so a mark left behind loses nothing
+        with suppress(Exception):  # broad: a dead connection can't roll back
+            await session.rollback()
+        structlog.get_logger().warning(
+            "archive_pending_not_cleared", job_id=str(job.id)
+        )
+        return
+    set_committed_value(job, "user_metadata", remaining)
 
 
 async def _run_staging_pipeline(

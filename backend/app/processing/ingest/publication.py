@@ -380,7 +380,8 @@ async def settle_replacement(
             await _drop_staging_table(attempt.staging_table)
         await strategy.release(publication=attempt.publication, failed=failed)
 
-    # After the release, which archives the upload these follow-ups delete.
+    # Follow-ups the release didn't run itself, such as a raster's upload
+    # delete; a record the release already claimed or retries isn't due here.
     if attempt.owes_followups:
         async with cleanup_step(f"{strategy.task} follow-ups", job_id=job_id):
             await run_publish_followups(attempt.job_id)

@@ -12,15 +12,20 @@ from unittest.mock import patch
 
 import pytest
 import structlog
-from sqlalchemy import delete, select, text
+from sqlalchemy import delete, select, text, update
 
 import app.core.db as db_module
 from app.core.config import settings
 from app.modules.catalog.datasets.domain.models import Dataset, Record
-from app.platform.jobs.models import IngestJob
+from app.platform.jobs.models import (
+    ARCHIVE_PENDING_METADATA_KEY,
+    IngestJob,
+    holds_unarchived_original,
+)
 from app.platform.storage.local import LocalStorageProvider
 from app.processing.ingest.publish_followups import (
     PUBLISH_FOLLOWUPS_FIELD,
+    owed_followups,
     run_owed_publish_followups,
     run_publish_followups,
 )
@@ -689,6 +694,673 @@ async def test_an_archive_in_place_clears_an_earlier_archive_failure(
         await _drop(test_db_session, job_id, record_id)
 
 
+async def _stored_metadata(job_id) -> dict:
+    async with db_module.async_session() as session:
+        return await session.scalar(
+            select(IngestJob.user_metadata).where(IngestJob.id == job_id)
+        )
+
+
+@pytest.mark.parametrize(
+    "archive_key", [None, "originals/d/upload.tif"], ids=["no-archive", "archive"]
+)
+async def test_a_record_marks_the_archive_pending_only_when_it_names_one(
+    test_db_session, archive_key
+) -> None:
+    """The UPDATE that records the follow-ups marks an archive pending only with its key."""
+    job_id, _, record_id = await _owed_job(test_db_session, task="reupload_file")
+    try:
+        async with db_module.async_session() as session:
+            attempt_id = await session.scalar(
+                select(IngestJob.attempt_id).where(IngestJob.id == job_id)
+            )
+            await session.execute(
+                update(IngestJob)
+                .where(IngestJob.id == job_id)
+                .values(
+                    user_metadata=owed_followups(
+                        attempt_id,
+                        "reupload_file",
+                        reaps_staged_upload=True,
+                        archive_key=archive_key,
+                    )
+                )
+            )
+            await session.commit()
+
+        metadata = await _stored_metadata(job_id)
+        assert (ARCHIVE_PENDING_METADATA_KEY in metadata) is (archive_key is not None)
+        assert metadata[PUBLISH_FOLLOWUPS_FIELD]["reaps_staged_upload"] is True
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+@pytest.mark.parametrize("found", [False, True], ids=["made", "found"])
+async def test_a_confirmed_archive_takes_the_pending_mark_off(
+    test_db_session, raster_storage, followups, found
+) -> None:
+    """The mark goes once the archive exists, and the upload with it."""
+    job_id, dataset_id, record_id = await _owed_job(
+        test_db_session, task="reupload_file", reaps_staged_upload=True
+    )
+    try:
+        await _point_job_at(
+            job_id, file_path=None, **{ARCHIVE_PENDING_METADATA_KEY: True}
+        )
+        left = await _stage_upload(raster_storage, job_id, "storage")
+        key = await _owe_archive(job_id, dataset_id, "upload.tif")
+        if found:
+            await raster_storage.put(key, b"staged")
+
+        assert await run_publish_followups(job_id) is True
+        assert await left() == []
+        assert ARCHIVE_PENDING_METADATA_KEY not in await _stored_metadata(job_id)
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def test_a_failed_archive_keeps_the_pending_mark_and_the_upload(
+    test_db_session, raster_storage, followups, monkeypatch
+) -> None:
+    job_id, dataset_id, record_id = await _owed_job(
+        test_db_session, task="reupload_file", reaps_staged_upload=True
+    )
+    try:
+        await _point_job_at(
+            job_id, file_path=None, **{ARCHIVE_PENDING_METADATA_KEY: True}
+        )
+        left = await _stage_upload(raster_storage, job_id, "storage")
+        key = await _owe_archive(job_id, dataset_id, "upload.tif")
+        real_put = raster_storage.put
+
+        async def _refused(written, data):
+            if written == key:
+                raise RuntimeError("the object store refused the write")
+            await real_put(written, data)
+
+        monkeypatch.setattr(raster_storage, "put", _refused)
+
+        assert await run_publish_followups(job_id) is True
+        assert await left() == [f"staging/{job_id}/frozen/upload.tif"]
+        metadata = await _stored_metadata(job_id)
+        assert metadata[ARCHIVE_PENDING_METADATA_KEY] is True
+        assert metadata["archive_failed"] is True
+        owed = metadata[PUBLISH_FOLLOWUPS_FIELD]
+        assert (owed["archive_key"], owed["attempts"], owed["claimed"]) == (
+            key,
+            1,
+            True,
+        )
+        assert "next_attempt_at" in owed
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def _make_due(job_id) -> None:
+    """Bring the job's next follow-up attempt forward to a minute ago."""
+    async with db_module.async_session() as session:
+        await session.execute(
+            text(
+                "UPDATE catalog.ingest_jobs SET user_metadata = jsonb_set("
+                "user_metadata, '{publish_followups,next_attempt_at}', "
+                "to_jsonb(now() - interval '1 minute')) WHERE id = :id"
+            ),
+            {"id": job_id},
+        )
+        await session.commit()
+
+
+async def test_a_failed_archive_is_made_by_a_later_sweep(
+    test_db_session, raster_storage, followups, monkeypatch
+) -> None:
+    """The write that failed is tried again once due; then the mark and the upload go."""
+    job_id, dataset_id, record_id = await _owed_job(
+        test_db_session, task="reupload_file", reaps_staged_upload=True
+    )
+    try:
+        await _point_job_at(
+            job_id, file_path=None, **{ARCHIVE_PENDING_METADATA_KEY: True}
+        )
+        left = await _stage_upload(raster_storage, job_id, "storage")
+        key = await _owe_archive(job_id, dataset_id, "upload.tif")
+        real_put = raster_storage.put
+        refused: list[str] = []
+
+        async def _refused_once(written, data):
+            if written == key and not refused:
+                refused.append(written)
+                raise RuntimeError("the object store refused the write")
+            await real_put(written, data)
+
+        monkeypatch.setattr(raster_storage, "put", _refused_once)
+        assert await run_publish_followups(job_id) is True
+        await _make_due(job_id)
+
+        await run_owed_publish_followups()
+
+        assert await raster_storage.get(key) == b"staged"
+        assert await left() == []
+        metadata = await _stored_metadata(job_id)
+        assert (
+            not {
+                ARCHIVE_PENDING_METADATA_KEY,
+                "archive_failed",
+                PUBLISH_FOLLOWUPS_FIELD,
+            }
+            & metadata.keys()
+        )
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def _sweep_selections(monkeypatch) -> list:
+    """Record, in order, the jobs the sweep hands to the follow-ups, and run none."""
+    import app.processing.ingest.publish_followups as publish_followups
+
+    selected: list = []
+
+    async def _selected(job_uuid, **kwargs):
+        selected.append(job_uuid)
+        return False
+
+    monkeypatch.setattr(publish_followups, "run_publish_followups", _selected)
+    return selected
+
+
+async def test_a_record_not_yet_due_is_left_by_the_sweep(
+    test_db_session, raster_storage, followups, monkeypatch
+) -> None:
+    job_id, dataset_id, record_id = await _owed_job(
+        test_db_session, task="reupload_file", reaps_staged_upload=True
+    )
+    try:
+        left = await _stage_upload(raster_storage, job_id, "storage")
+        key = await _owe_archive(job_id, dataset_id, "upload.tif")
+        async with db_module.async_session() as session:
+            job = await session.get(IngestJob, job_id)
+            owed = {
+                **job.user_metadata[PUBLISH_FOLLOWUPS_FIELD],
+                "attempts": 2,
+                "claimed": True,
+                "next_attempt_at": (
+                    datetime.now(timezone.utc) + timedelta(hours=1)
+                ).isoformat(),
+            }
+            job.user_metadata = {**job.user_metadata, PUBLISH_FOLLOWUPS_FIELD: owed}
+            await session.commit()
+
+        with monkeypatch.context() as spied:
+            selected = await _sweep_selections(spied)
+            await run_owed_publish_followups()
+        assert job_id not in selected
+        assert await run_publish_followups(job_id) is False
+
+        assert not await raster_storage.exists(key)
+        assert len(await left()) == 2
+        assert (await _stored_metadata(job_id))[PUBLISH_FOLLOWUPS_FIELD] == owed
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def test_records_that_keep_failing_do_not_crowd_out_a_fresh_one(
+    test_db_session, raster_storage, tmp_path, followups
+) -> None:
+    """More failing records than one sweep takes still leave room for a fresh record."""
+    outside = tmp_path / "keep.tif"
+    outside.write_bytes(b"not an upload")
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await create_dataset(test_db_session, created_by=admin_id)
+    later = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    failing = [
+        IngestJob(
+            dataset_id=dataset.id,
+            status="complete",
+            created_by=admin_id,
+            file_path=str(outside),
+            user_metadata={
+                PUBLISH_FOLLOWUPS_FIELD: {
+                    "task": "reupload_file",
+                    "archive_key": f"originals/{dataset.id}/keep-{n}.tif",
+                    "attempts": 3,
+                    "claimed": True,
+                    "next_attempt_at": later,
+                }
+            },
+        )
+        for n in range(55)
+    ]
+    test_db_session.add_all(failing)
+    await test_db_session.flush()
+    for job in failing:
+        job.user_metadata = {
+            PUBLISH_FOLLOWUPS_FIELD: {
+                **job.user_metadata[PUBLISH_FOLLOWUPS_FIELD],
+                "attempt_id": str(job.attempt_id),
+            }
+        }
+    await test_db_session.commit()
+    failing_ids = [job.id for job in failing]
+    fresh_id, _, fresh_record = await _owed_job(
+        test_db_session, status="failed", error_message="refused"
+    )
+    try:
+        await run_owed_publish_followups()
+
+        assert not await _owes(fresh_id)
+    finally:
+        await _drop(test_db_session, fresh_id, fresh_record)
+        await test_db_session.execute(
+            delete(IngestJob).where(IngestJob.id.in_(failing_ids))
+        )
+        await test_db_session.commit()
+
+
+async def test_the_sweep_takes_records_never_attempted_first_then_the_longest_due(
+    test_db_session, monkeypatch
+) -> None:
+    """Records that keep failing, due longer than a fresh one, don't hold it back."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await create_dataset(test_db_session, created_by=admin_id)
+    since = datetime.now(timezone.utc) - timedelta(days=1)
+    # Inserted newest due first, so the table's own order is no help.
+    failing = [
+        IngestJob(
+            dataset_id=dataset.id,
+            status="complete",
+            created_by=admin_id,
+            user_metadata={
+                PUBLISH_FOLLOWUPS_FIELD: {
+                    "task": "reupload_file",
+                    "archive_key": f"originals/{dataset.id}/keep-{n}.tif",
+                    "attempts": 3,
+                    "claimed": True,
+                    "next_attempt_at": (since + timedelta(minutes=n)).isoformat(),
+                }
+            },
+        )
+        for n in reversed(range(55))
+    ]
+    test_db_session.add_all(failing)
+    await test_db_session.flush()
+    failing_ids = [job.id for job in reversed(failing)]
+    await test_db_session.commit()
+    fresh_id, _, fresh_record = await _owed_job(
+        test_db_session, status="failed", error_message="refused"
+    )
+    try:
+        selected = await _sweep_selections(monkeypatch)
+        await run_owed_publish_followups()
+
+        ours = [job for job in selected if job in {fresh_id, *failing_ids}]
+        assert ours[0] == fresh_id
+        assert ours[1:] == failing_ids[: len(ours) - 1]
+        assert len(ours) > 1
+    finally:
+        await _drop(test_db_session, fresh_id, fresh_record)
+        await test_db_session.execute(
+            delete(IngestJob).where(IngestJob.id.in_(failing_ids))
+        )
+        await test_db_session.commit()
+
+
+async def test_a_direct_call_runs_the_items_whatever_the_workers_clock_says(
+    test_db_session, raster_storage, followups
+) -> None:
+    """A job ended by a worker whose clock runs ahead still has its items run at once."""
+    job_id, _, record_id = await _owed_job(
+        test_db_session, task="reupload_file", reaps_staged_upload=True
+    )
+    try:
+        left = await _stage_upload(raster_storage, job_id, "local")
+        async with db_module.async_session() as session:
+            await session.execute(
+                update(IngestJob)
+                .where(IngestJob.id == job_id)
+                .values(completed_at=datetime.now(timezone.utc) + timedelta(hours=1))
+            )
+            await session.commit()
+
+        assert await run_publish_followups(job_id) is True
+
+        assert await left() == []
+        assert not await _owes(job_id)
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def test_the_sweep_runs_a_record_whatever_the_workers_clock_says(
+    test_db_session, followups
+) -> None:
+    """A job ended by a worker whose clock runs ahead is still swept at once."""
+    job_id, _, record_id = await _owed_job(
+        test_db_session, status="failed", error_message="refused"
+    )
+    try:
+        async with db_module.async_session() as session:
+            await session.execute(
+                update(IngestJob)
+                .where(IngestJob.id == job_id)
+                .values(completed_at=datetime.now(timezone.utc) + timedelta(hours=1))
+            )
+            await session.commit()
+
+        await run_owed_publish_followups()
+
+        assert not await _owes(job_id)
+        assert ("notice", "ingest_failed") in followups
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def test_a_record_with_an_unreadable_next_attempt_counts_as_due(
+    test_db_session, followups
+) -> None:
+    """A ``next_attempt_at`` that isn't a time neither stops the sweep nor holds the record."""
+    job_id, _, record_id = await _owed_job(
+        test_db_session, status="failed", error_message="refused"
+    )
+    try:
+        async with db_module.async_session() as session:
+            job = await session.get(IngestJob, job_id)
+            owed = {
+                **job.user_metadata[PUBLISH_FOLLOWUPS_FIELD],
+                "next_attempt_at": "not a time",
+            }
+            job.user_metadata = {PUBLISH_FOLLOWUPS_FIELD: owed}
+            await session.commit()
+
+        await run_owed_publish_followups()
+
+        assert not await _owes(job_id)
+        assert ("notice", "ingest_failed") in followups
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def test_followup_records_do_not_crowd_the_artifact_reap(test_db_session) -> None:
+    """A batch's worth of rows owing only follow-ups still leaves an artifact to reap."""
+    from app.platform.jobs.sweep import (
+        StaleCleanupOutcome,
+        collect_unreaped_artifacts,
+    )
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    owing = [
+        IngestJob(
+            status="complete",
+            created_by=admin_id,
+            user_metadata={
+                PUBLISH_FOLLOWUPS_FIELD: {
+                    "task": "ingest_file",
+                    "attempt_id": str(uuid.uuid4()),
+                    "archive_key": f"originals/{uuid.uuid4()}/upload.csv",
+                }
+            },
+        )
+        for _ in range(500)
+    ]
+    key = f"rasters/{uuid.uuid4()}/source.cog.tif"
+    naming = IngestJob(
+        status="failed",
+        created_by=admin_id,
+        user_metadata={"unpublished_storage_keys": [key]},
+    )
+    test_db_session.add_all([*owing, naming])
+    await test_db_session.flush()
+    ids = [job.id for job in (*owing, naming)]
+    await test_db_session.commit()
+    try:
+        outcome = await collect_unreaped_artifacts(
+            test_db_session, StaleCleanupOutcome(*([0] * 10))
+        )
+
+        assert key in outcome._unpublished_storage_keys
+    finally:
+        await test_db_session.execute(delete(IngestJob).where(IngestJob.id.in_(ids)))
+        await test_db_session.commit()
+
+
+async def test_an_owed_archive_is_retried_at_the_cap_until_storage_recovers(
+    test_db_session, raster_storage, followups, monkeypatch
+) -> None:
+    """However long storage refuses, the archive stays owed and the upload held."""
+    job_id, dataset_id, record_id = await _owed_job(
+        test_db_session, task="reupload_file", reaps_staged_upload=True
+    )
+    try:
+        await _point_job_at(
+            job_id, file_path=None, **{ARCHIVE_PENDING_METADATA_KEY: True}
+        )
+        left = await _stage_upload(raster_storage, job_id, "storage")
+        key = await _owe_archive(job_id, dataset_id, "upload.tif")
+        real_put = raster_storage.put
+        outage = [True]
+
+        async def _refused(written, data):
+            if written == key and outage:
+                raise RuntimeError("the object store refused the write")
+            await real_put(written, data)
+
+        async def _still_owed(attempts: int) -> None:
+            metadata = await _stored_metadata(job_id)
+            owed = metadata[PUBLISH_FOLLOWUPS_FIELD]
+            assert (owed["archive_key"], owed["attempts"]) == (key, attempts)
+            assert metadata[ARCHIVE_PENDING_METADATA_KEY] is True
+            assert metadata["archive_failed"] is True
+            assert await left() == [f"staging/{job_id}/frozen/upload.tif"]
+            async with db_module.async_session() as session:
+                wait = await session.scalar(
+                    text(
+                        "SELECT (user_metadata #>> "
+                        "'{publish_followups,next_attempt_at}')::timestamptz - now() "
+                        "FROM catalog.ingest_jobs WHERE id = :id"
+                    ),
+                    {"id": job_id},
+                )
+                held = await session.scalar(
+                    select(IngestJob.id).where(
+                        IngestJob.id == job_id, holds_unarchived_original()
+                    )
+                )
+            assert timedelta(hours=3, minutes=55) < wait <= timedelta(hours=4)
+            assert held == job_id
+
+        monkeypatch.setattr(raster_storage, "put", _refused)
+        for _ in range(9):
+            await _make_due(job_id)
+            await run_owed_publish_followups()
+        await _still_owed(9)
+
+        async with db_module.async_session() as session:
+            await session.execute(
+                text(
+                    "UPDATE catalog.ingest_jobs SET user_metadata = jsonb_set("
+                    "user_metadata, '{publish_followups,attempts}', '1000') "
+                    "WHERE id = :id"
+                ),
+                {"id": job_id},
+            )
+            await session.commit()
+        await _make_due(job_id)
+        await run_owed_publish_followups()
+        await _still_owed(1001)
+
+        outage.clear()
+        await _make_due(job_id)
+        await run_owed_publish_followups()
+
+        assert await raster_storage.get(key) == b"staged"
+        assert await left() == []
+        metadata = await _stored_metadata(job_id)
+        assert (
+            not {
+                ARCHIVE_PENDING_METADATA_KEY,
+                "archive_failed",
+                PUBLISH_FOLLOWUPS_FIELD,
+            }
+            & metadata.keys()
+        )
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def _refuse_once(monkeypatch, storage, method: str, refused_key: str) -> list:
+    """Make ``storage.method`` fail the first call for ``refused_key``; returns the refusals."""
+    real = getattr(storage, method)
+    refused: list[str] = []
+
+    async def _refused_once(key, *args, **kwargs):
+        if key == refused_key and not refused:
+            refused.append(key)
+            raise RuntimeError("the object store refused the call")
+        return await real(key, *args, **kwargs)
+
+    monkeypatch.setattr(storage, method, _refused_once)
+    return refused
+
+
+@pytest.mark.parametrize(
+    ("task", "owed", "expected"),
+    [("ingest_raster", "delete", _RASTER), ("reupload_file", "archive", [])],
+    ids=["first-ingest-delete", "replacement-archive"],
+)
+async def test_the_rest_runs_once_without_waiting_on_an_owed_item(
+    test_db_session, raster_storage, followups, monkeypatch, task, owed, expected
+) -> None:
+    """The first claim runs the rest while an item is owed; the sweep that lands it runs nothing again."""
+    job_id, dataset_id, record_id = await _owed_job(
+        test_db_session, task=task, reaps_staged_upload=True
+    )
+    try:
+        left = await _stage_upload(raster_storage, job_id, "storage")
+        if owed == "delete":
+            frozen = f"staging/{job_id}/frozen/upload.tif"
+            refused = await _refuse_once(monkeypatch, raster_storage, "delete", frozen)
+        else:
+            key = await _owe_archive(job_id, dataset_id, "upload.tif")
+            refused = await _refuse_once(monkeypatch, raster_storage, "put", key)
+
+        assert await run_publish_followups(job_id) is True
+        assert refused and followups == expected
+        assert await left() == [f"staging/{job_id}/frozen/upload.tif"]
+        assert (await _stored_metadata(job_id))[PUBLISH_FOLLOWUPS_FIELD]["claimed"]
+
+        await _make_due(job_id)
+        assert await run_owed_publish_followups() == 0
+
+        assert followups == expected
+        assert await left() == []
+        assert not await _owes(job_id)
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def test_a_local_unlink_that_fails_stays_owed_until_a_later_sweep(
+    test_db_session, raster_storage, followups, monkeypatch
+) -> None:
+    job_id, _, record_id = await _owed_job(test_db_session, reaps_staged_upload=True)
+    try:
+        left = await _stage_upload(raster_storage, job_id, "local")
+        [staged] = await left()
+        real_unlink = Path.unlink
+        refused: list[Path] = []
+
+        def _refused_once(self, missing_ok=False):
+            if self == staged.resolve() and not refused:
+                refused.append(self)
+                raise PermissionError("the staging mount refused the unlink")
+            return real_unlink(self, missing_ok=missing_ok)
+
+        monkeypatch.setattr(Path, "unlink", _refused_once)
+
+        assert await run_publish_followups(job_id) is True
+        assert refused and await left() == [staged]
+        owed = (await _stored_metadata(job_id))[PUBLISH_FOLLOWUPS_FIELD]
+        assert (owed["reaps_staged_upload"], owed["attempts"]) == (True, 1)
+
+        await _make_due(job_id)
+        await run_owed_publish_followups()
+
+        assert await left() == []
+        assert not await _owes(job_id)
+        assert followups == _RASTER
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def test_a_presigned_delete_that_fails_stays_owed_until_a_later_sweep(
+    test_db_session, raster_storage, followups, monkeypatch
+) -> None:
+    job_id, _, record_id = await _owed_job(test_db_session, reaps_staged_upload=True)
+    try:
+        left = await _stage_upload(raster_storage, job_id, "storage")
+        client_key = f"staging/{job_id}/upload.tif"
+        refused = await _refuse_once(monkeypatch, raster_storage, "delete", client_key)
+
+        assert await run_publish_followups(job_id) is True
+        assert refused and await left() == [client_key]
+        owed = (await _stored_metadata(job_id))[PUBLISH_FOLLOWUPS_FIELD]
+        assert (owed["reaps_staged_upload"], owed["attempts"]) == (True, 1)
+
+        await _make_due(job_id)
+        await run_owed_publish_followups()
+
+        assert await left() == []
+        assert not await _owes(job_id)
+        assert followups == _RASTER
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+@pytest.mark.parametrize("where", ["local", "storage"])
+async def test_an_upload_already_gone_confirms_its_delete_at_once(
+    test_db_session, raster_storage, followups, where
+) -> None:
+    job_id, _, record_id = await _owed_job(test_db_session, reaps_staged_upload=True)
+    try:
+        left = await _stage_upload(raster_storage, job_id, where)
+        for gone in await left():
+            if where == "local":
+                gone.unlink()
+            else:
+                await raster_storage.delete(gone)
+
+        assert await run_publish_followups(job_id) is True
+        assert not await _owes(job_id)
+        assert followups == _RASTER
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+@pytest.mark.parametrize(
+    "item", ["archive_key", "reaps_staged_upload"], ids=["archive", "delete"]
+)
+async def test_confirming_one_item_leaves_every_other_owed(
+    test_db_session, item
+) -> None:
+    """An item comes off the record alone, and only for the attempt that wrote it."""
+    from app.processing.ingest.publish_followups import _confirm_owed_item
+
+    job_id, dataset_id, record_id = await _owed_job(
+        test_db_session, task="reupload_file", reaps_staged_upload=True
+    )
+    try:
+        await _owe_archive(job_id, dataset_id, "upload.tif")
+        before = (await _stored_metadata(job_id))[PUBLISH_FOLLOWUPS_FIELD]
+        before = {**before, "attempts": 2, "claimed": True}
+        await _point_job_at(job_id, file_path=None, **{PUBLISH_FOLLOWUPS_FIELD: before})
+
+        await _confirm_owed_item(job_id, str(uuid.uuid4()), item)
+        assert (await _stored_metadata(job_id))[PUBLISH_FOLLOWUPS_FIELD] == before
+
+        await _confirm_owed_item(job_id, before["attempt_id"], item)
+
+        after = (await _stored_metadata(job_id))[PUBLISH_FOLLOWUPS_FIELD]
+        assert after == {key: value for key, value in before.items() if key != item}
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
 @pytest.mark.parametrize("race", ["read-lost", "write-timed-out", "check-flaked"])
 async def test_an_archive_found_after_a_failure_counts_as_made(
     test_db_session, raster_storage, followups, monkeypatch, race
@@ -747,6 +1419,146 @@ async def test_an_archive_found_after_a_failure_counts_as_made(
         await _drop(test_db_session, job_id, record_id)
 
 
+@pytest.mark.parametrize("fails_in", ["put", "read"])
+async def test_a_failure_racing_a_confirmed_archive_restores_nothing(
+    test_db_session, raster_storage, followups, monkeypatch, fails_in
+) -> None:
+    """A run whose archive fails after another run confirmed it leaves the job settled.
+
+    The losing run's store then can't tell it the archive exists, so only the
+    guards on its failure write keep the settled record, mark and flag away.
+    """
+    job_id, dataset_id, record_id = await _owed_job(
+        test_db_session, task="reupload_file", reaps_staged_upload=True
+    )
+    try:
+        await _point_job_at(
+            job_id, file_path=None, **{ARCHIVE_PENDING_METADATA_KEY: True}
+        )
+        left = await _stage_upload(raster_storage, job_id, "storage")
+        key = await _owe_archive(job_id, dataset_id, "upload.tif")
+        method, raced = {
+            "put": ("put", key),
+            "read": ("get_to_file", f"staging/{job_id}/frozen/upload.tif"),
+        }[fails_in]
+        real, real_exists = getattr(raster_storage, method), raster_storage.exists
+        race: dict = {"running": False, "won": None}
+
+        async def _loses_the_race(first, *args):
+            if race["running"] or race["won"] is not None or first != raced:
+                return await real(first, *args)
+            race["running"] = True
+            race["won"] = await run_publish_followups(job_id)
+            raise RuntimeError("the object store refused the call")
+
+        async def _unsure_once_lost(checked):
+            if race["won"] is not None and checked == key:
+                raise RuntimeError("the object store timed out")
+            return await real_exists(checked)
+
+        monkeypatch.setattr(raster_storage, method, _loses_the_race)
+        monkeypatch.setattr(raster_storage, "exists", _unsure_once_lost)
+
+        await run_publish_followups(job_id)
+
+        assert race["won"] is True
+        assert await raster_storage.get(key) == b"staged"
+        assert await left() == []
+        metadata = await _stored_metadata(job_id)
+        assert (
+            not {
+                PUBLISH_FOLLOWUPS_FIELD,
+                ARCHIVE_PENDING_METADATA_KEY,
+                "archive_failed",
+                "archive_error",
+            }
+            & metadata.keys()
+        )
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def test_an_archive_confirmation_that_fails_keeps_the_item_the_upload_and_the_flags(
+    test_db_session, raster_storage, followups
+) -> None:
+    """The archive item and the job's archive flags come off in one write, or not at all."""
+    from sqlalchemy import event
+    from sqlalchemy.engine import Engine
+
+    job_id, dataset_id, record_id = await _owed_job(
+        test_db_session, task="reupload_file", reaps_staged_upload=True
+    )
+    try:
+        flags = {
+            ARCHIVE_PENDING_METADATA_KEY: True,
+            "archive_failed": True,
+            "archive_error": "the store refused",
+        }
+        await _point_job_at(job_id, file_path=None, **flags)
+        left = await _stage_upload(raster_storage, job_id, "storage")
+        key = await _owe_archive(job_id, dataset_id, "upload.tif")
+        await raster_storage.put(key, b"staged")
+        refused: list[str] = []
+
+        def _refuse_the_flag_clear_once(
+            conn, cursor, statement, parameters, context, executemany
+        ):
+            if (
+                not refused
+                and "UPDATE catalog.ingest_jobs" in statement
+                and ARCHIVE_PENDING_METADATA_KEY in (parameters or ())
+            ):
+                refused.append(statement)
+                raise RuntimeError("the database dropped the connection")
+
+        event.listen(Engine, "before_cursor_execute", _refuse_the_flag_clear_once)
+        try:
+            await run_publish_followups(job_id)
+        finally:
+            event.remove(Engine, "before_cursor_execute", _refuse_the_flag_clear_once)
+
+        assert refused
+        metadata = await _stored_metadata(job_id)
+        assert metadata[PUBLISH_FOLLOWUPS_FIELD]["archive_key"] == key
+        assert {flag: metadata.get(flag) for flag in flags} == flags
+        assert await left() == [f"staging/{job_id}/frozen/upload.tif"]
+
+        await _make_due(job_id)
+        await run_owed_publish_followups()
+
+        metadata = await _stored_metadata(job_id)
+        assert not {PUBLISH_FOLLOWUPS_FIELD, *flags} & metadata.keys()
+        assert await left() == []
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def test_an_archive_failure_lands_only_for_the_attempt_that_owns_the_job(
+    test_db_session,
+) -> None:
+    from app.processing.ingest.publish_followups import _note_archive_failure
+
+    job_id, _, record_id = await _owed_job(test_db_session, task="reupload_file")
+    try:
+        await _point_job_at(
+            job_id, file_path=None, **{ARCHIVE_PENDING_METADATA_KEY: True}
+        )
+        async with db_module.async_session() as session:
+            attempt_id = str(
+                await session.scalar(
+                    select(IngestJob.attempt_id).where(IngestJob.id == job_id)
+                )
+            )
+
+        await _note_archive_failure(job_id, str(uuid.uuid4()), "the store refused")
+        assert "archive_failed" not in await _stored_metadata(job_id)
+
+        await _note_archive_failure(job_id, attempt_id, "the store refused")
+        assert (await _stored_metadata(job_id))["archive_failed"] is True
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
 async def test_an_upload_outside_the_staging_dir_is_never_archived(
     test_db_session, raster_storage, tmp_path, followups
 ) -> None:
@@ -757,12 +1569,17 @@ async def test_an_upload_outside_the_staging_dir_is_never_archived(
         test_db_session, task="reupload_file", reaps_staged_upload=True
     )
     try:
-        await _point_job_at(job_id, file_path=str(outside))
+        await _point_job_at(
+            job_id, file_path=str(outside), **{ARCHIVE_PENDING_METADATA_KEY: True}
+        )
         key = await _owe_archive(job_id, dataset_id, "keep.tif")
 
         assert await run_publish_followups(job_id) is True
         assert not await raster_storage.exists(key)
         assert outside.read_bytes() == b"not an upload"
+        metadata = await _stored_metadata(job_id)
+        assert metadata["archive_failed"] is True
+        assert metadata[PUBLISH_FOLLOWUPS_FIELD]["archive_key"] == key
     finally:
         await _drop(test_db_session, job_id, record_id)
 

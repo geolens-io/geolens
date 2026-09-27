@@ -1308,9 +1308,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # chunk table, the checks before the decode child and the published extent.
     "backend/app/processing/ingest/pointcloud.py": 1085,
     # Shared ingest finalization carries verification, bounded ArcGIS requests and lifecycle context.
-    "backend/app/processing/ingest/tasks_common.py": 1718,
+    "backend/app/processing/ingest/tasks_common.py": 1731,
     # The file and service strategies: retrieval, staging, verification and cleanup.
-    "backend/app/processing/ingest/tasks_reupload.py": 1243,
+    "backend/app/processing/ingest/tasks_reupload.py": 1217,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection.
     "backend/app/modules/catalog/datasets/api/router_refresh.py": 1397,
@@ -1318,7 +1318,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/platform/config_ops/service.py": 1175,
     # One settlement pass, its precheck and its reapers serve startup recovery, the
     # lifespan sweep, admin cleanup, the job status poll and manifest expiry.
-    "backend/app/platform/jobs/sweep.py": 1756,
+    "backend/app/platform/jobs/sweep.py": 1766,
     # Refresh admission, claim fencing, terminal transitions and the job-scoped
     # abandoned-run sweep stay domain-neutral.
     "backend/app/platform/refresh/service.py": 1160,
@@ -1339,7 +1339,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_raster_replace.py": 627,
     # File/service tasks share publication fencing, heartbeat phases and failure
     # cleanup.
-    "backend/app/processing/ingest/tasks_vector.py": 1167,
+    "backend/app/processing/ingest/tasks_vector.py": 1168,
     # GDAL environments, timeouts, reaping and error sanitization share one process
     # boundary.
     "backend/app/processing/ingest/ogr.py": 1369,
