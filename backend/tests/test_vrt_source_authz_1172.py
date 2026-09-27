@@ -454,3 +454,59 @@ async def test_vrt_member_counts_cover_only_members_the_caller_can_read(
         assert [g["source_count"] for g in generations.json()["generations"]] == [
             generation_count
         ]
+
+
+async def test_vrt_member_count_covers_more_members_than_bind_parameters(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """Counting stays one query when a VRT's members outnumber the 32767
+    parameters a Postgres statement can carry."""
+    member_count = 33_000
+    admin_id = await _get_admin_id(test_db_session)
+    vrt_id = await _create_vrt_dataset(test_db_session, created_by=admin_id)
+    await test_db_session.execute(
+        text(
+            """
+            WITH recs AS (
+                INSERT INTO catalog.records (title, visibility, record_status, created_by)
+                SELECT 'VRT count member ' || g, 'public', 'published', :owner
+                FROM generate_series(1, :n) AS g
+                RETURNING id
+            ), members AS (
+                INSERT INTO catalog.datasets (record_id, table_name)
+                SELECT id, 'vrt_count_' || replace(id::text, '-', '') FROM recs
+                RETURNING id
+            )
+            INSERT INTO catalog.vrt_source_links
+                (vrt_dataset_id, source_dataset_id, position)
+            SELECT :vrt, id, row_number() OVER () FROM members
+            """
+        ),
+        {"owner": admin_id, "n": member_count, "vrt": vrt_id},
+    )
+    await test_db_session.commit()
+    try:
+        detail = await client.get(f"/datasets/{vrt_id}", headers=admin_auth_header)
+        assert detail.status_code == 200, detail.text
+        assert detail.json()["raster"]["source_count"] == member_count
+    finally:
+        # Thousands of stray catalog rows would slow every later listing test.
+        await test_db_session.rollback()
+        await test_db_session.execute(
+            text(
+                """
+                WITH links AS (
+                    DELETE FROM catalog.vrt_source_links WHERE vrt_dataset_id = :vrt
+                    RETURNING source_dataset_id
+                ), members AS (
+                    DELETE FROM catalog.datasets WHERE id IN (
+                        SELECT source_dataset_id FROM links
+                    )
+                    RETURNING record_id
+                )
+                DELETE FROM catalog.records WHERE id IN (SELECT record_id FROM members)
+                """
+            ),
+            {"vrt": vrt_id},
+        )
+        await test_db_session.commit()
