@@ -9,12 +9,13 @@ that died between writing the file and binding it to its job.
 That directory is not the upload system's alone. Operators stage manifest
 seed files there, the local storage backend keeps its objects in
 subdirectories, and other sweeps own their scratch. So a file is a candidate
-only when its name has an upload writer's shape and something ties it to a
-job: an ``ingest_jobs`` row's ``file_path`` names it, or it is a
-``{job id}_`` file whose job's row is gone or never recorded a path. Every
-writer of a ``{job id}_`` name commits that job's row before the first byte.
-A candidate goes once neither its job's row nor any row naming it can still
-use it.
+only when its name has an upload writer's shape and a row ties it to a job:
+an ``ingest_jobs`` row's ``file_path`` names it, or it is a ``{job id}_``
+file whose job's row exists but never recorded a path. Every writer of a
+``{job id}_`` name commits that job's row before the first byte. A file whose
+job has no row is kept: an operator's seed can carry the same shape, and
+nothing records which seed a manifest is copying. A candidate goes once
+neither its job's row nor any row naming it can still use it.
 """
 
 from __future__ import annotations
@@ -228,10 +229,9 @@ async def _verdicts(
             for path in _spellings(roots, name)
             if path in needed_by_path
         ]
-        owner_id = _owner_id(name)
-        owner = owners.get(owner_id)
-        # A `{job id}_` file whose job's row is gone or never bound a path.
-        unbound = owner_id is not None and (owner is None or not owner.file_path)
+        owner = owners.get(_owner_id(name))
+        # A `{job id}_` file whose job's row never bound a path.
+        unbound = owner is not None and not owner.file_path
         if not (naming or unbound):
             verdicts[name] = _Verdict.UNIDENTIFIED
         elif any(naming) or (owner is not None and owner.needed):

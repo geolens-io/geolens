@@ -183,16 +183,6 @@ class TestDeletes:
 
         assert not path.exists()
 
-    async def test_an_upload_whose_job_was_purged(
-        self, test_db_session: AsyncSession, root: Path, now: datetime
-    ) -> None:
-        path = _staged(root, f"{uuid.uuid4()}_roads.geojson", now)
-
-        outcome = await _run(test_db_session, now)
-
-        assert not path.exists()
-        assert outcome.uploads_deleted == 1
-
 
 class TestWhatKeepsAnUpload:
     @pytest.mark.parametrize("status", ["pending", "running", "failed"])
@@ -341,6 +331,17 @@ class TestAnUploadBeforeItsBind:
 
 
 class TestWhatIsNeverAnUpload:
+    async def test_an_upload_shaped_file_whose_job_has_no_row(
+        self, test_db_session: AsyncSession, root: Path, now: datetime
+    ) -> None:
+        """A purged job's leftover looks like an operator's seed with the same shape."""
+        path = _staged(root, f"{uuid.uuid4()}_roads.geojson", now)
+
+        outcome = await _run(test_db_session, now)
+
+        assert path.exists()
+        assert outcome.skipped_unidentified == 1
+
     async def test_an_operator_seed_even_when_a_row_names_it(
         self, test_db_session: AsyncSession, root: Path, now: datetime
     ) -> None:
