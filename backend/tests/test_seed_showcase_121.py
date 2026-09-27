@@ -323,3 +323,15 @@ def test_restyle_swaps_in_one_request_and_trusts_the_map_after_a_lost_reply(land
     assert api.swaps == [
         ("old", {"dataset_id": "ds", "display_name": "Subway", "show_in_legend": False})
     ]
+
+
+def test_restore_names_a_field_the_target_did_not_take():
+    item = {"fields": {"description": None}, "layers": {}}
+    saved = {"maps": {"m": item}, "datasets": {}, "collections": {}}
+    after = {
+        "maps": {"m": {"fields": {"description": "seeded"}, "layers": {}}},
+        "datasets": {},
+        "collections": {},
+    }
+    assert state.unrestored(saved, after) == ["map m"]
+    assert state.unrestored(saved, saved) == []

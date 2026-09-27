@@ -366,6 +366,41 @@ def rebind_replaced_layers(saved, current):
                 extra.discard(matches[0])
 
 
+def unrestored(saved, after):
+    """Name saved maps, datasets and collections a fresh read does not match."""
+
+    def layers(item):
+        return sorted(
+            (layer["dataset_id"], json.dumps(layer["fields"], sort_keys=True))
+            for layer in item["layers"].values()
+        )
+
+    def keywords(item):
+        return {
+            (k["keyword"], k["keyword_type"], k["vocabulary_uri"])
+            for k in item["keywords"]
+        }
+
+    left = []
+    for name, item in saved["maps"].items():
+        now = after["maps"].get(name)
+        if not now or now["fields"] != item["fields"] or layers(now) != layers(item):
+            left.append(f"map {name}")
+    for title, item in saved["datasets"].items():
+        now = after["datasets"].get(title)
+        if not now or now["fields"] != item["fields"] or keywords(now) != keywords(item):
+            left.append(f"dataset {title}")
+    for name, item in saved["collections"].items():
+        now = after["collections"].get(name)
+        if (
+            not now
+            or now["description"] != item["description"]
+            or set(now["dataset_ids"]) != set(item["dataset_ids"])
+        ):
+            left.append(f"collection {name}")
+    return left
+
+
 def restore(api, saved):
     current = snapshot(api)
     rebind_replaced_layers(saved, current)
@@ -374,6 +409,9 @@ def restore(api, saved):
     restore_datasets(api, saved, current)
     restore_collections(api, saved, current)
     hide_new_content(api, saved, current)
+    left = unrestored(saved, snapshot(api))
+    if left:
+        raise RuntimeError("restore did not take for: " + "; ".join(left))
 
 
 def main():

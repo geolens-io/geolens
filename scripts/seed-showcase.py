@@ -6731,6 +6731,11 @@ def main() -> int:
         state_spec.loader.exec_module(state_module)
         with open(args.expected_state, encoding="utf-8") as stream:
             expected = json.load(stream)
+        # The admin dataset list is cached for up to 60 s, so a retry right
+        # after an interrupted run could miss a row that run committed and
+        # import it twice.
+        print("  waiting 61 s for the cached admin dataset list to expire...")
+        time.sleep(61)
         if state_module.snapshot(api) != expected:
             raise RuntimeError("showcase state changed since the protected snapshot")
         problems = state_module.unrestorable_changes(api)

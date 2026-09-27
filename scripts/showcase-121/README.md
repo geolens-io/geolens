@@ -170,6 +170,8 @@ examples. No AI step is required.
    is not yet bound to its USGS service. The September 27 public inventory had
    neither; both quake datasets already report `origin: service`. The
    guarded seed does not provide a database transaction over all builders.
+   With `--expected-state`, the seed first waits 61 seconds so the cached
+   admin dataset list cannot hide a row an interrupted run committed.
    After an interrupted or partial run, the original bundle no longer matches
    and the seed refuses it. Keep that bundle for rollback, write a new
    snapshot to a different path, and pass the new file as `--expected-state`
@@ -205,7 +207,10 @@ examples. No AI step is required.
    source maintenance rather than showcase content. The snapshot covers every
    dataset the seed's metadata pass edits, including the Sentinel-2 scenes and
    swissALTI3D tiles matched by title prefix. All refusals are checked before
-   the first write.
+   the first write. After writing, restore reads the target again and exits
+   nonzero, naming each map, dataset, or collection that still differs from
+   the bundle. One case it would report: a description the API cannot clear
+   back to null.
    After a rollback, the seed will not reuse the private City in Shade map or
    client samples: it reports them as failed builders. Review them and publish
    them deliberately before applying again.
