@@ -116,21 +116,29 @@ def test_a_request_reaches_a_child_intact_under_the_c_locale() -> None:
 
 
 @pytest.mark.parametrize(
-    "script",
+    "writes",
     [
+        pytest.param("print(json.dumps({'result': 'x' * 64 * 2**20}))", id="stdout"),
         pytest.param(
-            "import json; print(json.dumps({'result': 'x' * 64 * 2**20}))",
-            id="stdout",
-        ),
-        pytest.param(
-            "import json, sys; sys.stderr.write('x' * 64 * 2**20); "
-            "print(json.dumps({'result': 1}))",
+            "sys.stderr.write('x' * 64 * 2**20); print(json.dumps({'result': 1}))",
             id="stderr",
         ),
     ],
 )
-def test_output_past_the_cap_is_refused_without_being_read(monkeypatch, script) -> None:
+def test_output_past_the_cap_is_refused_without_being_read(
+    monkeypatch, tmp_path, writes
+) -> None:
     monkeypatch.setattr(bounded_child, "_MAX_OUTPUT_BYTES", 2**20)
+    scratch = tmp_path / "tmp"
+    scratch.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(scratch))
+    pid_file = tmp_path / "child.pid"
+    script = (
+        "import json, os, sys\n"
+        f"open({str(pid_file)!r}, 'w').write(str(os.getpid()))\n"
+        f"{writes}\n"
+    )
+    fds = _open_fds()
 
     tracemalloc.start()
     try:
@@ -147,6 +155,10 @@ def test_output_past_the_cap_is_refused_without_being_read(monkeypatch, script) 
 
     assert failure.value.category == "oversized"
     assert peak < 8 * 2**20, f"the parent held {peak / 2**20:.0f} MiB"
+    with pytest.raises(ProcessLookupError):
+        os.kill(int(pid_file.read_text()), 0)
+    assert list(scratch.iterdir()) == []
+    assert _open_fds() == fds
 
 
 def test_output_up_to_the_cap_is_read(monkeypatch) -> None:

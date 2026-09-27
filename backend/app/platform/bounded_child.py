@@ -25,8 +25,8 @@ _BACKEND_ROOT = Path(__file__).resolve().parents[2]
 # its message can quote the file.
 _EXCEPTION_NAME = re.compile(r"[A-Za-z_][\w.]{0,99}(?:Error|Exception|Exit|Interrupt)")
 
-# Far above any reply or log a child writes: a 512 px quicklook, base64
-# encoded, is under 2 MB.
+# The largest replies are a 512 px quicklook, under 1 MB even of noise, and
+# the metadata of a GeoTIFF with the format's 65,535 bands, about 6 MB.
 _MAX_OUTPUT_BYTES = 16 * 1024 * 1024
 
 
