@@ -152,7 +152,10 @@ def _assert_sandboxed(resp) -> None:
     assert {"Authorization", "X-Api-Key"} <= {
         name.strip() for name in resp.headers["vary"].split(",")
     }
-    assert resp.headers["cache-control"].startswith("private")
+    if resp.status_code >= 400:
+        assert resp.headers["cache-control"] == "private, no-store"
+    else:
+        assert resp.headers["cache-control"].startswith("private")
 
 
 _ESCAPES = [
@@ -577,15 +580,17 @@ async def test_a_conditional_read_is_decided_before_its_validator(
     path,
     body,
 ) -> None:
-    """Callers who can't see a private tileset get 404 even when they send its current ETag."""
+    """Callers who can't see a private tileset get 404 whichever precondition they send."""
     dataset_id = await make_tileset(owner_id=owner[1], visibility="private")
     await _publish(storage, dataset_id, "a1", path, body)
 
     for headers in ({}, viewer_auth_header):
-        resp = await client.get(
-            _url(dataset_id, path), headers={**headers, "If-None-Match": '"a1"'}
-        )
-        assert resp.status_code == 404
+        for condition in ({"If-None-Match": '"a1"'}, {"If-Match": '"a0"'}):
+            resp = await client.get(
+                _url(dataset_id, path), headers={**headers, **condition}
+            )
+            assert resp.status_code == 404
+            assert "etag" not in resp.headers
     assert storage.read == storage.probed == []
 
 
@@ -616,6 +621,21 @@ async def test_a_replacement_publish_changes_the_etag(
     assert revalidated.content == replacement
     assert revalidated.headers["etag"] == '"a2"'
     assert revalidated.headers["etag"] != stored.headers["etag"]
+
+
+async def test_a_revalidation_with_the_weak_etag_is_304(
+    client: AsyncClient, make_tileset, storage
+) -> None:
+    """The weak form of the ETag, which nginx hands out after gzipping a file, still revalidates."""
+    dataset_id = await make_tileset()
+    await _publish(storage, dataset_id, "a1", "tileset.json", _ROOT)
+
+    resp = await client.get(
+        _url(dataset_id, "tileset.json"), headers={"If-None-Match": 'W/"a1"'}
+    )
+
+    assert resp.status_code == 304
+    assert storage.read == []
 
 
 async def test_an_if_match_naming_another_version_is_412(
