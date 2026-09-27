@@ -932,10 +932,10 @@ async def test_records_that_keep_failing_do_not_crowd_out_a_fresh_one(
         await test_db_session.commit()
 
 
-async def test_spent_attempts_stop_retrying_and_keep_the_upload_held(
+async def test_an_owed_archive_is_retried_at_the_cap_until_storage_recovers(
     test_db_session, raster_storage, followups, monkeypatch
 ) -> None:
-    """The last attempt gives the record up and leaves the job flagged and marked."""
+    """However long storage refuses, the archive stays owed and the upload held."""
     job_id, dataset_id, record_id = await _owed_job(
         test_db_session, task="reupload_file", reaps_staged_upload=True
     )
@@ -945,34 +945,73 @@ async def test_spent_attempts_stop_retrying_and_keep_the_upload_held(
         )
         left = await _stage_upload(raster_storage, job_id, "storage")
         key = await _owe_archive(job_id, dataset_id, "upload.tif")
-        async with db_module.async_session() as session:
-            job = await session.get(IngestJob, job_id)
-            owed = {**job.user_metadata[PUBLISH_FOLLOWUPS_FIELD], "attempts": 7}
-            job.user_metadata = {**job.user_metadata, PUBLISH_FOLLOWUPS_FIELD: owed}
-            await session.commit()
         real_put = raster_storage.put
+        outage = [True]
 
         async def _refused(written, data):
-            if written == key:
+            if written == key and outage:
                 raise RuntimeError("the object store refused the write")
             await real_put(written, data)
 
-        monkeypatch.setattr(raster_storage, "put", _refused)
-
-        assert await run_publish_followups(job_id) is True
-
-        metadata = await _stored_metadata(job_id)
-        assert PUBLISH_FOLLOWUPS_FIELD not in metadata
-        assert metadata[ARCHIVE_PENDING_METADATA_KEY] is True
-        assert metadata["archive_failed"] is True
-        assert await left() == [f"staging/{job_id}/frozen/upload.tif"]
-        async with db_module.async_session() as session:
-            held = await session.scalar(
-                select(IngestJob.id).where(
-                    IngestJob.id == job_id, holds_unarchived_original()
+        async def _still_owed(attempts: int) -> None:
+            metadata = await _stored_metadata(job_id)
+            owed = metadata[PUBLISH_FOLLOWUPS_FIELD]
+            assert (owed["archive_key"], owed["attempts"]) == (key, attempts)
+            assert metadata[ARCHIVE_PENDING_METADATA_KEY] is True
+            assert metadata["archive_failed"] is True
+            assert await left() == [f"staging/{job_id}/frozen/upload.tif"]
+            async with db_module.async_session() as session:
+                wait = await session.scalar(
+                    text(
+                        "SELECT (user_metadata #>> "
+                        "'{publish_followups,next_attempt_at}')::timestamptz - now() "
+                        "FROM catalog.ingest_jobs WHERE id = :id"
+                    ),
+                    {"id": job_id},
                 )
+                held = await session.scalar(
+                    select(IngestJob.id).where(
+                        IngestJob.id == job_id, holds_unarchived_original()
+                    )
+                )
+            assert timedelta(hours=3, minutes=55) < wait <= timedelta(hours=4)
+            assert held == job_id
+
+        monkeypatch.setattr(raster_storage, "put", _refused)
+        for _ in range(9):
+            await _make_due(job_id)
+            await run_owed_publish_followups()
+        await _still_owed(9)
+
+        async with db_module.async_session() as session:
+            await session.execute(
+                text(
+                    "UPDATE catalog.ingest_jobs SET user_metadata = jsonb_set("
+                    "user_metadata, '{publish_followups,attempts}', '1000') "
+                    "WHERE id = :id"
+                ),
+                {"id": job_id},
             )
-        assert held == job_id
+            await session.commit()
+        await _make_due(job_id)
+        await run_owed_publish_followups()
+        await _still_owed(1001)
+
+        outage.clear()
+        await _make_due(job_id)
+        await run_owed_publish_followups()
+
+        assert await raster_storage.get(key) == b"staged"
+        assert await left() == []
+        metadata = await _stored_metadata(job_id)
+        assert (
+            not {
+                ARCHIVE_PENDING_METADATA_KEY,
+                "archive_failed",
+                PUBLISH_FOLLOWUPS_FIELD,
+            }
+            & metadata.keys()
+        )
     finally:
         await _drop(test_db_session, job_id, record_id)
 

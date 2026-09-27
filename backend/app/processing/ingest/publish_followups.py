@@ -5,8 +5,9 @@ failure notice. A publish that consumed a staged upload also owes items: the
 upload's archive and then its deletion. The terminal transaction records them
 on the job row, so the record exists exactly when the commit does. The task
 runs them after its commit, or the stale-job sweep when the task could not.
-Each item is confirmed on its own and retried after a doubling delay; the
-record is claimed, and the rest runs once, only when no item is left.
+Each item is confirmed on its own and retried, after a doubling delay capped
+at a few hours, until it is; the record is claimed, and the rest runs once,
+only when no item is left.
 """
 
 from __future__ import annotations
@@ -73,14 +74,12 @@ _ARCHIVE_KEY = "archive_key"
 _REAPS_STAGED_UPLOAD = "reaps_staged_upload"
 _ITEMS = (_ARCHIVE_KEY, _REAPS_STAGED_UPLOAD)
 
-# Retry state kept in the record. The doubling delay rides out a storage
-# outage of a few hours; after the last attempt the record is claimed and the
-# job keeps its archive flag, which holds the upload for the operator.
+# Retry state kept in the record. An owed item has no last attempt: the
+# upload is its only source, so the sweep keeps trying it at the capped delay.
 _ATTEMPTS = "attempts"
 _NEXT_ATTEMPT_AT = "next_attempt_at"
 _RETRY_BASE = timedelta(minutes=5)
 _RETRY_CAP = timedelta(hours=4)
-_MAX_ATTEMPTS = 8
 
 
 def owed_followups(
@@ -97,6 +96,7 @@ def owed_followups(
     follow-ups remove once that archive exists. ``sweep_waits`` holds the
     sweep off for one retry delay, for a task that archives the upload itself.
     """
+    assert archive_key is None or task in _ITEMS_ONLY, task
     fields = ["task", task, "attempt_id", str(attempt_uuid)]
     marks = []
     if reaps_staged_upload:
@@ -309,7 +309,7 @@ async def _schedule_retry(job_uuid: uuid.UUID, attempts: int) -> None:
     """Count ``attempts`` on the job's record and set when the next one is due."""
     import app.core.db as db_module
 
-    delay = min(_RETRY_BASE * 2 ** (attempts - 1), _RETRY_CAP)
+    delay = _RETRY_BASE * min(2 ** (attempts - 1), _RETRY_CAP // _RETRY_BASE)
     stored = IngestJob.user_metadata
     counted = func.jsonb_set(
         stored,
@@ -342,7 +342,7 @@ async def _settle_owed_items(
     archive reads only ``file_path``. With a live dataset the upload's
     original is archived first, and the upload is deleted only once that
     archive is confirmed. An item left over is tried again after a doubling
-    delay, until the attempts run out.
+    delay capped at ``_RETRY_CAP``, however many attempts it takes.
     """
     job_id = str(job_uuid)
     record = row.user_metadata[PUBLISH_FOLLOWUPS_FIELD]
@@ -369,13 +369,7 @@ async def _settle_owed_items(
             left.discard(_REAPS_STAGED_UPLOAD)
     if not left:
         return True
-    attempts = int(record.get(_ATTEMPTS) or 0) + 1
-    if attempts >= _MAX_ATTEMPTS:
-        structlog.get_logger().warning(
-            "publish_followups_attempts_spent", job_id=job_id, left=sorted(left)
-        )
-        return True
-    await _schedule_retry(job_uuid, attempts)
+    await _schedule_retry(job_uuid, int(record.get(_ATTEMPTS) or 0) + 1)
     return False
 
 
