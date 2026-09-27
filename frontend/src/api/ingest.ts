@@ -24,6 +24,7 @@ import type {
   UploadConfig,
   PresignedUploadResponse,
   UploadKind,
+  UrlUploadKind,
   VrtCreateRequest,
   VrtCreateResponse,
   ArcgisSigninRequest,
@@ -200,7 +201,7 @@ const URL_SUBMIT_TIMEOUT_MS = 90_000;
 export async function uploadFromUrl(
   url: string,
   filename?: string,
-  kind?: UploadKind | null,
+  kind?: UrlUploadKind | null,
 ): Promise<UploadResponse> {
   try {
     return await apiFetch<UploadResponse>('/ingest/upload/url', {

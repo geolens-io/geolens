@@ -15,13 +15,9 @@ import { useJobStatus, useUploadConfig } from '@/components/import/hooks/use-ing
 import { describeFailureReason } from '@/lib/failure-reason';
 import type {
   CommitImportRequest,
-  FilePreviewResponse,
-  RasterPreviewResponse,
-  TilesetPreviewResponse,
-  PointCloudPreviewResponse,
-  UploadKind,
+  UrlUploadKind,
 } from '@/types/api';
-import { allowedTilesetExtensions, isFilePreview, isPointCloudPreview, isRasterPreview, isTilesetPreview } from './utils';
+import { allowedTilesetExtensions, isFilePreview, isRasterPreview, isTilesetPreview } from './utils';
 import { ImportPreview } from './ImportPreview';
 import { ImportMetadataForm } from './ImportMetadataForm';
 import { UploadKindChoice } from './UploadKindChoice';
@@ -91,22 +87,18 @@ export function UrlImportForm() {
   const [url, setUrl] = useState('');
   const [filename, setFilename] = useState('');
   const [jobId, setJobId] = useState<string | null>(null);
-  const [previewData, setPreviewData] = useState<
-    FilePreviewResponse | RasterPreviewResponse | TilesetPreviewResponse | PointCloudPreviewResponse | null
-  >(null);
+  const [previewData, setPreviewData] = useState<Awaited<ReturnType<typeof previewFile>> | null>(null);
   const [error, setError] = useState<string | null>(null);
   // fix(#1708 codex r22): survives a resume, where previewData does not.
   const [isRaster, setIsRaster] = useState(false);
   // fix(review #1800 P2): disables "Cancel and start over" for the duration
   // of the cancel call, so a double-click cannot fire two cancels.
   const [isCancelling, setIsCancelling] = useState(false);
-  const [chosenKind, setChosenKind] = useState<UploadKind | null>(null);
+  const [chosenKind, setChosenKind] = useState<UrlUploadKind | null>(null);
   const { data: uploadConfig } = useUploadConfig();
   const tilesetAvailable =
     allowedTilesetExtensions(uploadConfig?.allowed_extensions?.split(',').map((e) => e.trim())).length > 0;
-  const pointcloudAvailable = uploadConfig?.allowed_extensions?.split(',').some((ext) => ext.trim().toLowerCase() === '.laz') ?? true;
-  const kind = (chosenKind === 'tiles3d' && !tilesetAvailable) ||
-    (chosenKind === 'pointcloud' && !pointcloudAvailable) ? null : chosenKind;
+  const kind = tilesetAvailable ? chosenKind : null;
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
@@ -542,7 +534,6 @@ export function UrlImportForm() {
           isCommitting={commitInFlight}
           isRaster={raster}
           isTileset={isTilesetPreview(previewData)}
-          isPointCloud={isPointCloudPreview(previewData)}
           previewData={raster ? previewData : undefined}
           previewColumns={fp?.columns}
           detectedGeometryType={fp?.geometry_type}
@@ -615,10 +606,9 @@ export function UrlImportForm() {
       <form onSubmit={handleFetch} className="space-y-5">
         <UploadKindChoice
           value={kind}
-          onChange={setChosenKind}
+          onChange={(next) => setChosenKind(next === 'tiles3d' ? next : null)}
           disabled={!!jobId}
           tilesetAvailable={tilesetAvailable}
-          pointcloudAvailable={pointcloudAvailable}
         />
         <div>
           <label className="eyebrow mb-2.5 block" htmlFor="file-url-input">

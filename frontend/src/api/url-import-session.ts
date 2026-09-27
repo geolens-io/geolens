@@ -1,6 +1,6 @@
 import { uploadFromUrl } from './ingest';
 import { useAuthStore } from '@/stores/auth-store';
-import type { CommitImportResponse, UploadKind, UploadResponse } from '@/types/api';
+import type { CommitImportResponse, UrlUploadKind, UploadResponse } from '@/types/api';
 
 /**
  * fix(#1708 codex r19): the in-flight URL import, owned OUTSIDE React.
@@ -51,7 +51,7 @@ export interface UrlImportSession {
   /** Identifies the import so a remount can tell "mine" from a stale one. */
   key: string;
   /** What the URL was submitted as, so a remount shows the same choice. */
-  kind: UploadKind | null;
+  kind: UrlUploadKind | null;
   status: 'pending' | 'fulfilled' | 'rejected';
   /** Set once the server answers; the whole point of this module. */
   jobId: string | null;
@@ -104,7 +104,7 @@ let current: UrlImportSession | null = null;
 // over it returned nothing at all for patterns that are present, which is
 // how an enumeration convention gets a false clean. Same delimiter and the
 // same keys: NUL still cannot occur in a URL or a filename.
-function sessionKey(url: string, filename?: string, kind?: UploadKind | null): string {
+function sessionKey(url: string, filename?: string, kind?: UrlUploadKind | null): string {
   return `${url}\u0000${filename ?? ''}\u0000${kind ?? ''}`;
 }
 
@@ -119,7 +119,7 @@ function sessionKey(url: string, filename?: string, kind?: UploadKind | null): s
 export function startUrlImport(
   url: string,
   filename?: string,
-  kind?: UploadKind | null,
+  kind?: UrlUploadKind | null,
 ): UrlImportSession {
   const key = sessionKey(url, filename, kind);
   if (current && current.key === key && current.status !== 'rejected') {

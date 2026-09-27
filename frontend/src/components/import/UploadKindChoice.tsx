@@ -18,7 +18,8 @@ export function UploadKindChoice({
   /** Says why the choice is locked; shown only while it is. */
   lockedHint?: string;
   tilesetAvailable: boolean;
-  pointcloudAvailable: boolean;
+  /** Undefined hides the choice for import doors without point cloud support. */
+  pointcloudAvailable?: boolean;
 }) {
   const { t } = useTranslation('import');
   const id = useId();
@@ -32,13 +33,13 @@ export function UploadKindChoice({
       hint: tilesetAvailable ? t('upload.kindTilesetHint') : t('upload.kindTilesetUnavailable'),
       available: tilesetAvailable,
     },
-    {
+    ...(pointcloudAvailable === undefined ? [] : [{
       kind: 'pointcloud' as const,
       key: 'pointcloud',
       label: t('upload.kindPointCloud'),
       hint: pointcloudAvailable ? t('upload.kindPointCloudHint') : t('upload.kindPointCloudUnavailable'),
       available: pointcloudAvailable,
-    },
+    }]),
   ];
 
   return (
@@ -49,7 +50,7 @@ export function UploadKindChoice({
           {lockedHint}
         </p>
       )}
-      <div className="grid gap-2 sm:grid-cols-3">
+      <div className={cn('grid gap-2', pointcloudAvailable === undefined ? 'sm:grid-cols-2' : 'sm:grid-cols-3')}>
         {options.map((option) => (
           <div
             key={option.key}

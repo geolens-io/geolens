@@ -172,6 +172,7 @@ export type PointCloudPreviewResponse = components['schemas']['PointCloudPreview
 
 /** Upload kinds for 3D Tiles archives and COPC point clouds. */
 export type UploadKind = NonNullable<components['schemas']['PresignedUploadRequest']['kind']>;
+export type UrlUploadKind = NonNullable<components['schemas']['UrlUploadRequest']['kind']>;
 
 export interface RasterPreviewResponse {
   job_id: string;
