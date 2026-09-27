@@ -1,11 +1,14 @@
-"""A child's reply, however malformed, comes back as a failure category."""
+"""The runner's deadline, the request it hands a child, and the replies it reads."""
 
 from __future__ import annotations
 
+import json
 import os
+import subprocess
 import sys
 import tempfile
 import time
+from pathlib import Path
 
 import pytest
 
@@ -85,3 +88,26 @@ def test_a_large_request_reaches_the_child_whole(monkeypatch, tmp_path) -> None:
     assert result == "PROJCRS[78°W]"
     assert list(scratch.iterdir()) == []
     assert _open_fds() == fds
+
+
+def test_a_request_reaches_a_child_intact_under_the_c_locale() -> None:
+    """Python reads stdin as UTF-8 under the C locale, so the request is written as UTF-8."""
+    echo = "import json, sys; print(json.dumps({'result': sys.stdin.read()}))"
+    script = (
+        "import json, os, sys\n"
+        "from app.platform.bounded_child import run_child\n"
+        f"print(json.dumps(run_child([sys.executable, '-c', {echo!r}], "
+        "env=dict(os.environ), timeout=30, stdin='78\\u00b0W', reported=())))\n"
+    )
+
+    done = subprocess.run(
+        [sys.executable, "-c", script],
+        env={**os.environ, "LC_ALL": "C"},
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert done.returncode == 0, done.stderr
+    assert json.loads(done.stdout) == "78°W"

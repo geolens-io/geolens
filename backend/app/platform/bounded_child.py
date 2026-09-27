@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import locale
 import re
 import signal
 import subprocess
@@ -107,12 +108,15 @@ def _stdin_file(text: str | None) -> Iterator[IO[str] | int]:
     """``text`` in an unlinked temporary file for the child's stdin, or nothing.
 
     A file rather than a pipe: on macOS, writing a pipe the child never reads
-    blocks the parent past the deadline.
+    blocks the parent past the deadline. The text is encoded as ``subprocess``
+    encodes text, which is how a child in the same locale reads its stdin.
     """
     if text is None:
         yield subprocess.DEVNULL
         return
-    with tempfile.TemporaryFile("w+", encoding="locale") as request:
+    with tempfile.TemporaryFile(
+        "w+", encoding=locale.getpreferredencoding(False)
+    ) as request:
         request.write(text)
         request.seek(0)
         yield request
