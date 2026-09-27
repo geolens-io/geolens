@@ -345,6 +345,13 @@ and releases use semantic versioning.
   may download them. (#2415)
 - The chat add-layer tool names a dataset only when the caller can read
   it. (#2421)
+- Remote service imports and previews now send GDAL's HTTP requests
+  through a proxy that checks every connection against the same address
+  policy as the rest of the server, redirect hops included. A failed
+  service import reports the exit code and a short cause instead of the
+  service's own response text. The worker no longer applies environment
+  proxy variables or a GDAL config file (`gdalrc`) to these imports.
+  (#2427)
 
 ### Known limitations
 
