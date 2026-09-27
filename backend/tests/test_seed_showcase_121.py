@@ -199,3 +199,62 @@ def test_restore_does_not_guess_between_two_replacement_candidates():
     }
     state.rebind_replaced_layers(saved, current)
     assert list(saved["maps"]["m"]["layers"]) == ["old"]
+
+
+class TargetApi:
+    def __init__(self, maps=(), titles=None, origin="service"):
+        self.maps = {name: f"{name}-id" for name in maps}
+        self.titles = titles or {seed.QUAKES_TITLE: "q", seed.QUAKES_HEAT_TITLE: "h"}
+        self.origin = origin
+
+    def list_maps(self):
+        return self.maps
+
+    def datasets_by_title(self):
+        return self.titles
+
+    def dataset_origin(self, _):
+        return self.origin
+
+
+def test_guarded_update_accepts_a_service_bound_target_without_legacy_rows():
+    assert state.unrestorable_changes(TargetApi()) == []
+
+
+@pytest.mark.parametrize(
+    "api",
+    [
+        TargetApi(origin="upload"),
+        TargetApi(maps=[seed.HURRICANE_MAP_LEGACY]),
+        TargetApi(titles={seed.QUAKES_TITLE_LEGACY: "legacy"}),
+    ],
+)
+def test_guarded_update_names_changes_restore_cannot_undo(api):
+    assert state.unrestorable_changes(api)
+
+
+def _verify(name, extra_name):
+    saved = {
+        "base_url": "b",
+        "owner": "o",
+        "maps": {name: {"id": "m", "created_by": "o", "layers": {}}},
+        "datasets": {},
+        "collections": {},
+    }
+    current = {
+        "maps": {
+            name: {
+                "id": "m",
+                "created_by": "o",
+                "layers": {"new": _layer("ds", extra_name)},
+            }
+        }
+    }
+    api = type("A", (), {"base": "b", "username": "o"})()
+    state.verify_restorable(api, saved, current)
+
+
+def test_restore_accepts_matterhorn_overlay_repair_only_on_matterhorn():
+    _verify("The Matterhorn in 3D", "Peaks")
+    with pytest.raises(RuntimeError, match="unexpected new layer"):
+        _verify("Restless Earth", "Peaks")

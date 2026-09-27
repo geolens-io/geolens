@@ -165,6 +165,10 @@ examples. No AI step is required.
 
    Avoid `--force`, `--force-pinned`, `--prune`, and `--prune-userdata`. If a
    source or expected-state check fails, stop and inspect the target. The
+   seed also refuses when it would change something restore cannot undo: a
+   legacy map or dataset name it would rename, or an earthquake dataset that
+   is not yet bound to its USGS service. The September 27 public inventory had
+   neither; both quake datasets already report `origin: service`. The
    guarded seed does not provide a database transaction over all builders.
    After an interrupted or partial run, the original bundle no longer matches
    and the seed refuses it. Keep that bundle for rollback, write a new
@@ -192,7 +196,11 @@ examples. No AI step is required.
    Connections collection only when it contains only new showcase datasets.
    The seed restyles some layers by deleting and re-adding them. Restore
    matches such a layer to its replacement by dataset and display name, and
-   refuses when the match is missing or ambiguous.
+   refuses when the match is missing or ambiguous. It removes Matterhorn route
+   and peak layers that an overlay repair added; any other new layer except
+   the hurricane context layer stops the restore.
+   Restore does not undo a quake `--refresh-quakes` pull, which is ordinary
+   source maintenance rather than showcase content.
    It does not delete the new datasets or restore the whole database. Confirm
    the original pinned URLs, access, and embed behavior after restoration.
 

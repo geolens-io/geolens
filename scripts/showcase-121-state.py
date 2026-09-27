@@ -164,6 +164,28 @@ def write_private(path, state):
         stream.write("\n")
 
 
+MATTERHORN_REPAIR_LAYERS = {"Climbing routes (OSM)", "Route casing", "Peaks"}
+
+
+def unrestorable_changes(api):
+    """Name what the seed would change on this target that restore cannot undo.
+
+    Restore puts back catalog fields by current name. It cannot bring back a
+    renamed legacy row or the uploaded rows that a service conversion swaps out.
+    """
+    maps = api.list_maps()
+    titles = api.datasets_by_title()
+    problems = []
+    if seed.HURRICANE_MAP_LEGACY in maps:
+        problems.append(f"legacy map name {seed.HURRICANE_MAP_LEGACY!r}")
+    if seed.QUAKES_TITLE_LEGACY in titles:
+        problems.append(f"legacy dataset title {seed.QUAKES_TITLE_LEGACY!r}")
+    for title in (seed.QUAKES_TITLE, seed.QUAKES_HEAT_TITLE):
+        if title in titles and api.dataset_origin(titles[title]) != "service":
+            problems.append(f"{title!r} is not bound to its service")
+    return problems
+
+
 def verify_restorable(api, saved, current):
     if saved["base_url"] != api.base or saved["owner"] != api.username:
         raise RuntimeError("snapshot target or owner differs from this session")
@@ -178,10 +200,12 @@ def verify_restorable(api, saved, current):
             present = now["layers"].get(layer_id)
             if not present or present["dataset_id"] != layer["dataset_id"]:
                 raise RuntimeError(f"map layer identity changed: {name} / {layer_id}")
+        allowed = {"Atlantic basin regions (context)"}
+        if name == "The Matterhorn in 3D":
+            allowed |= MATTERHORN_REPAIR_LAYERS
         extra = set(now["layers"]) - set(original["layers"])
         if any(
-            now["layers"][layer_id]["fields"]["display_name"]
-            != "Atlantic basin regions (context)"
+            now["layers"][layer_id]["fields"]["display_name"] not in allowed
             for layer_id in extra
         ):
             raise RuntimeError(f"unexpected new layer on {name}")

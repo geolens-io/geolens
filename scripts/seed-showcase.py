@@ -6778,6 +6778,12 @@ def main() -> int:
             expected = json.load(stream)
         if state_module.snapshot(api) != expected:
             raise RuntimeError("showcase state changed since the protected snapshot")
+        problems = state_module.unrestorable_changes(api)
+        if problems:
+            raise RuntimeError(
+                "the guarded update would change what restore cannot undo: "
+                + "; ".join(problems)
+            )
 
     maintenance = run_maintenance_mode(api, args)
     if maintenance is not None:
