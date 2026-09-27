@@ -1,0 +1,114 @@
+import {
+  clearUploadBatch,
+  commitUploadEntry,
+  peekUploadBatch,
+  startLayerPreview,
+  startUploadEntry,
+} from '@/api/upload-session';
+import { ApiError } from '@/api/client';
+import { useAuthStore } from '@/stores/auth-store';
+import type { UserResponse } from '@/types/api';
+
+const mockUploadFile = vi.fn();
+const mockPreviewFile = vi.fn();
+const mockCommitImport = vi.fn();
+
+vi.mock('@/api/ingest', () => ({
+  uploadFile: (...args: unknown[]) => mockUploadFile(...args),
+  uploadPresigned: (...args: unknown[]) => mockUploadFile(...args),
+  previewFile: (...args: unknown[]) => mockPreviewFile(...args),
+  commitImport: (...args: unknown[]) => mockCommitImport(...args),
+}));
+
+vi.mock('@/api/datasets', () => ({
+  commitFanOut: vi.fn(),
+}));
+
+const SUBMISSION = { title: 'Roads', visibility: 'private', kind: 'vector' as const };
+const initialAuthState = useAuthStore.getState();
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+async function startReviewedEntry(id: string, jobId: string) {
+  mockUploadFile.mockResolvedValueOnce({ job_id: jobId, status: 'pending' });
+  mockPreviewFile.mockResolvedValueOnce({ job_id: jobId, layer_name: 'a', layers: [] });
+  startUploadEntry(id, new File(['{}'], `${id}.geojson`), false);
+  await vi.waitFor(() =>
+    expect(peekUploadBatch()?.entries.find((e) => e.id === id)?.status).toBe('preview'),
+  );
+}
+
+function statusOf(id: string) {
+  return peekUploadBatch()?.entries.find((e) => e.id === id)?.status;
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  clearUploadBatch();
+  useAuthStore.setState(initialAuthState, true);
+});
+
+afterEach(() => {
+  clearUploadBatch();
+  useAuthStore.setState(initialAuthState, true);
+});
+
+describe('upload session commit settlement', () => {
+  test('an entry whose commit was issued is never committed again or re-previewed', async () => {
+    await startReviewedEntry('e1', 'job-1');
+    const commit = deferred<unknown>();
+    mockCommitImport.mockReturnValueOnce(commit.promise);
+
+    const first = commitUploadEntry('e1', { title: 'Roads' }, SUBMISSION);
+    expect(statusOf('e1')).toBe('committing');
+    await expect(commitUploadEntry('e1', { title: 'Roads' }, SUBMISSION)).resolves.toBe(false);
+    startLayerPreview('e1', 'job-1', 'b');
+
+    commit.resolve({});
+    await expect(first).resolves.toBe(true);
+    expect(statusOf('e1')).toBe('committed');
+    expect(peekUploadBatch()?.entries[0].submitted).toEqual(SUBMISSION);
+
+    await expect(commitUploadEntry('e1', { title: 'Roads' }, SUBMISSION)).resolves.toBe(false);
+    startLayerPreview('e1', 'job-1', 'b');
+    expect(mockCommitImport).toHaveBeenCalledTimes(1);
+    expect(mockPreviewFile).toHaveBeenCalledTimes(1);
+  });
+
+  test('a refused commit keeps its error and can be retried', async () => {
+    await startReviewedEntry('e1', 'job-1');
+    const refusal = new ApiError('Title already in use', 409);
+    mockCommitImport.mockRejectedValueOnce(refusal).mockResolvedValueOnce({});
+
+    await expect(commitUploadEntry('e1', { title: 'Roads' }, SUBMISSION)).resolves.toBe(false);
+    expect(statusOf('e1')).toBe('commit-failed');
+    expect(peekUploadBatch()?.entries[0].error).toBe(refusal);
+
+    await expect(commitUploadEntry('e1', { title: 'Roads 2' }, SUBMISSION)).resolves.toBe(true);
+    expect(statusOf('e1')).toBe('committed');
+    expect(mockCommitImport).toHaveBeenLastCalledWith('job-1', { title: 'Roads 2' });
+  });
+
+  test("a commit that settles after another identity's batch started is dropped", async () => {
+    useAuthStore.setState({ token: 't1', user: { id: 'user-1' } as UserResponse });
+    await startReviewedEntry('e1', 'job-1');
+    const commit = deferred<unknown>();
+    mockCommitImport.mockReturnValueOnce(commit.promise);
+    const settled = commitUploadEntry('e1', { title: 'Roads' }, SUBMISSION);
+
+    useAuthStore.setState({ token: 't2', user: { id: 'user-2' } as UserResponse });
+    await startReviewedEntry('e2', 'job-2');
+
+    commit.resolve({});
+    await expect(settled).resolves.toBe(false);
+    expect(peekUploadBatch()?.entries.map((e) => [e.id, e.status])).toEqual([['e2', 'preview']]);
+  });
+});
