@@ -3172,6 +3172,7 @@ class TestArchivedOriginalsAreCounted:
             storage_provider=SimpleNamespace(
                 generate_presigned_get_url=lambda key, **kw: f"https://signed/{key}"
             ),
+            cog_download=True,
         )
         assert "data" in built
         assert "archived_original:a1b2c3d4e5f60718293a4b5c6d7e8f90" not in built, (

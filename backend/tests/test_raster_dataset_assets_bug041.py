@@ -111,6 +111,7 @@ class TestReadPathNowLive:
             record_status="published",
             storage_backend="s3",
             storage_provider=_FakeS3Provider(),
+            cog_download=True,
         )
 
         # Computed tiles still present...
@@ -121,6 +122,73 @@ class TestReadPathNowLive:
         assert "overview" in assets
         assert assets["data"]["href"].startswith("https://s3.example.com/")
         assert "source.cog.tif" in assets["data"]["href"]
+
+    def test_s3_without_cog_download_signs_only_the_quicklooks(self):
+        """A caller the download route would refuse gets no signed COG."""
+        ds_id = "00000000-0000-0000-0000-0000000000dd"
+        rows = _build_dataset_asset_rows(
+            dataset_id=uuid.UUID(ds_id),
+            cog_key="rasters/x/abc/source.cog.tif",
+            ql256_key="rasters/x/abc/quicklook_256.png",
+            ql512_key="rasters/x/abc/quicklook_512.png",
+            cog_size=4096,
+            is_manifest_vrt=False,
+        )
+        assets = build_assets(
+            _make_raster_dataset(ds_id),
+            "http://localhost:8080/api",
+            stac_asset_rows=rows,
+            record_status="published",
+            storage_backend="s3",
+            storage_provider=_FakeS3Provider(),
+            cog_download=False,
+        )
+        assert "data" not in assets
+        assert not [a for a in assets.values() if "source.cog.tif" in a["href"]]
+        assert assets["thumbnail"]["href"] == (
+            "https://s3.example.com/rasters/x/abc/quicklook_256.png?sig=abc"
+        )
+        assert assets["overview"]["href"] == (
+            "https://s3.example.com/rasters/x/abc/quicklook_512.png?sig=abc"
+        )
+
+    @pytest.mark.parametrize(
+        ("key", "roles"), [("data", None), ("data", []), ("vrt", None)]
+    )
+    def test_s3_withholds_a_stored_data_file_that_carries_no_roles(self, key, roles):
+        """A primary file row is gated by its key when its roles are missing."""
+        assets = build_assets(
+            _make_raster_dataset("00000000-0000-0000-0000-0000000000ff"),
+            "http://localhost:8080/api",
+            stac_asset_rows=[
+                {"key": key, "href": "rasters/x/abc/source.cog.tif", "roles": roles},
+            ],
+            record_status="published",
+            storage_backend="s3",
+            storage_provider=_FakeS3Provider(),
+            cog_download=False,
+        )
+        assert key not in assets
+
+    @pytest.mark.parametrize("storage_backend", ["s3", "local"])
+    def test_remote_data_href_is_served_verbatim_without_cog_download(
+        self, storage_backend
+    ):
+        """A publisher's own COG URL is not GeoLens-held, so no gate applies."""
+        ds_id = "00000000-0000-0000-0000-0000000000ee"
+        href = "https://cogs.example.com/scenes/scene-1.tif"
+        assets = build_assets(
+            _make_raster_dataset(ds_id),
+            "http://localhost:8080/api",
+            stac_asset_rows=[
+                {"key": "data", "href": href, "roles": ["data"]},
+            ],
+            record_status="published",
+            storage_backend=storage_backend,
+            storage_provider=_FakeS3Provider(),
+            cog_download=False,
+        )
+        assert assets["data"]["href"] == href
 
     def _local_assets(
         self, *, record_type="raster_dataset", status="published", cog_download=True
