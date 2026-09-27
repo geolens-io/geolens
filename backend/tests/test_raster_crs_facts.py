@@ -523,3 +523,18 @@ class TestVrtSourcesCompareCrsInTheChild:
             "NOT A CRS": None,
             _UTM_18N_WKT1: True,
         }
+
+    def test_a_request_larger_than_a_pipe_buffer_is_compared_whole(self):
+        others = [
+            rasterio.crs.CRS.from_epsg(32600 + zone).to_wkt(version="WKT2_2019")
+            for zone in range(1, 61)
+            if zone != 18
+        ]
+        texts = [_UTM_18N_WKT2, *others, _UTM_18N_WKT1]
+        assert len(json.dumps(texts)) > 65_536
+
+        assert compare_crs(texts) == {
+            _UTM_18N_WKT2: True,
+            **dict.fromkeys(others, False),
+            _UTM_18N_WKT1: True,
+        }
