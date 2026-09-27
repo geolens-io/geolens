@@ -1398,10 +1398,14 @@ async def run_ogr2ogr_service(
 
     if proc.returncode != 0:
         # The GDAL text can quote whatever the service answered, so it goes to
-        # the log, redacted: for ArcGIS the credential rides in the source URL.
+        # the log, redacted by value too: a service can echo the ArcGIS token,
+        # which rides in the source URL, as plain text.
         stderr_text = scrub_secret_value(
-            redact_url_credentials(_strip_ogr_driver_list(stderr.decode()).strip()),
-            header_line,
+            scrub_secret_value(
+                redact_url_credentials(_strip_ogr_driver_list(stderr.decode()).strip()),
+                header_line,
+            ),
+            token,
         )
         _raise_service_gdal_failure(
             "ogr2ogr", proc.returncode, stderr_text, refused=egress.refused

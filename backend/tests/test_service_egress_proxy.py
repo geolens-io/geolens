@@ -976,6 +976,48 @@ class TestAServiceImportJobError:
         assert refreshed.error_message.startswith("ogr2ogr failed (exit 1)")
         assert marker not in refreshed.error_message
 
+    async def test_an_echoed_arcgis_token_is_scrubbed_from_the_log(
+        self, resolver_calls
+    ):
+        """An ArcGIS token rides in the URL rather than a header, so a service
+        that echoes it as plain text is caught only by value."""
+        token = f"tok-{uuid.uuid4().hex}"
+        with _wfs_service(exception_text=token) as (port, _requests):
+            with structlog.testing.capture_logs() as logs:
+                with pytest.raises(IngestionError):
+                    await run_ogr2ogr_service(
+                        f"WFS:http://{_HOST}:{port}/wfs",
+                        _LAYER,
+                        f"egress_{uuid.uuid4().hex[:12]}",
+                        build_pg_conn_str(),
+                        "arcgis_featureserver",
+                        token=token,
+                        timeout=120.0,
+                        schema="data",
+                    )
+
+        failures = [
+            log for log in logs if "failed for a remote service" in log["event"]
+        ]
+        assert failures and "***" in failures[0]["stderr"]
+        assert token not in repr(logs)
+
+    @needs_preview_ogrinfo
+    async def test_an_echoed_arcgis_token_is_scrubbed_from_the_preview_log(
+        self, resolver_calls
+    ):
+        token = f"tok-{uuid.uuid4().hex}"
+        with _wfs_service(exception_text=token) as (port, _requests):
+            with structlog.testing.capture_logs() as logs:
+                with pytest.raises(IngestionError):
+                    await run_service_preview(
+                        f"WFS:http://{_HOST}:{port}/wfs?token={token}", _LAYER
+                    )
+
+        failures = [log for log in logs if log["event"].startswith("ogrinfo failed")]
+        assert failures and "***" in failures[0]["stderr"]
+        assert token not in repr(logs)
+
     async def test_an_allowed_service_imports_through_the_proxy(
         self, test_db_session, resolver_calls
     ):

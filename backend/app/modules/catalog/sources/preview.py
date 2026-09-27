@@ -453,8 +453,14 @@ async def run_service_preview(
         # processor both miss it. scrub_secret_value holds the exact value
         # instead, applied before the log and the exception are built so
         # every downstream reader sees the same scrubbed text.
+        # An ArcGIS token rides in the source URL and can be echoed as prose.
+        # The URL is the caller's own; a field-count error here would hide
+        # the failure being reported.
+        query = urlsplit(gdal_source).query
+        arcgis_token = dict(parse_qsl(query)).get("token")  # parse_qs: unbounded
         safe_error_msg = scrub_secret_value(
-            redact_url_credentials(error_msg), header_line
+            scrub_secret_value(redact_url_credentials(error_msg), header_line),
+            arcgis_token,
         )
         logger.error(
             "ogrinfo failed for service preview",
