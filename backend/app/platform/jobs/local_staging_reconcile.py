@@ -16,6 +16,13 @@ file whose job's row exists but never recorded a path. Every writer of a
 job has no row is kept: an operator's seed can carry the same shape, and
 nothing records which seed a manifest is copying. A candidate goes once
 neither its job's row nor any row naming it can still use it.
+
+Every API worker runs the sweeper, so the pass takes a transaction-scoped
+advisory lock keyed on the staging root and returns at once when another
+process holds it: no two processes scan or delete at the same time. Each pass
+reads every name in the root without a stat, since directory order gives no
+stable place to resume, and a heap keeps only this pass's window of names in
+memory; only those are stat'ed and looked up.
 """
 
 from __future__ import annotations
@@ -32,7 +39,7 @@ from enum import Enum
 from pathlib import Path
 
 import structlog
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.async_io import run_in_thread_draining
@@ -74,7 +81,7 @@ class _Verdict(Enum):
 class LocalStagingReconcileOutcome:
     """What one pass over the local staging directory saw and did."""
 
-    # False when the pass declined.
+    # False when the pass declined, or another process held the pass's lock.
     ran: bool = False
     candidates: int = 0
     uploads_deleted: int = 0
@@ -241,25 +248,42 @@ async def _verdicts(
     return verdicts
 
 
+def _lock_key(root: Path) -> str:
+    return f"staging-orphan-reconcile:local:{root.resolve()}"
+
+
 async def reconcile_orphaned_local_uploads(
     db: AsyncSession, *, now: datetime | None = None
 ) -> LocalStagingReconcileOutcome:
     """Delete the staged uploads in the local staging directory that no job can still use.
 
     Only reads through ``db``, inside a savepoint, so a database error rolls
-    back just this pass and leaves ``db``'s transaction usable. Declines in
+    back just this pass and leaves ``db``'s transaction usable. The advisory
+    lock lives on its own session and ends with it, so a dying process
+    releases it. Declines when another process holds that lock, and in
     multi-tenant mode, where row-level security hides other tenants' rows and
     their uploads would look unneeded. Never raises: a failure leaves the rest
     for the next pass.
     """
+    from app.core.db import async_session  # late-bound so a test engine applies
     from app.core.tenancy import is_multi_tenant
 
+    outcome = LocalStagingReconcileOutcome()
     if is_multi_tenant():
-        return LocalStagingReconcileOutcome()
-    outcome = LocalStagingReconcileOutcome(ran=True)
+        return outcome
     try:
-        async with db.begin_nested():
-            await _reconcile(db, now=now or datetime.now(timezone.utc), outcome=outcome)
+        async with async_session() as lock_session:
+            locked = await lock_session.execute(
+                text("SELECT pg_try_advisory_xact_lock(hashtextextended(:key, 0))"),
+                {"key": _lock_key(Path(settings.upload_staging_dir))},
+            )
+            if not locked.scalar():
+                return outcome
+            outcome.ran = True
+            async with db.begin_nested():
+                await _reconcile(
+                    db, now=now or datetime.now(timezone.utc), outcome=outcome
+                )
     except Exception:  # broad: best-effort pass, never fails its caller
         log.warning("Local staged upload reconciliation failed", exc_info=True)
     if outcome.uploads_deleted or outcome.delete_failures:

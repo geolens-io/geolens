@@ -644,6 +644,35 @@ class _Bucket:
         self.objects.pop(key, None)
 
 
+class TestOneProcessAtATime:
+    async def test_the_pass_declines_while_another_process_holds_its_lock(
+        self, test_db_session: AsyncSession, root: Path, now: datetime, monkeypatch
+    ) -> None:
+        """Every API worker runs the sweeper; only the lock holder scans and deletes."""
+        import app.core.db as db_module
+
+        path = await _upload(test_db_session, root, now)
+        scans = []
+        original = module._window
+
+        def counted(*args):
+            scans.append(args)
+            return original(*args)
+
+        monkeypatch.setattr(module, "_window", counted)
+
+        async with db_module.async_session() as other_process:
+            await other_process.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+                {"key": module._lock_key(root)},
+            )
+            held = await _run(test_db_session, now)
+
+        assert not held.ran and scans == [] and path.exists()
+        released = await _run(test_db_session, now)
+        assert released.uploads_deleted == 1 and not path.exists()
+
+
 class TestWiring:
     """The stale-job sweep and the admin cleanup both reach the pass through here."""
 
