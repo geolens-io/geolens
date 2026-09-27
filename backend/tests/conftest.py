@@ -1249,54 +1249,18 @@ def _install_dbapi_connect_retry(sync_engine, sleep_fn, backoffs):
 
 
 class _RetryingAsyncEngine:
-    """Composition wrapper around ``AsyncEngine`` that retries
-    ``engine.connect()`` and ``engine.dispose()`` on transient connection
-    contention.
+    """``AsyncEngine`` wrapper that retries connections refused as too many clients.
 
-    Plan 1093-02 / TEST-01: After Plan 1088-04's session-factory wrapper
-    (`_acquire_test_session_with_retry`) closed the in-test warm-up surface
-    (137 → 48 failures, partial close), 48 deterministic + ~173
-    non-deterministic failures remained on `bind.connect()` calls firing
-    AFTER `await session.commit()` releases the warm-up's connection —
-    OUTSIDE any session-factory-level retry envelope. The session-factory
-    helper cannot wrap these because they happen inside test bodies on
-    fresh connection acquisitions after `__aenter__` has yielded.
+    Tests open connections after a session commits, outside the session
+    factory's retry, and under xdist the server can refuse them with "too
+    many clients already". ``connect()``, ``dispose()`` and the DBAPI connect
+    behind session binds retry on ``_TRANSIENT_CONTENTION_EXCEPTIONS`` with
+    ``backoffs``, which defaults to the setup budget because fixtures use
+    this engine too, and re-raise the last error once it is spent.
 
-    This wrapper intercepts at the LOWEST async-engine layer: every direct
-    call to ``engine.connect()`` and ``engine.dispose()`` flows through
-    retry-on-`_TRANSIENT_CONTENTION_EXCEPTIONS` with the
-    ``_SETUP_PHASE_RETRY_BACKOFFS = (1.0, 2.0, 4.0)`` budget (7s total).
-    Setup-phase budget (vs. the in-test 1.5s budget) chosen because the
-    engine wrapper subsumes setup-phase retries IN ADDITION to closing
-    the post-commit residual — tighter budgets risk false-positive
-    loud-fails under combined contention.
-
-    Composition (NOT inheritance) was chosen per
-    `.planning/audits/ENGINE-RETRY-ENVELOPE-v1021.md` Section 3 — the
-    alternative shapes (event.listen, NullPool subclass, async_creator=)
-    each failed one or more of the 4 criteria: covers both surfaces /
-    preserves NullPool+QueuePool branches / preserves
-    `test_conftest_pool_sizing.py` pins (specifically
-    `type(engine.pool).__name__`) / testable via MagicMock-only.
-
-    The wrapper:
-    - REUSES `_TRANSIENT_CONTENTION_EXCEPTIONS` verbatim — no new catch.
-    - REUSES `_SETUP_PHASE_RETRY_BACKOFFS = (1.0, 2.0, 4.0)` verbatim.
-    - Preserves the underlying engine's `.pool` accessor via `@property`
-      delegation (required for `test_xdist_engine_uses_nullpool` and
-      `test_sequential_engine_uses_queuepool` in
-      `test_conftest_pool_sizing.py`).
-    - Preserves the `sync_engine` accessor used by `async_sessionmaker`
-      via `engine._get_sync_engine_or_connection` (module-level function
-      in `sqlalchemy.ext.asyncio.engine`).
-    - Delegates everything else via `__getattr__` so call sites using
-      other AsyncEngine surfaces (e.g., `await engine.begin()`,
-      `engine.raw_connection`) work unchanged.
-    - Provides a `sleep_fn` parameter (defaults to `asyncio.sleep`)
-      mirroring v1020 helper conventions for testability.
-    - Loud-fail-on-exhaust: re-raises the last exception after budget
-      exhaustion, mirroring `_run_with_too_many_clients_retry` and
-      `_acquire_test_session_with_retry` conventions.
+    ``pool`` and ``sync_engine`` return the wrapped engine's, so the pool
+    class tests and ``async_sessionmaker`` see the real engine. Everything
+    else is delegated through ``__getattr__``.
     """
 
     def __init__(

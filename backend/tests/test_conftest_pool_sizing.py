@@ -3,7 +3,7 @@
 These tests assert that:
 1. _derive_test_pool_sizing() keeps the (5, 2) pool in sequential mode and
    returns the (1, 0) NullPool sentinel under xdist, which fits 16 workers
-   in a 30-connection budget.
+   in 30 connections, a stricter budget than db/postgresql.conf's 80.
 2. _make_test_async_engine() really builds a NullPool engine under xdist, so a
    worker holds no idle connections between tests.
 """
@@ -13,9 +13,8 @@ from tests.conftest import (
     _make_test_async_engine,
 )
 
-# max_connections from db/postgresql.conf:11 (PERF-05 / Phase 274).
-# If this constant changes, re-run the spike doc to verify the new ceiling
-# is still satisfied by the per-worker pool sizing.
+# db/postgresql.conf allows 80 connections; the sizing is checked against 30,
+# the stricter budget.
 POSTGRES_MAX_CONNECTIONS = 30
 
 # Admin headroom: psql + alembic + autovac + pg_stat_activity sampler.

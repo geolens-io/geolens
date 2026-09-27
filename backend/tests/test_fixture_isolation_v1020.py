@@ -811,33 +811,13 @@ async def test_in_test_exhausts_retry_budget_then_fails_loudly():
 
 
 # ---------------------------------------------------------------------------
-# Plan 1093-02 / TEST-01: engine-level retry envelope
+# Engine-level retry: `_RetryingAsyncEngine`
 # ---------------------------------------------------------------------------
 #
-# After Plan 1088-04 partially closed audit category 4.3 (137 → 48 via
-# `_acquire_test_session_with_retry`), 48 deterministic + ~173 non-deterministic
-# failures remained ABOVE the 30 threshold. Plan 1088-04's iter-3 residual
-# analysis identified the failure shape: post-commit `bind.connect()` calls
-# fire AFTER `await session.commit()` releases the warm-up's connection —
-# OUTSIDE any session-factory-level retry envelope.
-#
-# Plan 1093-02 implements the `_RetryingAsyncEngine` composition wrapper class
-# (chosen per `.planning/audits/ENGINE-RETRY-ENVELOPE-v1021.md` Section 3) that
-# wraps the test-fixture engine's `connect()` and `dispose()` calls with
-# retry-on-`_TRANSIENT_CONTENTION_EXCEPTIONS` using the
-# `_SETUP_PHASE_RETRY_BACKOFFS = (1.0, 2.0, 4.0)` budget. The wrapper:
-# - REUSES `_TRANSIENT_CONTENTION_EXCEPTIONS` (line 343-347) verbatim — no new
-#   exception class added to the catch tuple.
-# - REUSES `_SETUP_PHASE_RETRY_BACKOFFS` (line 324) verbatim — no new constant.
-# - Preserves the underlying engine's `.pool` accessor via `@property`
-#   delegation (critical for `test_xdist_engine_uses_nullpool` and
-#   `test_sequential_engine_uses_queuepool` in `test_conftest_pool_sizing.py`,
-#   which both check `type(engine.pool).__name__`).
-# - Preserves `_make_test_async_engine(test_database_url: str)` signature
-#   unchanged.
-# - Provides 4 regression pins below (canonical / raw-asyncpg critical-contract /
-#   propagate-non-contention / exhaust-budget) mirroring v1020 in-test pin
-#   family naming convention.
+# Tests open connections after a session commits, outside the session
+# factory's retry, so the test engine retries its own `connect()` and
+# `dispose()`. The pins below cover a retried refusal, raw asyncpg errors,
+# other errors propagating and an exhausted budget.
 
 
 class _FakeAsyncEngine:
