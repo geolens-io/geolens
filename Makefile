@@ -1,12 +1,12 @@
 # Use bash with pipefail so `make sdks`'s
-# `uvx openapi-python-client ... 2>&1 | tee /tmp/...log` propagates the
+# `uvx openapi-python-client ... 2>&1 | tee .../...log` propagates the
 # generator's non-zero exit instead of `tee`'s 0. Applies to all recipes;
 # existing recipes are pipefail-safe (no recipe relies on partial-pipeline
 # tolerance).
 SHELL := /bin/bash
 .SHELLFLAGS := -o pipefail -c
 
-.PHONY: dev dev-init down reset-db migrate migration alembic-check overlay-migration-check test test-sequential test-cov env-test ai-evals e2e logs logs-db logs-api status doctor preflight openapi openapi-check sdks sdks-check sdks-test manifest-contract-check publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli mcp-build mcp-test mcp-live-test publish-mcp audit-sink-discipline billing-extraction-discipline catalog-domain-discipline bump version-check public-surface-check deployed-surface-check
+.PHONY: dev dev-init down reset-db migrate migration alembic-check overlay-migration-check test test-sequential test-cov env-test ai-evals e2e logs logs-db logs-api status doctor preflight openapi openapi-check sdks _sdks_generate sdks-check sdks-test manifest-contract-check publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli mcp-build mcp-test mcp-live-test publish-mcp audit-sink-discipline billing-extraction-discipline catalog-domain-discipline bump version-check public-surface-check deployed-surface-check
 
 # Pre-flight: verify boot-required env vars are non-empty in .env before any
 # `docker compose` build (which takes 5-10 minutes on a cold cache only to crash
@@ -132,48 +132,75 @@ openapi-check:
 	cd backend && PYTHONPATH=. uv run python scripts/dump_openapi.py --check
 
 # ----- SDK generation -----
+# Hand-maintained files under sdks/ that the generators' --overwrite would
+# clobber (or that stay hand-written and are never regenerated at all, like
+# the READMEs/LICENSEs). One list drives both the stash/restore below and
+# sdks-check's drift-check exclusions, so there's a single place to update
+# when a hand-maintained SDK file is added.
+SDK_PRESERVED_FILES := \
+  sdks/python/geolens/auth.py \
+  sdks/python/geolens/__init__.py \
+  sdks/python/geolens/cog_download.py \
+  sdks/python/README.md \
+  sdks/python/LICENSE \
+  sdks/typescript/src/auth.ts \
+  sdks/typescript/src/index.ts \
+  sdks/typescript/README.md \
+  sdks/typescript/LICENSE
+
+# Each `make sdks` run gets its own scratch directory for the flattened
+# schema, the stashed preserved files and the generator log, instead of fixed
+# /tmp paths — two checkouts regenerating at once no longer share a path and
+# can't swap files. $(CURDIR) makes it absolute so it still resolves
+# correctly from recipe lines that `cd` into a subdirectory first.
+SDKS_TMPDIR := $(CURDIR)/.sdks-tmp
+
 # `make sdks` regenerates Python + TypeScript SDKs from backend/openapi.json.
 #
-# Pipeline:
+# Pipeline (in _sdks_generate):
 #   1. dump_openapi.py refreshes backend/openapi.json (the committed snapshot).
 #   2. flatten_openapi_defs.py reads that snapshot and writes a generator-only
-#      intermediate at /tmp/openapi-flat.json. FastAPI/pydantic v2 emits
-#      OpenAPI 3.1 with inline `$defs` blocks that @hey-api/openapi-ts cannot
-#      resolve (TypeError) and openapi-python-client silently omits endpoints
-#      from. The flatten script rewrites every `#/$defs/X` reference into
+#      intermediate under $(SDKS_TMPDIR). FastAPI/pydantic v2 emits OpenAPI 3.1
+#      with inline `$defs` blocks that @hey-api/openapi-ts cannot resolve
+#      (TypeError) and openapi-python-client silently omits endpoints from.
+#      The flatten script rewrites every `#/$defs/X` reference into
 #      `#/components/schemas/X`, promoting non-matching inline schemas under
 #      deterministic synthetic names (`X__inline_<sha1[:8]>`). The committed
 #      backend/openapi.json snapshot is NEVER modified — it stays as the
 #      contract source-of-truth, and only the SDK generators consume the
 #      flattened intermediate. See scripts/flatten_openapi_defs.py docstring.
-#   3. cp-stash hand-written auth wrappers to /tmp before generation so
-#      openapi-python-client's --overwrite (Pitfall 6) doesn't delete them.
-#      The 2>/dev/null silences "no such file" on the FIRST run when auth.py
-#      doesn't exist yet.
-#   4. Run the Python + TypeScript generators against the flat intermediate.
-#   5. Restore stashed auth wrappers.
-#   6. sync_sdk_versions.py pins both SDK package versions to the OpenAPI
+#   3. Run the Python + TypeScript generators against the flat intermediate.
+#   4. sync_sdk_versions.py pins both SDK package versions to the OpenAPI
 #      info.version (closes Pitfall 9 — version drift caught alongside code
 #      drift in `make sdks-check`).
+#
+# `sdks` itself only stashes $(SDK_PRESERVED_FILES), delegates the pipeline to
+# _sdks_generate, and always restores them and removes $(SDKS_TMPDIR) —
+# whether generation succeeded or failed. Recipe lines each run in their own
+# shell, so there's no single process to hang a `trap` off of; the exit code
+# is threaded through a file in $(SDKS_TMPDIR) instead.
 sdks:
+	@rm -rf $(SDKS_TMPDIR)
+	@mkdir -p $(SDKS_TMPDIR)
+	@$(foreach f,$(SDK_PRESERVED_FILES),mkdir -p "$(SDKS_TMPDIR)/$(dir $(f))"; cp "$(f)" "$(SDKS_TMPDIR)/$(f)" 2>/dev/null;) true
+	@$(MAKE) _sdks_generate; echo $$? > $(SDKS_TMPDIR)/.generate-exit
+	@$(foreach f,$(SDK_PRESERVED_FILES),cp "$(SDKS_TMPDIR)/$(f)" "$(f)" 2>/dev/null;) true
+	@ec=$$(cat $(SDKS_TMPDIR)/.generate-exit 2>/dev/null || echo 1); rm -rf $(SDKS_TMPDIR); exit $$ec
+
+_sdks_generate:
 	cd backend && PYTHONPATH=. uv run python scripts/dump_openapi.py
 	uv run --no-project python scripts/flatten_openapi_defs.py \
 	  --input backend/openapi.json \
-	  --output /tmp/openapi-flat.json
-	-cp sdks/python/geolens/auth.py /tmp/_geolens_auth.py 2>/dev/null
-	-cp sdks/python/geolens/__init__.py /tmp/_geolens_init.py 2>/dev/null
-	-cp sdks/python/geolens/cog_download.py /tmp/_geolens_cog_download.py 2>/dev/null
-	-cp sdks/typescript/src/auth.ts /tmp/_geolens_auth.ts 2>/dev/null
-	-cp sdks/typescript/src/index.ts /tmp/_geolens_index.ts 2>/dev/null
+	  --output $(SDKS_TMPDIR)/openapi-flat.json
 	# Post-hook ruff is pinned to the backend's version (keep in sync with
 	# backend uv.lock): left unpinned, the ruff 0.16.0 release (2026-07)
 	# rewrote generated output and broke `make sdks-check` on every PR.
 	uvx --with "ruff==0.15.22" openapi-python-client@0.28.3 generate \
-	  --path /tmp/openapi-flat.json \
+	  --path $(SDKS_TMPDIR)/openapi-flat.json \
 	  --output-path sdks/python/geolens \
 	  --overwrite --meta none \
 	  --config sdks/python/.openapi-python-client.yaml \
-	  2>&1 | tee /tmp/openapi-python-client.log
+	  2>&1 | tee $(SDKS_TMPDIR)/openapi-python-client.log
 	# PEP 561 marker — generator with --meta none doesn't emit it; touch so
 	# typecheckers consume the inline annotations on consumers' machines.
 	touch sdks/python/geolens/py.typed
@@ -195,12 +222,7 @@ sdks:
 	# crashes the generator (`ts.NewLineKind` undefined) — and npm lets the peer
 	# range beat even an explicit `-p typescript@5.9.x`. package.json pins the
 	# generator + typescript exactly; package-lock.json makes it reproducible.
-	cd sdks/typescript && npm install --silent && ./node_modules/.bin/openapi-ts -i /tmp/openapi-flat.json
-	-cp /tmp/_geolens_auth.py sdks/python/geolens/auth.py 2>/dev/null
-	-cp /tmp/_geolens_init.py sdks/python/geolens/__init__.py 2>/dev/null
-	-cp /tmp/_geolens_cog_download.py sdks/python/geolens/cog_download.py 2>/dev/null
-	-cp /tmp/_geolens_auth.ts sdks/typescript/src/auth.ts 2>/dev/null
-	-cp /tmp/_geolens_index.ts sdks/typescript/src/index.ts 2>/dev/null
+	cd sdks/typescript && npm install --silent && ./node_modules/.bin/openapi-ts -i $(SDKS_TMPDIR)/openapi-flat.json
 	uv run --no-project python scripts/sync_sdk_versions.py
 	# SDK-gen gate: openapi-python-client emits `WARNING parsing <METHOD> <ROUTE>`
 	# when a route's body shape is unparseable (e.g., text/plain), and silently drops the
@@ -210,36 +232,28 @@ sdks:
 	#
 	# Explicitly assert the log file exists before grep, so
 	# a missing log (e.g., generator crashed before tee opened the file, or
-	# the build env wiped /tmp between recipe lines) prints a clear error
-	# rather than the misleading "emitted  warning(s)" with empty count.
-	@if [ ! -f /tmp/openapi-python-client.log ]; then \
-	    echo "ERROR: /tmp/openapi-python-client.log missing — openapi-python-client did not run or its output was discarded." >&2; \
+	# the build env wiped the scratch directory between recipe lines) prints a
+	# clear error rather than the misleading "emitted  warning(s)" with empty count.
+	@if [ ! -f $(SDKS_TMPDIR)/openapi-python-client.log ]; then \
+	    echo "ERROR: $(SDKS_TMPDIR)/openapi-python-client.log missing — openapi-python-client did not run or its output was discarded." >&2; \
 	    exit 1; \
 	  fi; \
-	  _count=$$(grep -c '^WARNING parsing' /tmp/openapi-python-client.log || true); \
+	  _count=$$(grep -c '^WARNING parsing' $(SDKS_TMPDIR)/openapi-python-client.log || true); \
 	  if [ "$$_count" != "0" ]; then \
 	    echo "" >&2; \
 	    echo "ERROR: openapi-python-client emitted $$_count warning(s) — endpoint(s) silently dropped from Python SDK:" >&2; \
-	    grep '^WARNING parsing' /tmp/openapi-python-client.log >&2; \
+	    grep '^WARNING parsing' $(SDKS_TMPDIR)/openapi-python-client.log >&2; \
 	    echo "" >&2; \
 	    echo "Fix the FastAPI route schema at the source (typically by replacing a non-JSON body shape with a Pydantic JSON body)." >&2; \
 	    exit 1; \
 	  fi
 
 # `make sdks-check` regenerates and fails if anything changed.
-# Hand-written wrappers + READMEs + LICENSE are excluded via :! pathspecs.
+# $(SDK_PRESERVED_FILES) are excluded via :! pathspecs — hand-maintained, not
+# generator output.
 sdks-check:
 	$(MAKE) sdks
-	git diff --exit-code -- sdks/ \
-	  ':!sdks/python/geolens/auth.py' \
-	  ':!sdks/python/geolens/__init__.py' \
-	  ':!sdks/python/geolens/cog_download.py' \
-	  ':!sdks/typescript/src/auth.ts' \
-	  ':!sdks/typescript/src/index.ts' \
-	  ':!sdks/python/README.md' \
-	  ':!sdks/typescript/README.md' \
-	  ':!sdks/python/LICENSE' \
-	  ':!sdks/typescript/LICENSE'
+	git diff --exit-code -- sdks/ $(foreach f,$(SDK_PRESERVED_FILES),':!$(f)')
 	cd sdks/typescript && npm run build && npm test
 
 # `make sdks-test` runs the SDK round-trip integration test.

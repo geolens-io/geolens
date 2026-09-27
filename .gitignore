@@ -41,6 +41,10 @@ coverage/
 # it must never be committed.
 backend/test-artifacts/
 
+# `make sdks`'s private per-run scratch directory (flattened schema, stashed
+# hand-maintained SDK files, generator log) — per checkout, not shared state.
+/.sdks-tmp/
+
 # Build output
 build/
 dist/
