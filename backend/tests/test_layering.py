@@ -1308,7 +1308,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # chunk table, the checks before the decode child and the published extent.
     "backend/app/processing/ingest/pointcloud.py": 1085,
     # Shared ingest finalization carries verification, bounded ArcGIS requests and lifecycle context.
-    "backend/app/processing/ingest/tasks_common.py": 1722,
+    "backend/app/processing/ingest/tasks_common.py": 1731,
     # The file and service strategies: retrieval, staging, verification and cleanup.
     "backend/app/processing/ingest/tasks_reupload.py": 1217,
     # Refresh strategies share access, admission and dispatch rules at this API

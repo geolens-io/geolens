@@ -17,7 +17,11 @@ from sqlalchemy import delete, select, text, update
 import app.core.db as db_module
 from app.core.config import settings
 from app.modules.catalog.datasets.domain.models import Dataset, Record
-from app.platform.jobs.models import ARCHIVE_PENDING_METADATA_KEY, IngestJob
+from app.platform.jobs.models import (
+    ARCHIVE_PENDING_METADATA_KEY,
+    IngestJob,
+    holds_unarchived_original,
+)
 from app.platform.storage.local import LocalStorageProvider
 from app.processing.ingest.publish_followups import (
     PUBLISH_FOLLOWUPS_FIELD,
@@ -776,11 +780,225 @@ async def test_a_failed_archive_keeps_the_pending_mark_and_the_upload(
 
         monkeypatch.setattr(raster_storage, "put", _refused)
 
-        assert await run_publish_followups(job_id) is True
+        assert await run_publish_followups(job_id) is False
         assert await left() == [f"staging/{job_id}/frozen/upload.tif"]
         metadata = await _stored_metadata(job_id)
         assert metadata[ARCHIVE_PENDING_METADATA_KEY] is True
         assert metadata["archive_failed"] is True
+        owed = metadata[PUBLISH_FOLLOWUPS_FIELD]
+        assert (owed["archive_key"], owed["attempts"]) == (key, 1)
+        assert "next_attempt_at" in owed
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def _make_due(job_id) -> None:
+    """Bring the job's next follow-up attempt forward to a minute ago."""
+    async with db_module.async_session() as session:
+        await session.execute(
+            text(
+                "UPDATE catalog.ingest_jobs SET user_metadata = jsonb_set("
+                "user_metadata, '{publish_followups,next_attempt_at}', "
+                "to_jsonb(now() - interval '1 minute')) WHERE id = :id"
+            ),
+            {"id": job_id},
+        )
+        await session.commit()
+
+
+async def test_a_failed_archive_is_made_by_a_later_sweep(
+    test_db_session, raster_storage, followups, monkeypatch
+) -> None:
+    """The write that failed is tried again once due; then the mark and the upload go."""
+    job_id, dataset_id, record_id = await _owed_job(
+        test_db_session, task="reupload_file", reaps_staged_upload=True
+    )
+    try:
+        await _point_job_at(
+            job_id, file_path=None, **{ARCHIVE_PENDING_METADATA_KEY: True}
+        )
+        left = await _stage_upload(raster_storage, job_id, "storage")
+        key = await _owe_archive(job_id, dataset_id, "upload.tif")
+        real_put = raster_storage.put
+        refused: list[str] = []
+
+        async def _refused_once(written, data):
+            if written == key and not refused:
+                refused.append(written)
+                raise RuntimeError("the object store refused the write")
+            await real_put(written, data)
+
+        monkeypatch.setattr(raster_storage, "put", _refused_once)
+        assert await run_publish_followups(job_id) is False
+        await _make_due(job_id)
+
+        await run_owed_publish_followups()
+
+        assert await raster_storage.get(key) == b"staged"
+        assert await left() == []
+        metadata = await _stored_metadata(job_id)
+        assert (
+            not {
+                ARCHIVE_PENDING_METADATA_KEY,
+                "archive_failed",
+                PUBLISH_FOLLOWUPS_FIELD,
+            }
+            & metadata.keys()
+        )
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def test_a_record_not_yet_due_is_left_by_the_sweep(
+    test_db_session, raster_storage, followups
+) -> None:
+    job_id, dataset_id, record_id = await _owed_job(
+        test_db_session, task="reupload_file", reaps_staged_upload=True
+    )
+    try:
+        left = await _stage_upload(raster_storage, job_id, "storage")
+        key = await _owe_archive(job_id, dataset_id, "upload.tif")
+        async with db_module.async_session() as session:
+            job = await session.get(IngestJob, job_id)
+            owed = {
+                **job.user_metadata[PUBLISH_FOLLOWUPS_FIELD],
+                "attempts": 2,
+                "next_attempt_at": (
+                    datetime.now(timezone.utc) + timedelta(hours=1)
+                ).isoformat(),
+            }
+            job.user_metadata = {**job.user_metadata, PUBLISH_FOLLOWUPS_FIELD: owed}
+            await session.commit()
+
+        await run_owed_publish_followups()
+        assert await run_publish_followups(job_id) is False
+
+        assert not await raster_storage.exists(key)
+        assert len(await left()) == 2
+        assert (await _stored_metadata(job_id))[PUBLISH_FOLLOWUPS_FIELD] == owed
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def test_records_that_keep_failing_do_not_crowd_out_a_fresh_one(
+    test_db_session, raster_storage, tmp_path, followups
+) -> None:
+    """More failing records than one sweep takes still leave room for a fresh record."""
+    outside = tmp_path / "keep.tif"
+    outside.write_bytes(b"not an upload")
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await create_dataset(test_db_session, created_by=admin_id)
+    later = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    failing = [
+        IngestJob(
+            dataset_id=dataset.id,
+            status="complete",
+            created_by=admin_id,
+            file_path=str(outside),
+            user_metadata={
+                PUBLISH_FOLLOWUPS_FIELD: {
+                    "task": "reupload_file",
+                    "archive_key": f"originals/{dataset.id}/keep-{n}.tif",
+                    "attempts": 3,
+                    "next_attempt_at": later,
+                }
+            },
+        )
+        for n in range(55)
+    ]
+    test_db_session.add_all(failing)
+    await test_db_session.flush()
+    for job in failing:
+        job.user_metadata = {
+            PUBLISH_FOLLOWUPS_FIELD: {
+                **job.user_metadata[PUBLISH_FOLLOWUPS_FIELD],
+                "attempt_id": str(job.attempt_id),
+            }
+        }
+    await test_db_session.commit()
+    failing_ids = [job.id for job in failing]
+    fresh_id, _, fresh_record = await _owed_job(
+        test_db_session, status="failed", error_message="refused"
+    )
+    try:
+        await run_owed_publish_followups()
+
+        assert not await _owes(fresh_id)
+    finally:
+        await _drop(test_db_session, fresh_id, fresh_record)
+        await test_db_session.execute(
+            delete(IngestJob).where(IngestJob.id.in_(failing_ids))
+        )
+        await test_db_session.commit()
+
+
+async def test_spent_attempts_stop_retrying_and_keep_the_upload_held(
+    test_db_session, raster_storage, followups, monkeypatch
+) -> None:
+    """The last attempt gives the record up and leaves the job flagged and marked."""
+    job_id, dataset_id, record_id = await _owed_job(
+        test_db_session, task="reupload_file", reaps_staged_upload=True
+    )
+    try:
+        await _point_job_at(
+            job_id, file_path=None, **{ARCHIVE_PENDING_METADATA_KEY: True}
+        )
+        left = await _stage_upload(raster_storage, job_id, "storage")
+        key = await _owe_archive(job_id, dataset_id, "upload.tif")
+        async with db_module.async_session() as session:
+            job = await session.get(IngestJob, job_id)
+            owed = {**job.user_metadata[PUBLISH_FOLLOWUPS_FIELD], "attempts": 7}
+            job.user_metadata = {**job.user_metadata, PUBLISH_FOLLOWUPS_FIELD: owed}
+            await session.commit()
+        real_put = raster_storage.put
+
+        async def _refused(written, data):
+            if written == key:
+                raise RuntimeError("the object store refused the write")
+            await real_put(written, data)
+
+        monkeypatch.setattr(raster_storage, "put", _refused)
+
+        assert await run_publish_followups(job_id) is True
+
+        metadata = await _stored_metadata(job_id)
+        assert PUBLISH_FOLLOWUPS_FIELD not in metadata
+        assert metadata[ARCHIVE_PENDING_METADATA_KEY] is True
+        assert metadata["archive_failed"] is True
+        assert await left() == [f"staging/{job_id}/frozen/upload.tif"]
+        async with db_module.async_session() as session:
+            held = await session.scalar(
+                select(IngestJob.id).where(
+                    IngestJob.id == job_id, holds_unarchived_original()
+                )
+            )
+        assert held == job_id
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+@pytest.mark.parametrize(
+    "item", ["archive_key", "reaps_staged_upload"], ids=["archive", "delete"]
+)
+async def test_confirming_one_item_leaves_every_other_owed(
+    test_db_session, item
+) -> None:
+    """An item comes off the record alone; its siblings and the retry state stay."""
+    from app.processing.ingest.publish_followups import _confirm_owed_item
+
+    job_id, dataset_id, record_id = await _owed_job(
+        test_db_session, task="reupload_file", reaps_staged_upload=True
+    )
+    try:
+        await _owe_archive(job_id, dataset_id, "upload.tif")
+        before = (await _stored_metadata(job_id))[PUBLISH_FOLLOWUPS_FIELD]
+        before = {**before, "attempts": 2}
+        await _point_job_at(job_id, file_path=None, **{PUBLISH_FOLLOWUPS_FIELD: before})
+
+        await _confirm_owed_item(job_id, item)
+
+        after = (await _stored_metadata(job_id))[PUBLISH_FOLLOWUPS_FIELD]
+        assert after == {key: value for key, value in before.items() if key != item}
     finally:
         await _drop(test_db_session, job_id, record_id)
 
@@ -856,9 +1074,10 @@ async def test_an_upload_outside_the_staging_dir_is_never_archived(
         await _point_job_at(job_id, file_path=str(outside))
         key = await _owe_archive(job_id, dataset_id, "keep.tif")
 
-        assert await run_publish_followups(job_id) is True
+        assert await run_publish_followups(job_id) is False
         assert not await raster_storage.exists(key)
         assert outside.read_bytes() == b"not an upload"
+        assert (await _stored_metadata(job_id))["archive_failed"] is True
     finally:
         await _drop(test_db_session, job_id, record_id)
 

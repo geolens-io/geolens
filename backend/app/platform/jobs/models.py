@@ -15,7 +15,6 @@ from sqlalchemy import (
     func,
     or_,
     text,
-    true,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -283,13 +282,6 @@ class IngestJob(Base):
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
-    )
-
-
-def with_archive_pending():
-    """``user_metadata`` with the archive-pending mark set, as SQL for a job UPDATE."""
-    return func.coalesce(IngestJob.user_metadata, text("'{}'::jsonb")).op("||")(
-        func.jsonb_build_object(ARCHIVE_PENDING_METADATA_KEY, true())
     )
 
 

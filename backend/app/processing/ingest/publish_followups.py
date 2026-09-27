@@ -1,22 +1,36 @@
 """The follow-ups a job owes once its terminal commit has landed.
 
 A first ingest owes its completion follow-ups, and a rejected replacement its
-failure notice. A publish that consumed a staged upload, first ingest or
-replacement, also owes deleting it. The terminal transaction records them on
-the job row, so the record exists exactly when the commit does. The task runs
-them after its commit, or the stale-job sweep when the task could not. The
-upload is deleted before the record is claimed, so a delete that is cut short
-is retried; the rest runs once, after the claim.
+failure notice. A publish that consumed a staged upload also owes items: the
+upload's archive and then its deletion. The terminal transaction records them
+on the job row, so the record exists exactly when the commit does. The task
+runs them after its commit, or the stale-job sweep when the task could not.
+Each item is confirmed on its own and retried after a doubling delay; the
+record is claimed, and the rest runs once, only when no item is left.
 """
 
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import structlog
-from sqlalchemy import Text, func, literal, or_, select, text, true, update
+from sqlalchemy import (
+    DateTime,
+    Integer,
+    Text,
+    cast,
+    func,
+    literal,
+    or_,
+    select,
+    text,
+    true,
+    update,
+)
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import joinedload
 
 from app.core.config import settings
@@ -49,12 +63,24 @@ _LABELS: dict[str, str | None] = {
 
 _SWEEP_BATCH = 50
 
-# A replacement runs its own completion steps, so its record owes only the
-# staged upload.
-_REPLACEMENTS = frozenset({"reupload_file", "reupload_raster"})
+# A replacement or a vector import runs its own completion steps, so its
+# record owes only its items.
+_ITEMS_ONLY = frozenset({"reupload_file", "reupload_raster", "ingest_file"})
 
-_REAPS_STAGED_UPLOAD = "reaps_staged_upload"
+# The items a record can owe, each a key in the record that is removed alone
+# once it is confirmed.
 _ARCHIVE_KEY = "archive_key"
+_REAPS_STAGED_UPLOAD = "reaps_staged_upload"
+_ITEMS = (_ARCHIVE_KEY, _REAPS_STAGED_UPLOAD)
+
+# Retry state kept in the record. The doubling delay rides out a storage
+# outage of a few hours; after the last attempt the record is claimed and the
+# job keeps its archive flag, which holds the upload for the operator.
+_ATTEMPTS = "attempts"
+_NEXT_ATTEMPT_AT = "next_attempt_at"
+_RETRY_BASE = timedelta(minutes=5)
+_RETRY_CAP = timedelta(hours=4)
+_MAX_ATTEMPTS = 8
 
 
 def owed_followups(
@@ -63,11 +89,13 @@ def owed_followups(
     *,
     reaps_staged_upload: bool = False,
     archive_key: str | None = None,
+    sweep_waits: bool = False,
 ):
     """The job's ``user_metadata`` with this attempt's ``task`` follow-ups owed.
 
     With ``archive_key`` it also marks the upload's archive pending, which the
-    follow-ups remove once that archive exists.
+    follow-ups remove once that archive exists. ``sweep_waits`` holds the
+    sweep off for one retry delay, for a task that archives the upload itself.
     """
     fields = ["task", task, "attempt_id", str(attempt_uuid)]
     marks = []
@@ -76,6 +104,8 @@ def owed_followups(
     if archive_key is not None:
         fields += [_ARCHIVE_KEY, archive_key]
         marks = [ARCHIVE_PENDING_METADATA_KEY, true()]
+    if sweep_waits:
+        fields += [_NEXT_ATTEMPT_AT, func.now() + _RETRY_BASE]
     owed = func.jsonb_build_object(
         PUBLISH_FOLLOWUPS_FIELD, func.jsonb_build_object(*fields), *marks
     )
@@ -198,6 +228,9 @@ async def _archive_upload(
             structlog.get_logger().warning(
                 "staged_upload_outside_staging_dir", job_id=job_id
             )
+            await _note_archive_outcome(
+                job_uuid, "The staged upload is outside the upload staging directory."
+            )
             return False
         async with db_module.async_session() as session:
             job = await session.get(IngestJob, job_uuid)
@@ -225,39 +258,18 @@ async def _archive_upload(
             Path(local).unlink(missing_ok=True)
 
 
-async def _reap_staged_upload(
-    job_uuid: uuid.UUID,
-    file_path: str | None,
-    user_metadata: dict | None,
-    *,
-    dataset_id: uuid.UUID | None = None,
-    archive_key: str | None = None,
-    local_copy: str | None = None,
-) -> None:
-    """Delete a published job's staged upload, as its task's cleanup does; never raises.
+async def _delete_staged_upload(job_uuid: uuid.UUID, file_path: str | None) -> None:
+    """Delete the staged upload ``file_path`` names, as its task's cleanup does; never raises.
 
-    The client's presigned key goes whatever the archive does, since the
-    archive reads only ``file_path``. With ``archive_key`` and a live dataset,
-    the upload's original is archived next and ``file_path`` kept when it
-    can't be. ``file_path`` is a local file when ``resolve_file_path`` would
-    read it as one, and is unlinked only inside the upload staging directory.
-    A ``staging/`` path is also deleted from storage.
+    ``file_path`` is a local file when ``resolve_file_path`` would read it as
+    one, and is unlinked only inside the upload staging directory. A
+    ``staging/`` path is also deleted from storage.
     """
     from app.core.tenancy import is_multi_tenant
 
-    job_id = str(job_uuid)
-    await reap_presigned_staging_object(
-        job_id,
-        owned_presigned_staging_key(job_uuid, user_metadata, file_path),
-        final_status="complete",
-    )
     if not file_path:
         return
-    if archive_key and dataset_id is not None:
-        if not await _archive_upload(
-            job_uuid, file_path, dataset_id, archive_key, local_copy
-        ):
-            return
+    job_id = str(job_uuid)
     async with cleanup_step("staged upload", job_id=job_id):
         path = Path(file_path)
         if path.exists() and (path.is_absolute() or not is_multi_tenant()):
@@ -275,29 +287,132 @@ async def _reap_staged_upload(
     )
 
 
-def _owes_the_upload(row) -> bool:
-    """Whether a job's record asks, for the attempt that ended the job complete, to delete its upload."""
+async def _confirm_owed_item(job_uuid: uuid.UUID, item: str) -> None:
+    """Take ``item`` alone off the job's follow-up record; every other item stays owed."""
+    import app.core.db as db_module
+
+    stored = IngestJob.user_metadata
+    path = literal([PUBLISH_FOLLOWUPS_FIELD, item], ARRAY(Text))
+    async with db_module.async_session() as session:
+        await session.execute(
+            update(IngestJob)
+            .where(
+                IngestJob.id == job_uuid, stored[PUBLISH_FOLLOWUPS_FIELD].is_not(None)
+            )
+            .values(user_metadata=stored.op("#-")(path))
+            .execution_options(synchronize_session=False)
+        )
+        await session.commit()
+
+
+async def _schedule_retry(job_uuid: uuid.UUID, attempts: int) -> None:
+    """Count ``attempts`` on the job's record and set when the next one is due."""
+    import app.core.db as db_module
+
+    delay = min(_RETRY_BASE * 2 ** (attempts - 1), _RETRY_CAP)
+    stored = IngestJob.user_metadata
+    counted = func.jsonb_set(
+        stored,
+        literal([PUBLISH_FOLLOWUPS_FIELD, _ATTEMPTS], ARRAY(Text)),
+        func.to_jsonb(literal(attempts, Integer)),
+    )
+    scheduled = func.jsonb_set(
+        counted,
+        literal([PUBLISH_FOLLOWUPS_FIELD, _NEXT_ATTEMPT_AT], ARRAY(Text)),
+        func.to_jsonb(func.now() + delay),
+    )
+    async with db_module.async_session() as session:
+        await session.execute(
+            update(IngestJob)
+            .where(
+                IngestJob.id == job_uuid, stored[PUBLISH_FOLLOWUPS_FIELD].is_not(None)
+            )
+            .values(user_metadata=scheduled)
+            .execution_options(synchronize_session=False)
+        )
+        await session.commit()
+
+
+async def _settle_owed_items(
+    job_uuid: uuid.UUID, row, *, local_copy: str | None = None
+) -> bool:
+    """Run the items a published job's record owes; True once none is left to retry.
+
+    The client's presigned key goes whatever the archive does, since the
+    archive reads only ``file_path``. With a live dataset the upload's
+    original is archived first, and the upload is deleted only once that
+    archive is confirmed. An item left over is tried again after a doubling
+    delay, until the attempts run out.
+    """
+    job_id = str(job_uuid)
+    record = row.user_metadata[PUBLISH_FOLLOWUPS_FIELD]
+    left = {item for item in _ITEMS if item in record}
+    file_path = row.file_path
+    if _ARCHIVE_KEY in left and (
+        not file_path
+        or row.dataset_id is None
+        or await _archive_upload(
+            job_uuid, file_path, row.dataset_id, record[_ARCHIVE_KEY], local_copy
+        )
+    ):
+        await _confirm_owed_item(job_uuid, _ARCHIVE_KEY)
+        left.discard(_ARCHIVE_KEY)
+    if _REAPS_STAGED_UPLOAD in left:
+        await reap_presigned_staging_object(
+            job_id,
+            owned_presigned_staging_key(job_uuid, row.user_metadata, file_path),
+            final_status="complete",
+        )
+        if _ARCHIVE_KEY not in left:
+            await _delete_staged_upload(job_uuid, file_path)
+            await _confirm_owed_item(job_uuid, _REAPS_STAGED_UPLOAD)
+            left.discard(_REAPS_STAGED_UPLOAD)
+    if not left:
+        return True
+    attempts = int(record.get(_ATTEMPTS) or 0) + 1
+    if attempts >= _MAX_ATTEMPTS:
+        structlog.get_logger().warning(
+            "publish_followups_attempts_spent", job_id=job_id, left=sorted(left)
+        )
+        return True
+    await _schedule_retry(job_uuid, attempts)
+    return False
+
+
+def _owes_items(row) -> bool:
+    """Whether a job's record owes items, for the attempt that ended the job complete."""
+    record = row.user_metadata[PUBLISH_FOLLOWUPS_FIELD]
     return (
         row.status == "complete"
         and row.owed_attempt == str(row.attempt_id)
-        and row.reaps_staged_upload == "true"
+        and any(item in record for item in _ITEMS)
+    )
+
+
+def _due_at(record):
+    """When a follow-up record is due: its next attempt, or else when its job ended."""
+    return func.coalesce(
+        cast(record[_NEXT_ATTEMPT_AT].astext, DateTime(timezone=True)),
+        IngestJob.completed_at,
+        IngestJob.created_at,
     )
 
 
 async def run_publish_followups(
     job_uuid: uuid.UUID, *, local_copy: str | None = None
 ) -> bool:
-    """Run a job's owed follow-ups once its terminal commit is visible.
+    """Run a job's owed follow-ups once its terminal commit is visible and they are due.
 
-    A complete job whose record asks for it first has its staged upload
-    deleted, before the claim and holding no lock, so a caller stopped short
-    leaves the record for the next one to delete again. The claim then takes
-    the record at most once, and the job's status chooses what runs: a
+    A complete job's record first has its items run, before the claim and
+    holding no lock; while one is left the record stays owed and is retried
+    later, so a caller stopped short leaves it for the next one. The claim then
+    takes the record at most once, and the job's status chooses what runs: a
     complete first ingest's follow-ups, or a failed job's ``ingest_failed``
-    notice. A replacement owes nothing past the delete. A job in neither status
-    runs nothing, and a row another caller has locked nothing past the delete.
-    A record an earlier attempt wrote is cleared and runs nothing, and a
-    deleted dataset skips the rest. Returns whether this call claimed.
+    notice. A replacement or a vector import owes nothing past its items. A job
+    in neither status runs nothing, and a row another caller has locked nothing
+    past the items. A record an earlier attempt wrote is cleared and runs
+    nothing, and a deleted dataset skips the rest. Returns whether this call
+    claimed.
 
     ``local_copy`` is a copy of the upload the caller holds and keeps; the
     archive reads it instead of downloading the upload again.
@@ -320,26 +435,19 @@ async def run_publish_followups(
         IngestJob.attempt_id,
         owed["task"].astext.label("task"),
         owed["attempt_id"].astext.label("owed_attempt"),
-        owed[_REAPS_STAGED_UPLOAD].astext.label("reaps_staged_upload"),
-        owed[_ARCHIVE_KEY].astext.label("archive_key"),
         IngestJob.file_path,
         IngestJob.user_metadata,
     ).where(
         IngestJob.id == job_uuid,
         IngestJob.status.in_(("complete", "failed")),
         owed.is_not(None),
+        _due_at(owed) <= func.now(),
     )
     async with db_module.async_session() as session:
         pending = (await session.execute(owed_row)).one_or_none()
-    if pending is not None and _owes_the_upload(pending):
-        await _reap_staged_upload(
-            job_uuid,
-            pending.file_path,
-            pending.user_metadata,
-            dataset_id=pending.dataset_id,
-            archive_key=pending.archive_key,
-            local_copy=local_copy,
-        )
+    if pending is not None and _owes_items(pending):
+        if not await _settle_owed_items(job_uuid, pending, local_copy=local_copy):
+            return False
 
     async with db_module.async_session() as session:
         claim = (
@@ -371,7 +479,7 @@ async def run_publish_followups(
                 job_uuid, task=task, reason=claim.error_message or ""
             )
         return True
-    if task in _REPLACEMENTS:
+    if task in _ITEMS_ONLY:
         return True
     if task not in _LABELS:
         log.warning("publish_followups_unknown_task")
@@ -438,12 +546,15 @@ async def notify_ingest_failed(
 async def run_owed_publish_followups() -> int:
     """Run the follow-ups landed terminal commits still owe, a bounded batch a call; never raises.
 
+    Takes only records that are due, the longest due first, so records that
+    keep failing wait out their delay instead of crowding out fresh ones.
     Returns how many jobs this call claimed. A job whose follow-ups fail is
     logged and skipped.
     """
     import app.core.db as db_module
 
     log = structlog.get_logger()
+    record = IngestJob.user_metadata[PUBLISH_FOLLOWUPS_FIELD]
     try:
         async with db_module.async_session() as session:
             owed = (
@@ -451,8 +562,10 @@ async def run_owed_publish_followups() -> int:
                     select(IngestJob.id)
                     .where(
                         IngestJob.status.in_(("complete", "failed")),
-                        IngestJob.user_metadata[PUBLISH_FOLLOWUPS_FIELD].is_not(None),
+                        record.is_not(None),
+                        _due_at(record) <= func.now(),
                     )
+                    .order_by(_due_at(record))
                     .limit(_SWEEP_BATCH)
                 )
             ).all()

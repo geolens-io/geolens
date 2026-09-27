@@ -2710,6 +2710,9 @@ class TestArchiveRunsAfterTheSwapCommit:
         async def _recording_put(key, fobj):
             put_calls.append(key)
 
+        from app.processing.ingest.service import resolve_file_path
+
+        resolve = AsyncMock(side_effect=resolve_file_path)
         dataset, job = await self._run_reupload(
             test_db_session,
             tmp_path,
@@ -2717,9 +2720,13 @@ class TestArchiveRunsAfterTheSwapCommit:
             put_side_effect=_recording_put,
             staged_key=frozen_key,
             fake_downloads=False,
-            extra_patches=(patch("app.platform.storage.get_storage", lambda: storage),),
+            extra_patches=(
+                patch("app.platform.storage.get_storage", lambda: storage),
+                patch("app.processing.ingest.service.resolve_file_path", new=resolve),
+            ),
         )
 
+        assert resolve.await_count == 1
         assert reads == [frozen_key]
         assert put_calls == [f"originals/{dataset.id}/{job.id}_update.geojson"]
         deleted = [call.args[0] for call in storage.delete.await_args_list]

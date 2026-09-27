@@ -142,13 +142,23 @@ class TestAnUnarchivedOriginalKeepsItsUpload:
             )
             await session.commit()
 
-    async def _import(self, session, tmp_path, *, outcome: str, staged_key=None):
+    async def _import(
+        self,
+        session,
+        tmp_path,
+        *,
+        outcome: str,
+        staged_key=None,
+        extra_patches: tuple = (),
+        raises: type[BaseException] | None = None,
+    ):
         """Run the import on ``points.geojson``, staged in place or, with
         ``staged_key``, in object storage and downloaded to that file.
 
         ``outcome`` is what the archive's write does: lands, fails, or is
-        cancelled, which the import then raises. Returns the job id, the
-        storage double, the local file and the job's stored metadata."""
+        cancelled, which the import then raises, as it does ``raises``.
+        Returns the job id, the storage double, the local file and the job's
+        stored metadata."""
         source = tmp_path / "points.geojson"
         source.write_bytes(_GEOJSON)
         file_path = staged_key or str(source)
@@ -187,8 +197,12 @@ class TestAnUnarchivedOriginalKeepsItsUpload:
             patch("app.platform.storage.get_storage", lambda: storage),
             contextlib.ExitStack() as expected,
         ):
+            for extra in extra_patches:
+                expected.enter_context(extra)
             if outcome == "cancelled":
-                expected.enter_context(pytest.raises(asyncio.CancelledError))
+                raises = asyncio.CancelledError
+            if raises is not None:
+                expected.enter_context(pytest.raises(raises))
             await ingest_file.func(
                 job_id=str(job_id),
                 file_path=file_path,
@@ -230,6 +244,78 @@ class TestAnUnarchivedOriginalKeepsItsUpload:
             assert (frozen_key in deleted) is not kept
             assert (ARCHIVE_PENDING_METADATA_KEY in metadata) is kept
             assert not source.exists()
+        finally:
+            await _drop_job(test_db_session, job_id)
+
+    async def test_a_later_sweep_archives_an_import_whose_archive_was_cancelled(
+        self, test_db_session, tmp_path, monkeypatch
+    ) -> None:
+        """The publish owes the archive, so the sweep makes it, clears the mark and deletes the upload."""
+        from app.core.config import settings
+        from app.processing.ingest.publish_followups import (
+            PUBLISH_FOLLOWUPS_FIELD,
+            run_owed_publish_followups,
+        )
+
+        job_id, _storage, source, metadata = await self._import(
+            test_db_session, tmp_path, outcome="cancelled"
+        )
+        try:
+            archive_key = metadata[PUBLISH_FOLLOWUPS_FIELD]["archive_key"]
+            due = {
+                **metadata[PUBLISH_FOLLOWUPS_FIELD],
+                "next_attempt_at": "2000-01-01T00:00:00+00:00",
+            }
+            await test_db_session.execute(
+                update(IngestJob)
+                .where(IngestJob.id == job_id)
+                .values(user_metadata={**metadata, PUBLISH_FOLLOWUPS_FIELD: due})
+            )
+            await test_db_session.commit()
+            monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path))
+            storage = AsyncMock()
+            storage.exists = AsyncMock(return_value=False)
+            with (
+                patch(
+                    "app.processing.ingest.tasks_staging.get_storage", lambda: storage
+                ),
+                patch("app.platform.storage.get_storage", lambda: storage),
+            ):
+                await run_owed_publish_followups()
+
+            assert archive_key in [call.args[0] for call in storage.put.await_args_list]
+            assert not source.exists()
+            test_db_session.expire_all()
+            after = (await test_db_session.get(IngestJob, job_id)).user_metadata
+            assert (
+                not {ARCHIVE_PENDING_METADATA_KEY, PUBLISH_FOLLOWUPS_FIELD}
+                & after.keys()
+            )
+        finally:
+            await _drop_job(test_db_session, job_id)
+
+    async def test_the_publish_commit_itself_marks_the_archive_pending(
+        self, test_db_session, tmp_path
+    ) -> None:
+        """A task stopped right after the publish commit leaves the job marked and owing its archive."""
+        from app.processing.ingest.publish_followups import PUBLISH_FOLLOWUPS_FIELD
+
+        stopped = patch(
+            "app.platform.notifications.events.emit_event_safe",
+            AsyncMock(side_effect=asyncio.CancelledError()),
+        )
+        job_id, storage, source, metadata = await self._import(
+            test_db_session,
+            tmp_path,
+            outcome="archived",
+            extra_patches=(stopped,),
+            raises=asyncio.CancelledError,
+        )
+        try:
+            storage.put.assert_not_awaited()
+            assert metadata[ARCHIVE_PENDING_METADATA_KEY] is True
+            assert "archive_key" in metadata[PUBLISH_FOLLOWUPS_FIELD]
+            assert source.exists()
         finally:
             await _drop_job(test_db_session, job_id)
 

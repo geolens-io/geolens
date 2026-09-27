@@ -666,7 +666,7 @@ async def ingest_file(
                     # No file_hash — it is computed on the
                     # re-upload path only, and the allowlist omits absent keys.
                     origin_ref={"filename": source_filename},
-                    archives_upload=True,
+                    archive_from=file_path,
                 )
             )
 

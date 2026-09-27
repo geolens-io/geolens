@@ -208,9 +208,9 @@ class IngestContext:
     # unexpected — a credential most of all — reaches the column. Callers
     # pass their own payload rather than one being inferred here.
     origin_ref: dict[str, Any] | None = None
-    # The task archives the uploaded original after the commit that completes
-    # the job, so that commit marks the archive pending.
-    archives_upload: bool = False
+    # The local copy of the upload the task archives after the commit that
+    # completes the job; that commit owes the archive in a follow-up record.
+    archive_from: str | None = None
 
 
 _connector_kwargs: dict = {
@@ -1276,7 +1276,6 @@ async def _finalize_ingest(ctx: IngestContext):
     # ``extract_metadata`` above; raster ingests (which do not call this
     # helper) leave the column NULL — see tasks_raster.ingest_raster.
     from app.platform.jobs import ledger
-    from app.platform.jobs.models import with_archive_pending
 
     completed = {
         "dataset_id": dataset.id,
@@ -1284,8 +1283,18 @@ async def _finalize_ingest(ctx: IngestContext):
         "progress": 1.0,
         "rows_processed": metadata.get("feature_count"),
     }
-    if ctx.archives_upload:
-        completed["user_metadata"] = with_archive_pending()
+    if ctx.archive_from is not None:
+        from app.processing.ingest.publish_followups import owed_followups
+        from app.processing.ingest.tasks_staging import original_archive_key
+
+        # A fan-out layer shares its upload with its siblings, so it never deletes it.
+        completed["user_metadata"] = owed_followups(
+            ctx.attempt_id or job.attempt_id,
+            "ingest_file",
+            reaps_staged_upload=not user_metadata.get("fan_out_parent_id"),
+            archive_key=original_archive_key(dataset.id, ctx.archive_from),
+            sweep_waits=True,
+        )
     await ledger.complete(
         session, job.id, ctx.attempt_id or job.attempt_id, values=completed
     )

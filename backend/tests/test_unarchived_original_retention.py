@@ -93,12 +93,17 @@ async def test_the_purge_keeps_an_unarchived_original_and_its_upload(
 
 
 @pytest.mark.parametrize(
+    "mark",
+    [{"archive_failed": True}, {ARCHIVE_PENDING_METADATA_KEY: True}],
+    ids=["flagged", "pending"],
+)
+@pytest.mark.parametrize(
     ("status", "delete_dataset"),
     [("complete", True), ("failed", False)],
     ids=["dataset_deleted", "failed"],
 )
 async def test_the_purge_takes_a_flagged_job_with_no_live_version(
-    test_db_session, tmp_path, monkeypatch, status, delete_dataset
+    test_db_session, tmp_path, monkeypatch, status, delete_dataset, mark
 ):
     monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path))
     monkeypatch.setattr(settings, "ingest_jobs_retention_days", 30)
@@ -115,7 +120,7 @@ async def test_the_purge_takes_a_flagged_job_with_no_live_version(
         created_at=old,
         completed_at=old,
         file_path=str(upload),
-        user_metadata={"archive_failed": True},
+        user_metadata=mark,
     )
     test_db_session.add(job)
     await test_db_session.commit()
