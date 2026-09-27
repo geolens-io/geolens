@@ -469,6 +469,33 @@ class TestTheProxyRelaysOnlyToCheckedAddresses:
             await asyncio.wait_for(upstream_closed.wait(), 5)
             writer.close()
 
+    async def test_leaving_the_block_stops_a_relay_still_resolving(self, monkeypatch):
+        entered = asyncio.Event()
+        cancelled = asyncio.Event()
+
+        async def resolve_forever(host: str, port: int | None) -> str:
+            entered.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+            return "127.0.0.1"
+
+        monkeypatch.setattr(egress_proxy, "_resolve_and_validate", resolve_forever)
+
+        async def request_then_leave() -> asyncio.StreamWriter:
+            async with service_egress_proxy(idle_seconds=60) as egress:
+                _reader, writer = await _open(egress)
+                writer.write(_get(f"http://{_HOST}/wfs", _HOST))
+                await asyncio.wait_for(entered.wait(), 5)
+            return writer
+
+        writer = await asyncio.wait_for(request_then_leave(), 10)
+        writer.close()
+
+        assert cancelled.is_set()
+
     async def test_it_stops_listening_when_its_block_exits(self):
         async with service_egress_proxy(idle_seconds=30) as egress:
             address = urlsplit(egress.address)
