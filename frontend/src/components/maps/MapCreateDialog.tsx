@@ -78,7 +78,7 @@ export function MapCreateDialog({ open, onOpenChange }: MapCreateDialogProps) {
       toast.success(t('mapCreate.mapCreated'));
       navigate(`/maps/${newMap.id}`);
     } catch {
-      toast.error(t('mapCreate.createFailed'));
+      // The mutation reports the failure; keep the form available for retry.
     }
   }
 

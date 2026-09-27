@@ -26,6 +26,7 @@ import { MapCreateDialog } from '@/components/maps/MapCreateDialog';
 import { MapDeleteDialog } from '@/components/maps/MapDeleteDialog';
 import { Pagination } from '@/components/layout/Pagination';
 import { useMaps, useDeleteMap } from '@/hooks/use-maps';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { useAuthStore } from '@/stores/auth-store';
 import { readStorage, writeStorage, storageKeys } from '@/lib/storage';
@@ -38,6 +39,8 @@ function getStoredView(): string {
 
 export function MapsPage() {
   const { t } = useTranslation();
+  const { can } = usePermissions();
+  const canCreateMap = can('edit_metadata');
   const isEditor = useAuthStore((s) => s.isEditor());
   const [skip, setSkip] = useState(0);
   const [search, setSearch] = useState('');
@@ -109,7 +112,7 @@ export function MapsPage() {
             {data && <Badge variant="secondary" className="readout">{data.total}</Badge>}
             {/* Hide the header create button when the empty state is showing its
                 own primary CTA (no maps, no active search/filter). */}
-            {isEditor && !(data && data.total === 0 && !debouncedSearch && visibility === 'all') && (
+            {canCreateMap && !(data && data.total === 0 && !debouncedSearch && visibility === 'all') && (
               <Button size="sm" onClick={() => setCreateOpen(true)}>
                 <Plus className="h-4 w-4 me-1" />
                 {t('maps.createMap', 'Create Map')}
@@ -201,7 +204,7 @@ export function MapsPage() {
               : t('maps.noMapsDescription')
           }
           action={
-            !debouncedSearch && visibility === 'all' && isEditor ? (
+            !debouncedSearch && visibility === 'all' && canCreateMap ? (
               <Button onClick={() => setCreateOpen(true)}>
                 <Plus className="h-4 w-4 me-1" />
                 {t('maps.createFirstMap')}
@@ -236,18 +239,15 @@ export function MapsPage() {
         />
       )}
 
+      {canCreateMap && <MapCreateDialog open={createOpen} onOpenChange={setCreateOpen} />}
       {isEditor && (
-        <>
-          <MapCreateDialog open={createOpen} onOpenChange={setCreateOpen} />
-
-          <MapDeleteDialog
-            open={!!deletingMap}
-            onOpenChange={(open) => !open && setDeletingMap(null)}
-            mapName={deletingMap?.name ?? ''}
-            onConfirm={handleDeleteConfirm}
-            isDeleting={deleteMap.isPending}
-          />
-        </>
+        <MapDeleteDialog
+          open={!!deletingMap}
+          onOpenChange={(open) => !open && setDeletingMap(null)}
+          mapName={deletingMap?.name ?? ''}
+          onConfirm={handleDeleteConfirm}
+          isDeleting={deleteMap.isPending}
+        />
       )}
     </PageShell>
     </TooltipProvider>

@@ -157,7 +157,7 @@
   --code-chrome: oklch(0.14 0.006 250);
   --code-chrome-border: oklch(0.22 0.008 250);
   --code-text: oklch(0.92 0 0);
-  --code-muted: oklch(0.55 0 0);
+  --code-muted: oklch(0.68 0 0);
   --code-keyword: oklch(0.75 0.17 300);
   --code-function: oklch(0.78 0.13 220);
   --code-string: oklch(0.78 0.13 140);
@@ -280,7 +280,7 @@
   --code-chrome: oklch(0.12 0.006 250);
   --code-chrome-border: oklch(0.20 0.008 250);
   --code-text: oklch(0.92 0 0);
-  --code-muted: oklch(0.55 0 0);
+  --code-muted: oklch(0.68 0 0);
   --code-keyword: oklch(0.75 0.17 300);
   --code-function: oklch(0.78 0.13 220);
   --code-string: oklch(0.78 0.13 140);
@@ -535,19 +535,38 @@
 .dark .maplibregl-ctrl-group button + button {
   border-top-color: oklch(1 0 0 / 10%);
 }
-.dark .maplibregl-ctrl-attrib {
-  background: oklch(0.145 0.008 250 / 80%);
-  color: oklch(0.708 0 0);
-}
-.dark .maplibregl-ctrl-attrib a {
-  color: oklch(0.72 0.17 250);
-}
-
 /* ── MapLibre Attribution Control ──────────────────── */
-.maplibregl-ctrl-attrib {
+/* Opaque pairs keep attribution readable over tiles and compact-control states. */
+.maplibregl-map .maplibregl-ctrl.maplibregl-ctrl-attrib {
+  background: var(--background);
+  color: var(--foreground);
   font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0.02em;
+}
+
+.maplibregl-map .maplibregl-ctrl-attrib a,
+.maplibregl-map .maplibregl-ctrl-attrib a:hover {
+  color: var(--foreground);
+  text-decoration: underline;
+}
+.dark .maplibregl-map .maplibregl-ctrl-attrib-button {
+  filter: invert(1);
+}
+
+html [data-sonner-toaster][data-sonner-theme] {
+  --success-bg: var(--background);
+  --success-border: var(--success);
+  --success-text: var(--success);
+  --info-bg: var(--background);
+  --info-border: var(--info);
+  --info-text: var(--info);
+  --warning-bg: var(--background);
+  --warning-border: var(--warning);
+  --warning-text: var(--warning);
+  --error-bg: var(--background);
+  --error-border: var(--destructive);
+  --error-text: var(--destructive);
 }
 
 /* ── MapLibre Scale Control ────────────────────────── */

@@ -812,9 +812,8 @@ export function DataDrivenStyleEditor({
 
   return (
     <div className="space-y-2.5">
-      <div className="flex items-center justify-between">
-        <Label className="text-xs font-medium">{t('dataDriven.title')}</Label>
-        {column && (
+      {column && (
+        <div className="flex justify-end">
           <Button
             variant="ghost"
             size="icon"
@@ -825,11 +824,8 @@ export function DataDrivenStyleEditor({
           >
             <X className="h-3 w-3" />
           </Button>
-        )}
-      </div>
-      <p className="text-mini leading-snug text-muted-foreground">
-        {t('dataDriven.scopeHelp')}
-      </p>
+        </div>
+      )}
 
       <div className="flex items-center gap-2">
         <span className="text-xs text-muted-foreground w-20">{t('dataDriven.mode')}</span>
