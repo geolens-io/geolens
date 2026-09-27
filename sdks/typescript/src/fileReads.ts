@@ -16,10 +16,11 @@
  * routes that declare a binary body: COG download, dataset export, a 3D
  * Tiles file and a COPC point cloud file.
  *
- * A 304 from a conditional read (`If-None-Match`) on these same routes is
- * a successful revalidation with no body, but the client treats any
- * non-2xx status as an error — see `notModified` below, which reads that
- * signal from the call's own result rather than rewriting the response.
+ * A 304 from a conditional read (`If-None-Match` or `If-Modified-Since`) on
+ * these same routes is a successful revalidation with no body, but the
+ * client treats any non-2xx status as an error — see `notModified` below,
+ * which reads that signal from the call's own result rather than rewriting
+ * the response.
  */
 import type { Client } from './client/client/index.js';
 
@@ -64,9 +65,15 @@ export function installFileReadHandling(target: Client): void {
 
 /**
  * True when `result` (a generated call's non-throwing return value) is a
- * conditional read's cache hit. With `throwOnError` a 304 throws before a
- * result exists — call these file-read routes without it to use this.
+ * conditional read's cache hit: a 304 answering a request that sent
+ * `If-None-Match` or `If-Modified-Since`. With `throwOnError` a 304 throws
+ * before a result exists — call these file-read routes without it to use this.
  */
-export function notModified(result: { response?: Response }): boolean {
-  return result.response?.status === 304;
+export function notModified(result: { request?: Request; response?: Response }): boolean {
+  const sent = result.request?.headers;
+  return (
+    result.response?.status === 304 &&
+    sent !== undefined &&
+    (sent.has('if-none-match') || sent.has('if-modified-since'))
+  );
 }

@@ -27,3 +27,19 @@ other. Omitting `client` from a generated call falls back to a shared
 process-wide default that the most recent `createGeolensClient()` call
 configures; that default is fine for a single-client script but is
 last-caller-wins across concurrent clients.
+
+## Redirects
+
+When a redirect leaves the GeoLens origin, which happens when a COG download is
+served from object storage, the SDK doesn't send credentials or client headers
+there. Only `Range` and the `If-*` precondition headers go along.
+
+In Node the SDK follows GET and HEAD redirects itself. A hop that leaves the
+GeoLens origin goes through the global `fetch`, not the client's `fetch` option
+(a proxy set with undici's `setGlobalDispatcher` still applies).
+
+In a browser, where a redirect's target can't be read, a request carrying
+`Authorization` or `X-API-Key` fails with `RedirectError`, and any other
+request is sent again, without cookies, for the browser to follow. To download
+a COG there, mint a download token (`POST /auth/download-token/{dataset_id}`)
+and fetch `/datasets/{dataset_id}/download/cog?token=...` without credentials.
