@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import sys
 import time
 import uuid
 import tempfile
@@ -298,39 +299,18 @@ def _dispose_shared_app_engine_after_test(request):
 
 @pytest.fixture(autouse=True)
 def _restore_process_global_config():
-    """Snapshot/restore the process-global config singleton + tenancy-mode env per test.
+    """Put the config singleton and the tenancy-mode env var back after each test.
 
-    ROOT cause of the v1042 ``pytest -n 4`` cross-test cascade. Many tenancy tests
-    rebind ``app.core.config.settings`` to a fresh ``Settings()`` (via the local
-    ``_reload_settings()`` helpers) and/or set ``os.environ["GEOLENS_TENANCY_MODE"]``
-    to exercise the multi_tenant paths. Both are PROCESS-GLOBAL per pytest-xdist
-    worker, not per-test:
+    Tenancy tests rebind ``app.core.config.settings`` to a fresh ``Settings()`` and
+    set ``GEOLENS_TENANCY_MODE`` to reach the multi_tenant paths, and both are global
+    to the xdist worker. A fresh ``Settings()`` lacks the per-worker
+    ``postgres_db_test`` name set on the original at session setup, and a leaked
+    multi_tenant mode changes RLS, schema and migration behaviour for later tests.
+    App modules bind ``settings`` when imported, so one first imported while a test
+    had it rebound would keep that test's object; those are pointed back as well.
 
-      * The fresh ``Settings()`` loses the conftest-injected per-worker
-        ``postgres_db_test`` suffix (``conftest.py`` sets it as an attribute on the
-        ORIGINAL singleton at session setup — line ~1133), reverting to the bare
-        ``geolens_test`` default. Any later test on the SAME worker then connects to
-        a non-existent DB -> ``InvalidCatalogNameError`` / ``ogr2ogr PQconnectdb
-        failed`` / 500s.
-      * A leaked ``GEOLENS_TENANCY_MODE=multi_tenant`` makes downstream
-        alembic-autogenerate (cloud columns -> "drift detected"), RLS enforcement
-        ("permission denied for table users"), and per-tenant-schema code
-        ("schema data_t_... does not exist") behave wrongly on tests that assume the
-        single_tenant default.
-
-    Only ONE module (test_tenancy_mode.py, b269f24d) restored this, so 9+ other
-    tenancy modules leaked. Restoring the original singleton OBJECT (suffix
-    preserved) + the original env value after EVERY test makes the suite leak-proof
-    regardless of which xdist worker a test lands on — the deterministic ROOT fix the
-    per-module xdist grouping could not provide (loadgroup may co-locate distinct
-    groups on one worker; ungrouped tests can land on the tenancy worker too).
-
-    Safe for tests that legitimately mutate settings WITHIN a test body:
-      * ``monkeypatch.setattr(settings, ...)`` mutates attributes on the existing
-        singleton (does not rebind ``cfg_mod.settings``), so the ``is not`` guard
-        below is a no-op for them and monkeypatch still auto-reverts the attrs.
-      * Tests that rebind via ``_reload_settings()`` observe their fresh object for
-        the duration of the test; only the teardown restore (after ``yield``) runs.
+    ``monkeypatch.setattr(settings, ...)`` changes attributes on the singleton itself
+    and monkeypatch undoes it; nothing here interferes with that.
     """
     import app.core.config as cfg_mod
 
@@ -341,8 +321,12 @@ def _restore_process_global_config():
     try:
         yield
     finally:
-        if cfg_mod.settings is not original_settings:
-            cfg_mod.settings = original_settings
+        cfg_mod.settings = original_settings
+        for name, module in list(sys.modules.items()):
+            if name.startswith("app.") and isinstance(
+                getattr(module, "settings", None), cfg_mod.Settings
+            ):
+                module.settings = original_settings
         if _mode_was_set:
             os.environ[_MODE_KEY] = _original_mode  # type: ignore[assignment]
         else:
