@@ -50,6 +50,7 @@ from app.processing.raster.probe import (
     read_raster_metadata,
     render_quicklook,
 )
+from app.processing.raster.vrt_members import cog_readers, retain_cog
 
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
@@ -234,6 +235,7 @@ class _RasterReplace:
         self.written_storage_keys: list[str] = []
         self.prior_physical_keys: list[str] = []
         self.prior_asset_keys: list[str] = []
+        self.prior_asset_uri: str | None = None
         # The upload may be deleted only once the COG is known to carry
         # everything it did, or its original is archived.
         self.source_preserved_in_cog = False
@@ -268,6 +270,7 @@ class _RasterReplace:
                 raster_asset.quicklook_256_uri,
                 raster_asset.quicklook_512_uri,
             )
+        self.prior_asset_uri = live[0]
         self.prior_asset_keys = [key for key in live if key]
         self.prior_physical_keys = _prior_asset_keys_to_reap(
             asset_uri=live[0], quicklook_256_uri=live[1], quicklook_512_uri=live[2]
@@ -437,15 +440,34 @@ class _RasterReplace:
             if self.archived_key
             else None
         )
+        superseded_keys = tuple(
+            key
+            for key, physical in zip(
+                self.prior_asset_keys, self.prior_physical_keys, strict=True
+            )
+            if physical not in self.written_storage_keys
+        )
+        cog = self.prior_asset_uri if self.prior_asset_uri in superseded_keys else None
+        kept = cog is not None and any(await cog_readers(session, dataset.id, cog))
         # Before the upserts: the live recount would otherwise count them twice.
-        await reserve_replacement_bytes(
+        # A COG a VRT may still read stays charged under a row of its own.
+        cog_bytes = await reserve_replacement_bytes(
             session,
             dataset_id=dataset.id,
             owner_id=dataset.record.created_by,
             new_size=self.cog_size,
             archived_bytes=self.archived_bytes,
             archived_asset_key=archived_asset_key,
+            credit_superseded=not kept,
         )
+        if kept:
+            await retain_cog(
+                session,
+                dataset_id=dataset.id,
+                attempt_id=self.attempt_uuid,
+                asset_uri=cog,
+                size_bytes=cog_bytes,
+            )
         await upsert_archived_original_row(
             session,
             dataset_id=dataset.id,
@@ -501,13 +523,7 @@ class _RasterReplace:
             reaps_staged_upload=(
                 self.source_preserved_in_cog or self.lossy_original_archived
             ),
-            superseded_keys=tuple(
-                key
-                for key, physical in zip(
-                    self.prior_asset_keys, self.prior_physical_keys, strict=True
-                )
-                if physical not in self.written_storage_keys
-            ),
+            superseded_keys=superseded_keys,
         )
 
     def classify(self, exc: BaseException) -> Failure:

@@ -56,8 +56,9 @@ async def get_user_quota_usage(
     """Return current bytes-used and dataset-count for a user in one SQL round-trip.
 
     Joins records -> datasets -> dataset_assets (key 'data', 'tileset',
-    'pointcloud' or 'archived_original:*') to sum byte size; only dataset
-    record types are counted (maps/services/collections excluded).
+    'pointcloud', 'archived_original:*' or 'retained_cog:*') to sum byte
+    size; only dataset record types are counted (maps/services/collections
+    excluded).
 
     Byte-coverage caveat: ``bytes_used`` sums ONLY those assets, so in
     practice it's raster files, unpacked tilesets and point cloud files --
@@ -86,7 +87,8 @@ async def get_user_quota_usage(
         LEFT JOIN catalog.dataset_assets da
                ON da.dataset_id = d.id
               AND (da.key IN ('data', :tileset_key, :pointcloud_key)
-                   OR da.key LIKE 'archived_original:%')
+                   OR da.key LIKE 'archived_original:%'
+                   OR da.key LIKE 'retained_cog:%')
         WHERE  r.created_by = :user_id
           AND  r.record_type = ANY(CAST(:record_types AS text[]))
         """
@@ -144,7 +146,8 @@ async def get_user_quota_usage_bulk(
         LEFT JOIN catalog.dataset_assets da
                ON da.dataset_id = d.id
               AND (da.key IN ('data', :tileset_key, :pointcloud_key)
-                   OR da.key LIKE 'archived_original:%')
+                   OR da.key LIKE 'archived_original:%'
+                   OR da.key LIKE 'retained_cog:%')
         WHERE  r.created_by = ANY(CAST(:user_ids AS uuid[]))
           AND  r.record_type = ANY(CAST(:record_types AS text[]))
         GROUP BY r.created_by

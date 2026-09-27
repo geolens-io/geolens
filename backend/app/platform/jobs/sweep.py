@@ -1505,6 +1505,7 @@ async def fail_stale_jobs(
     endpoint and its audit event. ``settle_stale_jobs`` holds the stale rules.
     """
     from app.processing.ingest.publish_followups import run_owed_publish_followups
+    from app.processing.raster.vrt_members import reclaim_retained_cogs
 
     now = datetime.now(timezone.utc)
     settled = await settle_stale_jobs(db, now)
@@ -1629,6 +1630,7 @@ async def fail_stale_jobs(
         # them — the only direction that finds one nothing references.
         await reconcile_orphaned_staging_objects(db, now=now)
         await run_owed_publish_followups()
+        await reclaim_retained_cogs()
     if detailed:
         return outcome
     return outcome.pending_failed, outcome.running_failed
