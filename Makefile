@@ -181,13 +181,16 @@ SDKS_TMPDIR := $(CURDIR)/.sdks-tmp
 # `sdks` itself only stashes $(SDK_PRESERVED_FILES), delegates the pipeline to
 # _sdks_generate, and always restores them and removes $(SDKS_TMPDIR), whether
 # generation succeeded or failed. Recipe lines each run in their own shell, so
-# there's no single process to hang a `trap` off of; the exit code is
-# threaded through a file in $(SDKS_TMPDIR) instead. Plain `mkdir` (no -p)
-# both creates $(SDKS_TMPDIR) and claims it: it fails atomically if the
-# directory already exists, whether left behind by an interrupted run that
-# never restored its stashed files, or by another make sdks already running
-# in this checkout, and refuses rather than deleting what may be the only
-# good copy or racing that other run for the same files.
+# there's no single process to hang a `trap` off of; a failed generation's
+# exit code is threaded through a file in $(SDKS_TMPDIR) instead. Plain
+# `mkdir` (no -p) both creates $(SDKS_TMPDIR) and claims it: it fails
+# atomically if the directory already exists, whether left behind by an
+# interrupted run that never restored its stashed files, or by another make
+# sdks already running in this checkout, and refuses rather than deleting
+# what may be the only good copy or racing that other run for the same files.
+# `make -n` still runs the $(MAKE) line, so it writes that file only on
+# failure: a dry run leaves an existing run's scratch state alone, and a
+# failure it can't record stops make before the restore reports success.
 sdks:
 	@mkdir "$(SDKS_TMPDIR)" 2>/dev/null || { \
 	    echo "ERROR: $(SDKS_TMPDIR) already exists." >&2; \
@@ -195,10 +198,10 @@ sdks:
 	    exit 1; \
 	  }
 	@$(foreach f,$(SDK_PRESERVED_FILES),mkdir -p "$(SDKS_TMPDIR)/$(dir $(f))"; if [ -e "$(f)" ]; then cp "$(f)" "$(SDKS_TMPDIR)/$(f)" || { echo "ERROR: failed to back up $(f) to $(SDKS_TMPDIR); nothing has been generated yet." >&2; rm -rf -- "$(SDKS_TMPDIR)"; exit 1; }; fi;)
-	@$(MAKE) _sdks_generate; echo $$? > "$(SDKS_TMPDIR)/.generate-exit"
+	@$(MAKE) _sdks_generate || echo $$? > "$(SDKS_TMPDIR)/.generate-failed"
 	@restore_failed=0; \
 	$(foreach f,$(SDK_PRESERVED_FILES),if [ -e "$(SDKS_TMPDIR)/$(f)" ]; then cp "$(SDKS_TMPDIR)/$(f)" "$(f)" || restore_failed=1; fi;) \
-	ec=$$(cat "$(SDKS_TMPDIR)/.generate-exit" 2>/dev/null || echo 1); \
+	ec=$$(cat "$(SDKS_TMPDIR)/.generate-failed" 2>/dev/null || echo 0); \
 	if [ "$$restore_failed" != 0 ]; then \
 	    echo "ERROR: failed to restore one or more hand-maintained files from $(SDKS_TMPDIR); left in place, fix manually then remove it." >&2; \
 	    exit 1; \
