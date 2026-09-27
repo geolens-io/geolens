@@ -277,6 +277,74 @@ and releases use semantic versioning.
   raster can be served as a redirect to object storage. This is opt-in
   through the new `S3_PRESIGNED_DOWNLOADS` setting, off by default; with it
   off, downloads stream through the API as they did before. (#2411)
+- A batch of catalog, import, dataset, builder and admin UX fixes: a
+  dataset's compact warning summary expands to full details instead of
+  always showing everything; the import review keeps a single file's
+  reviewed settings, and a failed job's retry controls stay visible, during
+  a mixed batch; publishing a map now discloses that Public makes it
+  visible to everyone and lists it in Maps; storage quota controls accept
+  exact GiB and byte values; and creating, editing or deleting a map from
+  the dataset page, an AI result or the import flow now consistently checks
+  the caller's effective permissions and ownership. (#2409)
+- Completed import jobs whose archive flags (`archive_pending` or
+  `archive_failed`) had nothing left able to retry them, either because the
+  job predates the retry mechanism or because its dataset was deleted or
+  its staged upload path was never recorded, no longer stay flagged forever
+  while holding their staged upload. They are now settled: confirmed once
+  the archive is actually in storage, or marked with an `archive_review`
+  reason an operator can see in Admin > Jobs, next to `archive_failed` in
+  the job's metadata. RUNBOOK section 9 documents the retry schedule and
+  the review reasons. (#2412)
+- The TypeScript SDK now follows redirects itself instead of leaving them
+  to `fetch`, so a hop to another origin, such as an S3 redirect, never
+  carries GeoLens credentials or custom headers; only `Range` and
+  conditional-request headers cross with it. In a browser, a credentialed
+  GET or HEAD that redirects off the GeoLens origin now fails with the new
+  `RedirectError` instead of silently following with those credentials
+  attached; request a download token (`POST
+  /auth/download-token/{dataset_id}`) for COG downloads instead. (#2414)
+- When a VRT regeneration's publish commit lands but the worker's
+  acknowledgement of it is lost, and the database confirms the commit
+  landed, the regenerated VRT now purges the catalog cache and refreshes
+  its search embedding, matching the normal path. Previously these two
+  steps were skipped in that case, so a regenerated VRT could keep serving
+  cached catalog responses and a stale embedding until an unrelated write
+  refreshed them. (#2418)
+- Deleting a dataset while its vector import is still archiving the
+  original file now waits briefly, about 2 seconds, and returns 409 instead
+  of succeeding and leaving the original behind with no dataset pointing at
+  it. A bulk delete reports that item as a conflict, and retrying once the
+  archive finishes deletes the dataset and its archive together. (#2420)
+- A presigned upload is no longer deleted while it may be the only copy of
+  an import's original file. A completed job that owed its archive but had
+  no recorded staged-file path could previously have its presigned upload
+  deleted in the same pass that flagged the archive for review, losing the
+  only copy; the upload, and its later expiry sweep, now wait until the
+  archive is confirmed or the dataset is deleted. (#2422)
+- On an Azure-backed install, a published raster's STAC item and OGC
+  record now link its COG and quicklook images to the routes that serve
+  them. Previously an Azure-stored raster listed no data, thumbnail or
+  overview asset at all, because the asset builder only knew how to link
+  an S3 key, by presigning, or a local storage key, by route. (#2425)
+- A VRT's reported member count, in its status, dataset detail and list,
+  OGC record item and search results, now counts only the members the
+  caller can read, matching the member list shown beside it, instead of the
+  raw total. An administrator still sees the true count, and a generation
+  history entry's member count stays visible only to the VRT's owner or an
+  admin. (#2426)
+- Adding a layer to an already-public map, or setting a map to Public while
+  adding layers in the same request, is now refused with the same check
+  used when first publishing a map, so those two paths can no longer leave
+  a public map drawing a non-public dataset. A public map that already
+  holds such a layer from before this fix now withholds its stored
+  thumbnail and social-share image from any caller who cannot read every
+  dataset it draws, a terrain elevation layer included; other callers get
+  the same 404 as a map with no image, and the share card falls back to
+  the site's default image. (#2424)
+- Raster data files in STAC and records are linked only for callers who
+  may download them. (#2415)
+- The chat add-layer tool names a dataset only when the caller can read
+  it. (#2421)
 
 ### Known limitations
 
@@ -292,6 +360,55 @@ and releases use semantic versioning.
   addresses the bucket as a subdomain of the endpoint. This was verified
   with `bitnamilegacy/minio` for uploads, COG downloads, and raster and
   vector tiles.
+- Deleting a dataset while its import is still archiving the original file
+  returns 409 for a few seconds instead of failing outright; retrying once
+  the archive finishes succeeds. (#2412, #2420)
+- Replacing a mosaic (VRT) member whose old COG is kept alive because
+  another mosaic still reads it has two open quota gaps: the request-time
+  quota check credits the old COG right away, so a replacement that passes
+  near the cap can still be refused at publish once the file is actually
+  kept; and a VRT registered between the replacement's reader check and
+  its publish commit can push the owner slightly over their quota cap
+  until the kept bytes are reclaimed. (#2403)
+- Presigned S3 URLs, for STAC asset links and presigned uploads, are
+  signed against `S3_ENDPOINT`, so a browser or external client cannot use
+  them when that endpoint is a container hostname or a private address,
+  such as `http://minio:9000` in the `cloud-dev` profile. The COG download
+  route already avoids this by streaming or redirecting depending on
+  whether presigned downloads are enabled; other presigned surfaces do not
+  yet have that switch. (#2408)
+- When a mosaic (VRT) member is replaced, the mosaic keeps drawing the
+  member's old file until someone regenerates it, and the member's owner
+  is charged for that kept file even when another user's mosaic is the one
+  still reading it. Whether a replacement should automatically rebuild the
+  mosaics that depend on it, and who should pay for a kept file another
+  user's mosaic reads, are open product decisions. (#2376)
+- Stale-job recovery still spreads its commit, counter and cleanup
+  ordering across several callers, the sweep, the admin endpoint, the
+  worker and single-job polling, instead of owning it in one module, so a
+  new cleanup step needs coordinated edits in each caller. No incorrect
+  behavior is known today; this is a maintenance and testing gap. (#2395)
+- A VRT regeneration whose commit lands but whose acknowledgement is lost,
+  and whose outcome the database probe then reads as inconclusive rather
+  than confirmed, still skips purging the catalog cache and refreshing the
+  search embedding; the regenerated VRT can serve cached responses and a
+  stale embedding until an unrelated write refreshes them. The more common
+  case, where the probe confirms the commit landed, is fixed. (#2417)
+- If the worker's database connection drops while it is still writing an
+  import's archived original to storage, the row lock holding back a
+  concurrent dataset delete is released early. The delete can then commit
+  and reap the dataset's prefix before the late write lands, leaving an
+  orphaned file in storage with no dataset pointing at it. Reaching this
+  needs a lost connection during the write and a delete in the same
+  window. (#2419)
+- On an S3-backed install, an OGC record for a published raster
+  (`/collections/datasets/items/{id}` and OGC record search) has no
+  thumbnail or overview asset, because the record builder does not pass
+  the storage provider its asset resolver needs to presign one. STAC items
+  are unaffected. (#2423)
+- Operators still have no dedicated action to retry or release a job whose
+  archive is held for review; recovery today needs a direct database
+  query, documented in RUNBOOK section 9. (#2367)
 - <!-- more known limitations added at release -->
 
 ## [1.20.0] - 2026-09-18
