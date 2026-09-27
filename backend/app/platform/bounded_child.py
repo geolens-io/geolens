@@ -8,13 +8,18 @@ a category and, for the operator log, an exception's class name.
 
 from __future__ import annotations
 
+import contextlib
 import json
+import locale
+import os
 import re
 import signal
 import subprocess
-from collections.abc import Collection, Sequence
+import tempfile
+import time
+from collections.abc import Collection, Iterator, Sequence
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
@@ -22,14 +27,21 @@ _BACKEND_ROOT = Path(__file__).resolve().parents[2]
 # its message can quote the file.
 _EXCEPTION_NAME = re.compile(r"[A-Za-z_][\w.]{0,99}(?:Error|Exception|Exit|Interrupt)")
 
+# The largest replies are a 512 px quicklook, under 1 MB even of noise, and
+# the metadata of a GeoTIFF with the format's 65,535 bands, about 6 MB.
+_MAX_OUTPUT_BYTES = 16 * 1024 * 1024
+# A child can overshoot the cap by its write rate times this before it's stopped.
+_POLL_SECONDS = 0.05
+
 
 class ChildFailure(Exception):
     """A child that didn't answer.
 
     ``category`` is "timeout", "spawn" (it couldn't start), "undecodable"
-    (its output wasn't text), "killed" (a signal ended it), "no_reply", or a
-    category the child reported. ``details`` are the fields that describe the
-    failure to an operator log, starting with the category.
+    (its reply wasn't text), "oversized" (it wrote more than the parent
+    reads), "killed" (a signal ended it), "no_reply", or a category the child
+    reported. ``details`` are the fields that describe the failure to an
+    operator log, starting with the category.
     """
 
     def __init__(self, category: str, **details: Any) -> None:
@@ -52,52 +64,93 @@ def run_child(
     failure is "no_reply".
     """
     try:
-        done = subprocess.run(
-            argv,
-            input=stdin,
-            stdin=subprocess.DEVNULL if stdin is None else None,
-            capture_output=True,
-            text=True,
-            cwd=_BACKEND_ROOT,
-            env=env,
-            timeout=timeout,
-        )
-    except subprocess.TimeoutExpired:
-        raise ChildFailure("timeout") from None
-    except (OSError, UnicodeDecodeError) as exc:
-        # The child couldn't start, or its reply wasn't text: the failure is
-        # ours, not the input's.
+        with (
+            _stdin_file(stdin) as request,
+            tempfile.TemporaryFile() as out,
+            tempfile.TemporaryFile() as err,
+        ):
+            child = subprocess.Popen(
+                argv, stdin=request, stdout=out, stderr=err, cwd=_BACKEND_ROOT, env=env
+            )
+            deadline = time.monotonic() + timeout
+            try:
+                while child.poll() is None:
+                    for stream, output in (("stdout", out), ("stderr", err)):
+                        if os.fstat(output.fileno()).st_size > _MAX_OUTPUT_BYTES:
+                            raise ChildFailure("oversized", stream=stream)
+                    if time.monotonic() > deadline:
+                        raise ChildFailure("timeout")
+                    with contextlib.suppress(subprocess.TimeoutExpired):
+                        child.wait(_POLL_SECONDS)
+            finally:
+                child.kill()
+                child.wait()
+            encoding = locale.getpreferredencoding(False)
+            stdout = _read_output(out, "stdout").decode(encoding)
+            # stderr only names an exception class; a stray byte can't fail a reply.
+            stderr = _read_output(err, "stderr").decode(encoding, "replace")
+    except (OSError, UnicodeError) as exc:
+        # The child couldn't start, its request couldn't be encoded, or its
+        # reply wasn't text: the failure is ours, not the input's.
         raise ChildFailure(
-            "spawn" if isinstance(exc, OSError) else "undecodable",
+            "undecodable" if isinstance(exc, UnicodeDecodeError) else "spawn",
             exception=type(exc).__name__,
         ) from None
     try:
-        reply = json.loads(done.stdout)
+        reply = json.loads(stdout)
     except (ValueError, RecursionError):
         # RecursionError: JSON nested deeper than the parser's stack.
         reply = None
-    if done.returncode == 0 and isinstance(reply, dict) and "result" in reply:
+    if child.returncode == 0 and isinstance(reply, dict) and "result" in reply:
         return reply["result"]
     if not isinstance(reply, dict):
         reply = {}
     category, exception = reply.get("error"), reply.get("exception")
-    if done.returncode < 0:
+    if child.returncode < 0:
         category, exception = "killed", None
     elif not isinstance(category, str) or category not in reported:
         # No verdict: the child died before it could give one, as a failed
         # import or an interpreter crash does. Its traceback ends with the
         # exception's class name.
         category = "no_reply"
-        lines = done.stderr.strip().splitlines()
+        lines = stderr.strip().splitlines()
         exception = lines[-1].split(":", 1)[0] if lines else None
     raise ChildFailure(
         category,
-        returncode=done.returncode,
-        signal=_signal_name(done.returncode),
+        returncode=child.returncode,
+        signal=_signal_name(child.returncode),
         exception=exception
         if isinstance(exception, str) and _EXCEPTION_NAME.fullmatch(exception)
         else None,
     )
+
+
+@contextlib.contextmanager
+def _stdin_file(text: str | None) -> Iterator[IO[str] | int]:
+    """``text`` in an unlinked temporary file for the child's stdin, or nothing.
+
+    A file rather than a pipe: on macOS, writing a pipe the child never reads
+    blocks the parent past the deadline. The text is encoded as ``subprocess``
+    encodes text, which is how a child in the same locale reads its stdin.
+    """
+    if text is None:
+        yield subprocess.DEVNULL
+        return
+    with tempfile.TemporaryFile(
+        "w+", encoding=locale.getpreferredencoding(False)
+    ) as request:
+        request.write(text)
+        request.seek(0)
+        yield request
+
+
+def _read_output(output: IO[bytes], stream: str) -> bytes:
+    """What the child wrote to ``stream``, reading no more than the cap."""
+    output.seek(0)
+    data = output.read(_MAX_OUTPUT_BYTES + 1)
+    if len(data) > _MAX_OUTPUT_BYTES:
+        raise ChildFailure("oversized", stream=stream)
+    return data
 
 
 def _signal_name(returncode: int) -> str | None:

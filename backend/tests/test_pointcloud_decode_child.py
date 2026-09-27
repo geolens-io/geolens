@@ -33,6 +33,7 @@ from structlog.testing import capture_logs
 
 from app.core.config import settings
 from app.core.upload_errors import UnsafeUploadError, refusal_detail
+from app.platform.bounded_child import ChildFailure
 from app.platform.jobs.models import IngestJob
 from app.platform.storage.local import LocalStorageProvider
 from app.processing.ingest import pointcloud as pointcloud_module
@@ -214,6 +215,19 @@ class TestTheParentBoundsTheChild:
 
         with pytest.raises(PointCloudDecodeError):
             inspect_pointcloud(_write(tmp_path, copc()))
+
+    def test_a_child_past_the_output_cap_is_a_decode_error(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        def _oversized(*args, **kwargs):
+            raise ChildFailure("oversized", stream="stderr")
+
+        monkeypatch.setattr(pointcloud_module, "run_child", _oversized)
+
+        with pytest.raises(PointCloudDecodeError) as failed:
+            inspect_pointcloud(_write(tmp_path, copc()))
+
+        assert type(failed.value) is PointCloudDecodeError
 
     @pytest.mark.skipif(
         sys.platform == "darwin", reason="macOS doesn't enforce RLIMIT_DATA"

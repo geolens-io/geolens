@@ -152,7 +152,7 @@ class TestTheParentBoundsTheChild:
         def _fail(*args, **kwargs):
             raise raised
 
-        monkeypatch.setattr(bounded_child.subprocess, "run", _fail)
+        monkeypatch.setattr(bounded_child.subprocess, "Popen", _fail)
 
         with structlog.testing.capture_logs() as captured:
             with pytest.raises(probe.RasterProbeError) as exc_info:
@@ -164,6 +164,22 @@ class TestTheParentBoundsTheChild:
             category,
             type(raised).__name__,
         )
+
+    def test_a_reply_past_the_output_cap_is_an_internal_failure(
+        self, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(bounded_child, "_MAX_OUTPUT_BYTES", 2**20)
+        _stand_in(
+            monkeypatch, "import json\nprint(json.dumps({'result': 'x' * 2**21}))\n"
+        )
+
+        with structlog.testing.capture_logs() as captured:
+            with pytest.raises(probe.RasterProbeError) as exc_info:
+                probe.read_raster_metadata("any.tif")
+
+        assert exc_info.value.kind == "internal"
+        (event,) = [e for e in captured if e["event"] == "raster probe failed"]
+        assert (event["category"], event["stream"]) == ("oversized", "stdout")
 
     def test_the_child_runs_under_the_clamps_with_proj_offline(
         self, monkeypatch, tmp_path
