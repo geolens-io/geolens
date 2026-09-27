@@ -331,7 +331,7 @@
     "reviewTitle": "Review detection",
     "reviewDesc": "Confirm geometry type, CRS, schema, and preview for each file.",
     "importTitle": "Import & catalog",
-    "importDesc": "Tile, index, publish; datasets appear in the Catalog immediately.",
+    "importDesc": "Prepare each dataset for its data type and add it to the catalog.",
     "workflow": "Workflow",
     "whatImported": "What gets imported",
     "vectorLabel": "Vector",
@@ -653,7 +653,8 @@
     "removeNamedFile": "Remove {{name}}",
     "defaultsConfirmTitle": "Import batch with defaults?",
     "defaultsConfirmDescription": "This uses filenames as dataset names and private visibility. All edits in the review forms, including names, descriptions, visibility, geometry, CRS, and raster settings, will be discarded. Each multi-layer file imports only its selected layer.",
-    "confirmDefaults": "Import with defaults"
+    "confirmDefaults": "Import with defaults",
+    "progressDetailWithFailures": "{{done}} complete · {{failed}} failed or cancelled · {{active}} in progress · {{queued}} queued"
   },
   "status": {
     "uploading": "Uploading",

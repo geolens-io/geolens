@@ -582,7 +582,8 @@
     "removeNamedFile": "Eliminar {{name}}",
     "defaultsConfirmTitle": "¿Importar el lote con valores predeterminados?",
     "defaultsConfirmDescription": "Se usarán los nombres de archivo y la visibilidad privada. Se descartarán todos los cambios en los formularios de revisión, incluidos nombre, descripción, visibilidad, geometría, CRS y ajustes ráster. Cada archivo con varias capas importa solo la capa seleccionada.",
-    "confirmDefaults": "Importar con valores predeterminados"
+    "confirmDefaults": "Importar con valores predeterminados",
+    "progressDetailWithFailures": "{{done}} completos · {{failed}} fallidos o cancelados · {{active}} en curso · {{queued}} en cola"
   },
   "eyebrow": "Importar",
   "pageDescription": "Sube archivos, registra tablas de tu Postgres o conecta un servicio remoto. GeoLens detecta geometría, esquema y CRS, luego hace los datos consultables, estilizables e integrables.",
@@ -615,7 +616,7 @@
     "reviewTitle": "Revisar detección",
     "reviewDesc": "Confirma el tipo de geometría, CRS, esquema y vista previa de cada archivo.",
     "importTitle": "Importar y catalogar",
-    "importDesc": "Teselar, indexar, publicar; los conjuntos de datos aparecen en el catálogo de inmediato.",
+    "importDesc": "Prepara cada conjunto de datos según su tipo y lo añade al catálogo.",
     "workflow": "Flujo de trabajo",
     "whatImported": "Qué se importa",
     "vectorLabel": "Vector",

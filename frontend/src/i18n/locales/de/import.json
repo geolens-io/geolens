@@ -582,7 +582,8 @@
     "removeNamedFile": "{{name}} entfernen",
     "defaultsConfirmTitle": "Stapel mit Standardwerten importieren?",
     "defaultsConfirmDescription": "Dateinamen werden als Datensatznamen verwendet; die Sichtbarkeit ist privat. Alle Änderungen in den Prüfformularen, einschließlich Namen, Beschreibungen, Sichtbarkeit, Geometrie, CRS und Rastereinstellungen, werden verworfen. Bei mehrschichtigen Dateien wird nur die ausgewählte Ebene importiert.",
-    "confirmDefaults": "Mit Standardwerten importieren"
+    "confirmDefaults": "Mit Standardwerten importieren",
+    "progressDetailWithFailures": "{{done}} abgeschlossen · {{failed}} fehlgeschlagen oder abgebrochen · {{active}} in Bearbeitung · {{queued}} in Warteschlange"
   },
   "eyebrow": "Importieren",
   "pageDescription": "Dateien hochladen, Tabellen aus Ihrem Postgres registrieren oder einen Remote-Service verbinden. GeoLens erkennt Geometrie, Schema und KRS und macht die Daten abfragbar, stilisierbar und einbettbar.",
@@ -615,7 +616,7 @@
     "reviewTitle": "Erkennung prüfen",
     "reviewDesc": "Geometrietyp, KRS, Schema und Vorschau für jede Datei bestätigen.",
     "importTitle": "Importieren & katalogisieren",
-    "importDesc": "Kacheln, indizieren, veröffentlichen; Datensätze erscheinen sofort im Katalog.",
+    "importDesc": "Bereitet jeden Datensatz passend zu seinem Datentyp vor und fügt ihn dem Katalog hinzu.",
     "workflow": "Arbeitsablauf",
     "whatImported": "Was importiert wird",
     "vectorLabel": "Vektor",

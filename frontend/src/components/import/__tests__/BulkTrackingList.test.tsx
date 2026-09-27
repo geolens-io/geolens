@@ -7,6 +7,9 @@ import { randomId } from '@/lib/random-id';
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) => {
+      if (key === 'bulk.progressDetailWithFailures') {
+        return `${opts?.done} complete · ${opts?.failed} failed · ${opts?.active} in progress · ${opts?.queued} queued`;
+      }
       if (typeof opts?.defaultValue === 'string') return opts.defaultValue;
       return key;
     },
@@ -23,7 +26,7 @@ vi.mock('@tanstack/react-query', async (importOriginal) => {
 
 vi.mock('../JobProgress', () => ({
   JobProgress: ({ jobId }: { jobId: string }) => (
-    <div data-testid={`job-progress-${jobId}`}>Job {jobId}</div>
+    <div data-testid={`job-progress-${jobId}`}>Job {jobId}<button type="button">Retry</button></div>
   ),
 }));
 
@@ -103,6 +106,22 @@ describe('BulkTrackingList', () => {
     expect(screen.getByText('complete.partialTitle')).toBeInTheDocument();
     expect(screen.getByText('Unsupported file')).toBeInTheDocument();
     await waitFor(() => expect(onOutcomeChange).toHaveBeenCalledWith('partial', ['table']));
+  });
+
+  it('keeps failed jobs and retry controls visible while another job runs', () => {
+    mockUseQueries.mockReturnValue([
+      { data: { status: 'failed', dataset_id: null, source_filename: 'broken.csv' } },
+      { data: { status: 'running', dataset_id: null, source_filename: 'pending.csv' } },
+    ] as never);
+    render(<BulkTrackingList entries={[
+      makeEntry({ id: 'failed', jobId: 'job-1', fileName: 'broken.csv' }),
+      makeEntry({ id: 'running', jobId: 'job-2', fileName: 'pending.csv' }),
+    ]} onReset={vi.fn()} />);
+
+    expect(screen.getByTestId('job-progress-job-1')).toBeInTheDocument();
+    expect(within(screen.getByTestId('job-progress-job-1')).getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(screen.getByTestId('job-progress-job-2')).toBeInTheDocument();
+    expect(screen.getByText('0 complete · 1 failed · 1 in progress · 0 queued')).toBeInTheDocument();
   });
 
   it('surfaces completed datasets in the summary while keeping only active jobs in the main list', () => {

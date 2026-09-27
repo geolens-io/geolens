@@ -582,7 +582,8 @@
     "removeNamedFile": "Supprimer {{name}}",
     "defaultsConfirmTitle": "Importer le lot avec les valeurs par défaut ?",
     "defaultsConfirmDescription": "Les noms de fichier et la visibilité privée seront utilisés. Toutes les modifications des formulaires de vérification, notamment les noms, descriptions, visibilité, géométrie, SCR et paramètres raster, seront ignorées. Chaque fichier multicouche importe uniquement la couche sélectionnée.",
-    "confirmDefaults": "Importer avec les valeurs par défaut"
+    "confirmDefaults": "Importer avec les valeurs par défaut",
+    "progressDetailWithFailures": "{{done}} terminés · {{failed}} en échec ou annulés · {{active}} en cours · {{queued}} en attente"
   },
   "eyebrow": "Importer",
   "pageDescription": "Chargez des fichiers, enregistrez des tables depuis votre Postgres ou connectez un service distant. GeoLens détecte la géométrie, le schéma et le SCR, puis rend les données interrogeables, stylisables et intégrables.",
@@ -615,7 +616,7 @@
     "reviewTitle": "Examiner la détection",
     "reviewDesc": "Confirmez le type de géométrie, le SCR, le schéma et l'aperçu pour chaque fichier.",
     "importTitle": "Importer et cataloguer",
-    "importDesc": "Tuiler, indexer, publier; les jeux de données apparaissent immédiatement dans le catalogue.",
+    "importDesc": "Prépare chaque jeu de données selon son type et l’ajoute au catalogue.",
     "workflow": "Flux de travail",
     "whatImported": "Ce qui est importé",
     "vectorLabel": "Vecteur",

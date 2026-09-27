@@ -331,7 +331,7 @@
     "reviewTitle": "核对检测结果",
     "reviewDesc": "确认每个文件的几何类型、CRS、字段结构和预览。",
     "importTitle": "导入并编目",
-    "importDesc": "切片、索引、发布；数据集会立即出现在目录中。",
+    "importDesc": "根据数据类型准备各数据集并将其添加到目录。",
     "workflow": "工作流",
     "whatImported": "导入的内容",
     "vectorLabel": "矢量",
@@ -653,7 +653,8 @@
     "removeNamedFile": "移除 {{name}}",
     "defaultsConfirmTitle": "使用默认值导入批次？",
     "defaultsConfirmDescription": "将使用文件名作为数据集名称并设置为私有。审核表单中的所有修改（包括名称、描述、可见性、几何、坐标参考系和栅格设置）将被舍弃。多图层文件仅导入所选图层。",
-    "confirmDefaults": "使用默认值导入"
+    "confirmDefaults": "使用默认值导入",
+    "progressDetailWithFailures": "{{done}} 个已完成 · {{failed}} 个失败或取消 · {{active}} 个进行中 · {{queued}} 个排队中"
   },
   "status": {
     "uploading": "正在上传",

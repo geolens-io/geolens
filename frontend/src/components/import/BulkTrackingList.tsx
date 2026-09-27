@@ -95,7 +95,7 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false, onOutc
 
   const activeEntries = trackable.filter((_, index) => {
     const job = jobQueries[index]?.data;
-    return !isTerminal(job?.status);
+    return !isTerminal(job?.status) || job?.status === 'failed' || job?.status === 'cancelled';
   });
 
   const inProgressCount = trackable.filter((_, index) => {
@@ -110,6 +110,7 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false, onOutc
     return isTerminal(status);
   }).length;
   const allDone = doneCount === trackable.length && trackable.length > 0;
+  const queuedCount = trackable.length - doneCount - inProgressCount;
   const failedCount = stagingFailures.length + trackable.filter((_, index) => {
     const status = jobQueries[index]?.data?.status;
     return status === 'failed' || status === 'cancelled';
@@ -139,8 +140,8 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false, onOutc
   }, [autoOpenVrt, completedRasterIds.length, rasterEntries.length]);
 
   const progressStyle = useMemo(
-    () => ({ width: `${trackable.length > 0 ? Math.round((completedEntries.length / trackable.length) * 100) : 0}%` }),
-    [completedEntries.length, trackable.length],
+    () => ({ width: `${trackable.length > 0 ? Math.round((doneCount / trackable.length) * 100) : 0}%` }),
+    [doneCount, trackable.length],
   );
 
   /* ── All-done completion card ──────────────────────── */
@@ -295,11 +296,11 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false, onOutc
               <span className="font-semibold">{t('bulk.importingFiles', { count: trackable.length, defaultValue: `Importing ${trackable.length} files` })}</span>
             </p>
             <p className="font-mono text-mini text-muted-foreground tracking-wide mt-0.5">
-              {t('bulk.progressDetail', {
+              {t(failedCount > 0 ? 'bulk.progressDetailWithFailures' : 'bulk.progressDetail', {
                 done: completedEntries.length,
+                failed: failedCount,
                 active: inProgressCount,
-                queued: trackable.length - completedEntries.length - inProgressCount,
-                defaultValue: `${completedEntries.length} complete · ${inProgressCount} in progress · ${trackable.length - completedEntries.length - inProgressCount} queued`,
+                queued: queuedCount,
               })}
             </p>
           </div>
