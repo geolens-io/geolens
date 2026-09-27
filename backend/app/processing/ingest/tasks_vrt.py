@@ -1510,12 +1510,12 @@ async def regenerate_vrt(
                     return
                 publish_committed = True
 
-                await run_publish_followups(job_uuid)
-
-                # 15. Invalidate cache and defer embedding
+                # 15. Invalidate cache and defer embedding, before the
+                # follow-ups: the sweep retries those, and nothing retries these.
                 await invalidate_catalog_cache()
                 if vrt_dataset is not None:
                     await defer_embedding(vrt_dataset)
+                await run_publish_followups(job_uuid)
 
             except Exception:  # broad: re-raised below; rollback first so the
                 # outer handler can write a clean failure record via a fresh session.

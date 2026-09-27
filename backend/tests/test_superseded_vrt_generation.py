@@ -264,3 +264,43 @@ async def test_a_superseded_delete_that_fails_is_retried_once_due(
         assert await _owed(job.id) is None
     finally:
         await _purge_vrt(test_db_session, ids=ids)
+
+
+async def test_a_followups_failure_still_purges_the_cache_and_refreshes_the_embedding(
+    test_db_session, raster_storage
+) -> None:
+    """The follow-ups failing after the publish skips neither step the sweep can't redo.
+
+    The job stays complete, and the sweep deletes the prior generation later.
+    """
+    admin_id, ids, prior = await _vrt_with_quicklooks(test_db_session, raster_storage)
+    job, generation_id = await _queue_regeneration(
+        test_db_session, vrt_id=ids[0], user_id=admin_id
+    )
+    purge, embed = AsyncMock(), AsyncMock()
+    try:
+        with (
+            patch.object(
+                tasks_vrt,
+                "run_publish_followups",
+                AsyncMock(side_effect=ConnectionResetError("the session dropped")),
+            ),
+            patch.object(tasks_vrt, "invalidate_catalog_cache", purge),
+            patch.object(tasks_vrt, "defer_embedding", embed),
+        ):
+            await _regenerate(job, generation_id, ids[0])
+
+        assert purge.await_count == 1
+        assert embed.await_count == 1
+        async with db_module.async_session() as session:
+            status = await session.scalar(
+                select(IngestJob.status).where(IngestJob.id == job.id)
+            )
+        assert status == "complete"
+        assert await _left(raster_storage, prior) == list(prior)
+
+        await run_owed_publish_followups()
+
+        assert await _left(raster_storage, prior) == []
+    finally:
+        await _purge_vrt(test_db_session, ids=ids)
