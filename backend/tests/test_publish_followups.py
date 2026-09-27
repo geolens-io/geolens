@@ -1028,6 +1028,30 @@ async def test_a_direct_call_runs_the_items_whatever_the_workers_clock_says(
         await _drop(test_db_session, job_id, record_id)
 
 
+async def test_the_sweep_runs_a_record_whatever_the_workers_clock_says(
+    test_db_session, followups
+) -> None:
+    """A job ended by a worker whose clock runs ahead is still swept at once."""
+    job_id, _, record_id = await _owed_job(
+        test_db_session, status="failed", error_message="refused"
+    )
+    try:
+        async with db_module.async_session() as session:
+            await session.execute(
+                update(IngestJob)
+                .where(IngestJob.id == job_id)
+                .values(completed_at=datetime.now(timezone.utc) + timedelta(hours=1))
+            )
+            await session.commit()
+
+        await run_owed_publish_followups()
+
+        assert not await _owes(job_id)
+        assert ("notice", "ingest_failed") in followups
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
 async def test_a_record_with_an_unreadable_next_attempt_counts_as_due(
     test_db_session, followups
 ) -> None:
@@ -1454,10 +1478,65 @@ async def test_a_failure_racing_a_confirmed_archive_restores_nothing(
         await _drop(test_db_session, job_id, record_id)
 
 
+async def test_an_archive_confirmation_that_fails_keeps_the_item_the_upload_and_the_flags(
+    test_db_session, raster_storage, followups
+) -> None:
+    """The archive item and the job's archive flags come off in one write, or not at all."""
+    from sqlalchemy import event
+    from sqlalchemy.engine import Engine
+
+    job_id, dataset_id, record_id = await _owed_job(
+        test_db_session, task="reupload_file", reaps_staged_upload=True
+    )
+    try:
+        flags = {
+            ARCHIVE_PENDING_METADATA_KEY: True,
+            "archive_failed": True,
+            "archive_error": "the store refused",
+        }
+        await _point_job_at(job_id, file_path=None, **flags)
+        left = await _stage_upload(raster_storage, job_id, "storage")
+        key = await _owe_archive(job_id, dataset_id, "upload.tif")
+        await raster_storage.put(key, b"staged")
+        refused: list[str] = []
+
+        def _refuse_the_flag_clear_once(
+            conn, cursor, statement, parameters, context, executemany
+        ):
+            if (
+                not refused
+                and "UPDATE catalog.ingest_jobs" in statement
+                and ARCHIVE_PENDING_METADATA_KEY in (parameters or ())
+            ):
+                refused.append(statement)
+                raise RuntimeError("the database dropped the connection")
+
+        event.listen(Engine, "before_cursor_execute", _refuse_the_flag_clear_once)
+        try:
+            await run_publish_followups(job_id)
+        finally:
+            event.remove(Engine, "before_cursor_execute", _refuse_the_flag_clear_once)
+
+        assert refused
+        metadata = await _stored_metadata(job_id)
+        assert metadata[PUBLISH_FOLLOWUPS_FIELD]["archive_key"] == key
+        assert {flag: metadata.get(flag) for flag in flags} == flags
+        assert await left() == [f"staging/{job_id}/frozen/upload.tif"]
+
+        await _make_due(job_id)
+        await run_owed_publish_followups()
+
+        metadata = await _stored_metadata(job_id)
+        assert not {PUBLISH_FOLLOWUPS_FIELD, *flags} & metadata.keys()
+        assert await left() == []
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
 async def test_an_archive_failure_lands_only_for_the_attempt_that_owns_the_job(
     test_db_session,
 ) -> None:
-    from app.processing.ingest.publish_followups import _note_archive_outcome
+    from app.processing.ingest.publish_followups import _note_archive_failure
 
     job_id, _, record_id = await _owed_job(test_db_session, task="reupload_file")
     try:
@@ -1471,10 +1550,10 @@ async def test_an_archive_failure_lands_only_for_the_attempt_that_owns_the_job(
                 )
             )
 
-        await _note_archive_outcome(job_id, str(uuid.uuid4()), "the store refused")
+        await _note_archive_failure(job_id, str(uuid.uuid4()), "the store refused")
         assert "archive_failed" not in await _stored_metadata(job_id)
 
-        await _note_archive_outcome(job_id, attempt_id, "the store refused")
+        await _note_archive_failure(job_id, attempt_id, "the store refused")
         assert (await _stored_metadata(job_id))["archive_failed"] is True
     finally:
         await _drop(test_db_session, job_id, record_id)

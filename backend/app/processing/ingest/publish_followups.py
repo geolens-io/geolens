@@ -147,46 +147,38 @@ def _in_staging_dir(path: str) -> bool:
     )
 
 
-async def _note_archive_outcome(
-    job_uuid: uuid.UUID, attempt_id: str, error: str | None
+async def _note_archive_failure(
+    job_uuid: uuid.UUID, attempt_id: str, error: str
 ) -> None:
-    """Flag the job's archive as failed with ``error``, or with None as made; never raises.
+    """Flag the job's archive as failed with ``error``; never raises.
 
-    It is the flag ``_archive_original_file`` sets. A made archive clears it
-    and the archive-pending mark. A failure lands only while ``attempt_id``
-    owns the job and the mark is still there, since another run may have made
-    the archive meanwhile. Edits the stored metadata in place, since writing
-    back a copy could restore a record a concurrent claim has cleared.
+    It is the flag ``_archive_original_file`` sets. It lands only while
+    ``attempt_id`` owns the job and the archive-pending mark is still there,
+    since another run may have made the archive meanwhile. Edits the stored
+    metadata in place, since writing back a copy could restore a record a
+    concurrent claim has cleared.
     """
     import app.core.db as db_module
 
     stored = IngestJob.user_metadata
-    outcome = update(IngestJob).where(IngestJob.id == job_uuid)
-    if error is None:
-        outcome = outcome.where(
-            or_(
-                stored.has_key("archive_failed"),
-                stored.has_key(ARCHIVE_PENDING_METADATA_KEY),
-            )
-        )
-        metadata = stored.op("-")(literal("archive_failed", Text))
-        metadata = metadata.op("-")(literal("archive_error", Text))
-        metadata = metadata.op("-")(literal(ARCHIVE_PENDING_METADATA_KEY, Text))
-    else:
-        outcome = outcome.where(
-            IngestJob.attempt_id == uuid.UUID(attempt_id),
-            stored.has_key(ARCHIVE_PENDING_METADATA_KEY),
-        )
-        flag = func.jsonb_build_object(
-            "archive_failed", true(), "archive_error", error[:500]
-        )
-        metadata = func.coalesce(stored, text("'{}'::jsonb")).op("||")(flag)
+    flag = func.jsonb_build_object(
+        "archive_failed", true(), "archive_error", error[:500]
+    )
     async with cleanup_step("archive outcome", job_id=str(job_uuid)):
         async with db_module.async_session() as session:
             await session.execute(
-                outcome.values(user_metadata=metadata).execution_options(
-                    synchronize_session=False
+                update(IngestJob)
+                .where(
+                    IngestJob.id == job_uuid,
+                    IngestJob.attempt_id == uuid.UUID(attempt_id),
+                    stored.has_key(ARCHIVE_PENDING_METADATA_KEY),
                 )
+                .values(
+                    user_metadata=func.coalesce(stored, text("'{}'::jsonb")).op("||")(
+                        flag
+                    )
+                )
+                .execution_options(synchronize_session=False)
             )
             await session.commit()
 
@@ -213,11 +205,12 @@ async def _archive_upload(
     """Whether ``archive_key`` holds the upload's original, archiving it now if not.
 
     ``archive_key`` names this upload alone, so an object already there is its
-    archive. Reads the upload from ``local_copy`` when the caller holds one,
+    archive, even one found only after a failure, as when another run made it
+    meanwhile. Reads the upload from ``local_copy`` when the caller holds one,
     and otherwise the way its task did, through ``resolve_file_path``, but
     never a local file outside the staging directory. Any other failure flags
-    the job's archive as failed, and an archive in place clears the flag, even
-    one found only after a failure, as when another run made it meanwhile.
+    the job's archive as failed; the caller clears the flags when it confirms
+    the archive.
     """
     import app.core.db as db_module
     from app.platform.storage import get_storage
@@ -229,7 +222,6 @@ async def _archive_upload(
     downloaded = False
     try:
         if await get_storage().exists(resolve_current_storage_key(archive_key)):
-            await _note_archive_outcome(job_uuid, attempt_id, None)
             return True
         if local_copy is not None and Path(local_copy).exists():
             local = local_copy
@@ -240,7 +232,7 @@ async def _archive_upload(
             structlog.get_logger().warning(
                 "staged_upload_outside_staging_dir", job_id=job_id
             )
-            await _note_archive_outcome(
+            await _note_archive_failure(
                 job_uuid,
                 attempt_id,
                 "The staged upload is outside the upload staging directory.",
@@ -256,16 +248,12 @@ async def _archive_upload(
                 log_message="Failed to archive re-uploaded file to storage",
                 archive_name=archive_key.rsplit("/", 1)[-1],
             )
-        if archived or await _archive_in_place(archive_key):
-            await _note_archive_outcome(job_uuid, attempt_id, None)
-            return True
-        return False
+        return archived or await _archive_in_place(archive_key)
     except Exception as exc:  # broad: an unreadable upload or store keeps the upload
         if await _archive_in_place(archive_key):
-            await _note_archive_outcome(job_uuid, attempt_id, None)
             return True
         structlog.get_logger().warning("staged_upload_archive_failed", job_id=job_id)
-        await _note_archive_outcome(job_uuid, attempt_id, str(exc))
+        await _note_archive_failure(job_uuid, attempt_id, str(exc))
         return False
     finally:
         if downloaded:
@@ -326,6 +314,26 @@ async def _confirm_owed_item(job_uuid: uuid.UUID, attempt_id: str, item: str) ->
     await _write_record(job_uuid, attempt_id, IngestJob.user_metadata.op("#-")(path))
 
 
+async def _confirm_archive(job_uuid: uuid.UUID, attempt_id: str) -> bool:
+    """Take the archive item and the job's archive flags off in one write.
+
+    Returns False when the write fails, which leaves the item owed, and the
+    upload with it, for a later attempt.
+    """
+    metadata = IngestJob.user_metadata
+    for flag in ("archive_failed", "archive_error", ARCHIVE_PENDING_METADATA_KEY):
+        metadata = metadata.op("-")(literal(flag, Text))
+    path = literal([PUBLISH_FOLLOWUPS_FIELD, _ARCHIVE_KEY], ARRAY(Text))
+    try:
+        await _write_record(job_uuid, attempt_id, metadata.op("#-")(path))
+    except Exception:  # broad: the archive stays owed and a later attempt confirms it
+        structlog.get_logger().warning(
+            "archive_not_confirmed", job_id=str(job_uuid), exc_info=True
+        )
+        return False
+    return True
+
+
 async def _schedule_retry(job_uuid: uuid.UUID, attempt_id: str, attempts: int) -> None:
     """Count ``attempts`` on the job's record and set when the next one is due."""
     delay = _RETRY_BASE * min(2 ** (attempts - 1), _RETRY_CAP // _RETRY_BASE)
@@ -359,10 +367,11 @@ async def _settle_owed_items(
     record = row.user_metadata[PUBLISH_FOLLOWUPS_FIELD]
     left = {item for item in _ITEMS if item in record}
     file_path = row.file_path
-    if _ARCHIVE_KEY in left and (
-        not file_path
-        or row.dataset_id is None
-        or await _archive_upload(
+    if _ARCHIVE_KEY in left and (not file_path or row.dataset_id is None):
+        await _confirm_owed_item(job_uuid, attempt_id, _ARCHIVE_KEY)
+        left.discard(_ARCHIVE_KEY)
+    elif _ARCHIVE_KEY in left and (
+        await _archive_upload(
             job_uuid,
             attempt_id,
             file_path,
@@ -370,8 +379,8 @@ async def _settle_owed_items(
             record[_ARCHIVE_KEY],
             local_copy,
         )
+        and await _confirm_archive(job_uuid, attempt_id)
     ):
-        await _confirm_owed_item(job_uuid, attempt_id, _ARCHIVE_KEY)
         left.discard(_ARCHIVE_KEY)
     if _REAPS_STAGED_UPLOAD in left:
         reaped = await reap_presigned_staging_object(
@@ -413,8 +422,19 @@ def _next_attempt_at(record):
     )
 
 
+def _is_due(record):
+    """Whether a record's items may run: it has no retry time, or that time has come.
+
+    The job's end time comes from the worker's clock, so only a retry time the
+    database set holds a record back.
+    """
+    return or_(
+        _next_attempt_at(record).is_(None), _next_attempt_at(record) <= func.now()
+    )
+
+
 def _due_at(record):
-    """When a follow-up record is due: its next attempt, or else when its job ended."""
+    """When a record fell due, for ordering: its next attempt, or else when its job ended."""
     return func.coalesce(
         _next_attempt_at(record), IngestJob.completed_at, IngestJob.created_at
     )
@@ -466,18 +486,7 @@ async def run_publish_followups(
         owed.is_not(None),
     )
     async with db_module.async_session() as session:
-        # The job's end time comes from the worker's clock, so only a retry
-        # delay the database set holds the items back.
-        pending = (
-            await session.execute(
-                owed_row.where(
-                    or_(
-                        _next_attempt_at(owed).is_(None),
-                        _next_attempt_at(owed) <= func.now(),
-                    )
-                )
-            )
-        ).one_or_none()
+        pending = (await session.execute(owed_row.where(_is_due(owed)))).one_or_none()
     if pending is not None and _owes_items(pending):
         await _settle_owed_items(job_uuid, pending, local_copy=local_copy)
 
@@ -606,7 +615,7 @@ async def run_owed_publish_followups() -> int:
                     .where(
                         IngestJob.status.in_(("complete", "failed")),
                         record.is_not(None),
-                        _due_at(record) <= func.now(),
+                        _is_due(record),
                     )
                     .order_by(record[_ATTEMPTS].is_not(None), _due_at(record))
                     .limit(_SWEEP_BATCH)
