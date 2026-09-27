@@ -1949,6 +1949,17 @@ def _test_db_lifecycle():
             os.environ["POSTGRES_DB_TEST"] = _original_pg_db_test_env
 
 
+# FastAPI caches each dependency callable it resolves (a process-wide LRU of
+# 4096). A closure per test would keep thousands of test engines alive in a
+# worker and lengthen every later full GC pass, so tests share this override.
+_client_session_factory: async_sessionmaker | None = None
+
+
+async def _override_get_db():
+    async with _acquire_test_session_with_retry(_client_session_factory) as session:
+        yield session
+
+
 @pytest.fixture
 async def client(tmp_path):
     """Create an async test client with a dedicated database engine.
@@ -2010,11 +2021,9 @@ async def client(tmp_path):
     # intentionally tighter than the setup-phase 7s window. See
     # `.planning/audits/PYTEST-XDIST-FIXTURE-AUDIT-v1020.md` Section 4.3 +
     # Section 5 suggestion (lines 1289-1299).
-    async def override_get_db():
-        async with _acquire_test_session_with_retry(test_session_factory) as session:
-            yield session
-
-    app.dependency_overrides[get_db] = override_get_db
+    global _client_session_factory
+    _client_session_factory = test_session_factory
+    app.dependency_overrides[get_db] = _override_get_db
 
     # Initialize singleton cache provider for settings reads/writes in request paths.
     # Lifespan is not guaranteed in this ASGITransport test setup.
@@ -2055,6 +2064,7 @@ async def client(tmp_path):
 
     # Cleanup
     app.dependency_overrides.clear()
+    _client_session_factory = None
     db_module.engine = original_engine
     db_module.async_session = original_session
     storage_provider_module._storage = original_storage

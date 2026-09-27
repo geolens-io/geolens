@@ -676,6 +676,9 @@ async def test_an_authenticated_forced_re_read_completes_on_a_one_connection_poo
             assert tile_router._dataset_cache[table][1].tile_cache_version == 2
     finally:
         await one_connection.dispose()
+        # FastAPI keeps get_db_on_one_connection cached after the test; drop
+        # the engine it closes over.
+        sessions = None
         tile_router._evict_dataset_meta(table)
         await _drop_table(test_db_session, table)
 

@@ -85,6 +85,9 @@ def request_sessions(client: AsyncClient):
         yield captured
     finally:
         app.dependency_overrides[get_db] = original
+        # FastAPI keeps _capturing cached after the test, so it must not keep
+        # the sessions, or their engine, alive with it.
+        captured.clear()
 
 
 def _holds_connection(captured: list[AsyncSession]) -> bool:
