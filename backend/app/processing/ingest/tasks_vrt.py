@@ -1506,6 +1506,11 @@ async def regenerate_vrt(
                     # With the outcome unknown, the prior generation may still
                     # be live; the sweep runs the follow-ups once it shows.
                     if observation is PublishObservation.LANDED:
+                        # Same order as the committed path below: the sweep
+                        # retries the follow-ups but nothing retries these.
+                        await invalidate_catalog_cache()
+                        if vrt_dataset is not None:
+                            await defer_embedding(vrt_dataset)
                         await run_publish_followups(job_uuid)
                     return
                 publish_committed = True
