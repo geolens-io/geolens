@@ -589,13 +589,13 @@ class Settings(BaseSettings):
     # would trip it has already lost its client.
     db_statement_timeout_seconds: int = Field(default=300, ge=0)
 
-    # fix(#1249): how old an object under the `staging/` prefix must be
-    # before the reconciliation sweep deletes it for having no ingest_jobs
-    # row. Not a guess at upload duration -- the row check decides
-    # ownership, so this only needs to outlast a LISTING racing the row's
-    # own write. Floored at an hour so misconfiguration can't turn the
-    # sweep into a deleter of objects still landing. Consumer:
-    # `reconcile_orphaned_staging_objects` in platform/jobs/staging_reconcile.py.
+    # How old a staged upload (a `staging/` object, or a local staging file
+    # whose naming rows must also have ended this long ago) must be before a
+    # reconciliation sweep deletes it for having no ingest_jobs row that still
+    # needs it. Not a guess at upload duration -- the row check decides
+    # ownership. Floored at an hour so misconfiguration can't turn the sweeps
+    # into deleters of uploads still landing. Consumers in platform/jobs/:
+    # `reconcile_orphaned_staging_objects`, `reconcile_orphaned_local_uploads`.
     staging_orphan_min_age_seconds: int = Field(default=86400, ge=3600)
 
     # Outbound Notification channels (NOTIF-02/03/05). All defaults are
