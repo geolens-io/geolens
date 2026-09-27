@@ -7,6 +7,7 @@ them at once on a fresh server fail with a duplicate key on pg_authid.
 
 import threading
 import time
+import zlib
 from collections import defaultdict
 from contextlib import contextmanager
 from unittest.mock import MagicMock
@@ -19,6 +20,7 @@ from sqlalchemy.exc import OperationalError
 from app.core.config import settings
 import tests.conftest as conftest
 from tests.conftest import (
+    _CLUSTER_INIT_LOCK_KEY,
     _cluster_init_lock,
     _drop_test_database_if_exists,
     _quote_database_identifier,
@@ -32,7 +34,17 @@ def live_postgres():
         pytest.skip(f"Postgres unreachable: {conftest._db_unavailable_reason}")
 
 
-def test_a_second_worker_waits_for_the_first_workers_init(monkeypatch, live_postgres):
+@pytest.fixture
+def lock_key(request):
+    """A key of this test's own, so it never waits on a real worker's init or another test."""
+    key = zlib.crc32(request.node.nodeid.encode())
+    assert key != _CLUSTER_INIT_LOCK_KEY
+    return key
+
+
+def test_a_second_worker_waits_for_the_first_workers_init(
+    monkeypatch, live_postgres, lock_key
+):
     other_worker_db = _worker_test_database_name("geolens_init_lock")
     maintenance = sqlalchemy.create_engine(
         settings.database_url_sync, isolation_level="AUTOCOMMIT"
@@ -50,12 +62,12 @@ def test_a_second_worker_waits_for_the_first_workers_init(monkeypatch, live_post
     second_entered = threading.Event()
 
     def first_worker():
-        with _cluster_init_lock():
+        with _cluster_init_lock(key=lock_key):
             first_holds.set()
             release_first.wait(timeout=30)
 
     def second_worker():
-        with _cluster_init_lock():
+        with _cluster_init_lock(key=lock_key):
             second_entered.set()
 
     first = threading.Thread(target=first_worker)
@@ -86,7 +98,7 @@ def _too_many_clients() -> OperationalError:
     )
 
 
-def test_a_refused_lock_connection_is_retried(monkeypatch, live_postgres):
+def test_a_refused_lock_connection_is_retried(monkeypatch, live_postgres, lock_key):
     real_connect = sqlalchemy.engine.Engine.connect
     attempts = []
 
@@ -99,7 +111,7 @@ def test_a_refused_lock_connection_is_retried(monkeypatch, live_postgres):
     monkeypatch.setattr(sqlalchemy.engine.Engine, "connect", refuse_once)
     slept = []
     entered = False
-    with _cluster_init_lock(sleep_fn=slept.append, backoffs=(0.1, 0.2)):
+    with _cluster_init_lock(sleep_fn=slept.append, backoffs=(0.1, 0.2), key=lock_key):
         entered = True
 
     assert entered
@@ -107,20 +119,22 @@ def test_a_refused_lock_connection_is_retried(monkeypatch, live_postgres):
     assert len(attempts) == 2
 
 
-def test_a_lock_connection_refused_past_the_budget_raises(monkeypatch):
+def test_a_lock_connection_refused_past_the_budget_raises(monkeypatch, lock_key):
     def refuse(engine):
         raise _too_many_clients()
 
     monkeypatch.setattr(sqlalchemy.engine.Engine, "connect", refuse)
     slept = []
     with pytest.raises(OperationalError, match="too many clients"):
-        with _cluster_init_lock(sleep_fn=slept.append, backoffs=(0.1, 0.2)):
+        with _cluster_init_lock(
+            sleep_fn=slept.append, backoffs=(0.1, 0.2), key=lock_key
+        ):
             pytest.fail("the lock was reported taken")
 
     assert slept == [0.1, 0.2]
 
 
-def test_a_waiting_worker_holds_no_connection(monkeypatch, live_postgres):
+def test_a_waiting_worker_holds_no_connection(monkeypatch, live_postgres, lock_key):
     real_connect = sqlalchemy.engine.Engine.connect
     backend_pids = defaultdict(list)
 
@@ -138,7 +152,7 @@ def test_a_waiting_worker_holds_no_connection(monkeypatch, live_postgres):
     waiter_entered = threading.Event()
 
     def holder():
-        with _cluster_init_lock():
+        with _cluster_init_lock(key=lock_key):
             holder_holds.set()
             release_holder.wait(timeout=30)
 
@@ -149,7 +163,7 @@ def test_a_waiting_worker_holds_no_connection(monkeypatch, live_postgres):
         time.sleep(seconds)
 
     def waiter():
-        with _cluster_init_lock(sleep_fn=pause_once):
+        with _cluster_init_lock(sleep_fn=pause_once, key=lock_key):
             waiter_entered.set()
 
     observer = sqlalchemy.create_engine(settings.database_url_sync)
@@ -189,12 +203,12 @@ def test_a_waiting_worker_holds_no_connection(monkeypatch, live_postgres):
         observer.dispose()
 
 
-def test_the_wait_for_the_lock_is_bounded(live_postgres):
+def test_the_wait_for_the_lock_is_bounded(live_postgres, lock_key):
     holder_holds = threading.Event()
     release_holder = threading.Event()
 
     def holder():
-        with _cluster_init_lock():
+        with _cluster_init_lock(key=lock_key):
             holder_holds.set()
             release_holder.wait(timeout=30)
 
@@ -203,7 +217,7 @@ def test_the_wait_for_the_lock_is_bounded(live_postgres):
     try:
         assert holder_holds.wait(timeout=30)
         with pytest.raises(TimeoutError, match="init lock"):
-            with _cluster_init_lock(wait_seconds=0.5):
+            with _cluster_init_lock(wait_seconds=0.5, key=lock_key):
                 pytest.fail("the lock was taken while another worker held it")
     finally:
         release_holder.set()

@@ -1681,6 +1681,7 @@ def _cluster_init_lock(
     sleep_fn=time.sleep,
     backoffs=_SETUP_PHASE_RETRY_BACKOFFS,
     wait_seconds=_CLUSTER_INIT_LOCK_WAIT_SECONDS,
+    key=_CLUSTER_INIT_LOCK_KEY,
 ):
     """Hold the lock that lets one worker at a time create server-wide roles.
 
@@ -1712,7 +1713,7 @@ def _cluster_init_lock(
             with conn, conn.begin():
                 taken = conn.execute(
                     text("SELECT pg_try_advisory_xact_lock(:key)"),
-                    {"key": _CLUSTER_INIT_LOCK_KEY},
+                    {"key": key},
                 ).scalar()
                 if taken:
                     yield
@@ -1720,7 +1721,7 @@ def _cluster_init_lock(
             if time.monotonic() >= deadline:
                 raise TimeoutError(
                     f"waited {wait_seconds:.0f}s for the database init lock "
-                    f"({_CLUSTER_INIT_LOCK_KEY}) another worker holds"
+                    f"({key}) another worker holds"
                 )
             sleep_fn(_CLUSTER_INIT_LOCK_POLL_SECONDS)
     finally:
