@@ -1668,7 +1668,7 @@ _CLUSTER_INIT_LOCK_KEY = 861501
 
 
 @contextmanager
-def _cluster_init_lock():
+def _cluster_init_lock(sleep_fn=time.sleep, backoffs=_SETUP_PHASE_RETRY_BACKOFFS):
     """Hold the lock that lets one worker at a time create server-wide roles.
 
     Each worker's init and migrations create and grant roles that belong to
@@ -1677,10 +1677,23 @@ def _cluster_init_lock():
     lock is taken in the database every worker connects to for CREATE
     DATABASE. Held in the worker's own database, it would also stall the
     CREATE INDEX CONCURRENTLY its migrations run.
+
+    A connection refused for "too many clients already" is retried on the
+    ``backoffs`` budget, then re-raised.
     """
     engine = sqlalchemy.create_engine(settings.database_url_sync, poolclass=NullPool)
     try:
-        with engine.begin() as conn:
+        for attempt in range(1 + len(backoffs)):
+            try:
+                conn = engine.connect()
+                break
+            except OperationalError as e:
+                if "too many clients already" not in str(e).lower():
+                    raise
+                if attempt == len(backoffs):
+                    raise
+                sleep_fn(backoffs[attempt])
+        with conn, conn.begin():
             conn.execute(
                 text("SELECT pg_advisory_xact_lock(:key)"),
                 {"key": _CLUSTER_INIT_LOCK_KEY},
@@ -1787,10 +1800,10 @@ def _test_db_lifecycle():
             return
 
         # --- Init: extensions, schemas, roles ---
+        # Held until the migrations finish, since they create server-wide roles too.
+        init_lock.enter_context(_cluster_init_lock())
         test_engine_sync = sqlalchemy.create_engine(settings.test_database_url_sync)
         try:
-            # Held until the migrations finish, since they create server-wide roles too.
-            init_lock.enter_context(_cluster_init_lock())
             with test_engine_sync.connect() as conn:
                 conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
                 conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))

@@ -6,9 +6,12 @@ them at once on a fresh server fail with a duplicate key on pg_authid.
 """
 
 import threading
+from contextlib import contextmanager
 
+import pytest
 import sqlalchemy
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 
 from app.core.config import settings
 from tests.conftest import (
@@ -65,3 +68,78 @@ def test_a_second_worker_waits_for_the_first_workers_init(monkeypatch):
         if second.ident is not None:
             second.join(timeout=30)
         _drop_test_database_if_exists(other_worker_db)
+
+
+def _too_many_clients() -> OperationalError:
+    return OperationalError(
+        "connect", {}, Exception("FATAL: sorry, too many clients already")
+    )
+
+
+def test_a_refused_lock_connection_is_retried(monkeypatch):
+    real_connect = sqlalchemy.engine.Engine.connect
+    attempts = []
+
+    def refuse_once(engine):
+        attempts.append(engine)
+        if len(attempts) == 1:
+            raise _too_many_clients()
+        return real_connect(engine)
+
+    monkeypatch.setattr(sqlalchemy.engine.Engine, "connect", refuse_once)
+    slept = []
+    entered = False
+    with _cluster_init_lock(sleep_fn=slept.append, backoffs=(0.1, 0.2)):
+        entered = True
+
+    assert entered
+    assert slept == [0.1]
+    assert len(attempts) == 2
+
+
+def test_a_lock_connection_refused_past_the_budget_raises(monkeypatch):
+    def refuse(engine):
+        raise _too_many_clients()
+
+    monkeypatch.setattr(sqlalchemy.engine.Engine, "connect", refuse)
+    slept = []
+    with pytest.raises(OperationalError, match="too many clients"):
+        with _cluster_init_lock(sleep_fn=slept.append, backoffs=(0.1, 0.2)):
+            pytest.fail("the lock was reported taken")
+
+    assert slept == [0.1, 0.2]
+
+
+def test_a_lock_that_cannot_be_taken_fails_setup_instead_of_skipping_init(
+    monkeypatch,
+):
+    """Not the missing-extension case: setup raises, it never yields."""
+    import tests.conftest as conftest
+
+    @contextmanager
+    def unreachable_lock():
+        raise _too_many_clients()
+        yield
+
+    session_db = settings.postgres_db_test
+    monkeypatch.setattr(conftest, "_SETUP_STAGGER_SECONDS", 0)
+    monkeypatch.setattr(conftest, "_cluster_init_lock", unreachable_lock)
+    setup = conftest._test_db_lifecycle.__wrapped__()
+
+    try:
+        with pytest.raises(OperationalError, match="too many clients"):
+            next(setup)
+    finally:
+        setup.close()
+
+    assert settings.postgres_db_test == session_db
+    maintenance = sqlalchemy.create_engine(settings.database_url_sync)
+    try:
+        with maintenance.connect() as conn:
+            leftover = conn.execute(
+                text("SELECT datname FROM pg_database WHERE datname LIKE :prefix"),
+                {"prefix": f"{session_db}\\_%"},
+            ).all()
+    finally:
+        maintenance.dispose()
+    assert leftover == []
