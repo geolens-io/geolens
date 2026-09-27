@@ -16,6 +16,7 @@ proxy's resolver and leave every other name to the real policy.
 from __future__ import annotations
 
 import asyncio
+import os
 import shutil
 import socket
 import threading
@@ -512,11 +513,13 @@ def test_the_service_env_sends_every_request_through_the_proxy(monkeypatch):
         monkeypatch.setenv(key, "*")
     for key in ("HTTPS_PROXY", "http_proxy", "ALL_PROXY", "GDAL_HTTPS_PROXY"):
         monkeypatch.setenv(key, "http://elsewhere:1")
+    monkeypatch.setenv("GDAL_CONFIG_FILE", "/etc/gdalrc-elsewhere")
     egress = ServiceEgress("http://127.0.0.1:4321")
 
     env = gdal_service_safe_env(egress)
 
     assert env["GDAL_HTTP_PROXY"] == env["GDAL_HTTPS_PROXY"] == egress.address
+    assert env["GDAL_CONFIG_FILE"] == os.devnull
     stray = {k for k in env if "proxy" in k.lower()} - {
         "GDAL_HTTP_PROXY",
         "GDAL_HTTPS_PROXY",
@@ -654,6 +657,41 @@ class TestGdalReachesOnlyAllowedHosts:
         assert internal_requests == []
         assert marker not in str(preview_error.value)
         assert str(import_error.value) == (
+            f"ogr2ogr failed (exit 1): {SERVICE_ADDRESS_REFUSED}"
+        )
+
+    @pytest.mark.parametrize(
+        ("setting", "content"),
+        [
+            ("GDAL_CONFIG_FILE", "[directives]\nignore-env-vars=yes\n"),
+            ("GDAL_CONFIG_FILE", "[configoptions]\nGDAL_HTTP_PROXY=\n"),
+            ("HOME", "[directives]\nignore-env-vars=yes\n"),
+        ],
+        ids=["ignore-env-vars", "empty-proxy-option", "home-gdalrc"],
+    )
+    async def test_a_gdal_config_file_does_not_route_around_it(
+        self, resolver_calls, monkeypatch, tmp_path, setting, content
+    ):
+        """GDAL reads $GDAL_CONFIG_FILE, or else ~/.gdal/gdalrc, and either can
+        tell it to ignore the environment the proxy is set in. The test host
+        resolves only in the proxy, so going direct fails without the refusal."""
+        if setting == "HOME":
+            (tmp_path / ".gdal").mkdir()
+            (tmp_path / ".gdal" / "gdalrc").write_text(content)
+            monkeypatch.setenv("HOME", str(tmp_path))
+        else:
+            (tmp_path / "gdalrc").write_text(content)
+            monkeypatch.setenv("GDAL_CONFIG_FILE", str(tmp_path / "gdalrc"))
+
+        with _wfs_service() as (internal_port, internal_requests):
+            target = f"http://127.0.0.1:{internal_port}/wfs?REQUEST=GetCapabilities"
+            with _wfs_service(redirect_to=target) as (port, requests):
+                with pytest.raises(IngestionError) as error:
+                    await _importer(f"WFS:http://{_HOST}:{port}/wfs")(_LAYER)
+
+        assert requests
+        assert internal_requests == []
+        assert str(error.value) == (
             f"ogr2ogr failed (exit 1): {SERVICE_ADDRESS_REFUSED}"
         )
 

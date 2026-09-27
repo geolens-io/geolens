@@ -90,6 +90,9 @@ def gdal_service_safe_env(egress: ServiceEgress) -> dict[str, str]:
     ``validate_url_for_ssrf`` would allow. Run the subprocess while ``egress``
     is open. Inherited proxy settings are dropped: libcurl honours
     ``NO_PROXY`` even with a proxy set, and ``GDAL_HTTPS_PROXY`` wins for https.
+    No GDAL config file is read either, since one can tell GDAL to ignore the
+    environment, and pointing ``GDAL_CONFIG_FILE`` at an empty file also skips
+    the default ``$HOME/.gdal/gdalrc``.
     """
     env = _gdal_skip_env(
         tuple(d for d in _NETWORK_AND_POINTER_DRIVERS if d not in _SERVICE_KEPT_DRIVERS)
@@ -99,4 +102,5 @@ def gdal_service_safe_env(egress: ServiceEgress) -> dict[str, str]:
         **env,
         "GDAL_HTTP_PROXY": egress.address,
         "GDAL_HTTPS_PROXY": egress.address,
+        "GDAL_CONFIG_FILE": os.devnull,
     }
