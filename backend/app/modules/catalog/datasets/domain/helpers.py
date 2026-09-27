@@ -1,5 +1,6 @@
 """Shared helpers for dataset routers."""
 
+import contextlib
 import uuid
 from collections.abc import Iterable, Mapping
 from datetime import datetime, timezone
@@ -79,8 +80,10 @@ def _build_raster_metadata(
         and settings.storage_provider == "s3"
         and raster_asset.storage_backend != "remote"
     ):
-        key = resolve_current_storage_key(raster_asset.asset_uri)
-        s3_uri = f"s3://{settings.s3_bucket}/{key}"
+        # A hand-edited key the resolver refuses has no location to show.
+        with contextlib.suppress(ValueError):
+            key = resolve_current_storage_key(raster_asset.asset_uri)
+            s3_uri = f"s3://{settings.s3_bucket}/{key}"
 
     # fix(#821): ?api_key= is deprecated, but desktop GIS XYZ tile clients
     # can't send headers -- this placeholder is the sanctioned remaining use.

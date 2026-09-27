@@ -182,20 +182,28 @@ async def test_a_replacement_on_an_s3_install_redirects_its_download(
 
 
 @pytest.mark.parametrize(
-    ("provider", "tag", "is_admin", "expected"),
+    ("provider", "tag", "is_admin", "asset_uri", "expected"),
     [
-        ("s3", "local", True, "s3://tag-bucket/rasters/d/cog.tif"),
-        ("s3", "s3", True, "s3://tag-bucket/rasters/d/cog.tif"),
-        ("s3", "local", False, None),
-        ("s3", "remote", True, None),
-        ("local", "local", True, None),
-        ("azure", "local", True, None),
+        ("s3", "local", True, "rasters/d/cog.tif", "s3://tag-bucket/rasters/d/cog.tif"),
+        ("s3", "s3", True, "rasters/d/cog.tif", "s3://tag-bucket/rasters/d/cog.tif"),
+        ("s3", "local", False, "rasters/d/cog.tif", None),
+        ("s3", "remote", True, "https://example.test/cog.tif", None),
+        ("local", "local", True, "rasters/d/cog.tif", None),
+        ("azure", "local", True, "rasters/d/cog.tif", None),
+        ("s3", "local", True, "/srv/geolens/cog.tif", None),
+        ("s3", "local", True, "rasters/../cog.tif", None),
     ],
 )
 def test_the_admin_s3_uri_follows_the_provider(
-    monkeypatch, provider: str, tag: str, is_admin: bool, expected: str | None
+    monkeypatch,
+    provider: str,
+    tag: str,
+    is_admin: bool,
+    asset_uri: str,
+    expected: str | None,
 ) -> None:
-    """Admins see a managed COG's bucket URI on an S3 install, whatever its tag."""
+    """Admins see a managed COG's bucket URI on an S3 install, whatever its tag,
+    and none for a hand-edited key the storage resolver refuses."""
     from types import SimpleNamespace
 
     from app.modules.catalog.datasets.domain.helpers import _build_raster_metadata
@@ -208,12 +216,7 @@ def test_the_admin_s3_uri_follows_the_provider(
         tile_cache_version=None,
         publication_version=None,
     )
-    asset = RasterAsset(
-        asset_uri=(
-            "https://example.test/cog.tif" if tag == "remote" else "rasters/d/cog.tif"
-        ),
-        storage_backend=tag,
-    )
+    asset = RasterAsset(asset_uri=asset_uri, storage_backend=tag)
 
     metadata = _build_raster_metadata(dataset, asset, is_admin=is_admin)
 

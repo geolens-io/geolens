@@ -971,9 +971,9 @@ async def download_cog(
     On S3 storage with presigned downloads enabled, answers 302 to a
     short-lived presigned URL (at most 5 minutes, and never past the expiry of
     a ``?token=`` download token); otherwise streams the object with
-    Content-Type image/tiff. Even then, a GET carrying a specific If-Match, or
-    a resume whose If-Range no longer matches, is streamed. A COG imported by
-    reference redirects to its origin.
+    Content-Type image/tiff. Even then, a GET carrying If-Match, or a resume
+    whose If-Range no longer matches, is streamed. A COG imported by reference
+    redirects to its origin.
     Accepts standard auth or ?token= JWT query parameter for browser downloads.
 
     ``user`` may be None when a no-sub anonymous
@@ -1258,9 +1258,10 @@ async def _s3_cog_response(
     (MinIO answers a get_object URL's HEAD with 403).
 
     Two GETs pass their bytes through this process, because the bucket would
-    judge them by its own validator. A client keeps a specific If-Match across
-    the redirect, and the bucket compares it with its MD5 ETag rather than
-    this route's SHA-256, so an unchanged COG would get a 412. A presigned GET
+    judge them by its own validator. A client keeps If-Match across the
+    redirect, and the bucket compares a tag with its MD5 ETag rather than this
+    route's SHA-256, so an unchanged COG would get a 412; a bucket may also
+    refuse a wildcard it doesn't support. A presigned GET
     ignores If-Range and answers 206 regardless, so a redirect can't stop a
     resume whose validator no longer matches from splicing an old range onto
     a new COG.
@@ -1285,7 +1286,7 @@ async def _s3_cog_response(
     stale_resume = request.headers.get("range") and not range_bound_to_this_version(
         request.headers.get("if-range"), etag
     )
-    if (if_match and if_match != "*") or stale_resume:
+    if if_match or stale_resume:
         # A stale resume's answer is the entire object, read as ONE streamed
         # get_object, not `_iter_storage_range`'s ranged request per 1 MiB
         # chunk: a caller can pick this branch with any stale validator, and a

@@ -53,7 +53,7 @@ from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.platform.storage import get_storage
 from app.processing.raster.models import RasterAsset
 
-from tests.factories import get_user_id
+from tests.factories import create_user, get_user_id
 
 # Big enough that a range is a genuine slice rather than the whole object, and
 # that a multi-chunk range crosses the streaming chunk boundary at least once
@@ -75,6 +75,7 @@ async def _raster_dataset(
     asset_uri: str | None = None,
     visibility: str = "public",
     sha256: str | None = None,
+    created_by: uuid.UUID | None = None,
 ) -> tuple[Dataset, RasterAsset]:
     """Create a Record + Dataset + RasterAsset for the COG download route.
 
@@ -91,7 +92,7 @@ async def _raster_dataset(
         visibility=visibility,
         record_status="published",
         record_type="raster_dataset",
-        created_by=admin_id,
+        created_by=created_by or admin_id,
     )
     session.add(record)
     await session.flush()
@@ -2756,7 +2757,8 @@ async def test_a_row_with_no_digest_refuses_a_specific_if_match_on_s3_too(
     tag for, so the condition is false and the answer is 412 — the same call
     ``test_a_row_with_no_digest_refuses_a_specific_if_match_but_allows_star``
     makes for local storage. ``*`` is the other question, and the object exists,
-    so the request proceeds: on s3 that is the ordinary presigned redirect.
+    so the request proceeds, served here like any If-Match GET rather than
+    handing the wildcard to the bucket.
 
     Both spellings are asserted together because the precondition block sits
     above the storage branching, and "evaluated for local, skipped for s3" is
@@ -2784,10 +2786,12 @@ async def test_a_row_with_no_digest_refuses_a_specific_if_match_on_s3_too(
         f"unverifiable must not mean honoured, and a 302 here hands the "
         f"precondition to a bucket that does not evaluate it."
     )
-    assert star.status_code == 302, (
+    assert star.status_code == 200, (
         f"If-Match: * returned {star.status_code} for an object that exists; "
-        f"the request should proceed to the ordinary redirect."
+        f"the request should proceed and be served here."
     )
+    assert "location" not in star.headers
+    assert star.content == _COG_BYTES
 
 
 # ---------------------------------------------------------------------------
@@ -2874,6 +2878,14 @@ async def test_a_caller_the_route_refuses_gets_no_redirect_on_s3(
     s3_storage,
 ):
     """The presigned URL is handed out only after the route's own gate passes."""
+    owner_header, owner_id = await create_user(client, admin_auth_header, "editor")
+    owned, owned_asset = await _raster_dataset(
+        test_db_session,
+        asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/owned.cog.tif",
+        visibility="private",
+        sha256=hashlib.sha256(_COG_BYTES).hexdigest(),
+        created_by=uuid.UUID(owner_id),
+    )
     public, public_asset = await _raster_dataset(
         test_db_session,
         asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/public.cog.tif",
@@ -2885,10 +2897,11 @@ async def test_a_caller_the_route_refuses_gets_no_redirect_on_s3(
         visibility="private",
         sha256=hashlib.sha256(_COG_BYTES).hexdigest(),
     )
-    for asset in (public_asset, private_asset):
+    for asset in (public_asset, private_asset, owned_asset):
         await s3_storage.put(asset.asset_uri, _COG_BYTES)
     matrix = copy.deepcopy(DEFAULT_ROLE_PERMISSIONS)
     matrix["viewer"]["export"] = False
+    matrix["editor"]["export"] = False
     resp = await client.put(
         "/settings/",
         json={"settings": {"role_permissions": matrix}},
@@ -2909,6 +2922,14 @@ async def test_a_caller_the_route_refuses_gets_no_redirect_on_s3(
                 await client.get(
                     f"/datasets/{public.id}/download/cog",
                     headers=viewer_auth_header,
+                    follow_redirects=False,
+                ),
+                403,
+            ),
+            "an owner without export": (
+                await client.get(
+                    f"/datasets/{owned.id}/download/cog",
+                    headers=owner_header,
                     follow_redirects=False,
                 ),
                 403,
