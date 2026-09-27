@@ -43,7 +43,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Rows carrying the new key would violate the narrowed constraint. Dropping
-    # them loses only the accounting; the kept objects stay in storage.
-    op.execute("DELETE FROM catalog.dataset_assets WHERE key LIKE 'retained_cog:%'")
+    # Fails loudly while any retained_cog row exists: the row is the only
+    # pointer to its kept COG, so it is not dropped to make room.
     _replace_check(_OLD_CHECK)
