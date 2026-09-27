@@ -954,6 +954,7 @@ async def _resolve_download_user(
     responses={
         200: {"description": "The whole COG file", "content": _COG_BODY},
         206: {"description": "One byte range of the COG file", "content": _COG_BODY},
+        302: {"description": "Redirect to the COG's object-storage or remote URL"},
         304: {"description": "The caller already holds this version of the file"},
         403: FORBIDDEN_RESPONSE,
         412: PRECONDITION_FAILED_RESPONSE,

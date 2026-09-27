@@ -24920,6 +24920,13 @@ export interface operations {
                     "image/tiff": string;
                 };
             };
+            /** @description Redirect to the COG's object-storage or remote URL */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             /** @description The caller already holds this version of the file */
             304: {
                 headers: {

@@ -15,3 +15,17 @@ client = GeolensClient(base_url="https://geolens.example.com/api", bearer_token=
 # The deployed API is served under /api, so include that suffix in base_url.
 # See docs.getgeolens.com for endpoint usage examples.
 ```
+
+## Downloading a COG
+
+With S3 or a remote source behind a raster dataset, the COG download answers
+302 with the file's URL. `cog_download` fetches that URL without sending your
+GeoLens credentials to the storage host, and returns the bytes on every
+storage backend:
+
+```python
+from geolens import cog_download
+
+cog = cog_download.sync(dataset_id, client=client.client)  # or: await cog_download.asyncio(...)
+data = cog.payload.read()
+```

@@ -36026,6 +36026,9 @@
             },
             "description": "One byte range of the COG file"
           },
+          "302": {
+            "description": "Redirect to the COG's object-storage or remote URL"
+          },
           "304": {
             "description": "The caller already holds this version of the file"
           },

@@ -391,6 +391,222 @@ class TestCogAndExportNotModified:
         assert result.status_code == 304
 
 
+class _Storage:
+    """Stands in for every host reached over a real network transport."""
+
+    def __init__(self, body: bytes) -> None:
+        self.seen: list[httpx.Request] = []
+        self.respond = lambda request: httpx.Response(200, content=body)
+
+    def handle(self, request: httpx.Request) -> httpx.Response:
+        self.seen.append(request)
+        return self.respond(request)
+
+
+class TestCogDownloadRedirect:
+    """geolens.cog_download returns the COG on every storage backend.
+
+    The GeoLens client answers through its own MockTransport; the storage
+    host is whatever a fresh httpx client reaches, captured by patching the
+    real network transports.
+    """
+
+    _BODY = b"II*\x00" + bytes(range(64))
+    _STORAGE_URL = "https://storage.test/bucket/cog.tif?X-Amz-Signature=abc123"
+    _AUTH = {
+        "bearer": {},
+        "api_key": {"prefix": "", "auth_header_name": "X-API-Key"},
+    }
+
+    @pytest.fixture
+    def storage(self, monkeypatch: pytest.MonkeyPatch) -> _Storage:
+        storage = _Storage(self._BODY)
+
+        async def handle_async(_transport, request: httpx.Request) -> httpx.Response:
+            return storage.handle(request)
+
+        monkeypatch.setattr(
+            httpx.HTTPTransport,
+            "handle_request",
+            lambda _transport, request: storage.handle(request),
+        )
+        monkeypatch.setattr(
+            httpx.AsyncHTTPTransport, "handle_async_request", handle_async
+        )
+        return storage
+
+    def _client(
+        self,
+        respond,
+        *,
+        auth: str = "api_key",
+        secrets: dict[str, str] | None = None,
+        **kwargs,
+    ) -> tuple[AuthenticatedClient, list[httpx.Request]]:
+        secrets = secrets or {
+            name: uuid4().hex for name in ("token", "header", "cookie")
+        }
+        sent: list[httpx.Request] = []
+
+        def record(request: httpx.Request) -> httpx.Response:
+            sent.append(request)
+            return respond(request)
+
+        client = AuthenticatedClient(
+            base_url="http://sdk.test/api",
+            token=secrets["token"],
+            headers={"X-Custom-Header": secrets["header"]},
+            cookies={"geolens_session": secrets["cookie"]},
+            httpx_args={"transport": httpx.MockTransport(record)},
+            **self._AUTH[auth],
+            **kwargs,
+        )
+        return client, sent
+
+    def _redirect_to(self, location: str):
+        return lambda request: httpx.Response(302, headers={"Location": location})
+
+    def _download(self, mode: str, client: AuthenticatedClient):
+        from geolens import cog_download
+
+        if mode == "sync":
+            return cog_download.sync(uuid4(), client=client)
+        return asyncio.run(cog_download.asyncio(uuid4(), client=client))
+
+    @pytest.mark.parametrize("mode", ["sync", "asyncio"])
+    @pytest.mark.parametrize("auth", ["bearer", "api_key"])
+    def test_302_target_gets_the_bytes_and_no_geolens_credentials(
+        self, storage: _Storage, auth: str, mode: str
+    ) -> None:
+        from geolens.types import File
+
+        secrets = {name: uuid4().hex for name in ("token", "header", "cookie")}
+        client, sent = self._client(
+            self._redirect_to(self._STORAGE_URL), auth=auth, secrets=secrets
+        )
+
+        result = self._download(mode, client)
+
+        assert isinstance(result, File)
+        assert result.payload.read() == self._BODY
+        # The GeoLens request carried every credential, so their absence
+        # below is the helper's doing.
+        (geolens_request,) = sent
+        joined = " ".join(geolens_request.headers.values())
+        assert all(secret in joined for secret in secrets.values())
+        (fetched,) = storage.seen
+        assert fetched.url == self._STORAGE_URL
+        for name in ("Authorization", "X-API-Key", "Cookie", "X-Custom-Header"):
+            assert name not in fetched.headers
+        joined = " ".join(fetched.headers.values())
+        assert not any(secret in joined for secret in secrets.values())
+
+    @pytest.mark.parametrize("mode", ["sync", "asyncio"])
+    def test_client_that_follows_redirects_still_sends_no_credentials(
+        self, storage: _Storage, mode: str
+    ) -> None:
+        client, sent = self._client(
+            self._redirect_to(self._STORAGE_URL), follow_redirects=True
+        )
+
+        assert self._download(mode, client).payload.read() == self._BODY
+        assert len(sent) == 1
+        (fetched,) = storage.seen
+        assert "X-API-Key" not in fetched.headers
+
+    @pytest.mark.parametrize("mode", ["sync", "asyncio"])
+    def test_storage_redirects_are_followed_without_credentials(
+        self, storage: _Storage, mode: str
+    ) -> None:
+        mirror = "https://mirror.test/cog.tif"
+        storage.respond = lambda request: (
+            httpx.Response(307, headers={"Location": mirror})
+            if request.url.host == "storage.test"
+            else httpx.Response(200, content=self._BODY)
+        )
+        client, _ = self._client(self._redirect_to(self._STORAGE_URL))
+
+        assert self._download(mode, client).payload.read() == self._BODY
+        assert [str(request.url) for request in storage.seen] == [
+            self._STORAGE_URL,
+            mirror,
+        ]
+        assert all("X-API-Key" not in request.headers for request in storage.seen)
+
+    @pytest.mark.parametrize("mode", ["sync", "asyncio"])
+    def test_relative_location_resolves_against_the_request_url(
+        self, storage: _Storage, mode: str
+    ) -> None:
+        client, _ = self._client(self._redirect_to("/files/cog.tif"))
+
+        assert self._download(mode, client).payload.read() == self._BODY
+        (fetched,) = storage.seen
+        assert fetched.url == "http://sdk.test/files/cog.tif"
+        assert "X-API-Key" not in fetched.headers
+
+    @pytest.mark.parametrize("mode", ["sync", "asyncio"])
+    @pytest.mark.parametrize(
+        "location",
+        ["ftp://storage.test/cog.tif", "file:///etc/passwd", "https:/cog.tif"],
+    )
+    def test_non_http_location_raises(
+        self, storage: _Storage, location: str, mode: str
+    ) -> None:
+        client, _ = self._client(self._redirect_to(location))
+
+        with pytest.raises(ValueError, match="unsupported URL"):
+            self._download(mode, client)
+        assert storage.seen == []
+
+    @pytest.mark.parametrize("mode", ["sync", "asyncio"])
+    def test_failed_storage_fetch_raises(self, storage: _Storage, mode: str) -> None:
+        from geolens.errors import UnexpectedStatus
+
+        storage.respond = lambda request: httpx.Response(403, content=b"expired")
+        client, _ = self._client(self._redirect_to(self._STORAGE_URL))
+
+        with pytest.raises(UnexpectedStatus) as raised:
+            self._download(mode, client)
+        assert raised.value.status_code == 403
+
+    @pytest.mark.parametrize("mode", ["sync", "asyncio"])
+    @pytest.mark.parametrize("status", [200, 206])
+    def test_local_storage_returns_the_body(
+        self, storage: _Storage, status: int, mode: str
+    ) -> None:
+        from geolens.types import File
+
+        client, _ = self._client(
+            lambda request: httpx.Response(status, content=self._BODY)
+        )
+
+        result = self._download(mode, client)
+
+        assert isinstance(result, File)
+        assert result.payload.read() == self._BODY
+        assert storage.seen == []
+
+    @pytest.mark.parametrize("mode", ["sync", "asyncio"])
+    def test_generated_call_does_not_raise_on_302(self, mode: str) -> None:
+        from geolens.api.datasets_export import (
+            download_cog_datasets_dataset_id_download_cog_get as download,
+        )
+
+        client, _ = self._client(
+            self._redirect_to(self._STORAGE_URL), raise_on_unexpected_status=True
+        )
+
+        if mode == "sync":
+            result = download.sync_detailed(dataset_id=uuid4(), client=client)
+        else:
+            result = asyncio.run(
+                download.asyncio_detailed(dataset_id=uuid4(), client=client)
+            )
+
+        assert result.status_code == 302
+        assert result.headers["location"] == self._STORAGE_URL
+
+
 # ------------------- Optional request bodies (regeneration guard) -------------------
 
 

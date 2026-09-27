@@ -159,6 +159,9 @@ jobs:
               # test_sdks_round_trip.py checks that every anonymous-capable
               # operation accepts a plain Client, which this script produces.
               - 'scripts/fix_sdk_anonymous_client.py'
+              # The SDK's hand-maintained modules (auth.py, cog_download.py) are
+              # tested only in test_sdks_round_trip.py and change without backend/**.
+              - 'sdks/python/geolens/*.py'
               # fix(#1607): test_seed_showcase_pins_1607.py imports this seeder
               # and walks its AST to prove every builder routes its map-exists
               # check through _keep_existing_map, so the maps geolens-examples
