@@ -969,7 +969,8 @@ async def download_cog(
     """Download the Cloud-Optimized GeoTIFF for a raster dataset.
 
     Local storage: streams the COG file with Content-Type image/tiff.
-    S3 storage: returns a 302 redirect to a presigned GET URL (1-hour expiry).
+    S3 storage: returns a 302 redirect to a presigned GET URL valid for at most
+    5 minutes, and never past the expiry of a ``?token=`` download token.
     Accepts standard auth or ?token= JWT query parameter for browser downloads.
 
     ``user`` may be None when a no-sub anonymous
