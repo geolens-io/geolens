@@ -22869,6 +22869,10 @@ export type ListMapsEndpointMapsGetData = {
          * Visibility
          */
         visibility?: string | null;
+        /**
+         * Owned Only
+         */
+        owned_only?: boolean;
     };
     url: '/maps/';
 };

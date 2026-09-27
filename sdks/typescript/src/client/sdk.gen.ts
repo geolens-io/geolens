@@ -3814,6 +3814,7 @@ export const alterColumnTypeEndpointLayersDatasetIdColumnsColumnNameTypePatch = 
  *
  * Supports search (ILIKE on name+description), sort_by (name/created_at/updated_at),
  * sort_dir (asc/desc), and visibility filter (private/internal/public).
+ * owned_only restricts results to the caller's maps; anonymous callers get no maps.
  */
 export const listMapsEndpointMapsGet = <ThrowOnError extends boolean = false>(options?: Options<ListMapsEndpointMapsGetData, ThrowOnError>): RequestResult<ListMapsEndpointMapsGetResponses, ListMapsEndpointMapsGetErrors, ThrowOnError> => (options?.client ?? client).get<ListMapsEndpointMapsGetResponses, ListMapsEndpointMapsGetErrors, ThrowOnError>({
     security: [
