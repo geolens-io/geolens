@@ -441,6 +441,7 @@ class TestCogDownloadRedirect:
         *,
         auth: str = "api_key",
         secrets: dict[str, str] | None = None,
+        headers: dict[str, str] | None = None,
         **kwargs,
     ) -> tuple[AuthenticatedClient, list[httpx.Request]]:
         secrets = secrets or {
@@ -455,7 +456,7 @@ class TestCogDownloadRedirect:
         client = AuthenticatedClient(
             base_url="http://sdk.test/api",
             token=secrets["token"],
-            headers={"X-Custom-Header": secrets["header"]},
+            headers={"X-Custom-Header": secrets["header"], **(headers or {})},
             cookies={"geolens_session": secrets["cookie"]},
             httpx_args={"transport": httpx.MockTransport(record)},
             **self._AUTH[auth],
@@ -557,6 +558,79 @@ class TestCogDownloadRedirect:
         with pytest.raises(ValueError, match="unsupported URL"):
             self._download(mode, client)
         assert storage.seen == []
+
+    @pytest.mark.parametrize("mode", ["sync", "asyncio"])
+    @pytest.mark.parametrize("if_match", ['"v1"', '"v0"'])
+    def test_range_and_preconditions_reach_the_target(
+        self, storage: _Storage, if_match: str, mode: str
+    ) -> None:
+        from geolens.errors import UnexpectedStatus
+        from geolens.types import File
+
+        def answer(request: httpx.Request) -> httpx.Response:
+            if request.headers.get("if-match") != '"v1"':
+                return httpx.Response(412)
+            return httpx.Response(206, content=self._BODY[2:6])
+
+        storage.respond = answer
+        secrets = {name: uuid4().hex for name in ("token", "header", "cookie")}
+        client, _ = self._client(
+            self._redirect_to(self._STORAGE_URL),
+            secrets=secrets,
+            headers={"Range": "bytes=2-5", "If-Match": if_match},
+        )
+
+        if if_match == '"v1"':
+            result = self._download(mode, client)
+            assert isinstance(result, File)
+            assert result.payload.read() == self._BODY[2:6]
+        else:
+            with pytest.raises(UnexpectedStatus) as raised:
+                self._download(mode, client)
+            assert raised.value.status_code == 412
+        (fetched,) = storage.seen
+        assert fetched.headers["Range"] == "bytes=2-5"
+        assert fetched.headers["If-Match"] == if_match
+        for name in ("Authorization", "X-API-Key", "Cookie", "X-Custom-Header"):
+            assert name not in fetched.headers
+        joined = " ".join(fetched.headers.values())
+        assert not any(secret in joined for secret in secrets.values())
+
+    @pytest.mark.parametrize("mode", ["sync", "asyncio"])
+    @pytest.mark.parametrize(
+        "condition",
+        [
+            ("If-None-Match", '"remote-etag"'),
+            ("If-Modified-Since", "Wed, 01 Jan 2025 00:00:00 GMT"),
+        ],
+    )
+    def test_not_modified_target_returns_none(
+        self, storage: _Storage, condition: tuple[str, str], mode: str
+    ) -> None:
+        name, value = condition
+        storage.respond = lambda request: httpx.Response(304)
+        client, _ = self._client(
+            self._redirect_to(self._STORAGE_URL), headers={name: value}
+        )
+
+        assert self._download(mode, client) is None
+        assert storage.seen[0].headers[name] == value
+
+    @pytest.mark.parametrize("mode", ["sync", "asyncio"])
+    @pytest.mark.parametrize(
+        "status", [304, 302], ids=["unconditional-304", "302-without-location"]
+    )
+    def test_target_3xx_that_is_not_an_answer_raises(
+        self, storage: _Storage, status: int, mode: str
+    ) -> None:
+        from geolens.errors import UnexpectedStatus
+
+        storage.respond = lambda request: httpx.Response(status)
+        client, _ = self._client(self._redirect_to(self._STORAGE_URL))
+
+        with pytest.raises(UnexpectedStatus) as raised:
+            self._download(mode, client)
+        assert raised.value.status_code == status
 
     @pytest.mark.parametrize("mode", ["sync", "asyncio"])
     def test_failed_storage_fetch_raises(self, storage: _Storage, mode: str) -> None:

@@ -9,8 +9,11 @@ answer 302 with the file's URL, which the generated ``sync()`` returns as None.
 Following that redirect on the GeoLens client would send ``X-API-Key``, cookies
 and any other configured header to the storage host (httpx strips only
 ``Authorization``), so the target is fetched with a separate client that has
-none of them. A Location that isn't an http(s) URL raises ValueError; a failed
-fetch of the target raises ``errors.UnexpectedStatus``.
+none of them. Only ``Range`` and the ``If-*`` precondition headers of the
+GeoLens request go along. A Location that isn't an http(s) URL raises
+ValueError. A 304 answering an ``If-None-Match`` or ``If-Modified-Since`` read
+of the target returns None, as the generated call's 304 does; any other failed
+fetch of it raises ``errors.UnexpectedStatus``.
 
 Example:
     >>> from geolens import GeolensClient, cog_download
@@ -37,6 +40,17 @@ if TYPE_CHECKING:
 
 __all__ = ["asyncio", "sync"]
 
+# Not credentials, and a ranged or conditional read needs them at the storage
+# host the backend redirects to.
+_FORWARDED_HEADERS = (
+    "range",
+    "if-range",
+    "if-match",
+    "if-none-match",
+    "if-modified-since",
+    "if-unmodified-since",
+)
+
 
 def sync(
     dataset_id: UUID,
@@ -51,7 +65,7 @@ def sync(
     if response.status_code != 302:
         return operation._parse_response(client=client, response=response)
     with httpx.Client(**_storage_client_args(client)) as storage:
-        return _file(storage.get(_redirect_url(response)))
+        return _file(storage.get(_redirect_url(response), headers=_forwarded(response)))
 
 
 async def asyncio(
@@ -67,7 +81,9 @@ async def asyncio(
     if response.status_code != 302:
         return operation._parse_response(client=client, response=response)
     async with httpx.AsyncClient(**_storage_client_args(client)) as storage:
-        return _file(await storage.get(_redirect_url(response)))
+        return _file(
+            await storage.get(_redirect_url(response), headers=_forwarded(response))
+        )
 
 
 def _operation() -> ModuleType:
@@ -102,7 +118,17 @@ def _redirect_url(response: httpx.Response) -> httpx.URL:
     return url
 
 
-def _file(response: httpx.Response) -> File:
+def _forwarded(response: httpx.Response) -> dict[str, str]:
+    sent = response.request.headers
+    return {name: sent[name] for name in _FORWARDED_HEADERS if name in sent}
+
+
+def _file(response: httpx.Response) -> File | None:
+    sent = response.request.headers
+    if response.status_code == 304 and (
+        "if-none-match" in sent or "if-modified-since" in sent
+    ):
+        return None
     if not response.is_success:
         raise errors.UnexpectedStatus(response.status_code, response.content)
     return File(payload=BytesIO(response.content))
