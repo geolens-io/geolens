@@ -40,7 +40,7 @@ function getStoredView(): string {
 export function MapsPage() {
   const { t } = useTranslation();
   const { can } = usePermissions();
-  const canCreateMap = can('edit_metadata');
+  const canEditMaps = can('edit_metadata');
   const isEditor = useAuthStore((s) => s.isEditor());
   const [skip, setSkip] = useState(0);
   const [search, setSearch] = useState('');
@@ -112,7 +112,7 @@ export function MapsPage() {
             {data && <Badge variant="secondary" className="readout">{data.total}</Badge>}
             {/* Hide the header create button when the empty state is showing its
                 own primary CTA (no maps, no active search/filter). */}
-            {canCreateMap && !(data && data.total === 0 && !debouncedSearch && visibility === 'all') && (
+            {canEditMaps && !(data && data.total === 0 && !debouncedSearch && visibility === 'all') && (
               <Button size="sm" onClick={() => setCreateOpen(true)}>
                 <Plus className="h-4 w-4 me-1" />
                 {t('maps.createMap', 'Create Map')}
@@ -204,7 +204,7 @@ export function MapsPage() {
               : t('maps.noMapsDescription')
           }
           action={
-            !debouncedSearch && visibility === 'all' && canCreateMap ? (
+            !debouncedSearch && visibility === 'all' && canEditMaps ? (
               <Button onClick={() => setCreateOpen(true)}>
                 <Plus className="h-4 w-4 me-1" />
                 {t('maps.createFirstMap')}
@@ -217,7 +217,7 @@ export function MapsPage() {
       {data && data.maps.length > 0 && viewMode === 'list' && (
         <div className="space-y-4">
           {data.maps.map((map) => (
-            <MapCard key={map.id} map={map} onDelete={isEditor ? handleDeleteClick : undefined} />
+            <MapCard key={map.id} map={map} onDelete={canEditMaps ? handleDeleteClick : undefined} />
           ))}
         </div>
       )}
@@ -225,7 +225,7 @@ export function MapsPage() {
       {data && data.maps.length > 0 && viewMode === 'grid' && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {data.maps.map((map) => (
-            <MapCardGrid key={map.id} map={map} onDelete={isEditor ? handleDeleteClick : undefined} />
+            <MapCardGrid key={map.id} map={map} onDelete={canEditMaps ? handleDeleteClick : undefined} />
           ))}
         </div>
       )}
@@ -239,8 +239,8 @@ export function MapsPage() {
         />
       )}
 
-      {canCreateMap && <MapCreateDialog open={createOpen} onOpenChange={setCreateOpen} />}
-      {isEditor && (
+      {canEditMaps && <MapCreateDialog open={createOpen} onOpenChange={setCreateOpen} />}
+      {canEditMaps && (
         <MapDeleteDialog
           open={!!deletingMap}
           onOpenChange={(open) => !open && setDeletingMap(null)}
