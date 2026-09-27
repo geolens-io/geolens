@@ -179,6 +179,35 @@ async def test_a_confirmed_regeneration_deletes_what_it_superseded(
         await _purge_vrt(test_db_session, ids=ids)
 
 
+async def test_a_landed_lost_ack_still_purges_the_cache_and_refreshes_the_embedding(
+    test_db_session, raster_storage
+) -> None:
+    """The stand-down for a lost ack the probe reads as landed still runs the
+    cache purge and embedding refresh nothing else retries, not just the
+    follow-ups the sweep would retry on its own."""
+    admin_id, ids, prior = await _vrt_with_quicklooks(test_db_session, raster_storage)
+    job, generation_id = await _queue_regeneration(
+        test_db_session, vrt_id=ids[0], user_id=admin_id
+    )
+    lost = _LostAcknowledgement(job.id, ConnectionResetError("dropped"))
+    purge, embed = AsyncMock(), AsyncMock()
+    try:
+        with (
+            lost.installed(),
+            _observed(PublishObservation.LANDED),
+            patch.object(tasks_vrt, "invalidate_catalog_cache", purge),
+            patch.object(tasks_vrt, "defer_embedding", embed),
+        ):
+            await _regenerate(job, generation_id, ids[0])
+
+        assert lost.fired == 1
+        assert purge.await_count == 1
+        assert embed.await_count == 1
+        assert await _left(raster_storage, prior) == []
+    finally:
+        await _purge_vrt(test_db_session, ids=ids)
+
+
 async def test_a_regeneration_that_landed_unseen_leaves_the_prior_generation_to_the_sweep(
     test_db_session, raster_storage
 ) -> None:
