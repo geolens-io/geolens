@@ -49,6 +49,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.observability.metrics.jobs import staging_orphans_deleted_total
+from app.platform.jobs.local_staging_reconcile import reconcile_orphaned_local_uploads
 from app.platform.jobs.models import (
     STAGING_REAPED_FINAL_MARKER,
     STATUSES_NEEDING_STAGED_INPUT,
@@ -300,8 +301,12 @@ async def reconcile_orphaned_staging_objects(
     Transaction-scoped, so a dying process releases it with its connection.
 
     Never raises: a mid-pass failure leaves the rest for the next cycle.
+
+    Runs ``reconcile_orphaned_local_uploads`` first, since an upload staged on
+    local disk is in no storage listing.
     """
     now = now or datetime.now(timezone.utc)
+    await reconcile_orphaned_local_uploads(db, now=now)
     try:
         return await _reconcile(db, now=now)
     except Exception as exc:  # broad: best-effort pass, never fails its caller
