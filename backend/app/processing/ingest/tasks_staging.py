@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import structlog
-from sqlalchemy import Text, literal, update
+from sqlalchemy import Text, func, literal, text, true, update
 from sqlalchemy.orm.attributes import set_committed_value
 
 from app.core.async_io import await_draining, run_in_thread_draining
@@ -214,9 +214,11 @@ async def _archive_original_file(
     archive-pending mark.
 
     A failure never fails the ingest, since the dataset is already committed.
-    It is recorded on ``job.user_metadata`` as ``archive_failed`` and
-    ``archive_error`` for the operator. ``commit=False`` leaves that write to
-    the caller's own commit; otherwise a failed commit of it is logged, not
+    It is merged into the stored metadata as ``archive_failed`` and
+    ``archive_error`` for the operator, only while ``job``'s attempt owns the
+    row and, for a job marked pending, the mark is still there: another run
+    may have made this archive meanwhile. ``commit=False`` leaves that write
+    to the caller's own commit; otherwise a failed commit of it is logged, not
     raised, so a transient DB error can't turn a published ingest into a
     failed job.
     """
@@ -240,23 +242,43 @@ async def _archive_original_file(
             dataset_id=str(dataset_id),
             error=str(archive_exc)[:500],
         )
-        job.user_metadata = {
-            **(job.user_metadata or {}),
-            "archive_failed": True,
-            "archive_error": str(archive_exc)[:500],
-        }
-        if not commit:
-            return False
-        try:
-            await session.commit()
-        except Exception as commit_exc:  # broad: transient DB errors (deadlock, pooler drop) during flag persistence
-            await session.rollback()
-            logger.warning(
-                "Failed to persist archive_failed flag on job",
-                archive_key=archive_key,
-                dataset_id=str(dataset_id),
-                error=str(commit_exc)[:500],
+        flag = func.jsonb_build_object(
+            "archive_failed", true(), "archive_error", str(archive_exc)[:500]
+        )
+        owned = [IngestJob.id == job.id, IngestJob.attempt_id == job.attempt_id]
+        if ARCHIVE_PENDING_METADATA_KEY in (job.user_metadata or {}):
+            owned.append(IngestJob.user_metadata.has_key(ARCHIVE_PENDING_METADATA_KEY))
+        stamp = (
+            update(IngestJob)
+            .where(*owned)
+            # A job created without metadata can hold JSON null, which ``||``
+            # would turn into an array.
+            .values(
+                user_metadata=func.coalesce(
+                    func.nullif(IngestJob.user_metadata, text("'null'::jsonb")),
+                    text("'{}'::jsonb"),
+                ).op("||")(flag)
             )
+            .returning(IngestJob.user_metadata)
+            .execution_options(synchronize_session=False)
+        )
+        if not commit:
+            stamped = await session.scalar(stamp)
+        else:
+            try:
+                stamped = await session.scalar(stamp)
+                await session.commit()
+            except Exception as commit_exc:  # broad: transient DB errors (deadlock, pooler drop) during flag persistence
+                await session.rollback()
+                logger.warning(
+                    "Failed to persist archive_failed flag on job",
+                    archive_key=archive_key,
+                    dataset_id=str(dataset_id),
+                    error=str(commit_exc)[:500],
+                )
+                return False
+        if stamped is not None:
+            set_committed_value(job, "user_metadata", stamped)
         return False
     if commit and ARCHIVE_PENDING_METADATA_KEY in (job.user_metadata or {}):
         await _clear_archive_pending(session, job)

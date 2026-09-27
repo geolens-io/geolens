@@ -1098,44 +1098,105 @@ async def test_archive_original_file_success_leaves_user_metadata_untouched(
     assert "archive_failed" not in job.user_metadata
 
 
-@pytest.mark.anyio
-async def test_archive_original_file_failure_marks_user_metadata(tmp_path, monkeypatch):
-    """Storage failure → job.user_metadata['archive_failed']=True + error recorded."""
-    import uuid as _uuid
-    from unittest.mock import AsyncMock, MagicMock
+async def _fail_an_archive(
+    test_db_session, tmp_path, monkeypatch, *, error, metadata, attempt_moves=False
+):
+    """Archive a job's upload into a store whose put raises ``error``.
 
+    With ``attempt_moves`` another attempt takes the job during the put.
+    Returns the job's stored metadata and what its loaded instance shows.
+    """
+    from unittest.mock import AsyncMock
+
+    from sqlalchemy import delete
+
+    import app.core.db as db_module
     from app.processing.ingest.tasks import _archive_original_file
 
     upload_file = tmp_path / "cities.csv"
     upload_file.write_text("name,lat,lng\nParis,48.85,2.35\n")
 
-    mock_storage = AsyncMock()
-    mock_storage.put = AsyncMock(side_effect=RuntimeError("S3 unreachable"))
+    async def _put(key, fobj):
+        if attempt_moves:
+            async with db_module.async_session() as other:
+                await other.execute(
+                    text(
+                        "UPDATE catalog.ingest_jobs SET attempt_id = gen_random_uuid() "
+                        "WHERE id = :id"
+                    ),
+                    {"id": job_id},
+                )
+                await other.commit()
+        raise RuntimeError(error)
 
+    mock_storage = AsyncMock()
+    mock_storage.put = _put
     monkeypatch.setattr(
         "app.processing.ingest.tasks_staging.get_storage", lambda: mock_storage
     )
+    job = IngestJob(
+        status="complete",
+        created_by=await _get_admin_id_for_ingest(test_db_session),
+        user_metadata=metadata,
+    )
+    test_db_session.add(job)
+    await test_db_session.flush()
+    job_id = job.id
+    await test_db_session.commit()
+    try:
+        async with db_module.async_session() as session:
+            loaded = await session.get(IngestJob, job_id)
+            archived = await _archive_original_file(
+                session,
+                job=loaded,
+                dataset_id=uuid.uuid4(),
+                file_path=str(upload_file),
+            )
+            assert archived is False
+            shown = loaded.user_metadata
+        async with db_module.async_session() as session:
+            stored = await session.scalar(
+                select(IngestJob.user_metadata).where(IngestJob.id == job_id)
+            )
+        return stored, shown
+    finally:
+        await test_db_session.execute(delete(IngestJob).where(IngestJob.id == job_id))
+        await test_db_session.commit()
 
-    mock_session = AsyncMock()
-    mock_session.commit = AsyncMock()
 
-    job = MagicMock()
-    job.user_metadata = {"title": "Cities"}
-
-    dataset_id = _uuid.uuid4()
-
-    # Must NOT raise — archive is best-effort.
-    await _archive_original_file(
-        mock_session,
-        job=job,
-        dataset_id=dataset_id,
-        file_path=str(upload_file),
+@pytest.mark.anyio
+async def test_archive_original_file_failure_merges_its_flag_into_the_stored_metadata(
+    test_db_session, tmp_path, monkeypatch
+):
+    """A failed put adds ``archive_failed`` and ``archive_error`` and keeps the rest."""
+    stored, shown = await _fail_an_archive(
+        test_db_session,
+        tmp_path,
+        monkeypatch,
+        error="S3 unreachable",
+        metadata={"title": "Cities"},
     )
 
-    assert job.user_metadata["archive_failed"] is True
-    assert "S3 unreachable" in job.user_metadata["archive_error"]
-    assert job.user_metadata["title"] == "Cities"  # preserved
-    mock_session.commit.assert_awaited_once()
+    assert stored["archive_failed"] is True
+    assert "S3 unreachable" in stored["archive_error"]
+    assert stored["title"] == "Cities"
+    assert shown == stored
+
+
+@pytest.mark.anyio
+async def test_archive_original_file_failure_lands_nothing_once_another_attempt_owns_the_job(
+    test_db_session, tmp_path, monkeypatch
+):
+    stored, shown = await _fail_an_archive(
+        test_db_session,
+        tmp_path,
+        monkeypatch,
+        error="S3 unreachable",
+        metadata={"title": "Cities"},
+        attempt_moves=True,
+    )
+
+    assert stored == shown == {"title": "Cities"}
 
 
 @pytest.mark.anyio
@@ -1173,6 +1234,7 @@ async def test_archive_original_file_commit_failure_does_not_raise(
     mock_session.rollback = AsyncMock()
 
     job = MagicMock()
+    job.id, job.attempt_id = _uuid.uuid4(), _uuid.uuid4()
     job.user_metadata = {"title": "Fragile"}
     dataset_id = _uuid.uuid4()
 
@@ -1184,51 +1246,23 @@ async def test_archive_original_file_commit_failure_does_not_raise(
         file_path=str(upload_file),
     )
 
-    # user_metadata was updated in memory even though the commit didn't persist.
-    assert job.user_metadata["archive_failed"] is True
-    assert "S3 unreachable" in job.user_metadata["archive_error"]
+    # Nothing in memory claims a flag that never persisted.
+    assert job.user_metadata == {"title": "Fragile"}
     # Rollback was called so the session is clean for the caller.
     mock_session.rollback.assert_awaited_once()
 
 
 @pytest.mark.anyio
 async def test_archive_original_file_failure_truncates_long_error(
-    tmp_path, monkeypatch
+    test_db_session, tmp_path, monkeypatch
 ):
     """Very long error messages are truncated to 500 chars to avoid JSONB bloat."""
-    import uuid as _uuid
-    from unittest.mock import AsyncMock, MagicMock
-
-    from app.processing.ingest.tasks import _archive_original_file
-
-    upload_file = tmp_path / "big.shp.zip"
-    upload_file.write_bytes(b"PK\x03\x04")  # fake zip header
-
-    long_error = "X" * 2000  # way over 500 char limit
-
-    mock_storage = AsyncMock()
-    mock_storage.put = AsyncMock(side_effect=RuntimeError(long_error))
-
-    monkeypatch.setattr(
-        "app.processing.ingest.tasks_staging.get_storage", lambda: mock_storage
+    stored, _ = await _fail_an_archive(
+        test_db_session, tmp_path, monkeypatch, error="X" * 2000, metadata=None
     )
 
-    mock_session = AsyncMock()
-    mock_session.commit = AsyncMock()
-
-    job = MagicMock()
-    job.user_metadata = None  # test the None branch too
-
-    await _archive_original_file(
-        mock_session,
-        job=job,
-        dataset_id=_uuid.uuid4(),
-        file_path=str(upload_file),
-    )
-
-    assert job.user_metadata is not None
-    assert job.user_metadata["archive_failed"] is True
-    assert len(job.user_metadata["archive_error"]) == 500
+    assert stored["archive_failed"] is True
+    assert len(stored["archive_error"]) == 500
 
 
 # ---------------------------------------------------------------------------

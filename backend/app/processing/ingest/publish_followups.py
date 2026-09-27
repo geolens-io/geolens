@@ -146,12 +146,16 @@ def _in_staging_dir(path: str) -> bool:
     )
 
 
-async def _note_archive_outcome(job_uuid: uuid.UUID, error: str | None) -> None:
+async def _note_archive_outcome(
+    job_uuid: uuid.UUID, attempt_id: str, error: str | None
+) -> None:
     """Flag the job's archive as failed with ``error``, or with None as made; never raises.
 
     It is the flag ``_archive_original_file`` sets. A made archive clears it
-    and the archive-pending mark. Edits the stored metadata in place, since
-    writing back a copy could restore a record a concurrent claim has cleared.
+    and the archive-pending mark. A failure lands only while ``attempt_id``
+    owns the job and the mark is still there, since another run may have made
+    the archive meanwhile. Edits the stored metadata in place, since writing
+    back a copy could restore a record a concurrent claim has cleared.
     """
     import app.core.db as db_module
 
@@ -168,6 +172,10 @@ async def _note_archive_outcome(job_uuid: uuid.UUID, error: str | None) -> None:
         metadata = metadata.op("-")(literal("archive_error", Text))
         metadata = metadata.op("-")(literal(ARCHIVE_PENDING_METADATA_KEY, Text))
     else:
+        outcome = outcome.where(
+            IngestJob.attempt_id == uuid.UUID(attempt_id),
+            stored.has_key(ARCHIVE_PENDING_METADATA_KEY),
+        )
         flag = func.jsonb_build_object(
             "archive_failed", true(), "archive_error", error[:500]
         )
@@ -195,6 +203,7 @@ async def _archive_in_place(archive_key: str) -> bool:
 
 async def _archive_upload(
     job_uuid: uuid.UUID,
+    attempt_id: str,
     file_path: str,
     dataset_id: uuid.UUID,
     archive_key: str,
@@ -219,7 +228,7 @@ async def _archive_upload(
     downloaded = False
     try:
         if await get_storage().exists(resolve_current_storage_key(archive_key)):
-            await _note_archive_outcome(job_uuid, None)
+            await _note_archive_outcome(job_uuid, attempt_id, None)
             return True
         if local_copy is not None and Path(local_copy).exists():
             local = local_copy
@@ -231,7 +240,9 @@ async def _archive_upload(
                 "staged_upload_outside_staging_dir", job_id=job_id
             )
             await _note_archive_outcome(
-                job_uuid, "The staged upload is outside the upload staging directory."
+                job_uuid,
+                attempt_id,
+                "The staged upload is outside the upload staging directory.",
             )
             return False
         async with db_module.async_session() as session:
@@ -245,15 +256,15 @@ async def _archive_upload(
                 archive_name=archive_key.rsplit("/", 1)[-1],
             )
         if archived or await _archive_in_place(archive_key):
-            await _note_archive_outcome(job_uuid, None)
+            await _note_archive_outcome(job_uuid, attempt_id, None)
             return True
         return False
     except Exception as exc:  # broad: an unreadable upload or store keeps the upload
         if await _archive_in_place(archive_key):
-            await _note_archive_outcome(job_uuid, None)
+            await _note_archive_outcome(job_uuid, attempt_id, None)
             return True
         structlog.get_logger().warning("staged_upload_archive_failed", job_id=job_id)
-        await _note_archive_outcome(job_uuid, str(exc))
+        await _note_archive_outcome(job_uuid, attempt_id, str(exc))
         return False
     finally:
         if downloaded:
@@ -351,7 +362,12 @@ async def _settle_owed_items(
         not file_path
         or row.dataset_id is None
         or await _archive_upload(
-            job_uuid, file_path, row.dataset_id, record[_ARCHIVE_KEY], local_copy
+            job_uuid,
+            attempt_id,
+            file_path,
+            row.dataset_id,
+            record[_ARCHIVE_KEY],
+            local_copy,
         )
     ):
         await _confirm_owed_item(job_uuid, attempt_id, _ARCHIVE_KEY)

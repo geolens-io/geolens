@@ -1237,6 +1237,91 @@ async def test_an_archive_found_after_a_failure_counts_as_made(
         await _drop(test_db_session, job_id, record_id)
 
 
+@pytest.mark.parametrize("fails_in", ["put", "read"])
+async def test_a_failure_racing_a_confirmed_archive_restores_nothing(
+    test_db_session, raster_storage, followups, monkeypatch, fails_in
+) -> None:
+    """A run whose archive fails after another run confirmed it leaves the job settled.
+
+    The losing run's store then can't tell it the archive exists, so only the
+    guards on its failure write keep the settled record, mark and flag away.
+    """
+    job_id, dataset_id, record_id = await _owed_job(
+        test_db_session, task="reupload_file", reaps_staged_upload=True
+    )
+    try:
+        await _point_job_at(
+            job_id, file_path=None, **{ARCHIVE_PENDING_METADATA_KEY: True}
+        )
+        left = await _stage_upload(raster_storage, job_id, "storage")
+        key = await _owe_archive(job_id, dataset_id, "upload.tif")
+        method, raced = {
+            "put": ("put", key),
+            "read": ("get_to_file", f"staging/{job_id}/frozen/upload.tif"),
+        }[fails_in]
+        real, real_exists = getattr(raster_storage, method), raster_storage.exists
+        race: dict = {"running": False, "won": None}
+
+        async def _loses_the_race(first, *args):
+            if race["running"] or race["won"] is not None or first != raced:
+                return await real(first, *args)
+            race["running"] = True
+            race["won"] = await run_publish_followups(job_id)
+            raise RuntimeError("the object store refused the call")
+
+        async def _unsure_once_lost(checked):
+            if race["won"] is not None and checked == key:
+                raise RuntimeError("the object store timed out")
+            return await real_exists(checked)
+
+        monkeypatch.setattr(raster_storage, method, _loses_the_race)
+        monkeypatch.setattr(raster_storage, "exists", _unsure_once_lost)
+
+        await run_publish_followups(job_id)
+
+        assert race["won"] is True
+        assert await raster_storage.get(key) == b"staged"
+        assert await left() == []
+        metadata = await _stored_metadata(job_id)
+        assert (
+            not {
+                PUBLISH_FOLLOWUPS_FIELD,
+                ARCHIVE_PENDING_METADATA_KEY,
+                "archive_failed",
+                "archive_error",
+            }
+            & metadata.keys()
+        )
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def test_an_archive_failure_lands_only_for_the_attempt_that_owns_the_job(
+    test_db_session,
+) -> None:
+    from app.processing.ingest.publish_followups import _note_archive_outcome
+
+    job_id, _, record_id = await _owed_job(test_db_session, task="reupload_file")
+    try:
+        await _point_job_at(
+            job_id, file_path=None, **{ARCHIVE_PENDING_METADATA_KEY: True}
+        )
+        async with db_module.async_session() as session:
+            attempt_id = str(
+                await session.scalar(
+                    select(IngestJob.attempt_id).where(IngestJob.id == job_id)
+                )
+            )
+
+        await _note_archive_outcome(job_id, str(uuid.uuid4()), "the store refused")
+        assert "archive_failed" not in await _stored_metadata(job_id)
+
+        await _note_archive_outcome(job_id, attempt_id, "the store refused")
+        assert (await _stored_metadata(job_id))["archive_failed"] is True
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
 async def test_an_upload_outside_the_staging_dir_is_never_archived(
     test_db_session, raster_storage, tmp_path, followups
 ) -> None:
@@ -1247,7 +1332,9 @@ async def test_an_upload_outside_the_staging_dir_is_never_archived(
         test_db_session, task="reupload_file", reaps_staged_upload=True
     )
     try:
-        await _point_job_at(job_id, file_path=str(outside))
+        await _point_job_at(
+            job_id, file_path=str(outside), **{ARCHIVE_PENDING_METADATA_KEY: True}
+        )
         key = await _owe_archive(job_id, dataset_id, "keep.tif")
 
         assert await run_publish_followups(job_id) is True
