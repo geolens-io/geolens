@@ -39,7 +39,7 @@ from enum import Enum
 from pathlib import Path
 
 import structlog
-from sqlalchemy import func, or_, select, text
+from sqlalchemy import and_, func, not_, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.async_io import run_in_thread_draining
@@ -104,13 +104,18 @@ class LocalStagingReconcileOutcome:
 def _still_needed(cutoff: datetime):
     """Predicate: a row can still use the staged upload, or ended too recently.
 
-    The publish follow-ups archive and then delete the upload a published job
-    names, so while its row carries their record the upload is theirs. The age
-    term gives the job's own cleanup, and any reader holding the path, the
-    threshold's head start.
+    A failed job retries only from the path its row names, so one that never
+    bound a path can't read the file. The publish follow-ups archive and then
+    delete the upload a published job names, so while its row carries their
+    record the upload is theirs. The age term gives the job's own cleanup, and
+    any reader holding the path, the threshold's head start.
     """
+    unbound_failure = and_(
+        IngestJob.status == "failed",
+        func.coalesce(IngestJob.file_path, "") == "",
+    )
     return or_(
-        needs_staged_input(),
+        and_(needs_staged_input(), not_(unbound_failure)),
         IngestJob.user_metadata[PUBLISH_FOLLOWUPS_FIELD].is_not(None),
         func.coalesce(IngestJob.completed_at, IngestJob.created_at) >= cutoff,
     )

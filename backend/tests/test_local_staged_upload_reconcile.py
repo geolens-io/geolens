@@ -194,6 +194,23 @@ class TestDeletes:
 
         assert not path.exists()
 
+    @pytest.mark.parametrize("unbound", ["", None], ids=["empty", "null"])
+    async def test_an_upload_whose_job_failed_before_the_bind(
+        self,
+        test_db_session: AsyncSession,
+        root: Path,
+        now: datetime,
+        unbound: str | None,
+    ) -> None:
+        """Retry refuses a failed job with no path, so nothing can read the file."""
+        path = await _upload(
+            test_db_session, root, now, file_path=unbound, status="failed"
+        )
+
+        await _run(test_db_session, now)
+
+        assert not path.exists()
+
 
 class TestWhatKeepsAnUpload:
     @pytest.mark.parametrize("status", ["pending", "running", "failed"])
@@ -324,6 +341,17 @@ class TestAnUploadBeforeItsBind:
     ) -> None:
         path = await _upload(
             test_db_session, root, now, file_path="", status="pending", ended=_recent()
+        )
+
+        await _run(test_db_session, now)
+
+        assert path.exists()
+
+    async def test_kept_while_a_failed_job_ended_within_the_threshold(
+        self, test_db_session: AsyncSession, root: Path, now: datetime
+    ) -> None:
+        path = await _upload(
+            test_db_session, root, now, file_path="", status="failed", ended=_recent()
         )
 
         await _run(test_db_session, now)
