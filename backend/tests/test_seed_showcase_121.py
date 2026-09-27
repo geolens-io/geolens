@@ -357,3 +357,26 @@ def test_restore_reports_new_content_left_public():
         f"new dataset {seed.COPC_TITLE} is public",
         "new collection Client Connections",
     ]
+
+
+class CameraApi:
+    def __init__(self, cameras):
+        self.cameras = cameras
+
+    def list_maps(self):
+        return {name: name for name in self.cameras}
+
+    def get_map(self, name):
+        return self.cameras[name]
+
+
+@pytest.mark.parametrize("key", ["expected", "wanted"])
+def test_guarded_preflight_accepts_a_known_camera(key):
+    api = CameraApi({name: fix[key] for name, fix in seed.MAP_VIEW_FIXES.items()})
+    assert seed.view_baseline_problems(api) == []
+
+
+def test_guarded_preflight_refuses_an_unknown_camera_before_writing():
+    moved = {"center_lng": 0.0, "center_lat": 0.0, "zoom": 3.0}
+    api = CameraApi({name: moved for name in seed.MAP_VIEW_FIXES})
+    assert len(seed.view_baseline_problems(api)) == len(seed.MAP_VIEW_FIXES)

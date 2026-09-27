@@ -5997,6 +5997,20 @@ def enrich_showcase_metadata(api: "Api") -> None:
 MAP_TEXT_REQUIRES_LIVE_QUAKES = frozenset({"Restless Earth"})
 
 
+def view_baseline_problems(api: "Api") -> list[str]:
+    """Name maps whose camera matches neither its expected baseline nor the fix."""
+    maps = api.list_maps()
+    problems = []
+    for name, fix in MAP_VIEW_FIXES.items():
+        if name not in maps:
+            continue
+        current = api.get_map(maps[name])
+        present = {field: current.get(field) for field in fix["wanted"]}
+        if present not in (fix["expected"], fix["wanted"]):
+            problems.append(f"{name} camera differs from its expected baseline")
+    return problems
+
+
 def _quakes_are_live(api: "Api") -> bool:
     """Observed evidence that BOTH quake datasets read from the USGS service.
 
@@ -6745,9 +6759,11 @@ def main() -> int:
         if state_module.snapshot(api) != expected:
             raise RuntimeError("showcase state changed since the protected snapshot")
         problems = state_module.unrestorable_changes(api)
+        problems += view_baseline_problems(api)
         if problems:
             raise RuntimeError(
-                "the guarded update would change what restore cannot undo: "
+                "the guarded update would stop partway or change what restore "
+                "cannot undo: "
                 + "; ".join(problems)
             )
 

@@ -167,7 +167,9 @@ examples. No AI step is required.
    source or expected-state check fails, stop and inspect the target. The
    seed also refuses when it would change something restore cannot undo: a
    legacy map or dataset name it would rename, or an earthquake dataset that
-   is not yet bound to its USGS service. The September 27 public inventory had
+   is not yet bound to its USGS service. It also refuses before any write when
+   the Manhattan or New York From Orbit camera matches neither its expected
+   baseline nor the new view. The September 27 public inventory had
    neither; both quake datasets already report `origin: service`. The
    guarded seed does not provide a database transaction over all builders.
    With `--expected-state`, the seed first waits 61 seconds so the cached
