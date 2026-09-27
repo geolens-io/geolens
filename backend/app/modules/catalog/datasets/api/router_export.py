@@ -954,6 +954,7 @@ async def _resolve_download_user(
     responses={
         200: {"description": "The whole COG file", "content": _COG_BODY},
         206: {"description": "One byte range of the COG file", "content": _COG_BODY},
+        302: {"description": "Redirect to the COG's object-storage or remote URL"},
         304: {"description": "The caller already holds this version of the file"},
         403: FORBIDDEN_RESPONSE,
         412: PRECONDITION_FAILED_RESPONSE,
@@ -968,7 +969,8 @@ async def download_cog(
     """Download the Cloud-Optimized GeoTIFF for a raster dataset.
 
     Local storage: streams the COG file with Content-Type image/tiff.
-    S3 storage: returns a 302 redirect to a presigned GET URL (1-hour expiry).
+    S3 storage: returns a 302 redirect to a presigned GET URL valid for at most
+    5 minutes, and never past the expiry of a ``?token=`` download token.
     Accepts standard auth or ?token= JWT query parameter for browser downloads.
 
     ``user`` may be None when a no-sub anonymous
