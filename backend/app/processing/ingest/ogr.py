@@ -1259,7 +1259,9 @@ async def run_ogr2ogr_service(
     header_file_path: str | None = None
     header_line: str | None = None
     try:
-        async with service_egress_proxy() as egress:
+        async with service_egress_proxy(
+            idle_seconds=settings.ingest_http_timeout_seconds
+        ) as egress:
             env = _tenant_writer_subprocess_env(
                 schema,
                 # fix(#1846, GHSA-hrf5-v3cq-frx5): keeps WFS/OAPIF, the point of

@@ -26,6 +26,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest.mock import AsyncMock, patch
 from urllib.parse import parse_qs, urlsplit
 
+import httpx
 import pytest
 import structlog
 from sqlalchemy import select, text
@@ -41,7 +42,9 @@ from app.processing.ingest.ogr import (
     build_pg_conn_str,
     run_ogr2ogr_service,
 )
+from app.platform.security import _SSRFGuardTransport, make_safe_client
 from app.processing.ingest.tasks import reupload_service
+from app.processing.ingest.tasks_common import _run_service_import_with_wfs_fallback
 from tests.factories import create_dataset, get_user_id
 
 pytestmark = pytest.mark.anyio
@@ -110,6 +113,7 @@ def _wfs_service(
     title: str = "Parcels",
     redirect_to: str | None = None,
     exception_text: str | None = None,
+    status: int | None = None,
 ) -> Iterator[tuple[int, list[str]]]:
     """A WFS 2.0 service on loopback; yields its port and the requests it got."""
     requests: list[str] = []
@@ -120,6 +124,9 @@ def _wfs_service(
             params = {key.lower(): values[0] for key, values in query.items()}
             operation = params.get("request", "").lower()
             requests.append(operation)
+            if status is not None:
+                self.send_error(status)
+                return
             if redirect_to is not None:
                 self.send_response(302)
                 self.send_header("Location", redirect_to)
@@ -186,6 +193,36 @@ async def _exchange(egress: ServiceEgress, raw: bytes) -> bytes:
         writer.close()
 
 
+async def _open(
+    egress: ServiceEgress,
+) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+    address = urlsplit(egress.address)
+    return await asyncio.open_connection(address.hostname, address.port)
+
+
+@contextmanager
+def _silent_upstream() -> Iterator[tuple[int, asyncio.Event]]:
+    """A loopback server that accepts and never answers; the event is set
+    when the proxy closes its side."""
+    listener = socket.create_server(("127.0.0.1", 0))
+    closed = asyncio.Event()
+    loop = asyncio.get_running_loop()
+
+    def accept() -> None:
+        conn, _ = listener.accept()
+        with conn:
+            while conn.recv(4096):
+                pass
+        loop.call_soon_threadsafe(closed.set)
+
+    thread = threading.Thread(target=accept, daemon=True)
+    thread.start()
+    try:
+        yield listener.getsockname()[1], closed
+    finally:
+        listener.close()
+
+
 def _get(url: str, host: str) -> bytes:
     return (
         f"GET {url} HTTP/1.1\r\nHost: {host}\r\nProxy-Connection: Keep-Alive\r\n"
@@ -195,7 +232,10 @@ def _get(url: str, host: str) -> bytes:
 
 class TestTheProxyRelaysOnlyToCheckedAddresses:
     async def test_an_allowed_host_is_relayed_in_origin_form(self, resolver_calls):
+        """The origin asks to keep its connection open; libcurl is told to
+        close, and closing ends the relay without waiting on the origin."""
         seen: list[tuple[str, str | None, str | None]] = []
+        released = threading.Event()
 
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self) -> None:  # noqa: N802
@@ -208,8 +248,14 @@ class TestTheProxyRelaysOnlyToCheckedAddresses:
                 )
                 self.send_response(200)
                 self.send_header("Content-Length", "6")
+                self.send_header("Connection", "keep-alive")
+                self.send_header("Keep-Alive", "timeout=60")
                 self.end_headers()
                 self.wfile.write(b"origin")
+
+            def finish(self) -> None:
+                super().finish()
+                released.set()
 
             def log_message(self, format: str, *args: object) -> None:
                 return
@@ -218,19 +264,23 @@ class TestTheProxyRelaysOnlyToCheckedAddresses:
         threading.Thread(target=server.serve_forever, daemon=True).start()
         try:
             port = server.server_port
-            async with service_egress_proxy() as egress:
-                response = await _exchange(
-                    egress,
-                    _get(f"http://{_HOST}:{port}/wfs?REQUEST=x", f"{_HOST}:{port}"),
+            async with service_egress_proxy(idle_seconds=60) as egress:
+                reader, writer = await _open(egress)
+                writer.write(
+                    _get(f"http://{_HOST}:{port}/wfs?REQUEST=x", f"{_HOST}:{port}")
                 )
+                head = await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), 10)
+                body = await asyncio.wait_for(reader.readexactly(6), 10)
+                writer.close()
+                assert await asyncio.to_thread(released.wait, 5)
         finally:
             server.shutdown()
             server.server_close()
 
-        assert response.startswith(b"HTTP/1.0 200") or response.startswith(
-            b"HTTP/1.1 200"
-        ), response
-        assert response.endswith(b"origin")
+        assert b" 200 " in head.split(b"\r\n", 1)[0], head
+        assert body == b"origin"
+        assert b"\r\nconnection: close" in head.lower()
+        assert b"keep-alive" not in head.lower()
         assert seen == [("/wfs?REQUEST=x", f"{_HOST}:{port}", None)]
         assert resolver_calls == [_HOST]
         assert egress.refused is False
@@ -249,7 +299,7 @@ class TestTheProxyRelaysOnlyToCheckedAddresses:
     )
     async def test_the_address_policy_refuses_before_any_connection(self, request_head):
         with _wfs_service() as (port, requests):
-            async with service_egress_proxy() as egress:
+            async with service_egress_proxy(idle_seconds=30) as egress:
                 response = await _exchange(
                     egress, request_head.format(port=port).encode()
                 )
@@ -269,7 +319,7 @@ class TestTheProxyRelaysOnlyToCheckedAddresses:
             return real_getaddrinfo(host, port, *args, **kwargs)
 
         monkeypatch.setattr(socket, "getaddrinfo", getaddrinfo)
-        async with service_egress_proxy() as egress:
+        async with service_egress_proxy(idle_seconds=30) as egress:
             response = await _exchange(
                 egress,
                 _get("http://internal.example.test/wfs", "internal.example.test"),
@@ -294,7 +344,7 @@ class TestTheProxyRelaysOnlyToCheckedAddresses:
 
         monkeypatch.setattr(socket, "getaddrinfo", getaddrinfo)
         with _wfs_service() as (port, requests):
-            async with service_egress_proxy() as egress:
+            async with service_egress_proxy(idle_seconds=30) as egress:
                 for _ in range(2):
                     response = await _exchange(
                         egress,
@@ -317,7 +367,7 @@ class TestTheProxyRelaysOnlyToCheckedAddresses:
         server = await asyncio.start_server(echo, "127.0.0.1", 0)
         port = server.sockets[0].getsockname()[1]
         try:
-            async with service_egress_proxy() as egress:
+            async with service_egress_proxy(idle_seconds=30) as egress:
                 address = urlsplit(egress.address)
                 reader, writer = await asyncio.open_connection(
                     address.hostname, address.port
@@ -349,7 +399,7 @@ class TestTheProxyRelaysOnlyToCheckedAddresses:
     async def test_a_request_it_cannot_route_is_refused_unresolved(
         self, request_head, resolver_calls
     ):
-        async with service_egress_proxy() as egress:
+        async with service_egress_proxy(idle_seconds=30) as egress:
             response = await _exchange(egress, request_head)
 
         assert response.startswith(b"HTTP/1.1 400"), response
@@ -359,7 +409,7 @@ class TestTheProxyRelaysOnlyToCheckedAddresses:
         """libcurl reuses a proxy connection across hosts; a second request
         on it must not reach the first host's address."""
         with _wfs_service() as (port, requests):
-            async with service_egress_proxy() as egress:
+            async with service_egress_proxy(idle_seconds=30) as egress:
                 await _exchange(
                     egress,
                     _get(f"http://{_HOST}:{port}/wfs?REQUEST=first", _HOST)
@@ -368,8 +418,59 @@ class TestTheProxyRelaysOnlyToCheckedAddresses:
 
         assert requests == ["first"]
 
+    async def test_an_idle_tunnel_is_closed(self, resolver_calls):
+        with _silent_upstream() as (port, upstream_closed):
+            async with service_egress_proxy(idle_seconds=0.5) as egress:
+                reader, writer = await _open(egress)
+                writer.write(f"CONNECT {_HOST}:{port} HTTP/1.1\r\n\r\n".encode())
+                await reader.readuntil(b"\r\n\r\n")
+                assert await asyncio.wait_for(reader.read(), 5) == b""
+                writer.close()
+                await asyncio.wait_for(upstream_closed.wait(), 5)
+
+    async def test_a_response_that_never_starts_is_closed(self, resolver_calls):
+        with _silent_upstream() as (port, _upstream_closed):
+            async with service_egress_proxy(idle_seconds=0.5) as egress:
+                response = await _exchange(egress, _get(f"http://{_HOST}:{port}/", "x"))
+
+        assert response.startswith(b"HTTP/1.1 502"), response
+
+    async def test_a_slow_relay_that_keeps_moving_is_not_cut(self, resolver_calls):
+        async def trickle(reader, writer):
+            for _ in range(6):
+                writer.write(b"x")
+                await writer.drain()
+                await asyncio.sleep(0.2)
+            writer.close()
+
+        server = await asyncio.start_server(trickle, "127.0.0.1", 0)
+        port = server.sockets[0].getsockname()[1]
+        try:
+            async with service_egress_proxy(idle_seconds=0.5) as egress:
+                reader, writer = await _open(egress)
+                writer.write(f"CONNECT {_HOST}:{port} HTTP/1.1\r\n\r\n".encode())
+                await reader.readuntil(b"\r\n\r\n")
+                received = await asyncio.wait_for(reader.read(), 10)
+                writer.close()
+        finally:
+            server.close()
+            await server.wait_closed()
+
+        assert received == b"x" * 6
+
+    async def test_leaving_the_block_closes_open_relays(self, resolver_calls):
+        with _silent_upstream() as (port, upstream_closed):
+            async with service_egress_proxy(idle_seconds=60) as egress:
+                reader, writer = await _open(egress)
+                writer.write(f"CONNECT {_HOST}:{port} HTTP/1.1\r\n\r\n".encode())
+                await reader.readuntil(b"\r\n\r\n")
+
+            assert await asyncio.wait_for(reader.read(), 5) == b""
+            await asyncio.wait_for(upstream_closed.wait(), 5)
+            writer.close()
+
     async def test_it_stops_listening_when_its_block_exits(self):
-        async with service_egress_proxy() as egress:
+        async with service_egress_proxy(idle_seconds=30) as egress:
             address = urlsplit(egress.address)
 
         assert address.hostname == "127.0.0.1"
@@ -396,8 +497,81 @@ def test_the_service_env_sends_every_request_through_the_proxy(monkeypatch):
     assert stray == set()
 
 
+async def test_environment_proxy_settings_route_neither_outbound_path(monkeypatch):
+    """httpx ignores the environment's proxies when it is handed a transport,
+    which make_safe_client always does, and the GDAL service env drops them, so
+    an operator's proxy settings apply to neither path."""
+    for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "https_proxy"):
+        monkeypatch.setenv(key, "http://outbound.example.test:3128")
+
+    client = make_safe_client()
+    try:
+        transport = client._transport_for_url(httpx.URL("https://svc.example.test/"))
+    finally:
+        await client.aclose()
+    env = gdal_service_safe_env(ServiceEgress("http://127.0.0.1:4321"))
+
+    assert isinstance(transport, _SSRFGuardTransport)
+    assert "outbound.example.test" not in " ".join(env.values())
+
+
+_AUTH_HINT = "The service needs a credential."
+
+
+def _importer(source: str):
+    async def run(layer: str) -> None:
+        await run_ogr2ogr_service(
+            source,
+            layer,
+            "never_created",
+            "PG:dbname=never_opened",
+            "wfs",
+            timeout=60.0,
+            schema="data",
+        )
+
+    return run
+
+
 @needs_ogr
 class TestGdalReachesOnlyAllowedHosts:
+    @pytest.mark.parametrize("status", [401, 403])
+    async def test_an_auth_refusal_still_gets_the_credential_hint(
+        self, resolver_calls, status
+    ):
+        """The job error keeps the HTTP status, which is what tells the import
+        to suggest a credential."""
+        with _wfs_service(status=status) as (port, requests):
+            with pytest.raises(IngestionError) as error:
+                await _run_service_import_with_wfs_fallback(
+                    _importer(f"WFS:http://{_HOST}:{port}/wfs"),
+                    _LAYER,
+                    token=None,
+                    auth_error_message=_AUTH_HINT,
+                )
+
+        assert requests
+        assert str(error.value) == _AUTH_HINT
+
+    async def test_a_refused_address_is_not_reported_as_an_auth_refusal(
+        self, resolver_calls
+    ):
+        with _wfs_service() as (internal_port, internal_requests):
+            target = f"http://127.0.0.1:{internal_port}/wfs?REQUEST=GetCapabilities"
+            with _wfs_service(redirect_to=target) as (port, _requests):
+                with pytest.raises(IngestionError) as error:
+                    await _run_service_import_with_wfs_fallback(
+                        _importer(f"WFS:http://{_HOST}:{port}/wfs"),
+                        _LAYER,
+                        token=None,
+                        auth_error_message=_AUTH_HINT,
+                    )
+
+        assert internal_requests == []
+        assert str(error.value) == (
+            f"ogr2ogr failed (exit 1): {SERVICE_ADDRESS_REFUSED}"
+        )
+
     async def test_a_wfs_preview_reads_an_allowed_service_through_the_proxy(
         self, resolver_calls
     ):

@@ -36,6 +36,7 @@ from app.platform.service_endpoints import (
 )
 
 _SUBPROCESS_FLOOR_SECONDS = 1.0
+_HTTP_TIMEOUT_SECONDS = 60
 
 logger = structlog.stdlib.get_logger(__name__)
 IngestionError = get_catalog_port().ingestion_error_class()
@@ -287,7 +288,7 @@ async def run_service_preview(
         str(sample_limit),
         "--config",
         "GDAL_HTTP_TIMEOUT",
-        "60",
+        str(_HTTP_TIMEOUT_SECONDS),
         *driver_args,
         gdal_source,
     ]
@@ -310,7 +311,7 @@ async def run_service_preview(
         # never add it. The proxy checks and pins every connection ogrinfo
         # opens, redirect hops included. SERVICE variant: this branch reads
         # WFS/OAPIF, which the vector variant skips.
-        async with service_egress_proxy() as egress:
+        async with service_egress_proxy(idle_seconds=_HTTP_TIMEOUT_SECONDS) as egress:
             env = gdal_service_safe_env(egress)
             pair: tuple[str, str] | None = None
             if credential is not None and (

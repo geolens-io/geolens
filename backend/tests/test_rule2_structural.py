@@ -5859,7 +5859,18 @@ def test_guard_raster_argv_credited_by_the_vector_helper_reports():
 # proxy that checks and pins each connection, redirect hops included.
 # ---------------------------------------------------------------------------
 
-MIN_SERVICE_ENV_SITES = 2
+# Every GDAL process in app/ that opens a caller-supplied remote source, and
+# who reaches it. Exact both ways: a new site needs its own entry, and an entry
+# whose site is gone fails.
+SERVICE_ENV_SITES: dict[tuple[str, str], str] = {
+    ("processing/ingest/ogr.py", "run_ogr2ogr_service"): (
+        "service imports, re-uploads, scheduled and manual refreshes, and each "
+        "page of a paged ArcGIS fetch"
+    ),
+    ("modules/catalog/sources/preview.py", "run_service_preview"): (
+        "the service preview and the service re-upload preview"
+    ),
+}
 
 # Calls that start a process. `run` also matches unrelated callees, which only
 # costs a report, never a pass.
@@ -5901,21 +5912,21 @@ def _egress_block(node: ast.AST, rel: str) -> tuple[ast.AsyncWith, str] | None:
 def _collect_service_egress_violations(
     modules: list[tuple[str, ast.Module]],
 ) -> tuple[list[str], int]:
-    """Return (violations, service env call count).
+    """Return (violations, the (module, function) of each service env call).
 
     Each service env must be built inside an egress proxy block from that
     block's proxy, and every process its function starts must start inside
     the same block, so none runs after the proxy has closed.
     """
     violations: list[str] = []
-    sites = 0
+    sites: list[tuple[str, str]] = []
     for rel, tree in modules:
         _annotate_parents(tree)
         for node in ast.walk(tree):
             if not _is_canonical_helper_call(node, SAFE_SERVICE_ENV_HELPER, rel):
                 continue
-            sites += 1
             scope = _enclosing_function_node(node)
+            sites.append((rel, getattr(scope, "name", "<module>")))
             where = f"{rel}:{node.lineno} ({getattr(scope, 'name', '<module>')})"
             found = _egress_block(node, rel)
             if found is None:
@@ -5954,9 +5965,9 @@ def _collect_service_egress_violations(
 def test_service_gdal_subprocesses_run_inside_the_egress_proxy():
     violations, sites = _collect_service_egress_violations(_app_modules())
     assert not violations, "\n".join(violations)
-    assert sites >= MIN_SERVICE_ENV_SITES, (
-        f"saw only {sites} {SAFE_SERVICE_ENV_HELPER} call(s); the tree has at "
-        f"least {MIN_SERVICE_ENV_SITES}, so the scan has gone blind"
+    assert sorted(sites) == sorted(SERVICE_ENV_SITES), (
+        f"{SAFE_SERVICE_ENV_HELPER} is called from {sorted(sites)}; "
+        "SERVICE_ENV_SITES must name each site exactly once"
     )
 
 
@@ -5993,7 +6004,7 @@ def test_guard_service_env_shapes_that_skip_the_proxy_report():
             "        await asyncio.create_subprocess_exec(*cmd, env=env)\n"
         )
     )
-    assert sites == 5, (sites, violations)
+    assert len(sites) == 5, (sites, violations)
     assert len(violations) == 4, violations
     for name in ("no_block", "other_proxy", "spawned_after_close", "shadowed"):
         assert any(f"({name})" in v for v in violations), (name, violations)

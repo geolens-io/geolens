@@ -129,7 +129,7 @@ async def test_gdal_preserves_sparse_64_bit_arcgis_object_ids(tmp_path) -> None:
             object_ids=_SOURCE_IDS,
         )
         assert gdal_source.startswith("GeoJSON:")
-        async with service_egress_proxy() as egress:
+        async with service_egress_proxy(idle_seconds=30) as egress:
             process = await asyncio.create_subprocess_exec(
                 "ogr2ogr",
                 "-f",
@@ -165,7 +165,7 @@ async def test_gdal_keeps_arcgis_declared_float_fields_for_32_bit_ids(tmp_path) 
             object_ids=source_ids,
         )
         assert gdal_source.startswith("ESRIJSON:")
-        async with service_egress_proxy() as egress:
+        async with service_egress_proxy(idle_seconds=30) as egress:
             process = await asyncio.create_subprocess_exec(
                 "ogr2ogr",
                 "-f",

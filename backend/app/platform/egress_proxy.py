@@ -8,6 +8,7 @@ was checked. HTTPS arrives as ``CONNECT`` and is piped, so TLS stays end to end.
 """
 
 import asyncio
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import NamedTuple
@@ -23,10 +24,12 @@ _HEAD_TIMEOUT_SECONDS = 30.0
 _CONNECT_TIMEOUT_SECONDS = 30.0
 _CHUNK_BYTES = 64 * 1024
 
-# Hop-by-hop headers belong to the client's connection with this proxy.
+# Headers about one side's connection with this proxy, never passed across.
+# Expect is dropped too, so an upstream never answers with an interim 100.
 _HOP_HEADERS = frozenset(
     {
         b"connection",
+        b"expect",
         b"keep-alive",
         b"proxy-authorization",
         b"proxy-connection",
@@ -53,10 +56,32 @@ class _Request(NamedTuple):
     body_length: int
 
 
+class _Idle:
+    """When either direction of one relay last moved, and how long it may rest."""
+
+    def __init__(self, seconds: float) -> None:
+        self.seconds = seconds
+        self.touch()
+
+    def touch(self) -> None:
+        self.last = time.monotonic()
+
+    def remaining(self) -> float:
+        return self.last + self.seconds - time.monotonic()
+
+
 def _reply(status: str) -> bytes:
     return (
         f"HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".encode()
     )
+
+
+def _without_hop_headers(lines: list[bytes]) -> list[bytes]:
+    return [
+        line
+        for line in lines
+        if line.partition(b":")[0].strip().lower() not in _HOP_HEADERS
+    ]
 
 
 def _parse_head(head: bytes) -> _Request:
@@ -75,7 +100,6 @@ def _parse_head(head: bytes) -> _Request:
     url = urlsplit(target)
     if url.scheme != "http" or not url.hostname:
         raise ValueError("only absolute http:// requests are forwarded")
-    kept: list[bytes] = []
     body_length = 0
     for line in header_lines:
         name, colon, value = line.partition(b":")
@@ -86,30 +110,69 @@ def _parse_head(head: bytes) -> _Request:
             body_length = int(value)
             if body_length < 0:
                 raise ValueError("negative Content-Length")
-        if key not in _HOP_HEADERS:
-            kept.append(line)
     path = (url.path or "/") + (f"?{url.query}" if url.query else "")
     forward = b"\r\n".join(
-        [f"{method} {path} {version}".encode("ascii"), *kept, b"Connection: close"]
+        [
+            f"{method} {path} {version}".encode("ascii"),
+            *_without_hop_headers(header_lines),
+            b"Connection: close",
+        ]
     )
     return _Request(url.hostname, url.port or 80, forward + b"\r\n\r\n", body_length)
 
 
-async def _pipe(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+async def _pipe(
+    reader: asyncio.StreamReader, writer: asyncio.StreamWriter, idle: _Idle
+) -> None:
+    """Copy until EOF, or until neither direction of the relay has moved for
+    ``idle.seconds``."""
     try:
-        while data := await reader.read(_CHUNK_BYTES):
+        while True:
+            try:
+                data = await asyncio.wait_for(
+                    reader.read(_CHUNK_BYTES), max(idle.remaining(), 0.0)
+                )
+            except TimeoutError:
+                if idle.remaining() <= 0:
+                    return
+                continue
+            if not data:
+                return
+            idle.touch()
             writer.write(data)
-            await writer.drain()
-    except OSError:
-        pass  # A reset ends the stream the same way EOF does.
+            await asyncio.wait_for(writer.drain(), idle.seconds)
+    except (OSError, TimeoutError):
+        pass  # A reset or a stalled reader ends the stream the same way EOF does.
     finally:
         writer.close()
+
+
+async def _relay_response(
+    upstream: asyncio.StreamReader, writer: asyncio.StreamWriter, idle: _Idle
+) -> None:
+    """Relay one response, telling libcurl not to reuse the connection: it
+    would send the next request here whatever host that request is for."""
+    try:
+        head = await asyncio.wait_for(upstream.readuntil(b"\r\n\r\n"), idle.seconds)
+    except (asyncio.IncompleteReadError, asyncio.LimitOverrunError, TimeoutError):
+        writer.write(_reply("502 Bad Gateway"))
+        return
+    status_line, *header_lines = head.removesuffix(b"\r\n\r\n").split(b"\r\n")
+    writer.write(
+        b"\r\n".join(
+            [status_line, *_without_hop_headers(header_lines), b"Connection: close"]
+        )
+        + b"\r\n\r\n"
+    )
+    idle.touch()
+    await _pipe(upstream, writer, idle)
 
 
 async def _serve(
     egress: ServiceEgress,
     reader: asyncio.StreamReader,
     writer: asyncio.StreamWriter,
+    idle_seconds: float,
 ) -> None:
     """Relay one client connection to the one destination it names."""
     try:
@@ -133,7 +196,9 @@ async def _serve(
         return
     except SSRFError:
         egress.refused = True
-        logger.warning("service egress refused", host=request.host, port=request.port)
+        logger.warning(
+            "service connection refused", host=request.host, port=request.port
+        )
         writer.write(_reply("403 Forbidden"))
         return
 
@@ -145,39 +210,56 @@ async def _serve(
         writer.write(_reply("502 Bad Gateway"))
         return
 
+    idle = _Idle(idle_seconds)
     try:
         if request.forward is None:
             writer.write(b"HTTP/1.1 200 Connection established\r\n\r\n")
             await asyncio.gather(
-                _pipe(reader, upstream_writer), _pipe(upstream_reader, writer)
+                _pipe(reader, upstream_writer, idle),
+                _pipe(upstream_reader, writer, idle),
             )
             return
-        # One request per connection: libcurl reuses a proxy connection across
-        # hosts, and a second request must not reach the first host's address.
+        # One request per connection, so a second request on it, whatever
+        # host it names, never reaches this request's address.
         upstream_writer.write(request.forward)
         if request.body_length:
-            upstream_writer.write(await reader.readexactly(request.body_length))
-        await upstream_writer.drain()
-        await _pipe(upstream_reader, writer)
+            body = reader.readexactly(request.body_length)
+            upstream_writer.write(await asyncio.wait_for(body, idle_seconds))
+        await asyncio.wait_for(upstream_writer.drain(), idle_seconds)
+        # libcurl closes its side once it has read the response, so that ends
+        # the relay even when the upstream keeps its side open.
+        relay = asyncio.ensure_future(_relay_response(upstream_reader, writer, idle))
+        client_done = asyncio.ensure_future(reader.read(1))
+        try:
+            await asyncio.wait(
+                {relay, client_done}, return_when=asyncio.FIRST_COMPLETED
+            )
+        finally:
+            relay.cancel()
+            client_done.cancel()
+            await asyncio.gather(relay, client_done, return_exceptions=True)
     finally:
         upstream_writer.close()
 
 
 @asynccontextmanager
-async def service_egress_proxy() -> AsyncIterator[ServiceEgress]:
+async def service_egress_proxy(*, idle_seconds: float) -> AsyncIterator[ServiceEgress]:
     """Listen on a loopback port for the block, relaying only to allowed hosts.
 
     Hand the yielded proxy to ``gdal_service_safe_env`` and run the subprocess
-    inside the block; its connections are refused once the block exits.
+    inside the block. A relay that moves no bytes for ``idle_seconds`` is
+    closed, and every connection closes when the block exits.
     """
     handlers: set[asyncio.Task] = set()
+    closing = False
 
     async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         task = asyncio.current_task()
         handlers.add(task)
         try:
-            await _serve(egress, reader, writer)
-        except (OSError, asyncio.IncompleteReadError):
+            if not closing:
+                await _serve(egress, reader, writer, idle_seconds)
+        except (OSError, asyncio.IncompleteReadError, TimeoutError):
             pass  # The client went away mid-request; nothing is left to answer.
         finally:
             writer.close()
@@ -189,6 +271,8 @@ async def service_egress_proxy() -> AsyncIterator[ServiceEgress]:
     try:
         yield egress
     finally:
+        # A handler that has not started yet sees `closing` and returns.
+        closing = True
         server.close()
         server.close_clients()
         for task in handlers:
