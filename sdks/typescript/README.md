@@ -43,3 +43,7 @@ In a browser, where a redirect's target can't be read, a request carrying
 request is sent again, without cookies, for the browser to follow. To download
 a COG there, mint a download token (`POST /auth/download-token/{dataset_id}`)
 and fetch `/datasets/{dataset_id}/download/cog?token=...` without credentials.
+
+This applies to the default `redirect: 'follow'`. Set `redirect: 'manual'` or
+`'error'`, per call or on the client, and you get what `fetch` gives: the
+redirect returned unfollowed, or a `TypeError`.

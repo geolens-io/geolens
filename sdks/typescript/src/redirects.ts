@@ -29,6 +29,11 @@
  * A redirect answering any other method is returned unfollowed. Streaming
  * (SSE) calls don't read the `fetch` option, so their manual mode comes from
  * the request alone, which a later request interceptor can replace.
+ *
+ * All of the above applies to the default `redirect: 'follow'`. A caller
+ * that sets `redirect` per call or on the client gets what fetch gives:
+ * `'manual'` returns the redirect unfollowed, and `'error'` rejects it with
+ * a TypeError.
  */
 import type { Client } from './client/client/index.js';
 
@@ -70,9 +75,19 @@ export function installRedirectHandling(target: Client): void {
     options.fetch = (input, init) => clientFetch(new Request(input, { ...init, redirect: 'manual' }));
     return new Request(request, { redirect: 'manual' });
   });
-  target.interceptors.response.use((response, request, options) =>
-    followRedirect(response, request, options.fetch!),
-  );
+  target.interceptors.response.use((response, request, options) => {
+    const policy = options.redirect ?? 'follow';
+    if (policy === 'manual') {
+      return response;
+    }
+    if (policy === 'error') {
+      if (response.type === 'opaqueredirect' || REDIRECT_STATUSES.has(response.status)) {
+        throw new TypeError('unexpected redirect');
+      }
+      return response;
+    }
+    return followRedirect(response, request, options.fetch!);
+  });
 }
 
 async function followRedirect(

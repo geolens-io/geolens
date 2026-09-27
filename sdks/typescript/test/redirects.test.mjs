@@ -358,6 +358,36 @@ test('a redirect answering a POST is returned unfollowed', async () => {
   assert.equal(storage.seen.length, 0);
 });
 
+for (const policy of ['error', 'manual']) {
+  for (const [where, configure] of [
+    ['per call', () => ({ redirect: policy })],
+    [
+      'on the client',
+      (sdk) => {
+        sdk.setConfig({ redirect: policy });
+        return {};
+      },
+    ],
+  ]) {
+    test(`redirect: '${policy}' set ${where} gets what fetch gives`, async () => {
+      reset();
+      api.respond = (req, res) => redirect(res, `${origin(storage)}/cog.tif`);
+      const sdk = client({ apiKey: randomUUID() }, 'c');
+      const perCall = configure(sdk);
+
+      const result = await downloadCog({ client: sdk, path: { dataset_id: 'd1' }, ...perCall });
+
+      if (policy === 'error') {
+        assert.ok(result.error instanceof TypeError, `expected a TypeError, got ${result.error}`);
+      } else {
+        assert.equal(result.response.status, 302);
+        assert.equal(result.response.headers.get('location'), `${origin(storage)}/cog.tif`);
+      }
+      assert.equal(storage.seen.length, 0);
+    });
+  }
+}
+
 // A browser answers a manual redirect with an opaque response: type
 // 'opaqueredirect', status 0, no readable headers. A mock fetch stands in.
 function browserFetch(calls) {
@@ -420,3 +450,21 @@ test('browser: a redirect of a request without credentials is sent once more, wi
   assert.deepEqual([...again.headers.keys()].sort(), ['if-match', 'range']);
   assert.equal(again.headers.get('range'), 'bytes=2-5');
 });
+
+for (const policy of ['error', 'manual']) {
+  test(`browser: redirect: '${policy}' gets what fetch gives`, async () => {
+    const calls = [];
+    const sdk = client({ apiKey: randomUUID() }, 'c');
+    sdk.setConfig({ fetch: browserFetch(calls) });
+
+    const result = await downloadCog({ client: sdk, path: { dataset_id: 'd1' }, redirect: policy });
+
+    if (policy === 'error') {
+      assert.ok(result.error instanceof TypeError, `expected a TypeError, got ${result.error}`);
+    } else {
+      assert.equal(result.response.type, 'opaqueredirect');
+      assert.ok(!(result.error instanceof RedirectError), 'a manual redirect is returned, not refused');
+    }
+    assert.equal(calls.length, 1);
+  });
+}
