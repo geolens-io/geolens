@@ -26,12 +26,12 @@ _FIXTURE_HOST = "arcgis.example.test"
 
 @pytest.fixture(autouse=True)
 def _fixture_host_reaches_loopback(monkeypatch) -> None:
-    real = egress_proxy._resolve_and_validate
+    real = egress_proxy._resolve_all_and_validate
 
-    async def resolve(host: str, port: int | None) -> str:
-        return "127.0.0.1" if host == _FIXTURE_HOST else await real(host, port)
+    async def resolve(host: str, port: int | None) -> list[str]:
+        return ["127.0.0.1"] if host == _FIXTURE_HOST else await real(host, port)
 
-    monkeypatch.setattr(egress_proxy, "_resolve_and_validate", resolve)
+    monkeypatch.setattr(egress_proxy, "_resolve_all_and_validate", resolve)
 
 
 _SOURCE_IDS = (7, 9_223_372_036_854_775_000)

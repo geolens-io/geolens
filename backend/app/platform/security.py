@@ -63,6 +63,12 @@ async def _resolve_and_validate(host: str, port: int | None) -> str:
     between validation-time and connect-time DNS. Raises SSRFError if
     resolution fails or any resolved address is blocked.
     """
+    return (await _resolve_all_and_validate(host, port))[0]
+
+
+async def _resolve_all_and_validate(host: str, port: int | None) -> list[str]:
+    """Every address *host* resolves to, in resolver order, once each, after
+    the same checks as :func:`_resolve_and_validate`."""
     try:
         results = await asyncio.to_thread(
             socket.getaddrinfo, host, port, proto=socket.IPPROTO_TCP
@@ -75,7 +81,7 @@ async def _resolve_and_validate(host: str, port: int | None) -> str:
         ip = ipaddress.ip_address(sockaddr[0])
         if _is_blocked_ip(ip):
             raise SSRFError("URLs targeting private/internal networks are not allowed")
-    return str(ipaddress.ip_address(results[0][4][0]))
+    return list(dict.fromkeys(str(ipaddress.ip_address(r[4][0])) for r in results))
 
 
 async def validate_url_for_ssrf(url: str) -> None:

@@ -170,9 +170,14 @@ def _raise_gdal_failure(
     raise IngestionError(_gdal_failure_reason(tool, returncode, stderr_text))
 
 
-def _gdal_failure_reason(tool: str, returncode: int, stderr_text: str) -> str:
+def _gdal_failure_reason(
+    tool: str,
+    returncode: int,
+    stderr_text: str,
+    classes: tuple[tuple[re.Pattern[str], str], ...] = _GDAL_FAILURE_CLASSES,
+) -> str:
     """The tool and exit status, plus the one sentence a matched class allows."""
-    for pattern, sentence in _GDAL_FAILURE_CLASSES:
+    for pattern, sentence in classes:
         match = pattern.search(stderr_text)
         if match:
             return (
@@ -183,6 +188,20 @@ def _gdal_failure_reason(tool: str, returncode: int, stderr_text: str) -> str:
 
 SERVICE_ADDRESS_REFUSED = (
     "the source service pointed to an address this server does not connect to"
+)
+
+# A service can refuse a credential inside an HTTP 200 exception report. The
+# sentence names authentication so the caller can still suggest a credential.
+_SERVICE_FAILURE_CLASSES = (
+    *_GDAL_FAILURE_CLASSES,
+    (
+        re.compile(
+            r"(?i)\b(?:unauthori[sz]ed|forbidden|access denied|"
+            r"authentication (?:failed|required)|invalid (?:token|credentials?)|"
+            r"token required)\b"
+        ),
+        "the source service reported an authentication failure",
+    ),
 )
 
 
@@ -201,7 +220,9 @@ def _raise_service_gdal_failure(
         raise IngestionError(
             f"{tool} failed (exit {returncode}): {SERVICE_ADDRESS_REFUSED}"
         )
-    raise IngestionError(_gdal_failure_reason(tool, returncode, stderr_text))
+    raise IngestionError(
+        _gdal_failure_reason(tool, returncode, stderr_text, _SERVICE_FAILURE_CLASSES)
+    )
 
 
 # fix(#1746): the worker's own refusals, as constants rather than composed

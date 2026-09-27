@@ -16,7 +16,11 @@ from urllib.parse import urlsplit
 
 import structlog
 
-from app.platform.security import SSRFError, SSRFResolutionError, _resolve_and_validate
+from app.platform.security import (
+    SSRFError,
+    SSRFResolutionError,
+    _resolve_all_and_validate,
+)
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -168,6 +172,21 @@ async def _relay_response(
     await _pipe(upstream, writer, idle)
 
 
+async def _connect_first(
+    addresses: list[str], port: int
+) -> tuple[asyncio.StreamReader, asyncio.StreamWriter] | None:
+    """A connection to the first checked address that accepts one, like a
+    client falling back from an unreachable AAAA answer to its A answer."""
+    for address in addresses:
+        try:
+            return await asyncio.wait_for(
+                asyncio.open_connection(address, port), _CONNECT_TIMEOUT_SECONDS
+            )
+        except (OSError, TimeoutError):
+            continue
+    return None
+
+
 async def _serve(
     egress: ServiceEgress,
     reader: asyncio.StreamReader,
@@ -190,7 +209,7 @@ async def _serve(
         return
 
     try:
-        address = await _resolve_and_validate(request.host, request.port)
+        addresses = await _resolve_all_and_validate(request.host, request.port)
     except SSRFResolutionError:
         writer.write(_reply("502 Bad Gateway"))
         return
@@ -202,13 +221,11 @@ async def _serve(
         writer.write(_reply("403 Forbidden"))
         return
 
-    try:
-        upstream_reader, upstream_writer = await asyncio.wait_for(
-            asyncio.open_connection(address, request.port), _CONNECT_TIMEOUT_SECONDS
-        )
-    except (OSError, TimeoutError):
+    upstream = await _connect_first(addresses, request.port)
+    if upstream is None:
         writer.write(_reply("502 Bad Gateway"))
         return
+    upstream_reader, upstream_writer = upstream
 
     idle = _Idle(idle_seconds)
     try:

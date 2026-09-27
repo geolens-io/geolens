@@ -43,7 +43,11 @@ from app.processing.ingest.ogr import (
     build_pg_conn_str,
     run_ogr2ogr_service,
 )
-from app.platform.security import _SSRFGuardTransport, make_safe_client
+from app.platform.security import (
+    _resolve_all_and_validate,
+    _SSRFGuardTransport,
+    make_safe_client,
+)
 from app.processing.ingest.tasks import reupload_service
 from app.processing.ingest.tasks_common import _run_service_import_with_wfs_fallback
 from tests.factories import create_dataset, get_user_id
@@ -170,15 +174,15 @@ def _wfs_service(
 def resolver_calls(monkeypatch) -> list[str]:
     """Map the test host to loopback; every other name meets the real policy."""
     calls: list[str] = []
-    real = egress_proxy._resolve_and_validate
+    real = egress_proxy._resolve_all_and_validate
 
-    async def resolve(host: str, port: int | None) -> str:
+    async def resolve(host: str, port: int | None) -> list[str]:
         calls.append(host)
         if host == _HOST:
-            return "127.0.0.1"
+            return ["127.0.0.1"]
         return await real(host, port)
 
-    monkeypatch.setattr(egress_proxy, "_resolve_and_validate", resolve)
+    monkeypatch.setattr(egress_proxy, "_resolve_all_and_validate", resolve)
     return calls
 
 
@@ -359,6 +363,55 @@ class TestTheProxyRelaysOnlyToCheckedAddresses:
         assert requests == ["getcapabilities", "getcapabilities"]
         assert resolver_calls == [_HOST, _HOST]
 
+    async def test_an_unreachable_first_address_falls_back_to_the_next(
+        self, monkeypatch
+    ):
+        """Only checked addresses are tried, in order, and none is looked up again."""
+        calls: list[str] = []
+
+        async def resolve(host: str, port: int | None) -> list[str]:
+            calls.append(host)
+            return ["::1", "127.0.0.1"]
+
+        monkeypatch.setattr(egress_proxy, "_resolve_all_and_validate", resolve)
+        with _wfs_service() as (port, requests):
+            async with service_egress_proxy(idle_seconds=30) as egress:
+                response = await _exchange(
+                    egress,
+                    _get(f"http://{_HOST}:{port}/wfs?REQUEST=GetCapabilities", _HOST),
+                )
+
+        assert b" 200 " in response.split(b"\r\n", 1)[0], response
+        assert requests == ["getcapabilities"]
+        assert calls == [_HOST]
+
+    async def test_a_name_with_any_blocked_address_is_refused(self, monkeypatch):
+        """The same rule as make_safe_client: one blocked answer refuses the name."""
+        real_getaddrinfo = socket.getaddrinfo
+
+        def getaddrinfo(host, port, *args, **kwargs):
+            if host == "mixed.example.test":
+                return [
+                    (
+                        socket.AF_INET,
+                        socket.SOCK_STREAM,
+                        6,
+                        "",
+                        ("93.184.215.14", port),
+                    ),
+                    (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.1.2.3", port)),
+                ]
+            return real_getaddrinfo(host, port, *args, **kwargs)
+
+        monkeypatch.setattr(socket, "getaddrinfo", getaddrinfo)
+        async with service_egress_proxy(idle_seconds=30) as egress:
+            response = await _exchange(
+                egress, _get("http://mixed.example.test/wfs", "mixed.example.test")
+            )
+
+        assert response.startswith(b"HTTP/1.1 403"), response
+        assert egress.refused is True
+
     async def test_https_is_tunnelled_to_the_checked_address(self, resolver_calls):
         async def echo(reader, writer):
             writer.write(await reader.read(4))
@@ -474,16 +527,16 @@ class TestTheProxyRelaysOnlyToCheckedAddresses:
         entered = asyncio.Event()
         cancelled = asyncio.Event()
 
-        async def resolve_forever(host: str, port: int | None) -> str:
+        async def resolve_forever(host: str, port: int | None) -> list[str]:
             entered.set()
             try:
                 await asyncio.Event().wait()
             except asyncio.CancelledError:
                 cancelled.set()
                 raise
-            return "127.0.0.1"
+            return ["127.0.0.1"]
 
-        monkeypatch.setattr(egress_proxy, "_resolve_and_validate", resolve_forever)
+        monkeypatch.setattr(egress_proxy, "_resolve_all_and_validate", resolve_forever)
 
         async def request_then_leave() -> asyncio.StreamWriter:
             async with service_egress_proxy(idle_seconds=60) as egress:
@@ -525,6 +578,30 @@ def test_the_service_env_sends_every_request_through_the_proxy(monkeypatch):
         "GDAL_HTTPS_PROXY",
     }
     assert stray == set()
+
+
+async def test_every_checked_address_is_returned_once_in_resolver_order(
+    monkeypatch,
+):
+    def getaddrinfo(host, port, *args, **kwargs):
+        return [
+            (
+                socket.AF_INET6,
+                socket.SOCK_STREAM,
+                6,
+                "",
+                ("2606:2800:21f::1", port, 0, 0),
+            ),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.215.14", port)),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.215.14", port)),
+        ]
+
+    monkeypatch.setattr(socket, "getaddrinfo", getaddrinfo)
+
+    assert await _resolve_all_and_validate("svc.example.test", 80) == [
+        "2606:2800:21f::1",
+        "93.184.215.14",
+    ]
 
 
 async def test_environment_proxy_settings_route_neither_outbound_path(monkeypatch):
@@ -582,6 +659,39 @@ class TestGdalReachesOnlyAllowedHosts:
 
         assert requests
         assert str(error.value) == _AUTH_HINT
+
+    @pytest.mark.parametrize(
+        ("report", "expected"),
+        [
+            (
+                "Invalid token supplied",
+                "ogr2ogr failed (exit 1): "
+                "the source service reported an authentication failure",
+            ),
+            ("Unknown feature type", "ogr2ogr failed (exit 1)"),
+        ],
+        ids=["auth", "not-auth"],
+    )
+    async def test_an_exception_report_gives_the_hint_only_for_authentication(
+        self, resolver_calls, report, expected
+    ):
+        """A WFS can refuse a credential with HTTP 200 and an exception report.
+        The report's own text never reaches the error; only the class does."""
+        marker = f"report-{uuid.uuid4().hex}"
+        source_text = f"{report} {marker}"
+        with _wfs_service(exception_text=source_text) as (port, _requests):
+            importer = _importer(f"WFS:http://{_HOST}:{port}/wfs")
+            with pytest.raises(IngestionError) as direct:
+                await importer(_LAYER)
+            with pytest.raises(IngestionError) as hinted:
+                await _run_service_import_with_wfs_fallback(
+                    importer, _LAYER, token=None, auth_error_message=_AUTH_HINT
+                )
+
+        assert str(direct.value) == expected
+        assert marker not in str(direct.value)
+        is_auth = expected.endswith("authentication failure")
+        assert (str(hinted.value) == _AUTH_HINT) is is_auth
 
     async def test_a_refused_address_is_not_reported_as_an_auth_refusal(
         self, resolver_calls
