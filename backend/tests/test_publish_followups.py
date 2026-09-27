@@ -1427,6 +1427,9 @@ async def test_a_failure_racing_a_confirmed_archive_restores_nothing(
 
     The losing run's store then can't tell it the archive exists, so only the
     guards on its failure write keep the settled record, mark and flag away.
+    The other run confirms before the loser holds the job's row for its write,
+    which the other run would wait for: while the loser reads the upload, or
+    after the loser found no archive and before it writes one.
     """
     job_id, dataset_id, record_id = await _owed_job(
         test_db_session, task="reupload_file", reaps_staged_upload=True
@@ -1437,38 +1440,51 @@ async def test_a_failure_racing_a_confirmed_archive_restores_nothing(
         )
         left = await _stage_upload(raster_storage, job_id, "storage")
         key = await _owe_archive(job_id, dataset_id, "upload.tif")
-        method, raced = {
-            "put": ("put", key),
-            "read": ("get_to_file", f"staging/{job_id}/frozen/upload.tif"),
-        }[fails_in]
-        real, real_exists = getattr(raster_storage, method), raster_storage.exists
-        real_size = raster_storage.size
+        upload = f"staging/{job_id}/frozen/upload.tif"
+        real_get, real_put = raster_storage.get_to_file, raster_storage.put
+        real_exists, real_size = raster_storage.exists, raster_storage.size
         race: dict = {"running": False, "won": None}
+        refused: list[str] = []
 
-        async def _loses_the_race(first, *args):
-            if race["running"] or race["won"] is not None or first != raced:
-                return await real(first, *args)
+        async def _race() -> None:
             race["running"] = True
             race["won"] = await run_publish_followups(job_id)
-            raise RuntimeError("the object store refused the call")
+
+        async def _read(src, dest):
+            if fails_in == "read" and src == upload and not race["running"]:
+                await _race()
+                refused.append(src)
+                raise RuntimeError("the object store refused the call")
+            return await real_get(src, dest)
+
+        async def _measure(checked):
+            if checked == key and fails_in == "put" and not race["running"]:
+                await _race()
+                raise FileNotFoundError(checked)
+            if checked == key and race["won"] is not None:
+                raise RuntimeError("the object store timed out")
+            return await real_size(checked)
+
+        async def _write(written, data):
+            if written == key and race["won"] is not None:
+                refused.append(written)
+                raise RuntimeError("the object store refused the call")
+            return await real_put(written, data)
 
         async def _unsure_once_lost(checked):
             if race["won"] is not None and checked == key:
                 raise RuntimeError("the object store timed out")
             return await real_exists(checked)
 
-        async def _size_unsure_once_lost(checked):
-            if race["won"] is not None and checked == key:
-                raise RuntimeError("the object store timed out")
-            return await real_size(checked)
-
-        monkeypatch.setattr(raster_storage, method, _loses_the_race)
+        monkeypatch.setattr(raster_storage, "get_to_file", _read)
+        monkeypatch.setattr(raster_storage, "size", _measure)
+        monkeypatch.setattr(raster_storage, "put", _write)
         monkeypatch.setattr(raster_storage, "exists", _unsure_once_lost)
-        monkeypatch.setattr(raster_storage, "size", _size_unsure_once_lost)
 
         await run_publish_followups(job_id)
 
         assert race["won"] is True
+        assert refused == [key if fails_in == "put" else upload]
         assert await raster_storage.get(key) == b"staged"
         assert await left() == []
         metadata = await _stored_metadata(job_id)
