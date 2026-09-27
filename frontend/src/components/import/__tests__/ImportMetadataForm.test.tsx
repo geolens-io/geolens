@@ -513,4 +513,63 @@ describe('ImportMetadataForm', () => {
       );
     });
   });
+
+  describe('resuming an attempted request', () => {
+    it('shows the attempted vector request and resubmits it unchanged', async () => {
+      const onCommit = vi.fn();
+      const user = userEvent.setup();
+      const attempted = {
+        title: 'Edited roads',
+        summary: 'Survey notes',
+        visibility: 'public',
+        srid_override: 3857,
+        x_column: 'id',
+        y_column: 'Latitude',
+      };
+      render(
+        <ImportMetadataForm
+          {...defaultProps}
+          onCommit={onCommit}
+          previewColumns={sampleColumns}
+          detectedGeometryColumns={detectedLatLng}
+          initialRequest={attempted}
+        />,
+      );
+
+      expect(screen.getByLabelText('metadata.nameLabel')).toHaveValue('Edited roads');
+      expect(screen.getByLabelText('metadata.descriptionLabel')).toHaveValue('Survey notes');
+      expect(screen.getByLabelText('metadata.crsLabel')).toHaveValue(3857);
+      expect(screen.getByLabelText('metadata.xColumn')).toHaveValue('id');
+      await user.click(screen.getByRole('button', { name: 'metadata.importDataset' }));
+      expect(onCommit).toHaveBeenCalledWith(attempted);
+    });
+
+    it('resubmits attempted raster options unchanged', async () => {
+      const onCommit = vi.fn();
+      const user = userEvent.setup();
+      const attempted = {
+        title: 'Elevation',
+        summary: null,
+        visibility: 'private',
+        srid_override: null,
+        temporal_start: '2024-01-01',
+        temporal_end: '2024-12-31',
+        compression: 'ZSTD',
+        resampling: 'bilinear',
+        nodata_override: '-9999',
+      };
+      render(
+        <ImportMetadataForm
+          {...defaultProps}
+          defaultName="dem.tif"
+          onCommit={onCommit}
+          isRaster
+          initialRequest={attempted}
+        />,
+      );
+
+      await user.click(screen.getByRole('button', { name: 'metadata.importDataset' }));
+      expect(onCommit).toHaveBeenCalledWith(attempted);
+    });
+  });
 });

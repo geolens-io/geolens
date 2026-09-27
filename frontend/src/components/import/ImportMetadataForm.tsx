@@ -20,6 +20,8 @@ interface ImportMetadataFormProps {
   detectedCrs: number | null;
   onCommit: (metadata: CommitImportRequest) => void;
   isCommitting: boolean;
+  /** A previously attempted request to start from instead of the preview defaults. */
+  initialRequest?: CommitImportRequest | null;
   isRaster?: boolean;
   /** A 3D Tiles tileset keeps its own coordinates, so it takes no CRS override. */
   isTileset?: boolean;
@@ -58,6 +60,7 @@ export function ImportMetadataForm({
   detectedCrs,
   onCommit,
   isCommitting,
+  initialRequest,
   isRaster = false,
   isTileset = false,
   isPointCloud = false,
@@ -73,31 +76,39 @@ export function ImportMetadataForm({
   const visibilityOptions = canSetPublic
     ? VISIBILITY_OPTIONS
     : VISIBILITY_OPTIONS.filter((opt) => opt.value !== 'public');
-  const [name, setName] = useState(stripExtension(defaultName));
-  const [description, setDescription] = useState('');
-  const [visibility, setVisibility] = useState('private');
-  const [sridOverride, setSridOverride] = useState('');
+  const [name, setName] = useState(initialRequest?.title ?? stripExtension(defaultName));
+  const [description, setDescription] = useState(initialRequest?.summary ?? '');
+  const [visibility, setVisibility] = useState(initialRequest?.visibility ?? 'private');
+  const [sridOverride, setSridOverride] = useState(initialRequest?.srid_override?.toString() ?? '');
 
   // Geometry column override state
   const hasDetected =
     detectedGeometryColumns &&
     (detectedGeometryColumns.x_column || detectedGeometryColumns.wkt_column);
-  const [geomMode, setGeomMode] = useState<GeometryMode>(
-    hasDetected ? 'auto' : 'none',
-  );
-  const [geomType, setGeomType] = useState<GeometryType>(
-    detectedGeometryColumns?.wkt_column && !detectedGeometryColumns?.x_column
+  const [geomMode, setGeomMode] = useState<GeometryMode>(() => {
+    if (!initialRequest) return hasDetected ? 'auto' : 'none';
+    const { x_column, y_column, geom_column } = initialRequest;
+    if (!x_column && !geom_column) return 'none';
+    const matchesDetected = geom_column
+      ? geom_column === detectedGeometryColumns?.wkt_column
+      : x_column === detectedGeometryColumns?.x_column && y_column === detectedGeometryColumns?.y_column;
+    return hasDetected && matchesDetected ? 'auto' : 'manual';
+  });
+  const [geomType, setGeomType] = useState<GeometryType>(() => {
+    if (initialRequest?.geom_column) return 'wkt';
+    if (initialRequest?.x_column) return 'latlng';
+    return detectedGeometryColumns?.wkt_column && !detectedGeometryColumns?.x_column
       ? 'wkt'
-      : 'latlng',
-  );
+      : 'latlng';
+  });
   const [xColumn, setXColumn] = useState(
-    detectedGeometryColumns?.x_column ?? '',
+    initialRequest?.x_column ?? detectedGeometryColumns?.x_column ?? '',
   );
   const [yColumn, setYColumn] = useState(
-    detectedGeometryColumns?.y_column ?? '',
+    initialRequest?.y_column ?? detectedGeometryColumns?.y_column ?? '',
   );
   const [wktColumn, setWktColumn] = useState(
-    detectedGeometryColumns?.wkt_column ?? '',
+    initialRequest?.geom_column ?? detectedGeometryColumns?.wkt_column ?? '',
   );
 
   // Columns eligible for Lat/Lng selection: numeric types preferred,
@@ -125,12 +136,12 @@ export function ImportMetadataForm({
 
   // Raster-specific fields
   const [temporalStart, setTemporalStart] = useState(
-    previewData?.temporal_start ?? '',
+    initialRequest ? (initialRequest.temporal_start ?? '') : (previewData?.temporal_start ?? ''),
   );
-  const [temporalEnd, setTemporalEnd] = useState('');
-  const [compression, setCompression] = useState('DEFLATE');
-  const [resampling, setResampling] = useState('auto');
-  const [nodataOverride, setNodataOverride] = useState('');
+  const [temporalEnd, setTemporalEnd] = useState(initialRequest?.temporal_end ?? '');
+  const [compression, setCompression] = useState(initialRequest?.compression ?? 'DEFLATE');
+  const [resampling, setResampling] = useState(initialRequest?.resampling ?? 'auto');
+  const [nodataOverride, setNodataOverride] = useState(initialRequest?.nodata_override?.toString() ?? '');
 
   const submittingRef = useRef(false);
 

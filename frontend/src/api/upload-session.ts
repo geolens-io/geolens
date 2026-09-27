@@ -68,6 +68,8 @@ export interface UploadSessionEntry {
   progress: number | null;
   /** How the latest commit was issued; selects the failure message. */
   commitVia: 'single' | 'all' | 'fan-out' | null;
+  /** The latest commit's request, so a retry starts from what the user entered. */
+  request: CommitImportRequest | null;
   /** Set once `committed`. */
   submitted: UploadSubmission | null;
   /** Per-layer outcome of this entry's failed fan-out commit. */
@@ -80,6 +82,8 @@ export interface UploadBatchSnapshot {
   fanOutResults: { entryId: string; results: FanOutLayerOutcome[] } | null;
   /** The batch was committed with "commit all as VRT". */
   autoOpenVrt: boolean;
+  /** Some refused commit can still be retried, so the batch stays in review. */
+  awaitingRetry: boolean;
 }
 
 interface UploadBatchSession {
@@ -134,6 +138,7 @@ export function startUploadEntry(
     error: null,
     progress: 0,
     commitVia: null,
+    request: null,
     submitted: null,
     fanOut: null,
   };
@@ -212,6 +217,7 @@ interface CommitClaim {
 function claimForCommit(
   id: string,
   via: NonNullable<UploadSessionEntry['commitVia']>,
+  request: CommitImportRequest | null,
 ): CommitClaim | null {
   const session = current;
   const entry = session?.entries.get(id);
@@ -220,6 +226,7 @@ function claimForCommit(
 
   entry.status = 'committing';
   entry.commitVia = via;
+  entry.request = request;
   entry.error = null;
   entry.fanOut = null;
   notify();
@@ -241,7 +248,7 @@ function commitEntry(
   submission: UploadSubmission,
   via: 'single' | 'all',
 ): Promise<boolean> {
-  const claim = claimForCommit(id, via);
+  const claim = claimForCommit(id, via, request);
   if (!claim) return Promise.resolve(false);
   return commitImport(claim.jobId, request).then(
     () =>
@@ -292,7 +299,7 @@ export function commitUploadFanOut(
   layers: { layer_name: string; title: string }[],
   kind: DataKind,
 ): Promise<FanOutLayerOutcome[] | null> {
-  const claim = claimForCommit(id, 'fan-out');
+  const claim = claimForCommit(id, 'fan-out', null);
   if (!claim) return Promise.resolve(null);
   const titles = new Map(layers.map((l) => [l.layer_name, l.title]));
 
@@ -324,6 +331,7 @@ export function commitUploadFanOut(
             error: null,
             progress: null,
             commitVia: 'fan-out',
+            request: null,
             submitted: { title, visibility: 'private', kind },
             fanOut: null,
           });
@@ -356,6 +364,12 @@ export function dismissUploadFanOutResults(): void {
   notify();
 }
 
+// A partial fan-out has already moved its parent job to `fanned_out`
+// server-side, so that parent cannot be committed again.
+function canRetryCommit(entry: UploadSessionEntry): boolean {
+  return entry.status === 'commit-failed' && !entry.fanOut?.some((r) => r.status === 'fulfilled');
+}
+
 /**
  * The current batch, if it has entries AND belongs to the signed-in user.
  *
@@ -372,10 +386,12 @@ export function peekUploadBatch(): UploadBatchSnapshot | null {
     return null;
   }
   if (current.entries.size === 0) return null;
+  const entries = Array.from(current.entries.values());
   return {
-    entries: Array.from(current.entries.values()),
+    entries,
     fanOutResults: current.fanOutResults,
     autoOpenVrt: current.autoOpenVrt,
+    awaitingRetry: entries.some(canRetryCommit),
   };
 }
 

@@ -689,6 +689,35 @@ describe('UploadForm Commit All and fan-out across unmount', () => {
     expect(mockCommitImport).toHaveBeenCalledTimes(2);
   });
 
+  test('a Commit All with a refusal stays in review, across tab switches, until the refusal is retried', async () => {
+    const commits = deferCommitsByJob();
+    const { view, roadsId, riversId } = await dropTwoAndReview();
+
+    await act(async () => {
+      screen.getByTestId('commit-all').click();
+    });
+    await act(async () => {
+      commits['job-roads'].resolve({ job_id: 'job-roads', status: 'queued' });
+      commits['job-rivers'].reject(new ApiError('Title already in use', 409));
+    });
+    expect(await screen.findByTestId(`entry-${riversId}`)).toHaveAttribute('data-status', 'commit-failed');
+    expect(screen.getByTestId(`error-${riversId}`)).toHaveTextContent('Title already in use');
+    expect(screen.getByTestId(`entry-${roadsId}`)).toHaveAttribute('data-status', 'tracking');
+    expect(screen.queryByTestId('bulk-tracking-list')).not.toBeInTheDocument();
+
+    view.unmount();
+    render(<UploadForm />);
+    expect(await screen.findByTestId(`entry-${riversId}`)).toHaveAttribute('data-status', 'commit-failed');
+    expect(screen.getByTestId(`entry-${roadsId}`)).toHaveAttribute('data-status', 'tracking');
+
+    mockCommitImport.mockResolvedValueOnce({ job_id: 'job-rivers', status: 'queued' });
+    await act(async () => {
+      screen.getByTestId(`commit-${riversId}`).click();
+    });
+    expect(await screen.findByTestId('tracked-job-rivers')).toBeInTheDocument();
+    expect(screen.getByTestId('tracked-job-roads')).toBeInTheDocument();
+  });
+
   test('Commit All refusals settled while unmounted keep their errors and the quota notice', async () => {
     const commits = deferCommitsByJob();
     const { view, roadsId, riversId } = await dropTwoAndReview();

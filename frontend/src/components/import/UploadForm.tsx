@@ -133,6 +133,7 @@ function toFileEntry(
     submittedTitle: se.submitted?.title ?? null,
     submittedVisibility: se.submitted?.visibility ?? null,
     submittedKind: se.submitted?.kind ?? null,
+    commitRequest: se.request,
   };
 }
 
@@ -163,6 +164,9 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
   }, []);
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [autoOpenVrt, setAutoOpenVrt] = useState(false);
+  // A refused commit that can be retried keeps the batch in review, even
+  // alongside rows that are already tracked.
+  const [awaitingRetry, setAwaitingRetry] = useState(false);
   // Batch-level quota notice (the "X of Y datasets used" detail), shown once.
   const [quotaNotice, setQuotaNotice] = useState<string | null>(null);
   // GPKG-03 Phase 1058: results modal state for the multi-layer fan-out
@@ -207,6 +211,7 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     setPhase('idle');
     setEntries([]);
     setAutoOpenVrt(false);
+    setAwaitingRetry(false);
     setQuotaNotice(null);
     setPendingFiles(null);
     // An explicit reset means the user is done with this batch; a commit
@@ -233,6 +238,7 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
       },
     );
     if (batch.autoOpenVrt) setAutoOpenVrt(true);
+    setAwaitingRetry(batch.awaitingRetry);
   }, [t]);
 
   // Adopt a batch that kept uploading, previewing or committing while this
@@ -292,11 +298,11 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
       const hasTracking = entries.some((e) => e.status === 'tracking');
       // fix(#2034): a partial-failure fan-out modal (real 'rejected' results) holds the reviewing phase open — the queued layers it also tracked would otherwise hide it before it's read. A full-success modal never blocks, matching prior behavior.
       const fanOutHasFailure = fanOutResults?.results.some((r) => r.status === 'rejected') ?? false;
-      if (allTerminal && hasTracking && !fanOutHasFailure) {
+      if (allTerminal && hasTracking && !fanOutHasFailure && !awaitingRetry) {
         setPhase('tracking');
       }
     }
-  }, [entries, phase, setPhase, fanOutResults]);
+  }, [entries, phase, setPhase, fanOutResults, awaitingRetry]);
 
   // Once the tracking view is on screen the batch has been shown, so the
   // session lets it go (see `releaseUploadBatch`).
