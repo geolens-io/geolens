@@ -202,11 +202,13 @@ async def list_maps_endpoint(
     visibility: str | None = None,
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
+    owned_only: bool = False,
 ) -> MapListResponse:
     """List maps. Admins see all; authenticated users see own + internal + public; anonymous see public only.
 
     Supports search (ILIKE on name+description), sort_by (name/created_at/updated_at),
     sort_dir (asc/desc), and visibility filter (private/internal/public).
+    owned_only restricts results to the caller's maps; anonymous callers get no maps.
     """
     if user is not None:
         user_roles = await get_user_roles(db, user)
@@ -224,6 +226,7 @@ async def list_maps_endpoint(
         sort_by=sort_by,
         sort_dir=sort_dir,
         visibility=visibility,
+        owned_only=owned_only,
     )
 
     summaries = [MapSummaryResponse(**m) for m in maps]
