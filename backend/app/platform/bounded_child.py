@@ -38,7 +38,7 @@ class ChildFailure(Exception):
     """A child that didn't answer.
 
     ``category`` is "timeout", "spawn" (it couldn't start), "undecodable"
-    (its output wasn't text), "oversized" (it wrote more than the parent
+    (its reply wasn't text), "oversized" (it wrote more than the parent
     reads), "killed" (a signal ended it), "no_reply", or a category the child
     reported. ``details`` are the fields that describe the failure to an
     operator log, starting with the category.
@@ -85,12 +85,15 @@ def run_child(
             finally:
                 child.kill()
                 child.wait()
-            stdout, stderr = _read_output(out, "stdout"), _read_output(err, "stderr")
-    except (OSError, UnicodeDecodeError) as exc:
-        # The child couldn't start, or its reply wasn't text: the failure is
-        # ours, not the input's.
+            encoding = locale.getpreferredencoding(False)
+            stdout = _read_output(out, "stdout").decode(encoding)
+            # stderr only names an exception class; a stray byte can't fail a reply.
+            stderr = _read_output(err, "stderr").decode(encoding, "replace")
+    except (OSError, UnicodeError) as exc:
+        # The child couldn't start, its request couldn't be encoded, or its
+        # reply wasn't text: the failure is ours, not the input's.
         raise ChildFailure(
-            "spawn" if isinstance(exc, OSError) else "undecodable",
+            "undecodable" if isinstance(exc, UnicodeDecodeError) else "spawn",
             exception=type(exc).__name__,
         ) from None
     try:
@@ -141,13 +144,13 @@ def _stdin_file(text: str | None) -> Iterator[IO[str] | int]:
         yield request
 
 
-def _read_output(output: IO[bytes], stream: str) -> str:
+def _read_output(output: IO[bytes], stream: str) -> bytes:
     """What the child wrote to ``stream``, reading no more than the cap."""
     output.seek(0)
     data = output.read(_MAX_OUTPUT_BYTES + 1)
     if len(data) > _MAX_OUTPUT_BYTES:
         raise ChildFailure("oversized", stream=stream)
-    return data.decode(locale.getpreferredencoding(False))
+    return data
 
 
 def _signal_name(returncode: int) -> str | None:

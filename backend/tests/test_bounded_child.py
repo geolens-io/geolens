@@ -223,3 +223,56 @@ def test_a_reply_that_isnt_text_is_undecodable() -> None:
         )
 
     assert failure.value.category == "undecodable"
+
+
+@pytest.mark.parametrize(("fd", "stream"), [(1, "stdout"), (2, "stderr")])
+def test_output_past_the_cap_after_the_last_check_is_refused(
+    monkeypatch, fd, stream
+) -> None:
+    """A child that passes the cap and exits between checks is refused by the read."""
+    monkeypatch.setattr(bounded_child, "_MAX_OUTPUT_BYTES", 2**20)
+    monkeypatch.setattr(bounded_child, "_POLL_SECONDS", 30)
+
+    with pytest.raises(ChildFailure) as failure:
+        run_child(
+            [sys.executable, "-c", f"import os; os.write({fd}, b'x' * (2**20 + 1))"],
+            env={"PATH": os.environ["PATH"]},
+            timeout=60,
+            reported=(),
+        )
+
+    assert failure.value.details == {"category": "oversized", "stream": stream}
+
+
+def test_a_request_that_cant_be_encoded_starts_no_child() -> None:
+    with pytest.raises(ChildFailure) as failure:
+        run_child(
+            [sys.executable, "-c", "raise SystemExit('started')"],
+            env={"PATH": os.environ["PATH"]},
+            timeout=30,
+            stdin="PROJCRS[\ud800]",
+            reported=(),
+        )
+
+    assert failure.value.details == {
+        "category": "spawn",
+        "exception": "UnicodeEncodeError",
+    }
+
+
+def test_bytes_on_stderr_that_arent_text_leave_the_reply_intact() -> None:
+    script = (
+        "import json, sys\n"
+        "sys.stderr.buffer.write(b'\\xff GDAL warning\\n'); sys.stderr.flush()\n"
+        "print(json.dumps({'result': 1}))\n"
+    )
+
+    assert (
+        run_child(
+            [sys.executable, "-c", script],
+            env={"PATH": os.environ["PATH"]},
+            timeout=30,
+            reported=(),
+        )
+        == 1
+    )
