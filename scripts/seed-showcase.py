@@ -6387,9 +6387,10 @@ def apply_showcase_styling(api: "Api") -> None:
                     api.set_view(map_id, **wanted)
                     print(f"  camera: {name}")
                 elif present != wanted:
-                    raise RuntimeError(
-                        f"{name} camera differs from the expected baseline; "
-                        "inspect it before changing the map"
+                    print(
+                        f"  ! {name} camera differs from its expected baseline; "
+                        "left unchanged",
+                        file=sys.stderr,
                     )
             # Prose that asserts a live service waits for proof of one. The
             # legend title is not prose and makes no such claim, so it is never
