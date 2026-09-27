@@ -42,6 +42,7 @@ from app.processing.raster.probe import (
     render_quicklook,
 )
 from app.processing.raster.vrt import build_vrt, resolve_vrt_source_path
+from app.processing.raster.vrt_members import note_vrt_members
 from app.processing.raster.vrt_rewrite import rewrite_vrt_sources
 from app.platform.storage import get_storage
 
@@ -571,6 +572,10 @@ async def ingest_vrt(
 
             # 2. Parse source dataset IDs
             ids = [uuid.UUID(sid) for sid in _json.loads(source_dataset_ids)]
+            # Committed before the members are read, so replacing one keeps the
+            # COG this build may name until its VRT is published.
+            await note_vrt_members(session, job_uuid, attempt_uuid, ids)
+            await session.commit()
 
             # 3. Load RasterAsset rows for source datasets, stamped first.
             # fix(#1290): the creation tail had NO snapshot instant, so

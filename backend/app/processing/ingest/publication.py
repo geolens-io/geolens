@@ -119,8 +119,11 @@ class Published:
     # archiving its original under this key when there is one.
     reaps_staged_upload: bool = False
     upload_archive_key: str | None = None
-    # And the objects it superseded, as logical keys.
+    # And the objects it superseded, as logical keys. The superseded COG is
+    # apart, since it stays while a VRT may read it, charged these bytes.
     superseded_keys: tuple[str, ...] = ()
+    superseded_cog: str | None = None
+    superseded_cog_bytes: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -527,8 +530,10 @@ async def _publish(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
         if published.tiles_changed:
             await bump_tile_cache_version_on(session, dataset)
         values = dict(published.job_values or {})
-        owes_followups = published.reaps_staged_upload or bool(
-            published.superseded_keys
+        owes_followups = (
+            published.reaps_staged_upload
+            or bool(published.superseded_keys)
+            or published.superseded_cog is not None
         )
         if owes_followups:
             values["user_metadata"] = owed_followups(
@@ -537,6 +542,8 @@ async def _publish(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
                 reaps_staged_upload=published.reaps_staged_upload,
                 archive_key=published.upload_archive_key,
                 superseded_keys=published.superseded_keys,
+                superseded_cog=published.superseded_cog,
+                superseded_cog_bytes=published.superseded_cog_bytes,
             )
         await _complete(
             session,

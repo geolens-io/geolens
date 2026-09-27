@@ -209,12 +209,13 @@ class DatasetAsset(Base):
     Stable keys: 'data' (COG), 'vrt', 'thumbnail' (256px), 'overview'
     (512px), 'metadata' (sidecar JSON), 'archived_original:<hash>' (one row
     per pre-conversion upload kept when COG conversion was lossy, ADR-002
-    Decision 7 — hash-suffixed so every kept original counts, not just the
+    Decision 7, hash-suffixed so every kept original counts, not just the
     newest), 'tileset' (a 3D Tiles dataset's live unpack attempt, sized to
     the unpacked bytes), 'pointcloud' (a COPC point cloud's live file, sized
-    to the file). The archived, tileset and pointcloud keys are INTERNAL:
-    they feed the per-user storage sum but are never published as STAC
-    assets (see ``app.platform.assets.keys``).
+    to the file), 'retained_cog:<attempt_id>' (a superseded COG a VRT may
+    still read, kept until reclaimed). The archived, tileset, pointcloud and
+    retained keys are internal: they feed the per-user storage sum but are
+    never published as STAC assets (see ``app.platform.assets.keys``).
     """
 
     __tablename__ = "dataset_assets"
@@ -222,7 +223,8 @@ class DatasetAsset(Base):
         UniqueConstraint("dataset_id", "key", name="uq_dataset_assets_key"),
         CheckConstraint(
             "key IN ('data', 'vrt', 'thumbnail', 'overview', 'metadata', 'tileset', "
-            "'pointcloud') OR key LIKE 'archived_original:%'",
+            "'pointcloud') OR key LIKE 'archived_original:%' "
+            "OR key LIKE 'retained_cog:%'",
             name="chk_dataset_assets_key",
         ),
         {"schema": "catalog"},

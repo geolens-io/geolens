@@ -104,6 +104,8 @@ ANALYSIS_OUTPUT_TABLE_FIELD = "analysis_out_table"
 # first ingest, or a failed job's replacement) and the attempt that wrote it,
 # since a retry keeps the row and its metadata.
 PUBLISH_FOLLOWUPS_FIELD = "publish_followups"
+# The owed follow-up item naming the COG a raster replacement superseded.
+SUPERSEDED_COG_ITEM = "superseded_cog"
 UNREAPED_ARTIFACT_FIELDS = (
     UNPUBLISHED_STORAGE_KEYS_FIELD,
     ANALYSIS_OUTPUT_TABLE_FIELD,

@@ -386,39 +386,26 @@ async def reserve_replacement_bytes(
     new_size: int,
     archived_bytes: int = 0,
     archived_asset_key: str | None = None,
-) -> None:
-    """Reserve the replacement's NET byte increase under the owner's quota lock.
+    credit_superseded: bool = True,
+) -> int:
+    """Reserve the replacement's net byte increase under the owner's quota lock.
 
-    fix(#1290): the swap rewrites the quota-counted
-    ``dataset_assets.data.size_bytes`` with no reservation at all — only
-    first ingest took the lock. So a small source expanding into a large
-    COG, or two replaces of DIFFERENT datasets owned by one user running
-    concurrently, both committed past ``MAX_STORAGE_BYTES_PER_USER``. (Two
-    replaces of the SAME dataset can't race: the one-active-run index
-    refuses the second at the door.)
-
-    Net, not absolute, composing with the existing primitive rather than
-    forking a second lock discipline: ``reserve_storage_bytes`` adds its
-    argument to a LIVE recount, and at this point the recount still
-    includes the row this swap is about to overwrite, so the delta asks
-    exactly "will the post-swap total fit". Must run BEFORE
-    ``_upsert_managed_asset_rows`` — after it, the recount already holds
-    the new value and the delta would be counted twice.
+    Returns the bytes the superseded ``data`` row counts. ``reserve_storage_bytes``
+    adds its argument to a live recount that still includes that row, so
+    crediting it asks whether the post-swap total fits. This must run before
+    ``_upsert_managed_asset_rows``, or the new size would count twice. With
+    ``credit_superseded`` False the superseded bytes stay charged, for a COG
+    that is kept after the swap.
 
     The credit comes from the ``dataset_assets`` row rather than the
-    ``RasterAsset``, because that row is what the quota sums: a
-    STAC-imported dataset has an asset carrying bytes and no counted row,
-    and crediting bytes the quota never counted would admit an overshoot.
-
-    A shrinking replacement reserves nothing and needs no special case —
-    usage is a live sum, so it self-corrects the moment the smaller row
-    commits.
+    ``RasterAsset``, because that row is what the quota sums: a STAC-imported
+    dataset has an asset carrying bytes and no counted row. A credited
+    replacement that shrinks reserves nothing, since usage is a live sum.
 
     ``owner_id`` is None for an ownerless dataset and handed to
-    ``reserve_storage_bytes`` unexamined, so this seam and the
-    request-time door reach the same answer through the same code. The
-    shared policy, and why it's an exemption rather than a bug, is stated
-    once in ``app.modules.quota.service``'s module docstring (#1293).
+    ``reserve_storage_bytes`` unexamined, so this seam and the request-time
+    door reach the same answer. ``app.modules.quota.service`` states the
+    shared policy.
     """
     from sqlalchemy import text
 
@@ -456,10 +443,12 @@ async def reserve_replacement_bytes(
             )
             or 0
         )
-    delta = (new_size - int(counted_data or 0)) + (archived_bytes - existing_archive)
-    if delta <= 0:
-        return
-    await reserve_storage_bytes(session, owner_id, delta)
+    counted_data = int(counted_data or 0)
+    credit = counted_data if credit_superseded else 0
+    delta = (new_size - credit) + (archived_bytes - existing_archive)
+    if delta > 0:
+        await reserve_storage_bytes(session, owner_id, delta)
+    return counted_data
 
 
 async def _upsert_managed_asset_rows(

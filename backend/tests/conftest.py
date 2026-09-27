@@ -177,6 +177,7 @@ _TENANCY_GLOBAL_STATE_MODULES = {
     "test_rls_drift_gate",
     "test_rls_leak_lint",
     "test_vrt_stale_sweep_gap002",
+    "test_retained_cog_reclaim_hosted",  # same harness and reader grants
     "test_staging_pipeline_tables",  # stages real tables, which grants the reader
 }
 
