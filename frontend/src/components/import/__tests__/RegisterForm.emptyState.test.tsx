@@ -106,6 +106,23 @@ describe('RegisterForm empty state', () => {
 });
 
 describe('RegisterForm results', () => {
+  test('table statistics pair their labels and values in a description list', async () => {
+    mockUseDiscoverTables.mockReturnValue({
+      data: { tables: [{ table_name: 'parcels', geometry_type: 'Polygon', srid: 4326, estimated_rows: 10 }] },
+      isLoading: false,
+      error: null,
+    });
+    mockUseDatasetCountHint.mockReturnValue({ data: undefined });
+
+    render(<RegisterForm />);
+    await userEvent.setup().click(screen.getByText('parcels'));
+
+    const rows = screen.getByText('register.stats.rows');
+    expect(rows.tagName).toBe('DT');
+    expect(rows.closest('dl')).toBeInTheDocument();
+    expect(rows.nextElementSibling).toHaveTextContent('10');
+  });
+
   test('a failure the server could not report shows a sentence, not the code', async () => {
     const user = userEvent.setup();
     mockUseDiscoverTables.mockReturnValue({

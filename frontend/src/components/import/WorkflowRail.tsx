@@ -1,15 +1,16 @@
 import { useTranslation } from 'react-i18next';
-import { Check } from 'lucide-react';
+import { AlertCircle, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { TypeTag } from './TypeTag';
-import type { DataKind } from './TypeTag';
-import type { BatchPhase } from '@/types/api';
+import type { BatchPhase, DataKind } from '@/types/api';
 
 type Mode = 'upload' | 'url' | 'register' | 'service' | 'stac';
 
 interface WorkflowRailProps {
   mode: Mode;
   phase: BatchPhase;
+  outcome?: 'complete' | 'partial' | null;
+  completedKinds?: DataKind[];
 }
 
 const PHASE_TO_STEP: Record<BatchPhase, number> = {
@@ -19,8 +20,17 @@ const PHASE_TO_STEP: Record<BatchPhase, number> = {
   tracking: 2,
 };
 
-export function WorkflowRail({ mode, phase }: WorkflowRailProps) {
+export function WorkflowRail({ mode, phase, outcome = null, completedKinds = [] }: WorkflowRailProps) {
   const { t } = useTranslation('import');
+  const allKinds = (kind: DataKind) => completedKinds.length > 0 && completedKinds.every((entry) => entry === kind);
+  let importDesc = t('rail.importDesc');
+  if (outcome === 'partial') importDesc = t('rail.partialDesc');
+  if (outcome === 'complete') {
+    if (allKinds('table')) importDesc = t('rail.completeTableDesc');
+    else if (allKinds('tiles3d')) importDesc = t('rail.completeTilesetDesc');
+    else if (allKinds('pointcloud')) importDesc = t('rail.completePointCloudDesc');
+    else importDesc = t('rail.completeDesc');
+  }
 
   const steps = [
     {
@@ -33,7 +43,7 @@ export function WorkflowRail({ mode, phase }: WorkflowRailProps) {
     },
     {
       title: t('rail.importTitle', { defaultValue: 'Import & catalog' }),
-      desc: t('rail.importDesc', { defaultValue: 'Tile, index, publish — datasets appear in the Catalog immediately.' }),
+      desc: importDesc,
     },
   ];
 
@@ -55,8 +65,9 @@ export function WorkflowRail({ mode, phase }: WorkflowRailProps) {
         </p>
         <div className="flex flex-col gap-3.5">
           {steps.map((step, i) => {
-            const isDone = i < activeStep;
-            const isActive = i === activeStep;
+            const isDone = i < activeStep || (i === activeStep && outcome === 'complete');
+            const isPartial = i === activeStep && outcome === 'partial';
+            const isActive = i === activeStep && outcome === null;
             return (
               <div key={i} className="relative grid grid-cols-[22px_1fr] gap-3">
                 {i < steps.length - 1 && (
@@ -67,15 +78,17 @@ export function WorkflowRail({ mode, phase }: WorkflowRailProps) {
                     'flex h-[22px] w-[22px] items-center justify-center rounded-full font-mono text-2xs font-semibold border',
                     isDone && 'bg-success text-success-foreground border-success',
                     isActive && 'bg-primary text-primary-foreground border-primary ring-2 ring-primary/20',
-                    !isDone && !isActive && 'bg-surface-2 text-muted-foreground border-border',
+                    isPartial && 'bg-warning/15 text-warning border-warning',
+                    !isDone && !isActive && !isPartial && 'bg-surface-2 text-muted-foreground border-border',
                   )}
                 >
-                  {isDone ? <Check className="size-3" /> : i + 1}
+                  {isDone ? <Check className="size-3" /> : isPartial ? <AlertCircle className="size-3" /> : i + 1}
                 </span>
                 <div>
                   <h5 className="text-xs font-semibold leading-snug">
                     {step.title}
                     {isDone && <span className="ms-1 text-success">&#10003;</span>}
+                    {isPartial && <span className="ms-1 text-warning">{t('rail.partialStatus')}</span>}
                   </h5>
                   <p className="text-xs leading-relaxed text-muted-foreground">{step.desc}</p>
                 </div>
@@ -96,6 +109,7 @@ export function WorkflowRail({ mode, phase }: WorkflowRailProps) {
             { kind: 'raster' as DataKind, label: t('rail.rasterLabel', { defaultValue: 'Raster' }), desc: t('rail.rasterDesc', { defaultValue: 'converted to COG, overviews built, bands kept intact.' }) },
             { kind: 'table' as DataKind, label: t('rail.tableLabel', { defaultValue: 'Tabular' }), desc: t('rail.tableDesc', { defaultValue: 'ingested as a joinable table. Optionally specify geometry columns during import.' }) },
             { kind: 'tiles3d' as DataKind, label: t('rail.tiles3dLabel'), desc: t('rail.tiles3dDesc') },
+            { kind: 'pointcloud' as DataKind, label: t('rail.pointcloudLabel'), desc: t('rail.pointcloudDesc') },
           ]).map(({ kind, label, desc }) => (
             <div key={kind} className="flex gap-2.5 items-start">
               <TypeTag kind={kind} size="sm" />

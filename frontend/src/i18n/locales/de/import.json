@@ -114,7 +114,13 @@
     "temporalParseErrors": {
       "title": "Zeitfelder verworfen",
       "description": "Die folgenden Zeitwerte konnten nicht als ISO-8601-Daten geparst und wurden verworfen. Geben Sie sie im Datensatz-Metadaten-Editor erneut ein, um sie wiederherzustellen."
-    }
+    },
+    "compactSummary_one": "{{count}} Importwarnung · Details anzeigen",
+    "compactSummary_other": "{{count}} Importwarnungen · Details anzeigen",
+    "compactDataLoss_one": "{{count}} Datenwarnung · Einige Daten könnten verändert sein · Details anzeigen",
+    "compactDataLoss_other": "{{count}} Datenwarnungen · Einige Daten könnten verändert sein · Details anzeigen",
+    "compactArchiveFailure_one": "{{count}} Importwarnung · Originaldatei nicht verfügbar · Details anzeigen",
+    "compactArchiveFailure_other": "{{count}} Importwarnungen · Originaldatei nicht verfügbar · Details anzeigen"
   },
   "dropzone": {
     "ariaLabel": "Dateien hochladen",
@@ -498,7 +504,8 @@
     "tilesetActionSummary": "{{files}} · {{tilesets}}",
     "pointcloudSummary": "{{points}} Punkte · {{crs}} · {{size}}",
     "pointcloudCount_one": "{{value}} Punktwolke",
-    "pointcloudCount_other": "{{value}} Punktwolken"
+    "pointcloudCount_other": "{{value}} Punktwolken",
+    "singleActionHint": "Prüfen Sie die Einstellungen oben und importieren Sie dann diesen Datensatz."
   },
   "detect": {
     "rasterInfo": "Raster-Info",
@@ -570,7 +577,12 @@
     "detectingHint": "Hochladen & Erkennen…",
     "importingFiles": "{{count}} Dateien werden importiert",
     "progressDetail": "{{done}} abgeschlossen · {{active}} in Bearbeitung · {{queued}} in Warteschlange",
-    "uploadProgressLabel": "Upload-Fortschritt für {{name}}"
+    "uploadProgressLabel": "Upload-Fortschritt für {{name}}",
+    "toggleDetails": "Details für {{name}} ein- oder ausblenden",
+    "removeNamedFile": "{{name}} entfernen",
+    "defaultsConfirmTitle": "Stapel mit Standardwerten importieren?",
+    "defaultsConfirmDescription": "Dateinamen werden als Datensatznamen verwendet; die Sichtbarkeit ist privat. Alle Änderungen in den Prüfformularen, einschließlich Namen, Beschreibungen, Sichtbarkeit, Geometrie, CRS und Rastereinstellungen, werden verworfen. Bei mehrschichtigen Dateien wird nur die ausgewählte Ebene importiert.",
+    "confirmDefaults": "Mit Standardwerten importieren"
   },
   "eyebrow": "Importieren",
   "pageDescription": "Dateien hochladen, Tabellen aus Ihrem Postgres registrieren oder einen Remote-Service verbinden. GeoLens erkennt Geometrie, Schema und KRS und macht die Daten abfragbar, stilisierbar und einbettbar.",
@@ -590,7 +602,12 @@
     "importMore": "Mehr importieren",
     "aiMetadata": "KI-Metadaten hinzufügen",
     "statPointClouds": "Punktwolken",
-    "heroDescPointClouds": "Bereit für einen COPC-Client. Die Datei-URL steht auf der Registerkarte Zugriff des Datensatzes."
+    "heroDescPointClouds": "Bereit für einen COPC-Client. Die Datei-URL steht auf der Registerkarte Zugriff des Datensatzes.",
+    "partialTitle": "{{completed}} Datensätze hinzugefügt · {{failed}} fehlgeschlagen oder abgebrochen",
+    "partialDesc": "Einige Importe wurden nicht abgeschlossen. Prüfen Sie die fehlgeschlagenen Aufträge und öffnen Sie die verfügbaren Datensätze.",
+    "heroDescTables": "Zeilen und Schema können abgefragt und wiederverwendet werden. Nicht räumliche Tabellen haben keine Kartenvorschau.",
+    "heroDescMixed": "Die Datensätze sind im Katalog verfügbar. Öffnen Sie jeden Datensatz für Daten und Zugriffsoptionen.",
+    "failedJobs": "Fehlgeschlagene oder abgebrochene Aufträge"
   },
   "rail": {
     "stageTitle": "Dateien bereitstellen",
@@ -628,7 +645,15 @@
     "urlNote": "Die URL wird vor dem Download validiert und größenbeschränkt · die Daten werden in GeoLens kopiert",
     "compareUrl": "Upload sendet eine Datei von Ihrem Rechner. Datei-URL ruft sie aus dem Web ab; gleiche Prüfung, gleiches Ergebnis, ohne lokalen Download.",
     "tiles3dLabel": "3D Tiles",
-    "tiles3dDesc": "entpackt und unverändert an 3D-Tiles-Clients ausgeliefert."
+    "tiles3dDesc": "entpackt und unverändert an 3D-Tiles-Clients ausgeliefert.",
+    "partialDesc": "Einige Importe sind fehlgeschlagen oder wurden abgebrochen. Prüfen Sie die Auftragsdetails.",
+    "partialStatus": "Prüfung nötig",
+    "completeTableDesc": "Zeilen und Schema sind abfragbar und wiederverwendbar; keine Kartenvorschau.",
+    "completeTilesetDesc": "Die URL für 3D-Tiles-Clients steht im Tab Zugriff.",
+    "completePointCloudDesc": "Die COPC-Datei-URL steht im Tab Zugriff.",
+    "completeDesc": "Die fertigen Datensätze sind im Katalog verfügbar.",
+    "pointcloudLabel": "COPC-Punktwolke",
+    "pointcloudDesc": "für externe COPC-Clients verfügbar; keine integrierte Kartenvorschau."
   },
   "status": {
     "uploading": "Hochladen",

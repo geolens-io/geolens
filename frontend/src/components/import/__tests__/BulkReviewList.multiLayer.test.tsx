@@ -292,7 +292,7 @@ describe('BulkReviewList — default-import hint acknowledges multi-layer files'
 
     render(
       <BulkReviewList
-        entries={[entry]}
+        entries={[entry, makeSingleLayerEntry()]}
         onCommitSingle={noopCommitSingle}
         onCommitAll={noopCommitAll}
         onRemove={noopRemove}
@@ -317,7 +317,7 @@ describe('BulkReviewList — default-import hint acknowledges multi-layer files'
       />,
     );
 
-    expect(screen.getByText('review.actionHint')).toBeInTheDocument();
+    expect(screen.getByText('review.singleActionHint')).toBeInTheDocument();
     expect(screen.queryByText('review.actionHintMultiLayer')).not.toBeInTheDocument();
   });
 });

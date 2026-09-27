@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useQueries } from '@tanstack/react-query';
-import { ArrowRight, CheckCircle2, Layers, Sparkles } from 'lucide-react';
+import { AlertCircle, ArrowRight, CheckCircle2, Layers, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -31,9 +31,10 @@ interface BulkTrackingListProps {
   entries: FileEntry[];
   onReset: () => void;
   autoOpenVrt?: boolean;
+  onOutcomeChange?: (outcome: 'complete' | 'partial' | null, kinds: DataKind[]) => void;
 }
 
-export function BulkTrackingList({ entries, onReset, autoOpenVrt = false }: BulkTrackingListProps) {
+export function BulkTrackingList({ entries, onReset, autoOpenVrt = false, onOutcomeChange }: BulkTrackingListProps) {
   const { t } = useTranslation('import');
   const [vrtDialogOpen, setVrtDialogOpen] = useState(false);
   const autoOpenedRef = useRef(false);
@@ -45,6 +46,9 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false }: Bulk
     (e) =>
       e.jobId &&
       (e.status === 'tracking' || e.status === 'complete' || e.status === 'failed'),
+  );
+  const stagingFailures = entries.filter((entry) =>
+    entry.status === 'upload-failed' || entry.status === 'commit-failed',
   );
 
   const rasterEntries = trackable.filter(
@@ -87,7 +91,7 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false }: Bulk
   // — leaving it out kept it in "Active" forever and held `allDone` false, so
   // the VRT auto-open never fired for a batch the user had finished with.
   const isTerminal = (status: string | undefined) =>
-    status === 'complete' || status === 'fanned_out' || status === 'cancelled';
+    status === 'complete' || status === 'failed' || status === 'fanned_out' || status === 'cancelled';
 
   const activeEntries = trackable.filter((_, index) => {
     const job = jobQueries[index]?.data;
@@ -106,6 +110,21 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false }: Bulk
     return isTerminal(status);
   }).length;
   const allDone = doneCount === trackable.length && trackable.length > 0;
+  const failedCount = stagingFailures.length + trackable.filter((_, index) => {
+    const status = jobQueries[index]?.data?.status;
+    return status === 'failed' || status === 'cancelled';
+  }).length;
+  const failedEntries = trackable.filter((_, index) => {
+    const status = jobQueries[index]?.data?.status;
+    return status === 'failed' || status === 'cancelled';
+  });
+  const outcome = allDone ? (failedCount > 0 ? 'partial' : 'complete') : null;
+  const completedKinds = completedEntries.map((entry) => entry.kind);
+  const kindsKey = completedKinds.join(',');
+
+  useEffect(() => {
+    onOutcomeChange?.(outcome, kindsKey ? kindsKey.split(',') as DataKind[] : []);
+  }, [onOutcomeChange, outcome, kindsKey]);
 
   useEffect(() => {
     if (
@@ -130,27 +149,32 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false }: Bulk
       <div className="space-y-4">
         <div className="overflow-hidden rounded-2xl border border-border bg-card">
           {/* Hero */}
-          <div className="border-b border-border bg-gradient-to-b from-success/[0.06] to-transparent px-8 py-10 text-center">
-            <div className="mx-auto mb-3.5 flex h-14 w-14 items-center justify-center rounded-full bg-success text-success-foreground ring-4 ring-success/15">
-              <CheckCircle2 className="size-6" />
+          <div className={cn('border-b border-border px-8 py-10 text-center', failedCount > 0 ? 'bg-warning/5' : 'bg-gradient-to-b from-success/[0.06] to-transparent')}>
+            <div className={cn('mx-auto mb-3.5 flex h-14 w-14 items-center justify-center rounded-full', failedCount > 0 ? 'bg-warning/15 text-warning' : 'bg-success text-success-foreground ring-4 ring-success/15')}>
+              {failedCount > 0 ? <AlertCircle className="size-6" /> : <CheckCircle2 className="size-6" />}
             </div>
             <h2 className="mb-1.5 text-xl font-medium tracking-tight">
-              {t('complete.heroTitle', {
+              {failedCount > 0 ? t('complete.partialTitle', { completed: completedEntries.length, failed: failedCount }) : t('complete.heroTitle', {
                 count: completedEntries.length,
                 defaultValue: `${completedEntries.length} ${completedEntries.length === 1 ? 'dataset' : 'datasets'} added to the catalog`,
               })}
             </h2>
             <p className="text-sm text-muted-foreground">
-              {completedEntries.length > 0 && completedEntries.every((e) => e.kind === 'tiles3d')
+              {failedCount > 0 ? t('complete.partialDesc')
+                : completedEntries.length > 0 && completedEntries.every((e) => e.kind === 'table')
+                  ? t('complete.heroDescTables')
+                : completedEntries.length > 0 && completedEntries.every((e) => e.kind === 'tiles3d')
                 ? t('complete.heroDescTilesets')
                 : completedEntries.length > 0 && completedEntries.every((e) => e.kind === 'pointcloud')
                   ? t('complete.heroDescPointClouds')
-                : t('complete.heroDesc', { defaultValue: 'All files ingested, tiled, and indexed. Ready to query, style, and map.' })}
+                : completedEntries.some((e) => e.kind === 'table' || e.kind === 'tiles3d' || e.kind === 'pointcloud')
+                  ? t('complete.heroDescMixed')
+                : t('complete.heroDesc')}
             </p>
           </div>
 
           {/* Summary stats */}
-          <div className="grid grid-cols-2 divide-x divide-border border-b border-border sm:grid-cols-3 lg:grid-cols-6">
+          <dl className="grid grid-cols-2 divide-x divide-border border-b border-border sm:grid-cols-3 lg:grid-cols-6">
             {[
               { label: t('complete.statDatasets', { defaultValue: 'Datasets' }), value: completedEntries.length },
               { label: t('complete.statVector', { defaultValue: 'Vector' }), value: completedEntries.filter((e) => e.kind === 'vector').length },
@@ -164,7 +188,7 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false }: Bulk
                 <dd className="text-xl font-medium tracking-tight">{stat.value}</dd>
               </div>
             ))}
-          </div>
+          </dl>
 
           {/* Completed dataset rows */}
           <div>
@@ -188,6 +212,26 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false }: Bulk
               </div>
             ))}
           </div>
+
+          {(failedEntries.length > 0 || stagingFailures.length > 0) && (
+            <div className="space-y-3 border-t border-border px-5 py-4">
+              <h3 className="text-sm font-semibold">{t('complete.failedJobs')}</h3>
+              <div className="grid gap-4 lg:grid-cols-2">
+                {failedEntries.map((entry) => (
+                  <div key={entry.id}>
+                    <p className="mb-1 text-sm font-medium">{entry.fileName}</p>
+                    <JobProgress jobId={entry.jobId!} onReset={onReset} isRasterEntry={isRasterFile(entry.fileName)} />
+                  </div>
+                ))}
+                {stagingFailures.map((entry) => (
+                  <div key={entry.id} className="rounded-lg border border-destructive/30 p-3 text-sm">
+                    <p className="font-medium">{entry.fileName}</p>
+                    {entry.error && <p className="mt-1 text-destructive">{entry.error}</p>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Next actions */}
           <div className="flex flex-wrap items-center gap-2.5 border-t border-border bg-surface-0 px-5 py-4">
