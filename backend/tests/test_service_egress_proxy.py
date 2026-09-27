@@ -665,9 +665,15 @@ class TestGdalReachesOnlyAllowedHosts:
         [
             ("GDAL_CONFIG_FILE", "[directives]\nignore-env-vars=yes\n"),
             ("GDAL_CONFIG_FILE", "[configoptions]\nGDAL_HTTP_PROXY=\n"),
+            ("GDAL_CONFIG_FILE", "[configoptions]\nGDAL_HTTP_PROXY=127.0.0.1:9\n"),
             ("HOME", "[directives]\nignore-env-vars=yes\n"),
         ],
-        ids=["ignore-env-vars", "empty-proxy-option", "home-gdalrc"],
+        ids=[
+            "ignore-env-vars",
+            "empty-proxy-option",
+            "proxy-option-elsewhere",
+            "home-gdalrc",
+        ],
     )
     async def test_a_gdal_config_file_does_not_route_around_it(
         self, resolver_calls, monkeypatch, tmp_path, setting, content
