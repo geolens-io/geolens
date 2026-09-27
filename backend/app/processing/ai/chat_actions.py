@@ -456,15 +456,22 @@ async def _execute_chat_tool(
     # chip can show a human name instead of the raw UUID.
     # Name resolution is best-effort — a lookup miss/error must not block the
     # add, so we degrade silently to the dataset_id fallback on the frontend.
+    # A dataset the caller can't read fails the access check and gets the
+    # same result as a missing one.
     if tool_name == "add_layer":
         result = {"status": "ok", **tool_input}
         raw_id = tool_input.get("dataset_id")
         if raw_id:
             try:
-                dataset = await port.get_dataset(session, UUID(str(raw_id)))
-                title = getattr(getattr(dataset, "record", None), "title", None)
-                if title:
-                    result["dataset_name"] = title
+                dataset_id = UUID(str(raw_id))
+                dataset = await port.get_dataset(session, dataset_id)
+                if dataset is not None:
+                    await port.check_dataset_access(
+                        session, dataset, dataset_id, user, user_roles=user_roles
+                    )
+                    title = getattr(getattr(dataset, "record", None), "title", None)
+                    if title:
+                        result["dataset_name"] = title
             except Exception:  # noqa: BLE001 — name lookup is best-effort; never block the add
                 logger.debug(
                     "add_layer.dataset_name_lookup_failed", dataset_id=str(raw_id)
