@@ -560,6 +560,33 @@ class TestCreate:
                 source_filename="ledger.geojson",
             )
 
+    async def test_stores_sql_null_when_no_metadata_is_given(self, test_db_session):
+        """A job created without metadata gets SQL NULL, not a JSON null scalar."""
+        job = ledger.create(
+            test_db_session,
+            created_by=None,
+            source_filename="ledger.geojson",
+        )
+        await test_db_session.commit()
+        job_id = job.id
+
+        typeof = await test_db_session.scalar(
+            select(func.jsonb_typeof(IngestJob.user_metadata)).where(
+                IngestJob.id == job_id
+            )
+        )
+        assert typeof is None
+
+        merged = await test_db_session.scalar(
+            sa.text(
+                "select jsonb_typeof("
+                "coalesce(user_metadata, '{}'::jsonb) || '{\"k\": true}'::jsonb"
+                ") from catalog.ingest_jobs where id = :id"
+            ),
+            {"id": job_id},
+        )
+        assert merged == "object"
+
 
 # Each owner transition's from-states, its target, and a call on a fixture job.
 _OWNER_MOVES = {

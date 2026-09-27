@@ -240,11 +240,14 @@ def create(
         file_path=file_path,
         source_url=source_url,
         source_layer=source_layer,
-        user_metadata=user_metadata,
         current_step=current_step,
         progress=progress,
         started_at=datetime.now(timezone.utc) if status == "running" else None,
     )
+    # JSONB writes an explicit None as JSON null, which SQL merges turn into
+    # an array; left unset, the column stores SQL NULL.
+    if user_metadata is not None:
+        job.user_metadata = user_metadata
     session.add(job)
     return job
 
