@@ -207,10 +207,14 @@ examples. No AI step is required.
    source maintenance rather than showcase content. The snapshot covers every
    dataset the seed's metadata pass edits, including the Sentinel-2 scenes and
    swissALTI3D tiles matched by title prefix. All refusals are checked before
-   the first write. After writing, restore reads the target again and exits
+   the first write. Restore waits 61 seconds for the cached admin dataset list
+   before reading the target. After writing, it reads the target again and exits
    nonzero, naming each map, dataset, or collection that still differs from
-   the bundle. One case it would report: a description the API cannot clear
-   back to null.
+   the bundle, or any new showcase map or dataset still public. One case it
+   would report: a description the API cannot clear back to null.
+   `--expected-state` refuses `--refresh-quakes` and `--refresh-hurdat2`,
+   whose data replacement the snapshot cannot undo; run the quake refresh as
+   its own step.
    After a rollback, the guarded seed refuses before any write while the City
    in Shade map or any new sample dataset is private. Review them and publish
    them deliberately (datasets first, then the map) before applying again.

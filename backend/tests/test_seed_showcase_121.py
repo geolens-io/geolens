@@ -344,3 +344,16 @@ def test_restore_names_a_field_the_target_did_not_take():
     }
     assert state.unrestored(saved, after) == ["map m"]
     assert state.unrestored(saved, saved) == []
+
+
+def test_restore_reports_new_content_left_public():
+    saved = {"maps": {}, "datasets": {}, "collections": {}}
+    after = {
+        "maps": {},
+        "datasets": {seed.COPC_TITLE: {"fields": {"visibility": "public"}}},
+        "collections": {"Client Connections": {}},
+    }
+    assert state.unrestored(saved, after) == [
+        f"new dataset {seed.COPC_TITLE} is public",
+        "new collection Client Connections",
+    ]

@@ -6719,8 +6719,14 @@ def main() -> int:
         # Same shape as --execute: a modifier, not a mode. On its own it reads
         # like "force the pinned maps" and would do nothing whatsoever.
         ap.error("--force-pinned is only meaningful with --force")
-    if args.expected_state and (args.force or args.prune or args.prune_userdata):
-        ap.error("--expected-state cannot be combined with force or prune modes")
+    if args.expected_state and (
+        args.force
+        or args.prune
+        or args.prune_userdata
+        or args.refresh_quakes
+        or args.refresh_hurdat2
+    ):
+        ap.error("--expected-state cannot be combined with force, prune or refresh modes")
 
     print(f"Logging in to {args.base_url} as {args.username}...")
     api = Api.login(args.base_url, args.username, args.password)

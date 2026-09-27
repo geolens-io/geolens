@@ -5,6 +5,7 @@ import argparse
 import importlib.util
 import json
 import os
+import time
 from pathlib import Path
 
 SEED = Path(__file__).with_name("seed-showcase.py")
@@ -420,10 +421,20 @@ def unrestored(saved, after):
             or set(now["dataset_ids"]) != set(item["dataset_ids"])
         ):
             left.append(f"collection {name}")
+    for kind in ("maps", "datasets"):
+        for name, item in after[kind].items():
+            if name not in saved[kind] and item["fields"]["visibility"] == "public":
+                left.append(f"new {kind[:-1]} {name} is public")
+    for name in after["collections"].keys() - saved["collections"].keys():
+        left.append(f"new collection {name}")
     return left
 
 
 def restore(api, saved):
+    # The admin dataset list is cached for up to 60 s and could hide a row the
+    # update committed just before it stopped.
+    print("waiting 61 s for the cached admin dataset list to expire...")
+    time.sleep(61)
     current = snapshot(api)
     rebind_replaced_layers(saved, current)
     verify_restorable(api, saved, current)
