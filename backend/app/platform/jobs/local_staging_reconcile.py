@@ -3,24 +3,31 @@
 The local counterpart of ``reconcile_orphaned_staging_objects``. It starts
 from the files directly in the upload staging directory, so it finds an
 upload whose delete failed or never ran, such as a worker cleanup that
-errored or an ingest killed after its complete commit.
+errored, an ingest killed after its complete commit, or an upload request
+that died between writing the file and binding it to its job.
 
 That directory is not the upload system's alone. Operators stage manifest
 seed files there, the local storage backend keeps its objects in
 subdirectories, and other sweeps own their scratch. So a file is a candidate
-only when its name has an upload writer's shape and an ``ingest_jobs`` row's
-``file_path`` names it; a file no row names is never deleted, whatever its
-name. A candidate goes once no row naming it can still read it.
+only when its name has an upload writer's shape and something ties it to a
+job: an ``ingest_jobs`` row's ``file_path`` names it, or it is a
+``{job id}_`` file whose job's row is gone or never recorded a path. Every
+writer of a ``{job id}_`` name commits that job's row before the first byte.
+A candidate goes once neither its job's row nor any row naming it can still
+use it.
 """
 
 from __future__ import annotations
 
-import bisect
+import heapq
 import os
 import re
 import stat
+import uuid
+from collections.abc import Iterator
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
+from enum import Enum
 from pathlib import Path
 
 import structlog
@@ -37,10 +44,11 @@ from app.platform.jobs.models import (
 
 log = structlog.get_logger()
 
-# `{job id}_{name}` from uploads, reuploads and URL imports, and
-# `manifest_{hex}_{name}` from a manifest's copy of its source.
+# `{job id}_{name}` from uploads, reuploads, URL imports and
+# `resolve_file_path`'s downloads, and `manifest_{hex}_{name}` from a
+# manifest's copy of its source.
 _UPLOAD_NAME = re.compile(
-    r"^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+    r"^(?:(?P<job>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"
     r"|manifest_[0-9a-f]{32})_."
 )
 
@@ -55,6 +63,12 @@ _LOOKUP_BATCH = 1000
 _resume_after: str | None = None
 
 
+class _Verdict(Enum):
+    UNIDENTIFIED = "unidentified"
+    NEEDED = "needed"
+    UNNEEDED = "unneeded"
+
+
 @dataclass
 class LocalStagingReconcileOutcome:
     """What one pass over the local staging directory saw and did."""
@@ -64,16 +78,22 @@ class LocalStagingReconcileOutcome:
     candidates: int = 0
     uploads_deleted: int = 0
     delete_failures: int = 0
-    # No row names the file, so nothing proves it is an upload.
-    skipped_unnamed: int = 0
-    # A row naming it can still read it, or ended within the age threshold.
+    # Nothing ties the file to a job, so nothing proves it is an upload.
+    skipped_unidentified: int = 0
+    # Its job's row or a row naming it can still use it, or ended too recently.
     skipped_needed: int = 0
     # Gone, rewritten or no longer a regular file when its delete came.
     skipped_changed: int = 0
 
+    def skipped(self, verdict: _Verdict) -> None:
+        if verdict is _Verdict.UNIDENTIFIED:
+            self.skipped_unidentified += 1
+        else:
+            self.skipped_needed += 1
+
 
 def _still_needed(cutoff: datetime):
-    """Predicate: a row naming a staged upload can still read it, or ended too recently.
+    """Predicate: a row can still use the staged upload, or ended too recently.
 
     The publish follow-ups archive and then delete the upload a published job
     names, so while its row carries their record the upload is theirs. The age
@@ -92,22 +112,52 @@ def _spellings(roots: tuple[Path, ...], name: str) -> list[str]:
     return [str(root / name) for root in roots]
 
 
+def _owner_id(name: str) -> uuid.UUID | None:
+    """The job a ``{job id}_`` file was written for; None for a manifest copy."""
+    match = _UPLOAD_NAME.match(name)
+    job = match.group("job") if match else None
+    return uuid.UUID(job) if job else None
+
+
+def _upload_names(root: Path) -> Iterator[str]:
+    with os.scandir(root) as entries:
+        for entry in entries:
+            if _UPLOAD_NAME.match(entry.name):
+                yield entry.name
+
+
+def _window(root: Path) -> list[str]:
+    """This pass's share of the upload-shaped names, in name order from the resume point.
+
+    Bounded in memory: the directory is read once for the names after the
+    resume point and, when those fall short, again for the wrap.
+    """
+    global _resume_after
+    resume = _resume_after
+    window = heapq.nsmallest(
+        _MAX_CANDIDATES_PER_PASS,
+        (name for name in _upload_names(root) if resume is None or name > resume),
+    )
+    if resume is not None and len(window) < _MAX_CANDIDATES_PER_PASS:
+        window += heapq.nsmallest(
+            _MAX_CANDIDATES_PER_PASS - len(window),
+            (name for name in _upload_names(root) if name <= resume),
+        )
+    full = len(window) == _MAX_CANDIDATES_PER_PASS
+    _resume_after = window[-1] if full else None
+    return window
+
+
 def _old_upload_files(root: Path, cutoff_ts: float) -> list[str]:
-    """This pass's share of the upload-shaped regular files in ``root`` older than the cutoff.
+    """The upload-shaped regular files in this pass's window older than the cutoff.
 
     Direct children only, since exports and the storage backend's objects live
     in subdirectories, and never through a symlink.
     """
-    global _resume_after
     try:
-        with os.scandir(root) as entries:
-            names = sorted(e.name for e in entries if _UPLOAD_NAME.match(e.name))
+        window = _window(root)
     except FileNotFoundError:
         return []
-    start = bisect.bisect_right(names, _resume_after) if _resume_after else 0
-    ordered = names[start:] + names[:start]
-    window = ordered[:_MAX_CANDIDATES_PER_PASS]
-    _resume_after = window[-1] if len(window) < len(ordered) else None
     old: list[str] = []
     for name in window:
         try:
@@ -137,29 +187,58 @@ def _unlink_if_unchanged(path: Path, cutoff_ts: float) -> bool:
     return True
 
 
-async def _needed_by_path(
+async def _verdicts(
     db: AsyncSession, roots: tuple[Path, ...], names: list[str], cutoff: datetime
-) -> dict[str, bool]:
-    """Whether some row naming each path still needs it; a path no row names is absent."""
+) -> dict[str, _Verdict]:
+    """Whether each file is tied to a job and, if so, whether any row can still use it.
+
+    The rows that count are every row naming the file and the row of the job
+    its name carries. Each call reads afresh.
+    """
     paths = [path for name in names for path in _spellings(roots, name)]
-    rows = await db.execute(
-        select(IngestJob.file_path, func.bool_or(_still_needed(cutoff)))
-        .where(IngestJob.file_path.in_(paths))
-        .group_by(IngestJob.file_path)
+    needed_by_path = dict(
+        (
+            await db.execute(
+                select(IngestJob.file_path, func.bool_or(_still_needed(cutoff)))
+                .where(IngestJob.file_path.in_(paths))
+                .group_by(IngestJob.file_path)
+            )
+        )
+        .tuples()
+        .all()
     )
-    return dict(rows.tuples().all())
+    owner_ids = {owner for name in names if (owner := _owner_id(name))}
+    owners = {}
+    if owner_ids:
+        owners = {
+            row.id: row
+            for row in await db.execute(
+                select(
+                    IngestJob.id,
+                    IngestJob.file_path,
+                    _still_needed(cutoff).label("needed"),
+                ).where(IngestJob.id.in_(owner_ids))
+            )
+        }
 
-
-async def _row_still_needs(
-    db: AsyncSession, roots: tuple[Path, ...], name: str, cutoff: datetime
-) -> bool:
-    """A fresh read, just before the delete, so a row committed since the batch lookup counts."""
-    result = await db.execute(
-        select(IngestJob.id)
-        .where(IngestJob.file_path.in_(_spellings(roots, name)), _still_needed(cutoff))
-        .limit(1)
-    )
-    return result.first() is not None
+    verdicts: dict[str, _Verdict] = {}
+    for name in names:
+        naming = [
+            needed_by_path[path]
+            for path in _spellings(roots, name)
+            if path in needed_by_path
+        ]
+        owner_id = _owner_id(name)
+        owner = owners.get(owner_id)
+        # A `{job id}_` file whose job's row is gone or never bound a path.
+        unbound = owner_id is not None and (owner is None or not owner.file_path)
+        if not (naming or unbound):
+            verdicts[name] = _Verdict.UNIDENTIFIED
+        elif any(naming) or (owner is not None and owner.needed):
+            verdicts[name] = _Verdict.NEEDED
+        else:
+            verdicts[name] = _Verdict.UNNEEDED
+    return verdicts
 
 
 async def reconcile_orphaned_local_uploads(
@@ -167,7 +246,8 @@ async def reconcile_orphaned_local_uploads(
 ) -> LocalStagingReconcileOutcome:
     """Delete the staged uploads in the local staging directory that no job can still use.
 
-    Read-only against ``db``, which it never commits or rolls back. Declines in
+    Only reads through ``db``, inside a savepoint, so a database error rolls
+    back just this pass and leaves ``db``'s transaction usable. Declines in
     multi-tenant mode, where row-level security hides other tenants' rows and
     their uploads would look unneeded. Never raises: a failure leaves the rest
     for the next pass.
@@ -178,7 +258,8 @@ async def reconcile_orphaned_local_uploads(
         return LocalStagingReconcileOutcome()
     outcome = LocalStagingReconcileOutcome(ran=True)
     try:
-        await _reconcile(db, now=now or datetime.now(timezone.utc), outcome=outcome)
+        async with db.begin_nested():
+            await _reconcile(db, now=now or datetime.now(timezone.utc), outcome=outcome)
     except Exception:  # broad: best-effort pass, never fails its caller
         log.warning("Local staged upload reconciliation failed", exc_info=True)
     if outcome.uploads_deleted or outcome.delete_failures:
@@ -199,19 +280,11 @@ async def _reconcile(
     unneeded: list[str] = []
     for start in range(0, len(names), _LOOKUP_BATCH):
         batch = names[start : start + _LOOKUP_BATCH]
-        needed_by_path = await _needed_by_path(db, roots, batch, cutoff)
-        for name in batch:
-            verdicts = [
-                needed_by_path[path]
-                for path in _spellings(roots, name)
-                if path in needed_by_path
-            ]
-            if not verdicts:
-                outcome.skipped_unnamed += 1
-            elif any(verdicts):
-                outcome.skipped_needed += 1
-            else:
+        for name, verdict in (await _verdicts(db, roots, batch, cutoff)).items():
+            if verdict is _Verdict.UNNEEDED:
                 unneeded.append(name)
+            else:
+                outcome.skipped(verdict)
 
     for index, name in enumerate(unneeded):
         if outcome.uploads_deleted + outcome.delete_failures >= _MAX_DELETES_PER_PASS:
@@ -221,10 +294,12 @@ async def _reconcile(
                 **asdict(outcome),
             )
             return
-        # Outside the try below: a database error ends the pass instead of
-        # letting it delete without the recheck.
-        if await _row_still_needs(db, roots, name, cutoff):
-            outcome.skipped_needed += 1
+        # A fresh read, so a row committed or deleted since the batch lookup
+        # counts. Outside the try below: a database error ends the pass
+        # instead of letting it delete without the recheck.
+        verdict = (await _verdicts(db, roots, [name], cutoff))[name]
+        if verdict is not _Verdict.UNNEEDED:
+            outcome.skipped(verdict)
             continue
         try:
             deleted = await run_in_thread_draining(

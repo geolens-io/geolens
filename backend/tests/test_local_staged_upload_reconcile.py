@@ -14,7 +14,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from sqlalchemy import delete
+from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.platform.jobs.local_staging_reconcile as module
@@ -25,9 +25,16 @@ from app.platform.jobs.models import (
     IngestJob,
 )
 from app.platform.jobs.local_staging_reconcile import reconcile_orphaned_local_uploads
+from app.platform.storage.provider import StoredObject
 from tests.factories import create_dataset, get_user_id
 
 pytestmark = pytest.mark.anyio
+
+# The rows this test inserted, removed at teardown: an old pending or running
+# row left behind would be settled by the stale-job sweep in a later test.
+_inserted: list[uuid.UUID] = []
+
+_UNSET = object()
 
 
 def _old() -> timedelta:
@@ -51,23 +58,17 @@ def _pass_starts_at_the_front():
 
 
 @pytest.fixture
-async def root(test_db_session: AsyncSession, tmp_path: Path):
-    """The per-test staging directory the ``client`` fixture configured.
-
-    The rows a test inserts go with it: an old pending or running row left
-    behind would be settled by the stale-job sweep in a later test.
-    """
+async def root(test_db_session: AsyncSession):
+    """The per-test staging directory the ``client`` fixture configured."""
     import app.core.db as db_module
 
     path = Path(settings.upload_staging_dir)
     path.mkdir(parents=True, exist_ok=True)
     yield path
     async with db_module.async_session() as session:
-        for prefix in {str(tmp_path), str(tmp_path.resolve())}:
-            await session.execute(
-                delete(IngestJob).where(IngestJob.file_path.startswith(prefix))
-            )
+        await session.execute(delete(IngestJob).where(IngestJob.id.in_(_inserted)))
         await session.commit()
+    _inserted.clear()
 
 
 @pytest.fixture
@@ -75,17 +76,22 @@ def now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _age(path: Path, now: datetime, age: timedelta | None = None) -> None:
+    """Set ``path``'s own mtime, not a symlink target's."""
+    stamp = (now - (age or _old())).timestamp()
+    os.utime(path, (stamp, stamp), follow_symlinks=False)
+
+
 def _staged(root: Path, name: str, now: datetime, age: timedelta | None = None) -> Path:
     path = root / name
     path.write_bytes(b"staged upload")
-    stamp = (now - (age or _old())).timestamp()
-    os.utime(path, (stamp, stamp))
+    _age(path, now, age)
     return path
 
 
 async def _job(
     session: AsyncSession,
-    file_path: str | Path,
+    file_path: str | Path | None,
     now: datetime,
     *,
     status: str = "complete",
@@ -93,31 +99,33 @@ async def _job(
     user_metadata: dict | None = None,
     dataset_id: uuid.UUID | None = None,
     ended: timedelta | None = None,
+    created: timedelta | None = None,
 ) -> uuid.UUID:
-    """Insert a committed row naming ``file_path`` that ended ``ended`` ago."""
-    at = now - (ended or _old())
+    """Insert a committed row naming ``file_path``, created and ended long ago by default."""
     job = IngestJob(
         id=job_id or uuid.uuid4(),
         source_filename="roads.geojson",
         status=status,
-        file_path=str(file_path),
+        file_path=None if file_path is None else str(file_path),
         user_metadata=user_metadata or {},
         dataset_id=dataset_id,
-        created_at=at,
-        completed_at=at,
+        created_at=now - (created or ended or _old()),
+        completed_at=now - (ended or _old()),
     )
     session.add(job)
     await session.commit()
+    _inserted.append(job.id)
     return job.id
 
 
 async def _upload(
-    session: AsyncSession, root: Path, now: datetime, **job_fields
+    session: AsyncSession, root: Path, now: datetime, file_path=_UNSET, **job_fields
 ) -> Path:
-    """An old `{job id}_{name}` upload and the row that names it."""
+    """An old `{job id}_{name}` upload and its job's row, which names it by default."""
     job_id = job_fields.pop("job_id", None) or uuid.uuid4()
     path = _staged(root, f"{job_id}_roads.geojson", now)
-    await _job(session, path, now, job_id=job_id, **job_fields)
+    named = path if file_path is _UNSET else file_path
+    await _job(session, named, now, job_id=job_id, **job_fields)
     return path
 
 
@@ -157,6 +165,33 @@ class TestDeletes:
         await _run(test_db_session, now)
 
         assert not path.exists()
+
+    @pytest.mark.parametrize("unbound", ["", None], ids=["empty", "null"])
+    async def test_an_upload_whose_request_died_before_the_bind(
+        self,
+        test_db_session: AsyncSession,
+        root: Path,
+        now: datetime,
+        unbound: str | None,
+    ) -> None:
+        """The row was committed before the file and settled before its path was bound."""
+        path = await _upload(
+            test_db_session, root, now, file_path=unbound, status="cancelled"
+        )
+
+        await _run(test_db_session, now)
+
+        assert not path.exists()
+
+    async def test_an_upload_whose_job_was_purged(
+        self, test_db_session: AsyncSession, root: Path, now: datetime
+    ) -> None:
+        path = _staged(root, f"{uuid.uuid4()}_roads.geojson", now)
+
+        outcome = await _run(test_db_session, now)
+
+        assert not path.exists()
+        assert outcome.uploads_deleted == 1
 
 
 class TestWhatKeepsAnUpload:
@@ -233,6 +268,23 @@ class TestWhatKeepsAnUpload:
 
         assert path.exists()
 
+    async def test_a_job_created_long_ago_that_ended_within_the_threshold(
+        self, test_db_session: AsyncSession, root: Path, now: datetime
+    ) -> None:
+        """Age runs from the job's end when it has one, not from its creation."""
+        path = await _upload(
+            test_db_session,
+            root,
+            now,
+            status="fanned_out",
+            created=_old(),
+            ended=_recent(),
+        )
+
+        await _run(test_db_session, now)
+
+        assert path.exists()
+
     async def test_a_file_written_within_the_threshold(
         self, test_db_session: AsyncSession, root: Path, now: datetime
     ) -> None:
@@ -263,6 +315,31 @@ class TestWhatKeepsAnUpload:
         assert (root / name).exists()
 
 
+class TestAnUploadBeforeItsBind:
+    """A `{job id}_` file its job's row does not name yet: that row's rules decide."""
+
+    async def test_kept_while_the_upload_request_is_recent(
+        self, test_db_session: AsyncSession, root: Path, now: datetime
+    ) -> None:
+        path = await _upload(
+            test_db_session, root, now, file_path="", status="pending", ended=_recent()
+        )
+
+        await _run(test_db_session, now)
+
+        assert path.exists()
+
+    async def test_kept_while_its_job_is_pending_however_old(
+        self, test_db_session: AsyncSession, root: Path, now: datetime
+    ) -> None:
+        path = await _upload(test_db_session, root, now, file_path="", status="pending")
+
+        outcome = await _run(test_db_session, now)
+
+        assert path.exists()
+        assert outcome.skipped_needed == 1
+
+
 class TestWhatIsNeverAnUpload:
     async def test_an_operator_seed_even_when_a_row_names_it(
         self, test_db_session: AsyncSession, root: Path, now: datetime
@@ -275,16 +352,36 @@ class TestWhatIsNeverAnUpload:
         assert seed.exists()
         assert outcome.candidates == 0
 
-    async def test_an_upload_shaped_file_no_row_names(
+    async def test_a_manifest_shaped_file_no_row_names(
         self, test_db_session: AsyncSession, root: Path, now: datetime
     ) -> None:
-        """Nothing proves it is an upload rather than an operator's file."""
-        stray = _staged(root, f"{uuid.uuid4()}_roads.geojson", now)
+        """Its name carries no job, so only a row naming it proves it is an upload."""
+        stray = _staged(root, f"manifest_{uuid.uuid4().hex}_roads.geojson", now)
 
         outcome = await _run(test_db_session, now)
 
         assert stray.exists()
-        assert outcome.skipped_unnamed == 1
+        assert outcome.skipped_unidentified == 1
+
+    @pytest.mark.parametrize("status", ["running", "complete"])
+    async def test_a_copy_of_an_upload_its_job_keeps_in_object_storage(
+        self, test_db_session: AsyncSession, root: Path, now: datetime, status: str
+    ) -> None:
+        """A download or leftover local copy of a job whose row names its storage key."""
+        job_id = uuid.uuid4()
+        copy = _staged(root, f"{job_id}_a1b2c3d4_roads.geojson", now)
+        await _job(
+            test_db_session,
+            f"staging/{job_id}/roads.geojson",
+            now,
+            job_id=job_id,
+            status=status,
+        )
+
+        outcome = await _run(test_db_session, now)
+
+        assert copy.exists()
+        assert outcome.skipped_unidentified == 1
 
     @pytest.mark.parametrize("subdir", ["exports", "originals/dataset"])
     async def test_a_file_in_a_subdirectory(
@@ -308,6 +405,7 @@ class TestWhatIsNeverAnUpload:
         directory = root / f"{uuid.uuid4()}_layers"
         directory.mkdir()
         for path in (link, directory):
+            _age(path, now)
             await _job(test_db_session, path, now)
 
         outcome = await _run(test_db_session, now)
@@ -319,14 +417,19 @@ class TestWhatIsNeverAnUpload:
 class TestRaces:
     @staticmethod
     def _after_lookup(monkeypatch, action):
-        original = module._needed_by_path
+        """Run ``action`` once the batch lookup has read the rows, before any recheck."""
+        original = module._verdicts
+        calls = 0
 
         async def looked_up(*args, **kwargs):
+            nonlocal calls
             verdicts = await original(*args, **kwargs)
-            await action()
+            calls += 1
+            if calls == 1:
+                await action()
             return verdicts
 
-        monkeypatch.setattr(module, "_needed_by_path", looked_up)
+        monkeypatch.setattr(module, "_verdicts", looked_up)
 
     async def test_a_row_committed_after_the_lookup_keeps_the_file(
         self, test_db_session: AsyncSession, root: Path, now: datetime, monkeypatch
@@ -346,6 +449,26 @@ class TestRaces:
         assert path.exists()
         assert outcome.skipped_needed == 1
 
+    async def test_a_row_deleted_after_the_lookup_leaves_the_file_unidentified(
+        self, test_db_session: AsyncSession, root: Path, now: datetime, monkeypatch
+    ) -> None:
+        import app.core.db as db_module
+
+        path = _staged(root, f"manifest_{uuid.uuid4().hex}_roads.geojson", now)
+        job_id = await _job(test_db_session, path, now)
+
+        async def row_purged() -> None:
+            async with db_module.async_session() as other:
+                await other.execute(delete(IngestJob).where(IngestJob.id == job_id))
+                await other.commit()
+
+        self._after_lookup(monkeypatch, row_purged)
+
+        outcome = await _run(test_db_session, now)
+
+        assert path.exists()
+        assert outcome.skipped_unidentified == 1
+
     async def test_a_file_rewritten_after_the_lookup_is_kept(
         self, test_db_session: AsyncSession, root: Path, now: datetime, monkeypatch
     ) -> None:
@@ -359,6 +482,29 @@ class TestRaces:
         outcome = await _run(test_db_session, now)
 
         assert path.read_bytes() == b"new bytes"
+        assert outcome.skipped_changed == 1
+
+    async def test_a_file_swapped_for_a_symlink_after_the_lookup_is_kept(
+        self,
+        test_db_session: AsyncSession,
+        root: Path,
+        now: datetime,
+        tmp_path: Path,
+        monkeypatch,
+    ) -> None:
+        path = await _upload(test_db_session, root, now)
+        target = _staged(tmp_path, "elsewhere.geojson", now)
+
+        async def swapped() -> None:
+            path.unlink()
+            path.symlink_to(target)
+            _age(path, now)
+
+        self._after_lookup(monkeypatch, swapped)
+
+        outcome = await _run(test_db_session, now)
+
+        assert path.is_symlink() and target.exists()
         assert outcome.skipped_changed == 1
 
     async def test_a_file_gone_before_its_delete_is_not_a_failure(
@@ -442,6 +588,18 @@ class TestFailuresAndBudgets:
 
         assert kept.exists() and not later.exists()
 
+    async def test_the_window_wraps_to_names_before_the_resume_point(
+        self, test_db_session: AsyncSession, root: Path, now: datetime, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(module, "_MAX_CANDIDATES_PER_PASS", 2)
+        early = await _upload(test_db_session, root, now, job_id=_id_starting("0"))
+        module._resume_after = f"{_id_starting('8')}_"
+
+        outcome = await _run(test_db_session, now)
+
+        assert not early.exists()
+        assert outcome.candidates == 1
+
     async def test_a_failing_pass_never_raises(
         self, test_db_session: AsyncSession, root: Path, now: datetime, monkeypatch
     ) -> None:
@@ -468,15 +626,61 @@ async def test_multi_tenant_mode_declines(
     assert not outcome.ran
 
 
-async def test_the_staging_reconciliation_runs_the_local_pass(
-    test_db_session: AsyncSession, root: Path, now: datetime, monkeypatch
-) -> None:
+class _Bucket:
+    """Just enough object storage for the storage pass."""
+
+    def __init__(self, objects: dict[str, datetime]) -> None:
+        self.objects = dict(objects)
+
+    async def iter_object_pages(self, prefix: str, *, start_after: str | None = None):
+        yield [
+            StoredObject(key=key, last_modified=modified)
+            for key, modified in sorted(self.objects.items())
+            if key.startswith(prefix) and (start_after is None or key > start_after)
+        ]
+
+    async def delete(self, key: str) -> None:
+        self.objects.pop(key, None)
+
+
+class TestWiring:
     """The stale-job sweep and the admin cleanup both reach the pass through here."""
-    from app.platform.jobs.staging_reconcile import reconcile_orphaned_staging_objects
 
-    monkeypatch.setattr(settings, "storage_provider", "local")
-    path = await _upload(test_db_session, root, now)
+    async def test_the_staging_reconciliation_runs_the_local_pass(
+        self, test_db_session: AsyncSession, root: Path, now: datetime, monkeypatch
+    ) -> None:
+        from app.platform.jobs.staging_reconcile import (
+            reconcile_orphaned_staging_objects,
+        )
 
-    await reconcile_orphaned_staging_objects(test_db_session, now=now)
+        monkeypatch.setattr(settings, "storage_provider", "local")
+        path = await _upload(test_db_session, root, now)
 
-    assert not path.exists()
+        await reconcile_orphaned_staging_objects(test_db_session, now=now)
+
+        assert not path.exists()
+
+    async def test_a_database_error_in_the_local_pass_leaves_the_storage_pass_running(
+        self, test_db_session: AsyncSession, root: Path, now: datetime, monkeypatch
+    ) -> None:
+        import app.platform.jobs.staging_reconcile as storage_pass
+
+        async def failing_lookup(db, *_args):
+            await db.execute(text("SELECT 1 / 0"))
+
+        monkeypatch.setattr(module, "_verdicts", failing_lookup)
+        monkeypatch.setattr(settings, "storage_provider", "s3")
+        monkeypatch.setitem(
+            storage_pass._scan_cursors, storage_pass.STAGING_PREFIX, None
+        )
+        await _upload(test_db_session, root, now)
+        orphan = f"staging/{uuid.uuid4()}/roads.geojson"
+        bucket = _Bucket({orphan: now - _old()})
+
+        with patch("app.platform.storage.get_storage", return_value=bucket):
+            outcome = await storage_pass.reconcile_orphaned_staging_objects(
+                test_db_session, now=now
+            )
+
+        assert outcome.ran and outcome.orphans_deleted == 1
+        assert orphan not in bucket.objects
