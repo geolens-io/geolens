@@ -52,6 +52,7 @@ from app.processing.ingest.validation import (
     validate_content_directives,
     validate_file_content,
 )
+from app.platform.egress_proxy import ServiceEgress
 from app.processing.raster.vrt import gdal_service_safe_env, gdal_vector_safe_env
 
 # A member whose bytes tell the OGR_VRT driver to go read a local path.
@@ -64,6 +65,9 @@ OGR_VRT_MEMBER = (
 # identifies on CONTENT, so the member name is irrelevant -- which is exactly
 # why the extension refusal below cannot be the only layer.
 WFS_MEMBER = "<OGRWFSDataSource><URL>{url}</URL></OGRWFSDataSource>"
+
+# These tests read only the driver clamp, so no proxy has to be listening.
+_EGRESS = ServiceEgress("http://127.0.0.1:9")
 
 needs_ogr = pytest.mark.skipif(
     shutil.which("ogrinfo") is None,
@@ -89,7 +93,7 @@ def test_vector_env_refuses_the_pointer_and_network_drivers():
 
 
 def test_service_env_keeps_only_the_two_drivers_the_importers_need():
-    service = _skipped(gdal_service_safe_env())
+    service = _skipped(gdal_service_safe_env(_EGRESS))
     local = _skipped(gdal_vector_safe_env())
     assert local - service == {"WFS", "OAPIF"}
     assert "OGR_VRT" in service
@@ -103,7 +107,7 @@ def test_no_skipped_driver_name_contains_a_space():
     so a spaced entry would read as a clamp and be one for neither half of the
     name. Drivers in that shape are excluded by the input allowlist instead.
     """
-    for env in (gdal_vector_safe_env(), gdal_service_safe_env()):
+    for env in (gdal_vector_safe_env(), gdal_service_safe_env(_EGRESS)):
         for name in env["GDAL_SKIP"].split():
             assert "," not in name
     assert all(" " not in name for name in _skipped(gdal_vector_safe_env()))
@@ -385,7 +389,7 @@ def test_every_declared_driver_name_is_a_real_driver():
     declared = (
         set(ARCHIVE_MEMBER_DRIVERS)
         | _skipped(gdal_vector_safe_env())
-        | _skipped(gdal_service_safe_env())
+        | _skipped(gdal_service_safe_env(_EGRESS))
     )
     assert declared <= known, sorted(declared - known)
 

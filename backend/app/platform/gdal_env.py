@@ -9,6 +9,8 @@ credits either import path (#1857 item 3).
 
 import os
 
+from app.platform.egress_proxy import ServiceEgress
+
 # fix(#1846, GHSA-hrf5-v3cq-frx5): several OGR drivers treat their input
 # bytes as instructions, not data — OGR_VRT follows <SrcDataSource> to any
 # local path or URL, and WFS identifies on content alone regardless of file
@@ -80,13 +82,21 @@ def gdal_vector_safe_env() -> dict[str, str]:
     return _gdal_skip_env(_NETWORK_AND_POINTER_DRIVERS)
 
 
-def gdal_service_safe_env() -> dict[str, str]:
+def gdal_service_safe_env(egress: ServiceEgress) -> dict[str, str]:
     """Subprocess env for a vector GDAL CLI reading a REMOTE service.
 
-    Same clamp minus the two drivers the service importers exist to use. The
-    URL itself is gated by ``validate_url_for_ssrf`` at submission time; this
-    only bounds which drivers the response can reach.
+    Same clamp minus the two drivers the service importers exist to use, with
+    every HTTP request sent through ``egress``, which connects only to hosts
+    ``validate_url_for_ssrf`` would allow. Run the subprocess while ``egress``
+    is open. Inherited proxy settings are dropped: libcurl honours
+    ``NO_PROXY`` even with a proxy set, and ``GDAL_HTTPS_PROXY`` wins for https.
     """
-    return _gdal_skip_env(
+    env = _gdal_skip_env(
         tuple(d for d in _NETWORK_AND_POINTER_DRIVERS if d not in _SERVICE_KEPT_DRIVERS)
     )
+    env = {key: value for key, value in env.items() if "proxy" not in key.lower()}
+    return {
+        **env,
+        "GDAL_HTTP_PROXY": egress.address,
+        "GDAL_HTTPS_PROXY": egress.address,
+    }

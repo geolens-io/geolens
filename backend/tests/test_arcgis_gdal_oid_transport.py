@@ -13,9 +13,25 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 
 from app.modules.catalog.sources.preview import build_gdal_source
+from app.platform import egress_proxy
+from app.platform.egress_proxy import service_egress_proxy
 from app.platform.gdal_env import gdal_service_safe_env
 
 pytestmark = pytest.mark.anyio
+
+# The fixture listens on loopback, which the egress proxy refuses, so GDAL is
+# pointed at a test name the proxy's resolver maps there.
+_FIXTURE_HOST = "arcgis.example.test"
+
+
+@pytest.fixture(autouse=True)
+def _fixture_host_reaches_loopback(monkeypatch) -> None:
+    real = egress_proxy._resolve_and_validate
+
+    async def resolve(host: str, port: int | None) -> str:
+        return "127.0.0.1" if host == _FIXTURE_HOST else await real(host, port)
+
+    monkeypatch.setattr(egress_proxy, "_resolve_and_validate", resolve)
 
 
 _SOURCE_IDS = (7, 9_223_372_036_854_775_000)
@@ -93,7 +109,7 @@ def _arcgis_fixture_server(
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        yield f"http://127.0.0.1:{server.server_port}/FeatureServer", requests
+        yield f"http://{_FIXTURE_HOST}:{server.server_port}/FeatureServer", requests
     finally:
         server.shutdown()
         thread.join(timeout=5)
@@ -113,17 +129,18 @@ async def test_gdal_preserves_sparse_64_bit_arcgis_object_ids(tmp_path) -> None:
             object_ids=_SOURCE_IDS,
         )
         assert gdal_source.startswith("GeoJSON:")
-        process = await asyncio.create_subprocess_exec(
-            "ogr2ogr",
-            "-f",
-            "GeoJSON",
-            str(output_path),
-            gdal_source,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=gdal_service_safe_env(),
-        )
-        _, stderr = await asyncio.wait_for(process.communicate(), timeout=30)
+        async with service_egress_proxy() as egress:
+            process = await asyncio.create_subprocess_exec(
+                "ogr2ogr",
+                "-f",
+                "GeoJSON",
+                str(output_path),
+                gdal_source,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=gdal_service_safe_env(egress),
+            )
+            _, stderr = await asyncio.wait_for(process.communicate(), timeout=30)
         assert process.returncode == 0, stderr.decode()
         assert requests == [tuple(_SOURCE_IDS)]
 
@@ -148,17 +165,18 @@ async def test_gdal_keeps_arcgis_declared_float_fields_for_32_bit_ids(tmp_path) 
             object_ids=source_ids,
         )
         assert gdal_source.startswith("ESRIJSON:")
-        process = await asyncio.create_subprocess_exec(
-            "ogr2ogr",
-            "-f",
-            "GeoJSON",
-            str(output_path),
-            gdal_source,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=gdal_service_safe_env(),
-        )
-        _, stderr = await asyncio.wait_for(process.communicate(), timeout=30)
+        async with service_egress_proxy() as egress:
+            process = await asyncio.create_subprocess_exec(
+                "ogr2ogr",
+                "-f",
+                "GeoJSON",
+                str(output_path),
+                gdal_source,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=gdal_service_safe_env(egress),
+            )
+            _, stderr = await asyncio.wait_for(process.communicate(), timeout=30)
         assert process.returncode == 0, stderr.decode()
         assert requests == [source_ids]
 

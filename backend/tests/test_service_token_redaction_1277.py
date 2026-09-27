@@ -28,7 +28,7 @@ be newer.
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy import select
@@ -138,22 +138,49 @@ class TestOgrErrorComposition:
         assert "HTTP error code : 400" in composed
         assert "Unable to open datasource" in composed
 
-    def test_the_failure_raise_goes_through_the_redactor(self) -> None:
+    async def test_a_failed_import_logs_redacted_stderr_and_raises_its_class(
+        self,
+    ) -> None:
         """That the redactor works says nothing about it being called.
 
-        Structural because the behavioural version would have to stand up a
-        fake ogr2ogr subprocess to reach the one branch: this asserts the
-        composed message is built from the redacted stderr rather than the raw
-        capture, which is the property the sink tests then rely on.
+        The exception carries the failure class alone, and the GDAL text that
+        echoes the credentialed source URL reaches only the log, redacted.
         """
-        import inspect
+        import structlog
 
-        from app.processing.ingest import ogr
+        from app.processing.ingest.ogr import run_ogr2ogr_service
 
-        source = inspect.getsource(ogr.run_ogr2ogr_service)
-        raise_site = source[source.index("if proc.returncode != 0:") :]
-        assert "redact_url_credentials(stripped.strip())" in raise_site
-        assert "{stripped.strip()}" not in raise_site
+        async def spawn(*args, **kwargs):
+            proc = MagicMock()
+            proc.returncode = 1
+            return proc
+
+        async def communicate(proc, timeout, tool_name):
+            return b"", _STDERR_ECHO.encode()
+
+        with (
+            patch("asyncio.create_subprocess_exec", side_effect=spawn),
+            patch(
+                "app.processing.ingest.ogr._communicate_with_timeout", new=communicate
+            ),
+            structlog.testing.capture_logs() as logs,
+            pytest.raises(IngestionError) as error,
+        ):
+            await run_ogr2ogr_service(
+                f"ESRIJSON:{_ARCGIS_BASE}/0/query?f=json&token={_TOKEN}",
+                "",
+                "parcels",
+                "PG:dbname=never_opened",
+                "arcgis_featureserver",
+                schema="data",
+            )
+
+        assert str(error.value) == (
+            "ogr2ogr failed (exit 1): the source service answered HTTP 400"
+        )
+        logged = " ".join(str(entry.get("stderr", "")) for entry in logs)
+        assert "Unable to open datasource" in logged
+        assert _TOKEN not in logged
 
 
 # ---------------------------------------------------------------------------

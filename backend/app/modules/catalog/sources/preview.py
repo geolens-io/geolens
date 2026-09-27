@@ -18,6 +18,7 @@ from app.core.service_tokens import (
 )
 from app.core.url_redaction import redact_url_credentials, scrub_secret_value
 from app.platform.extensions import get_catalog_port
+from app.platform.egress_proxy import service_egress_proxy
 from app.platform.gdal_env import gdal_service_safe_env
 from app.platform.service_auth import credential_input_rejection
 from app.core.config import settings
@@ -305,138 +306,139 @@ async def run_service_preview(
     # the exact value can scrub an echoed one.
     header_line: str | None = None
     try:
-        # fix(#937): GDAL_HTTP_FOLLOWLOCATION is not a real GDAL option and
-        # never stopped a redirect — never re-add it. SSRF defense is
-        # validate_url_for_ssrf at submission; libcurl follows redirects
-        # unconditionally after that, bounded operationally (egress firewall).
-        # fix(#1857): SERVICE variant — this branch reads WFS/OAPIF,
-        # which the vector variant skips.
-        env = gdal_service_safe_env()
-        pair: tuple[str, str] | None = None
-        if credential is not None and (
-            gdal_source.startswith("WFS:") or gdal_source.startswith("OAPIF:")
-        ):
-            # fix(#1746): judge inputs before composing the header line —
-            # judging the composed line would reject every basic credential
-            # (it contains a space and colon), and would let a WFS token with
-            # `+`/`/` preview clean then fail at commit.
-            rejection = credential_input_rejection(credential)
-            if rejection is not None:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail={
-                        "code": "invalid_service_token",
-                        "message": rejection,
-                    },
+        # GDAL_HTTP_FOLLOWLOCATION is not a GDAL option and stops no redirect;
+        # never add it. The proxy checks and pins every connection ogrinfo
+        # opens, redirect hops included. SERVICE variant: this branch reads
+        # WFS/OAPIF, which the vector variant skips.
+        async with service_egress_proxy() as egress:
+            env = gdal_service_safe_env(egress)
+            pair: tuple[str, str] | None = None
+            if credential is not None and (
+                gdal_source.startswith("WFS:") or gdal_source.startswith("OAPIF:")
+            ):
+                # fix(#1746): judge inputs before composing the header line —
+                # judging the composed line would reject every basic credential
+                # (it contains a space and colon), and would let a WFS token with
+                # `+`/`/` preview clean then fail at commit.
+                rejection = credential_input_rejection(credential)
+                if rejection is not None:
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                        detail={
+                            "code": "invalid_service_token",
+                            "message": rejection,
+                        },
+                    )
+
+                pair = build_credential_header(credential)
+
+            if pair is not None:
+                # fix(#1746): checked before the header file exists, since
+                # GDAL applies it to endpoints the service's own description
+                # advertises. Checked again in the worker: the document can
+                # change between preview and the import it leads to.
+                try:
+                    # fix(#1828): a credentialed WFS never reaches GDAL without a
+                    # layer, since GDAL opened layerless reads every layer's schema.
+                    require_wfs_layer(
+                        layer_name,
+                        service_format=_gdal_source_format(gdal_source),
+                        credential_line=credential_header_line(pair),
+                    )
+                    await assert_endpoints_stay_on_origin(
+                        _service_url(gdal_source),
+                        service_format=_gdal_source_format(gdal_source),
+                        # fix(#1746): same line the worker will hand GDAL, so
+                        # a protected service answers with the document GDAL will
+                        # act on rather than a 401.
+                        credential_line=credential_header_line(pair),
+                        collection=layer_name or None,
+                        # fix(#1746): inside the preview's budget — the
+                        # client's per-inactivity timeout let a service trickling
+                        # a 32 MiB doc hold the request open before ogrinfo ran.
+                        deadline=deadline,
+                    )
+                except (CrossOriginEndpointError, EndpointCheckFailedError) as exc:
+                    # Coded 422, not the 502 the broad handler upstairs would
+                    # make of it: names the field to change on the caller's URL.
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                        detail={
+                            "code": exc.code,
+                            "message": exc.policy,
+                            "field": exc.field,
+                        },
+                    ) from None
+
+                # SEC-021: mirror the ogr2ogr commit path (IA-P1-06 / SEC-FU-04).
+                # GDAL_HTTP_HEADERS would leak the credential via subprocess env
+                # (/proc/<pid>/environ) and let a CR/LF inject outbound HTTP
+                # headers under libcurl. Use a 0600 GDAL_HTTP_HEADER_FILE instead,
+                # so the env var carries a path, not the secret; unlinked in the
+                # finally below.
+                #
+                # fix(#1746): the line comes from the shared joiner alone — no
+                # prefix composed here, so a finished basic credential can't
+                # collide with a hardcoded "Authorization: Bearer " prefix and
+                # produce a working-looking string that 401s at the origin.
+                header_line = credential_header_line(pair)
+                import tempfile
+
+                # fix(#1746): name the directory explicitly, not the container
+                # tmpfs default — gdal_header_dir() is 0700 under /tmp (private
+                # to this container, gone on restart, swept at boot and on the
+                # API's periodic cadence), so a header orphaned by a SIGKILL
+                # can't land in the staging volume that gets tarred into backups.
+                fd, header_file_path = tempfile.mkstemp(
+                    prefix="gdal_auth_",
+                    suffix=".hdr",
+                    dir=gdal_header_dir(),
                 )
+                try:
+                    os.write(fd, f"{header_line}\n".encode("ascii"))
+                finally:
+                    os.close(fd)
+                os.chmod(header_file_path, 0o600)
+                env["GDAL_HTTP_HEADER_FILE"] = header_file_path
+                env.update(gdal_transport_env(_gdal_source_format(gdal_source)))
+                # Plan rule A: GDAL forwards non-Authorization headers verbatim
+                # across hosts, so a service-chosen API key is redirect-exposed
+                # here and can't be protected from inside (AGENTS.md Rule 2).
+                # IF_SAME_HOST not NO: a same-host canonical redirect (e.g. a
+                # trailing slash) must keep the credential or the service 401s.
+                env.update(GDAL_HEADER_FILE_REDIRECT_ENV)
 
-            pair = build_credential_header(credential)
-
-        if pair is not None:
-            # fix(#1746): checked before the header file exists, since
-            # GDAL applies it to endpoints the service's own description
-            # advertises. Checked again in the worker: the document can
-            # change between preview and the import it leads to.
-            try:
-                # fix(#1828): a credentialed WFS never reaches GDAL without a
-                # layer, since GDAL opened layerless reads every layer's schema.
-                require_wfs_layer(
-                    layer_name,
-                    service_format=_gdal_source_format(gdal_source),
-                    credential_line=credential_header_line(pair),
-                )
-                await assert_endpoints_stay_on_origin(
-                    _service_url(gdal_source),
-                    service_format=_gdal_source_format(gdal_source),
-                    # fix(#1746): same line the worker will hand GDAL, so
-                    # a protected service answers with the document GDAL will
-                    # act on rather than a 401.
-                    credential_line=credential_header_line(pair),
-                    collection=layer_name or None,
-                    # fix(#1746): inside the preview's budget — the
-                    # client's per-inactivity timeout let a service trickling
-                    # a 32 MiB doc hold the request open before ogrinfo ran.
-                    deadline=deadline,
-                )
-            except (CrossOriginEndpointError, EndpointCheckFailedError) as exc:
-                # Coded 422, not the 502 the broad handler upstairs would
-                # make of it: names the field to change on the caller's URL.
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail={
-                        "code": exc.code,
-                        "message": exc.policy,
-                        "field": exc.field,
-                    },
-                ) from None
-
-            # SEC-021: mirror the ogr2ogr commit path (IA-P1-06 / SEC-FU-04).
-            # GDAL_HTTP_HEADERS would leak the credential via subprocess env
-            # (/proc/<pid>/environ) and let a CR/LF inject outbound HTTP
-            # headers under libcurl. Use a 0600 GDAL_HTTP_HEADER_FILE instead,
-            # so the env var carries a path, not the secret; unlinked in the
-            # finally below.
-            #
-            # fix(#1746): the line comes from the shared joiner alone — no
-            # prefix composed here, so a finished basic credential can't
-            # collide with a hardcoded "Authorization: Bearer " prefix and
-            # produce a working-looking string that 401s at the origin.
-            header_line = credential_header_line(pair)
-            import tempfile
-
-            # fix(#1746): name the directory explicitly, not the container
-            # tmpfs default — gdal_header_dir() is 0700 under /tmp (private
-            # to this container, gone on restart, swept at boot and on the
-            # API's periodic cadence), so a header orphaned by a SIGKILL
-            # can't land in the staging volume that gets tarred into backups.
-            fd, header_file_path = tempfile.mkstemp(
-                prefix="gdal_auth_",
-                suffix=".hdr",
-                dir=gdal_header_dir(),
+            # fix(#1746): computed here so it accounts for budget already
+            # spent (page walk, endpoint check). Floored so a preflight that used
+            # the whole budget still fails via the ordinary timeout, not an
+            # arithmetic edge.
+            timeout = max(deadline - time.monotonic(), _SUBPROCESS_FLOOR_SECONDS)
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
             )
+
             try:
-                os.write(fd, f"{header_line}\n".encode("ascii"))
-            finally:
-                os.close(fd)
-            os.chmod(header_file_path, 0o600)
-            env["GDAL_HTTP_HEADER_FILE"] = header_file_path
-            env.update(gdal_transport_env(_gdal_source_format(gdal_source)))
-            # Plan rule A: GDAL forwards non-Authorization headers verbatim
-            # across hosts, so a service-chosen API key is redirect-exposed
-            # here and can't be protected from inside (AGENTS.md Rule 2).
-            # IF_SAME_HOST not NO: a same-host canonical redirect (e.g. a
-            # trailing slash) must keep the credential or the service 401s.
-            env.update(GDAL_HEADER_FILE_REDIRECT_ENV)
-
-        # fix(#1746): computed here so it accounts for budget already
-        # spent (page walk, endpoint check). Floored so a preflight that used
-        # the whole budget still fails via the ordinary timeout, not an
-        # arithmetic edge.
-        timeout = max(deadline - time.monotonic(), _SUBPROCESS_FLOOR_SECONDS)
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=env,
-        )
-
-        try:
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        except asyncio.TimeoutError as exc:
-            proc.kill()
-            await proc.wait()
-            logger.warning(
-                "ogrinfo timed out for service preview",
-                gdal_source=redact_url_credentials(gdal_source),
-                layer_name=layer_name,
-                timeout=timeout,
-            )
-            # A timeout is a real failure, not a genuinely-empty layer — raise
-            # so the router surfaces a 502 instead of a fake-success preview
-            # with zero columns. empty_fallback is for zero-feature layers only.
-            raise IngestionError(
-                f"ogrinfo timed out after {timeout:.0f}s for service preview"
-            ) from exc
+                stdout, stderr = await asyncio.wait_for(
+                    proc.communicate(), timeout=timeout
+                )
+            except asyncio.TimeoutError as exc:
+                proc.kill()
+                await proc.wait()
+                logger.warning(
+                    "ogrinfo timed out for service preview",
+                    gdal_source=redact_url_credentials(gdal_source),
+                    layer_name=layer_name,
+                    timeout=timeout,
+                )
+                # A timeout is a real failure, not a genuinely-empty layer — raise
+                # so the router surfaces a 502 instead of a fake-success preview
+                # with zero columns. empty_fallback is for zero-feature layers only.
+                raise IngestionError(
+                    f"ogrinfo timed out after {timeout:.0f}s for service preview"
+                ) from exc
     finally:
         # Both are removed on every exit, success or not: one holds a
         # credential and the other holds data read with it.
@@ -459,7 +461,8 @@ async def run_service_preview(
             returncode=proc.returncode,
             stderr=safe_error_msg,
         )
-        raise IngestionError(f"ogrinfo failed: {safe_error_msg}")
+        # GDAL's text can quote whatever the service answered; it stays in the log.
+        raise IngestionError(f"ogrinfo failed (exit {proc.returncode})")
 
     try:
         data = json.loads(stdout.decode())

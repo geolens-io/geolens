@@ -335,6 +335,10 @@ SAFE_OPEN_ENV_HELPER = "gdal_safe_open_env"
 # site is credited by whichever one it actually calls.
 SAFE_VECTOR_ENV_HELPER = "gdal_vector_safe_env"
 SAFE_SERVICE_ENV_HELPER = "gdal_service_safe_env"
+# The service env takes the running egress proxy; the subprocess's HTTP goes
+# through it only while its block is open.
+EGRESS_PROXY_HELPER = "service_egress_proxy"
+EGRESS_PROXY_MODULE = "app.platform.egress_proxy"
 SUBPROCESS_ENV_HELPERS = (
     SAFE_SUBPROCESS_ENV_HELPER,
     SAFE_VECTOR_ENV_HELPER,
@@ -527,10 +531,10 @@ VECTOR_CLI_DRIVER_POLICY: dict[
         OTHER_INPUT,
         SAFE_SERVICE_ENV_HELPER,
         "remote service; the driver is pinned by the WFS:/OAPIF:/ESRIJSON: "
-        "prefix build_gdal_source puts on the source string, and the URL is "
-        "gated by validate_url_for_ssrf at submission time. The SERVICE env "
-        "variant specifically: it keeps WFS and OAPIF, which the vector one "
-        "skips, and this call exists to use them",
+        "prefix build_gdal_source puts on the source string, and every HTTP "
+        "request goes through the egress proxy the SERVICE env names. The "
+        "SERVICE env variant specifically: it keeps WFS and OAPIF, which the "
+        "vector one skips, and this call exists to use them",
     ),
     ("processing/export/ogr.py", "run_ogr2ogr_export", "ogr2ogr"): (
         1,
@@ -605,6 +609,7 @@ _KIND_VECTOR_ENV = SAFE_VECTOR_ENV_HELPER
 _KIND_SERVICE_ENV = SAFE_SERVICE_ENV_HELPER
 _KIND_DRIVER_ALLOWLIST = DRIVER_ALLOWLIST_HELPER
 _KIND_CONTENT_CHECK = CONTENT_CHECK_HELPER
+_KIND_EGRESS_PROXY = EGRESS_PROXY_HELPER
 _KIND_MODALIAS = "__vrt_module_alias__"
 _KIND_RASTERIO_MOD = "__rasterio_module__"
 _KIND_RASTERIO_OPEN = "__rasterio_open__"
@@ -669,6 +674,7 @@ class _ScopeInfo:
             _KIND_SERVICE_ENV: set(),
             _KIND_DRIVER_ALLOWLIST: set(),
             _KIND_CONTENT_CHECK: set(),
+            _KIND_EGRESS_PROXY: set(),
             _KIND_MODALIAS: set(),
             _KIND_RASTERIO_MOD: set(),
             _KIND_RASTERIO_OPEN: set(),
@@ -709,6 +715,8 @@ def _record_import_from(info: _ScopeInfo, node: ast.ImportFrom) -> None:
         kinds = {DRIVER_ALLOWLIST_HELPER: _KIND_DRIVER_ALLOWLIST}
     elif node.level == 0 and module == CONTENT_CHECK_MODULE:
         kinds = {CONTENT_CHECK_HELPER: _KIND_CONTENT_CHECK}
+    elif node.level == 0 and module == EGRESS_PROXY_MODULE:
+        kinds = {EGRESS_PROXY_HELPER: _KIND_EGRESS_PROXY}
     elif node.level == 0 and module == CANONICAL_HELPER_PARENT:
         kinds = {"vrt": _KIND_MODALIAS}
     elif node.level == 0:
@@ -5844,3 +5852,149 @@ def test_guard_raster_argv_credited_by_the_vector_helper_reports():
     assert len(violations) == 1, violations
     assert SAFE_SUBPROCESS_ENV_HELPER in violations[0], violations
     assert SAFE_VECTOR_ENV_HELPER not in violations[0], violations
+
+
+# ---------------------------------------------------------------------------
+# Service egress: a service subprocess reaches the network only through the
+# proxy that checks and pins each connection, redirect hops included.
+# ---------------------------------------------------------------------------
+
+MIN_SERVICE_ENV_SITES = 2
+
+# Calls that start a process. `run` also matches unrelated callees, which only
+# costs a report, never a pass.
+_PROCESS_SPAWNERS = frozenset(
+    {
+        *_VARARGS_ARGV_SPAWNERS,
+        *_SEQUENCE_ARGV_SPAWNERS,
+        "Popen",
+        "run",
+        "check_call",
+        "check_output",
+    }
+)
+
+
+def _egress_block(node: ast.AST, rel: str) -> tuple[ast.AsyncWith, str] | None:
+    """The ``async with service_egress_proxy() as NAME:`` whose body holds
+    ``node``, searched up to the enclosing function."""
+    prev = node
+    current = getattr(node, "_rule2_parent", None)
+    while current is not None and not isinstance(current, _SCOPE_NODES):
+        if isinstance(current, ast.AsyncWith) and prev in current.body:
+            for item in current.items:
+                head = item.context_expr
+                if (
+                    isinstance(head, ast.Call)
+                    and isinstance(head.func, ast.Name)
+                    and _resolve_credit(
+                        head.func.id, _KIND_EGRESS_PROXY, head.func, rel
+                    )
+                    and isinstance(item.optional_vars, ast.Name)
+                ):
+                    return current, item.optional_vars.id
+        prev = current
+        current = getattr(current, "_rule2_parent", None)
+    return None
+
+
+def _collect_service_egress_violations(
+    modules: list[tuple[str, ast.Module]],
+) -> tuple[list[str], int]:
+    """Return (violations, service env call count).
+
+    Each service env must be built inside an egress proxy block from that
+    block's proxy, and every process its function starts must start inside
+    the same block, so none runs after the proxy has closed.
+    """
+    violations: list[str] = []
+    sites = 0
+    for rel, tree in modules:
+        _annotate_parents(tree)
+        for node in ast.walk(tree):
+            if not _is_canonical_helper_call(node, SAFE_SERVICE_ENV_HELPER, rel):
+                continue
+            sites += 1
+            scope = _enclosing_function_node(node)
+            where = f"{rel}:{node.lineno} ({getattr(scope, 'name', '<module>')})"
+            found = _egress_block(node, rel)
+            if found is None:
+                violations.append(
+                    f"{where} builds {SAFE_SERVICE_ENV_HELPER} outside an "
+                    f"`async with {EGRESS_PROXY_HELPER}() as ...:` block"
+                )
+                continue
+            block, proxy = found
+            passed = node.args[0] if len(node.args) == 1 else None
+            if node.keywords or not (
+                isinstance(passed, ast.Name) and passed.id == proxy
+            ):
+                violations.append(
+                    f"{where} must pass the block's own proxy `{proxy}` and "
+                    "nothing else"
+                )
+            spawns = [
+                call
+                for call in ast.walk(scope or tree)
+                if isinstance(call, ast.Call)
+                and _call_name(call.func) in _PROCESS_SPAWNERS
+            ]
+            outside = [
+                call.lineno for call in spawns if _egress_block(call, rel) is None
+            ]
+            if not spawns or outside:
+                violations.append(
+                    f"{where}: every process this function starts must start "
+                    f"inside the {EGRESS_PROXY_HELPER} block; outside at "
+                    f"line(s) {outside or 'none found'}"
+                )
+    return violations, sites
+
+
+def test_service_gdal_subprocesses_run_inside_the_egress_proxy():
+    violations, sites = _collect_service_egress_violations(_app_modules())
+    assert not violations, "\n".join(violations)
+    assert sites >= MIN_SERVICE_ENV_SITES, (
+        f"saw only {sites} {SAFE_SERVICE_ENV_HELPER} call(s); the tree has at "
+        f"least {MIN_SERVICE_ENV_SITES}, so the scan has gone blind"
+    )
+
+
+_EGRESS_FIXTURE_IMPORTS = (
+    "import asyncio\n"
+    "from app.platform.egress_proxy import ServiceEgress, service_egress_proxy\n"
+    "from app.platform.gdal_env import gdal_service_safe_env\n"
+)
+
+
+def test_guard_service_env_shapes_that_skip_the_proxy_report():
+    violations, sites = _collect_service_egress_violations(
+        _mod(
+            _EGRESS_FIXTURE_IMPORTS + "async def wired(cmd):\n"
+            "    async with service_egress_proxy() as egress:\n"
+            "        env = gdal_service_safe_env(egress)\n"
+            "        proc = await asyncio.create_subprocess_exec(*cmd, env=env)\n"
+            "        await proc.communicate()\n"
+            "async def no_block(cmd, egress):\n"
+            "    env = gdal_service_safe_env(egress)\n"
+            "    await asyncio.create_subprocess_exec(*cmd, env=env)\n"
+            "async def other_proxy(cmd):\n"
+            "    async with service_egress_proxy() as egress:\n"
+            "        env = gdal_service_safe_env(ServiceEgress('http://x'))\n"
+            "        await asyncio.create_subprocess_exec(*cmd, env=env)\n"
+            "async def spawned_after_close(cmd):\n"
+            "    async with service_egress_proxy() as egress:\n"
+            "        env = gdal_service_safe_env(egress)\n"
+            "    await asyncio.create_subprocess_exec(*cmd, env=env)\n"
+            "async def shadowed(cmd):\n"
+            "    service_egress_proxy = make_fake\n"
+            "    async with service_egress_proxy() as egress:\n"
+            "        env = gdal_service_safe_env(egress)\n"
+            "        await asyncio.create_subprocess_exec(*cmd, env=env)\n"
+        )
+    )
+    assert sites == 5, (sites, violations)
+    assert len(violations) == 4, violations
+    for name in ("no_block", "other_proxy", "spawned_after_close", "shadowed"):
+        assert any(f"({name})" in v for v in violations), (name, violations)
+    assert not any("(wired)" in v for v in violations), violations
