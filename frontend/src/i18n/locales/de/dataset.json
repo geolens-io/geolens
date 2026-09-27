@@ -1161,6 +1161,27 @@
     "stay": "Bleiben",
     "leave": "Verlassen"
   },
+  "pointcloud": {
+    "title": "COPC-Punktwolke",
+    "pointCount": "Punkte",
+    "crs": "Horizontales KBS",
+    "size": "Dateigröße",
+    "pointFormat": "Punktformat",
+    "bounds": "Geografische Ausdehnung",
+    "elevationRange": "Höhenbereich",
+    "verticalCrs": "Vertikales KBS",
+    "accessTitle": "In einem Punktwolken-Client öffnen",
+    "urlLabel": "COPC-URL",
+    "copyUrl": "COPC-URL kopieren",
+    "privateHint": "Diese Punktwolke benötigt einen API-Schlüssel mit Leserechten. Verwenden Sie X-Api-Key in Clients mit Header-Unterstützung. Die Beispiele enthalten nur einen Platzhalter, niemals Ihren Schlüssel.",
+    "clientLabel": "Punktwolken-Client",
+    "potreeHint": "Potree kann für COPC keinen X-Api-Key-Header senden. Ersetzen Sie den Platzhalter in der URL durch Ihren schreibgeschützten Schlüssel und behandeln Sie die URL vertraulich.",
+    "copySnippet": "Client-Beispiel kopieren",
+    "qgisSteps": "QGIS {{version}} → Layer > Layer hinzufügen > Punktwolken-Layer hinzufügen\nQuelltyp: Protokoll: HTTP(S), Cloud usw.\nURL: {{url}}",
+    "qgisAuthentication": "Authentifizierung: API Header → X-Api-Key: YOUR_API_KEY",
+    "qgisPrivateVersionHint": "Für die API-Header-Authentifizierung einer Punktwolkenebene ist QGIS 4.0 oder neuer erforderlich.",
+    "instructions": "QGIS, Potree und copc.js"
+  },
   "tileset": {
     "title": "3D-Tiles-Tileset",
     "version": "Version",

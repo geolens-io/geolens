@@ -1161,6 +1161,27 @@
     "stay": "Rester",
     "leave": "Quitter"
   },
+  "pointcloud": {
+    "title": "Nuage de points COPC",
+    "pointCount": "Points",
+    "crs": "SCR horizontal",
+    "size": "Taille du fichier",
+    "pointFormat": "Format des points",
+    "bounds": "Emprise géographique",
+    "elevationRange": "Plage d'altitude",
+    "verticalCrs": "SCR vertical",
+    "accessTitle": "Ouvrir dans un client de nuages de points",
+    "urlLabel": "URL COPC",
+    "copyUrl": "Copier l'URL COPC",
+    "privateHint": "Ce nuage de points nécessite une clé API en lecture seule. Utilisez X-Api-Key dans les clients qui acceptent les en-têtes. Les exemples contiennent un espace réservé, jamais votre clé.",
+    "clientLabel": "Client de nuages de points",
+    "potreeHint": "Potree ne peut pas envoyer l'en-tête X-Api-Key pour COPC. Remplacez l'espace réservé dans l'URL par votre clé en lecture seule et gardez cette URL secrète.",
+    "copySnippet": "Copier l'exemple client",
+    "qgisSteps": "QGIS {{version}} → Couche > Ajouter une couche > Ajouter une couche de nuage de points\nType de source : Protocole : HTTP(S), cloud, etc.\nURL : {{url}}",
+    "qgisAuthentication": "Authentification : API Header → X-Api-Key: YOUR_API_KEY",
+    "qgisPrivateVersionHint": "QGIS 4.0 ou une version ultérieure est nécessaire pour utiliser l'authentification API Header avec une couche de nuage de points.",
+    "instructions": "QGIS, Potree et copc.js"
+  },
   "tileset": {
     "title": "Tileset 3D Tiles",
     "version": "Version",

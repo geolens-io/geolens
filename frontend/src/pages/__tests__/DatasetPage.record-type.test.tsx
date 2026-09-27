@@ -310,6 +310,33 @@ describe('DatasetPage actions by record type', () => {
     expect(screen.queryByTestId('dataset-table-readout')).not.toBeInTheDocument();
   });
 
+  it('shows a point cloud without a map preview or table actions', async () => {
+    vi.mocked(useDataset).mockReturnValue({
+      data: {
+        ...makeDataset('pointcloud_dataset'),
+        geometry_type: null,
+        feature_count: null,
+        column_info: null,
+        pointcloud: {
+          url: '/api/datasets/dataset-1/copc/attempt-1/data.copc.laz',
+          size_bytes: 1048576,
+          point_count: 9000,
+          point_format: 7,
+          vertical_crs: null,
+        },
+      },
+      isLoading: false,
+      error: null,
+    } as ReturnType<typeof useDataset>);
+    render(<DatasetPage />, { route: '/datasets/dataset-1' });
+
+    expect(await screen.findByRole('heading', { name: 'COPC point cloud' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Map Preview' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('dataset-map')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add to map' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('dataset-table-readout')).not.toBeInTheDocument();
+  });
+
   it('gives an unknown record type its own map after a vector dataset', async () => {
     vi.mocked(useDataset).mockImplementation(((id: string) => ({
       data: id === 'dataset-2'

@@ -36,6 +36,7 @@ import { getVisibilityLabel } from '@/i18n/labels';
 import { DistributionsList } from '@/components/dataset/DistributionsList';
 import { ExportButton } from '@/components/dataset/ExportButton';
 import { TilesetAccess } from '@/components/dataset/TilesetAccess';
+import { PointCloudAccess } from '@/components/dataset/PointCloudAccess';
 import { recordTypeCapabilities } from '@/lib/record-types';
 import { cn } from '@/lib/utils';
 
@@ -352,10 +353,11 @@ export function AccessTab({ dataset, canEdit = false }: AccessTabProps) {
     applyVisibility(visibility);
   }
   const { featureTable, tileToken } = recordTypeCapabilities(dataset.record_type);
-  // A tileset's access is its client URL below; an empty list would only read as missing.
+  // 3D files have their own client URLs below; an empty list would only read as missing.
   const { data: distributionData } = useDistributions(dataset.record_id);
   const showDistributions =
-    dataset.record_type !== 'tiles3d_dataset' || (distributionData?.distributions.length ?? 0) > 0;
+    !['tiles3d_dataset', 'pointcloud_dataset'].includes(dataset.record_type) ||
+    (distributionData?.distributions.length ?? 0) > 0;
 
   return (
     <>
@@ -388,6 +390,9 @@ export function AccessTab({ dataset, canEdit = false }: AccessTabProps) {
       )}
 
       {dataset.tileset && <TilesetAccess tileset={dataset.tileset} visibility={dataset.visibility} />}
+      {dataset.pointcloud?.url && (
+        <PointCloudAccess url={dataset.pointcloud.url} visibility={dataset.visibility} />
+      )}
 
       {/* API access snippet */}
       {featureTable && endpoints.ogcFeaturesUrl && publicApiBaseUrl && (
