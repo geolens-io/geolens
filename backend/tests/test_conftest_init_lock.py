@@ -247,7 +247,6 @@ def test_a_lock_that_cannot_be_taken_fails_setup_instead_of_skipping_init(
         yield
 
     session_db = settings.postgres_db_test
-    monkeypatch.setattr(conftest, "_SETUP_STAGGER_SECONDS", 0)
     monkeypatch.setattr(conftest, "_cluster_init_lock", unreachable_lock)
     setup = conftest._test_db_lifecycle.__wrapped__()
 
@@ -282,7 +281,6 @@ def _start_setup_with_init_engine(monkeypatch, init_engine):
             return init_engine
         return real_create_engine(url, *args, **kwargs)
 
-    monkeypatch.setattr(conftest, "_SETUP_STAGGER_SECONDS", 0)
     monkeypatch.setattr(conftest, "_cluster_init_lock", free_lock)
     monkeypatch.setattr(sqlalchemy, "create_engine", create_engine)
     return conftest._test_db_lifecycle.__wrapped__(), databases_at_init

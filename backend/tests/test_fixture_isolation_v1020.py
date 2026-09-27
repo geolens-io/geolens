@@ -256,36 +256,17 @@ def test_lifecycle_exhausts_retry_budget_then_fails_loudly():
 
 @pytest.mark.asyncio
 async def test_setup_phase_contention_retries_or_serializes():
-    """Audit Section 4.2 regression pin: transient TooManyConnections during
-    async-session setup (e.g., `_ensure_roles_and_admin`) must be retried
-    with bounded backoff, NOT silently swallowed or surfaced as a hard
-    fixture error on the first attempt.
+    """A refused first connection during async fixture setup is retried.
 
-    Pre-1088-03 shape (post-1088-01 HEAD before this plan): the `client`
-    fixture's body called ``await _ensure_roles_and_admin(test_session_factory)``
-    directly. Under `pytest -n auto` against max_connections=30, the
-    staggered-startup window placed several workers into the connection-
-    saturation window simultaneously, where the first async-session
-    connection acquisition (asyncpg) raised
-    ``TooManyConnectionsError("sorry, too many clients already")``. With no
-    retry path, the worker's fixture failed and every test that requested
-    the `client` fixture was reported as "failed on setup" (188 failures
-    across the suite — audit Section 4.2 / re-measure category 4.2 = 188).
+    The `client` fixture opens its first connection in
+    `_ensure_roles_and_admin`, and under `pytest -n auto` the server can
+    refuse it with "too many clients already" while other workers hold
+    connections. Failing there would fail every test that uses `client`, so
+    ``_run_with_too_many_clients_retry`` retries it with backoff
+    ``(1.0, 2.0, 4.0)`` and re-raises only when every attempt fails.
 
-    Post-1088-03 shape: ``_run_with_too_many_clients_retry`` wraps the call,
-    retries on the contention shape with backoff ``(1.0, 2.0, 4.0)``, and
-    only re-raises if every attempt fails.
-
-    This test simulates one transient failure followed by a success and
-    asserts (1) the callable was awaited at least twice (retry path
-    taken), (2) the helper returned without propagating the
-    OperationalError, (3) the helper slept exactly once between the
-    failure and the retry, using the configured 1.0s first-backoff budget.
-
-    Against the pre-1088-03 HEAD this test fails because
-    `_run_with_too_many_clients_retry` does not exist; against the
-    post-1088-03 HEAD it passes because the retry succeeds on the 2nd
-    attempt.
+    One refusal followed by a success must await the callable twice, return
+    its result and sleep once, for the first 1.0s backoff.
     """
     # Build a coroutine factory that fails once then succeeds.
     call_count = {"n": 0}
@@ -830,33 +811,13 @@ async def test_in_test_exhausts_retry_budget_then_fails_loudly():
 
 
 # ---------------------------------------------------------------------------
-# Plan 1093-02 / TEST-01: engine-level retry envelope
+# Engine-level retry: `_RetryingAsyncEngine`
 # ---------------------------------------------------------------------------
 #
-# After Plan 1088-04 partially closed audit category 4.3 (137 → 48 via
-# `_acquire_test_session_with_retry`), 48 deterministic + ~173 non-deterministic
-# failures remained ABOVE the 30 threshold. Plan 1088-04's iter-3 residual
-# analysis identified the failure shape: post-commit `bind.connect()` calls
-# fire AFTER `await session.commit()` releases the warm-up's connection —
-# OUTSIDE any session-factory-level retry envelope.
-#
-# Plan 1093-02 implements the `_RetryingAsyncEngine` composition wrapper class
-# (chosen per `.planning/audits/ENGINE-RETRY-ENVELOPE-v1021.md` Section 3) that
-# wraps the test-fixture engine's `connect()` and `dispose()` calls with
-# retry-on-`_TRANSIENT_CONTENTION_EXCEPTIONS` using the
-# `_SETUP_PHASE_RETRY_BACKOFFS = (1.0, 2.0, 4.0)` budget. The wrapper:
-# - REUSES `_TRANSIENT_CONTENTION_EXCEPTIONS` (line 343-347) verbatim — no new
-#   exception class added to the catch tuple.
-# - REUSES `_SETUP_PHASE_RETRY_BACKOFFS` (line 324) verbatim — no new constant.
-# - Preserves the underlying engine's `.pool` accessor via `@property`
-#   delegation (critical for `test_xdist_engine_uses_nullpool` at
-#   `test_conftest_pool_sizing.py:261` and `test_sequential_engine_uses_queuepool`
-#   at `:281` — both pins check `type(engine.pool).__name__`).
-# - Preserves `_make_test_async_engine(test_database_url: str)` signature
-#   unchanged.
-# - Provides 4 regression pins below (canonical / raw-asyncpg critical-contract /
-#   propagate-non-contention / exhaust-budget) mirroring v1020 in-test pin
-#   family naming convention.
+# Tests open connections after a session commits, outside the session
+# factory's retry, so the test engine retries its own `connect()` and
+# `dispose()`. The pins below cover a retried refusal, raw asyncpg errors,
+# other errors propagating and an exhausted budget.
 
 
 class _FakeAsyncEngine:
