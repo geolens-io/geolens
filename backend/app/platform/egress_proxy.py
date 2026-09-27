@@ -26,6 +26,9 @@ logger = structlog.stdlib.get_logger(__name__)
 
 _HEAD_TIMEOUT_SECONDS = 30.0
 _CONNECT_TIMEOUT_SECONDS = 30.0
+# Per attempt while another checked address remains, so a stalled first
+# answer can't spend the caller's whole deadline.
+_FALLBACK_CONNECT_TIMEOUT_SECONDS = 5.0
 _CHUNK_BYTES = 64 * 1024
 
 # Headers about one side's connection with this proxy, never passed across.
@@ -177,10 +180,14 @@ async def _connect_first(
 ) -> tuple[asyncio.StreamReader, asyncio.StreamWriter] | None:
     """A connection to the first checked address that accepts one, like a
     client falling back from an unreachable AAAA answer to its A answer."""
-    for address in addresses:
+    for index, address in enumerate(addresses):
+        last = index == len(addresses) - 1
+        timeout = (
+            _CONNECT_TIMEOUT_SECONDS if last else _FALLBACK_CONNECT_TIMEOUT_SECONDS
+        )
         try:
             return await asyncio.wait_for(
-                asyncio.open_connection(address, port), _CONNECT_TIMEOUT_SECONDS
+                asyncio.open_connection(address, port), timeout
             )
         except (OSError, TimeoutError):
             continue

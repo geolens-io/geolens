@@ -385,6 +385,40 @@ class TestTheProxyRelaysOnlyToCheckedAddresses:
         assert requests == ["getcapabilities"]
         assert calls == [_HOST]
 
+    async def test_a_stalled_first_address_does_not_spend_the_deadline(
+        self, monkeypatch
+    ):
+        """A first answer that never completes a connection gets the short
+        per-attempt limit while another checked address remains."""
+        stalled = "192.0.2.1"
+        real_open = asyncio.open_connection
+
+        async def open_connection(host, port, *args, **kwargs):
+            if host == stalled:
+                await asyncio.Event().wait()
+            return await real_open(host, port, *args, **kwargs)
+
+        async def resolve(host: str, port: int | None) -> list[str]:
+            return [stalled, "127.0.0.1"]
+
+        monkeypatch.setattr(egress_proxy, "_resolve_all_and_validate", resolve)
+        monkeypatch.setattr(egress_proxy, "_FALLBACK_CONNECT_TIMEOUT_SECONDS", 0.2)
+        monkeypatch.setattr(asyncio, "open_connection", open_connection)
+        with _wfs_service() as (port, requests):
+            async with service_egress_proxy(idle_seconds=30) as egress:
+                response = await asyncio.wait_for(
+                    _exchange(
+                        egress,
+                        _get(
+                            f"http://{_HOST}:{port}/wfs?REQUEST=GetCapabilities", _HOST
+                        ),
+                    ),
+                    5,
+                )
+
+        assert b" 200 " in response.split(b"\r\n", 1)[0], response
+        assert requests == ["getcapabilities"]
+
     async def test_a_name_with_any_blocked_address_is_refused(self, monkeypatch):
         """The same rule as make_safe_client: one blocked answer refuses the name."""
         real_getaddrinfo = socket.getaddrinfo
