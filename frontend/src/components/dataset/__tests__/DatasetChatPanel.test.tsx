@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { streamDatasetChatMessage } from '@/api/maps';
 import { useAIAvailability } from '@/hooks/use-ai-availability';
 import { DatasetChatPanel } from '@/components/dataset/DatasetChatPanel';
+import { toast } from 'sonner';
 
 // scrollIntoView is not available in jsdom
 Element.prototype.scrollIntoView = vi.fn();
@@ -15,6 +16,9 @@ vi.mock('react-router', async () => {
 
 vi.mock('@/api/maps', () => ({ streamDatasetChatMessage: vi.fn() }));
 vi.mock('@/hooks/use-ai-availability', () => ({ useAIAvailability: vi.fn() }));
+const mockCan = vi.fn();
+vi.mock('@/hooks/use-permissions', () => ({ usePermissions: () => ({ can: mockCan }) }));
+vi.mock('sonner', () => ({ toast: { error: vi.fn() } }));
 
 const mockMutateAsync = vi.fn();
 vi.mock('@/hooks/use-maps', () => ({
@@ -37,6 +41,7 @@ function renderPanel(showOpenInBuilder = true) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockCan.mockReturnValue(true);
   sessionStorage.clear();
 });
 
@@ -265,6 +270,48 @@ describe('DatasetChatPanel', () => {
 
     await screen.findByText('Done.');
     expect(screen.queryByRole('button', { name: /Open in builder/i })).toBeNull();
+  });
+
+  it('keeps chat results available without a map action when edit_metadata is denied', async () => {
+    setAvailable(true);
+    mockCan.mockReturnValue(false);
+    mockStream.mockImplementation(async function* () {
+      yield { event: 'actions', data: { actions: [
+        { type: 'show_query_result', rows: [['Central Park']], columns: ['name'], row_count: 1 },
+      ] } };
+      yield { event: 'done', data: { explanation: 'Found 1 result.' } };
+    });
+
+    renderPanel();
+    await userEvent.click(screen.getByRole('button', { name: 'Ask AI' }));
+    await userEvent.type(screen.getByPlaceholderText('Ask about this data...'), 'find a park');
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    expect(await screen.findByText('Central Park')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Open in builder/i })).not.toBeInTheDocument();
+    expect(mockMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('leaves map creation failures to the shared mutation notification', async () => {
+    setAvailable(true);
+    mockStream.mockImplementation(async function* () {
+      yield { event: 'actions', data: { actions: [
+        { type: 'show_query_result', rows: [['Central Park']], columns: ['name'], row_count: 1 },
+      ] } };
+      yield { event: 'done', data: { explanation: 'Found 1 result.' } };
+    });
+    mockMutateAsync.mockRejectedValue(new Error('Map creation failed'));
+
+    renderPanel();
+    await userEvent.click(screen.getByRole('button', { name: 'Ask AI' }));
+    await userEvent.type(screen.getByPlaceholderText('Ask about this data...'), 'find a park');
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await screen.findByText('Central Park');
+    await userEvent.click(screen.getByRole('button', { name: /Open in builder/i }));
+
+    expect(mockMutateAsync).toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(toast.error).not.toHaveBeenCalled();
   });
 
   it('shows a retry-able error bubble when the stream fails', async () => {

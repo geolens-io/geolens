@@ -388,6 +388,10 @@
   },
   "quality": {
     "title": "Qualitätsbewertung",
+    "assessedAt": "Qualität bewertet am {{date}} ({{age}})",
+    "assessmentVsSource": "Dieses Datum bezieht sich auf die Qualitätsbewertung. Unter Quelle sehen Sie, wann die Daten aktualisiert wurden und wie aktuell die Quelle ist.",
+    "scoreExplanation": "Die Gesamtpunktzahl kombiniert die verfügbaren Qualitätsdimensionen. Die Prozentwerte zeigen den Anteil jeder Dimension.",
+    "metadataExplanation": "Die Metadatenvollständigkeit der Qualitätsbewertung zählt ausgefüllte optionale Felder (insgesamt 10). Der Validierungsfortschritt unter Metadaten wird separat berechnet.",
     "metadataCompleteness": "Metadaten-Vollständigkeit",
     "geometryValidity": "Geometrie-Gültigkeit",
     "attributeCompleteness": "Attribut-Vollständigkeit",
@@ -397,24 +401,25 @@
       "absolute": "Zuletzt geprüft {{date}}",
       "relative": "Geprüft {{relative}}",
       "cadence": "Erwartete Aktualisierungsfrequenz: {{cadence}}.",
-      "cadenceDaily": "Tägliche Aktualisierung wird erwartet.",
-      "cadenceWeekly": "Wöchentliche Aktualisierung wird erwartet.",
-      "cadenceMonthly": "Monatliche Aktualisierung wird erwartet.",
-      "cadenceQuarterly": "Vierteljährliche Aktualisierung wird erwartet.",
-      "cadenceAnnually": "Jährliche Aktualisierung wird erwartet.",
-      "cadenceUnknown": "Die Aktualisierungsfrequenz ist unbekannt; bitte Zeitplan prüfen.",
+      "cadenceDaily": "Die Aktualität der Bewertung wird mit dem angegebenen täglichen Rhythmus verglichen.",
+      "cadenceWeekly": "Die Aktualität der Bewertung wird mit dem angegebenen wöchentlichen Rhythmus verglichen.",
+      "cadenceMonthly": "Die Aktualität der Bewertung wird mit dem angegebenen monatlichen Rhythmus verglichen.",
+      "cadenceQuarterly": "Die Aktualität der Bewertung wird mit dem angegebenen vierteljährlichen Rhythmus verglichen.",
+      "cadenceAnnually": "Die Aktualität der Bewertung wird mit dem angegebenen jährlichen Rhythmus verglichen.",
+      "cadenceUnknown": "Ohne regelmäßigen Rhythmus gilt für die Bewertung ein Richtwert von 45 Tagen.",
       "state": {
-        "fresh": "Aktuell",
-        "stale": "Veraltet",
-        "missing": "Aktualitätsangabe fehlt"
+        "fresh": "Bewertung aktuell",
+        "stale": "Bewertung fällig",
+        "missing": "Kein Bewertungsdatum"
       },
       "remediation": {
-        "fresh": "Keine sofortige Aktualisierung erforderlich.",
-        "stale": "Berechnen Sie die Qualitätsmetriken neu und prüfen Sie, ob aktuelle Quellenänderungen übernommen wurden.",
-        "missing": "Führen Sie die Qualitätsvalidierung aus, um einen Aktualitätszeitstempel zu erzeugen."
+        "fresh": "Keine Maßnahme für die Bewertung erforderlich.",
+        "stale": "Berechnen Sie die Qualitätsbewertung neu, um den aktuellen Datensatz zu prüfen.",
+        "missing": "Führen Sie die Qualitätsvalidierung aus, um ein Bewertungsdatum zu erhalten."
       },
       "notAvailable": "Nicht verfügbar",
-      "unknownAge": "Unbekanntes Alter"
+      "unknownAge": "Unbekanntes Alter",
+      "readOnlyGuidance": "Bitten Sie den Eigentümer des Datensatzes oder einen oben genannten Kontakt, die Qualitätsbewertung zu aktualisieren."
     }
   },
   "serviceUrls": {
@@ -492,6 +497,7 @@
     "helperWarnings": "{{warningCount}} Warnung(en) gefunden. Prüfen Sie wahrscheinliche Ursachen vor der Veröffentlichung.",
     "likelyCompact": "Wahrscheinlich:",
     "troubleshootAction": "Fehlerbehebung",
+    "readOnlyGuidance": "Bitten Sie den Eigentümer des Datensatzes oder einen oben genannten Kontakt, diese Validierungsprobleme zu beheben.",
     "health": {
       "title": "Datensatz-Zustand",
       "required": "Erforderlich {{count}}",
@@ -595,12 +601,15 @@
     "editingDisabled": "Die Attributbearbeitung ist für diese Installation deaktiviert."
   },
   "distributions": {
-    "title": "Zugangspunkte",
+    "title": "Downloads und Verbindungen",
     "download": "Downloads",
     "api": "API-Endpunkte",
     "tiles": "Tile-Dienste",
     "other": "Weitere Zugänge",
-    "noDistributions": "Keine Distributionen verfügbar.",
+    "noDistributions": "Hier sind keine weiteren Downloads oder Dienste aufgeführt.",
+    "connectWithClient": "Mit QGIS, Python oder curl verbinden",
+    "otherFormats": "In einem anderen Format herunterladen",
+    "accessPermissions": "Wer auf diesen Datensatz zugreifen kann",
     "auto": "auto",
     "primary": "Primär",
     "copyUrl": "URL kopieren",
@@ -729,6 +738,9 @@
     "nodata": "Nodata",
     "ogcApiFeatures": "OGC API Features",
     "percentComplete": "{{percent}}% vollständig",
+    "validationProgress": "Bestandene Validierungsprüfungen: {{percent}} %",
+    "validationProgressHelp": "Schätzung aus 12 grundlegenden Prüfungen abzüglich gemeldeter Fehler und Warnungen. Die Qualitätsbewertung zählt optionale Metadatenfelder separat.",
+    "askMaintainer": "Bitten Sie den Eigentümer des Datensatzes oder einen unten genannten Kontakt, {{field}} zu ergänzen",
     "rasterProperties": "Raster-Eigenschaften",
     "recommendedCount_one": "{{count}} empfohlen",
     "recommendedCount_other": "{{count}} empfohlen",

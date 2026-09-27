@@ -481,6 +481,7 @@
     "unauthorized": "Your session has expired. Sign in again."
   },
   "settings": {
+    "apiKeys": { "manageTitle": "Manage API keys" },
     "tabs": {
       "preferences": "Preferences",
       "apiKeys": "API Keys"

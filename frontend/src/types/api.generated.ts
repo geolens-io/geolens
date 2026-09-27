@@ -3599,6 +3599,7 @@ export interface paths {
          *
          *     Supports search (ILIKE on name+description), sort_by (name/created_at/updated_at),
          *     sort_dir (asc/desc), and visibility filter (private/internal/public).
+         *     owned_only restricts results to the caller's maps; anonymous callers get no maps.
          */
         get: operations["list_maps_endpoint_maps__get"];
         put?: never;
@@ -10237,6 +10238,8 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+            /** Created By */
+            created_by?: string | null;
         };
         /** MapUpdate */
         MapUpdate: {
@@ -32042,6 +32045,7 @@ export interface operations {
                 sort_by?: "name" | "created_at" | "updated_at";
                 sort_dir?: "asc" | "desc";
                 visibility?: string | null;
+                owned_only?: boolean;
             };
             header?: never;
             path?: never;

@@ -3,6 +3,13 @@ import userEvent from '@testing-library/user-event';
 import { JobProgress } from '../JobProgress';
 import { ApiError } from '@/api/client';
 
+const permissions = vi.hoisted(() => ({ editMetadata: false }));
+vi.mock('@/hooks/use-permissions', () => ({
+  usePermissions: () => ({ can: (capability: string) => capability === 'edit_metadata' && permissions.editMetadata }),
+}));
+
+afterEach(() => { permissions.editMetadata = false; });
+
 const { mockUseJobStatus, mockRetry, mockCancel } = vi.hoisted(() => ({
   mockUseJobStatus: vi.fn(),
   mockRetry: vi.fn(),
@@ -73,6 +80,15 @@ function cancelledJob(overrides: Record<string, unknown> = {}) {
     ...overrides,
   };
 }
+
+it.each([true, false])('gates the raster map handoff on effective permission: %s', (granted) => {
+  permissions.editMetadata = granted;
+  mockUseJobStatus.mockReturnValue({ data: failedJob({ status: 'complete', dataset_id: 'ds-1', error_message: null }), isLoading: false });
+  render(<JobProgress jobId="job-1" onReset={vi.fn()} isRasterEntry />);
+  expect(screen.getByRole('link', { name: 'View Dataset' })).toHaveAttribute('href', '/datasets/ds-1');
+  if (granted) expect(screen.getByRole('link', { name: 'Add to Map' })).toBeInTheDocument();
+  else expect(screen.queryByRole('link', { name: 'Add to Map' })).not.toBeInTheDocument();
+});
 
 describe('JobProgress retry capability', () => {
   beforeEach(() => {

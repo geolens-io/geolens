@@ -1,4 +1,5 @@
 import { render, screen } from '@/test/test-utils';
+import userEvent from '@testing-library/user-event';
 import { IngestWarningsBanner } from '../IngestWarningsBanner';
 import type { IngestJobWarning } from '@/types/api';
 
@@ -11,6 +12,26 @@ function job(warnings: IngestJobWarning[]) {
 }
 
 describe('IngestWarningsBanner', () => {
+  it('starts compact on dataset visits while retaining severe warning details', async () => {
+    const user = userEvent.setup();
+    render(<IngestWarningsBanner compact job={job([{
+      kind: 'mercator_clip',
+      details: { dropped_features: 12, clipped_features: 3 },
+    }])} />);
+
+    const toggle = screen.getByRole('button', { name: /Some data may have changed/ });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByText('12 features lost their geometry entirely')).not.toBeVisible();
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('12 features lost their geometry entirely')).toBeVisible();
+  });
+
+  it('keeps an archive failure explicit in the compact summary', () => {
+    render(<IngestWarningsBanner compact job={{ ...job([]), archive_failed: true }} />);
+    expect(screen.getByRole('button', { name: /Original file unavailable/ })).toBeInTheDocument();
+  });
+
   it('renders nothing when the job has no warnings', () => {
     const { container } = render(<IngestWarningsBanner job={job([])} />);
     expect(container).toBeEmptyDOMElement();

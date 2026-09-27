@@ -1,4 +1,4 @@
-import { render, screen, within } from '@/test/test-utils';
+import { render, screen, within, waitFor } from '@/test/test-utils';
 import { useQueries } from '@tanstack/react-query';
 import { BulkTrackingList } from '../BulkTrackingList';
 import type { FileEntry } from '@/types/api';
@@ -7,6 +7,9 @@ import { randomId } from '@/lib/random-id';
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) => {
+      if (key === 'bulk.progressDetailWithFailures') {
+        return `${opts?.done} complete · ${opts?.failed} failed · ${opts?.active} in progress · ${opts?.queued} queued`;
+      }
       if (typeof opts?.defaultValue === 'string') return opts.defaultValue;
       return key;
     },
@@ -23,7 +26,7 @@ vi.mock('@tanstack/react-query', async (importOriginal) => {
 
 vi.mock('../JobProgress', () => ({
   JobProgress: ({ jobId }: { jobId: string }) => (
-    <div data-testid={`job-progress-${jobId}`}>Job {jobId}</div>
+    <div data-testid={`job-progress-${jobId}`}>Job {jobId}<button type="button">Retry</button></div>
   ),
 }));
 
@@ -60,6 +63,65 @@ describe('BulkTrackingList', () => {
   beforeEach(() => {
     mockUseQueries.mockReset();
     aiState.value = false;
+  });
+
+  it('describes a finished table without implying a map and exposes valid statistics', async () => {
+    mockUseQueries.mockReturnValue([
+      { data: { status: 'complete', dataset_id: 'table-1', source_filename: 'rows.csv' } },
+    ] as never);
+    const onOutcomeChange = vi.fn();
+    render(<BulkTrackingList entries={[makeEntry({ fileName: 'rows.csv', submittedKind: 'table' })]} onReset={vi.fn()} onOutcomeChange={onOutcomeChange} />);
+
+    expect(screen.getByText('complete.heroDescTables')).toBeInTheDocument();
+    expect(screen.getByText('Tabular', { selector: 'dt' }).closest('dl')).toBeInTheDocument();
+    await waitFor(() => expect(onOutcomeChange).toHaveBeenCalledWith('complete', ['table']));
+  });
+
+  it('settles mixed success and failure with the failed job still available', async () => {
+    mockUseQueries.mockReturnValue([
+      { data: { status: 'complete', dataset_id: 'table-1', source_filename: 'rows.csv' } },
+      { data: { status: 'failed', dataset_id: null, source_filename: 'broken.csv' } },
+    ] as never);
+    const onOutcomeChange = vi.fn();
+    render(<BulkTrackingList entries={[
+      makeEntry({ fileName: 'rows.csv', submittedKind: 'table' }),
+      makeEntry({ id: 'failed', jobId: 'job-2', fileName: 'broken.csv', submittedKind: 'table' }),
+    ]} onReset={vi.fn()} onOutcomeChange={onOutcomeChange} />);
+
+    expect(screen.getByText('complete.partialTitle')).toBeInTheDocument();
+    expect(screen.getByTestId('job-progress-job-2')).toBeInTheDocument();
+    await waitFor(() => expect(onOutcomeChange).toHaveBeenCalledWith('partial', ['table']));
+  });
+
+  it('keeps a staging failure visible beside a successful import', async () => {
+    mockUseQueries.mockReturnValue([
+      { data: { status: 'complete', dataset_id: 'table-1', source_filename: 'rows.csv' } },
+    ] as never);
+    const onOutcomeChange = vi.fn();
+    render(<BulkTrackingList entries={[
+      makeEntry({ fileName: 'rows.csv', submittedKind: 'table' }),
+      makeEntry({ id: 'failed', jobId: null, fileName: 'broken.csv', status: 'upload-failed', error: 'Unsupported file' }),
+    ]} onReset={vi.fn()} onOutcomeChange={onOutcomeChange} />);
+
+    expect(screen.getByText('complete.partialTitle')).toBeInTheDocument();
+    expect(screen.getByText('Unsupported file')).toBeInTheDocument();
+    await waitFor(() => expect(onOutcomeChange).toHaveBeenCalledWith('partial', ['table']));
+  });
+
+  it('keeps failed jobs and retry controls visible while another job runs', () => {
+    mockUseQueries.mockReturnValue([
+      { data: { status: 'failed', dataset_id: null, source_filename: 'broken.csv' } },
+      { data: { status: 'running', dataset_id: null, source_filename: 'pending.csv' } },
+    ] as never);
+    render(<BulkTrackingList entries={[
+      makeEntry({ id: 'failed', jobId: 'job-1', fileName: 'broken.csv' }),
+      makeEntry({ id: 'running', jobId: 'job-2', fileName: 'pending.csv' }),
+    ]} onReset={vi.fn()} />);
+
+    expect(screen.getByTestId('job-progress-job-1')).toBeInTheDocument();
+    expect(within(screen.getByTestId('job-progress-job-1')).getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(screen.getByTestId('job-progress-job-2')).toBeInTheDocument();
+    expect(screen.getByText('0 complete · 1 failed · 1 in progress · 0 queued')).toBeInTheDocument();
   });
 
   it('surfaces completed datasets in the summary while keeping only active jobs in the main list', () => {

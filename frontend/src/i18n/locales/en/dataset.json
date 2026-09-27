@@ -339,6 +339,10 @@
   },
   "quality": {
     "title": "Quality Score",
+    "assessedAt": "Quality assessed {{date}} ({{age}})",
+    "assessmentVsSource": "This date is for the quality assessment. See Source for when the dataset was updated and its source freshness.",
+    "scoreExplanation": "The overall score combines available quality dimensions. Percentages show each dimension’s share.",
+    "metadataExplanation": "Quality metadata completeness counts populated optional record fields (10 total). Metadata validation progress uses a separate check.",
     "metadataCompleteness": "Metadata Completeness",
     "geometryValidity": "Geometry Validity",
     "attributeCompleteness": "Attribute Completeness",
@@ -348,24 +352,25 @@
       "absolute": "Last checked {{date}}",
       "relative": "Checked {{relative}}",
       "cadence": "Expected {{cadence}} refresh cadence.",
-      "cadenceDaily": "Expected daily refresh cadence.",
-      "cadenceWeekly": "Expected weekly refresh cadence.",
-      "cadenceMonthly": "Expected monthly refresh cadence.",
-      "cadenceQuarterly": "Expected quarterly refresh cadence.",
-      "cadenceAnnually": "Expected annual refresh cadence.",
-      "cadenceUnknown": "Cadence is unknown; confirm the refresh schedule.",
+      "cadenceDaily": "Assessment recency uses the stated daily update cadence.",
+      "cadenceWeekly": "Assessment recency uses the stated weekly update cadence.",
+      "cadenceMonthly": "Assessment recency uses the stated monthly update cadence.",
+      "cadenceQuarterly": "Assessment recency uses the stated quarterly update cadence.",
+      "cadenceAnnually": "Assessment recency uses the stated annual update cadence.",
+      "cadenceUnknown": "No periodic cadence is set; assessment recency uses a 45-day reference.",
       "state": {
-        "fresh": "Fresh",
-        "stale": "Stale",
-        "missing": "Freshness missing"
+        "fresh": "Assessment recent",
+        "stale": "Assessment due",
+        "missing": "No assessment date"
       },
       "remediation": {
-        "fresh": "No immediate refresh action required.",
-        "stale": "Recompute quality metrics and verify recent source updates were ingested.",
-        "missing": "Run quality validation to generate a freshness timestamp."
+        "fresh": "No assessment action needed.",
+        "stale": "Recompute the quality assessment to check the current dataset.",
+        "missing": "Run quality validation to create an assessment date."
       },
       "notAvailable": "Not available",
-      "unknownAge": "Unknown age"
+      "unknownAge": "Unknown age",
+      "readOnlyGuidance": "Ask the dataset owner or a contact listed above to update the quality assessment."
     }
   },
   "serviceUrls": {
@@ -484,6 +489,7 @@
     "helperWarnings": "{{warningCount}} warning(s) found. Review likely causes before publishing.",
     "likelyCompact": "Likely:",
     "troubleshootAction": "Troubleshoot",
+    "readOnlyGuidance": "Ask the dataset owner or a contact listed above to address these validation issues.",
     "health": {
       "title": "Dataset Health",
       "required": "Required {{count}}",
@@ -546,12 +552,15 @@
     "editingDisabled": "Attribute editing is disabled for this deployment."
   },
   "distributions": {
-    "title": "Access Points",
+    "title": "Downloads and connections",
     "download": "Downloads",
     "api": "API Endpoints",
     "tiles": "Tile Services",
     "other": "Additional Access",
-    "noDistributions": "No distributions available.",
+    "noDistributions": "No additional downloads or services are listed here.",
+    "connectWithClient": "Connect with QGIS, Python, or curl",
+    "otherFormats": "Download another format",
+    "accessPermissions": "Who can access this dataset",
     "auto": "auto",
     "primary": "Primary",
     "copyUrl": "Copy URL",
@@ -680,6 +689,9 @@
     "nodata": "Nodata",
     "ogcApiFeatures": "OGC API Features",
     "percentComplete": "{{percent}}% complete",
+    "validationProgress": "Validation checks clear: {{percent}}%",
+    "validationProgressHelp": "Estimate based on 12 baseline checks minus reported errors and warnings. The quality metadata score counts optional fields separately.",
+    "askMaintainer": "Ask the dataset owner or a contact listed below to fill in {{field}}",
     "rasterProperties": "Raster Properties",
     "recommendedCount_one": "{{count}} recommended",
     "recommendedCount_other": "{{count}} recommended",

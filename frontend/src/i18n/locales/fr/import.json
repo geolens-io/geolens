@@ -114,7 +114,13 @@
     "temporalParseErrors": {
       "title": "Champs temporels supprimés",
       "description": "Les valeurs temporelles suivantes n'ont pas pu être analysées comme des dates ISO-8601 et ont été supprimées. Saisissez-les à nouveau dans l'éditeur de métadonnées du jeu de données pour les restaurer."
-    }
+    },
+    "compactSummary_one": "{{count}} avertissement d’importation · Voir les détails",
+    "compactSummary_other": "{{count}} avertissements d’importation · Voir les détails",
+    "compactDataLoss_one": "{{count}} avertissement sur les données · Certaines données ont pu changer · Voir les détails",
+    "compactDataLoss_other": "{{count}} avertissements sur les données · Certaines données ont pu changer · Voir les détails",
+    "compactArchiveFailure_one": "{{count}} avertissement d’importation · Fichier original indisponible · Voir les détails",
+    "compactArchiveFailure_other": "{{count}} avertissements d’importation · Fichier original indisponible · Voir les détails"
   },
   "dropzone": {
     "ariaLabel": "Téléverser des fichiers",
@@ -498,7 +504,8 @@
     "tilesetActionSummary": "{{files}} · {{tilesets}}",
     "pointcloudSummary": "{{points}} points · {{crs}} · {{size}}",
     "pointcloudCount_one": "{{value}} nuage de points",
-    "pointcloudCount_other": "{{value}} nuages de points"
+    "pointcloudCount_other": "{{value}} nuages de points",
+    "singleActionHint": "Vérifiez les paramètres ci-dessus, puis importez ce jeu de données."
   },
   "detect": {
     "rasterInfo": "Infos raster",
@@ -570,7 +577,13 @@
     "detectingHint": "Chargement & détection…",
     "importingFiles": "Importation de {{count}} fichiers",
     "progressDetail": "{{done}} terminé · {{active}} en cours · {{queued}} en attente",
-    "uploadProgressLabel": "Progression du téléversement de {{name}}"
+    "uploadProgressLabel": "Progression du téléversement de {{name}}",
+    "toggleDetails": "Afficher ou masquer les détails de {{name}}",
+    "removeNamedFile": "Supprimer {{name}}",
+    "defaultsConfirmTitle": "Importer le lot avec les valeurs par défaut ?",
+    "defaultsConfirmDescription": "Les noms de fichier et la visibilité privée seront utilisés. Toutes les modifications des formulaires de vérification, notamment les noms, descriptions, visibilité, géométrie, SCR et paramètres raster, seront ignorées. Chaque fichier multicouche importe uniquement la couche sélectionnée.",
+    "confirmDefaults": "Importer avec les valeurs par défaut",
+    "progressDetailWithFailures": "{{done}} terminés · {{failed}} en échec ou annulés · {{active}} en cours · {{queued}} en attente"
   },
   "eyebrow": "Importer",
   "pageDescription": "Chargez des fichiers, enregistrez des tables depuis votre Postgres ou connectez un service distant. GeoLens détecte la géométrie, le schéma et le SCR, puis rend les données interrogeables, stylisables et intégrables.",
@@ -590,7 +603,12 @@
     "importMore": "Importer davantage",
     "aiMetadata": "Ajouter des métadonnées IA",
     "statPointClouds": "Nuages de points",
-    "heroDescPointClouds": "Prêt à ouvrir dans un client COPC. L’URL du fichier figure dans l’onglet Accès du jeu de données."
+    "heroDescPointClouds": "Prêt à ouvrir dans un client COPC. L’URL du fichier figure dans l’onglet Accès du jeu de données.",
+    "partialTitle": "{{completed}} jeux de données ajoutés · {{failed}} en échec ou annulés",
+    "partialDesc": "Certaines importations ne sont pas terminées. Consultez les tâches en échec et ouvrez les jeux de données disponibles.",
+    "heroDescTables": "Les lignes et le schéma peuvent être interrogés et réutilisés. Les tables non spatiales n’ont pas d’aperçu cartographique.",
+    "heroDescMixed": "Les jeux de données sont dans le catalogue. Ouvrez chacun pour consulter ses données et ses options d’accès.",
+    "failedJobs": "Tâches en échec ou annulées"
   },
   "rail": {
     "stageTitle": "Préparer les fichiers",
@@ -598,7 +616,7 @@
     "reviewTitle": "Examiner la détection",
     "reviewDesc": "Confirmez le type de géométrie, le SCR, le schéma et l'aperçu pour chaque fichier.",
     "importTitle": "Importer et cataloguer",
-    "importDesc": "Tuiler, indexer, publier; les jeux de données apparaissent immédiatement dans le catalogue.",
+    "importDesc": "Prépare chaque jeu de données selon son type et l’ajoute au catalogue.",
     "workflow": "Flux de travail",
     "whatImported": "Ce qui est importé",
     "vectorLabel": "Vecteur",
@@ -628,7 +646,15 @@
     "urlNote": "L'URL est validée et limitée en taille avant le téléchargement · les données sont copiées dans GeoLens",
     "compareUrl": "Le chargement envoie un fichier depuis votre machine. URL de fichier le récupère sur le web : même vérification, même résultat, sans téléchargement local.",
     "tiles3dLabel": "3D Tiles",
-    "tiles3dDesc": "décompressé et servi tel quel aux clients 3D Tiles."
+    "tiles3dDesc": "décompressé et servi tel quel aux clients 3D Tiles.",
+    "partialDesc": "Certaines importations ont échoué ou été annulées. Consultez les détails des tâches.",
+    "partialStatus": "À vérifier",
+    "completeTableDesc": "Lignes et schéma prêts à être interrogés et réutilisés ; pas d’aperçu cartographique.",
+    "completeTilesetDesc": "Ouvrez l’onglet Accès pour obtenir l’URL du client 3D Tiles.",
+    "completePointCloudDesc": "Ouvrez l’onglet Accès pour obtenir l’URL du fichier COPC.",
+    "completeDesc": "Les jeux de données terminés sont dans le catalogue.",
+    "pointcloudLabel": "Nuage de points COPC",
+    "pointcloudDesc": "accessible aux clients COPC externes ; pas d’aperçu cartographique."
   },
   "status": {
     "uploading": "Téléversement",

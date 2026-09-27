@@ -73,7 +73,7 @@ test.describe('Upload Flow', () => {
     // layer name (e.g. "<uuid>_sample") also contains "sample" as a
     // substring, and a bare text match against both is ambiguous.
     await expect(
-      page.getByRole('button', { name: /sample\.geojson/i }),
+      page.getByRole('button', { name: 'Show or hide details for sample.geojson', exact: true }),
     ).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText('Using embedded geometry')).toBeVisible({ timeout: 30_000 });
   });

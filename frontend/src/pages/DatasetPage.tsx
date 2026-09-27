@@ -15,6 +15,7 @@ import { useFeatureGid } from '@/components/dataset/hooks/use-feature-gid';
 import { useHeroState } from '@/components/dataset/hooks/use-hero-state';
 import { useFeatureFlags } from '@/hooks/use-settings';
 import { useCanMutate } from '@/hooks/use-can-mutate';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useAuthStore } from '@/stores/auth-store';
 import { useDrawingStore } from '@/stores/drawing-store';
 import { DatasetDeleteDialog } from '@/components/dataset/DatasetDeleteDialog';
@@ -172,6 +173,7 @@ function TableHero() {
 
 export function DatasetPage() {
   const { t } = useTranslation('dataset');
+  const { can } = usePermissions();
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
   const { data: dataset, isLoading, error, refetch } = useDataset(id ?? '', {
@@ -544,7 +546,7 @@ export function DatasetPage() {
         statsLine={statsLine}
         leadingContent={
           <div className="flex items-center gap-2">
-            {canAddToMap && isEditor && <AddToMapButton datasetId={dataset.id} datasetTitle={dataset.title} />}
+            {canAddToMap && can('edit_metadata') && <AddToMapButton datasetId={dataset.id} datasetTitle={dataset.title} />}
             {!token && (canAddToMap || isTable) && (
               <AuthPrompt
                 action={
@@ -567,12 +569,9 @@ export function DatasetPage() {
         }
       />
 
-      {/* S3: persistent ingest warnings (reserved renames, DBF collisions,
-          archive failures, temporal parse errors). Rendered permanently for
-          successfully-completed jobs only — a failed re-import may have
-          partially-recorded warnings that don't apply to the live dataset. */}
+      {/* Failed re-import warnings may not describe the live dataset. */}
       {datasetJob?.status === 'complete' && (
-        <IngestWarningsBanner job={datasetJob} className="mb-3" />
+        <IngestWarningsBanner key={datasetJob.id} job={datasetJob} compact className="mb-3" />
       )}
 
       {/* Hero Data Grid for table datasets (no map) */}

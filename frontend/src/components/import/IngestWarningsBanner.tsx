@@ -1,4 +1,5 @@
-import { AlertTriangle } from 'lucide-react';
+import { useId, useState } from 'react';
+import { AlertTriangle, ChevronDown } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { IngestJobWarning, JobStatusResponse } from '@/types/api';
 
@@ -8,6 +9,7 @@ interface IngestWarningsBannerProps {
     'warnings' | 'archive_failed' | 'temporal_parse_errors'
   >;
   className?: string;
+  compact?: boolean;
 }
 
 function ReservedRenameBody({
@@ -93,22 +95,24 @@ function MercatorClipBody({
   );
 }
 
-/**
- * Surface structured ingest warnings to the user. Rendered on the upload
- * success screen (JobProgress) so operators can see silent pipeline rewrites
- * (reserved-name renames, Shapefile DBF truncation, etc.) and fix their
- * source data before re-uploading. S3 follow-up from post-impl audit.
- */
 export function IngestWarningsBanner({
   job,
   className,
+  compact = false,
 }: IngestWarningsBannerProps) {
   const { t } = useTranslation('import');
+  const [expanded, setExpanded] = useState(!compact);
+  const detailsId = useId();
   const warnings = job.warnings ?? [];
   const temporalErrors = job.temporal_parse_errors ?? {};
   const hasTemporalErrors = Object.keys(temporalErrors).length > 0;
   const hasAny =
     warnings.length > 0 || job.archive_failed || hasTemporalErrors;
+  const count = warnings.length + Number(!!job.archive_failed) + Number(hasTemporalErrors);
+  const hasDataLoss = warnings.some((warning) =>
+    warning.kind === 'dbf_truncation_collision' ||
+    (warning.kind === 'mercator_clip' && warning.details.dropped_features > 0),
+  ) || hasTemporalErrors;
 
   if (!hasAny) {
     return null;
@@ -130,55 +134,70 @@ export function IngestWarningsBanner({
           aria-hidden="true"
         />
         <div className="flex-1 space-y-3">
-          <p className="font-semibold">{t('warnings.bannerTitle')}</p>
-          {warnings.map((warning, idx) => {
-            if (warning.kind === 'reserved_rename') {
-              return (
-                <ReservedRenameBody
-                  key={`reserved-${idx}`}
-                  warning={warning}
-                />
-              );
-            }
-            if (warning.kind === 'dbf_truncation_collision') {
-              return (
-                <DbfTruncationBody key={`dbf-${idx}`} warning={warning} />
-              );
-            }
-            if (warning.kind === 'mercator_clip') {
-              return (
-                <MercatorClipBody key={`mercator-${idx}`} warning={warning} />
-              );
-            }
-            return null;
-          })}
-          {job.archive_failed && (
-            <div className="space-y-1">
-              <p className="font-medium">{t('warnings.archiveFailed.title')}</p>
-              <p className="text-xs text-muted-foreground">
-                {t('warnings.archiveFailed.description')}
-              </p>
-            </div>
-          )}
-          {hasTemporalErrors && (
-            <div className="space-y-1">
-              <p className="font-medium">
-                {t('warnings.temporalParseErrors.title')}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {t('warnings.temporalParseErrors.description')}
-              </p>
-              <ul className="mt-1 list-disc ps-4 text-xs">
-                {Object.entries(temporalErrors).map(([field, rawValue]) => (
-                  <li key={field}>
-                    <code className="font-mono">{field}</code>
-                    {': '}
-                    <code className="font-mono">{rawValue}</code>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+          {compact ? (
+            <button
+              type="button"
+              aria-expanded={expanded}
+              aria-controls={detailsId}
+              onClick={() => setExpanded((value) => !value)}
+              className="flex w-full items-center justify-between gap-2 rounded-sm text-start font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <span>{job.archive_failed
+                ? t('warnings.compactArchiveFailure', { count })
+                : t(hasDataLoss ? 'warnings.compactDataLoss' : 'warnings.compactSummary', { count })}</span>
+              <ChevronDown className={`size-4 shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} aria-hidden="true" />
+            </button>
+          ) : <p className="font-semibold">{t('warnings.bannerTitle')}</p>}
+          <div id={detailsId} hidden={!expanded} className="space-y-3">
+            {warnings.map((warning, idx) => {
+              if (warning.kind === 'reserved_rename') {
+                return (
+                  <ReservedRenameBody
+                    key={`reserved-${idx}`}
+                    warning={warning}
+                  />
+                );
+              }
+              if (warning.kind === 'dbf_truncation_collision') {
+                return (
+                  <DbfTruncationBody key={`dbf-${idx}`} warning={warning} />
+                );
+              }
+              if (warning.kind === 'mercator_clip') {
+                return (
+                  <MercatorClipBody key={`mercator-${idx}`} warning={warning} />
+                );
+              }
+              return null;
+            })}
+            {job.archive_failed && (
+              <div className="space-y-1">
+                <p className="font-medium">{t('warnings.archiveFailed.title')}</p>
+                <p className="text-xs text-muted-foreground">
+                  {t('warnings.archiveFailed.description')}
+                </p>
+              </div>
+            )}
+            {hasTemporalErrors && (
+              <div className="space-y-1">
+                <p className="font-medium">
+                  {t('warnings.temporalParseErrors.title')}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {t('warnings.temporalParseErrors.description')}
+                </p>
+                <ul className="mt-1 list-disc ps-4 text-xs">
+                  {Object.entries(temporalErrors).map(([field, rawValue]) => (
+                    <li key={field}>
+                      <code className="font-mono">{field}</code>
+                      {': '}
+                      <code className="font-mono">{rawValue}</code>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

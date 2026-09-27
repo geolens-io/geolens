@@ -208,7 +208,7 @@ function ApiSnippet({
     <section>
       <div className="flex items-baseline justify-between mb-3">
         <h2 className="text-base font-semibold tracking-tight">
-          {t('overview.apiTitle', { defaultValue: 'Access via API' })}
+          {t('distributions.connectWithClient')}
         </h2>
         <span className="font-mono text-mini text-muted-foreground tracking-wide">
           {t('overview.ogcApiFeatures', { defaultValue: 'OGC API Features' })}
@@ -226,7 +226,7 @@ function ApiSnippet({
                 : 'bg-transparent text-muted-foreground hover:text-foreground',
             )}
           >
-            {tab}
+            {tab === 'qgis' ? 'QGIS' : tab === 'python' ? 'Python' : 'curl'}
           </button>
         ))}
       </div>
@@ -361,7 +361,7 @@ export function AccessTab({ dataset, canEdit = false }: AccessTabProps) {
 
   return (
     <>
-      {/* Distributions */}
+      {/* Downloads and service endpoints */}
       {showDistributions && (
         <Card>
           <CardHeader>
@@ -374,6 +374,12 @@ export function AccessTab({ dataset, canEdit = false }: AccessTabProps) {
               <p className="text-sm text-muted-foreground">
                 {t('distributions.noDistributions')}
               </p>
+            )}
+            {featureTable && (
+              <div className="mt-4 border-t pt-4 space-y-2">
+                <h3 className="text-sm font-medium">{t('distributions.otherFormats')}</h3>
+                <ExportButton datasetId={dataset.id} datasetName={dataset.title} recordType={dataset.record_type} />
+              </div>
             )}
             {/* XYZ Tile URL for raster/VRT datasets */}
             {tileToken === 'raster' && dataset.raster?.connect?.tile_url && (
@@ -404,21 +410,12 @@ export function AccessTab({ dataset, canEdit = false }: AccessTabProps) {
         />
       )}
 
-      {/* Export -- vector datasets only */}
-      {featureTable && (
-        <Card>
-          <CardHeader>
-            <CardTitle level={2} className="text-base">{t('page.export')}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ExportButton datasetId={dataset.id} datasetName={dataset.title} recordType={dataset.record_type} />
-          </CardContent>
-        </Card>
-      )}
-
       {/* Visibility */}
       <Card>
-        <CardContent className="pt-6">
+        <CardHeader>
+          <CardTitle level={2} className="text-base">{t('distributions.accessPermissions')}</CardTitle>
+        </CardHeader>
+        <CardContent>
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium text-muted-foreground">
               {t('metadata.visibility')}:

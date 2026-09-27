@@ -1165,6 +1165,7 @@ class MapSummaryResponse(BaseModel):
     created_by_username: str | None = None
     created_at: datetime
     updated_at: datetime
+    created_by: uuid.UUID | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

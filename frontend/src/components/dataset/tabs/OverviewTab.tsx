@@ -231,7 +231,12 @@ export function OverviewTab({
             <SideKV label={t('overview.maintainer', { defaultValue: 'Maintainer' })} value={createdByIdentity} />
             <SideKV label={t('overview.created', { defaultValue: 'Created' })} value={formatDate(dataset.created_at)} mono />
             {dataset.update_frequency && (
-              <SideKV label={t('overview.cadence', { defaultValue: 'Cadence' })} value={dataset.update_frequency} />
+              <SideKV
+                label={t('overview.cadence')}
+                value={t(`iso.updateFrequencyOptions.${dataset.update_frequency}`, {
+                  defaultValue: dataset.update_frequency,
+                })}
+              />
             )}
           </div>
           {canEdit && onTabChange && (

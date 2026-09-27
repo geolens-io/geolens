@@ -53,6 +53,7 @@ export async function listMaps(
     sort_by?: string;
     sort_dir?: string;
     visibility?: string;
+    owned_only?: boolean;
   } = {},
 ): Promise<MapListResponse> {
   const query = new URLSearchParams();
@@ -62,6 +63,7 @@ export async function listMaps(
   if (params.sort_by) query.set('sort_by', params.sort_by);
   if (params.sort_dir) query.set('sort_dir', params.sort_dir);
   if (params.visibility) query.set('visibility', params.visibility);
+  if (params.owned_only !== undefined) query.set('owned_only', String(params.owned_only));
   const qs = query.toString();
   return apiFetch<MapListResponse>(`/maps/${qs ? `?${qs}` : ''}`);
 }

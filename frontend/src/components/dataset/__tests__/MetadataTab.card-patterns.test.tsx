@@ -1,8 +1,9 @@
 import { render, screen } from '@/test/test-utils';
 import { MetadataTab } from '../tabs/MetadataTab';
+import { useValidation } from '@/components/dataset/hooks/use-dataset';
 
 vi.mock('@/components/dataset/hooks/use-dataset', () => ({
-  useValidation: () => ({ data: null }),
+  useValidation: vi.fn(),
 }));
 
 vi.mock('@/stores/auth-store', () => ({
@@ -42,6 +43,10 @@ vi.mock('@/components/dataset/ChangeHistory', () => ({ ChangeHistory: () => null
 vi.mock('@/components/dataset/tabs/SourceQualityTab', () => ({ SourceQualityTab: () => null }));
 
 describe('MetadataTab card header patterns', () => {
+  beforeEach(() => {
+    vi.mocked(useValidation).mockReturnValue({ data: null } as unknown as ReturnType<typeof useValidation>);
+  });
+
   it('uses level-two section titles and the shared action slot for AI assistance', () => {
     render(
       <MetadataTab
@@ -60,5 +65,29 @@ describe('MetadataTab card header patterns', () => {
     expect(
       screen.getByRole('button', { name: 'AI assist' }).closest('[data-slot="card-action"]'),
     ).toBeInTheDocument();
+  });
+
+  it('explains validation progress and gives a reader a maintainer action', () => {
+    vi.mocked(useValidation).mockReturnValue({
+      data: {
+        errors: [{ field: 'lineage_summary', message: 'Required', severity: 'error' }],
+        warnings: [],
+      },
+    } as unknown as ReturnType<typeof useValidation>);
+    render(
+      <MetadataTab
+        dataset={{ id: 'dataset-1', record_id: 'record-1' } as never}
+        canEdit={false}
+        capabilities={{} as never}
+        draftValues={{} as never}
+        onDraftSave={vi.fn()}
+        onDraftDirtyChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Validation checks clear: 92%')).toBeInTheDocument();
+    expect(screen.getByText(/12 baseline checks minus reported errors and warnings/)).toBeInTheDocument();
+    expect(screen.getByText(/Ask the dataset owner.*Lineage/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Next: fill in/ })).not.toBeInTheDocument();
   });
 });

@@ -40,7 +40,7 @@ import { allowedTilesetExtensions, inferImportedKind, isFilePreview, stripExtens
 import { UploadKindChoice } from './UploadKindChoice';
 import { BulkReviewList } from './BulkReviewList';
 import { BulkTrackingList } from './BulkTrackingList';
-import type { FileEntry, BatchPhase, CommitImportRequest, UploadKind } from '@/types/api';
+import type { FileEntry, BatchPhase, CommitImportRequest, UploadKind, DataKind } from '@/types/api';
 import { ApiError } from '@/api/client';
 import { randomId } from '@/lib/random-id';
 
@@ -150,9 +150,10 @@ function isUploadInFlight(e: { status: string }): boolean {
 
 interface UploadFormProps {
   onPhaseChange?: (phase: BatchPhase) => void;
+  onOutcomeChange?: (outcome: 'complete' | 'partial' | null, kinds: DataKind[]) => void;
 }
 
-export function UploadForm({ onPhaseChange }: UploadFormProps) {
+export function UploadForm({ onPhaseChange, onOutcomeChange }: UploadFormProps) {
   const { t } = useTranslation('import');
   const queryClient = useQueryClient();
   const [phase, _setPhase] = useState<BatchPhase>('idle');
@@ -603,7 +604,7 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
   }
 
   if (phase === 'tracking') {
-    return <BulkTrackingList entries={entries} onReset={reset} autoOpenVrt={autoOpenVrt} />;
+    return <BulkTrackingList entries={entries} onReset={reset} autoOpenVrt={autoOpenVrt} onOutcomeChange={onOutcomeChange} />;
   }
 
   // idle. The dropzone stays enabled while the quota query fetches — disabling

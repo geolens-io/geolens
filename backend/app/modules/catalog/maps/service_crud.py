@@ -360,19 +360,23 @@ async def list_maps(
     sort_by: str = "updated_at",
     sort_dir: str = "desc",
     visibility: str | None = None,
+    owned_only: bool = False,
 ) -> tuple[list[dict], int]:
     """List maps with layer counts, filtered by visibility rules.
 
-    - Admins see ALL maps (no filter).
+    - Admins can see every map; explicit filters still apply.
     - Authenticated non-admin users see: their own private maps + all internal + all public.
     - If user_roles is omitted, treats user as non-admin (still sees own + internal + public).
     - search: ILIKE filter on name and description.
     - sort_by: name, created_at, updated_at (default). Unknown values fall back to updated_at.
     - sort_dir: asc or desc.
     - visibility: additional filter on Map.visibility (additive on top of RBAC).
+    - owned_only: restrict to the caller's maps; anonymous callers get no maps.
 
     Returns (list of dicts with map fields + layer_count + created_by_username, total).
     """
+    if owned_only and user_id is None:
+        return [], 0
     if user_roles is None:
         user_roles = set()
 
@@ -382,6 +386,8 @@ async def list_maps(
         return _apply_map_visibility_filter(stmt, user_id, is_admin)
 
     def _apply_extra_filters(stmt: Select) -> Select:
+        if owned_only:
+            stmt = stmt.where(Map.created_by == user_id)
         if search:
             # Escape \, %, _ via
             # escape_ilike() before composing the pattern (backslash
@@ -451,6 +457,7 @@ async def list_maps(
                 else None,
                 "thumbnail_updated_at": map_obj.thumbnail_updated_at,
                 "layer_count": layer_counts.get(map_obj.id, 0),
+                "created_by": map_obj.created_by,
                 "created_by_username": row[1],
                 "created_at": map_obj.created_at,
                 "updated_at": map_obj.updated_at,

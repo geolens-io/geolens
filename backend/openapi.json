@@ -11189,6 +11189,18 @@
             "format": "date-time",
             "title": "Updated At",
             "type": "string"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
           }
         },
         "required": [
@@ -46628,7 +46640,7 @@
     },
     "/maps/": {
       "get": {
-        "description": "List maps. Admins see all; authenticated users see own + internal + public; anonymous see public only.\n\nSupports search (ILIKE on name+description), sort_by (name/created_at/updated_at),\nsort_dir (asc/desc), and visibility filter (private/internal/public).",
+        "description": "List maps. Admins see all; authenticated users see own + internal + public; anonymous see public only.\n\nSupports search (ILIKE on name+description), sort_by (name/created_at/updated_at),\nsort_dir (asc/desc), and visibility filter (private/internal/public).\nowned_only restricts results to the caller's maps; anonymous callers get no maps.",
         "operationId": "list_maps_endpoint_maps__get",
         "parameters": [
           {
@@ -46713,6 +46725,16 @@
                 }
               ],
               "title": "Visibility"
+            }
+          },
+          {
+            "in": "query",
+            "name": "owned_only",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Owned Only",
+              "type": "boolean"
             }
           }
         ],

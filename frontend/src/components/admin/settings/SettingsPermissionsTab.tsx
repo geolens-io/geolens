@@ -79,15 +79,15 @@ export function SettingsPermissionsTab({ settings, envOnly, onSave, onReset, isS
   }
 
   return (
-    <Card>
+    <Card className="min-w-0">
       <CardHeader>
         <CardTitle level={2}>{t('settings.permissions.title')}</CardTitle>
         <CardDescription>
           {t('settings.permissions.description')}
         </CardDescription>
       </CardHeader>
-      <CardContent>
-        <div className="overflow-x-auto">
+      <CardContent className="min-w-0">
+        <div className="min-w-0 max-w-full">
           <Table aria-label={t('settings.permissions.title')}>
             <TableHeader>
               <TableRow>
@@ -128,7 +128,7 @@ export function SettingsPermissionsTab({ settings, envOnly, onSave, onReset, isS
           </Table>
         </div>
 
-        <div className="flex items-center gap-3 pt-4">
+        <div className="flex flex-col items-stretch gap-3 pt-4 sm:flex-row sm:flex-wrap sm:items-center">
           <Button onClick={handleSave} disabled={!isDirty || envOnly || isSaving}>
             {isSaving ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : null}
             {t('common:save')}

@@ -59,11 +59,12 @@ export function useUserList(params: {
   });
 }
 
-export function useUserNames() {
+export function useUserNames(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: queryKeys.admin.userNames,
     queryFn: listUserNames,
     staleTime: 60_000,
+    enabled: options?.enabled,
   });
 }
 

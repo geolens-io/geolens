@@ -711,7 +711,7 @@ describe('#1831 publish blocked by non-public datasets', () => {
     const publishMapFn = vi.fn().mockRejectedValue(nonPublicDatasetsRefusal('Large Lakes'));
     setup({ visibility: 'private', publishMapFn });
 
-    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+    await user.click(screen.getByRole('radio', { name: /^Public/ }));
     await user.click(screen.getByRole('button', { name: /^make public$/i }));
 
     await waitFor(() => {
@@ -725,7 +725,7 @@ describe('#1831 publish blocked by non-public datasets', () => {
     // The toggle stays on its previous value — the mutation never resolved,
     // so nothing "snaps back": it never moved in the first place.
     expect(screen.getByRole('radio', { name: /only you/i })).toHaveAttribute('aria-checked', 'true');
-    expect(screen.getByRole('radio', { name: /anyone with the link/i })).toHaveAttribute(
+    expect(screen.getByRole('radio', { name: /^Public/ })).toHaveAttribute(
       'aria-checked',
       'false',
     );
@@ -739,7 +739,7 @@ describe('#1831 publish blocked by non-public datasets', () => {
     const publishMapFn = vi.fn().mockRejectedValue(nonPublicDatasetsRefusal('Large Lakes'));
     setup({ visibility: 'private', publishMapFn });
 
-    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+    await user.click(screen.getByRole('radio', { name: /^Public/ }));
     await user.click(screen.getByRole('button', { name: /^make public$/i }));
 
     await waitFor(() => {
@@ -755,7 +755,7 @@ describe('#1831 publish blocked by non-public datasets', () => {
     const publishMapFn = vi.fn().mockResolvedValue({});
     setup({ visibility: 'private', publishMapFn });
 
-    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+    await user.click(screen.getByRole('radio', { name: /^Public/ }));
     await user.click(screen.getByRole('button', { name: /^make public$/i }));
 
     await waitFor(() => expect(publishMapFn).toHaveBeenCalled());
@@ -1303,7 +1303,7 @@ describe('fix(#778) public-boundary visibility confirmation', () => {
       hasShareToken: false,
     });
 
-    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+    await user.click(screen.getByRole('radio', { name: /^Public/ }));
 
     // Dialog is open, nothing has mutated yet.
     const dialog = await screen.findByRole('alertdialog');
@@ -1325,7 +1325,7 @@ describe('fix(#778) public-boundary visibility confirmation', () => {
     const user = userEvent.setup();
     const { publishMapFn } = setup({ visibility: 'private', hasShareToken: false });
 
-    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+    await user.click(screen.getByRole('radio', { name: /^Public/ }));
     await screen.findByRole('alertdialog');
 
     await user.click(screen.getByRole('button', { name: /^cancel$/i }));
@@ -1339,7 +1339,7 @@ describe('fix(#778) public-boundary visibility confirmation', () => {
       'aria-checked',
       'true',
     );
-    expect(screen.getByRole('radio', { name: /anyone with the link/i })).toHaveAttribute(
+    expect(screen.getByRole('radio', { name: /^Public/ })).toHaveAttribute(
       'aria-checked',
       'false',
     );
@@ -1416,7 +1416,7 @@ describe('#2297 public confirm defers to the server publish check', () => {
       layers: [privateLayer],
     });
 
-    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+    await user.click(screen.getByRole('radio', { name: /^Public/ }));
 
     const dialog = await screen.findByRole('alertdialog');
     await waitFor(() => {
@@ -1441,7 +1441,7 @@ describe('#2297 public confirm defers to the server publish check', () => {
       hasNonPublic: false,
     });
 
-    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+    await user.click(screen.getByRole('radio', { name: /^Public/ }));
 
     const dialog = await screen.findByRole('alertdialog');
     expect(dialog.className).toEqual(expect.stringContaining('max-h-[calc(100dvh-2rem)]'));
@@ -1463,7 +1463,7 @@ describe('#2297 public confirm defers to the server publish check', () => {
     });
     mockedCheckMapVisibility.mockResolvedValue({ has_non_public: true, non_public_datasets: rawNames });
 
-    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+    await user.click(screen.getByRole('radio', { name: /^Public/ }));
 
     const dialog = await screen.findByRole('alertdialog');
     await waitFor(() => {
@@ -1495,7 +1495,7 @@ describe('#2297 public confirm defers to the server publish check', () => {
     mockedCheckMapVisibility.mockRejectedValueOnce(new Error('network error'));
     mockedCheckMapVisibility.mockResolvedValueOnce({ has_non_public: false, non_public_datasets: [] });
 
-    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+    await user.click(screen.getByRole('radio', { name: /^Public/ }));
 
     const dialog = await screen.findByRole('alertdialog');
     await waitFor(() => {
@@ -1533,7 +1533,7 @@ describe('#2297 public confirm defers to the server publish check', () => {
       }),
     );
 
-    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+    await user.click(screen.getByRole('radio', { name: /^Public/ }));
     await screen.findByRole('alertdialog');
 
     // The check has not resolved yet — a spinner alone would leave the
@@ -1553,7 +1553,7 @@ describe('#2297 public confirm defers to the server publish check', () => {
       hasNonPublic: false,
     });
 
-    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+    await user.click(screen.getByRole('radio', { name: /^Public/ }));
     await screen.findByRole('alertdialog');
 
     const makePublicButton = await screen.findByRole('button', { name: /^make public$/i });
@@ -1599,7 +1599,7 @@ describe('#2297 public confirm defers to the server publish check', () => {
       hasShareToken: false,
     });
 
-    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+    await user.click(screen.getByRole('radio', { name: /^Public/ }));
     await screen.findByRole('alertdialog');
 
     // The Share dialog stays mounted (e.g. router reuse on Back) while
@@ -1636,7 +1636,7 @@ describe('#2297 public confirm defers to the server publish check', () => {
       publishMapFn,
     });
 
-    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+    await user.click(screen.getByRole('radio', { name: /^Public/ }));
     const makePublicButton = await screen.findByRole('button', { name: /^make public$/i });
     await waitFor(() => expect(makePublicButton).toBeEnabled());
     await user.click(makePublicButton);
@@ -1669,7 +1669,7 @@ describe('#2297 public confirm defers to the server publish check', () => {
       publishMapFn,
     });
 
-    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+    await user.click(screen.getByRole('radio', { name: /^Public/ }));
     const makePublicButton = await screen.findByRole('button', { name: /^make public$/i });
     await waitFor(() => expect(makePublicButton).toBeEnabled());
     await user.click(makePublicButton);
@@ -1708,7 +1708,7 @@ describe('#2297 public confirm defers to the server publish check', () => {
       publishMapFn,
     });
 
-    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+    await user.click(screen.getByRole('radio', { name: /^Public/ }));
     const makePublicButton = await screen.findByRole('button', { name: /^make public$/i });
     await waitFor(() => expect(makePublicButton).toBeEnabled());
     await user.click(makePublicButton);
@@ -1813,7 +1813,7 @@ describe('StrictMode: mount must leave isMountedRef true', () => {
       publishMapFn,
     });
 
-    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+    await user.click(screen.getByRole('radio', { name: /^Public/ }));
     const makePublicButton = await screen.findByRole('button', { name: /^make public$/i });
     await waitFor(() => expect(makePublicButton).toBeEnabled());
     await user.click(makePublicButton);

@@ -24,6 +24,7 @@ def _get_kwargs(
     sort_by: ListMapsEndpointMapsGetSortBy | Unset = "updated_at",
     sort_dir: ListMapsEndpointMapsGetSortDir | Unset = "desc",
     visibility: None | str | Unset = UNSET,
+    owned_only: bool | Unset = False,
 ) -> dict[str, Any]:
 
     params: dict[str, Any] = {}
@@ -57,6 +58,8 @@ def _get_kwargs(
     else:
         json_visibility = visibility
     params["visibility"] = json_visibility
+
+    params["owned_only"] = owned_only
 
     params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
@@ -148,6 +151,7 @@ def sync_detailed(
     sort_by: ListMapsEndpointMapsGetSortBy | Unset = "updated_at",
     sort_dir: ListMapsEndpointMapsGetSortDir | Unset = "desc",
     visibility: None | str | Unset = UNSET,
+    owned_only: bool | Unset = False,
 ) -> Response[MapListResponse | ProblemDetail]:
     """List Maps Endpoint
 
@@ -156,6 +160,7 @@ def sync_detailed(
 
     Supports search (ILIKE on name+description), sort_by (name/created_at/updated_at),
     sort_dir (asc/desc), and visibility filter (private/internal/public).
+    owned_only restricts results to the caller's maps; anonymous callers get no maps.
 
     Args:
         skip (int | Unset):  Default: 0.
@@ -164,6 +169,7 @@ def sync_detailed(
         sort_by (ListMapsEndpointMapsGetSortBy | Unset):  Default: 'updated_at'.
         sort_dir (ListMapsEndpointMapsGetSortDir | Unset):  Default: 'desc'.
         visibility (None | str | Unset):
+        owned_only (bool | Unset):  Default: False.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -180,6 +186,7 @@ def sync_detailed(
         sort_by=sort_by,
         sort_dir=sort_dir,
         visibility=visibility,
+        owned_only=owned_only,
     )
 
     response = client.get_httpx_client().request(
@@ -198,6 +205,7 @@ def sync(
     sort_by: ListMapsEndpointMapsGetSortBy | Unset = "updated_at",
     sort_dir: ListMapsEndpointMapsGetSortDir | Unset = "desc",
     visibility: None | str | Unset = UNSET,
+    owned_only: bool | Unset = False,
 ) -> MapListResponse | ProblemDetail | None:
     """List Maps Endpoint
 
@@ -206,6 +214,7 @@ def sync(
 
     Supports search (ILIKE on name+description), sort_by (name/created_at/updated_at),
     sort_dir (asc/desc), and visibility filter (private/internal/public).
+    owned_only restricts results to the caller's maps; anonymous callers get no maps.
 
     Args:
         skip (int | Unset):  Default: 0.
@@ -214,6 +223,7 @@ def sync(
         sort_by (ListMapsEndpointMapsGetSortBy | Unset):  Default: 'updated_at'.
         sort_dir (ListMapsEndpointMapsGetSortDir | Unset):  Default: 'desc'.
         visibility (None | str | Unset):
+        owned_only (bool | Unset):  Default: False.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -231,6 +241,7 @@ def sync(
         sort_by=sort_by,
         sort_dir=sort_dir,
         visibility=visibility,
+        owned_only=owned_only,
     ).parsed
 
 
@@ -243,6 +254,7 @@ async def asyncio_detailed(
     sort_by: ListMapsEndpointMapsGetSortBy | Unset = "updated_at",
     sort_dir: ListMapsEndpointMapsGetSortDir | Unset = "desc",
     visibility: None | str | Unset = UNSET,
+    owned_only: bool | Unset = False,
 ) -> Response[MapListResponse | ProblemDetail]:
     """List Maps Endpoint
 
@@ -251,6 +263,7 @@ async def asyncio_detailed(
 
     Supports search (ILIKE on name+description), sort_by (name/created_at/updated_at),
     sort_dir (asc/desc), and visibility filter (private/internal/public).
+    owned_only restricts results to the caller's maps; anonymous callers get no maps.
 
     Args:
         skip (int | Unset):  Default: 0.
@@ -259,6 +272,7 @@ async def asyncio_detailed(
         sort_by (ListMapsEndpointMapsGetSortBy | Unset):  Default: 'updated_at'.
         sort_dir (ListMapsEndpointMapsGetSortDir | Unset):  Default: 'desc'.
         visibility (None | str | Unset):
+        owned_only (bool | Unset):  Default: False.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -275,6 +289,7 @@ async def asyncio_detailed(
         sort_by=sort_by,
         sort_dir=sort_dir,
         visibility=visibility,
+        owned_only=owned_only,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -291,6 +306,7 @@ async def asyncio(
     sort_by: ListMapsEndpointMapsGetSortBy | Unset = "updated_at",
     sort_dir: ListMapsEndpointMapsGetSortDir | Unset = "desc",
     visibility: None | str | Unset = UNSET,
+    owned_only: bool | Unset = False,
 ) -> MapListResponse | ProblemDetail | None:
     """List Maps Endpoint
 
@@ -299,6 +315,7 @@ async def asyncio(
 
     Supports search (ILIKE on name+description), sort_by (name/created_at/updated_at),
     sort_dir (asc/desc), and visibility filter (private/internal/public).
+    owned_only restricts results to the caller's maps; anonymous callers get no maps.
 
     Args:
         skip (int | Unset):  Default: 0.
@@ -307,6 +324,7 @@ async def asyncio(
         sort_by (ListMapsEndpointMapsGetSortBy | Unset):  Default: 'updated_at'.
         sort_dir (ListMapsEndpointMapsGetSortDir | Unset):  Default: 'desc'.
         visibility (None | str | Unset):
+        owned_only (bool | Unset):  Default: False.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -325,5 +343,6 @@ async def asyncio(
             sort_by=sort_by,
             sort_dir=sort_dir,
             visibility=visibility,
+            owned_only=owned_only,
         )
     ).parsed

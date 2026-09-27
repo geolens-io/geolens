@@ -9,6 +9,11 @@ import { useAuthStore } from '@/stores/auth-store';
 import { DatasetPage } from '@/pages/DatasetPage';
 import type { DatasetResponse, RecordType, UserResponse } from '@/types/api';
 
+const permissions = vi.hoisted(() => ({ editMetadata: true }));
+vi.mock('@/hooks/use-permissions', () => ({
+  usePermissions: () => ({ can: (capability: string) => capability === 'edit_metadata' && permissions.editMetadata }),
+}));
+
 vi.mock('react-router', async (importOriginal) => {
   const actual = await importOriginal<typeof import('react-router')>();
   return {
@@ -245,6 +250,7 @@ async function openMoreActions() {
 
 describe('DatasetPage actions by record type', () => {
   beforeEach(() => {
+    permissions.editMetadata = true;
     vi.mocked(useParams).mockReturnValue({ id: 'dataset-1' });
     vi.mocked(useUpdateDataset).mockReturnValue({
       mutateAsync: vi.fn(),
@@ -275,6 +281,18 @@ describe('DatasetPage actions by record type', () => {
     await openMoreActions();
     expect(screen.getByRole('menuitem', { name: 'Re-Upload' })).toBeInTheDocument();
     expect(screen.getByTestId('reupload-dialog')).toBeInTheDocument();
+  });
+
+  it('offers Add to map to a capable viewer who does not own the dataset', async () => {
+    act(() => { useAuthStore.setState({ user: { ...OWNER, id: 'reader-id', roles: ['viewer'] } }); });
+    await renderAs('vector_dataset');
+    expect(screen.getByRole('button', { name: 'Add to map' })).toBeInTheDocument();
+  });
+
+  it('hides Add to map from an editor without the effective capability', async () => {
+    permissions.editMetadata = false;
+    await renderAs('vector_dataset');
+    expect(screen.queryByRole('button', { name: 'Add to map' })).not.toBeInTheDocument();
   });
 
   it('offers none of them for an unknown record type', async () => {

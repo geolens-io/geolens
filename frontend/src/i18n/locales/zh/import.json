@@ -114,7 +114,13 @@
     "temporalParseErrors": {
       "title": "时间字段已丢弃",
       "description": "以下时间值无法解析为 ISO-8601 日期，已被丢弃。请在数据集元数据编辑器中重新输入以恢复。"
-    }
+    },
+    "compactSummary_one": "{{count}} 条导入警告 · 查看详情",
+    "compactSummary_other": "{{count}} 条导入警告 · 查看详情",
+    "compactDataLoss_one": "{{count}} 条数据警告 · 部分数据可能已更改 · 查看详情",
+    "compactDataLoss_other": "{{count}} 条数据警告 · 部分数据可能已更改 · 查看详情",
+    "compactArchiveFailure_one": "{{count}} 条导入警告 · 原始文件不可用 · 查看详情",
+    "compactArchiveFailure_other": "{{count}} 条导入警告 · 原始文件不可用 · 查看详情"
   },
   "complete": {
     "heroTitle_one": "已将 {{count}} 个数据集添加到目录",
@@ -132,7 +138,12 @@
     "importMore": "导入更多",
     "aiMetadata": "添加 AI 元数据",
     "statPointClouds": "点云",
-    "heroDescPointClouds": "可在 COPC 客户端中打开。文件 URL 位于数据集的“访问”选项卡。"
+    "heroDescPointClouds": "可在 COPC 客户端中打开。文件 URL 位于数据集的“访问”选项卡。",
+    "partialTitle": "已添加 {{completed}} 个数据集 · {{failed}} 个失败或取消",
+    "partialDesc": "部分导入未完成。请查看失败的任务，并打开已就绪的数据集。",
+    "heroDescTables": "行和表结构已可供查询及复用。非空间表没有地图预览。",
+    "heroDescMixed": "数据集已在目录中就绪。打开各数据集可查看数据和访问方式。",
+    "failedJobs": "失败或取消的任务"
   },
   "dropzone": {
     "ariaLabel": "上传文件",
@@ -320,7 +331,7 @@
     "reviewTitle": "核对检测结果",
     "reviewDesc": "确认每个文件的几何类型、CRS、字段结构和预览。",
     "importTitle": "导入并编目",
-    "importDesc": "切片、索引、发布；数据集会立即出现在目录中。",
+    "importDesc": "根据数据类型准备各数据集并将其添加到目录。",
     "workflow": "工作流",
     "whatImported": "导入的内容",
     "vectorLabel": "矢量",
@@ -350,7 +361,15 @@
     "urlNote": "下载前会验证 URL 并限制大小 · 数据会复制到 GeoLens 中",
     "compareUrl": "上传从您的计算机发送文件。文件 URL 从网络抓取；相同的检查、相同的结果，无需本地下载。",
     "tiles3dLabel": "3D Tiles",
-    "tiles3dDesc": "解压后原样提供给 3D Tiles 客户端。"
+    "tiles3dDesc": "解压后原样提供给 3D Tiles 客户端。",
+    "partialDesc": "部分导入失败或取消。请查看任务详情。",
+    "partialStatus": "需要处理",
+    "completeTableDesc": "行和表结构可供查询及复用；没有地图预览。",
+    "completeTilesetDesc": "在数据集的“访问”标签页获取 3D Tiles 客户端网址。",
+    "completePointCloudDesc": "在数据集的“访问”标签页获取 COPC 文件网址。",
+    "completeDesc": "已完成的数据集可在目录中查看。",
+    "pointcloudLabel": "COPC 点云",
+    "pointcloudDesc": "供外部 COPC 客户端使用；没有内置地图预览。"
   },
   "register": {
     "helpText": "将数据库中现有的 PostGIS 表收录为 GeoLens 数据集。当数据库中已有未通过 GeoLens 导入的地理数据时，可使用此方式。选定的表将添加到数据集目录，并自动检测元数据。",
@@ -554,7 +573,8 @@
     "tilesetActionSummary": "{{files}} · {{tilesets}}",
     "pointcloudSummary": "{{points}} 个点 · {{crs}} · {{size}}",
     "pointcloudCount_one": "{{value}} 个点云",
-    "pointcloudCount_other": "{{value}} 个点云"
+    "pointcloudCount_other": "{{value}} 个点云",
+    "singleActionHint": "检查上方设置，然后导入此数据集。"
   },
   "detect": {
     "rasterInfo": "栅格信息",
@@ -628,7 +648,13 @@
     "createVrtMosaic": "创建 VRT 镶嵌",
     "importAsVrt": "作为 VRT 镶嵌导入",
     "ingestAllLayers": "将全部 {{count}} 个图层作为独立数据集导入",
-    "uploadProgressLabel": "{{name}} 的上传进度"
+    "uploadProgressLabel": "{{name}} 的上传进度",
+    "toggleDetails": "显示或隐藏 {{name}} 的详情",
+    "removeNamedFile": "移除 {{name}}",
+    "defaultsConfirmTitle": "使用默认值导入批次？",
+    "defaultsConfirmDescription": "将使用文件名作为数据集名称并设置为私有。审核表单中的所有修改（包括名称、描述、可见性、几何、坐标参考系和栅格设置）将被舍弃。多图层文件仅导入所选图层。",
+    "confirmDefaults": "使用默认值导入",
+    "progressDetailWithFailures": "{{done}} 个已完成 · {{failed}} 个失败或取消 · {{active}} 个进行中 · {{queued}} 个排队中"
   },
   "status": {
     "uploading": "正在上传",

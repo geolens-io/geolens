@@ -388,6 +388,10 @@
   },
   "quality": {
     "title": "Score de qualité",
+    "assessedAt": "Qualité évaluée le {{date}} ({{age}})",
+    "assessmentVsSource": "Cette date concerne l’évaluation qualité. Consultez Source pour connaître la dernière mise à jour des données et leur fraîcheur.",
+    "scoreExplanation": "Le score global combine les dimensions de qualité disponibles. Les pourcentages indiquent la part de chaque dimension.",
+    "metadataExplanation": "La complétude des métadonnées de qualité compte les champs facultatifs renseignés (10 au total). La progression des contrôles dans Métadonnées est distincte.",
     "metadataCompleteness": "Complétude des métadonnées",
     "geometryValidity": "Validité de la géométrie",
     "attributeCompleteness": "Complétude des attributs",
@@ -397,24 +401,25 @@
       "absolute": "Dernière vérification {{date}}",
       "relative": "Vérifié {{relative}}",
       "cadence": "Cadence de mise à jour attendue : {{cadence}}.",
-      "cadenceDaily": "Une mise à jour quotidienne est attendue.",
-      "cadenceWeekly": "Une mise à jour hebdomadaire est attendue.",
-      "cadenceMonthly": "Une mise à jour mensuelle est attendue.",
-      "cadenceQuarterly": "Une mise à jour trimestrielle est attendue.",
-      "cadenceAnnually": "Une mise à jour annuelle est attendue.",
-      "cadenceUnknown": "La cadence est inconnue ; vérifiez le calendrier de rafraîchissement.",
+      "cadenceDaily": "La récence de l’évaluation est comparée à la fréquence quotidienne indiquée.",
+      "cadenceWeekly": "La récence de l’évaluation est comparée à la fréquence hebdomadaire indiquée.",
+      "cadenceMonthly": "La récence de l’évaluation est comparée à la fréquence mensuelle indiquée.",
+      "cadenceQuarterly": "La récence de l’évaluation est comparée à la fréquence trimestrielle indiquée.",
+      "cadenceAnnually": "La récence de l’évaluation est comparée à la fréquence annuelle indiquée.",
+      "cadenceUnknown": "Sans fréquence périodique, la récence de l’évaluation est comparée à une référence de 45 jours.",
       "state": {
-        "fresh": "À jour",
-        "stale": "Obsolète",
-        "missing": "Fraîcheur manquante"
+        "fresh": "Évaluation récente",
+        "stale": "Évaluation à refaire",
+        "missing": "Aucune date d’évaluation"
       },
       "remediation": {
-        "fresh": "Aucune action immédiate n’est requise.",
-        "stale": "Recalculez les métriques de qualité et vérifiez que les mises à jour récentes de la source ont été ingérées.",
-        "missing": "Lancez la validation qualité pour générer un horodatage de fraîcheur."
+        "fresh": "Aucune action nécessaire sur l’évaluation.",
+        "stale": "Recalculez l’évaluation qualité pour vérifier les données actuelles.",
+        "missing": "Lancez la validation qualité pour obtenir une date d’évaluation."
       },
       "notAvailable": "Non disponible",
-      "unknownAge": "Âge inconnu"
+      "unknownAge": "Âge inconnu",
+      "readOnlyGuidance": "Demandez au propriétaire du jeu de données ou à un contact indiqué ci-dessus de mettre à jour l’évaluation qualité."
     }
   },
   "serviceUrls": {
@@ -492,6 +497,7 @@
     "helperWarnings": "{{warningCount}} avertissement(s) détecté(s). Vérifiez les causes probables avant de publier.",
     "likelyCompact": "Cause probable :",
     "troubleshootAction": "Dépanner",
+    "readOnlyGuidance": "Demandez au propriétaire du jeu de données ou à un contact indiqué ci-dessus de corriger ces problèmes de validation.",
     "health": {
       "title": "Santé du jeu de données",
       "required": "Requis {{count}}",
@@ -595,12 +601,15 @@
     "editingDisabled": "La modification des attributs est désactivée pour ce déploiement."
   },
   "distributions": {
-    "title": "Points d'accès",
+    "title": "Téléchargements et connexions",
     "download": "Téléchargements",
     "api": "Points d'accès API",
     "tiles": "Services de tuiles",
     "other": "Accès supplémentaire",
-    "noDistributions": "Aucune distribution disponible.",
+    "noDistributions": "Aucun autre téléchargement ou service n’est répertorié ici.",
+    "connectWithClient": "Se connecter avec QGIS, Python ou curl",
+    "otherFormats": "Télécharger dans un autre format",
+    "accessPermissions": "Qui peut accéder à ce jeu de données",
     "auto": "auto",
     "primary": "Principal",
     "copyUrl": "Copier l'URL",
@@ -729,6 +738,9 @@
     "nodata": "Nodata",
     "ogcApiFeatures": "OGC API Features",
     "percentComplete": "{{percent}}% complet",
+    "validationProgress": "Contrôles de validation réussis : {{percent}} %",
+    "validationProgressHelp": "Estimation fondée sur 12 contrôles de base, moins les erreurs et avertissements signalés. Le score des métadonnées de qualité compte séparément les champs facultatifs.",
+    "askMaintainer": "Demandez au propriétaire du jeu de données ou à un contact indiqué ci-dessous de renseigner {{field}}",
     "rasterProperties": "Propriétés raster",
     "recommendedCount_one": "{{count}} recommandé",
     "recommendedCount_other": "{{count}} recommandés",

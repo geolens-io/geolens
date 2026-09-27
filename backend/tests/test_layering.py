@@ -1295,8 +1295,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Application composition debt; preserve lifespan and middleware ordering when
     # splitting.
     "backend/app/api/main.py": 1715,
-    # Published map schema debt; separate validation helpers before raising.
-    "backend/app/modules/catalog/maps/schemas.py": 1396,
+    # Map request validation and published response contracts share this module.
+    "backend/app/modules/catalog/maps/schemas.py": 1397,
     # Metadata facade preserves the import and patch surface used by extensions and
     # callers.
     "backend/app/processing/ingest/metadata.py": 161,
@@ -1361,8 +1361,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Analysis validation, bounded execution and fenced registration share one task
     # lifecycle.
     "backend/app/processing/analysis/tasks.py": 1401,
-    # Maps API router debt; split endpoint families before raising.
-    "backend/app/modules/catalog/maps/router.py": 1507,
+    # Map endpoints share response assembly, visibility and ownership checks.
+    "backend/app/modules/catalog/maps/router.py": 1510,
     # Native search and OGC Records share visibility, query parsing and pagination.
     "backend/app/modules/catalog/search/router.py": 1443,
     # STAC endpoints share visibility, extent, lineage and pagination conformance rules.

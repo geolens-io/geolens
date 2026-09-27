@@ -114,7 +114,13 @@
     "temporalParseErrors": {
       "title": "Campos temporales descartados",
       "description": "Los siguientes valores temporales no se pudieron analizar como fechas ISO-8601 y se descartaron. Vuelva a introducirlos en el editor de metadatos del conjunto de datos para restaurarlos."
-    }
+    },
+    "compactSummary_one": "{{count}} aviso de importación · Ver detalles",
+    "compactSummary_other": "{{count}} avisos de importación · Ver detalles",
+    "compactDataLoss_one": "{{count}} aviso de datos · Algunos datos pueden haber cambiado · Ver detalles",
+    "compactDataLoss_other": "{{count}} avisos de datos · Algunos datos pueden haber cambiado · Ver detalles",
+    "compactArchiveFailure_one": "{{count}} aviso de importación · Archivo original no disponible · Ver detalles",
+    "compactArchiveFailure_other": "{{count}} avisos de importación · Archivo original no disponible · Ver detalles"
   },
   "dropzone": {
     "ariaLabel": "Subir archivos",
@@ -498,7 +504,8 @@
     "tilesetActionSummary": "{{files}} · {{tilesets}}",
     "pointcloudSummary": "{{points}} puntos · {{crs}} · {{size}}",
     "pointcloudCount_one": "{{value}} nube de puntos",
-    "pointcloudCount_other": "{{value}} nubes de puntos"
+    "pointcloudCount_other": "{{value}} nubes de puntos",
+    "singleActionHint": "Revisa los ajustes anteriores y después importa este conjunto de datos."
   },
   "detect": {
     "rasterInfo": "Info del ráster",
@@ -570,7 +577,13 @@
     "detectingHint": "Cargando y detectando…",
     "importingFiles": "Importando {{count}} archivos",
     "progressDetail": "{{done}} completo · {{active}} en progreso · {{queued}} en cola",
-    "uploadProgressLabel": "Progreso de carga de {{name}}"
+    "uploadProgressLabel": "Progreso de carga de {{name}}",
+    "toggleDetails": "Mostrar u ocultar detalles de {{name}}",
+    "removeNamedFile": "Eliminar {{name}}",
+    "defaultsConfirmTitle": "¿Importar el lote con valores predeterminados?",
+    "defaultsConfirmDescription": "Se usarán los nombres de archivo y la visibilidad privada. Se descartarán todos los cambios en los formularios de revisión, incluidos nombre, descripción, visibilidad, geometría, CRS y ajustes ráster. Cada archivo con varias capas importa solo la capa seleccionada.",
+    "confirmDefaults": "Importar con valores predeterminados",
+    "progressDetailWithFailures": "{{done}} completos · {{failed}} fallidos o cancelados · {{active}} en curso · {{queued}} en cola"
   },
   "eyebrow": "Importar",
   "pageDescription": "Sube archivos, registra tablas de tu Postgres o conecta un servicio remoto. GeoLens detecta geometría, esquema y CRS, luego hace los datos consultables, estilizables e integrables.",
@@ -590,7 +603,12 @@
     "importMore": "Importar más",
     "aiMetadata": "Añadir metadatos con IA",
     "statPointClouds": "Nubes de puntos",
-    "heroDescPointClouds": "Lista para abrir en un cliente COPC. La URL del archivo está en la pestaña Acceso del conjunto de datos."
+    "heroDescPointClouds": "Lista para abrir en un cliente COPC. La URL del archivo está en la pestaña Acceso del conjunto de datos.",
+    "partialTitle": "{{completed}} conjuntos de datos añadidos · {{failed}} fallidos o cancelados",
+    "partialDesc": "Algunas importaciones no terminaron. Revisa los trabajos fallidos y abre los conjuntos de datos disponibles.",
+    "heroDescTables": "Las filas y el esquema están listos para consultas y reutilización. Las tablas no espaciales no tienen vista previa en el mapa.",
+    "heroDescMixed": "Los conjuntos de datos están en el catálogo. Abre cada uno para ver sus datos y opciones de acceso.",
+    "failedJobs": "Trabajos fallidos o cancelados"
   },
   "rail": {
     "stageTitle": "Preparar archivos",
@@ -598,7 +616,7 @@
     "reviewTitle": "Revisar detección",
     "reviewDesc": "Confirma el tipo de geometría, CRS, esquema y vista previa de cada archivo.",
     "importTitle": "Importar y catalogar",
-    "importDesc": "Teselar, indexar, publicar; los conjuntos de datos aparecen en el catálogo de inmediato.",
+    "importDesc": "Prepara cada conjunto de datos según su tipo y lo añade al catálogo.",
     "workflow": "Flujo de trabajo",
     "whatImported": "Qué se importa",
     "vectorLabel": "Vector",
@@ -628,7 +646,15 @@
     "urlNote": "La URL se valida y se limita en tamaño antes de la descarga · los datos se copian en GeoLens",
     "compareUrl": "La carga envía un archivo desde tu equipo. URL de archivo lo obtiene de la web: misma revisión, mismo resultado, sin descarga local.",
     "tiles3dLabel": "3D Tiles",
-    "tiles3dDesc": "se descomprime y se sirve tal cual a los clientes de 3D Tiles."
+    "tiles3dDesc": "se descomprime y se sirve tal cual a los clientes de 3D Tiles.",
+    "partialDesc": "Algunas importaciones fallaron o se cancelaron. Revisa los detalles de los trabajos.",
+    "partialStatus": "Requiere atención",
+    "completeTableDesc": "Filas y esquema listos para consultas y reutilización; sin vista previa en el mapa.",
+    "completeTilesetDesc": "Abre la pestaña Acceso para obtener la URL del cliente de 3D Tiles.",
+    "completePointCloudDesc": "Abre la pestaña Acceso para obtener la URL del archivo COPC.",
+    "completeDesc": "Los conjuntos de datos terminados están en el catálogo.",
+    "pointcloudLabel": "Nube de puntos COPC",
+    "pointcloudDesc": "disponible para clientes COPC externos; sin vista previa en el mapa."
   },
   "status": {
     "uploading": "Subiendo",

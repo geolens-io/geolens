@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.geo import extent_to_bbox
 from app.core.identity import Identity
+from app.modules.auth.permissions import get_effective_permissions
 from app.modules.catalog.authorization import get_user_roles
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.schemas import (
@@ -20,6 +21,7 @@ from app.modules.catalog.maps.schemas import (
     MapResponse,
 )
 from app.modules.catalog.maps.service import LayerRow
+from app.platform.extensions import get_permission_extension
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -258,10 +260,15 @@ async def _can_edit_map(
     if user is None:
         return False
     user_roles = await get_user_roles(db, user)
-    is_admin = "admin" in user_roles
-    is_editor = "editor" in user_roles
-    is_owner = map_obj.created_by == user.id
-    return is_admin or (is_editor and is_owner)
+    matrix = await get_effective_permissions(db)
+    granted = await get_permission_extension().check_permission(
+        db,
+        user,
+        "edit_metadata",
+        user_roles=user_roles,
+        permission_matrix=matrix,
+    )
+    return granted and ("admin" in user_roles or map_obj.created_by == user.id)
 
 
 def _build_map_response(

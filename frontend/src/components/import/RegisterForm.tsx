@@ -290,7 +290,7 @@ function TableDetail({
       </p>
 
       {/* Stats grid */}
-      <div className="mb-5 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-4">
+      <dl className="mb-5 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-4">
         {[
           { label: t('register.stats.rows'), value: table.estimated_rows != null ? formatNumber(table.estimated_rows) : '—' },
           { label: t('register.stats.geometry'), value: table.geometry_type ? getGeometryTypeLabel(t, table.geometry_type) : t('register.stats.none') },
@@ -302,7 +302,7 @@ function TableDetail({
             <dd className="text-sm font-medium tracking-tight">{stat.value}</dd>
           </div>
         ))}
-      </div>
+      </dl>
 
       {refusal && (
         <p id={refusalId} className="max-w-lg text-xs text-destructive">

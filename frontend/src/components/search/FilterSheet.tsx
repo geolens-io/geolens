@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useState } from 'react';
+import { lazy, Suspense, useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2, MapPin, SlidersHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -86,6 +86,7 @@ interface FilterSheetProps {
  */
 export function FilterSheet({ totalResults }: FilterSheetProps) {
   const { t } = useTranslation('search');
+  const filterTriggerRef = useRef<HTMLButtonElement>(null);
   const geometryType = useSearchStore((s) => s.geometry_type);
   const bbox = useSearchStore((s) => s.bbox);
   const dateFrom = useSearchStore((s) => s.date_from);
@@ -229,6 +230,7 @@ export function FilterSheet({ totalResults }: FilterSheetProps) {
           </div>
           <div className="flex items-center gap-2">
             <Button
+              ref={filterTriggerRef}
               type="button"
               variant={activeFilterCount > 0 ? 'default' : 'outline'}
               size="sm"
@@ -334,6 +336,12 @@ export function FilterSheet({ totalResults }: FilterSheetProps) {
         }}
       >
         <SheetContent
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            const trigger = filterTriggerRef.current;
+            if (trigger && trigger.getClientRects().length > 0) trigger.focus();
+            else document.querySelector<HTMLElement>('main')?.focus();
+          }}
           side="bottom"
           className="max-h-[85vh] rounded-t-3xl border-x-0 border-b-0 px-0"
         >

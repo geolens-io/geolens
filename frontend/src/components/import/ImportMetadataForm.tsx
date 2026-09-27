@@ -1,4 +1,4 @@
-import { useRef, useMemo, useState } from 'react';
+import { useId, useRef, useMemo, useState } from 'react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useTranslation } from 'react-i18next';
 import { useCanSetPublicVisibility } from '@/hooks/use-settings';
@@ -70,6 +70,8 @@ export function ImportMetadataForm({
   detectedGeometryColumns,
 }: ImportMetadataFormProps) {
   const { t } = useTranslation('import');
+  const formId = useId();
+  const fieldId = (field: string) => `${formId}-${field}`;
   // feat(#1691): hide the Public option when the restrict_public_visibility
   // instance setting caps non-admins at non-public (server enforces via 403).
   const canSetPublic = useCanSetPublicVisibility();
@@ -192,9 +194,9 @@ export function ImportMetadataForm({
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="import-name">{t('metadata.nameLabel')}</Label>
+            <Label htmlFor={fieldId('import-name')}>{t('metadata.nameLabel')}</Label>
             <Input
-              id="import-name"
+              id={fieldId('import-name')}
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
@@ -202,9 +204,9 @@ export function ImportMetadataForm({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="import-description">{t('metadata.descriptionLabel')}</Label>
+            <Label htmlFor={fieldId('import-description')}>{t('metadata.descriptionLabel')}</Label>
             <Input
-              id="import-description"
+              id={fieldId('import-description')}
               placeholder={t('metadata.descriptionPlaceholder')}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -212,10 +214,10 @@ export function ImportMetadataForm({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="import-visibility">{t('metadata.visibilityLabel')}</Label>
+            <Label htmlFor={fieldId('import-visibility')}>{t('metadata.visibilityLabel')}</Label>
             {/* fix(#438): DS-08 — native <select> → themed ui/select. */}
             <Select value={visibility} onValueChange={setVisibility}>
-              <SelectTrigger id="import-visibility" className="w-full">
+              <SelectTrigger id={fieldId('import-visibility')} className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -246,9 +248,9 @@ export function ImportMetadataForm({
             </div>
           ) : (
             <div className="space-y-2">
-              <Label htmlFor="import-crs">{t('metadata.crsLabel')}</Label>
+              <Label htmlFor={fieldId('import-crs')}>{t('metadata.crsLabel')}</Label>
               <Input
-                id="import-crs"
+                id={fieldId('import-crs')}
                 type="number"
                 placeholder={t('metadata.crsPlaceholderEmpty')}
                 value={sridOverride}
@@ -294,7 +296,7 @@ export function ImportMetadataForm({
               </p>
 
               <div className="space-y-1">
-                <Label htmlFor="geom-mode">
+                <Label htmlFor={fieldId('geom-mode')}>
                   {t('metadata.geometryMode')}
                 </Label>
                 {/* fix(#438): DS-08 — native <select> → themed ui/select. */}
@@ -302,7 +304,7 @@ export function ImportMetadataForm({
                   value={geomMode}
                   onValueChange={(v) => setGeomMode(v as GeometryMode)}
                 >
-                  <SelectTrigger id="geom-mode" className="w-full">
+                  <SelectTrigger id={fieldId('geom-mode')} className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -321,7 +323,7 @@ export function ImportMetadataForm({
                     <label className="flex items-center gap-1.5 text-sm">
                       <input
                         type="radio"
-                        name="geom-type"
+                        name={fieldId('geom-type')}
                         value="latlng"
                         checked={geomType === 'latlng'}
                         onChange={() => setGeomType('latlng')}
@@ -331,7 +333,7 @@ export function ImportMetadataForm({
                     <label className="flex items-center gap-1.5 text-sm">
                       <input
                         type="radio"
-                        name="geom-type"
+                        name={fieldId('geom-type')}
                         value="wkt"
                         checked={geomType === 'wkt'}
                         onChange={() => setGeomType('wkt')}
@@ -343,7 +345,7 @@ export function ImportMetadataForm({
                   {geomType === 'latlng' ? (
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
-                        <Label htmlFor="x-column">
+                        <Label htmlFor={fieldId('x-column')}>
                           {t('metadata.xColumn')}
                         </Label>
                         {/* fix(#438): DS-08 exception — the X/Y/WKT column
@@ -353,7 +355,7 @@ export function ImportMetadataForm({
                             dense keyboard-driven metadata grid where the native
                             control is defensible. */}
                         <select
-                          id="x-column"
+                          id={fieldId('x-column')}
                           value={xColumn}
                           onChange={(e) => setXColumn(e.target.value)}
                           disabled={geomMode === 'auto'}
@@ -368,11 +370,11 @@ export function ImportMetadataForm({
                         </select>
                       </div>
                       <div className="space-y-1">
-                        <Label htmlFor="y-column">
+                        <Label htmlFor={fieldId('y-column')}>
                           {t('metadata.yColumn')}
                         </Label>
                         <select
-                          id="y-column"
+                          id={fieldId('y-column')}
                           value={yColumn}
                           onChange={(e) => setYColumn(e.target.value)}
                           disabled={geomMode === 'auto'}
@@ -389,11 +391,11 @@ export function ImportMetadataForm({
                     </div>
                   ) : (
                     <div className="space-y-1">
-                      <Label htmlFor="wkt-column">
+                      <Label htmlFor={fieldId('wkt-column')}>
                         {t('metadata.wktColumn')}
                       </Label>
                       <select
-                        id="wkt-column"
+                        id={fieldId('wkt-column')}
                         value={wktColumn}
                         onChange={(e) => setWktColumn(e.target.value)}
                         disabled={geomMode === 'auto'}
@@ -419,22 +421,22 @@ export function ImportMetadataForm({
               <div className="space-y-2">
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <Label htmlFor="temporal-start">
+                    <Label htmlFor={fieldId('temporal-start')}>
                       {t('metadata.temporalStartLabel')}
                     </Label>
                     <Input
-                      id="temporal-start"
+                      id={fieldId('temporal-start')}
                       type="date"
                       value={temporalStart}
                       onChange={(e) => setTemporalStart(e.target.value)}
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label htmlFor="temporal-end">
+                    <Label htmlFor={fieldId('temporal-end')}>
                       {t('metadata.temporalEndLabel')}
                     </Label>
                     <Input
-                      id="temporal-end"
+                      id={fieldId('temporal-end')}
                       type="date"
                       value={temporalEnd}
                       onChange={(e) => setTemporalEnd(e.target.value)}
@@ -453,12 +455,12 @@ export function ImportMetadataForm({
                 </p>
 
                 <div className="space-y-1">
-                  <Label htmlFor="compression">
+                  <Label htmlFor={fieldId('compression')}>
                     {t('metadata.compressionLabel')}
                   </Label>
                   {/* fix(#438): DS-08 — native <select> → themed ui/select. */}
                   <Select value={compression} onValueChange={setCompression}>
-                    <SelectTrigger id="compression" className="w-full">
+                    <SelectTrigger id={fieldId('compression')} className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -473,12 +475,12 @@ export function ImportMetadataForm({
                 </div>
 
                 <div className="space-y-1">
-                  <Label htmlFor="resampling">
+                  <Label htmlFor={fieldId('resampling')}>
                     {t('metadata.resamplingLabel')}
                   </Label>
                   {/* fix(#438): DS-08 — native <select> → themed ui/select. */}
                   <Select value={resampling} onValueChange={setResampling}>
-                    <SelectTrigger id="resampling" className="w-full">
+                    <SelectTrigger id={fieldId('resampling')} className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -495,11 +497,11 @@ export function ImportMetadataForm({
                 </div>
 
                 <div className="space-y-1">
-                  <Label htmlFor="nodata-override">
+                  <Label htmlFor={fieldId('nodata-override')}>
                     {t('metadata.nodataLabel')}
                   </Label>
                   <Input
-                    id="nodata-override"
+                    id={fieldId('nodata-override')}
                     type="text"
                     placeholder=""
                     value={nodataOverride}

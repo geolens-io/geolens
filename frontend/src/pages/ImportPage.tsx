@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Upload, Link, Database, Globe, Satellite } from 'lucide-react';
 import { PageHeader } from '@/components/layout/PageHeader';
@@ -12,7 +12,7 @@ import { StacImportForm } from '@/components/import/StacImportForm';
 import { WorkflowRail } from '@/components/import/WorkflowRail';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { cn } from '@/lib/utils';
-import type { BatchPhase } from '@/types/api';
+import type { BatchPhase, DataKind } from '@/types/api';
 
 type Tab = 'upload' | 'url' | 'register' | 'service' | 'stac';
 
@@ -29,6 +29,14 @@ export function ImportPage() {
   const { t } = useTranslation('import');
   const [activeTab, setActiveTab] = useState<Tab>('upload');
   const [uploadPhase, setUploadPhase] = useState<BatchPhase>('idle');
+  const [uploadOutcome, setUploadOutcome] = useState<{ state: 'complete' | 'partial' | null; kinds: DataKind[] }>({ state: null, kinds: [] });
+  const handlePhaseChange = useCallback((phase: BatchPhase) => {
+    setUploadPhase(phase);
+    if (phase !== 'tracking') setUploadOutcome({ state: null, kinds: [] });
+  }, []);
+  const handleOutcomeChange = useCallback((state: 'complete' | 'partial' | null, kinds: DataKind[]) => {
+    setUploadOutcome({ state, kinds });
+  }, []);
   useDocumentTitle(t('common:pageTitle.import'));
 
   return (
@@ -51,7 +59,13 @@ export function ImportPage() {
             <button
               key={value}
               type="button"
-              onClick={() => setActiveTab(value)}
+              onClick={() => {
+                setActiveTab(value);
+                if (value !== 'upload') {
+                  setUploadPhase('idle');
+                  setUploadOutcome({ state: null, kinds: [] });
+                }
+              }}
               aria-current={activeTab === value ? 'page' : undefined}
               className={cn(
                 'inline-flex items-center gap-2 border-b-2 px-4 pb-3 pt-3 text-sm font-medium transition-colors',
@@ -77,7 +91,7 @@ export function ImportPage() {
       <div className="grid grid-cols-1 gap-6 pb-12 xl:grid-cols-[1fr_320px]">
         <div className="min-w-0">
           <AppErrorBoundary>
-            {activeTab === 'upload' && <UploadForm onPhaseChange={setUploadPhase} />}
+            {activeTab === 'upload' && <UploadForm onPhaseChange={handlePhaseChange} onOutcomeChange={handleOutcomeChange} />}
             {activeTab === 'url' && <UrlImportForm />}
             {activeTab === 'register' && <RegisterForm />}
             {activeTab === 'service' && <ServiceUrlForm />}
@@ -87,6 +101,8 @@ export function ImportPage() {
         <WorkflowRail
           mode={activeTab}
           phase={activeTab === 'upload' ? uploadPhase : 'idle'}
+          outcome={activeTab === 'upload' ? uploadOutcome.state : null}
+          completedKinds={uploadOutcome.kinds}
         />
       </div>
     </PageShell>

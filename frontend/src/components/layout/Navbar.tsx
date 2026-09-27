@@ -62,7 +62,7 @@ function CreateMenu() {
   const canCreateDataset = featureFlags?.enable_dataset_editing ?? false;
   const canImport = can('upload');
   const canCreateCollection = can('edit_metadata');
-  const canCreateMap = true;
+  const canCreateMap = can('edit_metadata');
   const canCreateVrt = can('upload');
   const hasAnyCreateItems = canCreateDataset || canImport || canCreateCollection || canCreateMap || canCreateVrt;
 
@@ -100,10 +100,12 @@ function CreateMenu() {
               {t('nav.collection')}
             </DropdownMenuItem>
           )}
-          <DropdownMenuItem onClick={() => setMapOpen(true)}>
-            <Map className="h-4 w-4" />
-            {t('nav.map')}
-          </DropdownMenuItem>
+          {canCreateMap && (
+            <DropdownMenuItem onClick={() => setMapOpen(true)}>
+              <Map className="h-4 w-4" />
+              {t('nav.map')}
+            </DropdownMenuItem>
+          )}
           {can('upload') && (
             <DropdownMenuItem onClick={() => setVrtOpen(true)}>
               <Layers className="h-4 w-4" />
@@ -307,7 +309,7 @@ function MobileNav() {
               const canCreateDataset = featureFlags?.enable_dataset_editing ?? false;
               const canImport = can('upload');
               const canCreateCollection = can('edit_metadata');
-              const canCreateMap = true;
+              const canCreateMap = can('edit_metadata');
               const canCreateVrt = can('upload');
               const hasAnyCreateItems = canCreateDataset || canImport || canCreateCollection || canCreateMap || canCreateVrt;
               if (!hasAnyCreateItems) return null;
@@ -335,13 +337,15 @@ function MobileNav() {
                       {t('nav.collection')}
                     </button>
                   )}
-                  <button
-                    className={mobileNavLinkClass({ isActive: false })}
-                    onClick={() => { setMapOpen(true); setOpen(false); }}
-                  >
-                    <Map className="h-4 w-4 me-2" />
-                    {t('nav.map')}
-                  </button>
+                  {canCreateMap && (
+                    <button
+                      className={mobileNavLinkClass({ isActive: false })}
+                      onClick={() => { setMapOpen(true); setOpen(false); }}
+                    >
+                      <Map className="h-4 w-4 me-2" />
+                      {t('nav.map')}
+                    </button>
+                  )}
                   {canCreateVrt && (
                     <button
                       className={mobileNavLinkClass({ isActive: false })}

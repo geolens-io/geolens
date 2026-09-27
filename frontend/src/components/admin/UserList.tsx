@@ -252,10 +252,9 @@ export function UserList() {
         <CardHeader className="has-data-[slot=card-action]:grid-cols-1 md:has-data-[slot=card-action]:grid-cols-[1fr_auto]">
           <CardTitle
             level={2}
-            aria-label={t('users.title')}
             className="flex items-center gap-2 text-sm font-medium"
           >
-            {t('users.title')}
+            {t('users.listHeading')}
             {data ? <Badge variant="secondary">{data.total}</Badge> : null}
           </CardTitle>
           <CardAction className="col-start-1 row-start-2 row-span-1 flex w-full flex-wrap items-center gap-2 justify-self-stretch md:col-start-2 md:row-start-1 md:row-span-2 md:w-auto md:justify-self-end">

@@ -2,7 +2,8 @@ import { Fragment, useEffect, useRef, useState, type KeyboardEvent } from 'react
 import { useTranslation } from 'react-i18next';
 import { Link, useSearchParams } from 'react-router';
 import { ChevronDown, ChevronRight } from 'lucide-react';
-import { useAuditLogs } from '@/hooks/use-admin';
+import { useAuditLogs, useUserNames } from '@/hooks/use-admin';
+import { usePermissions } from '@/hooks/use-permissions';
 import { formatDateTimeSmart } from '@/lib/format';
 import { paginationRange } from '@/lib/pagination';
 import { Button } from '@/components/ui/button';
@@ -161,6 +162,8 @@ const CURRENT_AUDIT_ACTIONS = [
 
 export function AuditLogViewer() {
   const { t } = useTranslation('admin');
+  const { can } = usePermissions();
+  const canSelectUser = can('manage_users');
   // Sort lives in the URL so a sorted view is shareable. Sort clicks REPLACE
   // the history entry rather than pushing — deliberately, per the #1200
   // review: pushing would make five header clicks cost five Back presses to
@@ -173,6 +176,8 @@ export function AuditLogViewer() {
   const sortOrder = parseSortOrder(searchParams.get('order'));
   const [action, setAction] = useState('');
   const [userId, setUserId] = useState('');
+  const [selectedUserId, setSelectedUserId] = useState('');
+  const [userSearch, setUserSearch] = useState('');
   const [resourceType, setResourceType] = useState('');
   const [resourceId, setResourceId] = useState('');
   const [dateFrom, setDateFrom] = useState('');
@@ -201,12 +206,13 @@ export function AuditLogViewer() {
   }
 
   const skip = page * PAGE_SIZE;
+  const { data: userNames } = useUserNames({ enabled: canSelectUser });
   const normalizedUserId = userId.trim();
   const normalizedResourceId = resourceId.trim();
   const userIdInvalid = normalizedUserId !== '' && !UUID_PATTERN.test(normalizedUserId);
   const resourceIdInvalid = normalizedResourceId !== '' && !UUID_PATTERN.test(normalizedResourceId);
   const filtersValid = !userIdInvalid && !resourceIdInvalid;
-  const userIdFilter = normalizedUserId || undefined;
+  const userIdFilter = normalizedUserId || selectedUserId || undefined;
   const resourceIdFilter = normalizedResourceId || undefined;
 
   const {
@@ -248,6 +254,8 @@ export function AuditLogViewer() {
   function clearFilters() {
     setAction('');
     setUserId('');
+    setSelectedUserId('');
+    setUserSearch('');
     setResourceType('');
     setResourceId('');
     setDateFrom('');
@@ -331,6 +339,33 @@ export function AuditLogViewer() {
               ...CURRENT_AUDIT_ACTIONS.map((value) => ({ value, label: value })),
             ]}
           />
+          {canSelectUser && (
+            <>
+              <div>
+                <label htmlFor="audit-user-search" className="mb-1 block text-xs text-muted-foreground">
+                  {t('audit.filters.searchUsers')}
+                </label>
+                <Input
+                  id="audit-user-search"
+                  type="search"
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                  placeholder={t('audit.filters.searchUsersPlaceholder')}
+                  className="h-8 w-44"
+                />
+              </div>
+              <FilterSelect
+                label={t('audit.filters.user')}
+                value={selectedUserId}
+                onChange={(value) => { setSelectedUserId(value); setUserId(''); setPage(0); }}
+                options={[
+                  { value: '', label: t('audit.filters.allUsers') },
+                  ...(userNames?.filter((user) => user.username.toLocaleLowerCase().includes(userSearch.toLocaleLowerCase()) || user.id === selectedUserId)
+                    .map((user) => ({ value: user.id, label: user.username })) ?? []),
+                ]}
+              />
+            </>
+          )}
           <div>
             <label className="mb-1 block text-xs text-muted-foreground">
               {t('audit.filters.userId')}
@@ -340,7 +375,7 @@ export function AuditLogViewer() {
               aria-invalid={userIdInvalid}
               aria-describedby={userIdInvalid ? 'audit-user-id-error' : undefined}
               value={userId}
-              onChange={(e) => { setUserId(e.target.value); setPage(0); }}
+              onChange={(e) => { setUserId(e.target.value); setSelectedUserId(''); setPage(0); }}
               placeholder={t('audit.filters.uuidPlaceholder')}
               className="h-8 w-52"
             />

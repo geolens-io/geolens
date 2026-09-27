@@ -26,9 +26,12 @@ import { MapCreateDialog } from '@/components/maps/MapCreateDialog';
 import { MapDeleteDialog } from '@/components/maps/MapDeleteDialog';
 import { Pagination } from '@/components/layout/Pagination';
 import { useMaps, useDeleteMap } from '@/hooks/use-maps';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { useAuthStore } from '@/stores/auth-store';
 import { readStorage, writeStorage, storageKeys } from '@/lib/storage';
+import type { MapSummaryResponse } from '@/types/api';
+import { canMutateResource } from '@/lib/ownership';
 
 const PAGE_SIZE = 20;
 // fix(#438): ARC-06 — key + access via the typed storage helper.
@@ -38,7 +41,9 @@ function getStoredView(): string {
 
 export function MapsPage() {
   const { t } = useTranslation();
-  const isEditor = useAuthStore((s) => s.isEditor());
+  const { can } = usePermissions();
+  const canEditMaps = can('edit_metadata');
+  const user = useAuthStore((s) => s.user);
   const [skip, setSkip] = useState(0);
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -99,6 +104,10 @@ export function MapsPage() {
     if (map) setDeletingMap({ id: map.id, name: map.name });
   }
 
+  function canDeleteMap(map: MapSummaryResponse) {
+    return canEditMaps && canMutateResource(map, user?.id, user?.roles.includes('admin') ?? false);
+  }
+
   return (
     <TooltipProvider>
     <PageShell maxWidth="narrow">
@@ -109,7 +118,7 @@ export function MapsPage() {
             {data && <Badge variant="secondary" className="readout">{data.total}</Badge>}
             {/* Hide the header create button when the empty state is showing its
                 own primary CTA (no maps, no active search/filter). */}
-            {isEditor && !(data && data.total === 0 && !debouncedSearch && visibility === 'all') && (
+            {canEditMaps && !(data && data.total === 0 && !debouncedSearch && visibility === 'all') && (
               <Button size="sm" onClick={() => setCreateOpen(true)}>
                 <Plus className="h-4 w-4 me-1" />
                 {t('maps.createMap', 'Create Map')}
@@ -147,7 +156,7 @@ export function MapsPage() {
           </SelectContent>
         </Select>
 
-        {isEditor && (
+        {user && (
           <Select value={visibility} onValueChange={setVisibility}>
             <SelectTrigger
               className="w-[140px]"
@@ -201,7 +210,7 @@ export function MapsPage() {
               : t('maps.noMapsDescription')
           }
           action={
-            !debouncedSearch && visibility === 'all' && isEditor ? (
+            !debouncedSearch && visibility === 'all' && canEditMaps ? (
               <Button onClick={() => setCreateOpen(true)}>
                 <Plus className="h-4 w-4 me-1" />
                 {t('maps.createFirstMap')}
@@ -214,7 +223,7 @@ export function MapsPage() {
       {data && data.maps.length > 0 && viewMode === 'list' && (
         <div className="space-y-4">
           {data.maps.map((map) => (
-            <MapCard key={map.id} map={map} onDelete={isEditor ? handleDeleteClick : undefined} />
+            <MapCard key={map.id} map={map} onDelete={canDeleteMap(map) ? handleDeleteClick : undefined} />
           ))}
         </div>
       )}
@@ -222,7 +231,7 @@ export function MapsPage() {
       {data && data.maps.length > 0 && viewMode === 'grid' && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {data.maps.map((map) => (
-            <MapCardGrid key={map.id} map={map} onDelete={isEditor ? handleDeleteClick : undefined} />
+            <MapCardGrid key={map.id} map={map} onDelete={canDeleteMap(map) ? handleDeleteClick : undefined} />
           ))}
         </div>
       )}
@@ -236,18 +245,15 @@ export function MapsPage() {
         />
       )}
 
-      {isEditor && (
-        <>
-          <MapCreateDialog open={createOpen} onOpenChange={setCreateOpen} />
-
-          <MapDeleteDialog
-            open={!!deletingMap}
-            onOpenChange={(open) => !open && setDeletingMap(null)}
-            mapName={deletingMap?.name ?? ''}
-            onConfirm={handleDeleteConfirm}
-            isDeleting={deleteMap.isPending}
-          />
-        </>
+      {canEditMaps && <MapCreateDialog open={createOpen} onOpenChange={setCreateOpen} />}
+      {canEditMaps && (
+        <MapDeleteDialog
+          open={!!deletingMap}
+          onOpenChange={(open) => !open && setDeletingMap(null)}
+          mapName={deletingMap?.name ?? ''}
+          onConfirm={handleDeleteConfirm}
+          isDeleting={deleteMap.isPending}
+        />
       )}
     </PageShell>
     </TooltipProvider>

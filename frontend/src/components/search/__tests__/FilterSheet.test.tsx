@@ -118,3 +118,18 @@ describe('FilterSheet 3D Tiles and point cloud filters', () => {
     expect(Boolean(screen.queryByRole('combobox', { name: 'Geometry Type' }))).toBe(offered);
   });
 });
+
+describe('FilterSheet focus restoration', () => {
+  it.each(['Escape', 'close'])('returns keyboard focus to Filters after %s', async (method) => {
+    const { default: userEvent } = await import('@testing-library/user-event');
+    const user = userEvent.setup();
+    render(<FilterSheet totalResults={10} />);
+    const trigger = screen.getByRole('button', { name: 'Filters' });
+    // jsdom has no layout; represent a visible trigger in this mobile view.
+    vi.spyOn(trigger, 'getClientRects').mockReturnValue({ length: 1 } as DOMRectList);
+    await user.click(trigger);
+    if (method === 'Escape') await user.keyboard('{Escape}');
+    else await user.click(screen.getByRole('button', { name: 'Close' }));
+    await vi.waitFor(() => expect(trigger).toHaveFocus());
+  });
+});

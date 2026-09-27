@@ -47,7 +47,13 @@ export async function listUsers(
 }
 
 export async function listUserNames(): Promise<{ id: string; username: string }[]> {
-  return apiFetch<{ id: string; username: string }[]>('/admin/users/names/');
+  const limit = 500;
+  const names: { id: string; username: string }[] = [];
+  for (let skip = 0; ; skip += limit) {
+    const page = await apiFetch<{ id: string; username: string }[]>(`/admin/users/names/?skip=${skip}&limit=${limit}`);
+    names.push(...page);
+    if (page.length < limit) return names;
+  }
 }
 
 export async function listAdminJobs(

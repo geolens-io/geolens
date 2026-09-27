@@ -71,7 +71,7 @@ describe('visibilityColors', () => {
   it('maps all expected levels', () => {
     expect(visibilityColors.public).toBe(semanticBadgeColors.success);
     expect(visibilityColors.restricted).toBe(semanticBadgeColors.warning);
-    expect(visibilityColors.private).toBe(semanticBadgeColors.destructive);
+    expect(visibilityColors.private).toBe('border-border bg-muted text-muted-foreground');
   });
 });
 

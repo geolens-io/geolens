@@ -42,7 +42,7 @@ export const visibilityColors: Record<string, string> = {
   public: semanticBadgeColors.success,
   internal: semanticBadgeColors.info,
   restricted: semanticBadgeColors.warning,
-  private: semanticBadgeColors.destructive,
+  private: 'border-border bg-muted text-muted-foreground',
 };
 
 export function qualityScoreClasses(score: number): string {

@@ -353,6 +353,7 @@
     "unauthorized": "Votre session a expiré. Reconnectez-vous."
   },
   "settings": {
+    "apiKeys": { "manageTitle": "Gérer les clés API" },
     "tabs": {
       "preferences": "Préférences",
       "apiKeys": "Clés API"

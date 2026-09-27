@@ -114,7 +114,13 @@
     "temporalParseErrors": {
       "title": "Temporal fields dropped",
       "description": "The following temporal values could not be parsed as ISO-8601 dates and were dropped. Re-enter them in the dataset metadata editor to restore them."
-    }
+    },
+    "compactSummary_one": "{{count}} import warning · View details",
+    "compactSummary_other": "{{count}} import warnings · View details",
+    "compactDataLoss_one": "{{count}} data warning · Some data may have changed · View details",
+    "compactDataLoss_other": "{{count}} data warnings · Some data may have changed · View details",
+    "compactArchiveFailure_one": "{{count}} import warning · Original file unavailable · View details",
+    "compactArchiveFailure_other": "{{count}} import warnings · Original file unavailable · View details"
   },
   "complete": {
     "heroTitle_one": "{{count}} dataset added to the catalog",
@@ -132,7 +138,12 @@
     "importMore": "Import more",
     "aiMetadata": "Add AI metadata",
     "statPointClouds": "Point clouds",
-    "heroDescPointClouds": "Ready to open in a COPC client. The file URL is on the dataset’s Access tab."
+    "heroDescPointClouds": "Ready to open in a COPC client. The file URL is on the dataset’s Access tab.",
+    "partialTitle": "{{completed}} datasets added · {{failed}} failed or cancelled",
+    "partialDesc": "Some imports did not finish. Review the failed jobs and open the datasets that are ready.",
+    "heroDescTables": "Rows and schema are ready to query and reuse. Nonspatial tables have no map preview.",
+    "heroDescMixed": "Datasets are ready in the catalog. Open each dataset for its available data and access options.",
+    "failedJobs": "Failed or cancelled jobs"
   },
   "dropzone": {
     "ariaLabel": "Upload files",
@@ -320,7 +331,7 @@
     "reviewTitle": "Review detection",
     "reviewDesc": "Confirm geometry type, CRS, schema, and preview for each file.",
     "importTitle": "Import & catalog",
-    "importDesc": "Tile, index, publish; datasets appear in the Catalog immediately.",
+    "importDesc": "Prepare each dataset for its data type and add it to the catalog.",
     "workflow": "Workflow",
     "whatImported": "What gets imported",
     "vectorLabel": "Vector",
@@ -350,7 +361,15 @@
     "urlNote": "The URL is validated and size-capped before download · data is copied into GeoLens",
     "compareUrl": "Upload sends a file from your machine. File URL fetches it from the web; same review, same result, no local download needed.",
     "tiles3dLabel": "3D Tiles",
-    "tiles3dDesc": "unpacked and served as is to 3D Tiles clients."
+    "tiles3dDesc": "unpacked and served as is to 3D Tiles clients.",
+    "partialDesc": "Some imports failed or were cancelled. Review their job details.",
+    "partialStatus": "Needs attention",
+    "completeTableDesc": "Rows and schema are ready to query and reuse; no map preview.",
+    "completeTilesetDesc": "Open the dataset Access tab for the 3D Tiles client URL.",
+    "completePointCloudDesc": "Open the dataset Access tab for the COPC file URL.",
+    "completeDesc": "The finished datasets are available in the catalog.",
+    "pointcloudLabel": "COPC point cloud",
+    "pointcloudDesc": "served to external COPC clients; no built-in map preview."
   },
   "register": {
     "helpText": "Catalog existing PostGIS tables from your database as datasets in GeoLens. Use this when you have geographic data already in the database that wasn't imported through GeoLens. Selected tables will be added to the dataset catalog with automatic metadata detection.",
@@ -554,7 +573,8 @@
     "tilesetActionSummary": "{{files}} · {{tilesets}}",
     "pointcloudSummary": "{{points}} points · {{crs}} · {{size}}",
     "pointcloudCount_one": "{{value}} point cloud",
-    "pointcloudCount_other": "{{value}} point clouds"
+    "pointcloudCount_other": "{{value}} point clouds",
+    "singleActionHint": "Review the settings above, then import this dataset."
   },
   "detect": {
     "rasterInfo": "Raster info",
@@ -628,7 +648,13 @@
     "createVrtMosaic": "Create VRT Mosaic",
     "importAsVrt": "Import as VRT Mosaic",
     "ingestAllLayers": "Ingest all {{count}} layers as separate datasets",
-    "uploadProgressLabel": "Upload progress for {{name}}"
+    "uploadProgressLabel": "Upload progress for {{name}}",
+    "toggleDetails": "Show or hide details for {{name}}",
+    "removeNamedFile": "Remove {{name}}",
+    "defaultsConfirmTitle": "Import batch with defaults?",
+    "defaultsConfirmDescription": "This uses filenames as dataset names and private visibility. All edits in the review forms, including names, descriptions, visibility, geometry, CRS, and raster settings, will be discarded. Each multi-layer file imports only its selected layer.",
+    "confirmDefaults": "Import with defaults",
+    "progressDetailWithFailures": "{{done}} complete · {{failed}} failed or cancelled · {{active}} in progress · {{queued}} queued"
   },
   "status": {
     "uploading": "Uploading",

@@ -15,12 +15,14 @@ import {
 interface ValidationStatusProps {
   datasetId: string;
   mode?: 'detailed' | 'compact';
+  canEdit?: boolean;
   onNavigateToField?: (field: string) => void;
 }
 
 export function ValidationStatus({
   datasetId,
   mode = 'detailed',
+  canEdit = false,
   onNavigateToField,
 }: ValidationStatusProps) {
   const { t } = useTranslation('dataset');
@@ -82,7 +84,7 @@ export function ValidationStatus({
             onClick={() => setTroubleshootOpen(true)}
             data-testid="validation-troubleshoot-trigger"
           >
-            {t('validation.troubleshootAction')}
+            {t(canEdit ? 'validation.troubleshootAction' : 'overview.reviewIssues')}
           </Button>
         )}
         <ValidationTroubleshootPanel
@@ -90,6 +92,7 @@ export function ValidationStatus({
           onOpenChange={setTroubleshootOpen}
           errors={data.errors}
           warnings={data.warnings}
+          canEdit={canEdit}
           onNavigateToField={onNavigateToField}
         />
       </div>
@@ -103,7 +106,7 @@ export function ValidationStatus({
       {hasIssues && (
         <div className="space-y-2 rounded-md border border-border/70 bg-muted/30 px-3 py-2">
           <p className="text-sm text-foreground" data-testid="validation-helper-text">
-            {helperText}
+            {canEdit ? helperText : t('validation.readOnlyGuidance')}
           </p>
 
           {likelyCauses.length > 0 && (
@@ -125,7 +128,7 @@ export function ValidationStatus({
             onClick={() => setTroubleshootOpen(true)}
             data-testid="validation-troubleshoot-trigger"
           >
-            {t('validation.troubleshootAction')}
+            {t(canEdit ? 'validation.troubleshootAction' : 'overview.reviewIssues')}
           </Button>
         </div>
       )}
@@ -161,6 +164,7 @@ export function ValidationStatus({
         onOpenChange={setTroubleshootOpen}
         errors={data.errors}
         warnings={data.warnings}
+        canEdit={canEdit}
         onNavigateToField={onNavigateToField}
       />
     </div>

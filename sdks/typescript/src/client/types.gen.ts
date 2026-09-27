@@ -6482,6 +6482,10 @@ export type MapSummaryResponse = {
      * Updated At
      */
     updated_at: string;
+    /**
+     * Created By
+     */
+    created_by?: string | null;
 };
 
 /**
@@ -22865,6 +22869,10 @@ export type ListMapsEndpointMapsGetData = {
          * Visibility
          */
         visibility?: string | null;
+        /**
+         * Owned Only
+         */
+        owned_only?: boolean;
     };
     url: '/maps/';
 };

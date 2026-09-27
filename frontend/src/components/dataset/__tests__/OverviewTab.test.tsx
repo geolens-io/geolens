@@ -58,6 +58,12 @@ function renderOverview(dataset: DatasetResponse) {
 }
 
 describe('OverviewTab reuse details', () => {
+  it('shows the translated update cadence in the overview', () => {
+    renderOverview(makeDataset({ update_frequency: 'asNeeded' }));
+    expect(screen.getByText('As needed')).toBeInTheDocument();
+    expect(screen.queryByText('asNeeded')).not.toBeInTheDocument();
+  });
+
   it('shows full source and license values without truncation or hover-only titles', () => {
     renderOverview(makeDataset());
 

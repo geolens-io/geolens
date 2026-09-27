@@ -577,28 +577,6 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
         </div>
       )}
 
-      {/* Data-driven style editor — hidden when in heatmap/symbol/cluster mode */}
-      {renderMode !== 'heatmap' && renderMode !== 'symbol' && renderMode !== 'cluster' && (
-        <StyleControlSection title={t('style.sections.dataDriven')} description={t('style.sections.dataDrivenDescription')}>
-          <LazyLoadErrorBoundary>
-            <Suspense fallback={null}>
-              <DataDrivenStyleEditor
-                // fix(#461): DataDrivenStyleEditor seeds its
-                // ramp/mode/column into local useState on mount. A banner Revert
-                // rewrites layer.style_config externally, but that local state
-                // stays stale and its effect would immediately re-apply the
-                // discarded ramp. Bumping this key on revert remounts the editor
-                // so it re-seeds from the restored config. (Normal edits don't
-                // bump it, so typing/interaction is unaffected.)
-                key={`dds-${revertNonce}`}
-                layer={layer}
-                onStyleConfigChange={onStyleConfigChange}
-              />
-            </Suspense>
-          </LazyLoadErrorBoundary>
-        </StyleControlSection>
-      )}
-
       {/* Per-render-mode appearance controls — dispatched via RenderModeSwitch
           Section title/description adapts to the active mode (heatmap/symbol/cluster
           have their own section labels; fill/line/circle share the generic appearance label). */}
@@ -682,6 +660,28 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
           onChange={(val) => onLayoutChange(layer.id, { ...layoutObj, '_maxzoom': val })}
         />
       </StyleControlSection>
+
+      {/* Data-driven style editor — hidden when in heatmap/symbol/cluster mode */}
+      {renderMode !== 'heatmap' && renderMode !== 'symbol' && renderMode !== 'cluster' && (
+        <StyleControlSection title={t('style.sections.dataDriven')} description={t('style.sections.dataDrivenDescription')}>
+          <LazyLoadErrorBoundary>
+            <Suspense fallback={null}>
+              <DataDrivenStyleEditor
+                // fix(#461): DataDrivenStyleEditor seeds its
+                // ramp/mode/column into local useState on mount. A banner Revert
+                // rewrites layer.style_config externally, but that local state
+                // stays stale and its effect would immediately re-apply the
+                // discarded ramp. Bumping this key on revert remounts the editor
+                // so it re-seeds from the restored config. (Normal edits don't
+                // bump it, so typing/interaction is unaffected.)
+                key={`dds-${revertNonce}`}
+                layer={layer}
+                onStyleConfigChange={onStyleConfigChange}
+              />
+            </Suspense>
+          </LazyLoadErrorBoundary>
+        </StyleControlSection>
+      )}
 
       <StyleControlSection title={t('style.sections.advanced')} description={t('style.sections.advancedDescription')}>
         <AdvancedJsonEditor
