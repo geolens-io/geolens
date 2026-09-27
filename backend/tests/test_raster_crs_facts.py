@@ -427,7 +427,7 @@ class TestVrtSourcesCompareCrsInTheChild:
         def _fail(*args, **kwargs):
             raise raised
 
-        monkeypatch.setattr(bounded_child.subprocess, "run", _fail)
+        monkeypatch.setattr(bounded_child.subprocess, "Popen", _fail)
 
         assert compare_crs([_UTM_18N_WKT2, _UTM_19N_WKT2]) == {
             _UTM_18N_WKT2: None,

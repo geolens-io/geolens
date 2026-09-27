@@ -152,7 +152,7 @@ class TestTheParentBoundsTheChild:
         def _fail(*args, **kwargs):
             raise raised
 
-        monkeypatch.setattr(bounded_child.subprocess, "run", _fail)
+        monkeypatch.setattr(bounded_child.subprocess, "Popen", _fail)
 
         with structlog.testing.capture_logs() as captured:
             with pytest.raises(probe.RasterProbeError) as exc_info:

@@ -11,10 +11,12 @@ from __future__ import annotations
 import contextlib
 import json
 import locale
+import os
 import re
 import signal
 import subprocess
 import tempfile
+import time
 from collections.abc import Collection, Iterator, Sequence
 from pathlib import Path
 from typing import IO, Any
@@ -28,6 +30,8 @@ _EXCEPTION_NAME = re.compile(r"[A-Za-z_][\w.]{0,99}(?:Error|Exception|Exit|Inter
 # The largest replies are a 512 px quicklook, under 1 MB even of noise, and
 # the metadata of a GeoTIFF with the format's 65,535 bands, about 6 MB.
 _MAX_OUTPUT_BYTES = 16 * 1024 * 1024
+# A child can overshoot the cap by its write rate times this before it's stopped.
+_POLL_SECONDS = 0.05
 
 
 class ChildFailure(Exception):
@@ -65,18 +69,23 @@ def run_child(
             tempfile.TemporaryFile() as out,
             tempfile.TemporaryFile() as err,
         ):
-            done = subprocess.run(
-                argv,
-                stdin=request,
-                stdout=out,
-                stderr=err,
-                cwd=_BACKEND_ROOT,
-                env=env,
-                timeout=timeout,
+            child = subprocess.Popen(
+                argv, stdin=request, stdout=out, stderr=err, cwd=_BACKEND_ROOT, env=env
             )
+            deadline = time.monotonic() + timeout
+            try:
+                while child.poll() is None:
+                    for stream, output in (("stdout", out), ("stderr", err)):
+                        if os.fstat(output.fileno()).st_size > _MAX_OUTPUT_BYTES:
+                            raise ChildFailure("oversized", stream=stream)
+                    if time.monotonic() > deadline:
+                        raise ChildFailure("timeout")
+                    with contextlib.suppress(subprocess.TimeoutExpired):
+                        child.wait(_POLL_SECONDS)
+            finally:
+                child.kill()
+                child.wait()
             stdout, stderr = _read_output(out, "stdout"), _read_output(err, "stderr")
-    except subprocess.TimeoutExpired:
-        raise ChildFailure("timeout") from None
     except (OSError, UnicodeDecodeError) as exc:
         # The child couldn't start, or its reply wasn't text: the failure is
         # ours, not the input's.
@@ -89,12 +98,12 @@ def run_child(
     except (ValueError, RecursionError):
         # RecursionError: JSON nested deeper than the parser's stack.
         reply = None
-    if done.returncode == 0 and isinstance(reply, dict) and "result" in reply:
+    if child.returncode == 0 and isinstance(reply, dict) and "result" in reply:
         return reply["result"]
     if not isinstance(reply, dict):
         reply = {}
     category, exception = reply.get("error"), reply.get("exception")
-    if done.returncode < 0:
+    if child.returncode < 0:
         category, exception = "killed", None
     elif not isinstance(category, str) or category not in reported:
         # No verdict: the child died before it could give one, as a failed
@@ -105,8 +114,8 @@ def run_child(
         exception = lines[-1].split(":", 1)[0] if lines else None
     raise ChildFailure(
         category,
-        returncode=done.returncode,
-        signal=_signal_name(done.returncode),
+        returncode=child.returncode,
+        signal=_signal_name(child.returncode),
         exception=exception
         if isinstance(exception, str) and _EXCEPTION_NAME.fullmatch(exception)
         else None,

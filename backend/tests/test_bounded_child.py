@@ -173,3 +173,53 @@ def test_output_up_to_the_cap_is_read(monkeypatch) -> None:
     )
 
     assert result == "x" * 1000
+
+
+@pytest.mark.parametrize("stream", ["stdout", "stderr"])
+def test_a_child_writing_without_end_is_stopped_at_the_cap(
+    monkeypatch, tmp_path, stream
+) -> None:
+    monkeypatch.setattr(bounded_child, "_MAX_OUTPUT_BYTES", 2**20)
+    scratch = tmp_path / "tmp"
+    scratch.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(scratch))
+    pid_file = tmp_path / "child.pid"
+    # Throttled, so a runner that misses the cap can't fill the disk by the deadline.
+    script = (
+        "import os, sys, time\n"
+        f"open({str(pid_file)!r}, 'w').write(str(os.getpid()))\n"
+        "while True:\n"
+        f"    sys.{stream}.write('x' * 65536)\n"
+        f"    sys.{stream}.flush()\n"
+        "    time.sleep(0.01)\n"
+    )
+    fds = _open_fds()
+
+    started = time.monotonic()
+    with pytest.raises(ChildFailure) as failure:
+        run_child(
+            [sys.executable, "-c", script],
+            env={"PATH": os.environ["PATH"]},
+            timeout=60,
+            reported=(),
+        )
+    elapsed = time.monotonic() - started
+
+    assert failure.value.details == {"category": "oversized", "stream": stream}
+    assert elapsed < 5, f"stopped after {elapsed:.1f}s"
+    with pytest.raises(ProcessLookupError):
+        os.kill(int(pid_file.read_text()), 0)
+    assert list(scratch.iterdir()) == []
+    assert _open_fds() == fds
+
+
+def test_a_reply_that_isnt_text_is_undecodable() -> None:
+    with pytest.raises(ChildFailure) as failure:
+        run_child(
+            [sys.executable, "-c", "import sys; sys.stdout.buffer.write(b'\\xff')"],
+            env={"PATH": os.environ["PATH"]},
+            timeout=30,
+            reported=(),
+        )
+
+    assert failure.value.category == "undecodable"
