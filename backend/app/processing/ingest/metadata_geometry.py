@@ -27,6 +27,39 @@ from app.processing.ingest.metadata_sql import (
 
 logger = structlog.stdlib.get_logger(__name__)
 
+_FLOAT8_SPECIAL_RE = r"^\s*[+-]?(nan|inf(inity)?)\s*$"
+# SQLAlchemy's text() reads a bare ":" as a bind parameter, which POSIX's
+# [[:space:]] class would trip; \s (also valid in Postgres's regex dialect)
+# avoids it.
+_FLOAT8_DECIMAL_RE = r"^\s*[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d{1,4})?\s*$"
+_FLOAT8_MIN_POSITIVE = "4.9e-324"
+_FLOAT8_MAX = "1.7976931348623157e308"
+# With the 4-digit exponent cap, text this short keeps ::numeric within its
+# 16383-digit scale limit; longer text is no coordinate.
+_FLOAT8_MAX_TEXT_LENGTH = 2000
+
+
+def _float8_predicate(col_expr: str) -> str:
+    """SQL predicate: does col_expr's text cast to double precision without error?
+
+    Replaces pg_input_is_valid (PG16+) with regex operators available on
+    PG13. A shape match can still overflow double precision on cast (e.g.
+    "1e400"), so it's also bounded via ::numeric. Capping the exponent at 4
+    digits and the text's length keeps that cast itself from overflowing
+    numeric's own range, so the predicate never raises.
+    """
+    return (
+        f"CASE "
+        f"WHEN length({col_expr}) > {_FLOAT8_MAX_TEXT_LENGTH} THEN false "
+        f"WHEN {col_expr} ~* '{_FLOAT8_SPECIAL_RE}' THEN true "
+        f"WHEN {col_expr} ~ '{_FLOAT8_DECIMAL_RE}' THEN ("
+        f"abs({col_expr}::numeric) = 0 OR "
+        f"abs({col_expr}::numeric) BETWEEN {_FLOAT8_MIN_POSITIVE} AND {_FLOAT8_MAX}"
+        f") "
+        f"ELSE false "
+        f"END"
+    )
+
 
 async def construct_point_geometry(
     session: AsyncSession,
@@ -50,12 +83,13 @@ async def construct_point_geometry(
     y_col = _sql_quote_ident(y_column)
     finite_floor = "-1.7976931348623157e308"
     finite_ceiling = "1.7976931348623157e308"
+    x_is_float8 = _float8_predicate(f"{x_col}::text")
+    y_is_float8 = _float8_predicate(f"{y_col}::text")
     unparseable = await session.execute(
         text(
             f"SELECT COUNT(*) FROM {tref} "
             f"WHERE {x_col} IS NOT NULL AND {y_col} IS NOT NULL "
-            f"AND (NOT pg_input_is_valid({x_col}::text, 'double precision') "
-            f"OR NOT pg_input_is_valid({y_col}::text, 'double precision'))"
+            f"AND (NOT ({x_is_float8}) OR NOT ({y_is_float8}))"
         )
     )
     unparseable_count = int(unparseable.scalar_one())
