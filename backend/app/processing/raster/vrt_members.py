@@ -143,18 +143,27 @@ async def reclaim_retained_cogs() -> int:
     """Delete each kept COG no VRT may read any longer, object first, then its row; never raises.
 
     Returns how many were reclaimed. A row whose readers can't be read, or whose
-    object can't be deleted, stays counted for the next pass.
+    object can't be deleted, stays counted for the next pass. On a hosted
+    install only the current tenant's rows are taken, since their objects
+    resolve under its prefix.
     """
     import app.core.db as db_module
+    from app.core.tenancy import is_multi_tenant
+    from app.platform.extensions import get_processing_port
     from app.platform.storage import get_storage
 
     log = structlog.get_logger()
+    retained = [DatasetAsset.key.startswith(RETAINED_COG_PREFIX, autoescape=True)]
+    if is_multi_tenant():
+        # dataset_assets has no RLS of its own; datasets does.
+        Dataset = get_processing_port().get_dataset_orm_class()
+        retained.append(DatasetAsset.dataset_id.in_(select(Dataset.id)))
     reclaimed = 0
     after = None
     while True:
         query = (
             select(DatasetAsset.id, DatasetAsset.dataset_id, DatasetAsset.href)
-            .where(DatasetAsset.key.startswith(RETAINED_COG_PREFIX, autoescape=True))
+            .where(*retained)
             .order_by(DatasetAsset.id)
             .limit(_RECLAIM_BATCH)
         )
