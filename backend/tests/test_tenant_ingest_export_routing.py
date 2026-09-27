@@ -179,17 +179,14 @@ def test_vrt_rewrite_relativizes_with_physical_tenant_key(tmp_path):
 
 
 def test_vrt_reap_retains_old_quicklooks_when_regeneration_has_none():
-    from app.processing.ingest.tasks_vrt import (
-        _prior_generation_storage_keys_to_reap,
-    )
+    from app.processing.ingest.tasks_vrt import _prior_generation_keys_to_reap
 
-    keys = _prior_generation_storage_keys_to_reap(
+    keys = _prior_generation_keys_to_reap(
         vrt_key="rasters/vrt/old/source.vrt",
         quicklook_256_key="rasters/vrt/old/quicklook_256.png",
         quicklook_512_key="rasters/vrt/old/quicklook_512.png",
         replace_quicklook_256=False,
         replace_quicklook_512=False,
-        tenant_id=None,
     )
 
     assert keys == ["rasters/vrt/old/source.vrt"]
