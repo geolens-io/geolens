@@ -11,9 +11,12 @@ and any other configured header to the storage host (httpx strips only
 ``Authorization``), so the target is fetched with a separate client that has
 none of them. Only ``Range`` and the ``If-*`` precondition headers of the
 GeoLens request go along. A Location that isn't an http(s) URL raises
-ValueError. A 304 answering an ``If-None-Match`` or ``If-Modified-Since`` read
-of the target returns None, as the generated call's 304 does; any other failed
-fetch of it raises ``errors.UnexpectedStatus``.
+ValueError. A redirect from the storage host is followed only while it stays
+on that host and port (http may become https, never the reverse), at most
+five times; any other raises ``errors.UnexpectedStatus``.
+A 304 answering an ``If-None-Match`` or ``If-Modified-Since`` read of the
+target returns None, as the generated call's 304 does; any other failed fetch
+of it raises ``errors.UnexpectedStatus``.
 
 The file is streamed into a ``tempfile.SpooledTemporaryFile``, kept in memory
 up to ``SPOOL_MAX_SIZE`` bytes and on disk beyond, so a multi-GB COG is never
@@ -46,6 +49,8 @@ if TYPE_CHECKING:
 __all__ = ["SPOOL_MAX_SIZE", "asyncio", "sync"]
 
 SPOOL_MAX_SIZE = 4 * 1024 * 1024
+_MAX_STORAGE_REDIRECTS = 5
+_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 
 # Not credentials, and a ranged or conditional read needs them at the storage
 # host the backend redirects to.
@@ -76,8 +81,13 @@ def sync(
             return operation._parse_response(client=client, response=response)
         target, headers = _redirect_url(response), _forwarded(response)
     with httpx.Client(**_storage_client_args(client)) as storage:
-        with storage.stream("GET", target, headers=headers) as fetched:
-            return _file(fetched)
+        for _ in range(_MAX_STORAGE_REDIRECTS + 1):
+            with storage.stream("GET", target, headers=headers) as fetched:
+                hop = _next_hop(fetched, target)
+                if hop is None:
+                    return _file(fetched)
+            target = hop
+    raise _too_many_redirects(fetched)
 
 
 async def asyncio(
@@ -97,8 +107,13 @@ async def asyncio(
             return operation._parse_response(client=client, response=response)
         target, headers = _redirect_url(response), _forwarded(response)
     async with httpx.AsyncClient(**_storage_client_args(client)) as storage:
-        async with storage.stream("GET", target, headers=headers) as fetched:
-            return await _afile(fetched)
+        for _ in range(_MAX_STORAGE_REDIRECTS + 1):
+            async with storage.stream("GET", target, headers=headers) as fetched:
+                hop = _next_hop(fetched, target)
+                if hop is None:
+                    return await _afile(fetched)
+            target = hop
+    raise _too_many_redirects(fetched)
 
 
 def _operation() -> ModuleType:
@@ -112,11 +127,7 @@ def _operation() -> ModuleType:
 def _storage_client_args(client: AuthenticatedClient | Client) -> dict[str, Any]:
     # A custom CA bundle or timeout usually applies to the storage host too,
     # and neither is a credential.
-    return {
-        "verify": client._verify_ssl,
-        "timeout": client._timeout,
-        "follow_redirects": True,
-    }
+    return {"verify": client._verify_ssl, "timeout": client._timeout}
 
 
 def _redirect_url(response: httpx.Response) -> httpx.URL:
@@ -131,6 +142,36 @@ def _redirect_url(response: httpx.Response) -> httpx.URL:
             f"with a host, got scheme {url.scheme!r}"
         )
     return url
+
+
+def _next_hop(response: httpx.Response, current: httpx.URL) -> httpx.URL | None:
+    """Where a storage redirect leads, or None when the response is the answer."""
+    if (
+        response.status_code not in _REDIRECT_STATUSES
+        or "location" not in response.headers
+    ):
+        return None
+    target = current.join(response.headers["location"])
+    # Only the first URL was validated by the server; a storage host must not
+    # bounce the download to a different host.
+    upgrade = (current.scheme, target.scheme) == ("http", "https")
+    if (
+        target.host != current.host
+        or target.port != current.port
+        or (target.scheme != current.scheme and not upgrade)
+    ):
+        raise errors.UnexpectedStatus(
+            response.status_code,
+            f"Storage redirected off {current.host} to {target.host}".encode(),
+        )
+    return target
+
+
+def _too_many_redirects(response: httpx.Response) -> errors.UnexpectedStatus:
+    return errors.UnexpectedStatus(
+        response.status_code,
+        f"More than {_MAX_STORAGE_REDIRECTS} storage redirects".encode(),
+    )
 
 
 def _forwarded(response: httpx.Response) -> dict[str, str]:

@@ -516,13 +516,12 @@ class TestCogDownloadRedirect:
         assert "X-API-Key" not in fetched.headers
 
     @pytest.mark.parametrize("mode", ["sync", "asyncio"])
-    def test_storage_redirects_are_followed_without_credentials(
+    def test_same_host_storage_redirect_is_followed_without_credentials(
         self, storage: _Storage, mode: str
     ) -> None:
-        mirror = "https://mirror.test/cog.tif"
         storage.respond = lambda request: (
-            httpx.Response(307, headers={"Location": mirror})
-            if request.url.host == "storage.test"
+            httpx.Response(307, headers={"Location": "/bucket/moved.tif"})
+            if request.url.path == "/bucket/cog.tif"
             else httpx.Response(200, content=self._BODY)
         )
         client, _ = self._client(self._redirect_to(self._STORAGE_URL))
@@ -530,9 +529,79 @@ class TestCogDownloadRedirect:
         assert self._download(mode, client).payload.read() == self._BODY
         assert [str(request.url) for request in storage.seen] == [
             self._STORAGE_URL,
-            mirror,
+            "https://storage.test/bucket/moved.tif",
         ]
         assert all("X-API-Key" not in request.headers for request in storage.seen)
+
+    @pytest.mark.parametrize("mode", ["sync", "asyncio"])
+    def test_storage_redirect_to_another_host_raises(
+        self, storage: _Storage, mode: str
+    ) -> None:
+        from geolens.errors import UnexpectedStatus
+
+        storage.respond = lambda request: (
+            httpx.Response(302, headers={"Location": "http://internal.test/meta"})
+            if request.url.host == "storage.test"
+            else httpx.Response(200, content=b"not the COG")
+        )
+        client, _ = self._client(self._redirect_to(self._STORAGE_URL))
+
+        with pytest.raises(UnexpectedStatus) as raised:
+            self._download(mode, client)
+        assert raised.value.status_code == 302
+        assert "internal.test" in str(raised.value)
+        assert [request.url.host for request in storage.seen] == ["storage.test"]
+
+    @pytest.mark.parametrize("mode", ["sync", "asyncio"])
+    def test_storage_redirect_from_http_to_https_is_followed(
+        self, storage: _Storage, mode: str
+    ) -> None:
+        storage.respond = lambda request: (
+            httpx.Response(301, headers={"Location": "https://storage.test/cog.tif"})
+            if request.url.scheme == "http"
+            else httpx.Response(200, content=self._BODY)
+        )
+        client, _ = self._client(self._redirect_to("http://storage.test/cog.tif"))
+
+        assert self._download(mode, client).payload.read() == self._BODY
+        assert [request.url.scheme for request in storage.seen] == ["http", "https"]
+
+    @pytest.mark.parametrize("mode", ["sync", "asyncio"])
+    def test_storage_redirect_from_https_to_http_raises(
+        self, storage: _Storage, mode: str
+    ) -> None:
+        from geolens.errors import UnexpectedStatus
+
+        storage.respond = lambda request: (
+            httpx.Response(302, headers={"Location": "http://storage.test/cog.tif"})
+            if request.url.scheme == "https"
+            else httpx.Response(200, content=self._BODY)
+        )
+        client, _ = self._client(self._redirect_to(self._STORAGE_URL))
+
+        with pytest.raises(UnexpectedStatus):
+            self._download(mode, client)
+        assert [request.url.scheme for request in storage.seen] == ["https"]
+
+    @pytest.mark.parametrize("mode", ["sync", "asyncio"])
+    def test_storage_redirects_past_the_limit_raise(
+        self, storage: _Storage, mode: str
+    ) -> None:
+        from geolens import cog_download
+        from geolens.errors import UnexpectedStatus
+
+        # Stops redirecting on its own after 20 hops, so a missing limit fails
+        # the test instead of hanging it.
+        storage.respond = lambda request: (
+            httpx.Response(302, headers={"Location": f"/hop/{len(storage.seen)}"})
+            if len(storage.seen) <= 20
+            else httpx.Response(200, content=self._BODY)
+        )
+        client, _ = self._client(self._redirect_to(self._STORAGE_URL))
+
+        with pytest.raises(UnexpectedStatus):
+            self._download(mode, client)
+        assert len(storage.seen) == cog_download._MAX_STORAGE_REDIRECTS + 1
 
     @pytest.mark.parametrize("mode", ["sync", "asyncio"])
     def test_relative_location_resolves_against_the_request_url(
