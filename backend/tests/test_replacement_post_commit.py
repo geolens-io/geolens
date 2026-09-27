@@ -1120,7 +1120,7 @@ async def test_a_superseded_publish_never_overwrites_the_live_versions_archive(
     [
         (False, "put", "originals/"),
         (True, "put", "originals/"),
-        (True, "exists", "originals/"),
+        (True, "size", "originals/"),
         (True, "get_to_file", "staging/"),
     ],
     ids=["write-local", "write-storage", "check", "download"],

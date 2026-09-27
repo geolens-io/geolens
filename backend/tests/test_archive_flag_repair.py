@@ -275,6 +275,33 @@ async def test_an_owed_archive_with_no_upload_backs_off_while_the_store_cannot_a
         await _drop(test_db_session, job_id, record_id)
 
 
+@pytest.mark.parametrize("upload", ["vanished", "outside-staging"])
+async def test_an_unreadable_upload_does_not_vouch_for_an_object_after_a_failure(
+    test_db_session, raster_storage, followups, staging, tmp_path, upload
+) -> None:
+    """With nothing to measure it against, an object left after a failed attempt may be truncated."""
+    job_id, _, record_id, key = await _owing_archive(test_db_session, file_path=None)
+    try:
+        if upload == "vanished":
+            path = staging / f"{job_id}_roads.gpkg"
+        else:
+            path = tmp_path / f"{job_id}_roads.gpkg"
+            path.write_bytes(b"original")
+        await _set_path(job_id, str(path))
+        await raster_storage.put(key, b"orig")
+
+        await run_owed_publish_followups()
+
+        metadata = await _stored_metadata(job_id)
+        assert metadata[PUBLISH_FOLLOWUPS_FIELD]["archive_key"] == key
+        assert metadata["archive_failed"] is True
+        assert metadata[ARCHIVE_PENDING_METADATA_KEY] is True
+        assert await _held(job_id)
+        assert await raster_storage.get(key) == b"orig"
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
 # --- A flag nothing owes ---------------------------------------------------
 
 
@@ -560,6 +587,47 @@ async def test_a_store_that_cannot_answer_decides_nothing_until_it_can(
         assert not await _held(job_id)
     finally:
         await _drop(test_db_session, job_id, record_id)
+
+
+async def test_a_job_the_store_cannot_decide_leaves_room_for_the_others(
+    test_db_session, raster_storage, followups, staging, monkeypatch
+) -> None:
+    """Even with one job a batch and the undecidable job first by id, the other is reached."""
+    import app.processing.ingest.publish_followups as publish_followups
+
+    (stuck_id, stuck_dataset, stuck_record), (ready_id, _, ready_record) = sorted(
+        [await _flagged_job(test_db_session), await _flagged_job(test_db_session)]
+    )
+    try:
+        await _set_path(stuck_id, str(staging / f"{stuck_id}_roads.gpkg"))
+        await _set_path(ready_id, str(_stage(staging, ready_id)))
+        stuck_key = f"originals/{stuck_dataset}/{stuck_id}_roads.gpkg"
+        real_exists = raster_storage.exists
+
+        async def _undecided(checked):
+            if checked == stuck_key:
+                raise RuntimeError("the object store timed out")
+            return await real_exists(checked)
+
+        monkeypatch.setattr(raster_storage, "exists", _undecided)
+        monkeypatch.setattr(publish_followups, "_SWEEP_BATCH", 1)
+
+        async def _ready_reached() -> bool:
+            metadata = await _stored_metadata(ready_id)
+            return PUBLISH_FOLLOWUPS_FIELD in metadata or not await _held(ready_id)
+
+        for _ in range(20):
+            await run_owed_publish_followups()
+            if await _ready_reached():
+                break
+
+        assert await _ready_reached()
+        stuck = await _stored_metadata(stuck_id)
+        assert not {PUBLISH_FOLLOWUPS_FIELD, ARCHIVE_REVIEW_METADATA_KEY} & stuck.keys()
+        assert await _held(stuck_id)
+    finally:
+        await _drop(test_db_session, stuck_id, stuck_record)
+        await _drop(test_db_session, ready_id, ready_record)
 
 
 async def test_an_archive_the_store_refuses_is_retried_until_it_lands(

@@ -210,17 +210,27 @@ async def _note_archive_failure(
             await session.commit()
 
 
+async def _stored_size(archive_key: str) -> int | None:
+    """The size of the object under ``archive_key``, or None when there is none; raises when the store can't tell."""
+    from app.platform.storage import get_storage
+    from app.platform.storage.titiler_url import resolve_current_storage_key
+
+    try:
+        return await get_storage().size(resolve_current_storage_key(archive_key))
+    except FileNotFoundError:
+        return None
+
+
 async def _archived_as(archive_key: str, size: int | None = None) -> bool:
     """Whether storage holds ``size`` bytes under ``archive_key``, or any object without ``size``; False when it can't tell."""
     from app.platform.storage import get_storage
     from app.platform.storage.titiler_url import resolve_current_storage_key
 
     try:
-        key = resolve_current_storage_key(archive_key)
         if size is None:
-            return await get_storage().exists(key)
-        return await get_storage().size(key) == size
-    except Exception:  # broad: a missing or unreadable archive stays unconfirmed
+            return await get_storage().exists(resolve_current_storage_key(archive_key))
+        return await _stored_size(archive_key) == size
+    except Exception:  # broad: an unreadable archive stays unconfirmed
         return False
 
 
@@ -273,7 +283,7 @@ async def _archive_upload(
             )
             return False
         size = Path(local).stat().st_size
-        if await _archived_as(archive_key, size):
+        if await _stored_size(archive_key) == size:
             return True
         async with db_module.async_session() as session:
             job = await session.get(IngestJob, job_uuid)
@@ -896,8 +906,8 @@ async def _owe_unowed_archives() -> None:
     establishes the archive, the archive is owed again in the job's attempt,
     as its task would have owed it. Otherwise the job keeps its flags, and so
     its upload, and gets a review reason, logged once. A job with no attempt
-    id can't be owed an item, and a store that can't answer leaves the job
-    for a later pass.
+    id can't be owed an item. A job that can't be decided now, as when its
+    store can't answer, is left for a later pass.
     """
     import app.core.db as db_module
 
@@ -913,15 +923,16 @@ async def _owe_unowed_archives() -> None:
                     IngestJob.user_metadata,
                 )
                 .where(_unowed_archive())
-                .order_by(IngestJob.id)
+                # Jobs a store can't decide stay eligible and must not fill every batch.
+                .order_by(func.random())
                 .limit(_SWEEP_BATCH)
             )
         ).all()
     for row in rows:
-        key = _established_archive_key(row) if row.attempt_id else None
         try:
+            key = _established_archive_key(row) if row.attempt_id else None
             reason = await _review_reason(row, key)
-        except Exception:  # broad: an unreadable store decides nothing this pass
+        except Exception:  # broad: an undecided job waits for a later pass
             log.warning("unowed_archive_undecided", job_id=str(row.id), exc_info=True)
             continue
         if reason is None:
