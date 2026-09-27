@@ -1,4 +1,4 @@
-"""The tileset route serves only a published tileset's own files, sandboxed and privately cached."""
+"""The tileset route serves only a published tileset's own files, sandboxed, privately cached and revalidated on reuse."""
 
 import uuid
 
@@ -26,11 +26,12 @@ _ROOT = b'{"asset": {"version": "1.1"}, "geometricError": 10}'
 
 
 class _SpyStorage:
-    """A real provider that records every key the route asks it to read."""
+    """A real provider that records every key the route asks it to read or probe."""
 
     def __init__(self, inner) -> None:
         self.inner = inner
         self.read: list[str] = []
+        self.probed: list[str] = []
 
     async def put(self, key: str, data: bytes) -> str:
         return await self.inner.put(key, data)
@@ -38,6 +39,14 @@ class _SpyStorage:
     def get_stream(self, key: str):
         self.read.append(key)
         return self.inner.get_stream(key)
+
+    def get_range_stream(self, key: str, start: int, length: int):
+        self.probed.append(key)
+        return self.inner.get_range_stream(key, start, length)
+
+    async def exists(self, key: str) -> bool:
+        self.probed.append(key)
+        return await self.inner.exists(key)
 
 
 def _install(provider, monkeypatch) -> _SpyStorage:
@@ -143,7 +152,10 @@ def _assert_sandboxed(resp) -> None:
     assert {"Authorization", "X-Api-Key"} <= {
         name.strip() for name in resp.headers["vary"].split(",")
     }
-    assert resp.headers["cache-control"].startswith("private")
+    if resp.status_code >= 400:
+        assert resp.headers["cache-control"] == "private, no-store"
+    else:
+        assert resp.headers["cache-control"].startswith("private")
 
 
 _ESCAPES = [
@@ -337,21 +349,30 @@ async def test_the_connection_is_released_before_storage_is_read(
     storage,
     request_sessions,  # noqa: F811
 ) -> None:
-    """No transaction is open on the request's session when the file starts to stream."""
+    """No transaction is open on the request's session when storage is first read, conditionally or not."""
     dataset_id = await make_tileset()
     await storage.put(f"{tileset_prefix(dataset_id)}a1/tileset.json", _ROOT)
     held: list[bool] = []
-    read = storage.get_stream
+    read, probe = storage.get_stream, storage.get_range_stream
 
     def recording(key: str):
         held.append(_holds_connection(request_sessions))
         return read(key)
 
+    def probing(key: str, start: int, length: int):
+        held.append(_holds_connection(request_sessions))
+        return probe(key, start, length)
+
     storage.get_stream = recording
+    storage.get_range_stream = probing
     resp = await client.get(_url(dataset_id, "tileset.json"))
+    revalidated = await client.get(
+        _url(dataset_id, "tileset.json"), headers={"If-None-Match": '"a1"'}
+    )
 
     assert resp.status_code == 200
-    assert held == [False]
+    assert revalidated.status_code == 304
+    assert held == [False, False]
 
 
 async def test_missing_and_forbidden_answer_alike(
@@ -425,7 +446,7 @@ async def test_only_tileset_formats_keep_their_type(
 async def test_every_answer_is_privately_cached(
     client: AsyncClient, make_tileset, storage, owner
 ) -> None:
-    """Tileset files, both kinds of 404 and a malformed id's 422 are private to the caller."""
+    """Tileset files may be kept privately but are revalidated on reuse; both kinds of 404 and a malformed id's 422 are never stored."""
     dataset_id = await make_tileset()
     private_id = await make_tileset(owner_id=owner[1], visibility="private")
     prefix = tileset_prefix(dataset_id)
@@ -438,13 +459,324 @@ async def test_every_answer_is_privately_cached(
     forbidden = await client.get(_url(private_id, "tileset.json"))
     malformed = await client.get("/datasets/not-a-uuid/tiles3d/tileset.json")
 
-    assert entry.headers["cache-control"] == "private, max-age=60"
-    assert content.headers["cache-control"] == "private, max-age=3600"
+    assert entry.headers["cache-control"] == "private, no-cache"
+    assert content.headers["cache-control"] == "private, no-cache"
     assert malformed.status_code == 422
     for resp in (missing, forbidden, malformed):
         assert resp.headers["cache-control"] == "private, no-store"
     for resp in (entry, content, missing, forbidden, malformed):
         _assert_sandboxed(resp)
+
+
+_FILES = [
+    pytest.param("tileset.json", _ROOT, id="tileset-json"),
+    pytest.param("tiles/0.glb", b"glTF-content", id="tile-content"),
+]
+
+
+async def _publish(
+    storage, dataset_id: uuid.UUID, attempt: str, path: str, body: bytes
+):
+    await storage.put(f"{tileset_prefix(dataset_id)}{attempt}/{path}", body)
+
+
+async def _set_visibility(session, dataset_id: uuid.UUID, visibility: str) -> None:
+    await session.execute(
+        text(
+            "UPDATE catalog.records SET visibility = :visibility WHERE id = "
+            "(SELECT record_id FROM catalog.datasets WHERE id = :id)"
+        ),
+        {"visibility": visibility, "id": dataset_id},
+    )
+    await session.commit()
+
+
+@pytest.mark.parametrize(("path", "body"), _FILES)
+async def test_a_revalidation_of_the_current_version_is_304(
+    client: AsyncClient, make_tileset, storage, path, body
+) -> None:
+    """A read carries the published tileset's ETag, and a conditional read with it answers 304 without streaming the file."""
+    dataset_id = await make_tileset()
+    await _publish(storage, dataset_id, "a1", path, body)
+
+    stored = await client.get(_url(dataset_id, path))
+    storage.read.clear()
+    revalidated = await client.get(
+        _url(dataset_id, path), headers={"If-None-Match": stored.headers["etag"]}
+    )
+
+    assert stored.status_code == 200
+    assert stored.headers["etag"] == '"a1"'
+    assert revalidated.status_code == 304
+    assert revalidated.headers["etag"] == '"a1"'
+    assert revalidated.headers["cache-control"] == "private, no-cache"
+    assert storage.read == []
+    _assert_sandboxed(revalidated)
+
+
+@pytest.mark.parametrize(("path", "body"), _FILES)
+async def test_a_revalidation_after_the_tileset_turns_private_is_404(
+    client: AsyncClient, test_db_session, make_tileset, storage, owner, path, body
+) -> None:
+    """A client revalidating a stored file of a tileset made private gets 404, not 304."""
+    dataset_id = await make_tileset(owner_id=owner[1])
+    await _publish(storage, dataset_id, "a1", path, body)
+    stored = await client.get(_url(dataset_id, path))
+    assert stored.status_code == 200
+
+    await _set_visibility(test_db_session, dataset_id, "private")
+    revalidated = await client.get(
+        _url(dataset_id, path), headers={"If-None-Match": stored.headers["etag"]}
+    )
+
+    assert revalidated.status_code == 404
+    assert revalidated.headers["cache-control"] == "private, no-store"
+
+
+@pytest.mark.parametrize(("path", "body"), _FILES)
+async def test_a_revalidation_with_a_revoked_key_is_401(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    make_tileset,
+    storage,
+    owner,
+    path,
+    body,
+) -> None:
+    """A client revalidating with an API key revoked since its read gets 401, not 304."""
+    owner_id = owner[1]
+    created = await client.post(
+        "/admin/api-keys/",
+        json={"user_id": str(owner_id), "name": "tileset reader"},
+        headers=admin_auth_header,
+    )
+    assert created.status_code == 201
+    headers = {"X-Api-Key": created.json()["key"]}
+    dataset_id = await make_tileset(owner_id=owner_id, visibility="private")
+    await _publish(storage, dataset_id, "a1", path, body)
+    stored = await client.get(_url(dataset_id, path), headers=headers)
+    assert stored.status_code == 200
+
+    revoked = await client.delete(
+        f"/admin/api-keys/{created.json()['id']}", headers=admin_auth_header
+    )
+    assert revoked.status_code == 204, revoked.text
+    revalidated = await client.get(
+        _url(dataset_id, path),
+        headers={**headers, "If-None-Match": stored.headers["etag"]},
+    )
+
+    assert revalidated.status_code == 401
+    _assert_sandboxed(revalidated)
+
+
+@pytest.mark.parametrize(("path", "body"), _FILES)
+async def test_a_conditional_read_is_decided_before_its_validator(
+    client: AsyncClient,
+    viewer_auth_header: dict,
+    make_tileset,
+    storage,
+    owner,
+    path,
+    body,
+) -> None:
+    """Callers who can't see a private tileset get 404 whichever precondition they send."""
+    dataset_id = await make_tileset(owner_id=owner[1], visibility="private")
+    await _publish(storage, dataset_id, "a1", path, body)
+
+    for headers in ({}, viewer_auth_header):
+        for condition in ({"If-None-Match": '"a1"'}, {"If-Match": '"a0"'}):
+            resp = await client.get(
+                _url(dataset_id, path), headers={**headers, **condition}
+            )
+            assert resp.status_code == 404
+            assert "etag" not in resp.headers
+    assert storage.read == storage.probed == []
+
+
+@pytest.mark.parametrize(("path", "body"), _FILES)
+async def test_a_replacement_publish_changes_the_etag(
+    client: AsyncClient, test_db_session, make_tileset, storage, path, body
+) -> None:
+    """Once another attempt is live, the old ETag gets a 200 with the new file and a new ETag."""
+    dataset_id = await make_tileset()
+    await _publish(storage, dataset_id, "a1", path, body)
+    stored = await client.get(_url(dataset_id, path))
+    replacement = body[::-1] + b"!"
+    await _publish(storage, dataset_id, "a2", path, replacement)
+    await test_db_session.execute(
+        text(
+            "UPDATE catalog.dataset_assets SET href = :href "
+            "WHERE dataset_id = :id AND key = 'tileset'"
+        ),
+        {"href": f"{tileset_prefix(dataset_id)}a2/tileset.json", "id": dataset_id},
+    )
+    await test_db_session.commit()
+
+    revalidated = await client.get(
+        _url(dataset_id, path), headers={"If-None-Match": stored.headers["etag"]}
+    )
+
+    assert revalidated.status_code == 200
+    assert revalidated.content == replacement
+    assert revalidated.headers["etag"] == '"a2"'
+    assert revalidated.headers["etag"] != stored.headers["etag"]
+
+
+async def test_a_revalidation_with_the_weak_etag_is_304(
+    client: AsyncClient, make_tileset, storage
+) -> None:
+    """The weak form of the ETag, which nginx hands out after gzipping a file, still revalidates."""
+    dataset_id = await make_tileset()
+    await _publish(storage, dataset_id, "a1", "tileset.json", _ROOT)
+
+    resp = await client.get(
+        _url(dataset_id, "tileset.json"), headers={"If-None-Match": 'W/"a1"'}
+    )
+
+    assert resp.status_code == 304
+    assert storage.read == []
+
+
+async def test_an_if_match_naming_another_version_is_412(
+    client: AsyncClient, make_tileset, storage
+) -> None:
+    """A read that must be of an older version answers 412 without streaming the file."""
+    dataset_id = await make_tileset()
+    await _publish(storage, dataset_id, "a1", "tileset.json", _ROOT)
+
+    resp = await client.get(
+        _url(dataset_id, "tileset.json"), headers={"If-Match": '"a0"'}
+    )
+
+    assert resp.status_code == 412
+    assert storage.read == []
+    _assert_sandboxed(resp)
+
+
+@pytest.mark.parametrize(("path", "body"), _FILES)
+async def test_a_revalidation_of_a_deleted_file_is_404(
+    client: AsyncClient, make_tileset, storage, path, body
+) -> None:
+    """A file deleted while its tileset stays published answers a revalidation 404, as a plain read does."""
+    dataset_id = await make_tileset()
+    await _publish(storage, dataset_id, "a1", path, body)
+    stored = await client.get(_url(dataset_id, path))
+    await storage.inner.delete(f"{tileset_prefix(dataset_id)}a1/{path}")
+
+    revalidated = await client.get(
+        _url(dataset_id, path), headers={"If-None-Match": stored.headers["etag"]}
+    )
+    plain = await client.get(_url(dataset_id, path))
+
+    assert stored.status_code == 200
+    assert revalidated.status_code == plain.status_code == 404
+    assert revalidated.headers["cache-control"] == "private, no-store"
+    _assert_sandboxed(revalidated)
+
+
+async def test_a_wildcard_revalidation_of_a_missing_file_is_404(
+    client: AsyncClient, make_tileset, storage
+) -> None:
+    """``If-None-Match: *`` on a path with no stored file answers 404."""
+    dataset_id = await make_tileset()
+    await _publish(storage, dataset_id, "a1", "tileset.json", _ROOT)
+
+    resp = await client.get(
+        _url(dataset_id, "tiles/none.glb"), headers={"If-None-Match": "*"}
+    )
+
+    assert resp.status_code == 404
+
+
+async def test_a_wildcard_revalidation_of_a_stored_file_is_304(
+    client: AsyncClient, make_tileset, storage
+) -> None:
+    """``If-None-Match: *`` on a stored file answers 304 without streaming it."""
+    dataset_id = await make_tileset()
+    await _publish(storage, dataset_id, "a1", "tileset.json", _ROOT)
+
+    resp = await client.get(
+        _url(dataset_id, "tileset.json"), headers={"If-None-Match": "*"}
+    )
+
+    assert resp.status_code == 304
+    assert resp.headers["cache-control"] == "private, no-cache"
+    assert storage.read == []
+
+
+async def test_an_if_match_on_a_missing_file_is_404(
+    client: AsyncClient, make_tileset, storage
+) -> None:
+    """``If-Match`` on a path with no stored file answers 404, as a plain read does, not 412."""
+    dataset_id = await make_tileset()
+    await _publish(storage, dataset_id, "a1", "tileset.json", _ROOT)
+
+    resp = await client.get(
+        _url(dataset_id, "tiles/none.glb"), headers={"If-Match": '"a0"'}
+    )
+
+    assert resp.status_code == 404
+
+
+async def test_a_revalidation_naming_a_directory_is_404(
+    client: AsyncClient, make_tileset, storage
+) -> None:
+    """A conditional read of a path that names a directory answers 404, as a plain read does."""
+    dataset_id = await make_tileset()
+    await _publish(storage, dataset_id, "a1", "tiles/0.glb", b"glTF-content")
+
+    resp = await client.get(
+        _url(dataset_id, "tiles"), headers={"If-None-Match": '"a1"'}
+    )
+
+    assert resp.status_code == 404
+
+
+async def test_a_storage_failure_while_revalidating_is_502(
+    client: AsyncClient, make_tileset, storage, tmp_path
+) -> None:
+    """A store failing the existence check answers 502 without naming the key, and logs the failure."""
+    dataset_id = await make_tileset()
+    prefix = tileset_prefix(dataset_id)
+    await _publish(storage, dataset_id, "a1", "tileset.json", _ROOT)
+
+    async def unreadable(key: str, start: int, length: int):
+        raise OSError(f"{tmp_path}/{key} is unreadable")
+        yield  # an async generator, like every provider's get_range_stream
+
+    storage.inner.get_range_stream = unreadable
+    with capture_logs() as logs:
+        resp = await client.get(
+            _url(dataset_id, "tileset.json"), headers={"If-None-Match": '"a1"'}
+        )
+
+    assert resp.status_code == 502
+    assert prefix not in resp.text
+    assert str(tmp_path) not in resp.text
+    assert [
+        entry
+        for entry in logs
+        if entry["event"] == "tileset_storage_read_failed"
+        and entry["dataset_id"] == str(dataset_id)
+    ]
+    _assert_sandboxed(resp)
+
+
+async def test_a_plain_read_makes_no_existence_check(
+    client: AsyncClient, make_tileset, storage
+) -> None:
+    """An unconditional read, found or missing, opens the file once and never probes it."""
+    dataset_id = await make_tileset()
+    await _publish(storage, dataset_id, "a1", "tileset.json", _ROOT)
+
+    found = await client.get(_url(dataset_id, "tileset.json"))
+    missing = await client.get(_url(dataset_id, "tiles/none.glb"))
+
+    assert found.status_code == 200
+    assert missing.status_code == 404
+    assert len(storage.read) == 2
+    assert storage.probed == []
 
 
 async def test_storage_errors_never_name_a_key_or_path(
@@ -523,3 +855,61 @@ async def test_each_store_streams_a_file_whole_and_misses_as_404(
     assert resp.status_code == 200
     assert resp.content == payload
     assert missing.status_code == 404
+
+
+async def test_an_empty_file_is_served_and_revalidated(
+    client: AsyncClient, make_tileset, any_storage
+) -> None:
+    """A stored file of zero bytes answers 200 with no body, and its revalidation 304, on each store."""
+    dataset_id = await make_tileset()
+    await any_storage.put(f"{tileset_prefix(dataset_id)}a1/tiles/empty.glb", b"")
+
+    plain = await client.get(_url(dataset_id, "tiles/empty.glb"))
+    revalidated = await client.get(
+        _url(dataset_id, "tiles/empty.glb"),
+        headers={"If-None-Match": plain.headers["etag"]},
+    )
+
+    assert plain.status_code == 200
+    assert plain.content == b""
+    assert revalidated.status_code == 304
+
+
+_COMPRESSIBLE = [
+    pytest.param(
+        "tileset.json",
+        _ROOT[:-1] + b', "extras": {"pad": "' + b"a" * 2048 + b'"}}',
+        id="tileset-json",
+    ),
+    pytest.param("tiles/0.glb", b"glTF" + b"\0" * 2048, id="tile-content"),
+]
+
+
+@pytest.mark.parametrize(("path", "body"), _COMPRESSIBLE)
+async def test_a_file_is_never_gzipped(
+    client: AsyncClient, make_tileset, storage, path, body
+) -> None:
+    """A client offering gzip gets the stored bytes, uncompressed, under the strong ETag."""
+    dataset_id = await make_tileset()
+    await _publish(storage, dataset_id, "a1", path, body)
+
+    resp = await client.get(_url(dataset_id, path), headers={"Accept-Encoding": "gzip"})
+
+    assert resp.status_code == 200
+    assert "content-encoding" not in resp.headers
+    assert resp.content == body
+    assert resp.headers["etag"] == '"a1"'
+
+
+async def test_the_datasets_other_json_routes_are_still_gzipped(
+    client: AsyncClient, make_tileset
+) -> None:
+    """The tileset's opt-out from gzip leaves a sibling JSON route of the dataset compressed."""
+    dataset_id = await make_tileset()
+
+    resp = await client.get(
+        f"/datasets/{dataset_id}/dcat", headers={"Accept-Encoding": "gzip"}
+    )
+
+    assert resp.status_code == 200
+    assert resp.headers.get("content-encoding") == "gzip"

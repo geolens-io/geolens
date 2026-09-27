@@ -2764,8 +2764,12 @@ export interface paths {
          *     lose it unless the client carries it over, as CesiumJS does through
          *     ``Resource`` query parameters. A browser client on another origin also
          *     needs that origin on the deployment's CORS allowlist
-         *     (``CORS_ALLOWED_ORIGINS``). A private or missing tileset and a missing
-         *     file all answer 404, and a storage failure answers 502.
+         *     (``CORS_ALLOWED_ORIGINS``). Every file carries the published tileset's
+         *     ETag and asks the client to revalidate before each reuse. Once the caller
+         *     has access and the file exists, an ``If-None-Match`` naming the current
+         *     version answers 304 and an ``If-Match`` naming another answers 412. A
+         *     private or missing tileset and a missing file all answer 404, conditional
+         *     requests included, and a storage failure answers 502.
          */
         get: operations["get_tileset_file_datasets__dataset_id__tiles3d__path__get"];
         put?: never;
@@ -28374,6 +28378,13 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description The caller already holds this version of the file */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             /** @description Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored. */
             401: {
                 headers: {
@@ -28385,6 +28396,15 @@ export interface operations {
             };
             /** @description Not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Precondition failed — the caller's If-Match no longer matches the current representation */
+            412: {
                 headers: {
                     [name: string]: unknown;
                 };

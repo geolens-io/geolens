@@ -35,6 +35,10 @@ def _parse_response(
         response_200 = cast(Any, None)
         return response_200
 
+    if response.status_code == 304:
+        response_304 = cast(Any, None)
+        return response_304
+
     if response.status_code == 401:
         response_401 = ProblemDetail.from_dict(response.json())
 
@@ -44,6 +48,11 @@ def _parse_response(
         response_404 = ProblemDetail.from_dict(response.json())
 
         return response_404
+
+    if response.status_code == 412:
+        response_412 = ProblemDetail.from_dict(response.json())
+
+        return response_412
 
     if response.status_code == 422:
         response_422 = ProblemDetail.from_dict(response.json())
@@ -100,8 +109,12 @@ def sync_detailed(
     lose it unless the client carries it over, as CesiumJS does through
     ``Resource`` query parameters. A browser client on another origin also
     needs that origin on the deployment's CORS allowlist
-    (``CORS_ALLOWED_ORIGINS``). A private or missing tileset and a missing
-    file all answer 404, and a storage failure answers 502.
+    (``CORS_ALLOWED_ORIGINS``). Every file carries the published tileset's
+    ETag and asks the client to revalidate before each reuse. Once the caller
+    has access and the file exists, an ``If-None-Match`` naming the current
+    version answers 304 and an ``If-Match`` naming another answers 412. A
+    private or missing tileset and a missing file all answer 404, conditional
+    requests included, and a storage failure answers 502.
 
     Args:
         dataset_id (UUID):
@@ -145,8 +158,12 @@ def sync(
     lose it unless the client carries it over, as CesiumJS does through
     ``Resource`` query parameters. A browser client on another origin also
     needs that origin on the deployment's CORS allowlist
-    (``CORS_ALLOWED_ORIGINS``). A private or missing tileset and a missing
-    file all answer 404, and a storage failure answers 502.
+    (``CORS_ALLOWED_ORIGINS``). Every file carries the published tileset's
+    ETag and asks the client to revalidate before each reuse. Once the caller
+    has access and the file exists, an ``If-None-Match`` naming the current
+    version answers 304 and an ``If-Match`` naming another answers 412. A
+    private or missing tileset and a missing file all answer 404, conditional
+    requests included, and a storage failure answers 502.
 
     Args:
         dataset_id (UUID):
@@ -185,8 +202,12 @@ async def asyncio_detailed(
     lose it unless the client carries it over, as CesiumJS does through
     ``Resource`` query parameters. A browser client on another origin also
     needs that origin on the deployment's CORS allowlist
-    (``CORS_ALLOWED_ORIGINS``). A private or missing tileset and a missing
-    file all answer 404, and a storage failure answers 502.
+    (``CORS_ALLOWED_ORIGINS``). Every file carries the published tileset's
+    ETag and asks the client to revalidate before each reuse. Once the caller
+    has access and the file exists, an ``If-None-Match`` naming the current
+    version answers 304 and an ``If-Match`` naming another answers 412. A
+    private or missing tileset and a missing file all answer 404, conditional
+    requests included, and a storage failure answers 502.
 
     Args:
         dataset_id (UUID):
@@ -228,8 +249,12 @@ async def asyncio(
     lose it unless the client carries it over, as CesiumJS does through
     ``Resource`` query parameters. A browser client on another origin also
     needs that origin on the deployment's CORS allowlist
-    (``CORS_ALLOWED_ORIGINS``). A private or missing tileset and a missing
-    file all answer 404, and a storage failure answers 502.
+    (``CORS_ALLOWED_ORIGINS``). Every file carries the published tileset's
+    ETag and asks the client to revalidate before each reuse. Once the caller
+    has access and the file exists, an ``If-None-Match`` naming the current
+    version answers 304 and an ``If-Match`` naming another answers 412. A
+    private or missing tileset and a missing file all answer 404, conditional
+    requests included, and a storage failure answers 502.
 
     Args:
         dataset_id (UUID):
