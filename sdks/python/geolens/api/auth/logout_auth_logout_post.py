@@ -103,7 +103,7 @@ def _build_response(
 
 def sync_detailed(
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     body: None | RefreshRequest | Unset = UNSET,
     x_csrf_token: None | str | Unset = UNSET,
 ) -> Response[Any | ProblemDetail]:
@@ -149,7 +149,7 @@ def sync_detailed(
 
 def sync(
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     body: None | RefreshRequest | Unset = UNSET,
     x_csrf_token: None | str | Unset = UNSET,
 ) -> Any | ProblemDetail | None:
@@ -190,7 +190,7 @@ def sync(
 
 async def asyncio_detailed(
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     body: None | RefreshRequest | Unset = UNSET,
     x_csrf_token: None | str | Unset = UNSET,
 ) -> Response[Any | ProblemDetail]:
@@ -234,7 +234,7 @@ async def asyncio_detailed(
 
 async def asyncio(
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     body: None | RefreshRequest | Unset = UNSET,
     x_csrf_token: None | str | Unset = UNSET,
 ) -> Any | ProblemDetail | None:

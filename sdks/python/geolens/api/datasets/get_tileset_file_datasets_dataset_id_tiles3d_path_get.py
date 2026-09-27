@@ -86,7 +86,7 @@ def sync_detailed(
     dataset_id: UUID,
     path: str,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Response[Any | ProblemDetail]:
     """Get Tileset File
 
@@ -131,7 +131,7 @@ def sync(
     dataset_id: UUID,
     path: str,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Any | ProblemDetail | None:
     """Get Tileset File
 
@@ -171,7 +171,7 @@ async def asyncio_detailed(
     dataset_id: UUID,
     path: str,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Response[Any | ProblemDetail]:
     """Get Tileset File
 
@@ -214,7 +214,7 @@ async def asyncio(
     dataset_id: UUID,
     path: str,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Any | ProblemDetail | None:
     """Get Tileset File
 

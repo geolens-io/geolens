@@ -110,7 +110,7 @@ def _build_response(
 def sync_detailed(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     refresh: bool | Unset = False,
 ) -> Response[ProblemDetail | ValidationResultResponse]:
     """Validate Dataset
@@ -150,7 +150,7 @@ def sync_detailed(
 def sync(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     refresh: bool | Unset = False,
 ) -> ProblemDetail | ValidationResultResponse | None:
     """Validate Dataset
@@ -185,7 +185,7 @@ def sync(
 async def asyncio_detailed(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     refresh: bool | Unset = False,
 ) -> Response[ProblemDetail | ValidationResultResponse]:
     """Validate Dataset
@@ -223,7 +223,7 @@ async def asyncio_detailed(
 async def asyncio(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     refresh: bool | Unset = False,
 ) -> ProblemDetail | ValidationResultResponse | None:
     """Validate Dataset

@@ -177,7 +177,7 @@ def _build_response(
 def sync_detailed(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     limit: int | Unset = 10,
     offset: int | Unset = 0,
     after_gid: int | None | Unset = UNSET,
@@ -261,7 +261,7 @@ def sync_detailed(
 def sync(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     limit: int | Unset = 10,
     offset: int | Unset = 0,
     after_gid: int | None | Unset = UNSET,
@@ -341,7 +341,7 @@ def sync(
 async def asyncio_detailed(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     limit: int | Unset = 10,
     offset: int | Unset = 0,
     after_gid: int | None | Unset = UNSET,
@@ -423,7 +423,7 @@ async def asyncio_detailed(
 async def asyncio(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     limit: int | Unset = 10,
     offset: int | Unset = 0,
     after_gid: int | None | Unset = UNSET,

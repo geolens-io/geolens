@@ -173,7 +173,7 @@ def _build_response(
 
 def sync_detailed(
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     q: None | str | Unset = UNSET,
     bbox: None | str | Unset = UNSET,
     keywords: list[str] | None | Unset = UNSET,
@@ -236,7 +236,7 @@ def sync_detailed(
 
 def sync(
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     q: None | str | Unset = UNSET,
     bbox: None | str | Unset = UNSET,
     keywords: list[str] | None | Unset = UNSET,
@@ -294,7 +294,7 @@ def sync(
 
 async def asyncio_detailed(
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     q: None | str | Unset = UNSET,
     bbox: None | str | Unset = UNSET,
     keywords: list[str] | None | Unset = UNSET,
@@ -355,7 +355,7 @@ async def asyncio_detailed(
 
 async def asyncio(
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     q: None | str | Unset = UNSET,
     bbox: None | str | Unset = UNSET,
     keywords: list[str] | None | Unset = UNSET,

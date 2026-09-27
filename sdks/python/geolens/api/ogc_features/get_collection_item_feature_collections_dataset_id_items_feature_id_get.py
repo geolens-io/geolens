@@ -126,7 +126,7 @@ def sync_detailed(
     dataset_id: UUID,
     feature_id: int,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     f: None | str | Unset = UNSET,
 ) -> Response[
     GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponse
@@ -167,7 +167,7 @@ def sync(
     dataset_id: UUID,
     feature_id: int,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     f: None | str | Unset = UNSET,
 ) -> (
     GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponse
@@ -204,7 +204,7 @@ async def asyncio_detailed(
     dataset_id: UUID,
     feature_id: int,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     f: None | str | Unset = UNSET,
 ) -> Response[
     GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponse
@@ -243,7 +243,7 @@ async def asyncio(
     dataset_id: UUID,
     feature_id: int,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     f: None | str | Unset = UNSET,
 ) -> (
     GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponse

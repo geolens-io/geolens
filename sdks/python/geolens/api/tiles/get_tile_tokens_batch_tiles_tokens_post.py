@@ -92,7 +92,7 @@ def _build_response(
 
 def sync_detailed(
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     body: TileTokenBatchRequest,
     x_embed_token: None | str | Unset = UNSET,
 ) -> Response[ProblemDetail | TileTokenBatchResponse]:
@@ -146,7 +146,7 @@ def sync_detailed(
 
 def sync(
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     body: TileTokenBatchRequest,
     x_embed_token: None | str | Unset = UNSET,
 ) -> ProblemDetail | TileTokenBatchResponse | None:
@@ -195,7 +195,7 @@ def sync(
 
 async def asyncio_detailed(
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     body: TileTokenBatchRequest,
     x_embed_token: None | str | Unset = UNSET,
 ) -> Response[ProblemDetail | TileTokenBatchResponse]:
@@ -247,7 +247,7 @@ async def asyncio_detailed(
 
 async def asyncio(
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     body: TileTokenBatchRequest,
     x_embed_token: None | str | Unset = UNSET,
 ) -> ProblemDetail | TileTokenBatchResponse | None:

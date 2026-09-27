@@ -113,7 +113,7 @@ def _build_response(
 def sync_detailed(
     collection_id: str,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     bbox: None | str | Unset = UNSET,
     datetime_: None | str | Unset = UNSET,
     limit: int | Unset = 10,
@@ -159,7 +159,7 @@ def sync_detailed(
 def sync(
     collection_id: str,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     bbox: None | str | Unset = UNSET,
     datetime_: None | str | Unset = UNSET,
     limit: int | Unset = 10,
@@ -200,7 +200,7 @@ def sync(
 async def asyncio_detailed(
     collection_id: str,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     bbox: None | str | Unset = UNSET,
     datetime_: None | str | Unset = UNSET,
     limit: int | Unset = 10,
@@ -244,7 +244,7 @@ async def asyncio_detailed(
 async def asyncio(
     collection_id: str,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     bbox: None | str | Unset = UNSET,
     datetime_: None | str | Unset = UNSET,
     limit: int | Unset = 10,

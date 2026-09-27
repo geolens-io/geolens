@@ -100,7 +100,7 @@ def _build_response(
 def sync_detailed(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     f: None | str | Unset = UNSET,
 ) -> Response[OGCCollectionMetadata | ProblemDetail]:
     """Get Dataset Collection
@@ -134,7 +134,7 @@ def sync_detailed(
 def sync(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     f: None | str | Unset = UNSET,
 ) -> OGCCollectionMetadata | ProblemDetail | None:
     """Get Dataset Collection
@@ -163,7 +163,7 @@ def sync(
 async def asyncio_detailed(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     f: None | str | Unset = UNSET,
 ) -> Response[OGCCollectionMetadata | ProblemDetail]:
     """Get Dataset Collection
@@ -195,7 +195,7 @@ async def asyncio_detailed(
 async def asyncio(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     f: None | str | Unset = UNSET,
 ) -> OGCCollectionMetadata | ProblemDetail | None:
     """Get Dataset Collection

@@ -325,6 +325,105 @@ class TestOptionalRequestBodyIsOmitted:
         assert request.read() == b""
 
 
+# ------------------- Anonymous-capable client typing (regeneration guard) -------------------
+
+
+class TestAnonymousCapableEndpointAcceptsPlainClient:
+    """An operation whose security allows anonymous access (one alternative is
+    ``{}``) must still accept GeolensClient's plain ``Client``, not only
+    ``AuthenticatedClient`` — openapi-python-client types it from
+    ``bool(security)`` alone, ignoring the ``{}`` alternative.
+    """
+
+    def _anonymous_capable_operations(self) -> set[tuple[str, str]]:
+        spec = json.loads(
+            (_REPO_ROOT / "backend" / "openapi.json").read_text(encoding="utf-8")
+        )
+        http_methods = {
+            "get",
+            "post",
+            "put",
+            "patch",
+            "delete",
+            "head",
+            "options",
+            "trace",
+        }
+        operations: set[tuple[str, str]] = set()
+        for path, methods in spec.get("paths", {}).items():
+            for method, operation in methods.items():
+                if method not in http_methods:
+                    continue
+                security = operation.get("security")
+                if security and any(alternative == {} for alternative in security):
+                    operations.add((path, method))
+        return operations
+
+    def _endpoint_key(self, source: str) -> tuple[str, str] | None:
+        """Recover the (path, method) an endpoint module was generated for."""
+        method_match = re.search(r'"method":\s*"([a-z]+)"', source)
+        url_match = re.search(r'"url":\s*"([^"]*)"', source)
+        if not method_match or not url_match:
+            return None
+        return url_match.group(1), method_match.group(1)
+
+    def test_the_sdk_still_has_anonymous_capable_endpoints_to_guard(self) -> None:
+        """Guard the guard: an empty sweep would pass the test below vacuously."""
+        assert self._anonymous_capable_operations(), (
+            "No anonymous-capable operations found in backend/openapi.json. Either "
+            "the API stopped allowing anonymous access anywhere, or this scan "
+            "stopped matching — verify before deleting."
+        )
+
+    def test_every_anonymous_capable_endpoint_accepts_a_plain_client(self) -> None:
+        anonymous = self._anonymous_capable_operations()
+        api_root = _SDK_PY_PATH / "geolens" / "api"
+        narrow_client = "    client: AuthenticatedClient,\n"
+
+        unmatched = set(anonymous)
+        unwidened: list[str] = []
+        for path in sorted(api_root.rglob("*.py")):
+            source = path.read_text(encoding="utf-8")
+            key = self._endpoint_key(source)
+            if key is None or key not in anonymous:
+                continue
+            unmatched.discard(key)
+            if narrow_client in source:
+                unwidened.append(str(path.relative_to(_SDK_PY_PATH)))
+
+        assert not unmatched, (
+            "No generated module found for anonymous-capable operation(s); the "
+            "generator may have dropped or renamed them:\n  "
+            + "\n  ".join(
+                f"{method.upper()} {path}" for path, method in sorted(unmatched)
+            )
+        )
+        assert not unwidened, (
+            "These anonymous-capable endpoints still type `client` as "
+            "AuthenticatedClient only, so GeolensClient's plain Client (anonymous "
+            "mode) fails a type check calling them. Run `make sdks` (which applies "
+            "scripts/fix_sdk_anonymous_client.py) and commit the result:\n  "
+            + "\n  ".join(unwidened)
+        )
+
+    def test_a_plain_client_completes_an_anonymous_capable_call(self) -> None:
+        """A plain ``Client`` actually completes the call, against a mocked transport."""
+        from geolens.api.search import search_datasets_endpoint_search_datasets_get
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                json={"numberMatched": 0, "numberReturned": 0, "features": []},
+            )
+
+        client = Client(
+            base_url="http://sdk.test",
+            httpx_args={"transport": httpx.MockTransport(respond)},
+        )
+        resp = search_datasets_endpoint_search_datasets_get.sync_detailed(client=client)
+        assert resp.status_code == 200, resp.content
+
+
 # --------------------------- Round-trip tests (Python) ---------------------------
 
 

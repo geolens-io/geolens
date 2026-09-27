@@ -76,7 +76,7 @@ def _build_response(
 
 def sync_detailed(
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Response[Any | ProblemDetail]:
     """Validate Dcat Us3 Catalog
 
@@ -101,7 +101,7 @@ def sync_detailed(
 
 def sync(
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Any | ProblemDetail | None:
     """Validate Dcat Us3 Catalog
 
@@ -122,7 +122,7 @@ def sync(
 
 async def asyncio_detailed(
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Response[Any | ProblemDetail]:
     """Validate Dcat Us3 Catalog
 
@@ -145,7 +145,7 @@ async def asyncio_detailed(
 
 async def asyncio(
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Any | ProblemDetail | None:
     """Validate Dcat Us3 Catalog
 

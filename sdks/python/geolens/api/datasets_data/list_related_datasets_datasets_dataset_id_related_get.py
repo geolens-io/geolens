@@ -100,7 +100,7 @@ def _build_response(
 def sync_detailed(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Response[ProblemDetail | RelatedDatasetsResponse]:
     """List Related Datasets
 
@@ -131,7 +131,7 @@ def sync_detailed(
 def sync(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> ProblemDetail | RelatedDatasetsResponse | None:
     """List Related Datasets
 
@@ -157,7 +157,7 @@ def sync(
 async def asyncio_detailed(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Response[ProblemDetail | RelatedDatasetsResponse]:
     """List Related Datasets
 
@@ -186,7 +186,7 @@ async def asyncio_detailed(
 async def asyncio(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> ProblemDetail | RelatedDatasetsResponse | None:
     """List Related Datasets
 

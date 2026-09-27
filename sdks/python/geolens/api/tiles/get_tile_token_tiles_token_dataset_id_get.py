@@ -102,7 +102,7 @@ def _build_response(
 def sync_detailed(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Response[ProblemDetail | RasterTileToken | VectorTileToken]:
     """Get Tile Token
 
@@ -141,7 +141,7 @@ def sync_detailed(
 def sync(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> ProblemDetail | RasterTileToken | VectorTileToken | None:
     """Get Tile Token
 
@@ -175,7 +175,7 @@ def sync(
 async def asyncio_detailed(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Response[ProblemDetail | RasterTileToken | VectorTileToken]:
     """Get Tile Token
 
@@ -212,7 +212,7 @@ async def asyncio_detailed(
 async def asyncio(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> ProblemDetail | RasterTileToken | VectorTileToken | None:
     """Get Tile Token
 

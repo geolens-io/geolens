@@ -113,7 +113,7 @@ def _build_response(
 def sync_detailed(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     skip: int | Unset = 0,
     limit: int | Unset = 100,
 ) -> Response[DatasetRelationshipListResponse | ProblemDetail]:
@@ -157,7 +157,7 @@ def sync_detailed(
 def sync(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     skip: int | Unset = 0,
     limit: int | Unset = 100,
 ) -> DatasetRelationshipListResponse | ProblemDetail | None:
@@ -196,7 +196,7 @@ def sync(
 async def asyncio_detailed(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     skip: int | Unset = 0,
     limit: int | Unset = 100,
 ) -> Response[DatasetRelationshipListResponse | ProblemDetail]:
@@ -238,7 +238,7 @@ async def asyncio_detailed(
 async def asyncio(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     skip: int | Unset = 0,
     limit: int | Unset = 100,
 ) -> DatasetRelationshipListResponse | ProblemDetail | None:

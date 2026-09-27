@@ -100,7 +100,7 @@ def _build_response(
 def sync_detailed(
     map_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Response[MapAccessResponse | ProblemDetail]:
     """Get Map Access Endpoint
 
@@ -131,7 +131,7 @@ def sync_detailed(
 def sync(
     map_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> MapAccessResponse | ProblemDetail | None:
     """Get Map Access Endpoint
 
@@ -157,7 +157,7 @@ def sync(
 async def asyncio_detailed(
     map_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Response[MapAccessResponse | ProblemDetail]:
     """Get Map Access Endpoint
 
@@ -186,7 +186,7 @@ async def asyncio_detailed(
 async def asyncio(
     map_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> MapAccessResponse | ProblemDetail | None:
     """Get Map Access Endpoint
 

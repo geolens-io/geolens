@@ -116,7 +116,7 @@ def sync_detailed(
     attempt_id: UUID,
     name: str,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Response[Any | File | ProblemDetail]:
     """Get Pointcloud File
 
@@ -170,7 +170,7 @@ def sync(
     attempt_id: UUID,
     name: str,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Any | File | ProblemDetail | None:
     """Get Pointcloud File
 
@@ -219,7 +219,7 @@ async def asyncio_detailed(
     attempt_id: UUID,
     name: str,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Response[Any | File | ProblemDetail]:
     """Get Pointcloud File
 
@@ -271,7 +271,7 @@ async def asyncio(
     attempt_id: UUID,
     name: str,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Any | File | ProblemDetail | None:
     """Get Pointcloud File
 

@@ -108,7 +108,7 @@ def _build_response(
 def sync_detailed(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     size: int | Unset = 256,
 ) -> Response[Any | ProblemDetail]:
     """Get Quicklook
@@ -142,7 +142,7 @@ def sync_detailed(
 def sync(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     size: int | Unset = 256,
 ) -> Any | ProblemDetail | None:
     """Get Quicklook
@@ -171,7 +171,7 @@ def sync(
 async def asyncio_detailed(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     size: int | Unset = 256,
 ) -> Response[Any | ProblemDetail]:
     """Get Quicklook
@@ -203,7 +203,7 @@ async def asyncio_detailed(
 async def asyncio(
     dataset_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
     size: int | Unset = 256,
 ) -> Any | ProblemDetail | None:
     """Get Quicklook

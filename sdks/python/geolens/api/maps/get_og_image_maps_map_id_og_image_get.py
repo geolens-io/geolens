@@ -98,7 +98,7 @@ def _build_response(
 def sync_detailed(
     map_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Response[Any | ProblemDetail]:
     """Get Og Image
 
@@ -133,7 +133,7 @@ def sync_detailed(
 def sync(
     map_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Any | ProblemDetail | None:
     """Get Og Image
 
@@ -163,7 +163,7 @@ def sync(
 async def asyncio_detailed(
     map_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Response[Any | ProblemDetail]:
     """Get Og Image
 
@@ -196,7 +196,7 @@ async def asyncio_detailed(
 async def asyncio(
     map_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Any | ProblemDetail | None:
     """Get Og Image
 

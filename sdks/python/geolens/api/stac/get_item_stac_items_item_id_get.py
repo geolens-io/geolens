@@ -85,7 +85,7 @@ def _build_response(
 def sync_detailed(
     item_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Response[ProblemDetail | StacItemResponse]:
     """Get Item
 
@@ -116,7 +116,7 @@ def sync_detailed(
 def sync(
     item_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> ProblemDetail | StacItemResponse | None:
     """Get Item
 
@@ -142,7 +142,7 @@ def sync(
 async def asyncio_detailed(
     item_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Response[ProblemDetail | StacItemResponse]:
     """Get Item
 
@@ -171,7 +171,7 @@ async def asyncio_detailed(
 async def asyncio(
     item_id: UUID,
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> ProblemDetail | StacItemResponse | None:
     """Get Item
 
