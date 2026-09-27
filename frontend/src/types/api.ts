@@ -1946,6 +1946,8 @@ export interface FileEntry {
   submittedTitle?: string | null;
   submittedVisibility?: string | null;
   submittedKind?: DataKind | null;
+  /** The latest commit's request, so a refused commit's review keeps the user's edits. */
+  commitRequest?: CommitImportRequest | null;
 }
 
 /** Canonical data-kind union used by TypeTag, StatusPill, and import utilities */

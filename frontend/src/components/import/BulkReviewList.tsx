@@ -188,6 +188,7 @@ function ReviewFormBlock({
           detectedCrs={null}
           onCommit={(req) => onCommitSingle(entry.id, req)}
           isCommitting={isCommitting}
+          initialRequest={entry.commitRequest}
           isTileset={isTilesetPreview(preview)}
           isPointCloud={isPointCloudPreview(preview)}
         />
@@ -213,6 +214,7 @@ function ReviewFormBlock({
           onCommitSingle(entry.id, layerName ? { ...req, layer_name: layerName } : req);
         }}
         isCommitting={isCommitting}
+        initialRequest={entry.commitRequest}
         isRaster={raster}
         previewData={raster ? preview : undefined}
         previewColumns={fp?.columns}

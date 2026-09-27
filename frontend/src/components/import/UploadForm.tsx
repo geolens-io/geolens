@@ -1,20 +1,24 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { useQueryClient } from '@tanstack/react-query';
-import { commitImport } from '@/api/ingest';
-import { commitFanOut, type FanOutLayerResult } from '@/api/datasets';
 import {
   startUploadEntry,
   startLayerPreview,
+  commitUploadEntry,
+  commitUploadEntries,
+  commitUploadFanOut,
+  dismissUploadFanOutResults,
   subscribeUploadBatch,
   peekUploadBatch,
-  getUploadSessionEntry,
   removeUploadSessionEntry,
   clearUploadBatch,
+  releaseUploadBatch,
   queuePendingUploadFiles,
   peekPendingUploadFiles,
   peekPendingUploadKind,
   clearPendingUploadFiles,
+  type UploadBatchSnapshot,
   type UploadSessionEntry,
 } from '@/api/upload-session';
 import { useUploadConfig } from '@/components/import/hooks/use-ingest';
@@ -77,35 +81,60 @@ function quotaMessage(err: unknown): string | null {
 
 /**
  * Derive the display error (and, for a quota rejection, the batch-level
- * banner text) for a session entry. Shared by the mount-adoption effect and
- * the live-subscription effect below so the two cannot drift.
- *
- * fix(codex #1763 r2): the subscription effect used to set `error: null`
- * for anything that wasn't `upload-failed`, which silently swallowed a
- * layer-reselect failure (status stays `preview`, `entry.error` set by
- * `startLayerPreview`) the moment the next unrelated session update
- * notified. The second branch here covers that case with the SAME simpler
- * derivation `handleSheetChange` used before this went through the
- * session (no quota check, no hint — a layer reselect is never a quota
- * rejection).
+ * banner text) for a session entry. A failed layer re-preview leaves the
+ * entry in `preview` with an error and is never a quota rejection.
  */
 function deriveSessionEntryError(
   se: UploadSessionEntry,
-  t: (key: string) => string,
+  t: TFunction<'import'>,
   onQuota: (msg: string) => void,
 ): string | null {
-  if (se.status === 'upload-failed') {
+  if (se.status === 'upload-failed' || (se.status === 'commit-failed' && !se.fanOut)) {
     const quota = quotaMessage(se.error);
     if (quota) {
       onQuota(quota);
       return t('upload.quotaShort');
     }
-    return buildErrorDisplay(se.error, 'upload.uploadFailed', t);
+    const fallbackKey =
+      se.status === 'upload-failed'
+        ? 'upload.uploadFailed'
+        : se.commitVia === 'all'
+          ? 'upload.bulkCommitFailed'
+          : 'upload.commitFailed';
+    return buildErrorDisplay(se.error, fallbackKey, t);
+  }
+  if (se.status === 'commit-failed' && se.fanOut) {
+    const succeeded = se.fanOut.filter((r) => r.status === 'fulfilled').length;
+    return succeeded === 0
+      ? t('upload.multiLayerAllFailed')
+      : t('upload.multiLayerPartialFailed', { succeeded, failed: se.fanOut.length - succeeded });
   }
   if (se.status === 'preview' && se.error != null) {
     return se.error instanceof ApiError ? se.error.message : t('upload.uploadFailed');
   }
   return null;
+}
+
+function toFileEntry(
+  se: UploadSessionEntry,
+  t: TFunction<'import'>,
+  onQuota: (msg: string) => void,
+): FileEntry {
+  return {
+    id: se.id,
+    file: null,
+    fileName: se.fileName,
+    status: se.status === 'committed' ? 'tracking' : se.status,
+    jobId: se.jobId,
+    previewData: se.previewData,
+    uploadKind: se.kind,
+    error: deriveSessionEntryError(se, t, onQuota),
+    progress: se.progress,
+    submittedTitle: se.submitted?.title ?? null,
+    submittedVisibility: se.submitted?.visibility ?? null,
+    submittedKind: se.submitted?.kind ?? null,
+    commitRequest: se.request,
+  };
 }
 
 // GPKG-03 Phase 1058: per-layer result shape for the fan-out results modal.
@@ -114,6 +143,10 @@ type FanOutResult = {
   status: 'fulfilled' | 'rejected';
   error?: string;
 };
+
+function isUploadInFlight(e: { status: string }): boolean {
+  return e.status === 'uploading' || e.status === 'previewing';
+}
 
 interface UploadFormProps {
   onPhaseChange?: (phase: BatchPhase) => void;
@@ -131,6 +164,9 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
   }, []);
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [autoOpenVrt, setAutoOpenVrt] = useState(false);
+  // A refused commit that can be retried keeps the batch in review, even
+  // alongside rows that are already tracked.
+  const [awaitingRetry, setAwaitingRetry] = useState(false);
   // Batch-level quota notice (the "X of Y datasets used" detail), shown once.
   const [quotaNotice, setQuotaNotice] = useState<string | null>(null);
   // GPKG-03 Phase 1058: results modal state for the multi-layer fan-out
@@ -171,21 +207,15 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
   );
   const maxSizeMb = uploadConfig ? Math.round(uploadConfig.max_file_size_bytes / (1024 * 1024)) : undefined;
 
-  const updateEntry = useCallback((id: string, patch: Partial<FileEntry>) => {
-    setEntries((prev) =>
-      prev.map((e) => (e.id === id ? { ...e, ...patch } : e)),
-    );
-  }, []);
-
   const reset = useCallback(() => {
     setPhase('idle');
     setEntries([]);
     setAutoOpenVrt(false);
+    setAwaitingRetry(false);
     setQuotaNotice(null);
     setPendingFiles(null);
-    // fix(#1712): release the batch session along with local state — an
-    // explicit reset means the user is done with this batch, not switching
-    // tabs mid-flight.
+    // An explicit reset means the user is done with this batch; a commit
+    // still in flight for it settles into nothing.
     clearUploadBatch();
     // fix(#1832): same reasoning for the config-fetch queue.
     clearPendingUploadFiles();
@@ -195,45 +225,30 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     queryClient.invalidateQueries({ queryKey: queryKeys.ingest.uploadConfig });
   }, [setPhase, queryClient]);
 
-  // fix(#1712): re-attach to a batch that was uploading (or already done
-  // previewing) while this form was unmounted — a tab switch away and back.
-  // Without this, the job ids the server returned to a dead component would
-  // be unreachable, plus their staged bytes, until the stale-pending sweep
-  // collected them. Mount-only: a later session start is driven by drops,
-  // not by this effect re-running.
-  //
-  // fix(codex #1763 r3 review note): checked for the StacImportForm
-  // StrictMode double-registration bug (an effect that registers an async
-  // `.then()` handler with no cleanup fires twice under StrictMode's
-  // dev-mode setup/cleanup/setup replay). This effect does not have that
-  // shape — it only READS the current session snapshot synchronously and
-  // calls setState with it, no promise/callback is registered here, so a
-  // second synchronous invocation just calls setState again with the same
-  // values. Idempotent, not cumulative.
+  const showBatch = useCallback((batch: UploadBatchSnapshot) => {
+    setEntries(batch.entries.map((se) => toFileEntry(se, t, setQuotaNotice)));
+    setFanOutResults(
+      batch.fanOutResults && {
+        entryId: batch.fanOutResults.entryId,
+        results: batch.fanOutResults.results.map((r) => ({
+          layerName: r.layerName,
+          status: r.status,
+          error: r.error ?? (r.status === 'rejected' ? t('upload.commitFailed') : undefined),
+        })),
+      },
+    );
+    if (batch.autoOpenVrt) setAutoOpenVrt(true);
+    setAwaitingRetry(batch.awaitingRetry);
+  }, [t]);
+
+  // Adopt a batch that kept uploading, previewing or committing while this
+  // form was unmounted (a tab switch away and back). Mount-only: later
+  // changes arrive through the subscription below.
   useEffect(() => {
     const adopted = peekUploadBatch();
-    if (adopted && adopted.length > 0) {
-      setEntries(
-        adopted.map((se) => ({
-          id: se.id,
-          file: null,
-          fileName: se.fileName,
-          status: se.status,
-          jobId: se.jobId,
-          previewData: se.previewData,
-          uploadKind: se.kind,
-          error: deriveSessionEntryError(se, t, setQuotaNotice),
-          progress: se.progress,
-          submittedTitle: null,
-          submittedVisibility: null,
-          submittedKind: null,
-        })),
-      );
-      setPhase(
-        adopted.every((se) => se.status === 'preview' || se.status === 'upload-failed')
-          ? 'reviewing'
-          : 'uploading',
-      );
+    if (adopted) {
+      showBatch(adopted);
+      setPhase(adopted.entries.some(isUploadInFlight) ? 'uploading' : 'reviewing');
     }
     // fix(#1832): rehydrate a drop that was still waiting on the
     // upload-config query when this form unmounted — see
@@ -249,45 +264,15 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // fix(#1712): the session, not the XHR, owns progress and settlement — a
-  // mounted form subscribes and mirrors instead of holding either in its
-  // own closures. Runs for the component's whole lifetime, not just while a
-  // batch is active, so it also picks up a batch this mount ITSELF started.
-  //
-  // fix(codex #1763 r3 review note): also checked against the StrictMode
-  // double-registration bug. Unlike StacImportForm's mount-only effect,
-  // this one DOES return a real cleanup — `subscribeUploadBatch` hands back
-  // an unsubscribe function, so StrictMode's setup/cleanup/setup replay
-  // nets out to exactly one live subscription (the second setup's), the
-  // same as it would for any subscribe/unsubscribe effect.
+  // The session owns progress and settlement; the form mirrors it for its
+  // whole lifetime, including a batch this mount started. Once the session
+  // releases or clears the batch, the form keeps what it last showed.
   useEffect(() => {
     return subscribeUploadBatch(() => {
-      setEntries((prev) =>
-        prev.map((e) => {
-          const se = getUploadSessionEntry(e.id);
-          if (!se) return e;
-          if (
-            se.status === e.status &&
-            se.jobId === e.jobId &&
-            se.previewData === e.previewData &&
-            se.progress === e.progress
-          ) {
-            return e;
-          }
-          const displayError = deriveSessionEntryError(se, t, setQuotaNotice);
-          return {
-            ...e,
-            status: se.status,
-            jobId: se.jobId,
-            previewData: se.previewData,
-            progress: se.progress,
-            error: displayError,
-            file: se.status === 'uploading' ? e.file : null,
-          };
-        }),
-      );
+      const batch = peekUploadBatch();
+      if (batch) showBatch(batch);
     });
-  }, [t]);
+  }, [showBatch]);
 
   // IMPORT-03 (Phase 1054): phase transitions were inlined inside setEntries
   // updaters, which violates React 19's "no setState during another
@@ -295,17 +280,8 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
   // captured. Moving them into a single effect dep'd on `entries` runs the
   // transition AFTER React commits the entries change.
   useEffect(() => {
-    // fix(#1712): the uploading -> reviewing edge used to be driven by
-    // `processFiles`'s own `await Promise.allSettled(...)`. That still works
-    // while the form stays mounted, but a batch adopted (or continuing) via
-    // the session above settles through notifications instead, with nothing
-    // local left awaiting it — so this effect drives the same edge from
-    // `entries` the way the other two already do.
     if (phase === 'uploading' && entries.length > 0) {
-      const allTerminal = entries.every(
-        (e) => e.status === 'preview' || e.status === 'upload-failed',
-      );
-      if (allTerminal) setPhase('reviewing');
+      if (!entries.some(isUploadInFlight)) setPhase('reviewing');
       return;
     }
     if (phase === 'reviewing' && entries.length === 0) {
@@ -322,11 +298,17 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
       const hasTracking = entries.some((e) => e.status === 'tracking');
       // fix(#2034): a partial-failure fan-out modal (real 'rejected' results) holds the reviewing phase open — the queued layers it also tracked would otherwise hide it before it's read. A full-success modal never blocks, matching prior behavior.
       const fanOutHasFailure = fanOutResults?.results.some((r) => r.status === 'rejected') ?? false;
-      if (allTerminal && hasTracking && !fanOutHasFailure) {
+      if (allTerminal && hasTracking && !fanOutHasFailure && !awaitingRetry) {
         setPhase('tracking');
       }
     }
-  }, [entries, phase, setPhase, fanOutResults]);
+  }, [entries, phase, setPhase, fanOutResults, awaitingRetry]);
+
+  // Once the tracking view is on screen the batch has been shown, so the
+  // session lets it go (see `releaseUploadBatch`).
+  useEffect(() => {
+    if (phase === 'tracking') releaseUploadBatch();
+  }, [phase]);
 
   const processFiles = useCallback(async (files: File[]) => {
     if (phase !== 'idle') return;
@@ -441,128 +423,53 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     request: CommitImportRequest,
   ) => {
     const entry = entries.find((e) => e.id === entryId);
-    if (!entry?.jobId) return;
-    // fix(#1778): same in-flight guard as handleSheetChange below. The
-    // commit button disables once this entry's status flips to
-    // 'committing', but that re-render is not guaranteed to land between
-    // two rapid clicks on the same button. Without this, a double click
-    // issued commitImport twice for one job.
-    if (entry.status === 'committing' || entry.status === 'tracking') return;
-
-    updateEntry(entryId, { status: 'committing' });
-    // fix(#1712): a commit is being issued for this entry — the batch
-    // session's job is done (see its module docstring). Holding it past
-    // this point would let a later remount re-preview an already-processed
-    // job, which the API refuses with 400.
-    removeUploadSessionEntry(entryId);
-
-    try {
-      await commitImport(entry.jobId, request);
-      setEntries((prev) =>
-        prev.map((e) =>
-          e.id === entryId ? {
-            ...e,
-            status: 'tracking' as const,
-            submittedTitle: request.title,
-            submittedVisibility: request.visibility ?? 'private',
-            submittedKind: inferImportedKind(e, request),
-          } : e,
-        ),
-      );
-      // Phase transition (reviewing → tracking) is handled by the useEffect
-      // dep'd on `entries`; no inline setPhase call here (IMPORT-03).
-      toast.success(t('upload.importStarted'));
-    } catch (err) {
-      const quota = quotaMessage(err);
-      if (quota) setQuotaNotice(quota);
-      updateEntry(entryId, {
-        status: 'commit-failed',
-        error: quota ? t('upload.quotaShort') : buildErrorDisplay(err, 'upload.commitFailed', t),
-      });
-    }
+    if (!entry) return;
+    // The session refuses a second commit for the same entry, so a double
+    // click that lands before the 'committing' re-render issues only one.
+    const committed = await commitUploadEntry(entryId, request, {
+      title: request.title,
+      visibility: request.visibility ?? 'private',
+      kind: inferImportedKind(entry, request),
+    });
+    if (committed) toast.success(t('upload.importStarted'));
   };
 
-  const handleCommitAll = async () => {
+  const commitAll = async (asVrt: boolean) => {
     const reviewable = entries.filter(
       (e) => e.status === 'preview' && e.jobId,
     );
     if (reviewable.length === 0) return;
 
-    // Mark all as committing
-    setEntries((prev) =>
-      prev.map((e) =>
-        e.status === 'preview' && e.jobId
-          ? { ...e, status: 'committing' as const }
-          : e,
-      ),
-    );
-    // fix(#1712): see handleCommitSingle — every entry being committed
-    // leaves the batch session now, not once its commit settles.
-    for (const entry of reviewable) {
-      removeUploadSessionEntry(entry.id);
-    }
-
-    await Promise.allSettled(
-      reviewable.map(async (entry) => {
-        try {
-          const name =
-            stripExtension(
-              entry.previewData?.source_filename ?? entry.fileName,
-            ) || 'Untitled';
-          // fix(#1685): multi-layer files must carry the layer selected in the
-          // review picker into the default-import path too — omitting it left
-          // the backend defaulting to the first layer regardless of what the
-          // user picked, silently importing a different layer than shown.
-          const fp = entry.previewData && isFilePreview(entry.previewData) ? entry.previewData : null;
-          const layerName = fp?.layers && fp.layers.length > 1 ? fp.layer_name : undefined;
-          await commitImport(entry.jobId!, layerName ? { title: name, layer_name: layerName } : { title: name });
-          updateEntry(entry.id, {
-            status: 'tracking',
-            submittedTitle: name,
-            submittedVisibility: 'private',
-            submittedKind: inferImportedKind(entry),
-          });
-        } catch (err) {
-          const quota = quotaMessage(err);
-          if (quota) setQuotaNotice(quota);
-          updateEntry(entry.id, {
-            status: 'commit-failed',
-            error: quota ? t('upload.quotaShort') : buildErrorDisplay(err, 'upload.bulkCommitFailed', t),
-          });
-        }
+    await commitUploadEntries(
+      reviewable.map((entry) => {
+        const name =
+          stripExtension(
+            entry.previewData?.source_filename ?? entry.fileName,
+          ) || 'Untitled';
+        // fix(#1685): multi-layer files must carry the layer selected in the
+        // review picker into the default-import path too — omitting it left
+        // the backend defaulting to the first layer regardless of what the
+        // user picked, silently importing a different layer than shown.
+        const fp = entry.previewData && isFilePreview(entry.previewData) ? entry.previewData : null;
+        const layerName = fp?.layers && fp.layers.length > 1 ? fp.layer_name : undefined;
+        return {
+          id: entry.id,
+          request: layerName ? { title: name, layer_name: layerName } : { title: name },
+          submission: { title: name, visibility: 'private', kind: inferImportedKind(entry) },
+        };
       }),
+      { autoOpenVrt: asVrt },
     );
-
-    // Phase transition (reviewing → tracking) is handled by the useEffect
-    // dep'd on `entries` after updateEntry calls settle (IMPORT-03).
   };
 
-  const handleCommitAllAsVrt = async () => {
-    setAutoOpenVrt(true);
-    await handleCommitAll();
-  };
+  const handleCommitAll = () => commitAll(false);
+  const handleCommitAllAsVrt = () => commitAll(true);
 
-  // fix(codex #1763 r2): routed through the session (startLayerPreview)
-  // instead of calling previewFile + updateEntry directly. The direct-call
-  // version left the session holding the ORIGINAL layer's preview forever,
-  // so a remount after switching layers restored the original layer_name —
-  // a default commit after a tab switch silently ingested the wrong layer.
-  // The subscription effect above mirrors the result back into `entries`
-  // once the session settles, whether or not this exact call is still the
-  // live one.
+  // The session owns the re-preview, so its result survives an unmount, and
+  // it refuses an entry whose commit was already issued.
   const handleSheetChange = (entryId: string, layerName: string) => {
     const entry = entries.find((e) => e.id === entryId);
     if (!entry?.jobId) return;
-    // fix(#1778): mirrors UrlImportForm.tsx's handleLayerChange guard
-    // (#1708 r24): re-previewing mid-commit drove the entry back to
-    // 'preview' unconditionally, which re-enabled the commit button
-    // against a request already in flight for the same job. Still applies
-    // now that the re-preview is session-routed (#1712 r2): 'committing'
-    // and 'tracking' entries are no longer even IN the session (removed at
-    // commit-issue time, see upload-session.ts), so startLayerPreview would
-    // silently no-op for them anyway — this bails out before the call
-    // rather than relying on that as the only guard.
-    if (entry.status === 'committing' || entry.status === 'tracking') return;
     startLayerPreview(entryId, entry.jobId, layerName);
   };
 
@@ -577,86 +484,31 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     const layers = entry.previewData.layers ?? [];
     if (layers.length <= 1) return;
 
-    updateEntry(entryId, { status: 'committing' });
-    // fix(#1712): see handleCommitSingle — the fan-out commit is a commit.
-    removeUploadSessionEntry(entryId);
-
     const fileBase = stripExtension(entry.previewData.source_filename ?? entry.fileName) || 'Untitled';
-
-    let results: FanOutResult[];
-    let queuedLayers: (FanOutLayerResult & { new_job_id: string })[] = [];
-    try {
-      // Single HTTP call — backend fans out N tasks from this one request.
-      const response = await commitFanOut(
-        entry.jobId,
-        layers.map((layer) => ({
-          layer_name: layer.name,
-          title: `${fileBase}: ${layer.name}`,
-        })),
-      );
-
-      queuedLayers = response.results.filter(
-        (r): r is FanOutLayerResult & { new_job_id: string } => r.status === 'queued' && !!r.new_job_id,
-      );
-      results = response.results.map((r) => ({
-        layerName: r.layer_name,
-        status: r.status === 'queued' ? ('fulfilled' as const) : ('rejected' as const),
-        error: r.error ?? undefined,
-      }));
-    } catch (err) {
-      // Network-level failure — all layers failed.
-      results = layers.map((layer) => ({
-        layerName: layer.name,
-        status: 'rejected' as const,
-        error: err instanceof ApiError ? err.message : t('upload.commitFailed'),
-      }));
-    }
-
-    const succeededCount = results.filter((r) => r.status === 'fulfilled').length;
-    const failedCount = results.length - succeededCount;
-
-    // fix(#2034): track each queued layer by its own entry/jobId — the parent job settles 'fanned_out' with no dataset_id, so it's never counted.
-    // fix(#2034): every layer takes the previewed layer's kind (best proxy available) — a mixed container needs per-layer geometry_type on LayerPreview to do better.
+    // Each queued layer is tracked by its own job, since the parent settles
+    // 'fanned_out' with no dataset. Every layer takes the previewed layer's
+    // kind: LayerPreview carries no per-layer geometry type.
     const previewedLayerKind = entry.previewData.geometry_type ? ('vector' as const) : ('table' as const);
-    const queuedEntries = queuedLayers.map((layer) => ({
-      id: randomId(),
-      file: null,
-      fileName: `${fileBase}: ${layer.layer_name}`,
-      status: 'tracking' as const,
-      jobId: layer.new_job_id,
-      previewData: null,
-      error: null,
-      submittedTitle: `${fileBase}: ${layer.layer_name}`,
-      submittedVisibility: 'private',
-      submittedKind: previewedLayerKind,
-    }));
-
-    if (failedCount === 0) {
-      setEntries((prev) => [
-        ...prev.filter((e) => e.id !== entryId),
-        ...queuedEntries,
-      ]);
-      toast.success(t('upload.multiLayerSuccess', { count: succeededCount }));
-    } else if (succeededCount === 0) {
-      updateEntry(entryId, {
-        status: 'commit-failed',
-        error: t('upload.multiLayerAllFailed'),
-      });
-    } else {
-      updateEntry(entryId, {
-        status: 'commit-failed',
-        error: t('upload.multiLayerPartialFailed', { succeeded: succeededCount, failed: failedCount }),
-      });
-      // fix(#2034): the layers that DID queue still get tracked — only the parent shows the partial-failure error.
-      setEntries((prev) => [...prev, ...queuedEntries]);
+    const results = await commitUploadFanOut(
+      entryId,
+      layers.map((layer) => ({
+        layer_name: layer.name,
+        title: `${fileBase}: ${layer.name}`,
+      })),
+      previewedLayerKind,
+    );
+    if (results?.every((r) => r.status === 'fulfilled')) {
+      toast.success(t('upload.multiLayerSuccess', { count: results.length }));
     }
+  };
 
-    setFanOutResults({ entryId, results });
+  const closeFanOutResults = () => {
+    setFanOutResults(null);
+    dismissUploadFanOutResults();
   };
 
   const removeEntry = (entryId: string) => {
     setEntries((prev) => prev.filter((e) => e.id !== entryId));
-    // fix(#1712): the user dismissed this row — nothing left to adopt it.
     removeUploadSessionEntry(entryId);
     // Phase transition (reviewing → idle when empty) is handled by the
     // useEffect dep'd on `entries` (IMPORT-03).
@@ -706,7 +558,7 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
           <Dialog
             open
             onOpenChange={(open) => {
-              if (!open) setFanOutResults(null);
+              if (!open) closeFanOutResults();
             }}
           >
             <DialogContent>
@@ -736,12 +588,12 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
                 {fanOutResults.results.some((r) => r.status === 'rejected') && (
                   <Button
                     variant="outline"
-                    onClick={() => setFanOutResults(null)}
+                    onClick={closeFanOutResults}
                   >
                     {t('upload.multiLayerRetryClose')}
                   </Button>
                 )}
-                <Button onClick={() => setFanOutResults(null)}>{t('common:close')}</Button>
+                <Button onClick={closeFanOutResults}>{t('common:close')}</Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
