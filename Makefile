@@ -182,16 +182,18 @@ SDKS_TMPDIR := $(CURDIR)/.sdks-tmp
 # _sdks_generate, and always restores them and removes $(SDKS_TMPDIR), whether
 # generation succeeded or failed. Recipe lines each run in their own shell, so
 # there's no single process to hang a `trap` off of; the exit code is
-# threaded through a file in $(SDKS_TMPDIR) instead. If $(SDKS_TMPDIR) already
-# exists, a previous run was interrupted before it restored its stashed
-# files, so this refuses rather than deleting what may be the only good copy.
+# threaded through a file in $(SDKS_TMPDIR) instead. Plain `mkdir` (no -p)
+# both creates $(SDKS_TMPDIR) and claims it: it fails atomically if the
+# directory already exists, whether left behind by an interrupted run that
+# never restored its stashed files, or by another make sdks already running
+# in this checkout, and refuses rather than deleting what may be the only
+# good copy or racing that other run for the same files.
 sdks:
-	@if [ -e "$(SDKS_TMPDIR)" ]; then \
+	@mkdir "$(SDKS_TMPDIR)" 2>/dev/null || { \
 	    echo "ERROR: $(SDKS_TMPDIR) already exists." >&2; \
-	    echo "A previous make sdks run was interrupted before it restored its stashed files there. Restore the files listed in SDK_PRESERVED_FILES yourself (or confirm the working tree is already correct), then remove that directory before running make sdks again." >&2; \
+	    echo "Either a previous make sdks run was interrupted before it restored its stashed files there, or another make sdks is already running in this checkout. Restore the files listed in SDK_PRESERVED_FILES yourself (or confirm the working tree is already correct), then remove that directory before running make sdks again." >&2; \
 	    exit 1; \
-	  fi
-	@mkdir -p "$(SDKS_TMPDIR)"
+	  }
 	@$(foreach f,$(SDK_PRESERVED_FILES),mkdir -p "$(SDKS_TMPDIR)/$(dir $(f))"; cp "$(f)" "$(SDKS_TMPDIR)/$(f)" 2>/dev/null;) true
 	@$(MAKE) _sdks_generate; echo $$? > "$(SDKS_TMPDIR)/.generate-exit"
 	@restore_failed=0; \
