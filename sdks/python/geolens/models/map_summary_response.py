@@ -33,6 +33,7 @@ class MapSummaryResponse:
         thumbnail_url (None | str | Unset):
         thumbnail_updated_at (datetime.datetime | None | Unset):
         created_by_username (None | str | Unset):
+        created_by (None | Unset | UUID):
     """
 
     id: UUID
@@ -45,6 +46,7 @@ class MapSummaryResponse:
     thumbnail_url: None | str | Unset = UNSET
     thumbnail_updated_at: datetime.datetime | None | Unset = UNSET
     created_by_username: None | str | Unset = UNSET
+    created_by: None | Unset | UUID = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -83,6 +85,14 @@ class MapSummaryResponse:
         else:
             created_by_username = self.created_by_username
 
+        created_by: None | str | Unset
+        if isinstance(self.created_by, Unset):
+            created_by = UNSET
+        elif isinstance(self.created_by, UUID):
+            created_by = str(self.created_by)
+        else:
+            created_by = self.created_by
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -102,6 +112,8 @@ class MapSummaryResponse:
             field_dict["thumbnail_updated_at"] = thumbnail_updated_at
         if created_by_username is not UNSET:
             field_dict["created_by_username"] = created_by_username
+        if created_by is not UNSET:
+            field_dict["created_by"] = created_by
 
         return field_dict
 
@@ -168,6 +180,23 @@ class MapSummaryResponse:
             d.pop("created_by_username", UNSET)
         )
 
+        def _parse_created_by(data: object) -> None | Unset | UUID:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                created_by_type_0 = UUID(data)
+
+                return created_by_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | Unset | UUID, data)
+
+        created_by = _parse_created_by(d.pop("created_by", UNSET))
+
         map_summary_response = cls(
             id=id,
             name=name,
@@ -179,6 +208,7 @@ class MapSummaryResponse:
             thumbnail_url=thumbnail_url,
             thumbnail_updated_at=thumbnail_updated_at,
             created_by_username=created_by_username,
+            created_by=created_by,
         )
 
         map_summary_response.additional_properties = d

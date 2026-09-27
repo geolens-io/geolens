@@ -10234,6 +10234,8 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+            /** Created By */
+            created_by?: string | null;
         };
         /** MapUpdate */
         MapUpdate: {

@@ -6482,6 +6482,10 @@ export type MapSummaryResponse = {
      * Updated At
      */
     updated_at: string;
+    /**
+     * Created By
+     */
+    created_by?: string | null;
 };
 
 /**
