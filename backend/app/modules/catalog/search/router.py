@@ -29,6 +29,7 @@ from app.modules.catalog.authorization import (
     get_user_roles,
     visible_lineage_summaries,
     visible_lineage_summary,
+    visible_vrt_source_counts,
 )
 from app.modules.catalog.datasets.domain.models import (
     Dataset,
@@ -118,14 +119,15 @@ def _build_pagination_url(
 async def _build_raster_assets(
     db: AsyncSession,
     dataset_id: uuid.UUID,
+    user: Identity | None,
+    user_roles: set[str],
 ) -> dict | None:
     """Fetch raster metadata for a single dataset (column list lives in
     app/processing/raster/queries.py — KISS-6).
 
-    For VRT datasets, also counts the source rasters the served VRT is made of.
+    For VRT datasets, also counts the source rasters the served VRT is made of
+    that the caller may read.
     """
-    from sqlalchemy import text
-
     meta = await get_catalog_port().fetch_raster_meta_one(db, dataset_id)
     if meta is None:
         return None
@@ -134,14 +136,9 @@ async def _build_raster_assets(
     # not the in-flight VrtGeneration.source_count — the link write happens at
     # the artifact swap, so the generation's own count can lag what is served.
     if meta.get("vrt_type") is not None:
-        count_result = await db.execute(
-            text(
-                "SELECT COUNT(*) FROM catalog.vrt_source_links "
-                "WHERE vrt_dataset_id = :id"
-            ),
-            {"id": str(dataset_id)},
-        )
-        meta["source_count"] = count_result.scalar() or 0
+        meta["source_count"] = (
+            await visible_vrt_source_counts(db, [dataset_id], user, user_roles)
+        )[dataset_id]
 
     # fix(#1327): current_generation_id must not reach a caller.
     meta.pop("current_generation_id", None)
@@ -233,7 +230,7 @@ async def _handle_search(
         stac_assets_by_dataset,
         raster_meta,
         extent_geojson_map,
-    ) = await _bulk_fetch_dataset_metadata(db, datasets)
+    ) = await _bulk_fetch_dataset_metadata(db, datasets, user, user_roles)
 
     # fix(#1103): one visibility query for the page, not one per row.
     lineage = await visible_lineage_summaries(
@@ -1258,7 +1255,9 @@ async def get_collection_item(
     rec_type = getattr(dataset.record, "record_type", None)
     if rec_type in RASTER_FAMILY_RECORD_TYPES:
         try:
-            item_raster_meta = await _build_raster_assets(db, record_id)
+            item_raster_meta = await _build_raster_assets(
+                db, record_id, user, user_roles
+            )
         except Exception:  # broad: raster meta enrichment is best-effort; any DB error degrades to no raster props
             logger.warning(
                 "ogc_item_raster_meta_failed",
@@ -1296,6 +1295,8 @@ async def get_collection_item(
 async def _bulk_fetch_dataset_metadata(
     db: AsyncSession,
     datasets: list[Dataset],
+    user: Identity | None,
+    user_roles: set[str],
 ) -> tuple[
     dict[str, list[dict]],
     dict[str, dict],
@@ -1413,26 +1414,11 @@ async def _bulk_fetch_dataset_metadata(
                     for did in raster_ids
                     if raster_meta.get(str(did), {}).get("vrt_type") is not None
                 ]
-                if vrt_dataset_ids:
-                    RasterAsset = get_catalog_port().raster_asset_orm_class()
-                    VrtGeneration = get_catalog_port().vrt_generation_orm_class()
-                    vg_stmt = (
-                        select(
-                            RasterAsset.dataset_id,
-                            VrtGeneration.source_count,
-                        )
-                        .join(
-                            VrtGeneration,
-                            VrtGeneration.id == RasterAsset.current_generation_id,
-                        )
-                        .where(RasterAsset.dataset_id.in_(vrt_dataset_ids))
-                    )
-                    vg_result = await db.execute(vg_stmt)
-                    for row in vg_result.all():
-                        if str(row.dataset_id) in raster_meta:
-                            raster_meta[str(row.dataset_id)]["source_count"] = (
-                                row.source_count
-                            )
+                source_counts = await visible_vrt_source_counts(
+                    db, vrt_dataset_ids, user, user_roles
+                )
+                for vrt_id, count in source_counts.items():
+                    raster_meta[str(vrt_id)]["source_count"] = count
             except Exception:  # broad: VRT source-count enrichment is best-effort; any DB error skips the field
                 logger.warning(
                     "search_bulk_fetch_vrt_source_count_failed",

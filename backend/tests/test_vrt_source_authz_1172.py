@@ -344,7 +344,7 @@ async def test_get_vrt_status_omits_unauthorized_members(
     client: AsyncClient, admin_auth_header: dict, test_db_session
 ):
     """Same setup: GET /datasets/{vrt}/vrt/status/ omits the unauthorized
-    member from source_health (source_count stays the raw total).
+    member from source_health and from source_count.
 
     Fails on main: get_vrt_status reports health for every linked member.
     """
@@ -366,6 +366,147 @@ async def test_get_vrt_status_omits_unauthorized_members(
         "SEC-E: unauthorized private member must be omitted from source_health"
     )
     assert str(owned_src) in health_ids, "authorized member must still be reported"
-    # source_count intentionally reflects the raw total link count (documented
-    # divergence) — both links are counted even though one is filtered out.
-    assert body["source_count"] == 2
+    assert body["source_count"] == 1
+
+
+async def test_vrt_member_counts_cover_only_members_the_caller_can_read(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """Every surface that counts a VRT's members counts the ones the caller
+    can read, so no count differs from the members the caller is shown.
+    An admin reads every member."""
+    from datetime import datetime, timezone
+
+    from app.processing.raster.models import VrtGeneration
+
+    admin_id = await _get_admin_id(test_db_session)
+    viewer_headers, _ = await _make_editor(client, admin_auth_header)
+
+    vrt_id = await _create_vrt_dataset(
+        test_db_session, created_by=admin_id, visibility="internal"
+    )
+    public_src = await _create_raster_dataset(
+        test_db_session, created_by=admin_id, visibility="public"
+    )
+    private_src = await _create_raster_dataset(test_db_session, created_by=admin_id)
+    await _link_source(test_db_session, vrt_id, public_src, 0)
+    await _link_source(test_db_session, vrt_id, private_src, 1)
+    test_db_session.add(
+        VrtGeneration(
+            vrt_dataset_id=vrt_id,
+            status="completed",
+            started_at=datetime.now(timezone.utc),
+            completed_at=datetime.now(timezone.utc),
+            source_count=2,
+        )
+    )
+    await test_db_session.commit()
+    title_token = (
+        await test_db_session.execute(
+            text(
+                "SELECT split_part(r.title, ' ', 4) FROM catalog.records r "
+                "JOIN catalog.datasets d ON d.record_id = r.id WHERE d.id = :id"
+            ),
+            {"id": str(vrt_id)},
+        )
+    ).scalar_one()
+
+    for headers, expected, generation_count in (
+        (viewer_headers, 1, None),
+        (admin_auth_header, 2, 2),
+    ):
+        status_resp = await client.get(
+            f"/datasets/{vrt_id}/vrt/status/", headers=headers
+        )
+        assert status_resp.status_code == 200, status_resp.text
+        status_body = status_resp.json()
+        assert len(status_body["source_health"]) == expected
+        assert status_body["source_count"] == expected
+
+        detail = await client.get(f"/datasets/{vrt_id}", headers=headers)
+        assert detail.status_code == 200, detail.text
+        assert detail.json()["raster"]["source_count"] == expected
+
+        item = await client.get(
+            f"/collections/datasets/items/{vrt_id}", headers=headers
+        )
+        assert item.status_code == 200, item.text
+        assert item.json()["properties"]["source_count"] == expected
+
+        search = await client.get(
+            "/search/datasets/", params={"q": title_token}, headers=headers
+        )
+        assert search.status_code == 200, search.text
+        hits = [f for f in search.json()["features"] if f["id"] == str(vrt_id)]
+        assert len(hits) == 1, search.text
+        assert hits[0]["properties"]["source_count"] == expected
+
+        listed = await client.get("/datasets/?limit=200", headers=headers)
+        assert listed.status_code == 200, listed.text
+        rows = [d for d in listed.json()["datasets"] if d["id"] == str(vrt_id)]
+        assert len(rows) == 1
+        assert rows[0]["raster"]["source_count"] == expected
+
+        generations = await client.get(
+            f"/datasets/{vrt_id}/vrt/generations/", headers=headers
+        )
+        assert generations.status_code == 200, generations.text
+        assert [g["source_count"] for g in generations.json()["generations"]] == [
+            generation_count
+        ]
+
+
+async def test_vrt_member_count_covers_more_members_than_bind_parameters(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """Counting stays one query when a VRT's members outnumber the 32767
+    parameters a Postgres statement can carry."""
+    member_count = 33_000
+    admin_id = await _get_admin_id(test_db_session)
+    vrt_id = await _create_vrt_dataset(test_db_session, created_by=admin_id)
+    await test_db_session.execute(
+        text(
+            """
+            WITH recs AS (
+                INSERT INTO catalog.records (title, visibility, record_status, created_by)
+                SELECT 'VRT count member ' || g, 'public', 'published', :owner
+                FROM generate_series(1, :n) AS g
+                RETURNING id
+            ), members AS (
+                INSERT INTO catalog.datasets (record_id, table_name)
+                SELECT id, 'vrt_count_' || replace(id::text, '-', '') FROM recs
+                RETURNING id
+            )
+            INSERT INTO catalog.vrt_source_links
+                (vrt_dataset_id, source_dataset_id, position)
+            SELECT :vrt, id, row_number() OVER () FROM members
+            """
+        ),
+        {"owner": admin_id, "n": member_count, "vrt": vrt_id},
+    )
+    await test_db_session.commit()
+    try:
+        detail = await client.get(f"/datasets/{vrt_id}", headers=admin_auth_header)
+        assert detail.status_code == 200, detail.text
+        assert detail.json()["raster"]["source_count"] == member_count
+    finally:
+        # Thousands of stray catalog rows would slow every later listing test.
+        await test_db_session.rollback()
+        await test_db_session.execute(
+            text(
+                """
+                WITH links AS (
+                    DELETE FROM catalog.vrt_source_links WHERE vrt_dataset_id = :vrt
+                    RETURNING source_dataset_id
+                ), members AS (
+                    DELETE FROM catalog.datasets WHERE id IN (
+                        SELECT source_dataset_id FROM links
+                    )
+                    RETURNING record_id
+                )
+                DELETE FROM catalog.records WHERE id IN (SELECT record_id FROM members)
+                """
+            ),
+            {"vrt": vrt_id},
+        )
+        await test_db_session.commit()

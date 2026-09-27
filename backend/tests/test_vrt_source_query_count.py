@@ -205,7 +205,7 @@ async def test_record_source_count_reports_the_served_member_set(
     )
     await test_db_session.commit()
 
-    meta = await _build_raster_assets(test_db_session, vrt_id)
+    meta = await _build_raster_assets(test_db_session, vrt_id, admin, {"admin"})
 
     assert meta is not None
     assert meta["source_count"] == 2, (

@@ -12,7 +12,8 @@ from collections.abc import Iterable, Sequence
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import Select, select
+from sqlalchemy import Select, Uuid, any_, bindparam, column, func, select, table
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -21,6 +22,15 @@ from app.core.permissions import EXPORT
 from app.modules.auth.permissions import get_effective_permissions
 from app.modules.auth.permissions import get_user_roles as _get_user_roles
 from app.platform.extensions import get_permission_extension
+
+
+# catalog.vrt_source_links, whose ORM class belongs to processing.
+_VRT_SOURCE_LINKS = table(
+    "vrt_source_links",
+    column("vrt_dataset_id", Uuid),
+    column("source_dataset_id", Uuid),
+    schema="catalog",
+)
 
 
 class DatasetVisibility(str, enum.Enum):
@@ -363,6 +373,47 @@ async def visible_lineage_summary(
 ) -> str | None:
     """One record's access-checked lineage prose. See visible_lineage_summaries."""
     return (await visible_lineage_summaries(db, [record], user, user_roles))[record.id]
+
+
+async def visible_vrt_source_counts(
+    db: AsyncSession,
+    vrt_dataset_ids: Iterable[uuid.UUID],
+    user: Identity | None,
+    user_roles: set[str],
+) -> dict[uuid.UUID, int]:
+    """How many of each VRT's member datasets this requester may read.
+
+    Member lists omit the members a requester cannot read, so a count of every
+    link would tell them how many are hidden. Each requested VRT gets an entry.
+    The count stays in SQL: one page can link more members than a statement
+    has bind parameters.
+    """
+    wanted = set(vrt_dataset_ids)
+    if not wanted:
+        return {}
+
+    from app.modules.catalog.datasets.domain.models import (
+        Dataset,
+        DatasetGrant,
+        Record,
+    )
+
+    links = _VRT_SOURCE_LINKS
+    stmt = (
+        select(links.c.vrt_dataset_id, func.count(links.c.source_dataset_id.distinct()))
+        .join(Dataset, Dataset.id == links.c.source_dataset_id)
+        .join(Record, Record.id == Dataset.record_id)
+        .where(
+            links.c.vrt_dataset_id
+            == any_(bindparam("vrt_ids", list(wanted), type_=ARRAY(Uuid)))
+        )
+        .group_by(links.c.vrt_dataset_id)
+    )
+    stmt = apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)
+    counts = dict.fromkeys(wanted, 0)
+    for vrt_id, count in (await db.execute(stmt)).all():
+        counts[vrt_id] = count
+    return counts
 
 
 def can_view_dataset_provenance(

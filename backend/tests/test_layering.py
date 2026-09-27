@@ -1192,7 +1192,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 657,
         "backend/app/modules/catalog/datasets/domain/service_metadata.py": 546,
         # Internal pointer reads sit beside the detail query that shares them.
-        "backend/app/modules/catalog/datasets/domain/service_query.py": 446,
+        "backend/app/modules/catalog/datasets/domain/service_query.py": 434,
         "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 513,
         # Chat splits retain tool execution and result-serialization workflows.
         "backend/app/processing/ai/chat_actions.py": 587,
@@ -1367,7 +1367,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Map endpoints share response assembly, visibility and ownership checks.
     "backend/app/modules/catalog/maps/router.py": 1510,
     # Native search and OGC Records share visibility, query parsing and pagination.
-    "backend/app/modules/catalog/search/router.py": 1443,
+    "backend/app/modules/catalog/search/router.py": 1429,
     # STAC endpoints share visibility, extent, lineage and pagination conformance rules.
     "backend/app/standards/stac/router.py": 1846,
     # Authorization, acquisition order and cache rehydration share this route boundary;
