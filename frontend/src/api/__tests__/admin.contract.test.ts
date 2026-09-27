@@ -55,6 +55,19 @@ describe('admin api request contracts', () => {
     expect(calledUrl()).toBe('/admin/users/');
   });
 
+  it('listUserNames retrieves names beyond the first 500', async () => {
+    const firstPage = Array.from({ length: 500 }, (_, index) => ({ id: `id-${index}`, username: `user-${index}` }));
+    const laterUser = { id: 'id-500', username: 'user-500' };
+    mockApiFetch.mockResolvedValueOnce(firstPage).mockResolvedValueOnce([laterUser]);
+
+    const names = await admin.listUserNames();
+
+    expect(mockApiFetch).toHaveBeenNthCalledWith(1, '/admin/users/names/?skip=0&limit=500');
+    expect(mockApiFetch).toHaveBeenNthCalledWith(2, '/admin/users/names/?skip=500&limit=500');
+    expect(names).toHaveLength(501);
+    expect(names.at(-1)).toEqual(laterUser);
+  });
+
   it('listAuditLogs forwards actor and resource filters', async () => {
     await admin.listAuditLogs({
       user_id: 'u1',

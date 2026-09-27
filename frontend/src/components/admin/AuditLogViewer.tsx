@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Link, useSearchParams } from 'react-router';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useAuditLogs, useUserNames } from '@/hooks/use-admin';
+import { usePermissions } from '@/hooks/use-permissions';
 import { formatDateTimeSmart } from '@/lib/format';
 import { paginationRange } from '@/lib/pagination';
 import { Button } from '@/components/ui/button';
@@ -161,6 +162,8 @@ const CURRENT_AUDIT_ACTIONS = [
 
 export function AuditLogViewer() {
   const { t } = useTranslation('admin');
+  const { can } = usePermissions();
+  const canSelectUser = can('manage_users');
   // Sort lives in the URL so a sorted view is shareable. Sort clicks REPLACE
   // the history entry rather than pushing — deliberately, per the #1200
   // review: pushing would make five header clicks cost five Back presses to
@@ -203,7 +206,7 @@ export function AuditLogViewer() {
   }
 
   const skip = page * PAGE_SIZE;
-  const { data: userNames } = useUserNames();
+  const { data: userNames } = useUserNames({ enabled: canSelectUser });
   const normalizedUserId = userId.trim();
   const normalizedResourceId = resourceId.trim();
   const userIdInvalid = normalizedUserId !== '' && !UUID_PATTERN.test(normalizedUserId);
@@ -336,29 +339,33 @@ export function AuditLogViewer() {
               ...CURRENT_AUDIT_ACTIONS.map((value) => ({ value, label: value })),
             ]}
           />
-          <div>
-            <label htmlFor="audit-user-search" className="mb-1 block text-xs text-muted-foreground">
-              {t('audit.filters.searchUsers')}
-            </label>
-            <Input
-              id="audit-user-search"
-              type="search"
-              value={userSearch}
-              onChange={(e) => setUserSearch(e.target.value)}
-              placeholder={t('audit.filters.searchUsersPlaceholder')}
-              className="h-8 w-44"
-            />
-          </div>
-          <FilterSelect
-            label={t('audit.filters.user')}
-            value={selectedUserId}
-            onChange={(value) => { setSelectedUserId(value); setUserId(''); setPage(0); }}
-            options={[
-              { value: '', label: t('audit.filters.allUsers') },
-              ...(userNames?.filter((user) => user.username.toLocaleLowerCase().includes(userSearch.toLocaleLowerCase()) || user.id === selectedUserId)
-                .map((user) => ({ value: user.id, label: user.username })) ?? []),
-            ]}
-          />
+          {canSelectUser && (
+            <>
+              <div>
+                <label htmlFor="audit-user-search" className="mb-1 block text-xs text-muted-foreground">
+                  {t('audit.filters.searchUsers')}
+                </label>
+                <Input
+                  id="audit-user-search"
+                  type="search"
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                  placeholder={t('audit.filters.searchUsersPlaceholder')}
+                  className="h-8 w-44"
+                />
+              </div>
+              <FilterSelect
+                label={t('audit.filters.user')}
+                value={selectedUserId}
+                onChange={(value) => { setSelectedUserId(value); setUserId(''); setPage(0); }}
+                options={[
+                  { value: '', label: t('audit.filters.allUsers') },
+                  ...(userNames?.filter((user) => user.username.toLocaleLowerCase().includes(userSearch.toLocaleLowerCase()) || user.id === selectedUserId)
+                    .map((user) => ({ value: user.id, label: user.username })) ?? []),
+                ]}
+              />
+            </>
+          )}
           <div>
             <label className="mb-1 block text-xs text-muted-foreground">
               {t('audit.filters.userId')}
