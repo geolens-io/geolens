@@ -106,6 +106,8 @@ from app.modules.catalog.maps._router_helpers import (
     _layer_rows_by_id,
     _layers_from_tuples,
     _meta_to_kwargs,
+    _reject_non_public_datasets,
+    _stored_image_cache_control,
     _visibility_value,
 )
 
@@ -475,8 +477,12 @@ async def update_map_endpoint(
     # restrict_public_visibility is on. None (untouched) passes through.
     await check_public_visibility_allowed(db, user, body.visibility)
 
-    # Hard block: prevent publishing maps with non-public datasets
-    if body.visibility == MapVisibility.public:
+    # Hard block: prevent publishing maps with non-public datasets. A request
+    # that also replaces the layers is checked on the layers it leaves.
+    if (
+        body.visibility == MapVisibility.public
+        and "layers" not in body.model_fields_set
+    ):
         non_public = await validate_public_visibility(db, map_id)
         if non_public:
             raise HTTPException(
@@ -634,6 +640,7 @@ async def update_map_endpoint(
         )
 
     if "layers" in kwargs:
+        await _reject_non_public_datasets(db, map_obj)
         # builder-audit #338 P0-01: replacing the layer set can drop a dataset an
         # embed token is scoped to; revoke any orphaned embed tokens so they
         # stop serving tiles for content the map no longer exposes.
@@ -710,6 +717,8 @@ async def patch_map_layers_endpoint(
             else status.HTTP_400_BAD_REQUEST
         )
         raise HTTPException(status_code=status_code, detail=detail)
+    if body.added:
+        await _reject_non_public_datasets(db, map_obj)
 
     layers = _layers_from_tuples(layer_tuples)
     after_rows_by_id = _layer_rows_by_id(layer_tuples)
@@ -1086,6 +1095,12 @@ async def get_thumbnail(
         )
 
     await _check_map_read_access(map_obj, user, db)
+    cache_control = await _stored_image_cache_control(db, map_obj, user, max_age=3600)
+    if cache_control is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Thumbnail not found",
+        )
 
     storage = get_storage()
     try:
@@ -1096,11 +1111,6 @@ async def get_thumbnail(
             detail="Thumbnail not found",
         )
     media_type = "image/jpeg" if map_obj.thumbnail_uri.endswith(".jpg") else "image/png"
-    cache_control = (
-        "public, max-age=3600"
-        if map_obj.visibility == "public"
-        else "private, no-cache"
-    )
     return Response(
         content=data,
         media_type=media_type,
@@ -1250,6 +1260,12 @@ async def get_og_image(
         )
 
     await _check_map_read_access(map_obj, user, db)
+    cache_control = await _stored_image_cache_control(db, map_obj, user, max_age=86400)
+    if cache_control is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="OG image not found",
+        )
 
     storage = get_storage()
     try:
@@ -1260,11 +1276,6 @@ async def get_og_image(
             detail="OG image not found",
         )
     media_type = "image/jpeg" if map_obj.og_image_uri.endswith(".jpg") else "image/png"
-    cache_control = (
-        "public, max-age=86400"
-        if map_obj.visibility == "public"
-        else "private, no-cache"
-    )
     return Response(
         content=data,
         media_type=media_type,
@@ -1321,6 +1332,7 @@ async def add_layer_endpoint(
         )
 
     layer = await add_layer(db, map_id, body)
+    await _reject_non_public_datasets(db, map_obj)
     meta = await get_dataset_meta(db, body.dataset_id)
     target_name = _layer_history_name(layer, meta.title if meta else None)
 

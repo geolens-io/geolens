@@ -1517,12 +1517,12 @@ class TestDuplicateMap:
             visibility="private",
         )
 
-        # Create a public map with both layers
+        # Create an internal map with both layers
         created = await _create_map(client, admin_auth_header, "RBAC Test Map")
         map_id = created["id"]
         await client.put(
             f"/maps/{map_id}",
-            json={"visibility": "public"},
+            json={"visibility": "internal"},
             headers=admin_auth_header,
         )
         await client.post(
@@ -1605,7 +1605,7 @@ class TestDuplicateMap:
         map_id = created["id"]
         await client.put(
             f"/maps/{map_id}",
-            json={"visibility": "public"},
+            json={"visibility": "internal"},
             headers=admin_auth_header,
         )
         await client.post(
@@ -1721,7 +1721,7 @@ class TestDuplicateMap:
         map_id = created["id"]
         await client.put(
             f"/maps/{map_id}",
-            json={"visibility": "public"},
+            json={"visibility": "internal"},
             headers=admin_auth_header,
         )
         for ds_id, order in [(pub_ds.id, 0), (priv_ds1.id, 1), (priv_ds2.id, 2)]:

@@ -13,7 +13,10 @@ from typing import TYPE_CHECKING, NamedTuple
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.identity import Identity
 from app.core.text import escape_ilike
+from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
+from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.core.public_urls import (
     get_public_api_url,
@@ -32,22 +35,50 @@ class MapEmbedScope(NamedTuple):
     tenant_id: uuid.UUID | None
 
 
+async def can_read_every_map_dataset(
+    session: AsyncSession, map_obj: Map, user: Identity | None
+) -> bool:
+    """Whether ``user`` can read every dataset the map draws, terrain included."""
+    dataset_ids = set(
+        (
+            await session.execute(
+                select(MapLayer.dataset_id).where(MapLayer.map_id == map_obj.id)
+            )
+        ).scalars()
+    )
+    terrain = map_obj.terrain_config if isinstance(map_obj.terrain_config, dict) else {}
+    if terrain.get("enabled") and terrain.get("source_dataset_id"):
+        dataset_ids.add(uuid.UUID(str(terrain["source_dataset_id"])))
+    if not dataset_ids:
+        return True
+    user_roles = await get_user_roles(session, user) if user is not None else set()
+    stmt = (
+        select(Dataset.id)
+        .join(Record, Dataset.record_id == Record.id)
+        .where(Dataset.id.in_(dataset_ids))
+    )
+    stmt = apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)
+    return dataset_ids <= set((await session.execute(stmt)).scalars())
+
+
 async def get_share_card_image_url(
     session: AsyncSession,
     request: "Request",
     map_obj: Map,
 ) -> str:
-    """Resolve a card image against the correct public API or app root."""
-    if map_obj.og_image_uri:
+    """Resolve a card image against the correct public API or app root.
+
+    Crawlers are anonymous, so a stored image is used only when an anonymous
+    caller can read every dataset the map draws.
+    """
+    if (map_obj.og_image_uri or map_obj.thumbnail_uri) and (
+        await can_read_every_map_dataset(session, map_obj, None)
+    ):
         api_base = await get_public_api_url(session, request=request)
-        path = f"/maps/{map_obj.id}/og-image/"
-    elif map_obj.thumbnail_uri:
-        api_base = await get_public_api_url(session, request=request)
-        path = f"/maps/{map_obj.id}/thumbnail/"
-    else:
-        app_base = await get_public_app_url(session, request=request)
-        return join_public_url(app_base, "/og-image.png")
-    return join_public_url(api_base, path)
+        kind = "og-image" if map_obj.og_image_uri else "thumbnail"
+        return join_public_url(api_base, f"/maps/{map_obj.id}/{kind}/")
+    app_base = await get_public_app_url(session, request=request)
+    return join_public_url(app_base, "/og-image.png")
 
 
 async def get_map_embed_scope(

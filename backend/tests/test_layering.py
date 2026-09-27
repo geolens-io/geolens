@@ -1365,7 +1365,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # lifecycle.
     "backend/app/processing/analysis/tasks.py": 1401,
     # Map endpoints share response assembly, visibility and ownership checks.
-    "backend/app/modules/catalog/maps/router.py": 1510,
+    "backend/app/modules/catalog/maps/router.py": 1522,
     # Native search and OGC Records share visibility, query parsing and pagination.
     "backend/app/modules/catalog/search/router.py": 1429,
     # STAC endpoints share visibility, extent, lineage and pagination conformance rules.
