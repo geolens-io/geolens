@@ -1634,18 +1634,21 @@ async def fail_stale_jobs(
     return outcome.pending_failed, outcome.running_failed
 
 
-def _carries_unreaped_artifacts():
-    """Predicate: the row still names an artifact or follow-ups nothing has settled.
+_REAPED_ARTIFACT_FIELDS = (
+    UNPUBLISHED_STORAGE_KEYS_FIELD,
+    ANALYSIS_OUTPUT_TABLE_FIELD,
+    UNPUBLISHED_TILESET_ATTEMPTS_FIELD,
+)
 
-    Such a row is the pending record, so the retention purge keeps it. A
-    string test on the JSONB blob, never a throwing cast.
+
+def _carries_unreaped_artifacts(fields=UNREAPED_ARTIFACT_FIELDS):
+    """Predicate: the row still names one of ``fields`` nothing has settled.
+
+    By default that is any artifact or follow-ups, which makes the row the
+    pending record the retention purge keeps. A string test on the JSONB blob,
+    never a throwing cast.
     """
-    return or_(
-        *(
-            IngestJob.user_metadata[field].is_not(None)
-            for field in UNREAPED_ARTIFACT_FIELDS
-        )
-    )
+    return or_(*(IngestJob.user_metadata[field].is_not(None) for field in fields))
 
 
 async def collect_unreaped_artifacts(
@@ -1653,14 +1656,15 @@ async def collect_unreaped_artifacts(
 ) -> StaleCleanupOutcome:
     """Add the artifacts terminal job rows still name, for the post-commit reap.
 
-    Every terminal row carrying a record counts, whatever its age or
-    exemption; bounded so a pass can't hold its session open.
+    Every terminal row naming an artifact counts, whatever its age or
+    exemption; bounded so a pass can't hold its session open. Rows that owe
+    only follow-ups are left out, so they can't fill the batch.
     """
     artifact_rows = await db.execute(
         select(IngestJob.id, IngestJob.user_metadata)
         .where(
             IngestJob.status.not_in(ACTIVE_STATUSES),
-            _carries_unreaped_artifacts(),
+            _carries_unreaped_artifacts(_REAPED_ARTIFACT_FIELDS),
         )
         .limit(_ARTIFACT_REAP_BATCH)
     )

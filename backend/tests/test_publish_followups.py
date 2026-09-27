@@ -938,6 +938,49 @@ async def test_records_that_keep_failing_do_not_crowd_out_a_fresh_one(
         await test_db_session.commit()
 
 
+async def test_followup_records_do_not_crowd_the_artifact_reap(test_db_session) -> None:
+    """A batch's worth of rows owing only follow-ups still leaves an artifact to reap."""
+    from app.platform.jobs.sweep import (
+        StaleCleanupOutcome,
+        collect_unreaped_artifacts,
+    )
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    owing = [
+        IngestJob(
+            status="complete",
+            created_by=admin_id,
+            user_metadata={
+                PUBLISH_FOLLOWUPS_FIELD: {
+                    "task": "ingest_file",
+                    "attempt_id": str(uuid.uuid4()),
+                    "archive_key": f"originals/{uuid.uuid4()}/upload.csv",
+                }
+            },
+        )
+        for _ in range(500)
+    ]
+    key = f"rasters/{uuid.uuid4()}/source.cog.tif"
+    naming = IngestJob(
+        status="failed",
+        created_by=admin_id,
+        user_metadata={"unpublished_storage_keys": [key]},
+    )
+    test_db_session.add_all([*owing, naming])
+    await test_db_session.flush()
+    ids = [job.id for job in (*owing, naming)]
+    await test_db_session.commit()
+    try:
+        outcome = await collect_unreaped_artifacts(
+            test_db_session, StaleCleanupOutcome(*([0] * 10))
+        )
+
+        assert key in outcome._unpublished_storage_keys
+    finally:
+        await test_db_session.execute(delete(IngestJob).where(IngestJob.id.in_(ids)))
+        await test_db_session.commit()
+
+
 async def test_an_owed_archive_is_retried_at_the_cap_until_storage_recovers(
     test_db_session, raster_storage, followups, monkeypatch
 ) -> None:
