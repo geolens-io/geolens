@@ -73,7 +73,9 @@ _SWEEP_BATCH = 50
 
 # A replacement or a vector import runs its own completion steps, so its
 # record owes only its items.
-_ITEMS_ONLY = frozenset({"reupload_file", "reupload_raster", "ingest_file"})
+_ITEMS_ONLY = frozenset(
+    {"reupload_file", "reupload_raster", "ingest_file", "regenerate_vrt"}
+)
 
 # The items a record can owe, each a key in the record that is removed alone
 # once it is confirmed.
