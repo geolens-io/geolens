@@ -159,3 +159,50 @@ async def test_stored_images_go_only_to_callers_who_can_read_every_dataset(
     image = re.search(r'property="og:image"\s+content="([^"]+)"', card.text)
     assert image is not None, card.text
     assert image.group(1) == "https://app.example.test/og-image.png"
+
+
+async def test_publishing_while_replacing_layers_checks_the_new_layers(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """One PUT that publishes and replaces the layers is judged on the layers
+    it leaves, not the ones it replaces."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    public_ds = await create_dataset(test_db_session, created_by=admin_id)
+    private_ds = await create_dataset(
+        test_db_session, created_by=admin_id, visibility="private"
+    )
+
+    async def private_map_with_private_layer() -> str:
+        created = await client.post(
+            "/maps/",
+            json={"name": f"Draft {uuid.uuid4().hex[:6]}"},
+            headers=admin_auth_header,
+        )
+        assert created.status_code == 201, created.text
+        map_id = created.json()["id"]
+        added = await client.post(
+            f"/maps/{map_id}/layers",
+            json={"dataset_id": str(private_ds.id)},
+            headers=admin_auth_header,
+        )
+        assert added.status_code == 201, added.text
+        return map_id
+
+    swapped = await private_map_with_private_layer()
+    ok = await client.put(
+        f"/maps/{swapped}",
+        json={"visibility": "public", "layers": [{"dataset_id": str(public_ds.id)}]},
+        headers=admin_auth_header,
+    )
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["visibility"] == "public"
+
+    kept = await private_map_with_private_layer()
+    refused = await client.put(
+        f"/maps/{kept}",
+        json={"visibility": "public", "layers": [{"dataset_id": str(private_ds.id)}]},
+        headers=admin_auth_header,
+    )
+    assert refused.status_code == 400, refused.text
+    after = await client.get(f"/maps/{kept}", headers=admin_auth_header)
+    assert after.json()["visibility"] != "public"
