@@ -343,14 +343,19 @@ class TestTheProxyRelaysOnlyToCheckedAddresses:
             return real_getaddrinfo(host, port, *args, **kwargs)
 
         monkeypatch.setattr(socket, "getaddrinfo", getaddrinfo)
-        async with service_egress_proxy(idle_seconds=30) as egress:
-            response = await _exchange(
-                egress,
-                _get("http://internal.example.test/wfs", "internal.example.test"),
-            )
+        with structlog.testing.capture_logs() as logs:
+            async with service_egress_proxy(idle_seconds=30) as egress:
+                response = await _exchange(
+                    egress,
+                    _get("http://internal.example.test/wfs", "internal.example.test"),
+                )
 
         assert response.startswith(b"HTTP/1.1 403"), response
         assert egress.refused is True
+        # The refused host is chosen by the remote service, so it stays out of logs.
+        refusals = [e for e in logs if e["event"] == "service connection refused"]
+        assert refusals
+        assert "internal.example.test" not in repr(logs)
 
     async def test_each_connection_is_checked_once_and_made_to_that_address(
         self, monkeypatch, resolver_calls

@@ -222,9 +222,8 @@ async def _serve(
         return
     except SSRFError:
         egress.refused = True
-        logger.warning(
-            "service connection refused", host=request.host, port=request.port
-        )
+        # The host comes from the remote service and may carry its credential.
+        logger.warning("service connection refused", port=request.port)
         writer.write(_reply("403 Forbidden"))
         return
 
