@@ -263,7 +263,8 @@ async def test_add_layer_resolves_dataset_name_end_to_end():
     but never populated server-side (the add_layer tool input only has
     dataset_id and _collect_chat_action fell through to {type, **tool_input}).
     This exercises the full path: _execute_chat_tool resolves the title via
-    port.get_dataset(...).record.title, and _collect_chat_action propagates it.
+    port.get_dataset(...).record.title once port.check_dataset_access passes,
+    and _collect_chat_action propagates it.
     """
     from app.processing.ai.chat_actions import _collect_chat_action
 
@@ -271,8 +272,16 @@ async def test_add_layer_resolves_dataset_name_end_to_end():
     fake_dataset = SimpleNamespace(record=SimpleNamespace(title="Adirondack Trails"))
     fake_port = DefaultProcessingPort()
 
-    with patch.object(
-        fake_port, "get_dataset", new_callable=AsyncMock, return_value=fake_dataset
+    with (
+        patch.object(
+            fake_port, "get_dataset", new_callable=AsyncMock, return_value=fake_dataset
+        ),
+        patch.object(
+            fake_port,
+            "check_dataset_access",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
     ):
         result = await _execute_chat_tool(
             "add_layer",
