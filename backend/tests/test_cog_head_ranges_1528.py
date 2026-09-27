@@ -38,6 +38,7 @@ Requirements:
               uv run pytest tests/test_cog_head_ranges_1528.py -v
 """
 
+import copy
 import hashlib
 import uuid
 from unittest.mock import AsyncMock, patch
@@ -46,11 +47,13 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
+from app.core.config import settings
+from app.modules.auth.permissions import DEFAULT_ROLE_PERMISSIONS
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.platform.storage import get_storage
 from app.processing.raster.models import RasterAsset
 
-from tests.factories import get_user_id
+from tests.factories import create_user, get_user_id
 
 # Big enough that a range is a genuine slice rather than the whole object, and
 # that a multi-chunk range crosses the streaming chunk boundary at least once
@@ -72,6 +75,7 @@ async def _raster_dataset(
     asset_uri: str | None = None,
     visibility: str = "public",
     sha256: str | None = None,
+    created_by: uuid.UUID | None = None,
 ) -> tuple[Dataset, RasterAsset]:
     """Create a Record + Dataset + RasterAsset for the COG download route.
 
@@ -88,7 +92,7 @@ async def _raster_dataset(
         visibility=visibility,
         record_status="published",
         record_type="raster_dataset",
-        created_by=admin_id,
+        created_by=created_by or admin_id,
     )
     session.add(record)
     await session.flush()
@@ -680,6 +684,8 @@ def s3_storage(monkeypatch):
             secret_access_key="testing",
         )
         monkeypatch.setattr(storage_provider_module, "_storage", provider)
+        monkeypatch.setattr(settings, "storage_provider", "s3")
+        monkeypatch.setattr(settings, "s3_presigned_downloads", True)
         yield provider
 
 
@@ -704,7 +710,6 @@ async def test_head_cog_on_s3_is_answered_from_object_metadata(
     """
     dataset, raster_asset = await _raster_dataset(
         test_db_session,
-        storage_backend="s3",
         asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/src.cog.tif",
         sha256=hashlib.sha256(_COG_BYTES).hexdigest(),
     )
@@ -762,7 +767,6 @@ async def test_s3_head_and_get_are_deliberately_asymmetric(
     """
     dataset, raster_asset = await _raster_dataset(
         test_db_session,
-        storage_backend="s3",
         asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/src.cog.tif",
     )
     await s3_storage.put(raster_asset.asset_uri, _COG_BYTES)
@@ -811,7 +815,6 @@ async def test_head_cog_on_a_missing_s3_object_is_404(
     """
     dataset, _ = await _raster_dataset(
         test_db_session,
-        storage_backend="s3",
         asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/absent.cog.tif",
     )
 
@@ -857,7 +860,6 @@ async def test_head_cog_issues_exactly_one_s3_metadata_call(
     """
     dataset, raster_asset = await _raster_dataset(
         test_db_session,
-        storage_backend="s3",
         asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/src.cog.tif",
     )
     await s3_storage.put(raster_asset.asset_uri, _COG_BYTES)
@@ -901,7 +903,6 @@ async def test_a_stale_resume_on_s3_is_not_redirected(
     """
     dataset, raster_asset = await _raster_dataset(
         test_db_session,
-        storage_backend="s3",
         asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/src.cog.tif",
         sha256=hashlib.sha256(_COG_BYTES).hexdigest(),
     )
@@ -947,7 +948,6 @@ async def test_if_none_match_answers_304_on_s3_too(
     """
     dataset, raster_asset = await _raster_dataset(
         test_db_session,
-        storage_backend="s3",
         asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/src.cog.tif",
         sha256=hashlib.sha256(_COG_BYTES).hexdigest(),
     )
@@ -990,7 +990,6 @@ async def test_a_bucket_issued_validator_is_not_recognized_and_fails_safe(
     """
     dataset, raster_asset = await _raster_dataset(
         test_db_session,
-        storage_backend="s3",
         asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/src.cog.tif",
         sha256=hashlib.sha256(_COG_BYTES).hexdigest(),
     )
@@ -1015,65 +1014,28 @@ async def test_a_bucket_issued_validator_is_not_recognized_and_fails_safe(
     assert resumed.content == _COG_BYTES
 
 
-async def test_a_full_download_works_when_the_provider_is_s3(
-    client: AsyncClient, admin_auth_header: dict, test_db_session, s3_storage
-):
-    """The shape a real S3 deployment has, which is NOT the ``s3`` row.
-
-    ``storage_backend`` is a property of the ASSET, and no ingest path writes
-    ``"s3"`` to it: ``tasks_raster_common.py`` and ``tasks_vrt.py`` both create
-    rows as ``"local"``, the replace swap resets them to ``"local"``, and STAC
-    imports write ``"remote"``. ``"local"`` means "GeoLens owns these bytes";
-    which object store holds them is ``get_storage()``'s business. So on a
-    deployment configured for S3 the COG download takes this branch, with an
-    ``S3StorageProvider`` underneath — and its whole-object GET calls
-    ``get_stream``, which raised ``NotImplementedError`` on the strength of a
-    docstring saying the router always redirects for s3.
-
-    That is fixed as a consequence of fix(#1540 review P1), which needed a real
-    ``get_stream`` for the stale-resume fallback. This test is here because the
-    two facts are independent: the fallback could be implemented some other way
-    and this path would silently go back to raising.
-    """
-    dataset, raster_asset = await _raster_dataset(
-        test_db_session,
-        storage_backend="local",  # what ingest actually writes, S3 or not
-        asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/managed.cog.tif",
-        sha256=hashlib.sha256(_COG_BYTES).hexdigest(),
-    )
-    await s3_storage.put(raster_asset.asset_uri, _COG_BYTES)
-
-    whole = await client.get(
-        f"/datasets/{dataset.id}/download/cog", headers=admin_auth_header
-    )
-
-    assert whole.status_code == 200, (
-        f"a full COG download on an S3-backed deployment returned "
-        f"{whole.status_code}; this is the path every managed raster takes."
-    )
-    assert whole.content == _COG_BYTES
-    assert whole.headers.get("etag") == f'"{raster_asset.sha256}"'
-
-
 async def test_an_ordinary_range_makes_one_object_store_request(
-    client: AsyncClient, admin_auth_header: dict, test_db_session, s3_storage
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    s3_storage,
+    monkeypatch,
 ):
-    """fix(#1540 review P1): the everyday tile read, not just the odd branch.
+    """The everyday tile read on a store that can't presign, not just the odd branch.
 
-    The stale-resume fallback was fixed a round earlier and this path was left
-    looping ``get_range`` at 1 MiB a call — and it is the path that matters
-    most, because on an S3 or Azure deployment ordinary ingested assets carry
-    ``storage_backend="local"`` and every range request lands here. No stale
-    validator needed: ``Range: bytes=0-`` on a 5 GiB COG issued 5,120 serial
-    object-store requests while the rate limiter counted one API call.
+    On an Azure install every range request is served from here, so a loop
+    over ``get_range`` at 1 MiB a call would turn ``Range: bytes=0-`` on a
+    5 GiB COG into 5,120 serial object-store requests while the rate limiter
+    counted one API call. moto's S3 client stands in for that store's, so the
+    requests can be counted.
 
     A 3 MiB object and a range spanning all of it, because at 204,800 bytes the
     loop and the stream are indistinguishable — one chunk either way.
     """
+    monkeypatch.setattr(settings, "storage_provider", "azure")
     big = bytes(range(256)) * (3 * 1024 * 4)  # 3 MiB exactly
     dataset, raster_asset = await _raster_dataset(
         test_db_session,
-        storage_backend="local",  # what ingest writes on an S3 deployment too
         asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/big.cog.tif",
         sha256=hashlib.sha256(big).hexdigest(),
     )
@@ -1123,7 +1085,6 @@ async def test_the_stale_resume_fallback_makes_one_object_store_request(
     big = bytes(range(256)) * (3 * 1024 * 4)  # 3 MiB exactly
     dataset, raster_asset = await _raster_dataset(
         test_db_session,
-        storage_backend="s3",
         asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/big.cog.tif",
         sha256=hashlib.sha256(big).hexdigest(),
     )
@@ -1168,7 +1129,6 @@ async def test_s3_keeps_redirecting_everything_that_is_not_a_stale_resume(
     """
     dataset, raster_asset = await _raster_dataset(
         test_db_session,
-        storage_backend="s3",
         asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/src.cog.tif",
         sha256=hashlib.sha256(_COG_BYTES).hexdigest(),
     )
@@ -2406,7 +2366,6 @@ async def test_a_conditional_request_that_transfers_still_stats_once(
     """
     dataset, raster_asset = await _raster_dataset(
         test_db_session,
-        storage_backend="s3",
         asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/src.cog.tif",
         sha256=hashlib.sha256(_COG_BYTES).hexdigest(),
     )
@@ -2594,7 +2553,6 @@ async def test_a_wildcard_revalidation_is_304_on_s3_without_a_digest_too(
     """
     dataset, raster_asset = await _raster_dataset(
         test_db_session,
-        storage_backend="s3",
         asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/src.cog.tif",
         sha256=None,
     )
@@ -2760,7 +2718,6 @@ async def test_an_unverifiable_if_range_on_s3_is_ignored_rather_than_honoured(
     """
     dataset, raster_asset = await _raster_dataset(
         test_db_session,
-        storage_backend="s3",
         asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/src.cog.tif",
         sha256=None,
     )
@@ -2800,7 +2757,8 @@ async def test_a_row_with_no_digest_refuses_a_specific_if_match_on_s3_too(
     tag for, so the condition is false and the answer is 412 — the same call
     ``test_a_row_with_no_digest_refuses_a_specific_if_match_but_allows_star``
     makes for local storage. ``*`` is the other question, and the object exists,
-    so the request proceeds: on s3 that is the ordinary presigned redirect.
+    so the request proceeds, served here like any If-Match GET rather than
+    handing the wildcard to the bucket.
 
     Both spellings are asserted together because the precondition block sits
     above the storage branching, and "evaluated for local, skipped for s3" is
@@ -2808,7 +2766,6 @@ async def test_a_row_with_no_digest_refuses_a_specific_if_match_on_s3_too(
     """
     dataset, raster_asset = await _raster_dataset(
         test_db_session,
-        storage_backend="s3",
         asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/src.cog.tif",
         sha256=None,
     )
@@ -2829,10 +2786,12 @@ async def test_a_row_with_no_digest_refuses_a_specific_if_match_on_s3_too(
         f"unverifiable must not mean honoured, and a 302 here hands the "
         f"precondition to a bucket that does not evaluate it."
     )
-    assert star.status_code == 302, (
+    assert star.status_code == 200, (
         f"If-Match: * returned {star.status_code} for an object that exists; "
-        f"the request should proceed to the ordinary redirect."
+        f"the request should proceed and be served here."
     )
+    assert "location" not in star.headers
+    assert star.content == _COG_BYTES
 
 
 # ---------------------------------------------------------------------------
@@ -2854,3 +2813,229 @@ async def test_cog_head_stays_out_of_the_openapi_schema(client: AsyncClient):
         f"The COG download path publishes {sorted(methods)}; the HEAD route "
         f"must be registered with include_in_schema=False."
     )
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "presigned", "expected"),
+    [
+        (None, "default", 200),
+        ("http://minio:9000", "default", 200),
+        (None, True, 302),
+        ("http://minio:9000", True, 302),
+    ],
+)
+async def test_a_managed_row_on_s3_redirects_only_with_presigned_downloads(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    s3_storage,
+    monkeypatch,
+    endpoint: str | None,
+    presigned: bool | str,
+    expected: int,
+):
+    """The configured provider picks the redirect, whatever the row's tag says,
+    and only once the operator enables presigned downloads.
+
+    Every writer tags a managed raster ``local``, S3 or not, so a row as ingest
+    leaves it has to reach the bucket's presigned URL when enabled. Left at the
+    default, the download streams on any endpoint, since a client may not reach
+    the endpoint or follow the redirect.
+    """
+    if presigned == "default":
+        presigned = type(settings).model_fields["s3_presigned_downloads"].default
+    monkeypatch.setattr(settings, "s3_endpoint", endpoint)
+    monkeypatch.setattr(settings, "s3_presigned_downloads", presigned)
+    dataset, raster_asset = await _raster_dataset(
+        test_db_session,
+        asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/managed.cog.tif",
+        sha256=hashlib.sha256(_COG_BYTES).hexdigest(),
+    )
+    await s3_storage.put(raster_asset.asset_uri, _COG_BYTES)
+
+    get = await client.get(
+        f"/datasets/{dataset.id}/download/cog",
+        headers=admin_auth_header,
+        follow_redirects=False,
+    )
+
+    assert get.status_code == expected, (
+        f"endpoint {endpoint!r}, presigned downloads {presigned!r}: a managed "
+        f"COG on S3 answered {get.status_code}, expected {expected}"
+    )
+    if expected == 302:
+        assert raster_asset.asset_uri in get.headers["location"]
+    else:
+        assert "location" not in get.headers
+        assert get.content == _COG_BYTES
+
+
+async def test_a_caller_the_route_refuses_gets_no_redirect_on_s3(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    viewer_auth_header: dict,
+    test_db_session,
+    s3_storage,
+):
+    """The presigned URL is handed out only after the route's own gate passes."""
+    owner_header, owner_id = await create_user(client, admin_auth_header, "editor")
+    owned, owned_asset = await _raster_dataset(
+        test_db_session,
+        asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/owned.cog.tif",
+        visibility="private",
+        sha256=hashlib.sha256(_COG_BYTES).hexdigest(),
+        created_by=uuid.UUID(owner_id),
+    )
+    public, public_asset = await _raster_dataset(
+        test_db_session,
+        asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/public.cog.tif",
+        sha256=hashlib.sha256(_COG_BYTES).hexdigest(),
+    )
+    private, private_asset = await _raster_dataset(
+        test_db_session,
+        asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/private.cog.tif",
+        visibility="private",
+        sha256=hashlib.sha256(_COG_BYTES).hexdigest(),
+    )
+    for asset in (public_asset, private_asset, owned_asset):
+        await s3_storage.put(asset.asset_uri, _COG_BYTES)
+    matrix = copy.deepcopy(DEFAULT_ROLE_PERMISSIONS)
+    matrix["viewer"]["export"] = False
+    matrix["editor"]["export"] = False
+    resp = await client.put(
+        "/settings/",
+        json={"settings": {"role_permissions": matrix}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200, resp.text
+    try:
+        answers = {
+            "an admin": (
+                await client.get(
+                    f"/datasets/{public.id}/download/cog",
+                    headers=admin_auth_header,
+                    follow_redirects=False,
+                ),
+                302,
+            ),
+            "a viewer without export": (
+                await client.get(
+                    f"/datasets/{public.id}/download/cog",
+                    headers=viewer_auth_header,
+                    follow_redirects=False,
+                ),
+                403,
+            ),
+            "an owner without export": (
+                await client.get(
+                    f"/datasets/{owned.id}/download/cog",
+                    headers=owner_header,
+                    follow_redirects=False,
+                ),
+                403,
+            ),
+            "an anonymous caller on a private dataset": (
+                await client.get(
+                    f"/datasets/{private.id}/download/cog", follow_redirects=False
+                ),
+                404,
+            ),
+        }
+    finally:
+        resp = await client.post(
+            "/settings/reset/",
+            json={"keys": ["role_permissions"]},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+
+    for caller, (answer, expected) in answers.items():
+        assert answer.status_code == expected, (
+            f"{caller} got {answer.status_code} on S3, expected {expected}"
+        )
+        if expected != 302:
+            assert "location" not in answer.headers, f"{caller} was redirected"
+
+
+@pytest.mark.parametrize("tag", ["local", "s3"])
+async def test_a_get_carrying_if_match_on_s3_is_served_here(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    s3_storage,
+    tag: str,
+):
+    """An If-Match GET gets the bytes from here instead of a redirect.
+
+    The bucket compares If-Match with its own ETag, an MD5 that is never this
+    route's SHA-256, so a client following the redirect would carry the
+    validator there and get a 412 for a COG that hasn't changed.
+    """
+    sha256 = hashlib.sha256(_COG_BYTES).hexdigest()
+    dataset, raster_asset = await _raster_dataset(
+        test_db_session,
+        storage_backend=tag,
+        asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/managed.cog.tif",
+        sha256=sha256,
+    )
+    await s3_storage.put(raster_asset.asset_uri, _COG_BYTES)
+    assert hashlib.md5(_COG_BYTES).hexdigest() != sha256
+
+    get = await client.get(
+        f"/datasets/{dataset.id}/download/cog",
+        headers={**admin_auth_header, "If-Match": f'"{sha256}"'},
+        follow_redirects=False,
+    )
+
+    assert get.status_code == 200, (
+        f"a GET carrying this route's own validator answered {get.status_code}"
+    )
+    assert "location" not in get.headers
+    assert get.content == _COG_BYTES
+
+
+async def test_a_legacy_s3_row_on_local_storage_streams(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """A row tagged ``s3`` by hand is still a managed COG, served by the local store."""
+    dataset, raster_asset = await _raster_dataset(
+        test_db_session,
+        storage_backend="s3",
+        sha256=hashlib.sha256(_COG_BYTES).hexdigest(),
+    )
+    await get_storage().put(raster_asset.asset_uri, _COG_BYTES)
+
+    get = await client.get(
+        f"/datasets/{dataset.id}/download/cog", headers=admin_auth_header
+    )
+
+    assert get.status_code == 200, (
+        f"a legacy s3-tagged row on local storage answered {get.status_code}"
+    )
+    assert get.content == _COG_BYTES
+
+
+async def test_a_managed_row_on_an_azure_install_streams(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+):
+    """Azure has no presigned GET, so its COGs stream from here.
+
+    The test's local store stands in for the Azure adapter: neither can
+    presign, and both serve the object's bytes and ranges.
+    """
+    monkeypatch.setattr(settings, "storage_provider", "azure")
+    dataset, raster_asset = await _raster_dataset(
+        test_db_session, sha256=hashlib.sha256(_COG_BYTES).hexdigest()
+    )
+    await get_storage().put(raster_asset.asset_uri, _COG_BYTES)
+
+    get = await client.get(
+        f"/datasets/{dataset.id}/download/cog",
+        headers=admin_auth_header,
+        follow_redirects=False,
+    )
+
+    assert get.status_code == 200, (
+        f"a managed COG on an Azure install answered {get.status_code}"
+    )
+    assert get.content == _COG_BYTES

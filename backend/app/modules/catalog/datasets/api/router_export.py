@@ -968,9 +968,12 @@ async def download_cog(
 ) -> Response:
     """Download the Cloud-Optimized GeoTIFF for a raster dataset.
 
-    Local storage: streams the COG file with Content-Type image/tiff.
-    S3 storage: returns a 302 redirect to a presigned GET URL valid for at most
-    5 minutes, and never past the expiry of a ``?token=`` download token.
+    On S3 storage with presigned downloads enabled, answers 302 to a
+    short-lived presigned URL (at most 5 minutes, and never past the expiry of
+    a ``?token=`` download token); otherwise streams the object with
+    Content-Type image/tiff. Even then, a GET carrying If-Match, or a resume
+    whose If-Range no longer matches, is streamed. A COG imported by reference
+    redirects to its origin.
     Accepts standard auth or ?token= JWT query parameter for browser downloads.
 
     ``user`` may be None when a no-sub anonymous
@@ -1150,7 +1153,8 @@ async def download_cog(
 
     physical_asset_key = _managed_key(raster_asset)
 
-    if raster_asset.storage_backend == "s3":
+    # A managed row's tag doesn't name its store; the configured provider does.
+    if settings.storage_provider == "s3" and settings.s3_presigned_downloads:
         return await _s3_cog_response(
             request,
             storage,
@@ -1246,22 +1250,24 @@ async def _s3_cog_response(
     etag: str | None,
     total_bytes: int | None = None,
 ) -> Response:
-    """The s3 backend: HEAD here, a stale resume here, everything else redirected.
+    """The S3 store: HEAD and the GETs the bucket would misjudge are served here.
 
-    fix(#1540): HEAD served from object metadata, not the presigned
-    redirect -- method is part of the SigV4 canonical request, and a
-    redirect-following client keeps HEAD across a 302, so it arrives
-    signed for the wrong verb (MEASURED: MinIO answers a get_object URL
-    HEAD 403).
+    HEAD is served from object metadata, not the presigned redirect: the
+    method is part of the SigV4 canonical request, and a redirect-following
+    client keeps HEAD across a 302, so it arrives signed for the wrong verb
+    (MinIO answers a get_object URL's HEAD with 403).
 
-    fix(#1540): a resumed range whose validator no longer matches is
-    also answered here, the one case bytes pass through this process --
-    a presigned GET ignores `If-Range` entirely and answers 206
-    regardless (MEASURED), so a redirect can't stop it splicing an old
-    resume onto a new COG.
+    Two GETs pass their bytes through this process, because the bucket would
+    judge them by its own validator. A client keeps If-Match across the
+    redirect, and the bucket compares a tag with its MD5 ETag rather than this
+    route's SHA-256, so an unchanged COG would get a 412; a bucket may also
+    refuse a wildcard it doesn't support. A presigned GET
+    ignores If-Range and answers 206 regardless, so a redirect can't stop a
+    resume whose validator no longer matches from splicing an old range onto
+    a new COG.
 
-    Everything else still redirects: whole-object GETs and matching
-    resumes, the multi-GB payloads, never touch this process's bandwidth.
+    Everything else redirects: whole-object GETs and matching resumes, the
+    multi-GB payloads, never touch this process's bandwidth.
     """
     if request.method == "HEAD":
         return head_response(
@@ -1276,16 +1282,16 @@ async def _s3_cog_response(
             headers=_cog_disposition(filename),
         )
 
-    if request.headers.get("range") and not range_bound_to_this_version(
+    if_match = request.headers.get("if-match", "").strip()
+    stale_resume = request.headers.get("range") and not range_bound_to_this_version(
         request.headers.get("if-range"), etag
-    ):
-        # fix(#1540): ONE get_object, streamed — not
-        # `_iter_storage_range` over the whole object, which issues a ranged
-        # request per 1 MiB chunk. A caller can select this branch deliberately
-        # by sending any stale validator, so at a chunk apiece a 5 GiB COG cost
-        # 5,120 object-store requests that the per-request rate limiter counts
-        # as one. `_iter_storage_range` is right where the client named a
-        # window and wrong here, where the answer is the entire object.
+    )
+    if if_match or stale_resume:
+        # A stale resume's answer is the entire object, read as ONE streamed
+        # get_object, not `_iter_storage_range`'s ranged request per 1 MiB
+        # chunk: a caller can pick this branch with any stale validator, and a
+        # 5 GiB COG would cost 5,120 object-store requests the rate limiter
+        # counts as one.
         total_bytes = await _cog_size_once(
             total_bytes,
             storage,

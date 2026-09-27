@@ -217,7 +217,7 @@ UNANCHORED_MARKER_DEBT: dict[str, int] = {
     "api/middleware/logging.py": 2,
     "api/middleware/security.py": 7,
     "core/catalog_port.py": 1,
-    "core/config.py": 27,
+    "core/config.py": 26,
     "core/crs_uri.py": 4,
     "core/db/rls.py": 5,
     "core/db/schema_skew.py": 1,

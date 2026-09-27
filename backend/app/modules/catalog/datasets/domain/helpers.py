@@ -1,5 +1,6 @@
 """Shared helpers for dataset routers."""
 
+import contextlib
 import uuid
 from collections.abc import Iterable, Mapping
 from datetime import datetime, timezone
@@ -7,6 +8,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.identity import Identity
 from app.core.pointcloud import pointcloud_path
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
@@ -31,6 +33,7 @@ from app.modules.catalog.sources.provenance import (
 )
 from app.core.geo import extent_to_bbox, raster_crs_facts
 from app.platform.dataset_origin import classify_origin, project_unknown
+from app.platform.storage.titiler_url import resolve_current_storage_key
 
 
 async def _load_actor_identities(
@@ -69,10 +72,18 @@ def _build_raster_metadata(
                 )
             )
 
-    # s3_uri exposed only to admins when storage backend is S3
+    # Admins see where a managed COG sits on an S3 install; the row's tag
+    # separates managed from remote bytes and doesn't name the store.
     s3_uri = None
-    if raster_asset.storage_backend == "s3" and is_admin:
-        s3_uri = raster_asset.asset_uri
+    if (
+        is_admin
+        and settings.storage_provider == "s3"
+        and raster_asset.storage_backend != "remote"
+    ):
+        # A hand-edited key the resolver refuses has no location to show.
+        with contextlib.suppress(ValueError):
+            key = resolve_current_storage_key(raster_asset.asset_uri)
+            s3_uri = f"s3://{settings.s3_bucket}/{key}"
 
     # fix(#821): ?api_key= is deprecated, but desktop GIS XYZ tile clients
     # can't send headers -- this placeholder is the sanctioned remaining use.
