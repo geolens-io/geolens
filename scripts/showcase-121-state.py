@@ -183,6 +183,24 @@ def unrestorable_changes(api):
     for title in (seed.QUAKES_TITLE, seed.QUAKES_HEAT_TITLE):
         if title in titles and api.dataset_origin(titles[title]) != "service":
             problems.append(f"{title!r} is not bound to its service")
+    # A rollback leaves these private; a builder would republish some of them
+    # before refusing the rest.
+    if seed.CITY_SHADE_MAP in maps and (
+        api.get_map(maps[seed.CITY_SHADE_MAP]).get("visibility") != "public"
+    ):
+        problems.append(f"{seed.CITY_SHADE_MAP!r} is private")
+    for title in (
+        seed.CITY_SHADE_SOURCE,
+        seed.CITY_SHADE_WINDOW,
+        seed.CITY_SHADE_RESULT,
+        seed.COPC_TITLE,
+        seed.TILES3D_TITLE,
+    ):
+        if (
+            title in titles
+            and api.get_dataset(titles[title]).get("visibility") != "public"
+        ):
+            problems.append(f"{title!r} is private")
     return problems
 
 
@@ -388,7 +406,11 @@ def unrestored(saved, after):
             left.append(f"map {name}")
     for title, item in saved["datasets"].items():
         now = after["datasets"].get(title)
-        if not now or now["fields"] != item["fields"] or keywords(now) != keywords(item):
+        if (
+            not now
+            or now["fields"] != item["fields"]
+            or keywords(now) != keywords(item)
+        ):
             left.append(f"dataset {title}")
     for name, item in saved["collections"].items():
         now = after["collections"].get(name)

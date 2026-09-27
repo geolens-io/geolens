@@ -6869,9 +6869,14 @@ def main() -> int:
     apply_showcase_styling(api)
 
     # The scenes are imported by reference, so a refresh is what proves it:
-    # skipped when --no-sentinel2 meant none were built, and when --only built
-    # something else entirely.
-    if not args.no_sentinel2 and args.only in (None, "sentinel2"):
+    # skipped when --no-sentinel2 meant none were built, when --only built
+    # something else entirely, and in a guarded update, whose snapshot cannot
+    # restore a moved asset pointer.
+    if (
+        not args.no_sentinel2
+        and args.only in (None, "sentinel2")
+        and not args.expected_state
+    ):
         refresh_sentinel2_scenes(api)
 
     print("\nDone. Showcase:")

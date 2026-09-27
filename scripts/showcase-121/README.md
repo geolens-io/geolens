@@ -211,9 +211,11 @@ examples. No AI step is required.
    nonzero, naming each map, dataset, or collection that still differs from
    the bundle. One case it would report: a description the API cannot clear
    back to null.
-   After a rollback, the seed will not reuse the private City in Shade map or
-   client samples: it reports them as failed builders. Review them and publish
-   them deliberately before applying again.
+   After a rollback, the guarded seed refuses before any write while the City
+   in Shade map or any new sample dataset is private. Review them and publish
+   them deliberately (datasets first, then the map) before applying again.
+   A guarded update skips the automatic Sentinel-2 refresh, because a moved
+   asset pointer is outside the snapshot.
    It does not delete the new datasets or restore the whole database. Confirm
    the original pinned URLs, access, and embed behavior after restoration.
 
