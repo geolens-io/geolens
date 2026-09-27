@@ -275,6 +275,42 @@ async def test_an_owed_archive_with_no_upload_backs_off_while_the_store_cannot_a
         await _drop(test_db_session, job_id, record_id)
 
 
+@pytest.mark.parametrize("upload", ["local", "storage"])
+async def test_an_archive_in_place_confirms_a_pending_job_without_reading_its_upload(
+    test_db_session, raster_storage, followups, staging, monkeypatch, upload
+) -> None:
+    """No attempt failed, so the object is whole; reading a vanished upload costs retries."""
+    job_id, _, record_id, key = await _owing_archive(
+        test_db_session, file_path=None, failed=False
+    )
+    try:
+        if upload == "local":
+            await _set_path(job_id, str(staging / f"{job_id}_roads.gpkg"))
+        else:
+            await _set_path(job_id, f"staging/{job_id}/frozen/roads.gpkg")
+        await raster_storage.put(key, b"original")
+        import app.processing.ingest.service as service
+
+        real_read = service.resolve_file_path
+        reads: list[str] = []
+
+        async def _read(file_path, reader=None):
+            if str(job_id) not in file_path:
+                return await real_read(file_path, reader)
+            reads.append(file_path)
+            raise AssertionError("the upload was read")
+
+        monkeypatch.setattr(service, "resolve_file_path", _read)
+        await run_owed_publish_followups()
+
+        assert reads == []
+        metadata = await _stored_metadata(job_id)
+        assert not (_FLAGS | {PUBLISH_FOLLOWUPS_FIELD}) & metadata.keys()
+        assert not await _held(job_id)
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
 @pytest.mark.parametrize("upload", ["vanished", "outside-staging"])
 async def test_an_unreadable_upload_does_not_vouch_for_an_object_after_a_failure(
     test_db_session, raster_storage, followups, staging, tmp_path, upload

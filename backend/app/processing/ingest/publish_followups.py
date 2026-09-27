@@ -246,18 +246,20 @@ async def _archive_upload(
 ) -> bool:
     """Whether ``archive_key`` holds the upload's original, archiving it now if not.
 
-    ``archive_key`` names this upload alone, so an object there holding as
-    many bytes as the upload is its archive, even one found only after a
-    failure, as when another run made it meanwhile; an object of any other
-    size is written again. Without the upload to measure, an object there
-    counts only when ``failed_before`` is False, since a failed write may have
-    left it truncated. Reads the upload from ``local_copy`` when the caller
-    holds one, and otherwise the way its task did, through
-    ``resolve_file_path``, but never a local file outside the staging
-    directory. Any other failure flags the job's archive as failed; the caller
-    clears the flags when it confirms the archive.
+    ``archive_key`` names this upload alone. While ``failed_before`` is False
+    only a whole write can have put an object there, so any object is its
+    archive, found without reading the upload, even one found only after a
+    failure, as when another run made it meanwhile. Once an attempt has
+    failed, the object may be truncated: it counts only when it holds as many
+    bytes as the upload, and is written again otherwise. Reads the upload from
+    ``local_copy`` when the caller holds one, and otherwise the way its task
+    did, through ``resolve_file_path``, but never a local file outside the
+    staging directory. Any other failure flags the job's archive as failed;
+    the caller clears the flags when it confirms the archive.
     """
     import app.core.db as db_module
+    from app.platform.storage import get_storage
+    from app.platform.storage.titiler_url import resolve_current_storage_key
     from app.processing.ingest.service import resolve_file_path
 
     job_id = str(job_uuid)
@@ -265,14 +267,16 @@ async def _archive_upload(
     downloaded = False
     size: int | None = None
     try:
+        if not failed_before and await get_storage().exists(
+            resolve_current_storage_key(archive_key)
+        ):
+            return True
         if local_copy is not None and Path(local_copy).exists():
             local = local_copy
         else:
             local = await resolve_file_path(file_path, job_id)
             downloaded = local != file_path
         if local == file_path and not _in_staging_dir(local):
-            if not failed_before and await _archived_as(archive_key):
-                return True
             structlog.get_logger().warning(
                 "staged_upload_outside_staging_dir", job_id=job_id
             )
