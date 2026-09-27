@@ -6,7 +6,7 @@ import uuid
 import tempfile
 import warnings
 import zipfile
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import ExitStack, asynccontextmanager, contextmanager
 from unittest.mock import patch
 
 import asyncpg.exceptions
@@ -1664,6 +1664,70 @@ def _skip_if_db_unavailable(request):
     pytest.skip(f"Postgres unreachable: {_db_unavailable_reason}")
 
 
+def _reraise_if_saturated(error: SQLAlchemyError) -> None:
+    """Re-raise ``error`` when the server refused a connection as "too many clients already"."""
+    if "too many clients already" in str(error).lower():
+        raise error
+
+
+_CLUSTER_INIT_LOCK_KEY = 861501
+_CLUSTER_INIT_LOCK_POLL_SECONDS = 0.2
+# Well above sixteen workers' inits run one after another, at about 5 s each.
+_CLUSTER_INIT_LOCK_WAIT_SECONDS = 300.0
+
+
+@contextmanager
+def _cluster_init_lock(
+    sleep_fn=time.sleep,
+    backoffs=_SETUP_PHASE_RETRY_BACKOFFS,
+    wait_seconds=_CLUSTER_INIT_LOCK_WAIT_SECONDS,
+    key=_CLUSTER_INIT_LOCK_KEY,
+):
+    """Hold the lock that lets one worker at a time create server-wide roles.
+
+    Each worker's init and migrations create and grant roles that belong to
+    the whole server, and two workers doing that at once on a fresh server
+    collide on pg_authid. Advisory locks are scoped to one database, so the
+    lock is taken in the database every worker connects to for CREATE
+    DATABASE. Held in the worker's own database, it would also stall the
+    CREATE INDEX CONCURRENTLY its migrations run.
+
+    A waiting worker holds no connection: it polls with a fresh one and raises
+    ``TimeoutError`` after ``wait_seconds``. A connection refused for "too many
+    clients already" is retried on the ``backoffs`` budget, then re-raised.
+    """
+    engine = sqlalchemy.create_engine(settings.database_url_sync, poolclass=NullPool)
+    deadline = time.monotonic() + wait_seconds
+    try:
+        while True:
+            for attempt in range(1 + len(backoffs)):
+                try:
+                    conn = engine.connect()
+                    break
+                except OperationalError as e:
+                    if "too many clients already" not in str(e).lower():
+                        raise
+                    if attempt == len(backoffs):
+                        raise
+                    sleep_fn(backoffs[attempt])
+            with conn, conn.begin():
+                taken = conn.execute(
+                    text("SELECT pg_try_advisory_xact_lock(:key)"),
+                    {"key": key},
+                ).scalar()
+                if taken:
+                    yield
+                    return
+            if time.monotonic() >= deadline:
+                raise TimeoutError(
+                    f"waited {wait_seconds:.0f}s for the database init lock "
+                    f"({key}) another worker holds"
+                )
+            sleep_fn(_CLUSTER_INIT_LOCK_POLL_SECONDS)
+    finally:
+        engine.dispose()
+
+
 @pytest.fixture(autouse=True, scope="session")
 def _test_db_lifecycle():
     """Create, migrate, and tear down the test database once per session.
@@ -1710,6 +1774,7 @@ def _test_db_lifecycle():
     if _stagger_delay > 0:
         time.sleep(_stagger_delay)
 
+    init_lock = ExitStack()
     try:
         # --- Setup: create test database ---
         #
@@ -1760,24 +1825,11 @@ def _test_db_lifecycle():
             return
 
         # --- Init: extensions, schemas, roles ---
+        # Held until the migrations finish, since they create server-wide roles too.
+        init_lock.enter_context(_cluster_init_lock())
         test_engine_sync = sqlalchemy.create_engine(settings.test_database_url_sync)
         try:
             with test_engine_sync.connect() as conn:
-                # Serialize this entire per-worker DB-init across xdist workers with a
-                # CLUSTER-WIDE advisory lock. The block below creates cluster-global
-                # roles (geolens_reader + per-tenant geolens_reader_t_*) and GRANTs to
-                # them, which write the shared pg_shdepend catalog. Under -n 4 on a
-                # FRESH database, the 4 workers racing here hit "role already exists" /
-                # "tuple concurrently updated", aborting the init transaction so the
-                # per-tenant data_t_* schemas + USAGE grants never commit — later
-                # tenancy tests then fail with "schema does not exist" / "permission
-                # denied for schema". (Locally this is masked: the roles/schemas already
-                # exist from a prior run, so CREATE IF NOT EXISTS short-circuits with no
-                # contention — which is why the failure only reproduces on a fresh CI
-                # DB.) pg_advisory_xact_lock is cluster-global (one lock space across all
-                # DBs) and auto-releases at commit() below, so the workers queue rather
-                # than race.
-                conn.execute(text("SELECT pg_advisory_xact_lock(861501)"))
                 conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
                 conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
                 conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
@@ -1836,10 +1888,12 @@ def _test_db_lifecycle():
                         )
                     )
                 conn.commit()
-        except SQLAlchemyError:
+        except SQLAlchemyError as e:
+            test_engine_sync.dispose()
+            _reraise_if_saturated(e)
             # DB is reachable but missing required extensions (for example pgvector).
             # Let DB-light tests run; DB-backed tests will fail when they request DB fixtures.
-            test_engine_sync.dispose()
+            init_lock.close()
             _drop_test_database_if_exists(db_name)
             should_drop_db = False
             yield
@@ -1886,6 +1940,7 @@ def _test_db_lifecycle():
         # behaves identically to "head" because there is only one head; with
         # enterprise installed, this picks up the enterprise branch.
         command.upgrade(alembic_cfg, "heads")
+        init_lock.close()
 
         # The four SAML columns on catalog.oauth_providers are now created by core
         # migration 0008_oauth_saml_columns (ADD COLUMN IF NOT EXISTS), so the
@@ -1901,6 +1956,7 @@ def _test_db_lifecycle():
         yield
 
     finally:
+        init_lock.close()
         if should_drop_db:
             # --- Teardown: drop the test database ---
             #
