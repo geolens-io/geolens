@@ -1452,6 +1452,7 @@ export interface DuplicateMapResponse extends MapResponse {
 
 export interface MapSummaryResponse {
   id: string;
+  created_by?: string | null;
   name: string;
   description: string | null;
   visibility: MapVisibility;
