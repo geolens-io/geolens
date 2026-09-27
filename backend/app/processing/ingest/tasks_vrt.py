@@ -48,6 +48,7 @@ from app.platform.storage import get_storage
 
 from app.processing.ingest.publish_followups import (
     note_publish_followups,
+    owed_followups,
     run_publish_followups,
 )
 from app.processing.ingest.tasks_common import (
@@ -104,30 +105,6 @@ def read_vrt_metadata(vrt_path: str) -> dict:
     render timeout rather than the read one.
     """
     return read_raster_metadata(vrt_path, timeout=RENDER_TIMEOUT_SECONDS)
-
-
-async def _reap_superseded_generation_objects(
-    *,
-    prior_storage_keys: list[str],
-    written_storage_keys: list[str],
-    job_id: str,
-) -> None:
-    """Delete the objects the published generation superseded.
-
-    fix(#1778): shared because ``regenerate_vrt`` reaches it from
-    two places (the success path and the stand-down for a lost commit ack)
-    — the ONLY deletion of the previous generation's artifact, so a path
-    that skips it strands bytes no row references and no quota counts.
-
-    The ``not in written`` filter makes a byte-identical regeneration a
-    no-op rather than a self-inflicted delete.
-    """
-    from app.processing.ingest.tasks_raster import _cleanup_orphaned_storage_keys
-
-    await _cleanup_orphaned_storage_keys(
-        [key for key in prior_storage_keys if key not in written_storage_keys],
-        job_id=job_id,
-    )
 
 
 async def _settle_failed_vrt_asset(
@@ -196,24 +173,21 @@ async def _settle_failed_vrt_asset(
     return True
 
 
-def _prior_generation_storage_keys_to_reap(
+def _prior_generation_keys_to_reap(
     *,
     vrt_key: str,
     quicklook_256_key: str | None,
     quicklook_512_key: str | None,
     replace_quicklook_256: bool,
     replace_quicklook_512: bool,
-    tenant_id: str | None,
 ) -> list[str]:
-    """Resolve only prior objects whose catalog pointers will be replaced."""
-    from app.platform.storage.titiler_url import resolve_storage_key
-
+    """The logical keys of the prior objects whose catalog pointers will be replaced."""
     logical_keys = [vrt_key]
     if replace_quicklook_256 and quicklook_256_key is not None:
         logical_keys.append(quicklook_256_key)
     if replace_quicklook_512 and quicklook_512_key is not None:
         logical_keys.append(quicklook_512_key)
-    return [resolve_storage_key(key, tenant_id=tenant_id) for key in logical_keys]
+    return logical_keys
 
 
 async def snapshot_member_sources(
@@ -977,7 +951,6 @@ async def regenerate_vrt(
     heartbeat_task: asyncio.Task[None] | None = None
     generation_heartbeat_task: asyncio.Task[None] | None = None
     written_storage_keys: list[str] = []
-    prior_storage_keys: list[str] = []
     # fix(#1778): same fence as `ingest_vrt` above, for the same reason — the
     # generation swap and the job's terminal write share one transaction, so a
     # lost acknowledgement must not let the reap delete the generation the
@@ -1256,14 +1229,20 @@ async def regenerate_vrt(
             written_storage_keys.append(next_ql512_physical_key)
             await storage.put(next_ql512_physical_key, io.BytesIO(ql512))
 
-        prior_storage_keys = _prior_generation_storage_keys_to_reap(
-            vrt_key=vrt_storage_key,
-            quicklook_256_key=vrt_ql256_uri,
-            quicklook_512_key=vrt_ql512_uri,
-            replace_quicklook_256=ql256 is not None,
-            replace_quicklook_512=ql512 is not None,
-            tenant_id=_ctv.get(),
-        )
+        # Recorded with the publish, so its follow-ups delete them once it
+        # shows, whether or not this task can tell it landed.
+        superseded_keys = [
+            key
+            for key in _prior_generation_keys_to_reap(
+                vrt_key=vrt_storage_key,
+                quicklook_256_key=vrt_ql256_uri,
+                quicklook_512_key=vrt_ql512_uri,
+                replace_quicklook_256=ql256 is not None,
+                replace_quicklook_512=ql512 is not None,
+            )
+            if resolve_storage_key(key, tenant_id=_ctv.get())
+            not in written_storage_keys
+        ]
 
         # Phase 2 (short-lived session): update RasterAsset metadata, mark
         # job complete, update dataset footprint.
@@ -1491,7 +1470,17 @@ async def regenerate_vrt(
 
                 # 14. Finalize job
                 await ledger.complete(
-                    session, job_uuid, attempt_uuid, values={"dataset_id": vrt_id}
+                    session,
+                    job_uuid,
+                    attempt_uuid,
+                    values={
+                        "dataset_id": vrt_id,
+                        "user_metadata": owed_followups(
+                            attempt_uuid,
+                            "regenerate_vrt",
+                            superseded_keys=superseded_keys,
+                        ),
+                    },
                 )
                 xid = publishing_xid(session)
                 try:
@@ -1514,30 +1503,14 @@ async def regenerate_vrt(
                     # not fenced the way the job and asset writes are.
                     publish_committed = True
                     absorb_cancellation(exc)
+                    # With the outcome unknown, the prior generation may still
+                    # be live; the sweep runs the follow-ups once it shows.
                     if observation is PublishObservation.LANDED:
-                        # The only reap of the superseded generation. The asset
-                        # names the new objects once the publish is confirmed,
-                        # and the reaper swallows every per-key error.
-                        await _reap_superseded_generation_objects(
-                            prior_storage_keys=prior_storage_keys,
-                            written_storage_keys=written_storage_keys,
-                            job_id=job_id,
-                        )
-                    else:
-                        # The outcome is unknown, so the prior generation may still
-                        # be live. A leaked object is recoverable; a deleted one isn't.
-                        structlog.get_logger().warning(
-                            "vrt_regenerate_reap_skipped_unknown_publish",
-                            job_id=job_id,
-                        )
+                        await run_publish_followups(job_uuid)
                     return
                 publish_committed = True
 
-                await _reap_superseded_generation_objects(
-                    prior_storage_keys=prior_storage_keys,
-                    written_storage_keys=written_storage_keys,
-                    job_id=job_id,
-                )
+                await run_publish_followups(job_uuid)
 
                 # 15. Invalidate cache and defer embedding
                 await invalidate_catalog_cache()
@@ -1553,7 +1526,7 @@ async def regenerate_vrt(
         if publish_committed:
             # fix(#1778): the second way this handler is reached with
             # a durable publish behind it, and the one the stand-down above
-            # cannot cover: the prior-key reap, `invalidate_catalog_cache` and
+            # cannot cover: the follow-ups, `invalidate_catalog_cache` and
             # `defer_embedding` all run inside the same try. The generation
             # write below is not fenced the way the job and asset writes are,
             # so reaching here after the swap stamped a `completed` generation

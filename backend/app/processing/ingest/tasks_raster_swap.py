@@ -535,10 +535,9 @@ def _prior_asset_keys_to_reap(
 ) -> list[str]:
     """Resolve the superseded objects, in the same physical form as the puts.
 
-    Mirrors ``tasks_vrt._prior_generation_storage_keys_to_reap``: catalog rows
-    hold logical keys and storage holds tenant-prefixed ones, so the two lists
-    the caller compares must both be physical or a same-key replace would reap
-    the object it just wrote.
+    Catalog rows hold logical keys and storage holds tenant-prefixed ones, so
+    the two lists the caller compares must both be physical or a same-key
+    replace would reap the object it just wrote.
     """
     return [
         resolve_current_storage_key(key)
