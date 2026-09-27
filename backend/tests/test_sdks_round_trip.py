@@ -661,6 +661,30 @@ class TestCogDownloadRedirect:
         assert storage.seen == []
 
     @pytest.mark.parametrize("mode", ["sync", "asyncio"])
+    @pytest.mark.parametrize("route", ["local", "redirected"])
+    def test_large_cog_is_spooled_to_disk(
+        self, storage: _Storage, route: str, mode: str
+    ) -> None:
+        import tempfile
+
+        from geolens import cog_download
+
+        body = os.urandom(cog_download.SPOOL_MAX_SIZE + 1024 * 1024)
+        if route == "local":
+            client, _ = self._client(lambda request: httpx.Response(200, content=body))
+        else:
+            storage.respond = lambda request: httpx.Response(200, content=body)
+            client, _ = self._client(self._redirect_to(self._STORAGE_URL))
+
+        payload = self._download(mode, client).payload
+
+        assert isinstance(payload, tempfile.SpooledTemporaryFile)
+        # Rolled over: the bytes are in a file on disk, not held in memory.
+        assert payload._rolled
+        assert payload.read() == body
+        payload.close()
+
+    @pytest.mark.parametrize("mode", ["sync", "asyncio"])
     def test_generated_call_does_not_raise_on_302(self, mode: str) -> None:
         from geolens.api.datasets_export import (
             download_cog_datasets_dataset_id_download_cog_get as download,

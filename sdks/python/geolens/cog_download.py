@@ -15,6 +15,11 @@ ValueError. A 304 answering an ``If-None-Match`` or ``If-Modified-Since`` read
 of the target returns None, as the generated call's 304 does; any other failed
 fetch of it raises ``errors.UnexpectedStatus``.
 
+The file is streamed into a ``tempfile.SpooledTemporaryFile``, kept in memory
+up to ``SPOOL_MAX_SIZE`` bytes and on disk beyond, so a multi-GB COG is never
+held in memory. The returned ``File``'s payload is that file, positioned at
+the start; close it when done.
+
 Example:
     >>> from geolens import GeolensClient, cog_download
     >>> c = GeolensClient(base_url="https://geolens.example.com/api", api_key="...")
@@ -24,7 +29,7 @@ Example:
 
 from __future__ import annotations
 
-from io import BytesIO
+import tempfile
 from types import ModuleType
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
@@ -38,7 +43,9 @@ from .types import File
 if TYPE_CHECKING:
     from .models.problem_detail import ProblemDetail
 
-__all__ = ["asyncio", "sync"]
+__all__ = ["SPOOL_MAX_SIZE", "asyncio", "sync"]
+
+SPOOL_MAX_SIZE = 4 * 1024 * 1024
 
 # Not credentials, and a ranged or conditional read needs them at the storage
 # host the backend redirects to.
@@ -59,13 +66,18 @@ def sync(
 ) -> File | ProblemDetail | None:
     """Like the generated ``sync()``, but a 302 returns the target's bytes."""
     operation = _operation()
-    response = client.get_httpx_client().request(
+    with client.get_httpx_client().stream(
         **operation._get_kwargs(dataset_id=dataset_id), follow_redirects=False
-    )
-    if response.status_code != 302:
-        return operation._parse_response(client=client, response=response)
+    ) as response:
+        if response.status_code in (200, 206):
+            return _file(response)
+        if response.status_code != 302:
+            response.read()
+            return operation._parse_response(client=client, response=response)
+        target, headers = _redirect_url(response), _forwarded(response)
     with httpx.Client(**_storage_client_args(client)) as storage:
-        return _file(storage.get(_redirect_url(response), headers=_forwarded(response)))
+        with storage.stream("GET", target, headers=headers) as fetched:
+            return _file(fetched)
 
 
 async def asyncio(
@@ -75,15 +87,18 @@ async def asyncio(
 ) -> File | ProblemDetail | None:
     """Like the generated ``asyncio()``, but a 302 returns the target's bytes."""
     operation = _operation()
-    response = await client.get_async_httpx_client().request(
+    async with client.get_async_httpx_client().stream(
         **operation._get_kwargs(dataset_id=dataset_id), follow_redirects=False
-    )
-    if response.status_code != 302:
-        return operation._parse_response(client=client, response=response)
+    ) as response:
+        if response.status_code in (200, 206):
+            return await _afile(response)
+        if response.status_code != 302:
+            await response.aread()
+            return operation._parse_response(client=client, response=response)
+        target, headers = _redirect_url(response), _forwarded(response)
     async with httpx.AsyncClient(**_storage_client_args(client)) as storage:
-        return _file(
-            await storage.get(_redirect_url(response), headers=_forwarded(response))
-        )
+        async with storage.stream("GET", target, headers=headers) as fetched:
+            return await _afile(fetched)
 
 
 def _operation() -> ModuleType:
@@ -123,12 +138,32 @@ def _forwarded(response: httpx.Response) -> dict[str, str]:
     return {name: sent[name] for name in _FORWARDED_HEADERS if name in sent}
 
 
-def _file(response: httpx.Response) -> File | None:
+def _not_modified(response: httpx.Response) -> bool:
     sent = response.request.headers
-    if response.status_code == 304 and (
+    return response.status_code == 304 and (
         "if-none-match" in sent or "if-modified-since" in sent
-    ):
+    )
+
+
+def _file(response: httpx.Response) -> File | None:
+    if _not_modified(response):
         return None
     if not response.is_success:
-        raise errors.UnexpectedStatus(response.status_code, response.content)
-    return File(payload=BytesIO(response.content))
+        raise errors.UnexpectedStatus(response.status_code, response.read())
+    payload = tempfile.SpooledTemporaryFile(max_size=SPOOL_MAX_SIZE)
+    for chunk in response.iter_bytes():
+        payload.write(chunk)
+    payload.seek(0)
+    return File(payload=payload)
+
+
+async def _afile(response: httpx.Response) -> File | None:
+    if _not_modified(response):
+        return None
+    if not response.is_success:
+        raise errors.UnexpectedStatus(response.status_code, await response.aread())
+    payload = tempfile.SpooledTemporaryFile(max_size=SPOOL_MAX_SIZE)
+    async for chunk in response.aiter_bytes():
+        payload.write(chunk)
+    payload.seek(0)
+    return File(payload=payload)

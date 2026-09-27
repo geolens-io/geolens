@@ -20,12 +20,16 @@ client = GeolensClient(base_url="https://geolens.example.com/api", bearer_token=
 
 With S3 or a remote source behind a raster dataset, the COG download answers
 302 with the file's URL. `cog_download` fetches that URL without sending your
-GeoLens credentials to the storage host, and returns the bytes on every
-storage backend:
+GeoLens credentials to the storage host, and returns the file on every storage
+backend. The file is streamed into a temporary file that moves to disk past a
+few MiB, so a large COG isn't held in memory:
 
 ```python
+import shutil
+
 from geolens import cog_download
 
 cog = cog_download.sync(dataset_id, client=client.client)  # or: await cog_download.asyncio(...)
-data = cog.payload.read()
+with cog.payload as source, open("dataset.cog.tif", "wb") as target:
+    shutil.copyfileobj(source, target)
 ```
