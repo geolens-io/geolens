@@ -59,6 +59,25 @@ describe('AIStatusCard capability gates', () => {
     expect(screen.queryByRole('link', { name: 'Manage AI settings' })).not.toBeInTheDocument();
   });
 
+  it('shows disabled optional AI features with neutral status badges', () => {
+    mocks.useAIStatus.mockReturnValue({
+      data: {
+        configured: true,
+        enabled: false,
+        provider: 'openai',
+        semantic_search_enabled: false,
+      },
+      isLoading: false,
+    });
+
+    render(<AIStatusCard />);
+
+    for (const badge of screen.getAllByText('Disabled')) {
+      expect(badge).toHaveClass('bg-muted');
+      expect(badge).not.toHaveClass('text-destructive');
+    }
+  });
+
   it('suppresses manage-users probes and content without the capability', () => {
     mocks.capabilities = new Set(['manage_settings']);
 

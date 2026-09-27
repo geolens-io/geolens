@@ -13,6 +13,7 @@ const { mockUseAuditLogs } = vi.hoisted(() => ({ mockUseAuditLogs: vi.fn() }));
 
 vi.mock('@/hooks/use-admin', () => ({
   useAuditLogs: (...args: unknown[]) => mockUseAuditLogs(...args),
+  useUserNames: () => ({ data: [] }),
 }));
 
 beforeAll(() => {

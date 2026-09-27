@@ -481,6 +481,7 @@
     "unauthorized": "您的会话已过期。请重新登录。"
   },
   "settings": {
+    "apiKeys": { "manageTitle": "管理 API 密钥" },
     "tabs": {
       "preferences": "偏好设置",
       "apiKeys": "API 密钥"

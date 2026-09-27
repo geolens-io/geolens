@@ -353,6 +353,7 @@
     "unauthorized": "Ihre Sitzung ist abgelaufen. Melden Sie sich erneut an."
   },
   "settings": {
+    "apiKeys": { "manageTitle": "API-Schlüssel verwalten" },
     "tabs": {
       "preferences": "Einstellungen",
       "apiKeys": "API-Schlüssel"

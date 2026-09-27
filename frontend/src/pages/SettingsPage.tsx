@@ -127,7 +127,7 @@ export function SettingsPage() {
               <CardTitle level={2}>{t('settings.language.title')}</CardTitle>
             </CardHeader>
             <CardContent>
-              <FieldLabel htmlFor="settings-language-select">
+              <FieldLabel htmlFor="settings-language-select" className="sr-only">
                 {t('settings.language.title')}
               </FieldLabel>
               <Select
@@ -154,7 +154,7 @@ export function SettingsPage() {
         <TabsContent value="apiKeys">
           <Card className="border border-border">
             <CardHeader>
-              <CardTitle level={2}>{t('settings.tabs.apiKeys')}</CardTitle>
+              <CardTitle level={2}>{t('settings.apiKeys.manageTitle')}</CardTitle>
             </CardHeader>
             <CardContent>
               <MyApiKeySection />

@@ -60,7 +60,7 @@ export function AIStatusCard() {
                   {t('ai.enabled')}
                 </Badge>
               ) : (
-                <Badge variant="secondary" className={semanticBadgeColors.destructive}>
+                <Badge variant="secondary" className="border-border bg-muted text-muted-foreground">
                   {t('ai.disabled')}
                 </Badge>
               )}
@@ -72,7 +72,7 @@ export function AIStatusCard() {
                   {t('ai.enabled')}
                 </Badge>
               ) : (
-                <Badge variant="secondary" className={semanticBadgeColors.destructive}>
+                <Badge variant="secondary" className="border-border bg-muted text-muted-foreground">
                   {t('ai.disabled')}
                 </Badge>
               )}
