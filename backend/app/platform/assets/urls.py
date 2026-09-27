@@ -1,16 +1,14 @@
 """Asset URL resolution with security-aware routing.
 
 Rules:
-  - Absolute http(s) hrefs (by-reference origin assets, #1692): passed through
-  - Published thumbnails: public URL (no auth, cacheable)
-  - S3 + published data assets: presigned URL (time-limited)
-  - Local storage, or draft/ready/internal records: no unauthenticated proxy
-    URL emitted (GAP-031)
+  - Absolute http(s) hrefs (by-reference origin assets): passed through
+  - Published assets on S3: presigned URL (time-limited)
+  - Anything else, including every asset on local or Azure storage: ``None``
 
-GAP-031: nginx's ``location /assets/`` serves the SPA bundle, not storage
-files, so a bare ``/assets/{key}`` URL is dead. Returning ``None`` lets
-callers (e.g. ``_build_stac_assets``) omit the asset rather than emit a
-broken href.
+nginx's ``location /assets/`` serves the SPA bundle, not storage files, so a
+bare ``/assets/{key}`` URL is dead. ``None`` lets a caller such as
+``_build_stac_assets`` substitute the API route that serves the file, or omit
+the asset rather than emit a broken href.
 """
 
 from __future__ import annotations

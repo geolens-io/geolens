@@ -303,7 +303,7 @@ UNANCHORED_MARKER_DEBT: dict[str, int] = {
     "modules/settings/schemas.py": 1,
     "modules/tenancy/models.py": 1,
     "observability/health/service.py": 4,
-    "platform/assets/urls.py": 4,
+    "platform/assets/urls.py": 2,
     "platform/cache/tile_cache.py": 6,
     "platform/config_ops/router.py": 1,
     "platform/config_ops/service.py": 1,

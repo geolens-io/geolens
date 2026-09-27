@@ -1,9 +1,10 @@
 """STAC items offer a stored raster's data files only to callers the COG download route serves.
 
-A local storage key has no URL of its own, so the ``data`` asset points at the
-COG download route and the quicklooks at the quicklook route; on S3 each is a
-signed URL. Anonymous callers get public datasets, authenticated ones also
-need the export capability.
+A key on local or Azure storage has no URL of its own, so the ``data`` asset
+points at the COG download route and the quicklooks at the quicklook route; on
+S3 each is a signed URL. Anonymous callers get public datasets, authenticated
+ones also need the export capability. The Azure cases run on the test's local
+store: neither can sign a URL, and both serve an object's bytes to those routes.
 
 Requirements: the test database (``set -a && source ../.env.test && set +a``).
 """
@@ -13,13 +14,15 @@ import uuid
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import update
 
 import app.modules.catalog.authorization as authorization
 import app.standards.stac.router as stac_router
 from app.core.config import settings
 from app.modules.auth.permissions import DEFAULT_ROLE_PERMISSIONS
 from app.modules.catalog.collections.models import Collection, CollectionDataset
-from app.processing.raster.models import DatasetAsset
+from app.platform.storage.provider import get_storage
+from app.processing.raster.models import DatasetAsset, RasterAsset
 
 from tests.factories import create_raster_dataset, get_user_id
 
@@ -117,10 +120,12 @@ async def _page_of_one_raster(client, session, surface: str, headers: dict) -> d
     return feature["assets"]
 
 
+@pytest.mark.parametrize("backend", ["local", "azure"])
 async def test_anonymous_item_points_at_the_serving_routes(
-    client: AsyncClient, test_db_session
+    client: AsyncClient, test_db_session, monkeypatch, backend: str
 ):
     dataset_id = await _published_raster_with_assets(test_db_session)
+    monkeypatch.setattr(settings, "storage_provider", backend)
 
     resp = await client.get(f"/stac/items/{dataset_id}")
 
@@ -134,6 +139,53 @@ async def test_anonymous_item_points_at_the_serving_routes(
         # are not served from the public cache.
         assert "pv=" in href
     assert not [a for a in assets.values() if "/assets/" in a["href"]]
+
+
+@pytest.mark.parametrize("backend", ["local", "azure"])
+async def test_item_links_serve_the_stored_files(
+    client: AsyncClient, test_db_session, monkeypatch, backend: str
+):
+    dataset_id = await _published_raster_with_assets(test_db_session)
+    cog_key = f"rasters/{dataset_id}/abc123/source.cog.tif"
+    quicklook_key = f"rasters/{dataset_id}/abc/quicklook_256.png"
+    await test_db_session.execute(
+        update(RasterAsset)
+        .where(RasterAsset.dataset_id == uuid.UUID(dataset_id))
+        .values(asset_uri=cog_key, quicklook_256_uri=quicklook_key)
+    )
+    await test_db_session.commit()
+    cog, png = b"II*\x00stored cog", b"\x89PNG\r\n\x1a\nstored quicklook"
+    await get_storage().put(cog_key, cog)
+    await get_storage().put(quicklook_key, png)
+    monkeypatch.setattr(settings, "storage_provider", backend)
+
+    item = await client.get(f"/stac/items/{dataset_id}")
+
+    assert item.status_code == 200, item.text
+    assets = item.json()["assets"]
+    for key, body in (("data", cog), ("thumbnail", png)):
+        href = assets[key]["href"]
+        served = await client.get(href[href.index("/datasets/") :])
+        assert served.status_code == 200, f"{key}: {served.text}"
+        assert served.content == body
+
+
+@pytest.mark.parametrize("backend", ["local", "azure"])
+async def test_ogc_record_points_at_the_quicklook_route_without_data(
+    client: AsyncClient, test_db_session, monkeypatch, backend: str
+):
+    dataset_id = await _published_raster_with_assets(test_db_session)
+    monkeypatch.setattr(settings, "storage_provider", backend)
+
+    resp = await client.get(f"/collections/datasets/items/{dataset_id}")
+
+    assert resp.status_code == 200, resp.text
+    assets = resp.json()["assets"]
+    for key, size in (("thumbnail", 256), ("overview", 512)):
+        assert f"/datasets/{dataset_id}/quicklook?size={size}&" in assets[key]["href"]
+    # The record carries no per-caller download check, so it never offers data.
+    assert "data" not in assets
+    assert not [a for a in assets.values() if "source.cog.tif" in a["href"]]
 
 
 async def test_anonymous_item_of_a_public_raster_on_s3_signs_data(
@@ -184,7 +236,7 @@ async def test_vrt_item_on_s3_omits_the_vrt_file_even_with_export(
     )
 
 
-@pytest.mark.parametrize("backend", ["local", "s3"])
+@pytest.mark.parametrize("backend", ["local", "s3", "azure"])
 async def test_reader_without_export_gets_no_data_asset(
     client: AsyncClient,
     test_db_session,
@@ -196,6 +248,8 @@ async def test_reader_without_export_gets_no_data_asset(
     dataset_id = await _published_raster_with_assets(test_db_session)
     if backend == "s3":
         _use_s3(monkeypatch)
+    else:
+        monkeypatch.setattr(settings, "storage_provider", backend)
 
     resp = await client.get(f"/stac/items/{dataset_id}", headers=viewer_auth_header)
     assert resp.status_code == 200, resp.text
