@@ -911,6 +911,7 @@ async def test_flagged_jobs_are_owed_again_only_with_the_room_owed_followups_lea
             job_id
             for job_id, _, _ in flagged
             if PUBLISH_FOLLOWUPS_FIELD in await _stored_metadata(job_id)
+            or not await _held(job_id)
         ]
         assert len(adopted) == 3 - owed
     finally:
