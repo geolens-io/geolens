@@ -347,6 +347,8 @@ class TestFloat8PredicateMatchesPostgresCast:
             "1e99999",
             "-0",
             "1E+05",
+            pytest.param("1." + "1" * 16384, id="fraction-past-numeric-scale"),
+            pytest.param("1." + "1" * 6400 + "e-9999", id="scale-past-numeric-limit"),
         ],
     )
     @pytest.mark.anyio

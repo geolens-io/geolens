@@ -34,6 +34,9 @@ _FLOAT8_SPECIAL_RE = r"^\s*[+-]?(nan|inf(inity)?)\s*$"
 _FLOAT8_DECIMAL_RE = r"^\s*[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d{1,4})?\s*$"
 _FLOAT8_MIN_POSITIVE = "4.9e-324"
 _FLOAT8_MAX = "1.7976931348623157e308"
+# With the 4-digit exponent cap, text this short keeps ::numeric within its
+# 16383-digit scale limit; longer text is no coordinate.
+_FLOAT8_MAX_TEXT_LENGTH = 2000
 
 
 def _float8_predicate(col_expr: str) -> str:
@@ -41,12 +44,13 @@ def _float8_predicate(col_expr: str) -> str:
 
     Replaces pg_input_is_valid (PG16+) with regex operators available on
     PG13. A shape match can still overflow double precision on cast (e.g.
-    "1e400"), so it's also bounded via ::numeric, which accepts any
-    magnitude; capping the exponent at 4 digits keeps that cast itself from
-    overflowing numeric's own range.
+    "1e400"), so it's also bounded via ::numeric. Capping the exponent at 4
+    digits and the text's length keeps that cast itself from overflowing
+    numeric's own range, so the predicate never raises.
     """
     return (
         f"CASE "
+        f"WHEN length({col_expr}) > {_FLOAT8_MAX_TEXT_LENGTH} THEN false "
         f"WHEN {col_expr} ~* '{_FLOAT8_SPECIAL_RE}' THEN true "
         f"WHEN {col_expr} ~ '{_FLOAT8_DECIMAL_RE}' THEN ("
         f"abs({col_expr}::numeric) = 0 OR "
