@@ -522,13 +522,16 @@ class TestTheProxyRelaysOnlyToCheckedAddresses:
         on it must not reach the first host's address."""
         with _wfs_service() as (port, requests):
             async with service_egress_proxy(idle_seconds=30) as egress:
-                await _exchange(
+                response = await _exchange(
                     egress,
-                    _get(f"http://{_HOST}:{port}/wfs?REQUEST=first", _HOST)
-                    + _get(f"http://other.example.test:{port}/?REQUEST=second", "o"),
+                    _get(f"http://{_HOST}:{port}/wfs?REQUEST=GetCapabilities", _HOST)
+                    + _get(
+                        f"http://other.example.test:{port}/?REQUEST=GetFeature", "o"
+                    ),
                 )
 
-        assert requests == ["first"]
+        assert response.startswith(b"HTTP/1.0 200"), response
+        assert requests == ["getcapabilities"]
 
     async def test_an_idle_tunnel_is_closed(self, resolver_calls):
         with _silent_upstream() as (port, upstream_closed):

@@ -175,6 +175,12 @@ async def _relay_response(
     await _pipe(upstream, writer, idle)
 
 
+async def _until_closed(reader: asyncio.StreamReader) -> None:
+    """Wait for the client to close, dropping any request it pipelined."""
+    while await reader.read(65536):
+        pass
+
+
 async def _connect_first(
     addresses: list[str], port: int
 ) -> tuple[asyncio.StreamReader, asyncio.StreamWriter] | None:
@@ -252,7 +258,7 @@ async def _serve(
         # libcurl closes its side once it has read the response, so that ends
         # the relay even when the upstream keeps its side open.
         relay = asyncio.ensure_future(_relay_response(upstream_reader, writer, idle))
-        client_done = asyncio.ensure_future(reader.read(1))
+        client_done = asyncio.ensure_future(_until_closed(reader))
         try:
             await asyncio.wait(
                 {relay, client_done}, return_when=asyncio.FIRST_COMPLETED
