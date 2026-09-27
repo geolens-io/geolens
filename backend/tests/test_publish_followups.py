@@ -1426,10 +1426,11 @@ async def test_a_failure_racing_a_confirmed_archive_restores_nothing(
     """A run whose archive fails after another run confirmed it leaves the job settled.
 
     The losing run's store then can't tell it the archive exists, so only the
-    guards on its failure write keep the settled record, mark and flag away.
+    guards on its failure writes keep the settled record, mark and flag away.
     The other run confirms before the loser holds the job's row for its write,
     which the other run would wait for: while the loser reads the upload, or
-    after the loser found no archive and before it writes one.
+    after the loser found no archive and before it writes one, when the loser
+    finds the archive no longer owed and writes nothing.
     """
     job_id, dataset_id, record_id = await _owed_job(
         test_db_session, task="reupload_file", reaps_staged_upload=True
@@ -1484,7 +1485,7 @@ async def test_a_failure_racing_a_confirmed_archive_restores_nothing(
         await run_publish_followups(job_id)
 
         assert race["won"] is True
-        assert refused == [key if fails_in == "put" else upload]
+        assert refused == ([] if fails_in == "put" else [upload])
         assert await raster_storage.get(key) == b"staged"
         assert await left() == []
         metadata = await _stored_metadata(job_id)

@@ -234,6 +234,33 @@ async def _archived_as(archive_key: str, size: int | None = None) -> bool:
         return False
 
 
+async def _lock_owed_archive(
+    session: AsyncSession,
+    job_uuid: uuid.UUID,
+    attempt_id: str,
+    dataset_id: uuid.UUID,
+    archive_key: str,
+) -> IngestJob | None:
+    """The job's row, locked, while ``attempt_id`` still owes ``archive_key`` for ``dataset_id``.
+
+    None when another holder has the row, the dataset is gone or another run
+    has confirmed the archive. A dataset delete locks its jobs' rows before it
+    reaps originals/ after its commit, so a write made holding this row is
+    reaped with the dataset.
+    """
+    record = IngestJob.user_metadata[PUBLISH_FOLLOWUPS_FIELD]
+    return await session.scalar(
+        select(IngestJob)
+        .where(
+            IngestJob.id == job_uuid,
+            IngestJob.dataset_id == dataset_id,
+            record["attempt_id"].astext == attempt_id,
+            record[_ARCHIVE_KEY].astext == archive_key,
+        )
+        .with_for_update(skip_locked=True)
+    )
+
+
 async def _archive_upload(
     job_uuid: uuid.UUID,
     attempt_id: str,
@@ -254,10 +281,9 @@ async def _archive_upload(
     bytes as the upload, and is written again otherwise. Reads the upload from
     ``local_copy`` when the caller holds one, and otherwise the way its task
     did, through ``resolve_file_path``, but never a local file outside the
-    staging directory. Writes only while holding the job's row with
-    ``dataset_id`` still its dataset, and leaves the archive owed when another
-    holder has the row or the dataset is gone. Any other failure flags the
-    job's archive as failed; the caller clears the flags when it confirms the
+    staging directory. Writes only through ``_lock_owed_archive``, and
+    otherwise leaves the job as it is. Any other failure flags the job's
+    archive as failed; the caller clears the flags when it confirms the
     archive.
     """
     import app.core.db as db_module
@@ -293,12 +319,8 @@ async def _archive_upload(
         if await _stored_size(archive_key) == size:
             return True
         async with db_module.async_session() as session:
-            # A dataset delete locks its jobs' rows before it reaps originals/
-            # after its commit, so a write made holding this one is reaped too.
-            job = await session.scalar(
-                select(IngestJob)
-                .where(IngestJob.id == job_uuid, IngestJob.dataset_id == dataset_id)
-                .with_for_update(skip_locked=True)
+            job = await _lock_owed_archive(
+                session, job_uuid, attempt_id, dataset_id, archive_key
             )
             archived = job is not None and await _archive_original_file(
                 session,
