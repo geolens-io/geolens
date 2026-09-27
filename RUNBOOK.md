@@ -2701,10 +2701,13 @@ five minutes after a failed attempt. The delay then doubles (10, 20, 40, 80 and
 retried every four hours. There is no attempt limit, so an archive that keeps
 failing is retried for as long as the job holds its upload.
 
-Each retry first checks whether the archive object already exists; if it does,
-the archive counts as confirmed and nothing is copied again. Otherwise the
-retry copies the staged upload. Once the archive is confirmed, the flags come
-off and the staged upload is released: the follow-up deletes it, or the
+Each retry first compares any object already at the archive key with the
+staged upload. An object of the same size counts as the archive and nothing is
+copied again; an object of any other size is replaced by a fresh copy. When the
+staged upload can't be read, an existing object counts only if no attempt has
+failed, because on a local install a copy that failed in an earlier version
+could leave a truncated object behind. Once the archive is confirmed, the flags
+come off and the staged upload is released: the follow-up deletes it, or the
 retention purge and the staging sweeps do once no job still needs it, as with
 one layer of a multi-layer upload.
 
@@ -2715,10 +2718,12 @@ Two cases end another way:
   holding its upload, a pending retry removes the flags, and the job ages out
   with retention like any other.
 - If the job names no staged upload, nothing can be archived, and a missing
-  path is not proof that the original was archived either. Unless storage
-  already holds the archive, the job keeps its flags, leaves the retry
-  schedule and gets the review reason `original_missing`, described below. If
-  storage can't answer, the job stays on the retry schedule.
+  path is not proof that the original was archived either. An archive in
+  storage confirms the job only if no attempt has failed. Otherwise the job
+  keeps its flags, leaves the retry schedule and gets a review reason,
+  described below: `original_missing`, or `archive_unverified` when an object
+  exists but an attempt had failed. If storage can't answer, the job stays on
+  the retry schedule.
 
 **Jobs flagged by earlier versions.** Earlier versions recorded
 `archive_failed` without recording that the archive was still owed, so nothing
@@ -2730,9 +2735,10 @@ one:
 - If the staged upload is a local file in the staging directory whose name
   starts with the job's ID (or, for a layer of a multi-layer upload, its parent
   job's ID), the archive key is `originals/<dataset-id>/<that file name>`, a
-  name no other upload to that dataset uses. When the file is still there, or
-  an archive already exists at that key, the archive is owed again and follows
-  the retry schedule above.
+  name no other upload to that dataset uses. When the file is still there, the
+  archive is owed again and follows the retry schedule above, which replaces a
+  truncated object at the key. When only an archive exists at the key, it is
+  owed again and confirmed if the job's archive never failed.
 - Otherwise the job keeps its flags and its upload. GeoLens writes the reason
   to `archive_review` in the job's metadata, where the admin Jobs page shows
   it, and logs `archive_needs_review` once with the job ID, the dataset ID and
@@ -2741,10 +2747,15 @@ one:
     upload staged in object storage lands here: most earlier imports from
     object storage named the archive after a temporary download that no job
     records, and a job doesn't show which naming it used. So does a job from
-    before jobs recorded an attempt ID.
+    before jobs recorded an attempt ID, and one whose archive key storage
+    would refuse, such as a file name containing `..`.
   - `original_missing`: the archive key is known, but neither the staged
     upload nor the archive exists. A job that names no staged upload gets this
     reason too.
+  - `archive_unverified`: an object exists at the archive key, but the staged
+    upload is gone and an earlier archive attempt failed, so GeoLens can't tell
+    whether the object is complete. Compare it with any copy you hold before
+    relying on it.
 - If storage can't answer, the job is left for a later sweep.
 
 To list the jobs still holding an upload:

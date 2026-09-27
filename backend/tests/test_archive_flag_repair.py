@@ -44,10 +44,22 @@ def staging(tmp_path, monkeypatch) -> Path:
     return root
 
 
+def _archive_flags(failed: bool) -> dict:
+    """A failed archive's flags, or a pending one's."""
+    if failed:
+        return {"archive_failed": True, "archive_error": "the store refused the write"}
+    return {ARCHIVE_PENDING_METADATA_KEY: True}
+
+
 async def _flagged_job(
-    session, *, file_path: str | None = None, ended_ago=timedelta(days=2), **metadata
+    session,
+    *,
+    file_path: str | None = None,
+    ended_ago=timedelta(days=2),
+    failed: bool = True,
+    **metadata,
 ) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
-    """A complete job of a live dataset whose archive failed before archives were owed.
+    """A complete job of a live dataset whose archive failed, or was pending, before archives were owed.
 
     Returns (job, dataset, record).
     """
@@ -61,11 +73,7 @@ async def _flagged_job(
         created_at=ended,
         completed_at=ended,
         file_path=file_path,
-        user_metadata={
-            "archive_failed": True,
-            "archive_error": "the object store refused the write",
-            **metadata,
-        },
+        user_metadata={**_archive_flags(failed), **metadata},
     )
     session.add(job)
     await session.commit()
@@ -124,10 +132,12 @@ def _review_logs(logs) -> list:
 
 
 async def _owing_archive(
-    session, *, file_path: str | None
+    session, *, file_path: str | None, failed: bool = True
 ) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID, str]:
-    """A published job owing its upload's archive, flagged as failed; also returns the key."""
-    job_id, dataset_id, record_id = await _flagged_job(session, file_path=file_path)
+    """A published job owing its upload's archive, flagged as failed unless ``failed`` is False; also returns the key."""
+    job_id, dataset_id, record_id = await _flagged_job(
+        session, file_path=file_path, failed=failed
+    )
     key = f"originals/{dataset_id}/{job_id}_roads.gpkg"
     async with db_module.async_session() as writer:
         job = await writer.get(IngestJob, job_id)
@@ -191,19 +201,28 @@ async def test_an_owed_archive_with_no_upload_is_held_and_marked_for_review_once
         await _drop(test_db_session, job_id, record_id)
 
 
-async def test_an_owed_archive_with_no_upload_is_confirmed_by_its_archive_in_storage(
-    test_db_session, raster_storage, followups
+@pytest.mark.parametrize("failed", [False, True], ids=["pending", "failed"])
+async def test_an_owed_archive_with_no_upload_counts_an_archive_in_storage_only_if_none_failed(
+    test_db_session, raster_storage, followups, failed
 ) -> None:
-    job_id, _, record_id, key = await _owing_archive(test_db_session, file_path=None)
+    """A failed write may have left the object there truncated, so it confirms nothing."""
+    job_id, _, record_id, key = await _owing_archive(
+        test_db_session, file_path=None, failed=failed
+    )
     try:
-        await raster_storage.put(key, b"original")
+        await raster_storage.put(key, b"orig")
 
         await run_owed_publish_followups()
 
         metadata = await _stored_metadata(job_id)
-        assert not (_FLAGS | {PUBLISH_FOLLOWUPS_FIELD}) & metadata.keys()
-        assert ARCHIVE_REVIEW_METADATA_KEY not in metadata
-        assert not await _held(job_id)
+        assert PUBLISH_FOLLOWUPS_FIELD not in metadata
+        if failed:
+            assert metadata[ARCHIVE_REVIEW_METADATA_KEY] == "archive_unverified"
+            assert metadata["archive_failed"] is True
+            assert await _held(job_id)
+        else:
+            assert not (_FLAGS | {ARCHIVE_REVIEW_METADATA_KEY}) & metadata.keys()
+            assert not await _held(job_id)
     finally:
         await _drop(test_db_session, job_id, record_id)
 
@@ -309,14 +328,14 @@ async def test_a_job_that_ended_recently_is_left_to_its_own_followups(
         await _drop(test_db_session, job_id, record_id)
 
 
-async def test_a_flagged_upload_whose_archive_is_in_place_is_released(
+async def test_a_flagged_upload_whose_full_archive_is_in_place_is_released_without_a_copy(
     test_db_session, raster_storage, followups, staging
 ) -> None:
-    """An archive already in storage confirms the job, even with the upload gone."""
     job_id, dataset_id, record_id = await _flagged_job(test_db_session)
     try:
-        await _set_path(job_id, str(staging / f"{job_id}_roads.gpkg"))
-        key = f"originals/{dataset_id}/{job_id}_roads.gpkg"
+        upload = _stage(staging, job_id)
+        await _set_path(job_id, str(upload))
+        key = f"originals/{dataset_id}/{upload.name}"
         await raster_storage.put(key, b"original")
 
         with _storage_calls(raster_storage) as calls:
@@ -326,6 +345,112 @@ async def test_a_flagged_upload_whose_archive_is_in_place_is_released(
         metadata = await _stored_metadata(job_id)
         assert not (_FLAGS | {PUBLISH_FOLLOWUPS_FIELD}) & metadata.keys()
         assert not await _held(job_id)
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+@pytest.mark.parametrize("refused_once", [False, True], ids=["written", "refused-once"])
+async def test_a_truncated_archive_is_written_again_before_it_counts(
+    test_db_session, raster_storage, followups, staging, monkeypatch, refused_once
+) -> None:
+    """An object shorter than the upload is no archive: it is replaced, and only then confirmed."""
+    job_id, dataset_id, record_id = await _flagged_job(test_db_session)
+    try:
+        upload = _stage(staging, job_id)
+        await _set_path(job_id, str(upload))
+        key = f"originals/{dataset_id}/{upload.name}"
+        await raster_storage.put(key, b"orig")
+        real_put = raster_storage.put
+        outage = [True] if refused_once else []
+
+        async def _refused(written, data):
+            if written == key and outage:
+                raise RuntimeError("the object store refused the write")
+            await real_put(written, data)
+
+        monkeypatch.setattr(raster_storage, "put", _refused)
+        await run_owed_publish_followups()
+        if refused_once:
+            assert await raster_storage.get(key) == b"orig"
+            metadata = await _stored_metadata(job_id)
+            assert metadata[PUBLISH_FOLLOWUPS_FIELD]["archive_key"] == key
+            assert metadata["archive_failed"] is True
+            assert await _held(job_id)
+            outage.clear()
+            await _make_due(job_id)
+            await run_owed_publish_followups()
+
+        assert await raster_storage.get(key) == b"original"
+        metadata = await _stored_metadata(job_id)
+        assert not (_FLAGS | {PUBLISH_FOLLOWUPS_FIELD}) & metadata.keys()
+        assert not await _held(job_id)
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def test_a_pending_archive_in_place_without_its_upload_is_released(
+    test_db_session, raster_storage, followups, staging
+) -> None:
+    """No attempt failed, so the object there was written whole."""
+    job_id, dataset_id, record_id = await _flagged_job(test_db_session, failed=False)
+    try:
+        await _set_path(job_id, str(staging / f"{job_id}_roads.gpkg"))
+        await raster_storage.put(
+            f"originals/{dataset_id}/{job_id}_roads.gpkg", b"original"
+        )
+
+        await run_owed_publish_followups()
+
+        metadata = await _stored_metadata(job_id)
+        assert not (_FLAGS | {PUBLISH_FOLLOWUPS_FIELD}) & metadata.keys()
+        assert not await _held(job_id)
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def test_a_failed_archive_in_place_without_its_upload_is_kept_for_review(
+    test_db_session, raster_storage, followups, staging
+) -> None:
+    """With nothing to measure it against, an object left by a failed write may be truncated."""
+    job_id, dataset_id, record_id = await _flagged_job(test_db_session)
+    try:
+        await _set_path(job_id, str(staging / f"{job_id}_roads.gpkg"))
+        key = f"originals/{dataset_id}/{job_id}_roads.gpkg"
+        await raster_storage.put(key, b"orig")
+
+        with structlog.testing.capture_logs() as logs:
+            await run_owed_publish_followups()
+
+        metadata = await _stored_metadata(job_id)
+        assert metadata[ARCHIVE_REVIEW_METADATA_KEY] == "archive_unverified"
+        assert metadata["archive_failed"] is True
+        assert PUBLISH_FOLLOWUPS_FIELD not in metadata
+        assert await _held(job_id)
+        assert await raster_storage.get(key) == b"orig"
+        assert [e["reason"] for e in _review_logs(logs)] == ["archive_unverified"]
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+@pytest.mark.parametrize("upload", ["present", "gone"])
+async def test_a_key_storage_would_refuse_is_kept_for_review(
+    test_db_session, raster_storage, followups, staging, upload
+) -> None:
+    """The row can't name an archive storage would accept, so no pass could settle it."""
+    job_id, _, record_id = await _flagged_job(test_db_session)
+    try:
+        path = staging / f"{job_id}_roads..v2.gpkg"
+        if upload == "present":
+            path.write_bytes(b"original")
+        await _set_path(job_id, str(path))
+
+        await run_owed_publish_followups()
+
+        metadata = await _stored_metadata(job_id)
+        assert metadata[ARCHIVE_REVIEW_METADATA_KEY] == "archive_unknown"
+        assert metadata["archive_failed"] is True
+        assert PUBLISH_FOLLOWUPS_FIELD not in metadata
+        assert await _held(job_id)
     finally:
         await _drop(test_db_session, job_id, record_id)
 
@@ -405,7 +530,7 @@ async def test_a_store_that_cannot_answer_decides_nothing_until_it_can(
     test_db_session, raster_storage, followups, staging, monkeypatch
 ) -> None:
     """An unreadable store neither marks the job nor releases it; a later pass does."""
-    job_id, dataset_id, record_id = await _flagged_job(test_db_session)
+    job_id, dataset_id, record_id = await _flagged_job(test_db_session, failed=False)
     try:
         await _set_path(job_id, str(staging / f"{job_id}_roads.gpkg"))
         key = f"originals/{dataset_id}/{job_id}_roads.gpkg"
@@ -517,11 +642,12 @@ async def test_concurrent_sweeps_settle_each_flag_once(
         await _drop(test_db_session, unknown_id, unknown_record)
 
 
+@pytest.mark.parametrize("failed", [False, True], ids=["pending", "failed"])
 async def test_a_dataset_deleted_while_its_flag_is_decided_owes_nothing(
-    test_db_session, raster_storage, followups, staging, monkeypatch
+    test_db_session, raster_storage, followups, staging, monkeypatch, failed
 ) -> None:
-    """The write that owes the archive again lands only while the dataset is live."""
-    job_id, dataset_id, record_id = await _flagged_job(test_db_session)
+    """The write that owes the archive again, or marks it, lands only while the dataset is live."""
+    job_id, dataset_id, record_id = await _flagged_job(test_db_session, failed=failed)
     try:
         await _set_path(job_id, str(staging / f"{job_id}_roads.gpkg"))
         await raster_storage.put(
@@ -540,6 +666,7 @@ async def test_a_dataset_deleted_while_its_flag_is_decided_owes_nothing(
         assert not {PUBLISH_FOLLOWUPS_FIELD, ARCHIVE_REVIEW_METADATA_KEY} & (
             metadata.keys()
         )
+        assert _archive_flags(failed).items() <= metadata.items()
         assert not await _held(job_id)
     finally:
         await _drop(test_db_session, job_id, record_id)

@@ -210,14 +210,17 @@ async def _note_archive_failure(
             await session.commit()
 
 
-async def _archive_in_place(archive_key: str) -> bool:
-    """Whether storage holds an object under ``archive_key``; False when it can't tell."""
+async def _archived_as(archive_key: str, size: int | None = None) -> bool:
+    """Whether storage holds ``size`` bytes under ``archive_key``, or any object without ``size``; False when it can't tell."""
     from app.platform.storage import get_storage
     from app.platform.storage.titiler_url import resolve_current_storage_key
 
     try:
-        return await get_storage().exists(resolve_current_storage_key(archive_key))
-    except Exception:  # broad: an unreadable store leaves the archive unconfirmed
+        key = resolve_current_storage_key(archive_key)
+        if size is None:
+            return await get_storage().exists(key)
+        return await get_storage().size(key) == size
+    except Exception:  # broad: a missing or unreadable archive stays unconfirmed
         return False
 
 
@@ -228,34 +231,38 @@ async def _archive_upload(
     dataset_id: uuid.UUID,
     archive_key: str,
     local_copy: str | None = None,
+    *,
+    failed_before: bool = False,
 ) -> bool:
     """Whether ``archive_key`` holds the upload's original, archiving it now if not.
 
-    ``archive_key`` names this upload alone, so an object already there is its
-    archive, even one found only after a failure, as when another run made it
-    meanwhile. Reads the upload from ``local_copy`` when the caller holds one,
-    and otherwise the way its task did, through ``resolve_file_path``, but
-    never a local file outside the staging directory. Any other failure flags
-    the job's archive as failed; the caller clears the flags when it confirms
-    the archive.
+    ``archive_key`` names this upload alone, so an object there holding as
+    many bytes as the upload is its archive, even one found only after a
+    failure, as when another run made it meanwhile; an object of any other
+    size is written again. Without the upload to measure, an object there
+    counts only when ``failed_before`` is False, since a failed write may have
+    left it truncated. Reads the upload from ``local_copy`` when the caller
+    holds one, and otherwise the way its task did, through
+    ``resolve_file_path``, but never a local file outside the staging
+    directory. Any other failure flags the job's archive as failed; the caller
+    clears the flags when it confirms the archive.
     """
     import app.core.db as db_module
-    from app.platform.storage import get_storage
-    from app.platform.storage.titiler_url import resolve_current_storage_key
     from app.processing.ingest.service import resolve_file_path
 
     job_id = str(job_uuid)
     local: str | None = None
     downloaded = False
+    size: int | None = None
     try:
-        if await get_storage().exists(resolve_current_storage_key(archive_key)):
-            return True
         if local_copy is not None and Path(local_copy).exists():
             local = local_copy
         else:
             local = await resolve_file_path(file_path, job_id)
             downloaded = local != file_path
         if local == file_path and not _in_staging_dir(local):
+            if not failed_before and await _archived_as(archive_key):
+                return True
             structlog.get_logger().warning(
                 "staged_upload_outside_staging_dir", job_id=job_id
             )
@@ -265,6 +272,9 @@ async def _archive_upload(
                 "The staged upload is outside the upload staging directory.",
             )
             return False
+        size = Path(local).stat().st_size
+        if await _archived_as(archive_key, size):
+            return True
         async with db_module.async_session() as session:
             job = await session.get(IngestJob, job_uuid)
             archived = job is not None and await _archive_original_file(
@@ -275,9 +285,10 @@ async def _archive_upload(
                 log_message="Failed to archive re-uploaded file to storage",
                 archive_name=archive_key.rsplit("/", 1)[-1],
             )
-        return archived or await _archive_in_place(archive_key)
+        return archived or await _archived_as(archive_key, size)
     except Exception as exc:  # broad: an unreadable upload or store keeps the upload
-        if await _archive_in_place(archive_key):
+        measured = size is not None
+        if (measured or not failed_before) and await _archived_as(archive_key, size):
             return True
         structlog.get_logger().warning("staged_upload_archive_failed", job_id=job_id)
         await _note_archive_failure(job_uuid, attempt_id, str(exc))
@@ -362,15 +373,21 @@ async def _confirm_archive(job_uuid: uuid.UUID, attempt_id: str) -> bool:
 
 
 async def _review_archive_of_no_upload(
-    job_uuid: uuid.UUID, attempt_id: str, dataset_id: uuid.UUID, archive_key: str
+    job_uuid: uuid.UUID,
+    attempt_id: str,
+    dataset_id: uuid.UUID,
+    archive_key: str,
+    *,
+    failed_before: bool,
 ) -> bool:
     """Settle the owed archive of a job that names no upload; returns whether it is settled.
 
     A missing path is no proof of an archive, and no retry can make one, so
-    only an archive storage holds confirms it. Otherwise the item goes and the
-    job keeps its archive flags, and so its hold, flagged as failed and marked
-    for review, which is logged once. A store that can't answer leaves the item
-    owed.
+    only an archive storage holds confirms it, and only while no attempt has
+    failed, since a failed write may have left it truncated. Otherwise the
+    item goes and the job keeps its archive flags, and so its hold, flagged as
+    failed and marked for review, which is logged once. A store that can't
+    answer leaves the item owed.
     """
     import app.core.db as db_module
     from app.platform.storage import get_storage
@@ -380,8 +397,9 @@ async def _review_archive_of_no_upload(
         in_place = await get_storage().exists(resolve_current_storage_key(archive_key))
     except Exception:  # broad: an unreadable store leaves the archive owed
         return False
-    if in_place:
+    if in_place and not failed_before:
         return await _confirm_archive(job_uuid, attempt_id)
+    reason = "archive_unverified" if in_place else "original_missing"
     record = IngestJob.user_metadata[PUBLISH_FOLLOWUPS_FIELD]
     path = literal([PUBLISH_FOLLOWUPS_FIELD, _ARCHIVE_KEY], ARRAY(Text))
     review = func.jsonb_build_object(
@@ -390,7 +408,7 @@ async def _review_archive_of_no_upload(
         "archive_error",
         "The job names no staged upload.",
         ARCHIVE_REVIEW_METADATA_KEY,
-        "original_missing",
+        reason,
     )
     async with db_module.async_session() as session:
         written = await session.execute(
@@ -411,7 +429,7 @@ async def _review_archive_of_no_upload(
             "archive_needs_review",
             job_id=str(job_uuid),
             dataset_id=str(dataset_id),
-            reason="original_missing",
+            reason=reason,
         )
     return True
 
@@ -557,12 +575,17 @@ async def _settle_owed_items(
     record = row.user_metadata[PUBLISH_FOLLOWUPS_FIELD]
     left = {item for item in _ITEMS if item in record}
     file_path = row.file_path
+    failed_before = row.user_metadata.get("archive_failed") is not None
     if _ARCHIVE_KEY in left and row.dataset_id is None:
         if await _confirm_archive(job_uuid, attempt_id):
             left.discard(_ARCHIVE_KEY)
     elif _ARCHIVE_KEY in left and not file_path:
         if await _review_archive_of_no_upload(
-            job_uuid, attempt_id, row.dataset_id, record[_ARCHIVE_KEY]
+            job_uuid,
+            attempt_id,
+            row.dataset_id,
+            record[_ARCHIVE_KEY],
+            failed_before=failed_before,
         ):
             left.discard(_ARCHIVE_KEY)
     elif _ARCHIVE_KEY in left and (
@@ -573,6 +596,7 @@ async def _settle_owed_items(
             row.dataset_id,
             record[_ARCHIVE_KEY],
             local_copy,
+            failed_before=failed_before,
         )
         and await _confirm_archive(job_uuid, attempt_id)
     ):
@@ -824,15 +848,22 @@ def _established_archive_key(row) -> str | None:
     with the id of the job that wrote it or, for a fan-out layer, its
     parent's, so no other upload to the dataset is archived under it. A
     ``staging/`` upload's archive was mostly named after a temporary download,
-    which no row records.
+    which no row records. A key storage would refuse establishes nothing.
     """
+    from app.platform.storage.titiler_url import resolve_current_storage_key
+
     path = row.file_path
     if not path or not Path(path).is_absolute() or not _in_staging_dir(path):
         return None
     owners = (str(row.id), (row.user_metadata or {}).get("fan_out_parent_id"))
     if not any(owner and Path(path).name.startswith(f"{owner}_") for owner in owners):
         return None
-    return original_archive_key(row.dataset_id, path)
+    key = original_archive_key(row.dataset_id, path)
+    try:
+        resolve_current_storage_key(key)
+    except ValueError:
+        return None
+    return key
 
 
 async def _review_reason(row, key: str | None) -> str | None:
@@ -840,6 +871,8 @@ async def _review_reason(row, key: str | None) -> str | None:
 
     It can when ``key`` is established and the upload is still there to
     archive, or the archive already is, which the follow-ups then confirm.
+    With the upload gone, an object there doesn't vouch for an archive that
+    failed, since the failed write may have left it truncated.
     """
     from app.platform.storage import get_storage
     from app.platform.storage.titiler_url import resolve_current_storage_key
@@ -848,9 +881,11 @@ async def _review_reason(row, key: str | None) -> str | None:
         return "archive_unknown"
     if Path(row.file_path).is_file():
         return None
-    if await get_storage().exists(resolve_current_storage_key(key)):
-        return None
-    return "original_missing"
+    if not await get_storage().exists(resolve_current_storage_key(key)):
+        return "original_missing"
+    if (row.user_metadata or {}).get("archive_failed") is not None:
+        return "archive_unverified"
+    return None
 
 
 async def _owe_unowed_archives() -> None:
@@ -878,6 +913,7 @@ async def _owe_unowed_archives() -> None:
                     IngestJob.user_metadata,
                 )
                 .where(_unowed_archive())
+                .order_by(IngestJob.id)
                 .limit(_SWEEP_BATCH)
             )
         ).all()

@@ -1442,6 +1442,7 @@ async def test_a_failure_racing_a_confirmed_archive_restores_nothing(
             "read": ("get_to_file", f"staging/{job_id}/frozen/upload.tif"),
         }[fails_in]
         real, real_exists = getattr(raster_storage, method), raster_storage.exists
+        real_size = raster_storage.size
         race: dict = {"running": False, "won": None}
 
         async def _loses_the_race(first, *args):
@@ -1456,8 +1457,14 @@ async def test_a_failure_racing_a_confirmed_archive_restores_nothing(
                 raise RuntimeError("the object store timed out")
             return await real_exists(checked)
 
+        async def _size_unsure_once_lost(checked):
+            if race["won"] is not None and checked == key:
+                raise RuntimeError("the object store timed out")
+            return await real_size(checked)
+
         monkeypatch.setattr(raster_storage, method, _loses_the_race)
         monkeypatch.setattr(raster_storage, "exists", _unsure_once_lost)
+        monkeypatch.setattr(raster_storage, "size", _size_unsure_once_lost)
 
         await run_publish_followups(job_id)
 
