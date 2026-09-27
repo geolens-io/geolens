@@ -284,6 +284,39 @@ test('a same-origin hop goes through the client fetch', async () => {
   assert.deepEqual(calls, ['/datasets/d1/download/cog', '/files/cog.tif']);
 });
 
+test("a same-origin hop keeps the caller's credentials mode, and a hop off the origin omits them", async () => {
+  reset();
+  api.respond = (req, res) =>
+    req.url.startsWith('/files/')
+      ? redirect(res, `${origin(storage)}/cog.tif`)
+      : redirect(res, '/files/cog.tif', 307);
+  const [onOrigin, offOrigin] = [[], []];
+  const realFetch = globalThis.fetch;
+  const sdk = client({ apiKey: randomUUID() }, 'c');
+  sdk.setConfig({
+    fetch: (input, init) => {
+      const request = new Request(input, init);
+      onOrigin.push(request.credentials);
+      return realFetch(request);
+    },
+  });
+  globalThis.fetch = (request) => {
+    offOrigin.push(request.credentials);
+    return realFetch(request);
+  };
+
+  let result;
+  try {
+    result = await downloadCog({ client: sdk, path: { dataset_id: 'd1' }, credentials: 'include' });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.deepEqual(await bytes(result.data), BODY);
+  assert.deepEqual(onOrigin, ['include', 'include']);
+  assert.deepEqual(offOrigin, ['omit']);
+});
+
 for (const [label, conditional, reported] of [
   ['an If-None-Match read', { 'If-None-Match': '"remote-etag"' }, true],
   ['an If-Modified-Since read', { 'If-Modified-Since': 'Wed, 01 Jan 2025 00:00:00 GMT' }, true],
@@ -379,6 +412,7 @@ for (const policy of ['error', 'manual']) {
 
       if (policy === 'error') {
         assert.ok(result.error instanceof TypeError, `expected a TypeError, got ${result.error}`);
+        assert.equal(result.response, undefined, 'fetch rejects without exposing the redirect');
       } else {
         assert.equal(result.response.status, 302);
         assert.equal(result.response.headers.get('location'), `${origin(storage)}/cog.tif`);
@@ -439,6 +473,9 @@ test("cache: 'no-store' is kept on a hop to another origin", async () => {
 function browserFetch(calls) {
   return async (request) => {
     calls.push({ url: request.url, redirect: request.redirect });
+    if (request.redirect === 'error') {
+      throw new TypeError('Failed to fetch');
+    }
     const response = new Response(null);
     Object.defineProperty(response, 'type', { value: 'opaqueredirect' });
     Object.defineProperty(response, 'status', { value: 0 });
@@ -505,8 +542,10 @@ for (const policy of ['error', 'manual']) {
 
     const result = await downloadCog({ client: sdk, path: { dataset_id: 'd1' }, redirect: policy });
 
+    assert.deepEqual(calls.map((call) => call.redirect), [policy]);
     if (policy === 'error') {
       assert.ok(result.error instanceof TypeError, `expected a TypeError, got ${result.error}`);
+      assert.equal(result.response, undefined, 'fetch rejects without exposing the redirect');
     } else {
       assert.equal(result.response.type, 'opaqueredirect');
       assert.ok(!(result.error instanceof RedirectError), 'a manual redirect is returned, not refused');

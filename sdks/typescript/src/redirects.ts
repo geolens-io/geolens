@@ -10,9 +10,9 @@
  * cookies and none of the original request's headers except `Range` and the
  * `If-*` preconditions, and goes through the global `fetch`, never the
  * client's `fetch` option. (On Node, a proxy set with undici's
- * `setGlobalDispatcher` still applies.) Every request goes out with
- * `redirect: 'manual'`, and a redirect answering a GET or HEAD is then
- * handled here:
+ * `setGlobalDispatcher` still applies.) With the default
+ * `redirect: 'follow'`, every request goes out with `redirect: 'manual'`,
+ * and a redirect answering a GET or HEAD is then handled here:
  *
  * - Where the redirect response is readable (Node), the SDK follows it: at
  *   most 20 hops, to http(s) URLs only. A hop that stays on the GeoLens
@@ -31,14 +31,12 @@
  * the request alone, which a later request interceptor can replace.
  *
  * Every hop, and the browser's resend, keeps the request's `mode`, `cache`,
- * `referrerPolicy`, `integrity` and abort signal. A `mode: 'same-origin'`
- * request redirected to another origin rejects with a TypeError, as fetch
- * does.
+ * `referrerPolicy`, `integrity` and abort signal. A hop on the GeoLens
+ * origin also keeps its `credentials` mode. A `mode: 'same-origin'` request
+ * redirected to another origin rejects with a TypeError, as fetch does.
  *
- * All of the above applies to the default `redirect: 'follow'`. A caller
- * that sets `redirect` per call or on the client gets what fetch gives:
- * `'manual'` returns the redirect unfollowed, and `'error'` rejects it with
- * a TypeError.
+ * A request with `redirect: 'manual'` or `'error'`, set per call or on the
+ * client, goes out with that setting, and fetch handles the redirect.
  */
 import type { Client } from './client/client/index.js';
 
@@ -74,25 +72,22 @@ export function installRedirectHandling(target: Client): void {
   installed.add(target);
 
   target.interceptors.request.use((request, options) => {
+    if (!following(options)) {
+      return request;
+    }
     // The client reads `fetch` after every request interceptor has run, so a
     // later interceptor that rebuilds the request can't turn following back on.
     const clientFetch = options.fetch ?? globalThis.fetch;
     options.fetch = (input, init) => clientFetch(new Request(input, { ...init, redirect: 'manual' }));
     return new Request(request, { redirect: 'manual' });
   });
-  target.interceptors.response.use((response, request, options) => {
-    const policy = options.redirect ?? 'follow';
-    if (policy === 'manual') {
-      return response;
-    }
-    if (policy === 'error') {
-      if (response.type === 'opaqueredirect' || REDIRECT_STATUSES.has(response.status)) {
-        throw new TypeError('unexpected redirect');
-      }
-      return response;
-    }
-    return followRedirect(response, request, options.fetch!);
-  });
+  target.interceptors.response.use((response, request, options) =>
+    following(options) ? followRedirect(response, request, options.fetch!) : response,
+  );
+}
+
+function following(options: { redirect?: RequestRedirect }): boolean {
+  return (options.redirect ?? 'follow') === 'follow';
 }
 
 async function followRedirect(
@@ -142,6 +137,7 @@ async function followRedirect(
       ...carried(request),
       method: request.method,
       headers: leftOrigin ? forwarded(current.headers) : current.headers,
+      credentials: leftOrigin ? 'omit' : request.credentials,
       redirect: 'manual',
     });
     response = await (leftOrigin ? globalThis.fetch(current) : clientFetch(current));
