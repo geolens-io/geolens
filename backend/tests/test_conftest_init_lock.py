@@ -17,6 +17,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
 from app.core.config import settings
+import tests.conftest as conftest
 from tests.conftest import (
     _cluster_init_lock,
     _drop_test_database_if_exists,
@@ -25,7 +26,13 @@ from tests.conftest import (
 )
 
 
-def test_a_second_worker_waits_for_the_first_workers_init(monkeypatch):
+@pytest.fixture
+def live_postgres():
+    if conftest._db_unavailable_reason is not None:
+        pytest.skip(f"Postgres unreachable: {conftest._db_unavailable_reason}")
+
+
+def test_a_second_worker_waits_for_the_first_workers_init(monkeypatch, live_postgres):
     other_worker_db = _worker_test_database_name("geolens_init_lock")
     maintenance = sqlalchemy.create_engine(
         settings.database_url_sync, isolation_level="AUTOCOMMIT"
@@ -79,7 +86,7 @@ def _too_many_clients() -> OperationalError:
     )
 
 
-def test_a_refused_lock_connection_is_retried(monkeypatch):
+def test_a_refused_lock_connection_is_retried(monkeypatch, live_postgres):
     real_connect = sqlalchemy.engine.Engine.connect
     attempts = []
 
@@ -113,7 +120,7 @@ def test_a_lock_connection_refused_past_the_budget_raises(monkeypatch):
     assert slept == [0.1, 0.2]
 
 
-def test_a_waiting_worker_holds_no_connection(monkeypatch):
+def test_a_waiting_worker_holds_no_connection(monkeypatch, live_postgres):
     real_connect = sqlalchemy.engine.Engine.connect
     backend_pids = defaultdict(list)
 
@@ -182,7 +189,7 @@ def test_a_waiting_worker_holds_no_connection(monkeypatch):
         observer.dispose()
 
 
-def test_the_wait_for_the_lock_is_bounded():
+def test_the_wait_for_the_lock_is_bounded(live_postgres):
     holder_holds = threading.Event()
     release_holder = threading.Event()
 
@@ -216,10 +223,9 @@ def _leftover_worker_databases(session_db: str) -> list:
 
 
 def test_a_lock_that_cannot_be_taken_fails_setup_instead_of_skipping_init(
-    monkeypatch,
+    monkeypatch, live_postgres
 ):
     """Not the missing-extension case: setup raises, it never yields."""
-    import tests.conftest as conftest
 
     @contextmanager
     def unreachable_lock():
@@ -247,8 +253,6 @@ def _start_setup_with_init_engine(monkeypatch, init_engine):
     Returns the setup generator and the worker databases that existed when
     ``init_engine`` was handed out.
     """
-    import tests.conftest as conftest
-
     session_db = settings.postgres_db_test
     databases_at_init = []
 
@@ -270,7 +274,7 @@ def _start_setup_with_init_engine(monkeypatch, init_engine):
     return conftest._test_db_lifecycle.__wrapped__(), databases_at_init
 
 
-def test_a_saturated_server_during_init_fails_setup(monkeypatch):
+def test_a_saturated_server_during_init_fails_setup(monkeypatch, live_postgres):
     session_db = settings.postgres_db_test
     init_engine = MagicMock()
     init_engine.connect.side_effect = _too_many_clients()
@@ -288,7 +292,7 @@ def test_a_saturated_server_during_init_fails_setup(monkeypatch):
     assert _leftover_worker_databases(session_db) == []
 
 
-def test_a_missing_extension_still_lets_setup_continue(monkeypatch):
+def test_a_missing_extension_still_lets_setup_continue(monkeypatch, live_postgres):
     session_db = settings.postgres_db_test
     init_engine = MagicMock()
     conn = init_engine.connect.return_value.__enter__.return_value
