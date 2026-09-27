@@ -18474,10 +18474,16 @@ export type DownloadCogDatasetsDatasetIdDownloadCogGetError = DownloadCogDataset
 
 export type DownloadCogDatasetsDatasetIdDownloadCogGetResponses = {
     /**
-     * Successful Response
+     * The whole COG file
      */
-    200: unknown;
+    200: Blob | File;
+    /**
+     * One byte range of the COG file
+     */
+    206: Blob | File;
 };
+
+export type DownloadCogDatasetsDatasetIdDownloadCogGetResponse = DownloadCogDatasetsDatasetIdDownloadCogGetResponses[keyof DownloadCogDatasetsDatasetIdDownloadCogGetResponses];
 
 export type ExportDatasetEndpointDatasetsDatasetIdExportGetData = {
     body?: never;
@@ -18561,10 +18567,16 @@ export type ExportDatasetEndpointDatasetsDatasetIdExportGetError = ExportDataset
 
 export type ExportDatasetEndpointDatasetsDatasetIdExportGetResponses = {
     /**
-     * Successful Response
+     * The exported file
      */
-    200: unknown;
+    200: Blob | File;
+    /**
+     * One byte range of the exported file
+     */
+    206: Blob | File;
 };
+
+export type ExportDatasetEndpointDatasetsDatasetIdExportGetResponse = ExportDatasetEndpointDatasetsDatasetIdExportGetResponses[keyof ExportDatasetEndpointDatasetsDatasetIdExportGetResponses];
 
 export type GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetData = {
     body?: never;
@@ -20765,8 +20777,10 @@ export type GetTilesetFileDatasetsDatasetIdTiles3dPathGetResponses = {
     /**
      * The requested tileset file
      */
-    200: unknown;
+    200: Blob | File;
 };
+
+export type GetTilesetFileDatasetsDatasetIdTiles3dPathGetResponse = GetTilesetFileDatasetsDatasetIdTiles3dPathGetResponses[keyof GetTilesetFileDatasetsDatasetIdTiles3dPathGetResponses];
 
 export type ValidateDatasetDatasetsDatasetIdValidateGetData = {
     body?: never;

@@ -234,6 +234,163 @@ class TestPointCloudDownload:
             assert result.payload.read() == body
 
 
+class TestCogDownload:
+    """sync() and asyncio() return the COG download's bytes for 200 and 206."""
+
+    @pytest.mark.parametrize("status", [200, 206])
+    def test_sync_and_asyncio_return_the_file(self, status: int) -> None:
+        from geolens.api.datasets_export import (
+            download_cog_datasets_dataset_id_download_cog_get as download,
+        )
+        from geolens.types import File
+
+        body = b"II*\x00" + bytes(range(64))  # a TIFF byte-order marker + filler
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                status, content=body, headers={"Content-Type": "image/tiff"}
+            )
+
+        client = AuthenticatedClient(
+            base_url="http://sdk.test",
+            token=uuid4().hex,
+            httpx_args={"transport": httpx.MockTransport(respond)},
+        )
+        dataset_id = uuid4()
+
+        synced = download.sync(dataset_id=dataset_id, client=client)
+        awaited = asyncio.run(download.asyncio(dataset_id=dataset_id, client=client))
+
+        for result in (synced, awaited):
+            assert isinstance(result, File)
+            assert result.payload.read() == body
+
+
+class TestExportDownload:
+    """sync() and asyncio() return the export's bytes.
+
+    One format stands in for the whole set here (schemas.ExportFormat) —
+    every format is declared with the identical binary schema
+    (_EXPORT_BODY), so the generated parse code is the same for all of them.
+    """
+
+    @pytest.mark.parametrize("status", [200, 206])
+    def test_sync_and_asyncio_return_the_file(self, status: int) -> None:
+        from geolens.api.datasets import (
+            export_dataset_endpoint_datasets_dataset_id_export_get as download,
+        )
+        from geolens.types import File
+
+        body = b"GPKG-bytes-not-real-sqlite" + bytes(range(32))
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                status,
+                content=body,
+                headers={"Content-Type": "application/geopackage+sqlite3"},
+            )
+
+        client = AuthenticatedClient(
+            base_url="http://sdk.test",
+            token=uuid4().hex,
+            httpx_args={"transport": httpx.MockTransport(respond)},
+        )
+        dataset_id = uuid4()
+
+        synced = download.sync(dataset_id=dataset_id, client=client)
+        awaited = asyncio.run(download.asyncio(dataset_id=dataset_id, client=client))
+
+        for result in (synced, awaited):
+            assert isinstance(result, File)
+            assert result.payload.read() == body
+
+
+class TestTiles3dFileDownload:
+    """sync() and asyncio() return a 3D Tiles file's bytes.
+
+    Parametrized across a JSON file (tileset.json) and a binary one (a GLB
+    tile) — both must come back as bytes, not a parsed dict, which is the
+    failure mode _TILES3D_BODY's exclusion of "application/json" guards
+    against (see the router's comment).
+    """
+
+    @pytest.mark.parametrize("content_type", ["application/json", "model/gltf-binary"])
+    def test_sync_and_asyncio_return_the_file(self, content_type: str) -> None:
+        from geolens.api.datasets import (
+            get_tileset_file_datasets_dataset_id_tiles3d_path_get as download,
+        )
+        from geolens.types import File
+
+        body = (
+            b'{"asset": {"version": "1.1"}}'
+            if "json" in content_type
+            else b"glTF" + bytes(range(32))
+        )
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200, content=body, headers={"Content-Type": content_type}
+            )
+
+        client = AuthenticatedClient(
+            base_url="http://sdk.test",
+            token=uuid4().hex,
+            httpx_args={"transport": httpx.MockTransport(respond)},
+        )
+        ids = {"dataset_id": uuid4(), "path": "0/tileset.json"}
+
+        synced = download.sync(**ids, client=client)
+        awaited = asyncio.run(download.asyncio(**ids, client=client))
+
+        for result in (synced, awaited):
+            assert isinstance(result, File)
+            assert result.payload.read() == body
+
+
+class TestCogAndExportNotModified:
+    """A 304 from the COG download or export is a declared status, so
+    raise_on_unexpected_status=True doesn't raise on a cache hit.
+    """
+
+    def test_cog_304_does_not_raise(self) -> None:
+        from geolens.api.datasets_export import (
+            download_cog_datasets_dataset_id_download_cog_get as download,
+        )
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(304, headers={"ETag": '"abc123"'})
+
+        client = AuthenticatedClient(
+            base_url="http://sdk.test",
+            token=uuid4().hex,
+            httpx_args={"transport": httpx.MockTransport(respond)},
+            raise_on_unexpected_status=True,
+        )
+
+        result = download.sync_detailed(dataset_id=uuid4(), client=client)
+
+        assert result.status_code == 304
+
+    def test_export_304_does_not_raise(self) -> None:
+        from geolens.api.datasets import (
+            export_dataset_endpoint_datasets_dataset_id_export_get as download,
+        )
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(304, headers={"ETag": '"abc123"'})
+
+        client = AuthenticatedClient(
+            base_url="http://sdk.test",
+            token=uuid4().hex,
+            httpx_args={"transport": httpx.MockTransport(respond)},
+            raise_on_unexpected_status=True,
+        )
+
+        result = download.sync_detailed(dataset_id=uuid4(), client=client)
+
+        assert result.status_code == 304
+
+
 # ------------------- Optional request bodies (regeneration guard) -------------------
 
 

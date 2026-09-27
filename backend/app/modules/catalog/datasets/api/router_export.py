@@ -86,6 +86,10 @@ router = APIRouter(
     prefix="/datasets", tags=["Datasets - Export"], responses=ERROR_RESPONSES_PUBLIC
 )
 
+# Declared as bytes, so a generated client hands back the file rather than
+# None (see sdks/python/.openapi-python-client.yaml's content_type_overrides).
+_COG_BODY = {"image/tiff": {"schema": {"type": "string", "format": "binary"}}}
+
 
 # ---------------------------------------------------------------------------
 # DCAT 3 JSON-LD export endpoints
@@ -947,7 +951,13 @@ async def _resolve_download_user(
     response_class=Response,
     # fix(#1778): the ranged-download branch raises 412
     # on a failed If-Match; the published contract omitted it.
-    responses={403: FORBIDDEN_RESPONSE, 412: PRECONDITION_FAILED_RESPONSE},
+    responses={
+        200: {"description": "The whole COG file", "content": _COG_BODY},
+        206: {"description": "One byte range of the COG file", "content": _COG_BODY},
+        304: {"description": "The caller already holds this version of the file"},
+        403: FORBIDDEN_RESPONSE,
+        412: PRECONDITION_FAILED_RESPONSE,
+    },
 )
 async def download_cog(
     dataset_id: uuid.UUID,

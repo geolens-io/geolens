@@ -44,6 +44,14 @@ _CONTENT_TYPES = {
 }
 _OCTET_STREAM = "application/octet-stream"
 
+# Bytes per media type served, so sync()/asyncio() return a File, not None.
+# Excludes "application/json": openapi-python-client picks one type per
+# response and would call response.json() on every file this route serves.
+_TILES3D_BODY = {
+    media_type: {"schema": {"type": "string", "format": "binary"}}
+    for media_type in {*_CONTENT_TYPES.values(), _OCTET_STREAM} - {"application/json"}
+}
+
 # The carrier's href names the live attempt's tileset.json, one level below
 # the dataset's prefix.
 _ATTEMPT_ENTRY = re.compile(r"[A-Za-z0-9_-]+/tileset\.json")
@@ -113,7 +121,7 @@ async def _chained(first: bytes, rest: AsyncIterator[bytes]) -> AsyncIterator[by
     "/{dataset_id}/tiles3d/{path:path}",
     response_class=Response,
     responses={
-        200: {"description": "The requested tileset file"},
+        200: {"description": "The requested tileset file", "content": _TILES3D_BODY},
         304: {"description": "The caller already holds this version of the file"},
         404: NOT_FOUND_RESPONSE,
         412: PRECONDITION_FAILED_RESPONSE,
