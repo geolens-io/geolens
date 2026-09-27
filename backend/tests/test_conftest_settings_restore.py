@@ -1,5 +1,6 @@
 """A test that rebinds the config singleton leaves no app module holding its copy."""
 
+import importlib
 import sys
 import types
 
@@ -47,3 +48,21 @@ def test_a_module_imported_while_rebound_gets_the_original_back(monkeypatch):
     _run_under_restore(rebind_import_then_restore)
 
     assert module.app_settings is original
+
+
+def test_a_settings_built_after_a_config_reload_gets_the_original_back(monkeypatch):
+    """Reloading app.core.config makes its Settings a new class, as one test does."""
+    original = cfg_mod.settings
+    config_globals = dict(vars(cfg_mod))
+    module = types.ModuleType("app.settings_restore_probe")
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+
+    def reload_then_bind():
+        importlib.reload(cfg_mod)
+        module.app_settings = cfg_mod.settings
+
+    try:
+        _run_under_restore(reload_then_bind)
+        assert module.app_settings is original
+    finally:
+        vars(cfg_mod).update(config_globals)

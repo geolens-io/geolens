@@ -302,11 +302,13 @@ def _repoint_stale_settings(original, skip_modules=None) -> None:
 
     Modules named in ``skip_modules`` are not checked.
     """
+    # A test that reloads app.core.config leaves a new Settings class behind it.
+    settings_classes = (Settings, sys.modules["app.core.config"].Settings)
     for name, module in list(sys.modules.items()):
         if not name.startswith("app.") or (skip_modules and name in skip_modules):
             continue
         for attr, value in list(getattr(module, "__dict__", {}).items()):
-            if isinstance(value, Settings) and value is not original:
+            if isinstance(value, settings_classes) and value is not original:
                 setattr(module, attr, original)
 
 
