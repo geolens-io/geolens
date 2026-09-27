@@ -162,16 +162,20 @@ async def _archive_in_place(archive_key: str) -> bool:
 
 
 async def _archive_upload(
-    job_uuid: uuid.UUID, file_path: str, dataset_id: uuid.UUID, archive_key: str
+    job_uuid: uuid.UUID,
+    file_path: str,
+    dataset_id: uuid.UUID,
+    archive_key: str,
+    local_copy: str | None = None,
 ) -> bool:
     """Whether ``archive_key`` holds the upload's original, archiving it now if not.
 
     ``archive_key`` names this upload alone, so an object already there is its
-    archive. Reads the upload the way its task did, through
-    ``resolve_file_path``, but never a local file outside the staging directory.
-    Any other failure flags the job's archive as failed, and an archive in
-    place clears the flag, even one found only after a failure, as when
-    another run made it meanwhile.
+    archive. Reads the upload from ``local_copy`` when the caller holds one,
+    and otherwise the way its task did, through ``resolve_file_path``, but
+    never a local file outside the staging directory. Any other failure flags
+    the job's archive as failed, and an archive in place clears the flag, even
+    one found only after a failure, as when another run made it meanwhile.
     """
     import app.core.db as db_module
     from app.platform.storage import get_storage
@@ -180,11 +184,16 @@ async def _archive_upload(
 
     job_id = str(job_uuid)
     local: str | None = None
+    downloaded = False
     try:
         if await get_storage().exists(resolve_current_storage_key(archive_key)):
             await _note_archive_outcome(job_uuid, None)
             return True
-        local = await resolve_file_path(file_path, job_id)
+        if local_copy is not None and Path(local_copy).exists():
+            local = local_copy
+        else:
+            local = await resolve_file_path(file_path, job_id)
+            downloaded = local != file_path
         if local == file_path and not _in_staging_dir(local):
             structlog.get_logger().warning(
                 "staged_upload_outside_staging_dir", job_id=job_id
@@ -212,7 +221,7 @@ async def _archive_upload(
         await _note_archive_outcome(job_uuid, str(exc))
         return False
     finally:
-        if local is not None and local != file_path:
+        if downloaded:
             Path(local).unlink(missing_ok=True)
 
 
@@ -223,6 +232,7 @@ async def _reap_staged_upload(
     *,
     dataset_id: uuid.UUID | None = None,
     archive_key: str | None = None,
+    local_copy: str | None = None,
 ) -> None:
     """Delete a published job's staged upload, as its task's cleanup does; never raises.
 
@@ -244,7 +254,9 @@ async def _reap_staged_upload(
     if not file_path:
         return
     if archive_key and dataset_id is not None:
-        if not await _archive_upload(job_uuid, file_path, dataset_id, archive_key):
+        if not await _archive_upload(
+            job_uuid, file_path, dataset_id, archive_key, local_copy
+        ):
             return
     async with cleanup_step("staged upload", job_id=job_id):
         path = Path(file_path)
@@ -272,7 +284,9 @@ def _owes_the_upload(row) -> bool:
     )
 
 
-async def run_publish_followups(job_uuid: uuid.UUID) -> bool:
+async def run_publish_followups(
+    job_uuid: uuid.UUID, *, local_copy: str | None = None
+) -> bool:
     """Run a job's owed follow-ups once its terminal commit is visible.
 
     A complete job whose record asks for it first has its staged upload
@@ -284,6 +298,9 @@ async def run_publish_followups(job_uuid: uuid.UUID) -> bool:
     runs nothing, and a row another caller has locked nothing past the delete.
     A record an earlier attempt wrote is cleared and runs nothing, and a
     deleted dataset skips the rest. Returns whether this call claimed.
+
+    ``local_copy`` is a copy of the upload the caller holds and keeps; the
+    archive reads it instead of downloading the upload again.
     """
     import app.core.db as db_module
     from app.core.db.tenant_session import current_tenant_var
@@ -321,6 +338,7 @@ async def run_publish_followups(job_uuid: uuid.UUID) -> bool:
             pending.user_metadata,
             dataset_id=pending.dataset_id,
             archive_key=pending.archive_key,
+            local_copy=local_copy,
         )
 
     async with db_module.async_session() as session:

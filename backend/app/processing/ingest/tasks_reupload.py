@@ -38,6 +38,7 @@ from app.processing.ingest.publication import (
     settle_replacement,
     settle_timed_out_execution,
 )
+from app.processing.ingest.publish_followups import run_publish_followups
 from app.processing.ingest.source_format import derive_source_format
 from app.processing.ingest.tasks_common import (
     SourceURLRefused,
@@ -387,13 +388,22 @@ class _FileReupload:
     async def release(
         self, *, publication: PublicationCommit | None, failed: bool
     ) -> None:
-        await self._clean_up(
-            "complete"
-            if publication is PublicationCommit.ACKNOWLEDGED
-            else "failed"
-            if failed
-            else "pending"
-        )
+        # The follow-ups archive from this task's copy of the upload, so they
+        # run before the cleanup deletes it; a cancelled run still cleans up.
+        try:
+            if publication is not None and publication.confirmed:
+                async with cleanup_step("reupload_file follow-ups", job_id=self.job_id):
+                    await run_publish_followups(
+                        uuid.UUID(self.job_id), local_copy=self.file_path
+                    )
+        finally:
+            await self._clean_up(
+                "complete"
+                if publication is PublicationCommit.ACKNOWLEDGED
+                else "failed"
+                if failed
+                else "pending"
+            )
 
     async def _clean_up(self, final_status: str) -> None:
         # The follow-ups archive a published upload's original before deleting

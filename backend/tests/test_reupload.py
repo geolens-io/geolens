@@ -2431,11 +2431,13 @@ class TestArchiveRunsAfterTheSwapCommit:
         extra_patches: tuple = (),
         staged_key: str | None = None,
         raises: type[BaseException] | None = None,
+        fake_downloads: bool = True,
     ):
         """Run the task on ``update.geojson``, staged in place or, with
         ``staged_key``, in object storage and downloaded to that file.
 
-        ``raises`` is what the task is expected to raise."""
+        ``raises`` is what the task is expected to raise. Without
+        ``fake_downloads`` a staged object is read through the storage double."""
         local_file = tmp_path / "update.geojson"
         local_file.write_text('{"type":"FeatureCollection","features":[]}')
         file_path = staged_key or str(local_file)
@@ -2457,12 +2459,13 @@ class TestArchiveRunsAfterTheSwapCommit:
         from app.processing.ingest.tasks import reupload_file
 
         with contextlib.ExitStack() as stack:
-            stack.enter_context(
-                patch(
-                    "app.processing.ingest.service.resolve_file_path",
-                    new=AsyncMock(side_effect=_resolve),
+            if fake_downloads:
+                stack.enter_context(
+                    patch(
+                        "app.processing.ingest.service.resolve_file_path",
+                        new=AsyncMock(side_effect=_resolve),
+                    )
                 )
-            )
             stack.enter_context(
                 patch(
                     "app.processing.ingest.tasks_reupload._validate_upload_file_safety",
@@ -2687,6 +2690,41 @@ class TestArchiveRunsAfterTheSwapCommit:
             return (tmp_path / "update.geojson").exists()
         deleted = [call.args[0] for call in storage.delete.await_args_list]
         return frozen_key not in deleted
+
+    async def test_a_presigned_upload_is_read_from_storage_once(
+        self, client: AsyncClient, test_db_session, tmp_path
+    ):
+        """The follow-ups archive from the task's download, not a second read."""
+        frozen_key = f"staging/{uuid.uuid4()}/frozen/update.geojson"
+        reads: list[str] = []
+
+        async def _get_to_file(key, dest):
+            reads.append(key)
+            Path(dest).write_text('{"type":"FeatureCollection","features":[]}')
+
+        storage = AsyncMock()
+        storage.exists = AsyncMock(return_value=False)
+        storage.get_to_file = AsyncMock(side_effect=_get_to_file)
+        put_calls = []
+
+        async def _recording_put(key, fobj):
+            put_calls.append(key)
+
+        dataset, job = await self._run_reupload(
+            test_db_session,
+            tmp_path,
+            table_name=f"reup_{uuid.uuid4().hex[:10]}",
+            put_side_effect=_recording_put,
+            staged_key=frozen_key,
+            fake_downloads=False,
+            extra_patches=(patch("app.platform.storage.get_storage", lambda: storage),),
+        )
+
+        assert reads == [frozen_key]
+        assert put_calls == [f"originals/{dataset.id}/{job.id}_update.geojson"]
+        deleted = [call.args[0] for call in storage.delete.await_args_list]
+        assert frozen_key in deleted
+        assert not list(tmp_path.glob(f"{job.id}_*"))
 
     @pytest.mark.parametrize("staged", ["local", "object_storage"])
     async def test_a_cancelled_archive_keeps_the_upload_and_its_mark(
