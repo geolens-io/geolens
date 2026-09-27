@@ -47,8 +47,10 @@ from app.platform.jobs.models import (
     COMMIT_ATTEMPTED_METADATA_KEY,
     EMBEDDING_BACKFILL_METADATA_KEY,
     FAN_OUT_INTERRUPTED_METADATA_KEY,
+    PUBLISH_FOLLOWUPS_FIELD,
     STAGING_REAPED_FINAL_MARKER,
     STAGING_REAPED_MARKER,
+    SUPERSEDED_COG_ITEM,
     UNPUBLISHED_STORAGE_KEYS_FIELD,
     UNREAPED_ARTIFACT_FIELDS,
     IngestJob,
@@ -586,12 +588,16 @@ def unadopted_analysis_tables_from_metadata(user_metadata: object) -> tuple[str,
     return recorded_analysis_output_tables(user_metadata)
 
 
-async def _live_referenced_storage_keys(keys: tuple[str, ...]) -> set[str]:
+async def _live_referenced_storage_keys(
+    keys: tuple[str, ...], *, owed_cogs: bool = False
+) -> set[str]:
     """Which of ``keys`` a live catalog row still points at.
 
     Catalog rows hold LOGICAL keys, same form as the job row, so this is a
     plain match across the four schema columns naming an object under
-    `rasters/`, `originals/` or `pointclouds/`.
+    `rasters/`, `originals/` or `pointclouds/`. With ``owed_cogs`` it also
+    counts a superseded COG a landed replacement's follow-ups still owe,
+    which a VRT may be reading.
     """
     from sqlalchemy import Text, any_, bindparam, union_all
     from sqlalchemy.dialects.postgresql import ARRAY
@@ -601,25 +607,33 @@ async def _live_referenced_storage_keys(keys: tuple[str, ...]) -> set[str]:
     from app.processing.raster.models import RasterAsset
 
     DatasetAsset = get_catalog_port().dataset_asset_orm_class()
-    # fix(#1778): ONE array param for all four arms — four IN clauses
-    # crossed asyncpg's 32767-arg ceiling at ~8192 keys, and a failed query
-    # skipped every delete, leaking the objects for good.
+    # One array param for every arm: an IN clause per arm crossed asyncpg's
+    # 32767-arg ceiling at ~8192 keys, and a failed query skipped every
+    # delete, leaking the objects for good.
     keys_param = bindparam("reap_keys", value=list(keys), type_=ARRAY(Text))
-    async with async_session() as session:
-        stmt = union_all(
-            select(RasterAsset.asset_uri.label("key")).where(
-                RasterAsset.asset_uri == any_(keys_param)
-            ),
-            select(RasterAsset.quicklook_256_uri.label("key")).where(
-                RasterAsset.quicklook_256_uri == any_(keys_param)
-            ),
-            select(RasterAsset.quicklook_512_uri.label("key")).where(
-                RasterAsset.quicklook_512_uri == any_(keys_param)
-            ),
-            select(DatasetAsset.href.label("key")).where(
-                DatasetAsset.href == any_(keys_param)
-            ),
+    arms = [
+        select(RasterAsset.asset_uri.label("key")).where(
+            RasterAsset.asset_uri == any_(keys_param)
+        ),
+        select(RasterAsset.quicklook_256_uri.label("key")).where(
+            RasterAsset.quicklook_256_uri == any_(keys_param)
+        ),
+        select(RasterAsset.quicklook_512_uri.label("key")).where(
+            RasterAsset.quicklook_512_uri == any_(keys_param)
+        ),
+        select(DatasetAsset.href.label("key")).where(
+            DatasetAsset.href == any_(keys_param)
+        ),
+    ]
+    if owed_cogs:
+        owed = IngestJob.user_metadata[PUBLISH_FOLLOWUPS_FIELD][SUPERSEDED_COG_ITEM]
+        arms.append(
+            select(owed["key"].astext.label("key")).where(
+                owed["key"].astext == any_(keys_param)
+            )
         )
+    async with async_session() as session:
+        stmt = union_all(*arms)
         return {row[0] for row in (await session.execute(stmt)).all() if row[0]}
 
 
@@ -748,7 +762,9 @@ async def reap_unpublished_storage_keys(
         return (0, 0, 0)
 
     try:
-        live = await _live_referenced_storage_keys(keys)
+        # A replacement's follow-ups decide its superseded COG, which a VRT
+        # may still read.
+        live = await _live_referenced_storage_keys(keys, owed_cogs=True)
     except Exception:  # broad: an unreadable catalog must not license a delete
         log.warning(
             "Skipped unpublished raster reap, survivor query failed",

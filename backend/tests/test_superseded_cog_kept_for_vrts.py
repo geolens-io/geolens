@@ -9,6 +9,7 @@ reclaims it, object first and row second.
 
 from __future__ import annotations
 
+import io
 import json
 import uuid
 from datetime import datetime, timezone
@@ -868,3 +869,46 @@ async def test_replace_and_regenerate_cycles_keep_one_charged_cog_at_most(
     finally:
         await _purge_vrt(test_db_session, ids=ids)
         await _drop_owner(test_db_session, owner_id)
+
+
+@pytest.mark.parametrize("owed", [True, False])
+async def test_an_unpublished_key_a_replacement_still_owes_as_its_cog_is_not_reaped(
+    test_db_session, raster_storage, owed: bool
+) -> None:
+    """The stale-job reap leaves a superseded COG to the replacement's follow-ups.
+
+    An earlier job that published the COG can still name it among its
+    unpublished keys while a VRT that noted the member after the replacement
+    looked is reading it.
+    """
+    from app.platform.jobs.sweep import reap_unpublished_storage_keys
+
+    admin_id = await _admin_id(test_db_session)
+    cog = f"rasters/{uuid.uuid4()}/attempts/{uuid.uuid4()}/sha/source.cog.tif"
+    await raster_storage.put(cog, io.BytesIO(b"read by a VRT"))
+    job = IngestJob(
+        source_filename="replacement.tif",
+        created_by=admin_id,
+        status="complete",
+        user_metadata={},
+    )
+    test_db_session.add(job)
+    await test_db_session.flush()
+    if owed:
+        job.user_metadata = {
+            PUBLISH_FOLLOWUPS_FIELD: {
+                "task": "reupload_raster",
+                "attempt_id": str(job.attempt_id),
+                "superseded_cog": {"key": cog, "bytes": 1},
+            }
+        }
+    await test_db_session.commit()
+    job_id = job.id
+    try:
+        reaped = await reap_unpublished_storage_keys((cog,))
+
+        assert reaped == ((0, 1, 0) if owed else (1, 0, 0))
+        assert await raster_storage.exists(cog) is owed
+    finally:
+        await test_db_session.execute(delete(IngestJob).where(IngestJob.id == job_id))
+        await test_db_session.commit()

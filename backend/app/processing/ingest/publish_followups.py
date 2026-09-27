@@ -44,6 +44,7 @@ from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.jobs.models import (
     ARCHIVE_PENDING_METADATA_KEY,
     PUBLISH_FOLLOWUPS_FIELD,
+    SUPERSEDED_COG_ITEM,
     IngestJob,
     owned_presigned_staging_key,
 )
@@ -79,7 +80,7 @@ _ITEMS_ONLY = frozenset({"reupload_file", "reupload_raster", "ingest_file"})
 _ARCHIVE_KEY = "archive_key"
 _REAPS_STAGED_UPLOAD = "reaps_staged_upload"
 _SUPERSEDED_KEYS = "superseded_keys"
-_SUPERSEDED_COG = "superseded_cog"
+_SUPERSEDED_COG = SUPERSEDED_COG_ITEM
 _ITEMS = (_ARCHIVE_KEY, _REAPS_STAGED_UPLOAD, _SUPERSEDED_KEYS, _SUPERSEDED_COG)
 
 # Retry state kept in the record. An owed item has no last attempt, since
