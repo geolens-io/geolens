@@ -23,7 +23,7 @@ it('does not offer map creation without the effective capability on either navig
   render(<Navbar />);
   expect(screen.queryByRole('button', { name: 'Create' })).not.toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: 'Menu' }));
-  expect(screen.queryByRole('button', { name: 'Map', exact: true })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Map' })).not.toBeInTheDocument();
 });
 
 it.each(['desktop', 'mobile'])('opens map creation with the capability on %s', async (surface) => {
@@ -32,10 +32,10 @@ it.each(['desktop', 'mobile'])('opens map creation with the capability on %s', a
   render(<Navbar />);
   if (surface === 'desktop') {
     await user.click(screen.getByRole('button', { name: 'Create' }));
-    await user.click(screen.getByRole('menuitem', { name: 'Map', exact: true }));
+    await user.click(screen.getByRole('menuitem', { name: 'Map' }));
   } else {
     await user.click(screen.getByRole('button', { name: 'Menu' }));
-    await user.click(screen.getByRole('button', { name: 'Map', exact: true }));
+    await user.click(screen.getByRole('button', { name: 'Map' }));
   }
   expect(screen.getByText('Map creation form')).toBeInTheDocument();
 });

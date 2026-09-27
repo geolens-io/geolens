@@ -18,6 +18,7 @@ const {
 const editionState = vi.hoisted(() => ({ isEnterprise: false }));
 
 vi.mock('@/hooks/use-admin', () => ({
+  useUserNames: () => ({ data: [] }),
   useAuditLogs: (...args: unknown[]) => mockUseAuditLogs(...args),
   useCatalogStats: () => mockUseCatalogStats(),
   useInfrastructure: () => mockUseInfrastructure(),
@@ -227,7 +228,7 @@ describe('admin card header patterns', () => {
 
     render(<UserList />);
 
-    expect(screen.getByRole('heading', { level: 2, name: 'Users' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: /User directory/ })).toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: 'Add User' }).closest('[data-slot="card-action"]'),
     ).toBeInTheDocument();

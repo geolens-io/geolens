@@ -129,7 +129,7 @@ describe('FilterSheet focus restoration', () => {
     vi.spyOn(trigger, 'getClientRects').mockReturnValue({ length: 1 } as DOMRectList);
     await user.click(trigger);
     if (method === 'Escape') await user.keyboard('{Escape}');
-    else await user.click(screen.getByRole('button', { name: 'Close', exact: true }));
+    else await user.click(screen.getByRole('button', { name: 'Close' }));
     await vi.waitFor(() => expect(trigger).toHaveFocus());
   });
 });

@@ -567,12 +567,9 @@ export function DatasetPage() {
         }
       />
 
-      {/* S3: persistent ingest warnings (reserved renames, DBF collisions,
-          archive failures, temporal parse errors). Rendered permanently for
-          successfully-completed jobs only — a failed re-import may have
-          partially-recorded warnings that don't apply to the live dataset. */}
+      {/* Failed re-import warnings may not describe the live dataset. */}
       {datasetJob?.status === 'complete' && (
-        <IngestWarningsBanner job={datasetJob} className="mb-3" />
+        <IngestWarningsBanner key={datasetJob.id} job={datasetJob} compact className="mb-3" />
       )}
 
       {/* Hero Data Grid for table datasets (no map) */}
