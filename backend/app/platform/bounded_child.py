@@ -8,13 +8,15 @@ a category and, for the operator log, an exception's class name.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import signal
 import subprocess
-from collections.abc import Collection, Sequence
+import tempfile
+from collections.abc import Collection, Iterator, Sequence
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
@@ -52,16 +54,16 @@ def run_child(
     failure is "no_reply".
     """
     try:
-        done = subprocess.run(
-            argv,
-            input=stdin,
-            stdin=subprocess.DEVNULL if stdin is None else None,
-            capture_output=True,
-            text=True,
-            cwd=_BACKEND_ROOT,
-            env=env,
-            timeout=timeout,
-        )
+        with _stdin_file(stdin) as request:
+            done = subprocess.run(
+                argv,
+                stdin=request,
+                capture_output=True,
+                text=True,
+                cwd=_BACKEND_ROOT,
+                env=env,
+                timeout=timeout,
+            )
     except subprocess.TimeoutExpired:
         raise ChildFailure("timeout") from None
     except (OSError, UnicodeDecodeError) as exc:
@@ -98,6 +100,22 @@ def run_child(
         if isinstance(exception, str) and _EXCEPTION_NAME.fullmatch(exception)
         else None,
     )
+
+
+@contextlib.contextmanager
+def _stdin_file(text: str | None) -> Iterator[IO[str] | int]:
+    """``text`` in an unlinked temporary file for the child's stdin, or nothing.
+
+    A file rather than a pipe: on macOS, writing a pipe the child never reads
+    blocks the parent past the deadline.
+    """
+    if text is None:
+        yield subprocess.DEVNULL
+        return
+    with tempfile.TemporaryFile("w+", encoding="locale") as request:
+        request.write(text)
+        request.seek(0)
+        yield request
 
 
 def _signal_name(returncode: int) -> str | None:
