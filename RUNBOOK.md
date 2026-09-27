@@ -2683,9 +2683,10 @@ original, so GeoLens holds on to it. The job's metadata carries
 `archive_pending` from the moment the dataset publishes until the archive is
 confirmed, and `archive_failed` with an `archive_error` message once an
 attempt has failed. To see them, open **Admin > Jobs**, find the import job and
-expand its row: the **User Metadata** block lists `archive_failed`,
-`archive_error` and, for a job GeoLens has stopped retrying, `archive_review`
-(below). `archive_pending` is internal and not shown there.
+expand its row: the **User Metadata** block lists `archive_failed` and, for a
+job GeoLens has stopped retrying, `archive_review` (below). `archive_pending`
+and `archive_error` are internal and not shown there; the query below reads
+them from the database.
 
 While either flag is set and the dataset still exists:
 
@@ -2777,8 +2778,8 @@ SQL
 
 #### Recovering
 
-1. Read `archive_error` for the cause, such as a storage credential or a full
-   disk, and fix that first. Jobs on the retry schedule
+1. Read `archive_error` from the query above for the cause, such as a storage
+   credential or a full disk, and fix that first. Jobs on the retry schedule
    then archive and release themselves on their next due retry. An
    administrator's `POST /api/jobs/cleanup/stale/`, which also runs the rest of
    the stale-job cleanup, runs retries that are already due. It does not bring
