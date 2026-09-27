@@ -12,10 +12,31 @@ literal_enums: true
 # Generate endpoints for ALL FastAPI tags rather than only the first tag.
 generate_all_tags: true
 
-# The generator reads only JSON, text and octet-stream bodies. A COPC point
-# cloud file is bytes, so it is read as octet-stream and returned as a File.
+# The generator reads only JSON, text and octet-stream bodies. Each type below
+# maps to octet-stream so a binary-schema route gets a File. Never map
+# application/json or application/octet-stream — global, breaks JSON routes.
 content_type_overrides:
   application/vnd.laszip+copc: application/octet-stream
+  # download/cog
+  image/tiff: application/octet-stream
+  # export
+  #
+  # No entry for application/geo+json: it also names unrelated GeoJSON model
+  # responses elsewhere (features CRUD, /collections, /stac/*); see
+  # _EXPORT_BODY in processing/export/router.py.
+  application/geopackage+sqlite3: application/octet-stream
+  application/zip: application/octet-stream
+  text/csv: application/octet-stream
+  application/vnd.apache.parquet: application/octet-stream
+  application/vnd.flatgeobuf: application/octet-stream
+  application/vnd.pmtiles: application/octet-stream
+  # tiles3d
+  model/gltf-binary: application/octet-stream
+  model/gltf+json: application/octet-stream
+  image/png: application/octet-stream
+  image/jpeg: application/octet-stream
+  image/webp: application/octet-stream
+  image/ktx2: application/octet-stream
 
 # Format generated code with ruff so it matches project style.
 post_hooks:

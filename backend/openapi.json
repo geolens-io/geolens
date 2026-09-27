@@ -36005,7 +36005,29 @@
         ],
         "responses": {
           "200": {
-            "description": "Successful Response"
+            "content": {
+              "image/tiff": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The whole COG file"
+          },
+          "206": {
+            "content": {
+              "image/tiff": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "One byte range of the COG file"
+          },
+          "304": {
+            "description": "The caller already holds this version of the file"
           },
           "400": {
             "content": {
@@ -36208,7 +36230,89 @@
         ],
         "responses": {
           "200": {
-            "description": "Successful Response"
+            "content": {
+              "application/geopackage+sqlite3": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "application/vnd.apache.parquet": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "application/vnd.flatgeobuf": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "application/vnd.pmtiles": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "application/zip": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The exported file"
+          },
+          "206": {
+            "content": {
+              "application/geopackage+sqlite3": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "application/vnd.apache.parquet": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "application/vnd.flatgeobuf": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "application/vnd.pmtiles": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "application/zip": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "One byte range of the exported file"
+          },
+          "304": {
+            "description": "The caller already holds this version of the file"
           },
           "400": {
             "content": {
@@ -41459,6 +41563,50 @@
         ],
         "responses": {
           "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/ktx2": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "model/gltf+json": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "model/gltf-binary": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
             "description": "The requested tileset file"
           },
           "304": {

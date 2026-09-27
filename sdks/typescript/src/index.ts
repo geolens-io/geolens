@@ -10,6 +10,9 @@
 export { createGeolensClient } from './auth.js';
 export type { GeolensClientOptions, GeolensClient } from './auth.js';
 
+// Hand-written file-read result adapter
+export { notModified } from './fileReads.js';
+
 // Generated surface — re-export everything users need to make API calls.
 // (The generated index.ts in src/client/ already re-exports types + sdk
 // functions + the singleton client; one-line re-export keeps the public

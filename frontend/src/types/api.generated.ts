@@ -24902,8 +24902,26 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description The whole COG file */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/tiff": string;
+                };
+            };
+            /** @description One byte range of the COG file */
+            206: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/tiff": string;
+                };
+            };
+            /** @description The caller already holds this version of the file */
+            304: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -25014,8 +25032,36 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description The exported file */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/geopackage+sqlite3": string;
+                    "application/vnd.apache.parquet": string;
+                    "application/vnd.flatgeobuf": string;
+                    "application/vnd.pmtiles": string;
+                    "application/zip": string;
+                    "text/csv": string;
+                };
+            };
+            /** @description One byte range of the exported file */
+            206: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/geopackage+sqlite3": string;
+                    "application/vnd.apache.parquet": string;
+                    "application/vnd.flatgeobuf": string;
+                    "application/vnd.pmtiles": string;
+                    "application/zip": string;
+                    "text/csv": string;
+                };
+            };
+            /** @description The caller already holds this version of the file */
+            304: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -28376,7 +28422,15 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/octet-stream": string;
+                    "image/jpeg": string;
+                    "image/ktx2": string;
+                    "image/png": string;
+                    "image/webp": string;
+                    "model/gltf+json": string;
+                    "model/gltf-binary": string;
+                };
             };
             /** @description The caller already holds this version of the file */
             304: {

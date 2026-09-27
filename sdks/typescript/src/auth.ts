@@ -28,6 +28,7 @@
  */
 import { client } from './client/client.gen.js';
 import { createClient, createConfig, type Client } from './client/client/index.js';
+import { installFileReadHandling } from './fileReads.js';
 
 export interface GeolensClientOptions {
   /**
@@ -104,6 +105,7 @@ export const createGeolensClient = (
     baseUrl: opts.baseUrl,
     headers,
   }));
+  installFileReadHandling(scopedClient);
 
   // fix(#1778 review round 3): ALSO reconfigure the shared singleton,
   // exactly as this wrapper did before the scoped client above was
@@ -128,6 +130,7 @@ export const createGeolensClient = (
       'X-API-Key': headers['X-API-Key'] ?? null,
     },
   });
+  installFileReadHandling(client);
 
   return {
     baseUrl: opts.baseUrl,

@@ -30,6 +30,8 @@ from app.platform.http.ranges import (
 from app.platform.storage import get_storage
 from app.processing.export import artifact_cache, artifact_response
 from app.processing.export.ogr import (
+    FORMAT_MAP,
+    PARQUET_MEDIA_TYPE,
     ExportError,
     bbox_where_sql,
     pmtiles_maxzoom_for_extent,
@@ -62,6 +64,17 @@ router = APIRouter(
         413: PAYLOAD_TOO_LARGE_RESPONSE,
     },
 )
+
+# Bytes per format, so sync()/asyncio() return a File, not None. Derived from
+# FORMAT_MAP/PARQUET_MEDIA_TYPE. Excludes "application/geo+json" (geojson):
+# it also names unrelated GeoJSON model responses elsewhere in the API.
+_EXPORT_BODY = {
+    media_type: {"schema": {"type": "string", "format": "binary"}}
+    for media_type in (
+        [fmt["media"] for fmt in FORMAT_MAP.values()] + [PARQUET_MEDIA_TYPE]
+    )
+    if media_type != "application/geo+json"
+}
 
 # fix(#430): ceiling for full-table exports (by feature count) — an
 # unbounded ogr2ogr writes an arbitrarily large temp file and holds a worker
@@ -248,7 +261,15 @@ def _head_export_response(dataset_title: str, format_key: str) -> Response:
     # fix(#1778): the handler raises 412 on both the
     # cache-hit and rebuild branches (If-Match no longer matching); the
     # published contract omitted it.
-    responses={412: PRECONDITION_FAILED_RESPONSE},
+    responses={
+        200: {"description": "The exported file", "content": _EXPORT_BODY},
+        206: {
+            "description": "One byte range of the exported file",
+            "content": _EXPORT_BODY,
+        },
+        304: {"description": "The caller already holds this version of the file"},
+        412: PRECONDITION_FAILED_RESPONSE,
+    },
 )
 async def export_dataset_endpoint(
     dataset_id: uuid.UUID,
