@@ -6,6 +6,7 @@ Integration tests for construct_point_geometry / construct_wkt_geometry (require
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 
 from app.processing.ingest.ogr import detect_geometry_columns
 
@@ -306,6 +307,58 @@ class TestConstructPointGeometry:
         with pytest.raises(ValueError, match="Invalid column name"):
             await construct_point_geometry(
                 test_db_session, "test_tbl", "Longitude", "Latitude"
+            )
+
+
+# ---------------------------------------------------------------------------
+# _is_float8_literal — the PG13-compatible replacement for pg_input_is_valid
+# ---------------------------------------------------------------------------
+
+
+class TestIsFloat8LiteralMatchesPostgresCast:
+    """A value the regex accepts must cast with ::double precision without
+    error, or the range-check query construct_point_geometry runs right
+    after would raise instead of the intended ValueError."""
+
+    @pytest.fixture(autouse=True)
+    def _skip_no_db(self, client):
+        """Ensure DB is available (client fixture handles setup)."""
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "1e400",
+            "1.5e-3",
+            " 2 ",
+            "+.5",
+            "5.",
+            "0x10",
+            "1,5",
+            "",
+            "nan",
+            "-Infinity",
+            "1e",
+            "e5",
+        ],
+    )
+    @pytest.mark.anyio
+    async def test_accepted_values_always_cast(self, test_db_session, value):
+        from app.processing.ingest.metadata_geometry import _is_float8_literal
+
+        castable = True
+        try:
+            async with test_db_session.begin_nested():
+                await test_db_session.execute(
+                    text("SELECT CAST(:v AS double precision)").bindparams(v=value)
+                )
+        except DBAPIError:
+            castable = False
+        finally:
+            await test_db_session.rollback()
+
+        if _is_float8_literal(value):
+            assert castable, (
+                f"{value!r} passed the regex but ::double precision rejects it"
             )
 
 

@@ -946,6 +946,47 @@ async def test_detect_and_override_geometry_x_y_constructs_point(test_db_session
 
 
 @pytest.mark.anyio
+async def test_detect_and_override_geometry_x_y_non_numeric_x_raises(test_db_session):
+    """A CSV whose X column ogr2ogr typed as text (mixed content) raises
+    'not numbers' rather than letting a bad cast reach the database driver."""
+    import uuid as _uuid
+
+    from sqlalchemy import text
+
+    from app.processing.ingest.tasks import _detect_and_override_geometry
+
+    table_name = f"tst_xytext_{_uuid.uuid4().hex[:8]}"
+    await test_db_session.execute(
+        text(
+            f"CREATE TABLE data.{table_name} ("
+            "  gid SERIAL PRIMARY KEY,"
+            "  lon text,"
+            "  lat text"
+            ")"
+        )
+    )
+    await test_db_session.execute(
+        text(f"INSERT INTO data.{table_name} (lon, lat) VALUES ('west', '40.7')")
+    )
+    await test_db_session.commit()
+
+    try:
+        with pytest.raises(ValueError, match="not numbers"):
+            await _detect_and_override_geometry(
+                test_db_session,
+                table_name=table_name,
+                user_metadata={"x_column": "lon", "y_column": "lat"},
+                effective_srid=4326,
+            )
+    finally:
+        await test_db_session.rollback()
+        await test_db_session.execute(
+            text(f"DROP TABLE IF EXISTS data.{table_name} CASCADE")
+        )
+        await test_db_session.commit()
+
+
+@pytest.mark.anyio
 async def test_detect_and_override_geometry_uppercase_column_names_lowered(
     test_db_session,
 ):

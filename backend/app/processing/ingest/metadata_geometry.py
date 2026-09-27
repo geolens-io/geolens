@@ -11,6 +11,7 @@ go wrong — shapefile DBF truncates to 10 characters — and is reported to
 the user rather than repaired.
 """
 
+import math
 import re
 
 import structlog
@@ -26,6 +27,22 @@ from app.processing.ingest.metadata_sql import (
 )
 
 logger = structlog.stdlib.get_logger(__name__)
+
+_WS = r"[ \t\n\r\f\v]*"
+# nan/inf(inity) are valid double precision input on their own; the finite
+# range check right after this one is what rejects them as out-of-range.
+_FLOAT8_SPECIAL_RE = re.compile(
+    rf"\A{_WS}[+-]?(nan|inf(?:inity)?){_WS}\Z", re.IGNORECASE
+)
+_FLOAT8_DECIMAL_RE = re.compile(rf"\A{_WS}[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?{_WS}\Z")
+
+
+def _is_float8_literal(value: str) -> bool:
+    if _FLOAT8_SPECIAL_RE.match(value):
+        return True
+    # A shape match can still overflow (e.g. "1e400"), which raises rather
+    # than casting, so the shape alone isn't enough to call it parseable.
+    return bool(_FLOAT8_DECIMAL_RE.match(value)) and not math.isinf(float(value))
 
 
 async def construct_point_geometry(
@@ -50,15 +67,17 @@ async def construct_point_geometry(
     y_col = _sql_quote_ident(y_column)
     finite_floor = "-1.7976931348623157e308"
     finite_ceiling = "1.7976931348623157e308"
-    unparseable = await session.execute(
+    coordinate_text = await session.execute(
         text(
-            f"SELECT COUNT(*) FROM {tref} "
-            f"WHERE {x_col} IS NOT NULL AND {y_col} IS NOT NULL "
-            f"AND (NOT pg_input_is_valid({x_col}::text, 'double precision') "
-            f"OR NOT pg_input_is_valid({y_col}::text, 'double precision'))"
+            f"SELECT {x_col}::text, {y_col}::text FROM {tref} "
+            f"WHERE {x_col} IS NOT NULL AND {y_col} IS NOT NULL"
         )
     )
-    unparseable_count = int(unparseable.scalar_one())
+    unparseable_count = sum(
+        1
+        for x_text, y_text in coordinate_text
+        if not (_is_float8_literal(x_text) and _is_float8_literal(y_text))
+    )
     if unparseable_count:
         raise ValueError(
             f"{unparseable_count} row(s) contain X/Y values that are not numbers"
