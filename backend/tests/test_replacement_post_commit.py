@@ -1340,9 +1340,12 @@ async def _owed(job_id: uuid.UUID) -> dict | None:
 
 
 async def _owed_keys(job_id: uuid.UUID) -> list[str] | None:
-    """The superseded keys the job's record still owes, or None once it's claimed."""
+    """The superseded keys the job's record still owes, COG first, or None once it's claimed."""
     record = await _owed(job_id)
-    return None if record is None else record.get("superseded_keys")
+    if record is None:
+        return None
+    cog = record.get("superseded_cog")
+    return ([cog["key"]] if cog else []) + record.get("superseded_keys", [])
 
 
 @pytest.mark.parametrize(
@@ -1395,14 +1398,16 @@ async def test_a_live_read_that_fails_is_retried_once_due(
     real_read = sweep._live_referenced_storage_keys
     failures: list[tuple[str, ...]] = []
 
-    async def _fails_once(keys):
-        if not failures:
+    async def _fails_while_down(keys):
+        if down:
             failures.append(keys)
             raise ConnectionResetError("the database dropped the read")
         return await real_read(keys)
 
-    monkeypatch.setattr(sweep, "_live_referenced_storage_keys", _fails_once)
+    down = True
+    monkeypatch.setattr(sweep, "_live_referenced_storage_keys", _fails_while_down)
     await run_owed_publish_followups()
+    down = False
     assert failures, "the live keys were never read"
     assert await _owed_keys(replacement.job_id) == replacement.prior_keys
     assert await _prior_left(replacement, storage) == replacement.prior_keys
@@ -1445,7 +1450,7 @@ async def test_a_delete_that_keeps_failing_stays_owed_and_deletes_the_upload_onc
     assert upload_deletes == [replacement.job_id]
     assert not replacement.upload.exists()
     record = await _owed(replacement.job_id)
-    assert (record["superseded_keys"], record["attempts"]) == ([cog], 3)
+    assert (await _owed_keys(replacement.job_id), record["attempts"]) == ([cog], 3)
     assert await _prior_left(replacement, storage) == [cog]
 
 
@@ -1498,7 +1503,7 @@ async def test_a_failing_superseded_delete_does_not_crowd_out_a_fresh_record(
     assert await _prior_left(fresh, storage) == []
     assert sorted(tries) == sorted(stuck.prior_keys), "retried before it was due"
     record = await _owed(stuck.job_id)
-    assert (record["superseded_keys"], record["attempts"]) == (stuck.prior_keys, 1)
+    assert (await _owed_keys(stuck.job_id), record["attempts"]) == (stuck.prior_keys, 1)
 
 
 async def test_a_hosted_install_deletes_the_tenants_superseded_objects(

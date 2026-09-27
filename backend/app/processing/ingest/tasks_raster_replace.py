@@ -523,7 +523,9 @@ class _RasterReplace:
             reaps_staged_upload=(
                 self.source_preserved_in_cog or self.lossy_original_archived
             ),
-            superseded_keys=superseded_keys,
+            superseded_keys=tuple(key for key in superseded_keys if key != cog),
+            superseded_cog=cog,
+            superseded_cog_bytes=cog_bytes,
         )
 
     def classify(self, exc: BaseException) -> Failure:
