@@ -74,6 +74,7 @@ USER_METADATA = {
     "all_layers": [{"name": "roads", "feature_count": 1, "field_count": 2}],
     "fan_out_parent_id": str(uuid.uuid4()),
     "archive_failed": True,
+    "archive_review": "original_missing",
 }
 UNKNOWN = {"some_new_worker_state": {"attempt": 3}}
 BACKEND_APP = Path(__file__).resolve().parents[1] / "app"

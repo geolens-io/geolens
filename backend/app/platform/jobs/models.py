@@ -94,6 +94,9 @@ TILESET_UNPACKED_BYTES_FIELD = "tileset_unpacked_bytes"
 # still to be archived, and removed only once that archive is confirmed. Until
 # then the upload may be the original's only copy.
 ARCHIVE_PENDING_METADATA_KEY = "archive_pending"
+# Why a row holding an unarchived original can't have its archive owed again.
+# The row keeps its flags, and its upload, for an operator to review.
+ARCHIVE_REVIEW_METADATA_KEY = "archive_review"
 
 # Artifact records. A worker names each object, table or owed follow-up here no
 # later than it creates it, so a killed attempt still leaves an owner, and the
@@ -168,6 +171,7 @@ PUBLIC_METADATA_KEYS = frozenset(
         "temporal_parse_errors",
         "collision_warning",
         "archive_failed",
+        ARCHIVE_REVIEW_METADATA_KEY,
     }
 )
 

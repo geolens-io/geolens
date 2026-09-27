@@ -10,7 +10,9 @@ commit does. The task runs them after its commit, or the stale-job sweep when
 the task could not. The rest runs once, at the first claim, without waiting on
 the items. Each item is confirmed on its own and retried, after a doubling delay
 capped at a few hours, until it is; the record goes once it is claimed and no
-item is left.
+item is left. A job that holds an unarchived original but owes no archive, as
+one flagged before archives were owed does, has its archive owed again when its
+row establishes it, and is marked for review otherwise.
 """
 
 from __future__ import annotations
@@ -25,10 +27,12 @@ from sqlalchemy import (
     DateTime,
     Integer,
     Text,
+    and_,
     case,
     cast,
     func,
     literal,
+    not_,
     or_,
     select,
     text,
@@ -43,14 +47,17 @@ from app.core.failure_reason import redact_failure_reason
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.jobs.models import (
     ARCHIVE_PENDING_METADATA_KEY,
+    ARCHIVE_REVIEW_METADATA_KEY,
     PUBLISH_FOLLOWUPS_FIELD,
     SUPERSEDED_COG_ITEM,
     IngestJob,
+    holds_unarchived_original,
     owned_presigned_staging_key,
 )
 from app.processing.ingest.tasks_common import _emit_billing_event, cleanup_step
 from app.processing.ingest.tasks_staging import (
     _archive_original_file,
+    original_archive_key,
     reap_downloaded_staging_source,
     reap_presigned_staging_object,
 )
@@ -94,6 +101,8 @@ _RETRY_BASE = timedelta(minutes=5)
 _RETRY_CAP = timedelta(hours=4)
 # Set once the run-once follow-ups have run, while items are still owed.
 _CLAIMED = "claimed"
+# A job that ended more recently may still have its own archive or cleanup in flight.
+_UNOWED_ARCHIVE_MIN_AGE = timedelta(days=1)
 
 
 def owed_followups(
@@ -352,6 +361,61 @@ async def _confirm_archive(job_uuid: uuid.UUID, attempt_id: str) -> bool:
     return True
 
 
+async def _review_archive_of_no_upload(
+    job_uuid: uuid.UUID, attempt_id: str, dataset_id: uuid.UUID, archive_key: str
+) -> bool:
+    """Settle the owed archive of a job that names no upload; returns whether it is settled.
+
+    A missing path is no proof of an archive, and no retry can make one, so
+    only an archive storage holds confirms it. Otherwise the item goes and the
+    job keeps its archive flags, and so its hold, flagged as failed and marked
+    for review, which is logged once. A store that can't answer leaves the item
+    owed.
+    """
+    import app.core.db as db_module
+    from app.platform.storage import get_storage
+    from app.platform.storage.titiler_url import resolve_current_storage_key
+
+    try:
+        in_place = await get_storage().exists(resolve_current_storage_key(archive_key))
+    except Exception:  # broad: an unreadable store leaves the archive owed
+        return False
+    if in_place:
+        return await _confirm_archive(job_uuid, attempt_id)
+    record = IngestJob.user_metadata[PUBLISH_FOLLOWUPS_FIELD]
+    path = literal([PUBLISH_FOLLOWUPS_FIELD, _ARCHIVE_KEY], ARRAY(Text))
+    review = func.jsonb_build_object(
+        "archive_failed",
+        true(),
+        "archive_error",
+        "The job names no staged upload.",
+        ARCHIVE_REVIEW_METADATA_KEY,
+        "original_missing",
+    )
+    async with db_module.async_session() as session:
+        written = await session.execute(
+            update(IngestJob)
+            .where(
+                IngestJob.id == job_uuid,
+                record["attempt_id"].astext == attempt_id,
+                record.has_key(_ARCHIVE_KEY),
+            )
+            .values(
+                user_metadata=IngestJob.user_metadata.op("#-")(path).op("||")(review)
+            )
+            .execution_options(synchronize_session=False)
+        )
+        await session.commit()
+    if written.rowcount:
+        structlog.get_logger().warning(
+            "archive_needs_review",
+            job_id=str(job_uuid),
+            dataset_id=str(dataset_id),
+            reason="original_missing",
+        )
+    return True
+
+
 async def _reap_superseded(
     job_uuid: uuid.UUID, dataset_id: uuid.UUID | None, keys: list[str]
 ) -> list[str]:
@@ -479,20 +543,28 @@ async def _settle_owed_items(
     The client's presigned key goes whatever the archive does, since the
     archive reads only ``file_path``. With a live dataset the upload's
     original is archived first, and the upload is deleted only once that
-    archive is confirmed. The delete is confirmed only once nothing it should
-    remove is left. What a raster replacement superseded is deleted unless a
-    live catalog row names it, or, for its COG, a VRT may read it. An item left
-    over is tried again after a doubling delay capped at ``_RETRY_CAP``,
-    however many attempts it takes.
+    archive is confirmed. A deleted dataset owes no archive, so the item and
+    the job's archive flags go together. A job naming no upload keeps its
+    flags and is marked for review, unless storage already holds its archive.
+    The delete is confirmed only once nothing it should remove is left. What a
+    raster replacement superseded is deleted unless a live catalog row names
+    it, or, for its COG, a VRT may read it. An item left over is tried again
+    after a doubling delay capped at ``_RETRY_CAP``, however many attempts it
+    takes.
     """
     job_id = str(job_uuid)
     attempt_id = row.owed_attempt
     record = row.user_metadata[PUBLISH_FOLLOWUPS_FIELD]
     left = {item for item in _ITEMS if item in record}
     file_path = row.file_path
-    if _ARCHIVE_KEY in left and (not file_path or row.dataset_id is None):
-        await _confirm_owed_item(job_uuid, attempt_id, _ARCHIVE_KEY)
-        left.discard(_ARCHIVE_KEY)
+    if _ARCHIVE_KEY in left and row.dataset_id is None:
+        if await _confirm_archive(job_uuid, attempt_id):
+            left.discard(_ARCHIVE_KEY)
+    elif _ARCHIVE_KEY in left and not file_path:
+        if await _review_archive_of_no_upload(
+            job_uuid, attempt_id, row.dataset_id, record[_ARCHIVE_KEY]
+        ):
+            left.discard(_ARCHIVE_KEY)
     elif _ARCHIVE_KEY in left and (
         await _archive_upload(
             job_uuid,
@@ -733,17 +805,134 @@ async def notify_ingest_failed(
     )
 
 
-async def run_owed_publish_followups() -> int:
-    """Run the follow-ups landed terminal commits still owe, a bounded batch a call; never raises.
+def _unowed_archive():
+    """Predicate: a job that ended a day ago or more holds an unarchived original, owing no archive and with no review."""
+    metadata = IngestJob.user_metadata
+    ended = func.coalesce(IngestJob.completed_at, IngestJob.created_at)
+    return and_(
+        holds_unarchived_original(),
+        metadata[PUBLISH_FOLLOWUPS_FIELD].is_(None),
+        not_(metadata.has_key(ARCHIVE_REVIEW_METADATA_KEY)),
+        ended < func.now() - _UNOWED_ARCHIVE_MIN_AGE,
+    )
 
-    Takes only records that are due: those never attempted first, then the
-    longest due, so records that keep failing wait out their delay and can't
-    hold up fresh ones such as failure notices. Returns how many jobs this
-    call claimed. A job whose follow-ups fail is logged and skipped.
+
+def _established_archive_key(row) -> str | None:
+    """The archive key a job's row establishes for its upload, or None.
+
+    Its task archived a local upload under the upload's name, which begins
+    with the id of the job that wrote it or, for a fan-out layer, its
+    parent's, so no other upload to the dataset is archived under it. A
+    ``staging/`` upload's archive was mostly named after a temporary download,
+    which no row records.
+    """
+    path = row.file_path
+    if not path or not Path(path).is_absolute() or not _in_staging_dir(path):
+        return None
+    owners = (str(row.id), (row.user_metadata or {}).get("fan_out_parent_id"))
+    if not any(owner and Path(path).name.startswith(f"{owner}_") for owner in owners):
+        return None
+    return original_archive_key(row.dataset_id, path)
+
+
+async def _review_reason(row, key: str | None) -> str | None:
+    """Why the job's archive can't be owed again, or None when it can; raises when the store can't tell.
+
+    It can when ``key`` is established and the upload is still there to
+    archive, or the archive already is, which the follow-ups then confirm.
+    """
+    from app.platform.storage import get_storage
+    from app.platform.storage.titiler_url import resolve_current_storage_key
+
+    if key is None:
+        return "archive_unknown"
+    if Path(row.file_path).is_file():
+        return None
+    if await get_storage().exists(resolve_current_storage_key(key)):
+        return None
+    return "original_missing"
+
+
+async def _owe_unowed_archives() -> None:
+    """Owe the archive again for each job holding an original that nothing will archive.
+
+    A job flagged before archives were owed has no record, so no retry ever
+    confirms its archive and retention keeps its upload for good. When its row
+    establishes the archive, the archive is owed again in the job's attempt,
+    as its task would have owed it. Otherwise the job keeps its flags, and so
+    its upload, and gets a review reason, logged once. A job with no attempt
+    id can't be owed an item, and a store that can't answer leaves the job
+    for a later pass.
     """
     import app.core.db as db_module
 
     log = structlog.get_logger()
+    async with db_module.async_session() as session:
+        rows = (
+            await session.execute(
+                select(
+                    IngestJob.id,
+                    IngestJob.attempt_id,
+                    IngestJob.dataset_id,
+                    IngestJob.file_path,
+                    IngestJob.user_metadata,
+                )
+                .where(_unowed_archive())
+                .limit(_SWEEP_BATCH)
+            )
+        ).all()
+    for row in rows:
+        key = _established_archive_key(row) if row.attempt_id else None
+        try:
+            reason = await _review_reason(row, key)
+        except Exception:  # broad: an unreadable store decides nothing this pass
+            log.warning("unowed_archive_undecided", job_id=str(row.id), exc_info=True)
+            continue
+        if reason is None:
+            reupload = (row.user_metadata or {}).get("reupload") is True
+            task = "reupload_file" if reupload else "ingest_file"
+            metadata = owed_followups(row.attempt_id, task, archive_key=key)
+        else:
+            review = func.jsonb_build_object(ARCHIVE_REVIEW_METADATA_KEY, reason)
+            metadata = IngestJob.user_metadata.op("||")(review)
+        async with db_module.async_session() as session:
+            written = await session.execute(
+                update(IngestJob)
+                .where(
+                    IngestJob.id == row.id,
+                    IngestJob.attempt_id == row.attempt_id,
+                    _unowed_archive(),
+                )
+                .values(user_metadata=metadata)
+                .execution_options(synchronize_session=False)
+            )
+            await session.commit()
+        if reason is not None and written.rowcount:
+            log.warning(
+                "archive_needs_review",
+                job_id=str(row.id),
+                dataset_id=str(row.dataset_id),
+                reason=reason,
+            )
+
+
+async def run_owed_publish_followups() -> int:
+    """Run the follow-ups landed terminal commits still owe, a bounded batch a call; never raises.
+
+    First owes the archive again for jobs holding an original that nothing
+    will archive, so this call runs those too. Takes only records that are
+    due: those never attempted first, then the longest due, so records that
+    keep failing wait out their delay and can't hold up fresh ones such as
+    failure notices. Returns how many jobs this call claimed. A job whose
+    follow-ups fail is logged and skipped.
+    """
+    import app.core.db as db_module
+
+    log = structlog.get_logger()
+    try:
+        await _owe_unowed_archives()
+    except Exception:  # broad: those archives wait for the next pass
+        log.warning("unowed_archives_not_settled", exc_info=True)
     record = IngestJob.user_metadata[PUBLISH_FOLLOWUPS_FIELD]
     try:
         async with db_module.async_session() as session:
