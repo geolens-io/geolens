@@ -172,7 +172,8 @@ def unrestorable_changes(api):
     """Name what the seed would change on this target that restore cannot undo.
 
     Restore puts back catalog fields by current name. It cannot bring back a
-    renamed legacy row or the uploaded rows that a service conversion swaps out.
+    renamed legacy row, rows a conversion or reupload swaps out, or a null
+    description.
     """
     maps = api.list_maps()
     titles = api.datasets_by_title()
@@ -184,6 +185,16 @@ def unrestorable_changes(api):
     for title in (seed.QUAKES_TITLE, seed.QUAKES_HEAT_TITLE):
         if title in titles and api.dataset_origin(titles[title]) != "service":
             problems.append(f"{title!r} is not bound to its service")
+    meteorites = titles.get("Meteorite Landings (Meteoritical Society)")
+    if meteorites and (api.dataset_feature_count(meteorites) or 0) < 20000:
+        problems.append("the meteorite dataset would be reuploaded in place")
+    # Restore cannot clear a description back to null.
+    for name in set(seed.MAP_DESCRIPTIONS) & set(maps):
+        if not api.get_map(maps[name]).get("description"):
+            problems.append(f"{name!r} has no description")
+    for item in api.list_collections():
+        if item["name"] in COLLECTION_NAMES and not item.get("description"):
+            problems.append(f"collection {item['name']!r} has no description")
     # A rollback leaves these private; a builder would republish some of them
     # before refusing the rest.
     if seed.CITY_SHADE_MAP in maps and (

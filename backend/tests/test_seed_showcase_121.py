@@ -202,11 +202,21 @@ def test_restore_does_not_guess_between_two_replacement_candidates():
 
 
 class TargetApi:
-    def __init__(self, maps=(), titles=None, origin="service", visibility="public"):
+    def __init__(
+        self,
+        maps=(),
+        titles=None,
+        origin="service",
+        visibility="public",
+        features=32186,
+        description="text",
+    ):
         self.maps = {name: f"{name}-id" for name in maps}
         self.titles = titles or {seed.QUAKES_TITLE: "q", seed.QUAKES_HEAT_TITLE: "h"}
         self.origin = origin
         self.visibility = visibility
+        self.features = features
+        self.description = description
 
     def list_maps(self):
         return self.maps
@@ -218,10 +228,16 @@ class TargetApi:
         return self.origin
 
     def get_map(self, _):
-        return {"visibility": self.visibility}
+        return {"visibility": self.visibility, "description": self.description}
 
     def get_dataset(self, _):
         return {"visibility": self.visibility}
+
+    def dataset_feature_count(self, _):
+        return self.features
+
+    def list_collections(self):
+        return [{"name": "Human World", "description": self.description}]
 
 
 def test_guarded_update_accepts_a_service_bound_target_without_legacy_rows():
@@ -236,6 +252,11 @@ def test_guarded_update_accepts_a_service_bound_target_without_legacy_rows():
         TargetApi(titles={seed.QUAKES_TITLE_LEGACY: "legacy"}),
         TargetApi(maps=[seed.CITY_SHADE_MAP], visibility="private"),
         TargetApi(titles={seed.COPC_TITLE: "copc"}, visibility="private"),
+        TargetApi(
+            titles={"Meteorite Landings (Meteoritical Society)": "m"}, features=4800
+        ),
+        TargetApi(maps=["Restless Earth"], description=None),
+        TargetApi(description=""),
     ],
 )
 def test_guarded_update_names_changes_restore_cannot_undo(api):
