@@ -202,6 +202,8 @@ def test_restore_does_not_guess_between_two_replacement_candidates():
 
 
 class TargetApi:
+    user_id = "u"
+
     def __init__(
         self,
         maps=(),
@@ -211,7 +213,9 @@ class TargetApi:
         features=32186,
         description="text",
     ):
-        self.maps = {name: f"{name}-id" for name in maps}
+        names = state.MAP_NAMES - {seed.CITY_SHADE_MAP} if maps == () else maps
+        self.maps = {name: f"{name}-id" for name in names}
+        self.jobs = 0
         self.titles = titles or {seed.QUAKES_TITLE: "q", seed.QUAKES_HEAT_TITLE: "h"}
         self.origin = origin
         self.visibility = visibility
@@ -240,26 +244,46 @@ class TargetApi:
         return [{"name": "Human World", "description": self.description}]
 
 
-def test_guarded_update_accepts_a_service_bound_target_without_legacy_rows():
+@pytest.fixture
+def job_counts(monkeypatch):
+    counts = {"pending": 0, "running": 0}
+
+    def fake_get(_api, path):
+        status = path.split("status=")[1].split("&")[0]
+        return {"total": counts[status]}
+
+    monkeypatch.setattr(state, "get", fake_get)
+    return counts
+
+
+def test_guarded_update_accepts_a_service_bound_target_without_legacy_rows(job_counts):
     assert state.unrestorable_changes(TargetApi()) == []
+
+
+def test_guarded_update_waits_for_a_running_job(job_counts):
+    job_counts["running"] = 1
+    assert state.unrestorable_changes(TargetApi()) == [
+        "this account has pending or running jobs"
+    ]
 
 
 @pytest.mark.parametrize(
     "api",
     [
         TargetApi(origin="upload"),
-        TargetApi(maps=[seed.HURRICANE_MAP_LEGACY]),
+        TargetApi(maps=[*state.MAP_NAMES, seed.HURRICANE_MAP_LEGACY]),
+        TargetApi(maps=[seed.CITY_SHADE_MAP]),
         TargetApi(titles={seed.QUAKES_TITLE_LEGACY: "legacy"}),
-        TargetApi(maps=[seed.CITY_SHADE_MAP], visibility="private"),
+        TargetApi(maps=[*state.MAP_NAMES], visibility="private"),
         TargetApi(titles={seed.COPC_TITLE: "copc"}, visibility="private"),
         TargetApi(
             titles={"Meteorite Landings (Meteoritical Society)": "m"}, features=4800
         ),
-        TargetApi(maps=["Restless Earth"], description=None),
+        TargetApi(description=None),
         TargetApi(description=""),
     ],
 )
-def test_guarded_update_names_changes_restore_cannot_undo(api):
+def test_guarded_update_names_changes_restore_cannot_undo(api, job_counts):
     assert state.unrestorable_changes(api)
 
 
@@ -401,3 +425,15 @@ def test_guarded_preflight_refuses_an_unknown_camera_before_writing():
     moved = {"center_lng": 0.0, "center_lat": 0.0, "zoom": 3.0}
     api = CameraApi({name: moved for name in seed.MAP_VIEW_FIXES})
     assert len(seed.view_baseline_problems(api)) == len(seed.MAP_VIEW_FIXES)
+
+
+class UnstylableApi:
+    def list_maps(self):
+        return {"Restless Earth": "restless"}
+
+    def get_map(self, _):
+        raise seed.httpx.TimeoutException("lost response")
+
+
+def test_styling_reports_a_map_it_could_not_style():
+    assert seed.apply_showcase_styling(UnstylableApi()) == ["Restless Earth"]

@@ -166,6 +166,8 @@ examples. No AI step is required.
    Avoid `--force`, `--force-pinned`, `--prune`, and `--prune-userdata`. If a
    source or expected-state check fails, stop and inspect the target. The
    seed also refuses when it would change something restore cannot undo: a
+   pending or running job on the seeding account, any of the seven existing
+   showcase maps missing (rebuilding one rewrites its datasets), a
    legacy map or dataset name it would rename, or an earthquake dataset that
    is not yet bound to its USGS service, a meteorite dataset under 20,000
    features (the seed would reupload it), or a showcase map or collection with
@@ -213,7 +215,8 @@ examples. No AI step is required.
    dataset the seed's metadata pass edits, including the Sentinel-2 scenes and
    swissALTI3D tiles matched by title prefix. All refusals are checked before
    the first write. Restore waits 61 seconds for the cached admin dataset list
-   before reading the target. After writing, it reads the target again and exits
+   and refuses while the account still has a pending or running job, since
+   one could publish after the restore. It then reads the target. After writing, it reads the target again and exits
    nonzero, naming each map, dataset, or collection that still differs from
    the bundle, or any new showcase map or dataset still public. One case it
    would report: a description the API cannot clear back to null.
@@ -223,8 +226,9 @@ examples. No AI step is required.
    After a rollback, the guarded seed refuses before any write while the City
    in Shade map or any new sample dataset is private. Review them and publish
    them deliberately (datasets first, then the map) before applying again.
-   A guarded update skips the automatic Sentinel-2 refresh, because a moved
-   asset pointer is outside the snapshot.
+   A guarded update skips the automatic Sentinel-2 refresh and the private
+   embed builder, whose results are outside the snapshot, and exits nonzero if
+   any styling write fails.
    It does not delete the new datasets or restore the whole database. Confirm
    the original pinned URLs, access, and embed behavior after restoration.
 

@@ -6342,7 +6342,7 @@ def _layer_style_delta(
     return paint_delta, builder_delta, field_delta, reasons
 
 
-def apply_showcase_styling(api: "Api") -> None:
+def apply_showcase_styling(api: "Api") -> list[str]:
     """Legend titles, notes, folder groups, pitch-aligned circles and the
     exposure map's context layer - applied to whatever showcase maps exist.
 
@@ -6358,6 +6358,7 @@ def apply_showcase_styling(api: "Api") -> None:
     maps = api.list_maps()
     # Resolved once, and only if a map that needs it actually exists.
     live_quakes: bool | None = None
+    unstyled: list[str] = []
     for name, map_id in sorted(maps.items()):
         # Every table that can carry work for a map has to be in this guard, or
         # that work silently never runs. MAP_LAYER_STYLE_FIXES reaches Restless
@@ -6455,6 +6456,8 @@ def apply_showcase_styling(api: "Api") -> None:
                     )
         except (httpx.HTTPStatusError, httpx.TimeoutException) as e:
             print(f"  WARNING: could not style {name!r}: {e}", file=sys.stderr)
+            unstyled.append(name)
+    return unstyled
 
 
 def apply_globe_projection(api: "Api") -> None:
@@ -6843,7 +6846,10 @@ def main() -> int:
             )
         # collections + embed LAST: they reference the datasets above.
         builders.append(("collections", fns["collections"]))
-        builders.append(("embed", fns["embed"]))
+        # A guarded update skips it: a new embed map and token are outside the
+        # snapshot, so a rollback could not withdraw them.
+        if not args.expected_state:
+            builders.append(("embed", fns["embed"]))
     for bname, fn in builders:
         # One flaky upstream must not kill the whole seed (e.g. the NYC
         # buildings table mid-replace): isolate each builder, report at end.
@@ -6889,7 +6895,9 @@ def main() -> int:
     apply_globe_projection(api)
 
     print("\nApplying showcase styling (legends, groups, context layer)...")
-    apply_showcase_styling(api)
+    unstyled = apply_showcase_styling(api)
+    if unstyled and args.expected_state:
+        failed["styling"] = ", ".join(unstyled)
 
     # The scenes are imported by reference, so a refresh is what proves it:
     # skipped when --no-sentinel2 meant none were built, when --only built

@@ -168,6 +168,16 @@ def write_private(path, state):
 MATTERHORN_REPAIR_LAYERS = {"Climbing routes (OSM)", "Route casing", "Peaks"}
 
 
+def active_jobs(api):
+    """Count this account's pending or running jobs; one may still publish."""
+    return sum(
+        get(api, f"/api/admin/jobs/?status={status}&user_id={api.user_id}&limit=1")[
+            "total"
+        ]
+        for status in ("pending", "running")
+    )
+
+
 def unrestorable_changes(api):
     """Name what the seed would change on this target that restore cannot undo.
 
@@ -178,6 +188,11 @@ def unrestorable_changes(api):
     maps = api.list_maps()
     titles = api.datasets_by_title()
     problems = []
+    if active_jobs(api):
+        problems.append("this account has pending or running jobs")
+    # Rebuilding a missing map reuses and rewrites its existing datasets.
+    for name in sorted(MAP_NAMES - {seed.CITY_SHADE_MAP} - set(maps)):
+        problems.append(f"map {name!r} is missing")
     if seed.HURRICANE_MAP_LEGACY in maps:
         problems.append(f"legacy map name {seed.HURRICANE_MAP_LEGACY!r}")
     if seed.QUAKES_TITLE_LEGACY in titles:
@@ -446,6 +461,8 @@ def restore(api, saved):
     # update committed just before it stopped.
     print("waiting 61 s for the cached admin dataset list to expire...")
     time.sleep(61)
+    if active_jobs(api):
+        raise RuntimeError("wait for this account's pending or running jobs to finish")
     current = snapshot(api)
     rebind_replaced_layers(saved, current)
     verify_restorable(api, saved, current)
