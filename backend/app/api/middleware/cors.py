@@ -1,5 +1,6 @@
 """Dynamic CORS middleware that reads allowed origins from PersistentConfig."""
 
+import re
 import time
 
 from starlette import status
@@ -36,6 +37,23 @@ _PUBLIC_SEARCH_PATHS: tuple[str, ...] = (
 # preflight promises a method the route refuses.
 _STANDARDS_PUBLIC_METHODS = "GET, HEAD, POST, OPTIONS"
 _SEARCH_PUBLIC_METHODS = "GET, OPTIONS"
+
+# A COPC or 3D Tiles file route checks read access before anything else it
+# answers, and passes an anonymous caller only for a public, published dataset.
+# ``_dispatch`` adds the wildcard only to the statuses those routes give after
+# that check (a success, a failed precondition, an unsatisfiable range or a
+# storage failure), so a private dataset's 404 stays identical to an unknown
+# one's. A 429 also gets it: the COPC limits refuse a read before the dataset
+# is looked up and count per client, so every id gets the same one. The
+# preflight is answered by path, the same for every id.
+_PUBLIC_ASSET_PATHS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(r"/datasets/[^/]+/copc/[^/]+/[^/]+\.copc\.laz"),
+        "GET, HEAD, OPTIONS",
+    ),
+    (re.compile(r"/datasets/[^/]+/tiles3d/.+"), "GET, OPTIONS"),
+)
+_ASSET_WILDCARD_STATUSES = frozenset({200, 206, 304, 412, 416, 429, 502})
 
 
 def _merge_vary_origin(response: Response) -> None:
@@ -117,6 +135,11 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
                     response = Response(status_code=status.HTTP_200_OK)
                 else:
                     response = await call_next(request)
+                    if (
+                        self._public_asset_methods(request) is not None
+                        and response.status_code not in _ASSET_WILDCARD_STATUSES
+                    ):
+                        return response
                 self._set_public_cors_headers(response, request, allow_methods)
                 return response
 
@@ -221,19 +244,31 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         return standards_api_path(cls._request_path(request))
 
     @classmethod
+    def _public_asset_methods(cls, request: Request) -> str | None:
+        request_path = cls._request_path(request)
+        for pattern, allow_methods in _PUBLIC_ASSET_PATHS:
+            if pattern.fullmatch(request_path):
+                return allow_methods
+        return None
+
+    @classmethod
     def _anonymous_public_methods(cls, request: Request) -> str | None:
         """Return the ``Allow-Methods`` value for an anonymous wildcard answer.
 
         ``None`` means the request doesn't qualify, falling through to
-        the explicit-origin policy or no CORS headers. Standards routes
-        serve GET/HEAD/POST on ``/stac/search``; ``_PUBLIC_SEARCH_PATHS``
-        serves GET only — advertising more than the route answers is
-        fix(#1470). Everything after the surface check is shared
+        the explicit-origin policy or no CORS headers. Each surface
+        advertises only the methods its routes answer: standards routes
+        GET/HEAD, plus POST on ``/stac/search``; search GET; the asset
+        files their own set, with the range and conditional request headers
+        allowed in the preflight. Everything after the surface check is shared
         deliberately: the credential exclusion and safelisted-header
         check make a wildcard safe, and a new surface must not opt out.
         """
         request_path = cls._request_path(request)
         standards_path = standards_api_path(request_path)
+        asset_methods = cls._public_asset_methods(request)
+        asset_headers: set[str] = set()
+        stac_search = False
         if standards_path is not None:
             allow_methods = _STANDARDS_PUBLIC_METHODS
             permitted = {"GET", "HEAD"}
@@ -241,7 +276,10 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         elif request_path in _PUBLIC_SEARCH_PATHS:
             allow_methods = _SEARCH_PUBLIC_METHODS
             permitted = {"GET"}
-            stac_search = False
+        elif asset_methods is not None:
+            allow_methods = asset_methods
+            permitted = {m.strip() for m in asset_methods.split(",")} - {"OPTIONS"}
+            asset_headers = {"range", "if-range", "if-none-match", "if-match"}
         else:
             return None
 
@@ -279,7 +317,7 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
             "content-language",
             "content-type",
         }
-        if not requested_headers <= allowed_headers:
+        if not requested_headers <= allowed_headers | asset_headers:
             return None
         return allow_methods
 
@@ -289,13 +327,11 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
     ) -> None:
         """Answer an anonymous public request with the credential-free policy.
 
-        Expose-Headers is shared across both public surfaces, covering
-        what a browser would otherwise hide: ``Vary``/``Content-Language``/
-        ``Link`` (only ``Link`` isn't CORS-safelisted), plus
-        ``Retry-After`` (also unsafelisted — without it a cross-origin
-        caller can't read the retry window on a 429, #1601).
+        Expose-Headers is shared across the public surfaces and names the
+        unsafelisted headers they send, such as ``Link``, ``Retry-After``
+        on a 429, and the range validators an asset file answers with.
 
-        fix(#1602): a ``*`` answer doesn't strictly need ``Vary: Origin``,
+        A ``*`` answer doesn't strictly need ``Vary: Origin``,
         but this path shares a URL/cache entry with the credentialed
         policy, and a stored wildcard is indistinguishable from a stored
         echoed origin once cached; ``dispatch`` sets the header on every
@@ -308,6 +344,7 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
             response.headers["Access-Control-Allow-Headers"] = requested_headers
         response.headers["Access-Control-Expose-Headers"] = (
             "Link, Content-Crs, Content-Language, Retry-After, "
+            "ETag, Content-Range, Accept-Ranges, "
             "X-GeoLens-Source-Dataset-Count, X-GeoLens-Serialized-Dataset-Count, "
             "X-GeoLens-Excluded-Dataset-Count, "
             "X-GeoLens-Metadata-Fallback-Dataset-Count, "

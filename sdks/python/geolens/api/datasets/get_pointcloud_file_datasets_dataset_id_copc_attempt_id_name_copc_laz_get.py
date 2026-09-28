@@ -134,10 +134,11 @@ def sync_detailed(
     units; any other read of the file, such as one without ``Range``, counts
     against a limit of 10 a minute instead. Past any of these the read answers
     429.
-    Through the bundled web server a page on any origin can read the file,
-    with header credentials or none; the API alone allows only the origins in
-    ``CORS_ALLOWED_ORIGINS``. A private, missing or replaced point cloud
-    answers 404, and a storage failure answers 502.
+    A page on any origin can read a public file without credentials. Through
+    the bundled web server it can also send header credentials; the API alone
+    accepts those only from the origins in ``CORS_ALLOWED_ORIGINS``. A
+    private, missing or replaced point cloud answers 404, and a storage
+    failure answers 502.
 
     Args:
         dataset_id (UUID):
@@ -188,10 +189,11 @@ def sync(
     units; any other read of the file, such as one without ``Range``, counts
     against a limit of 10 a minute instead. Past any of these the read answers
     429.
-    Through the bundled web server a page on any origin can read the file,
-    with header credentials or none; the API alone allows only the origins in
-    ``CORS_ALLOWED_ORIGINS``. A private, missing or replaced point cloud
-    answers 404, and a storage failure answers 502.
+    A page on any origin can read a public file without credentials. Through
+    the bundled web server it can also send header credentials; the API alone
+    accepts those only from the origins in ``CORS_ALLOWED_ORIGINS``. A
+    private, missing or replaced point cloud answers 404, and a storage
+    failure answers 502.
 
     Args:
         dataset_id (UUID):
@@ -237,10 +239,11 @@ async def asyncio_detailed(
     units; any other read of the file, such as one without ``Range``, counts
     against a limit of 10 a minute instead. Past any of these the read answers
     429.
-    Through the bundled web server a page on any origin can read the file,
-    with header credentials or none; the API alone allows only the origins in
-    ``CORS_ALLOWED_ORIGINS``. A private, missing or replaced point cloud
-    answers 404, and a storage failure answers 502.
+    A page on any origin can read a public file without credentials. Through
+    the bundled web server it can also send header credentials; the API alone
+    accepts those only from the origins in ``CORS_ALLOWED_ORIGINS``. A
+    private, missing or replaced point cloud answers 404, and a storage
+    failure answers 502.
 
     Args:
         dataset_id (UUID):
@@ -289,10 +292,11 @@ async def asyncio(
     units; any other read of the file, such as one without ``Range``, counts
     against a limit of 10 a minute instead. Past any of these the read answers
     429.
-    Through the bundled web server a page on any origin can read the file,
-    with header credentials or none; the API alone allows only the origins in
-    ``CORS_ALLOWED_ORIGINS``. A private, missing or replaced point cloud
-    answers 404, and a storage failure answers 502.
+    A page on any origin can read a public file without credentials. Through
+    the bundled web server it can also send header credentials; the API alone
+    accepts those only from the origins in ``CORS_ALLOWED_ORIGINS``. A
+    private, missing or replaced point cloud answers 404, and a storage
+    failure answers 502.
 
     Args:
         dataset_id (UUID):
