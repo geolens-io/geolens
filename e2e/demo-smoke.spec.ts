@@ -7,7 +7,8 @@ const SHOWCASE_MAP_NAMES = [
   'Hurricane Alley - Major Atlantic Storms Since 1950',
   'Hurricane Exposure - Which Coasts the Major Storms Reach',
   'Everything That Fell From the Sky',
-  'New York From Orbit - Sentinel-2',
+  'New York From Orbit - Sentinel-2, by Reference',
+  'City in Shade: Tree Cover Change, 2010-2017',
 ] as const;
 
 const CLOUDFLARE_BEACON =
@@ -43,6 +44,8 @@ const PROVIDER_AUTH_HOSTS: Record<string, string> = {
 // Parsed the same way playwright.demo.config.ts derives baseURL, so the
 // redirect_uri check is pinned to the actual target, not a loose pattern.
 const DEMO_ORIGIN = new URL(process.env.E2E_DEMO_BASE_URL!).origin;
+// The geolens-examples pages read the client samples from this origin.
+const EXAMPLES_ORIGIN = process.env.E2E_EXAMPLES_ORIGIN ?? 'https://geolens-io.github.io';
 
 type BrowserDiagnostics = {
   assertClean: () => void;
@@ -189,6 +192,39 @@ test.describe('live demo read-only smoke', () => {
       expect(Array.isArray(body[entriesKey]), `${endpoint} omitted ${entriesKey}`).toBe(true);
       expect(body[entriesKey].length, `${endpoint} returned no public entries`).toBeGreaterThan(0);
     }
+  });
+
+  test('public client samples serve COPC ranges and a 3D Tiles manifest', async ({ request }) => {
+    async function findDataset(title: string) {
+      const search = await request.get(`/api/collections/datasets/items?q=${encodeURIComponent(title)}&limit=100`);
+      expect(search.ok(), `catalog search for ${title} returned HTTP ${search.status()}`).toBeTruthy();
+      const items = (await search.json()).features as Array<{ id: string; properties: { title: string } }>;
+      const matches = items.filter((item) => item.properties.title === title);
+      expect(matches, `expected one public dataset named ${title}`).toHaveLength(1);
+      const response = await request.get(`/api/datasets/${matches[0].id}`);
+      expect(response.ok(), `${title} detail returned HTTP ${response.status()}`).toBeTruthy();
+      return response.json();
+    }
+
+    const copc = await findDataset('Autzen Stadium Classified Point Cloud (COPC)');
+    expect(copc.record_type).toBe('pointcloud_dataset');
+    // The request client skips browser CORS, so the allow-origin header is checked here.
+    const allowsExamples = (response: { headers(): Record<string, string> }) =>
+      ['*', EXAMPLES_ORIGIN].includes(response.headers()['access-control-allow-origin']);
+    const range = await request.get(copc.pointcloud.url, {
+      headers: { Range: 'bytes=0-15', Origin: EXAMPLES_ORIGIN },
+    });
+    expect(range.status()).toBe(206);
+    expect(allowsExamples(range), `COPC range is not readable from ${EXAMPLES_ORIGIN}`).toBe(true);
+    expect(range.headers()['content-range']).toMatch(/^bytes 0-15\/\d+$/);
+    expect((await range.body()).length).toBe(16);
+
+    const tiles = await findDataset('Amsterdam Canal Buildings (3DBAG 3D Tiles)');
+    expect(tiles.record_type).toBe('tiles3d_dataset');
+    const manifest = await request.get(tiles.tileset.url, { headers: { Origin: EXAMPLES_ORIGIN } });
+    expect(manifest.ok(), `3D Tiles manifest returned HTTP ${manifest.status()}`).toBeTruthy();
+    expect(allowsExamples(manifest), `3D Tiles manifest is not readable from ${EXAMPLES_ORIGIN}`).toBe(true);
+    expect((await manifest.json()).root).toBeTruthy();
   });
 
   test('anonymous catalog and sign-in surfaces fit a mobile viewport', async ({ page }) => {

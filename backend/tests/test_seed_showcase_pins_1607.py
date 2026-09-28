@@ -65,6 +65,8 @@ def test_pinned_dataset_titles_name_every_externally_referenced_dataset():
         # geolens-examples' sentinelNYHarbor fixture; the title embeds the
         # pinned scene id (build_sentinel2).
         f"Sentinel-2 TCI {seeder.PINNED_HARBOR_SCENE_ID}",
+        seeder.COPC_TITLE,
+        seeder.TILES3D_TITLE,
     )
 
 
@@ -193,12 +195,21 @@ def test_every_builder_checks_existence_through_the_pin_helper():
 
 
 def test_the_guard_is_not_vacuous():
-    """An empty list above must mean 'all routed', not 'no call sites left'.
-
-    One per builder that owns a map: restless, manhattan, hurricanes,
-    hurricane-exposure, meteorites, matterhorn, sentinel2, embed.
-    """
-    assert _guarded_map_exists_count(SOURCE) >= 8
+    """Every map builder must route its existing-map decision through the pin helper."""
+    tree = ast.parse(SOURCE)
+    guarded_builders = {
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef)
+        and node.name.startswith("build_")
+        and any(
+            isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Name)
+            and call.func.id == "_keep_existing_map"
+            for call in ast.walk(node)
+        )
+    }
+    assert len(guarded_builders) >= 8
 
 
 def test_the_guard_catches_the_old_bare_shape():
