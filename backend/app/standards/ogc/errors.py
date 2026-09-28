@@ -83,10 +83,35 @@ UNRESOLVABLE_CREDENTIAL_RESPONSE = {
         "Unauthenticated — a credential was supplied and could not be resolved "
         "(expired, revoked, or malformed). Sending no credential at all is not "
         "an error on these operations; they answer anonymously with the public "
+        "subset."
+    ),
+}
+
+# Only for the tile-serving routes that accept a signed template as well as
+# an embed token; every other operation uses one of the responses below.
+UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_CAPABILITY = {
+    **PROBLEM_RESPONSE,
+    "description": (
+        "Unauthenticated — a credential was supplied and could not be resolved "
+        "(expired, revoked, or malformed). Sending no credential at all is not "
+        "an error on these operations; they answer anonymously with the public "
         "subset. Neither is sending an unresolvable credential alongside a "
         "capability that authorizes the request on its own — a valid "
         "X-Embed-Token or a valid signed tile template (sig, exp, scope). Those "
         "are served and the unrelated credential is ignored."
+    ),
+}
+
+# For operations that accept X-Embed-Token but not a signed template.
+UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_EMBED_TOKEN = {
+    **PROBLEM_RESPONSE,
+    "description": (
+        "Unauthenticated — a credential was supplied and could not be resolved "
+        "(expired, revoked, or malformed). Sending no credential at all is not "
+        "an error on these operations; they answer anonymously with the public "
+        "subset. Neither is sending an unresolvable credential alongside a "
+        "valid X-Embed-Token that authorizes the request on its own. That "
+        "request is served and the unrelated credential is ignored."
     ),
 }
 
