@@ -1547,10 +1547,10 @@ async def test_search_datasets_raster_properties_survive_response_model(
             dtype="uint16",
             nodata="0",
             band_info=[
-                {"name": "Red", "dtype": "uint16", "nodata": 0},
-                {"name": "Green", "dtype": "uint16", "nodata": 0},
-                {"name": "Blue", "dtype": "uint16", "nodata": 0},
-                {"name": "NIR", "dtype": "uint16", "nodata": 0},
+                {"name": "Red", "dtype": "uint16", "nodata": "0.0"},
+                {"name": "Green", "dtype": "uint16", "nodata": "0.0"},
+                {"name": "Blue", "dtype": "uint16", "nodata": "0.0"},
+                {"name": "NIR", "dtype": "uint16", "nodata": "0.0"},
             ],
         ),
     )
