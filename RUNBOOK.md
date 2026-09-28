@@ -3104,7 +3104,10 @@ docker compose exec api uv run --no-dev python -m scripts.backfill_tileset_exten
 docker compose exec api uv run --no-dev python -m scripts.backfill_tileset_extents
 ```
 
-Add `-f docker-compose.prod.yml` when that is the file your install runs. The
+Add `-f docker-compose.prod.yml` when that is the file your install runs.
+With `GEOLENS_TENANCY_MODE=multi_tenant`, run both commands once for each
+tenant, adding `--tenant <tenant id>`; without it the script exits 2 before
+reading anything. `SELECT id, slug FROM catalog.tenants;` lists the ids. The
 script reads and writes only 3D Tiles datasets with no extent, so a rerun is
 safe. Backfilled datasets show a new updated time, since each record gains an
 extent. It lists each dataset it updates, skips or fails, with the reason. Only a tileset
