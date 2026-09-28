@@ -13,7 +13,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { renderHook } from '@/test/test-utils';
-import { buildLayerDiff, reconcileLayerDiffWithServer, useBuilderSave, __resetThumbnailDebounceForTests } from '@/components/builder/hooks/use-builder-save';
+import { buildLayerDiff, reconcileLayerDiffWithServer, useBuilderSave, shouldAutoCapture, __resetThumbnailDebounceForTests } from '@/components/builder/hooks/use-builder-save';
 import { stampPersistedFolderGroupExpanded } from '@/components/builder/folder-groups';
 import { usePluginStore } from '@/stores/map-plugin-store';
 import type { MapLayerResponse, MapTerrainConfig } from '@/types/api';
@@ -184,6 +184,7 @@ function createMockMap(
     getBearing: vi.fn(() => 0),
     getPitch: vi.fn(() => 0),
     getSource: vi.fn<(sourceId: string) => unknown>(() => undefined),
+    isSourceLoaded: vi.fn<(sourceId: string) => boolean>(() => true),
     triggerRepaint: vi.fn(),
     once: vi.fn(),
     off: vi.fn(),
@@ -1975,6 +1976,355 @@ describe('useBuilderSave', () => {
       expect(mockUploadThumbnail).toHaveBeenCalledTimes(1);
 
       vi.useRealTimers();
+    });
+
+    it('waits past the fallback for a loading raster source and captures on idle', async () => {
+      vi.useFakeTimers();
+      const mockMap = createMockMap({ loaded: false });
+      mockMap.getSource.mockImplementation((sourceId: string) =>
+        sourceId === 'source-layer-1' ? { type: 'raster' } : undefined,
+      );
+      mockMap.isSourceLoaded.mockReturnValue(false);
+
+      const state = makeSaveState({
+        localLayers: [makeLayer({ layer_type: 'raster_geolens' })],
+        mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+      });
+      const { result } = renderHook(() => useBuilderSave(state));
+      await act(async () => { await result.current.handleSave(); });
+      act(() => { vi.advanceTimersByTime(500); });
+      act(() => { vi.advanceTimersByTime(3000); });
+
+      expect(mockUpdateMapMutateAsync).toHaveBeenCalled();
+      expect(mockMap.triggerRepaint).not.toHaveBeenCalled();
+
+      mockMap.isSourceLoaded.mockReturnValue(true);
+      const idle = mockMap.once.mock.calls.find((c: unknown[]) => c[0] === 'idle');
+      act(() => { (idle?.[1] as () => void)(); });
+      expect(mockMap.triggerRepaint).toHaveBeenCalled();
+
+      vi.useRealTimers();
+      await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
+      expect(mockUploadThumbnail).toHaveBeenCalledWith('map-1', expect.stringContaining('data:image/jpeg'));
+    });
+
+    it('drops a deferred capture when the map was edited after the save', async () => {
+      vi.useFakeTimers();
+      const mockMap = createMockMap({ loaded: false });
+      mockMap.getSource.mockImplementation((sourceId: string) =>
+        sourceId === 'source-layer-1' ? { type: 'raster' } : undefined,
+      );
+      mockMap.isSourceLoaded.mockReturnValue(false);
+
+      let state = makeSaveState({
+        localLayers: [makeLayer({ layer_type: 'raster_geolens' })],
+        mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+      });
+      const { result, rerender } = renderHook(() => useBuilderSave(state));
+      await act(async () => { await result.current.handleSave(); });
+      act(() => { vi.advanceTimersByTime(3500); });
+
+      state = { ...state, hasUnsavedChanges: true };
+      rerender();
+      mockMap.isSourceLoaded.mockReturnValue(true);
+      const idle = mockMap.once.mock.calls.find((c: unknown[]) => c[0] === 'idle');
+      act(() => { (idle?.[1] as () => void)(); });
+
+      expect(mockMap.triggerRepaint).not.toHaveBeenCalled();
+
+      vi.useRealTimers();
+    });
+
+    it('drops a capture edited between scheduling and render, and re-arms auto-capture', async () => {
+      vi.useFakeTimers();
+      expect(shouldAutoCapture('map-1', 'user-1')).toBe(true);
+      const mockMap = createMockMap({ loaded: true });
+      let state = makeSaveState({
+        mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+      });
+      const { result, rerender } = renderHook(() => useBuilderSave(state));
+      await act(async () => { await result.current.handleSave(); });
+      act(() => { vi.advanceTimersByTime(500); });
+      expect(mockMap.triggerRepaint).toHaveBeenCalled();
+
+      state = { ...state, hasUnsavedChanges: true };
+      rerender();
+      vi.useRealTimers();
+      await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
+
+      expect(mockUploadThumbnail).not.toHaveBeenCalled();
+      expect(shouldAutoCapture('map-1', 'user-1')).toBe(true);
+    });
+
+    it('drops an older deferred capture once a newer save has scheduled its own', async () => {
+      vi.useFakeTimers();
+      const mockMap = createMockMap({ loaded: false });
+      mockMap.getSource.mockImplementation((sourceId: string) =>
+        sourceId === 'source-layer-1' ? { type: 'raster' } : undefined,
+      );
+      mockMap.isSourceLoaded.mockReturnValue(false);
+
+      const state = makeSaveState({
+        localLayers: [makeLayer({ layer_type: 'raster_geolens' })],
+        mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+      });
+      const { result } = renderHook(() => useBuilderSave(state));
+      await act(async () => { await result.current.handleSave(); });
+      act(() => { vi.advanceTimersByTime(3500); });
+      await act(async () => { await result.current.handleSave(); });
+      act(() => { vi.advanceTimersByTime(500); });
+
+      mockMap.isSourceLoaded.mockReturnValue(true);
+      const firstIdle = mockMap.once.mock.calls.find((c: unknown[]) => c[0] === 'idle');
+      act(() => { (firstIdle?.[1] as () => void)(); });
+
+      expect(mockMap.triggerRepaint).not.toHaveBeenCalled();
+
+      vi.useRealTimers();
+    });
+
+    it('drops a capture once the builder has moved to another map', async () => {
+      vi.useFakeTimers();
+      const mockMap = createMockMap({ loaded: true });
+      let state = makeSaveState({
+        mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+      });
+      const { result, rerender } = renderHook(() => useBuilderSave(state));
+      await act(async () => { await result.current.handleSave(); });
+      act(() => { vi.advanceTimersByTime(500); });
+
+      state = { ...state, mapId: 'map-2' };
+      rerender();
+      vi.useRealTimers();
+      await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
+
+      expect(mockUploadThumbnail).not.toHaveBeenCalled();
+    });
+
+    it('holds a capture while the terrain source is still loading', async () => {
+      vi.useFakeTimers();
+      const mockMap = createMockMap({ loaded: false });
+      mockMap.getSource.mockImplementation((sourceId: string) =>
+        sourceId === 'terrain-dem' ? { type: 'raster-dem' } : undefined,
+      );
+      mockMap.isSourceLoaded.mockReturnValue(false);
+
+      const state = makeSaveState({
+        localLayers: [makeLayer({ layer_type: 'raster_geolens', is_dem: true })],
+        mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+      });
+      const { result } = renderHook(() => useBuilderSave(state));
+      await act(async () => { await result.current.handleSave(); });
+      act(() => { vi.advanceTimersByTime(500); });
+      act(() => { vi.advanceTimersByTime(5100); });
+      act(() => { vi.advanceTimersByTime(3000); });
+
+      expect(mockMap.triggerRepaint).not.toHaveBeenCalled();
+
+      vi.useRealTimers();
+    });
+
+    it('holds a capture on a map with no visible layers while its raster basemap loads', async () => {
+      vi.useFakeTimers();
+      const mockMap = createMockMap({ loaded: false });
+      mockMap.getStyle.mockReturnValue({
+        sources: { basemap: { attribution: '' } },
+        layers: [{ id: 'basemap', source: 'basemap', layout: {} }],
+      });
+      mockMap.getSource.mockImplementation((sourceId: string) =>
+        sourceId === 'basemap' ? { type: 'raster' } : undefined,
+      );
+      mockMap.isSourceLoaded.mockReturnValue(false);
+
+      const state = makeSaveState({
+        mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+      });
+      const { result } = renderHook(() => useBuilderSave(state));
+      await act(async () => { await result.current.handleSave(); });
+      act(() => { vi.advanceTimersByTime(3500); });
+
+      expect(mockMap.triggerRepaint).not.toHaveBeenCalled();
+
+      vi.useRealTimers();
+    });
+
+    it('does not hold a capture for a hidden raster layer that is still loading', async () => {
+      vi.useFakeTimers();
+      const mockMap = createMockMap({ loaded: false });
+      mockMap.getStyle.mockReturnValue({
+        sources: { hidden: { attribution: '' } },
+        layers: [{ id: 'hidden', source: 'hidden', layout: { visibility: 'none' } }],
+      });
+      mockMap.getSource.mockImplementation((sourceId: string) =>
+        sourceId === 'hidden' ? { type: 'raster' } : undefined,
+      );
+      mockMap.isSourceLoaded.mockReturnValue(false);
+
+      const state = makeSaveState({
+        mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+      });
+      const { result } = renderHook(() => useBuilderSave(state));
+      await act(async () => { await result.current.handleSave(); });
+      act(() => { vi.advanceTimersByTime(3500); });
+
+      expect(mockMap.triggerRepaint).toHaveBeenCalled();
+
+      vi.useRealTimers();
+    });
+
+    it('holds a capture while a raster basemap is still loading', async () => {
+      vi.useFakeTimers();
+      const mockMap = createMockMap({ loaded: false });
+      mockMap.getStyle.mockReturnValue({
+        sources: { basemap: { attribution: '' } },
+        layers: [{ id: 'basemap', source: 'basemap', layout: {} }],
+      });
+      mockMap.getSource.mockImplementation((sourceId: string) =>
+        sourceId === 'basemap' ? { type: 'raster' } : undefined,
+      );
+      mockMap.isSourceLoaded.mockReturnValue(false);
+
+      const state = makeSaveState({
+        localLayers: [makeLayer({ layer_type: 'raster_geolens' })],
+        mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+      });
+      const { result } = renderHook(() => useBuilderSave(state));
+      await act(async () => { await result.current.handleSave(); });
+      act(() => { vi.advanceTimersByTime(500); });
+      act(() => { vi.advanceTimersByTime(5100); });
+      act(() => { vi.advanceTimersByTime(3000); });
+
+      expect(mockMap.triggerRepaint).not.toHaveBeenCalled();
+
+      vi.useRealTimers();
+    });
+
+    it('holds a capture for a hillshade source that is still loading', async () => {
+      vi.useFakeTimers();
+      const mockMap = createMockMap({ loaded: false });
+      mockMap.getSource.mockImplementation((sourceId: string) =>
+        sourceId === 'source-layer-1' ? { type: 'raster-dem' } : undefined,
+      );
+      mockMap.isSourceLoaded.mockReturnValue(false);
+
+      const state = makeSaveState({
+        localLayers: [makeLayer({ layer_type: 'raster_geolens' })],
+        mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+      });
+      const { result } = renderHook(() => useBuilderSave(state));
+      await act(async () => { await result.current.handleSave(); });
+      act(() => { vi.advanceTimersByTime(3500); });
+
+      expect(mockMap.triggerRepaint).not.toHaveBeenCalled();
+
+      vi.useRealTimers();
+    });
+
+    it('does not hold a capture for a vector source that is still loading', async () => {
+      vi.useFakeTimers();
+      const mockMap = createMockMap({ loaded: false });
+      mockMap.getSource.mockImplementation((sourceId: string) =>
+        sourceId === 'source-layer-1' ? { type: 'raster' } : { type: 'vector' },
+      );
+      mockMap.isSourceLoaded.mockImplementation((sourceId: string) => sourceId === 'source-layer-1');
+
+      const state = makeSaveState({
+        localLayers: [
+          makeLayer({ layer_type: 'raster_geolens' }),
+          makeLayer({ id: 'layer-2', layer_type: 'raster_geolens' }),
+        ],
+        mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+      });
+      const { result } = renderHook(() => useBuilderSave(state));
+      await act(async () => { await result.current.handleSave(); });
+      act(() => { vi.advanceTimersByTime(3500); });
+
+      expect(mockMap.triggerRepaint).toHaveBeenCalled();
+
+      vi.useRealTimers();
+    });
+
+    it('re-arms auto-capture as soon as it defers, and captures on a late idle however long it takes', async () => {
+      vi.useFakeTimers();
+      expect(shouldAutoCapture('map-1', 'user-1')).toBe(true);
+      const mockMap = createMockMap({ loaded: false });
+      mockMap.getSource.mockImplementation((sourceId: string) =>
+        sourceId === 'source-layer-1' ? { type: 'raster' } : undefined,
+      );
+      mockMap.isSourceLoaded.mockReturnValue(false);
+
+      const state = makeSaveState({
+        localLayers: [makeLayer({ layer_type: 'raster_geolens' })],
+        mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+      });
+      const { result } = renderHook(() => useBuilderSave(state));
+      await act(async () => { await result.current.handleSave(); });
+      act(() => { vi.advanceTimersByTime(3500); });
+      expect(shouldAutoCapture('map-1', 'user-1')).toBe(true);
+      act(() => { vi.advanceTimersByTime(60000); });
+
+      expect(mockMap.triggerRepaint).not.toHaveBeenCalled();
+      expect(mockMap.off).not.toHaveBeenCalledWith('idle', expect.any(Function));
+
+      mockMap.isSourceLoaded.mockReturnValue(true);
+      const idle = mockMap.once.mock.calls.find((c: unknown[]) => c[0] === 'idle');
+      act(() => { (idle?.[1] as () => void)(); });
+      expect(mockMap.triggerRepaint).toHaveBeenCalled();
+
+      vi.useRealTimers();
+    });
+
+    it('captures when a visible layer never gets a source of its own', async () => {
+      vi.useFakeTimers();
+      const mockMap = createMockMap({ loaded: false });
+      mockMap.getSource.mockImplementation((sourceId: string) =>
+        sourceId === 'source-layer-1' ? { type: 'raster' } : undefined,
+      );
+      mockMap.isSourceLoaded.mockReturnValue(true);
+
+      const state = makeSaveState({
+        localLayers: [
+          makeLayer({ layer_type: 'raster_geolens' }),
+          makeLayer({ id: 'layer-2', layer_type: 'raster_geolens' }),
+        ],
+        mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+      });
+      const { result } = renderHook(() => useBuilderSave(state));
+      await act(async () => { await result.current.handleSave(); });
+      act(() => { vi.advanceTimersByTime(500); });
+      act(() => { vi.advanceTimersByTime(5100); });
+      act(() => { vi.advanceTimersByTime(3000); });
+
+      expect(mockMap.triggerRepaint).toHaveBeenCalled();
+
+      vi.useRealTimers();
+    });
+
+    it('uploads the thumbnail once the raster source finishes loading before the idle fallback', async () => {
+      vi.useFakeTimers();
+      const mockMap = createMockMap({ loaded: false });
+      mockMap.getSource.mockImplementation((sourceId: string) =>
+        sourceId === 'source-layer-1' ? { type: 'raster' } : undefined,
+      );
+      mockMap.isSourceLoaded.mockReturnValue(true);
+
+      const state = makeSaveState({
+        localLayers: [makeLayer({ layer_type: 'raster_geolens' })],
+        mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+      });
+      const { result } = renderHook(() => useBuilderSave(state));
+      await act(async () => { await result.current.handleSave(); });
+
+      act(() => { vi.advanceTimersByTime(500); });
+      act(() => { vi.advanceTimersByTime(3000); });
+
+      expect(mockMap.once).toHaveBeenCalledWith('render', expect.any(Function));
+      expect(mockMap.triggerRepaint).toHaveBeenCalled();
+
+      vi.useRealTimers();
+      await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
+
+      expect(mockUploadThumbnail).toHaveBeenCalledWith('map-1', expect.stringContaining('data:image/jpeg'));
     });
 
     it('SHARE-08: doCapture uploads both 1200x630 OG image and 400x250 thumbnail in one render event (triggerRepaint called once)', async () => {
