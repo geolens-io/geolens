@@ -307,3 +307,63 @@ async def test_other_credentials_get_no_wildcard(
 
     assert resp.status_code == 200
     assert "access-control-allow-origin" not in resp.headers
+
+
+@pytest.mark.parametrize("target", _TARGETS)
+async def test_a_failed_precondition_is_readable_only_on_a_public_file(
+    client: AsyncClient, publish, target
+) -> None:
+    headers = {"Origin": _FOREIGN_ORIGIN, "If-Match": '"stale"'}
+
+    public = await client.get(await publish(target), headers=headers)
+    private = await client.get(
+        await publish(target, visibility="private"), headers=headers
+    )
+
+    assert public.status_code == 412
+    _assert_public_answer(public)
+    assert private.status_code == 404
+    assert "access-control-allow-origin" not in private.headers
+
+
+async def test_an_unsatisfiable_range_is_readable_only_on_a_public_copc(
+    client: AsyncClient, publish
+) -> None:
+    headers = {"Origin": _FOREIGN_ORIGIN, "Range": f"bytes={len(_COPC)}-"}
+
+    public = await client.get(await publish("copc"), headers=headers)
+    private = await client.get(
+        await publish("copc", visibility="private"), headers=headers
+    )
+
+    assert public.status_code == 416
+    assert public.headers["content-range"] == f"bytes */{len(_COPC)}"
+    _assert_public_answer(public)
+    assert private.status_code == 404
+    assert "access-control-allow-origin" not in private.headers
+
+
+@pytest.mark.parametrize("target", _TARGETS)
+async def test_a_storage_failure_is_readable_only_on_a_public_file(
+    client: AsyncClient, publish, storage, target
+) -> None:
+    public_url = await publish(target)
+    private_url = await publish(target, visibility="private")
+
+    async def unreadable(*_args):
+        raise OSError("unreadable")
+        yield  # an async generator, like every provider's stream methods
+
+    # Ranged, so the COPC read goes through get_range_stream; the tileset
+    # route reads whole files through get_stream.
+    storage.get_range_stream = unreadable
+    storage.get_stream = unreadable
+    headers = {"Origin": _FOREIGN_ORIGIN, "Range": "bytes=0-9"}
+    public = await client.get(public_url, headers=headers)
+    private = await client.get(private_url, headers=headers)
+
+    assert public.status_code == 502
+    assert public.headers["access-control-allow-origin"] == "*"
+    assert "access-control-allow-credentials" not in public.headers
+    assert private.status_code == 404
+    assert "access-control-allow-origin" not in private.headers

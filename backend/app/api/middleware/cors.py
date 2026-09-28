@@ -38,12 +38,14 @@ _PUBLIC_SEARCH_PATHS: tuple[str, ...] = (
 _STANDARDS_PUBLIC_METHODS = "GET, HEAD, POST, OPTIONS"
 _SEARCH_PUBLIC_METHODS = "GET, OPTIONS"
 
-# A COPC or 3D Tiles file answers an anonymous caller only for a public,
-# published dataset, so ``_dispatch`` adds the wildcard to its successes alone
-# and a private dataset's 404 stays identical to an unknown one's. A 429 also
-# gets it: the COPC limits refuse a read before the dataset is looked up and
-# count per client, so every id gets the same one. The preflight is answered
-# by path, the same for every id.
+# A COPC or 3D Tiles file route checks read access before anything else it
+# answers, and passes an anonymous caller only for a public, published dataset.
+# ``_dispatch`` adds the wildcard only to the statuses those routes give after
+# that check (a success, a failed precondition, an unsatisfiable range or a
+# storage failure), so a private dataset's 404 stays identical to an unknown
+# one's. A 429 also gets it: the COPC limits refuse a read before the dataset
+# is looked up and count per client, so every id gets the same one. The
+# preflight is answered by path, the same for every id.
 _PUBLIC_ASSET_PATHS: tuple[tuple[re.Pattern[str], str], ...] = (
     (
         re.compile(r"/datasets/[^/]+/copc/[^/]+/[^/]+\.copc\.laz"),
@@ -51,7 +53,7 @@ _PUBLIC_ASSET_PATHS: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     (re.compile(r"/datasets/[^/]+/tiles3d/.+"), "GET, OPTIONS"),
 )
-_ASSET_WILDCARD_STATUSES = frozenset({200, 206, 304, 429})
+_ASSET_WILDCARD_STATUSES = frozenset({200, 206, 304, 412, 416, 429, 502})
 
 
 def _merge_vary_origin(response: Response) -> None:
