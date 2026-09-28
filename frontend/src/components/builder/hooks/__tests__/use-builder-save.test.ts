@@ -1978,7 +1978,7 @@ describe('useBuilderSave', () => {
       vi.useRealTimers();
     });
 
-    it('skips the capture when a visible raster source is still loading past the idle fallback', async () => {
+    it('waits past the fallback for a loading raster source and captures on idle', async () => {
       vi.useFakeTimers();
       const mockMap = createMockMap({ loaded: false });
       mockMap.getSource.mockImplementation((sourceId: string) =>
@@ -1992,22 +1992,23 @@ describe('useBuilderSave', () => {
       });
       const { result } = renderHook(() => useBuilderSave(state));
       await act(async () => { await result.current.handleSave(); });
-
       act(() => { vi.advanceTimersByTime(500); });
       act(() => { vi.advanceTimersByTime(3000); });
 
-      // The map save itself is unaffected by the skip.
       expect(mockUpdateMapMutateAsync).toHaveBeenCalled();
-
-      expect(mockMap.once).not.toHaveBeenCalledWith('render', expect.any(Function));
       expect(mockMap.triggerRepaint).not.toHaveBeenCalled();
-      await act(async () => { await Promise.resolve(); });
-      expect(mockUploadThumbnail).not.toHaveBeenCalled();
+
+      mockMap.isSourceLoaded.mockReturnValue(true);
+      const idle = mockMap.once.mock.calls.find((c: unknown[]) => c[0] === 'idle');
+      act(() => { (idle?.[1] as () => void)(); });
+      expect(mockMap.triggerRepaint).toHaveBeenCalled();
 
       vi.useRealTimers();
+      await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
+      expect(mockUploadThumbnail).toHaveBeenCalledWith('map-1', expect.stringContaining('data:image/jpeg'));
     });
 
-    it('re-arms auto-capture when a save capture is skipped for a loading source', async () => {
+    it('gives up on a source that never loads and re-arms auto-capture', async () => {
       vi.useFakeTimers();
       expect(shouldAutoCapture('map-1', 'user-1')).toBe(true);
       const mockMap = createMockMap({ loaded: false });
@@ -2023,9 +2024,13 @@ describe('useBuilderSave', () => {
       const { result } = renderHook(() => useBuilderSave(state));
       await act(async () => { await result.current.handleSave(); });
       act(() => { vi.advanceTimersByTime(3500); });
+      act(() => { vi.advanceTimersByTime(30000); });
 
       expect(mockMap.triggerRepaint).not.toHaveBeenCalled();
+      expect(mockMap.off).toHaveBeenCalledWith('idle', expect.any(Function));
       expect(shouldAutoCapture('map-1', 'user-1')).toBe(true);
+      await act(async () => { await Promise.resolve(); });
+      expect(mockUploadThumbnail).not.toHaveBeenCalled();
 
       vi.useRealTimers();
     });
