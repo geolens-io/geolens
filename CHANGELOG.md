@@ -85,6 +85,9 @@ and releases use semantic versioning.
   azure-storage-blob, urllib3, pyjwt, Node Alpine images, CodeQL actions, and
   routine backend and frontend packages. (#2102, #2121, #2125, #2129, #2130,
   #2131, #2132, #2136, #2138, #2139, #2140, #2141)
+- A page of STAC items now resolves the caller's COG export permission once
+  instead of once per raster item. Which items link a COG is unchanged.
+  (#2293)
 
 ### Fixed
 
@@ -137,8 +140,10 @@ and releases use semantic versioning.
   dropped by an edit. A clustered layer whose data is too large or fails to
   load is now labeled correctly instead of still reading as a cluster, and
   shared or embedded maps respect a dataset's extent for both vector and
-  raster sources. (#2159, #2169, #2178, #2179, #2184, #2185, #2188, #2198,
-  #2202, #2214, #2216, #2218, #2220, #2227, #2236, #2243, #2248)
+  raster sources. The shared-map response now includes each layer's
+  `dataset_extent_bbox`, as the builder's map response already did.
+  (#2159, #2169, #2173, #2178, #2179, #2184, #2185, #2188, #2198, #2202,
+  #2214, #2216, #2218, #2220, #2227, #2236, #2243, #2248)
 - Refresh and replacement runs handle contention and edge cases more
   reliably: a failed credential check on the first page of a scheduled
   ArcGIS refresh now reports as an expired credential so an automation can
