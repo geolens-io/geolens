@@ -436,3 +436,51 @@ class UnwritableMetadataApi(EnrichApi):
 
 def test_enrich_reports_a_dataset_it_could_not_write():
     assert seed.enrich_showcase_metadata(UnwritableMetadataApi()) == [seed.QUAKES_TITLE]
+
+
+class Page:
+    def __init__(self, body):
+        self.body = body
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self.body
+
+
+def test_collections_are_read_past_the_first_page():
+    api = object.__new__(seed.Api)
+    api.base, api.h = "b", {}
+    pages = {0: [{"name": "a"}] * 200, 200: [{"name": "Human World"}]}
+    api.client = type(
+        "C",
+        (),
+        {
+            "get": lambda self, url, headers: Page(
+                {"collections": pages[int(url.split("skip=")[1])], "total": 201}
+            )
+        },
+    )()
+    assert api.list_collections()[-1] == {"name": "Human World"}
+
+
+class PartialRoutesApi:
+    def __init__(self):
+        self.added = []
+
+    def get_map(self, _):
+        names = ["Climbing routes (OSM)", *self.added]
+        return {"layers": [{"display_name": name} for name in names]}
+
+    def add_layer(self, _map_id, body):
+        self.added.append(body["display_name"])
+
+
+def test_matterhorn_repair_adds_the_missing_half_of_a_route_pair(monkeypatch):
+    fc = {"type": "FeatureCollection", "features": [{"type": "Feature"}]}
+    monkeypatch.setattr(seed, "fetch_osm_overlays", lambda _bbox: (fc, fc))
+    api = PartialRoutesApi()
+    by_title = {"Matterhorn Climbing Routes": "routes", "Matterhorn Peaks": "peaks"}
+    seed.ensure_matterhorn_overlays(api, "m", by_title)
+    assert api.added == ["Route casing", "Peaks"]

@@ -999,10 +999,18 @@ class Api:
         return self.dataset_detail(dataset_id).get("origin")
 
     def list_collections(self) -> list[dict]:
-        # Trailing slash required (redirect_slashes=False).
-        r = self.client.get(f"{self.base}/api/catalog/collections/", headers=self.h)
-        r.raise_for_status()
-        return r.json().get("collections", [])
+        out: list[dict] = []
+        while True:
+            # Trailing slash required (redirect_slashes=False).
+            r = self.client.get(
+                f"{self.base}/api/catalog/collections/?limit=200&skip={len(out)}",
+                headers=self.h,
+            )
+            r.raise_for_status()
+            page = r.json()
+            out.extend(page.get("collections", []))
+            if not page.get("collections") or len(out) >= page.get("total", 0):
+                return out
 
     def collections_by_name(self) -> dict[str, str]:
         """Map collection name -> id (name is UNIQUE in the catalog model)."""
@@ -4545,8 +4553,6 @@ def ensure_matterhorn_overlays(
     layer_names = {layer["display_name"] for layer in api.get_map(map_id)["layers"]}
     if {"Climbing routes (OSM)", "Route casing", "Peaks"} <= layer_names:
         return
-    if ("Climbing routes (OSM)" in layer_names) != ("Route casing" in layer_names):
-        raise RuntimeError("Matterhorn route and casing layers are incomplete")
 
     # Drape OSM climbing routes + named peaks on the terrain. Clip to the DEM
     # footprint so vectors sit on the mesh rather than plunging into the
@@ -4569,7 +4575,9 @@ def ensure_matterhorn_overlays(
         routes_fc, peaks_fc = overlays
     else:
         routes_fc, peaks_fc = fetch_osm_overlays((7.645, 45.961, 7.684, 45.988))
-    if routes_fc["features"] and "Climbing routes (OSM)" not in layer_names:
+    if routes_fc["features"] and not (
+        {"Climbing routes (OSM)", "Route casing"} <= layer_names
+    ):
         # Dashed red route over a solid white casing - the classic alpine-map
         # convention. TWO layers on the SAME dataset (map-sync dedupes the tile
         # source); the viewer draws LOWER sort_order ON TOP, so the dashed
@@ -4585,43 +4593,45 @@ def ensure_matterhorn_overlays(
             "contributors.",
             force=False,
         )
-        api.add_layer(
-            map_id,
-            {
-                "dataset_id": routes_ds,
-                "sort_order": 1,
-                "opacity": 1.0,
-                "display_name": "Climbing routes (OSM)",
-                "paint": {
-                    "line-color": "#ff3b30",
-                    "line-width": 3.0,
-                    "line-dasharray": [2.4, 1.8],
-                    "line-opacity": 1.0,
+        if "Climbing routes (OSM)" not in layer_names:
+            api.add_layer(
+                map_id,
+                {
+                    "dataset_id": routes_ds,
+                    "sort_order": 1,
+                    "opacity": 1.0,
+                    "display_name": "Climbing routes (OSM)",
+                    "paint": {
+                        "line-color": "#ff3b30",
+                        "line-width": 3.0,
+                        "line-dasharray": [2.4, 1.8],
+                        "line-opacity": 1.0,
+                    },
+                    "layout": {"line-cap": "round", "line-join": "round"},
+                    "popup_config": {
+                        "enabled": True,
+                        "expression": "{name}",
+                        "visible_fields": ["sac_scale"],
+                    },
                 },
-                "layout": {"line-cap": "round", "line-join": "round"},
-                "popup_config": {
-                    "enabled": True,
-                    "expression": "{name}",
-                    "visible_fields": ["sac_scale"],
+            )
+        if "Route casing" not in layer_names:
+            api.add_layer(
+                map_id,
+                {
+                    "dataset_id": routes_ds,
+                    "sort_order": 2,
+                    "opacity": 1.0,
+                    "display_name": "Route casing",
+                    "show_in_legend": False,
+                    "paint": {
+                        "line-color": "#ffffff",
+                        "line-width": 6.5,
+                        "line-opacity": 0.95,
+                    },
+                    "layout": {"line-cap": "round", "line-join": "round"},
                 },
-            },
-        )
-        api.add_layer(
-            map_id,
-            {
-                "dataset_id": routes_ds,
-                "sort_order": 2,
-                "opacity": 1.0,
-                "display_name": "Route casing",
-                "show_in_legend": False,
-                "paint": {
-                    "line-color": "#ffffff",
-                    "line-width": 6.5,
-                    "line-opacity": 0.95,
-                },
-                "layout": {"line-cap": "round", "line-join": "round"},
-            },
-        )
+            )
         print(f"  + {len(routes_fc['features'])} route segments (dashed, cased)")
     if peaks_fc["features"] and "Peaks" not in layer_names:
         peaks_ds = _get_or_ingest(
