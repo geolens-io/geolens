@@ -336,9 +336,8 @@ function doCapture(
 
 /** Run `fn` immediately if the map is loaded, otherwise wait for the idle event
  *  with a 3-second safety timeout to prevent silent drops. When `stillLoading`
- *  is true at that timeout, call `onDefer` and keep waiting for `idle` for up
- *  to 30 more seconds (remote raster tiles can be slow). At that deadline `fn`
- *  runs only if nothing is still loading. */
+ *  is true at that timeout, call `onDefer` and leave `fn` to the idle event,
+ *  which fires once the slow raster tiles have settled. */
 function whenMapIdle(
   map: MaplibreMap,
   fn: () => void,
@@ -347,19 +346,14 @@ function whenMapIdle(
 ) {
   if (map.loaded()) { fn(); return; }
   let done = false;
-  let timer: ReturnType<typeof setTimeout>;
-  const finish = () => { done = true; clearTimeout(timer); map.off('idle', onIdle); };
-  const onIdle = () => { if (done) return; finish(); fn(); };
+  const onIdle = () => { if (done) return; done = true; clearTimeout(timer); fn(); };
   map.once('idle', onIdle);
-  timer = setTimeout(() => {
+  const timer = setTimeout(() => {
     if (done) return;
-    if (!stillLoading?.()) { finish(); fn(); return; }
-    onDefer?.();
-    timer = setTimeout(() => {
-      if (done) return;
-      finish();
-      if (!stillLoading()) fn();
-    }, 30000);
+    if (stillLoading?.()) { onDefer?.(); return; }
+    done = true;
+    map.off('idle', onIdle);
+    fn();
   }, 3000);
 }
 
@@ -447,8 +441,9 @@ function waitForVisibleLayerSources(
  *  - shouldAutoCapture runs before captureThumbnail. This function changes
  *    autoCapturedKeys only to re-arm a capture deferred while a source loads.
  *  - The 500ms debounce is upstream in captureThumbnail.
- *  - The 5000ms deadline, the 30s idle wait and the cancellation signal bound
- *    the waiting. */
+ *  - The 5000ms deadline and the cancellation signal bound the polling. A
+ *    capture left waiting on a loading raster runs on the next idle event,
+ *    where a newer capture, an edit or another map drops it. */
 function runCaptureNow(
   map: MaplibreMap,
   mapId: string,
