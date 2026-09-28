@@ -352,6 +352,17 @@ and releases use semantic versioning.
   service's own response text. The worker no longer applies environment
   proxy variables or a GDAL config file (`gdalrc`) to these imports.
   (#2427)
+- A web page on another site can now read a public, published point cloud
+  (COPC) file or 3D Tileset from the API without credentials, including by
+  byte range and with conditional requests. Previously the files carried no
+  CORS headers and the range preflight was refused unless the page's origin
+  was added to `CORS_ALLOWED_ORIGINS`. Private datasets and credentialed
+  requests still follow that allowlist. (#2434)
+- A map's thumbnail and share image are no longer captured while its
+  raster, hillshade, 3D terrain or raster basemap tiles are still loading,
+  which could store a partly painted map. The builder now waits for those
+  tiles to settle, and drops the capture if the map was edited, switched
+  or saved again in the meantime. (#2435)
 
 ### Known limitations
 
