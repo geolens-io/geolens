@@ -2043,10 +2043,11 @@ export interface paths {
          *     units; any other read of the file, such as one without ``Range``, counts
          *     against a limit of 10 a minute instead. Past any of these the read answers
          *     429.
-         *     Through the bundled web server a page on any origin can read the file,
-         *     with header credentials or none; the API alone allows only the origins in
-         *     ``CORS_ALLOWED_ORIGINS``. A private, missing or replaced point cloud
-         *     answers 404, and a storage failure answers 502.
+         *     A page on any origin can read a public file without credentials. Through
+         *     the bundled web server it can also send header credentials; the API alone
+         *     accepts those only from the origins in ``CORS_ALLOWED_ORIGINS``. A
+         *     private, missing or replaced point cloud answers 404, and a storage
+         *     failure answers 502.
          */
         get: operations["get_pointcloud_file_datasets__dataset_id__copc__attempt_id___name__copc_laz_get"];
         put?: never;
@@ -2766,9 +2767,10 @@ export interface paths {
          *     authenticate every file of a private tileset. A query-string ``api_key``
          *     authenticates only the request it is on, so the tileset's relative URIs
          *     lose it unless the client carries it over, as CesiumJS does through
-         *     ``Resource`` query parameters. A browser client on another origin also
-         *     needs that origin on the deployment's CORS allowlist
-         *     (``CORS_ALLOWED_ORIGINS``). Every file carries the published tileset's
+         *     ``Resource`` query parameters. A browser page on any origin can read a
+         *     public tileset without credentials; one that sends credentials needs its
+         *     origin on the deployment's CORS allowlist (``CORS_ALLOWED_ORIGINS``).
+         *     Every file carries the published tileset's
          *     ETag and asks the client to revalidate before each reuse. Once the caller
          *     has access and the file exists, an ``If-None-Match`` naming the current
          *     version answers 304 and an ``If-Match`` naming another answers 412. A
