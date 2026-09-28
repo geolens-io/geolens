@@ -3092,6 +3092,29 @@ Downgrading 0061 revokes spent refresh rows before discarding their rotation
 metadata. This prevents an older server from accepting them again until their
 original expiry; current unrotated successors remain usable.
 
+### Backfilling 3D Tiles extents
+
+A 3D Tiles dataset gets its extent from its root bounding volume. Tilesets
+published before GeoLens read `box` and `sphere` volumes have none, so search
+shows "No Extent" and the dataset has no footprint. After upgrading, record
+their extents from each stored `tileset.json`:
+
+```bash
+docker compose exec api uv run --no-dev python -m scripts.backfill_tileset_extents --dry-run
+docker compose exec api uv run --no-dev python -m scripts.backfill_tileset_extents
+```
+
+Add `-f docker-compose.prod.yml` when that is the file your install runs. The
+script reads and writes only 3D Tiles datasets with no extent, so a rerun is
+safe. Backfilled datasets show a new updated time, since each record gains an
+extent. It lists each dataset it updates, skips or fails, with the reason. Only a tileset
+in a local frame is skipped: it has no extent to record. It exits 1 when a
+dataset's tileset pointer or stored `tileset.json` is missing or unreadable.
+When every dataset fails, the API is usually not pointed at the storage that
+holds the tilesets; when one does, that dataset's catalog row or stored files
+are damaged. It exits 2 when it cannot start the way the worker does, for
+example when an overlay the install needs is not loaded.
+
 ## 11. Secret rotation
 
 GeoLens has two independent secrets an operator ever rotates: `JWT_SECRET_KEY`,
