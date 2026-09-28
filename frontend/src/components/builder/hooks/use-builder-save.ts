@@ -523,6 +523,9 @@ const pendingCaptures = new Map<string, ReturnType<typeof setTimeout>>();
  *  the same browser logged in as a different user with access to the same map. */
 const AUTO_CAPTURE_LRU_LIMIT = 64;
 const autoCapturedKeys = new Map<string, true>();
+// Only the newest capture for a map may run; an older one can still be waiting
+// on sources a later save removed.
+const captureGenerations = new Map<string, number>();
 
 function captureThumbnail(
   map: MaplibreMap,
@@ -539,12 +542,17 @@ function captureThumbnail(
   const existing = pendingCaptures.get(mapId);
   if (existing) clearTimeout(existing);
 
+  const generation = (captureGenerations.get(mapId) ?? 0) + 1;
+  captureGenerations.set(mapId, generation);
+  const superseded = (id: string) =>
+    captureGenerations.get(id) !== generation || !!captureIsStale?.(id);
+
   const timer = setTimeout(() => {
     pendingCaptures.delete(mapId);
     // POLISH-01: pass layersRef through so runCaptureNow can defer on the
     // new-map + ?add_dataset path. Save-path callers do not pass layersRef,
     // so they remain on the existing waitForVisibleLayerSources path.
-    runCaptureNow(map, mapId, queryClient, layers, signal, layersRef, trigger, captureIsStale);
+    runCaptureNow(map, mapId, queryClient, layers, signal, layersRef, trigger, superseded);
   }, THUMBNAIL_DEBOUNCE_MS);
 
   pendingCaptures.set(mapId, timer);
@@ -597,6 +605,7 @@ export function __resetThumbnailDebounceForTests(): void {
   for (const timer of pendingCaptures.values()) clearTimeout(timer);
   pendingCaptures.clear();
   autoCapturedKeys.clear();
+  captureGenerations.clear();
 }
 
 function resolvePluginsPayload(
