@@ -194,6 +194,7 @@ class TargetApi:
         visibility="public",
         features=32186,
         description="text",
+        origin_uri=seed.USGS_QUAKES_SERVICE,
     ):
         names = state.MAP_NAMES - {seed.CITY_SHADE_MAP} if maps == () else maps
         self.maps = {name: f"{name}-id" for name in names}
@@ -202,6 +203,7 @@ class TargetApi:
         self.origin = origin
         self.visibility = visibility
         self.features = features
+        self.origin_uri = origin_uri
         self.description = description
 
     def list_maps(self):
@@ -210,8 +212,8 @@ class TargetApi:
     def datasets_by_title(self):
         return self.titles
 
-    def dataset_origin(self, _):
-        return self.origin
+    def dataset_detail(self, _):
+        return {"origin": self.origin, "origin_uri": self.origin_uri}
 
     def get_map(self, _):
         return {"visibility": self.visibility, "description": self.description}
@@ -253,6 +255,7 @@ def test_guarded_update_waits_for_a_running_job(job_counts):
     "api",
     [
         TargetApi(origin="upload"),
+        TargetApi(origin_uri="https://example.com/arcgis/rest/services/q/MapServer/0"),
         TargetApi(maps=[*state.MAP_NAMES, seed.HURRICANE_MAP_LEGACY]),
         TargetApi(maps=[seed.CITY_SHADE_MAP]),
         TargetApi(titles={seed.QUAKES_TITLE_LEGACY: "legacy"}),
