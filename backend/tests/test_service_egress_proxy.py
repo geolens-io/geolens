@@ -1047,6 +1047,25 @@ class TestAServiceImportJobError:
         assert failures and "***" in failures[0]["stderr"]
         assert token not in repr(logs)
 
+    async def test_a_database_password_is_scrubbed_from_the_log(self, resolver_calls):
+        """GDAL masks only the first word of a quoted password it echoes."""
+        tail = f"pw-{uuid.uuid4().hex}"
+        with _wfs_service() as (port, _requests):
+            with structlog.testing.capture_logs() as logs:
+                with pytest.raises(IngestionError):
+                    await run_ogr2ogr_service(
+                        f"WFS:http://{_HOST}:{port}/wfs",
+                        _LAYER,
+                        f"egress_{uuid.uuid4().hex[:12]}",
+                        f"PG:host=127.0.0.1 port=1 dbname=x user=u password='a {tail}'",
+                        "wfs",
+                        timeout=120.0,
+                        schema="data",
+                    )
+
+        assert any("failed for a remote service" in log["event"] for log in logs)
+        assert tail not in repr(logs)
+
     @needs_preview_ogrinfo
     async def test_an_echoed_arcgis_token_is_scrubbed_from_the_preview_log(
         self, resolver_calls

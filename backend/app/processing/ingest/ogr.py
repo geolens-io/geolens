@@ -205,6 +205,11 @@ _SERVICE_FAILURE_CLASSES = (
 )
 
 
+# GDAL echoes a destination it can't open, masking only the first word of a
+# quoted password.
+_PG_DESTINATION_ECHO_RE = re.compile(r"PG:.*")
+
+
 def _raise_service_gdal_failure(
     tool: str, returncode: int, stderr_text: str, *, refused: bool
 ) -> NoReturn:
@@ -1403,7 +1408,12 @@ async def run_ogr2ogr_service(
         # which rides in the source URL, as plain text.
         stderr_text = scrub_secret_value(
             scrub_secret_value(
-                redact_url_credentials(_strip_ogr_driver_list(stderr.decode()).strip()),
+                _PG_DESTINATION_ECHO_RE.sub(
+                    "PG:***",
+                    redact_url_credentials(
+                        _strip_ogr_driver_list(stderr.decode()).strip()
+                    ),
+                ),
                 header_line,
             ),
             token,
