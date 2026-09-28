@@ -538,7 +538,7 @@
       "type": "Typ"
     },
     "tilesetInfo": "Tileset",
-    "noExtent": "keine; nur eine Region liefert eine"
+    "noExtent": "keine; das Volumen ist nicht georeferenziert"
   },
   "bulk": {
     "uploading_one": "{{count}} Datei wird hochgeladen...",

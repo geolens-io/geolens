@@ -31,7 +31,7 @@ class TilesetMetadata:
         version (None | str | Unset): The tileset's asset.version: '1.0' or '1.1'
         geometric_error (float | None | Unset): The root tile's geometricError, when tileset.json gives one
         bounding_volume (None | TilesetMetadataBoundingVolumeType0 | Unset): The kind of the root tile's bounding
-            volume. Only a region yields the dataset's extent; a box or sphere leaves it null.
+            volume. A box or sphere not in Earth-centred coordinates leaves the dataset's extent null.
         content_types (list[str] | None | Unset): The tile formats in the tileset, sorted: b3dm, i3dm, pnts, cmpt, glb,
             gltf, subtree, vctr or geom, including the tiles inside a cmpt. Null for a tileset published before GeoLens
             recorded them.

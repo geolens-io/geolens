@@ -607,7 +607,7 @@
       "type": "类型"
     },
     "tilesetInfo": "瓦片集",
-    "noExtent": "无；仅 region 包围体提供范围"
+    "noExtent": "无；包围体未经地理配准"
   },
   "eyebrow": "导入",
   "pageDescription": "上传文件、注册 Postgres 中的表，或连接远程服务。GeoLens 会检测几何、字段结构和 CRS，然后使其可查询、可设置样式、可嵌入。",

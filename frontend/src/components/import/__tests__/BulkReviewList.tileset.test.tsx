@@ -83,10 +83,10 @@ describe('BulkReviewList with a tileset', () => {
     expect(screen.queryByText('VEC')).not.toBeInTheDocument();
   });
 
-  it('says a box volume gives no extent', () => {
+  it('says a box volume in a local frame gives no extent', () => {
     renderList([entry({ ...PREVIEW, bounding_volume: 'box', extent_bbox: null })]);
 
-    expect(screen.getByText('none; only a region gives one')).toBeInTheDocument();
+    expect(screen.getByText('none; the volume is not georeferenced')).toBeInTheDocument();
   });
 
   it('commits the form as a tileset, with no CRS and no layer', async () => {

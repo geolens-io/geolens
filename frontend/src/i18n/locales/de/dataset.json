@@ -1201,7 +1201,7 @@
     "boundingVolume": "Hüllvolumen",
     "size": "Entpackte Größe",
     "extent": "Ausdehnung",
-    "noExtent": "Nicht verfügbar. GeoLens liest die Ausdehnung nur aus einem Hüllvolumen vom Typ Region.",
+    "noExtent": "Für dieses Tileset ist keine Ausdehnung gespeichert.",
     "contentTypes": "Inhaltstypen",
     "extensionsRequired": "Erforderliche Erweiterungen",
     "accessTitle": "In einem 3D-Tiles-Client laden",

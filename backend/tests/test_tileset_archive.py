@@ -7,6 +7,7 @@ import io
 import json
 import math
 import os
+import random
 import stat
 import struct
 import time
@@ -33,6 +34,7 @@ from app.processing.ingest.validation import MAX_ARCHIVE_ENTRIES, validate_zip_s
 from tests.tiles3d_archives import (
     REGION,
     build_zip,
+    ecef,
     three_tz,
     tileset_json,
     tileset_zip,
@@ -739,18 +741,279 @@ def test_a_region_that_rounds_pi_up_is_clamped(tmp_path: Path) -> None:
     assert facts.extent_bbox == (-180.0, -90.0, 180.0, 90.0)
 
 
+def _east_north_up(lon: float, lat: float) -> list[float]:
+    """The column-major transform from a local east-north-up frame to EPSG:4978."""
+    lon, lat = math.radians(lon), math.radians(lat)
+    east = [-math.sin(lon), math.cos(lon), 0.0]
+    north = [
+        -math.sin(lat) * math.cos(lon),
+        -math.sin(lat) * math.sin(lon),
+        math.cos(lat),
+    ]
+    up = [math.cos(lat) * math.cos(lon), math.cos(lat) * math.sin(lon), math.sin(lat)]
+    origin = ecef(math.degrees(lon), math.degrees(lat))
+    return [*east, 0.0, *north, 0.0, *up, 0.0, *origin, 1.0]
+
+
+def _root_zip(path: Path, transform: object, **json_kw) -> str:
+    document = json.loads(tileset_json(**json_kw))
+    document["root"]["transform"] = transform
+    return build_zip(path, [("tileset.json", json.dumps(document).encode())])
+
+
+def test_a_box_placed_by_the_root_transform_becomes_the_extent(
+    tmp_path: Path,
+) -> None:
+    """A local box with an east-north-up transform reads as its WGS 84 footprint."""
+    box = [0, 0, 20, 2000, 0, 0, 0, 1000, 0, 0, 0, 20]
+    path = _root_zip(
+        tmp_path / "t.zip", _east_north_up(4.9, 52.37), volume={"box": box}
+    )
+
+    facts = inspect_tileset(path).facts
+
+    assert facts.bounding_volume == "box"
+    # 2 km east is 0.0294 degrees of longitude at 52.37N; 1 km north, 0.0090.
+    # The padding for the gaps between surface samples adds up to 0.002.
+    assert facts.extent_bbox == pytest.approx(
+        (4.9 - 0.0294, 52.37 - 0.0090, 4.9 + 0.0294, 52.37 + 0.0090), abs=0.003
+    )
+
+
+def test_a_box_in_earth_centred_coordinates_becomes_the_extent(
+    tmp_path: Path,
+) -> None:
+    """With no transform, a box whose centre is already in EPSG:4978 is placed."""
+    # The root box of the 3DBAG Amsterdam canal buildings tileset.
+    box = [
+        *(3888597.99, 332796.89, 5027995.84),
+        *(-54.22, 595.59, 2.49),
+        *(-471.55, -44.46, 365.16),
+        *(120.89, 10.35, 156.31),
+    ]
+    facts = inspect_tileset(tileset_zip(tmp_path / "t.zip", volume={"box": box})).facts
+
+    assert facts.extent_bbox == pytest.approx(
+        (4.8828, 52.3616, 4.9004, 52.3725), abs=0.001
+    )
+
+
+def test_a_sphere_in_earth_centred_coordinates_becomes_the_extent(
+    tmp_path: Path,
+) -> None:
+    """A sphere's bounding cube converts corner by corner, with no transform."""
+    sphere = [*ecef(151.21, -33.86), 500.0]
+    facts = inspect_tileset(
+        tileset_zip(tmp_path / "t.zip", volume={"sphere": sphere})
+    ).facts
+
+    west, south, east, north = facts.extent_bbox
+    assert west < 151.21 < east and east - west < 0.05
+    assert south < -33.86 < north and north - south < 0.05
+
+
+def test_a_regional_sphere_on_the_equator_becomes_the_extent(tmp_path: Path) -> None:
+    """Corners of a large volume may leave the shell; only the centre must be in it."""
+    sphere = [*ecef(20.0, 0.0), 130_000.0]
+    facts = inspect_tileset(
+        tileset_zip(tmp_path / "t.zip", volume={"sphere": sphere})
+    ).facts
+
+    west, south, east, north = facts.extent_bbox
+    # 130 km is 1.17 degrees; the bounding cube's corners reach a little further.
+    assert 1.1 < 20.0 - west < 1.6 and 1.1 < east - 20.0 < 1.6
+    assert 1.1 < -south < 1.6 and 1.1 < north < 1.6
+
+
+def test_a_sphere_around_the_north_pole_reaches_it(tmp_path: Path) -> None:
+    """A volume holding a pole spans every longitude up to that pole."""
+    sphere = [*ecef(0.0, 89.99), 2000.0]
+    facts = inspect_tileset(
+        tileset_zip(tmp_path / "t.zip", volume={"sphere": sphere})
+    ).facts
+
+    west, south, east, north = facts.extent_bbox
+    assert (west, east, north) == (-180.0, 180.0, 90.0)
+    assert 89.9 < south < 89.99
+
+
+def test_a_box_around_the_south_pole_reaches_it(tmp_path: Path) -> None:
+    """The half-axes need not line up with the Earth's axis."""
+    box = [*ecef(30.0, -89.995), 1500, 500, 0, -500, 1500, 0, 0, 0, 800]
+    facts = inspect_tileset(tileset_zip(tmp_path / "t.zip", volume={"box": box})).facts
+
+    west, south, east, north = facts.extent_bbox
+    assert (west, south, east) == (-180.0, -90.0, 180.0)
+    assert -89.99 < north < -89.9
+
+
+def test_a_box_above_a_pole_spans_every_longitude(tmp_path: Path) -> None:
+    """Crossing the Earth's axis above the pole still surrounds it."""
+    box = [*ecef(0.0, 90.0, 30_000.0), 5000, 0, 0, 0, 5000, 0, 0, 0, 5000]
+    facts = inspect_tileset(tileset_zip(tmp_path / "t.zip", volume={"box": box})).facts
+
+    west, _, east, north = facts.extent_bbox
+    assert (west, east, north) == (-180.0, 180.0, 90.0)
+
+
+_IDENTITY = [1.0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
+
+
+def _dense_surface(kind: str, values: list[float], transform: list[float], n: int):
+    """A fine sample of the volume's surface in EPSG:4978, independent of the code."""
+    steps = [2 * i / (n - 1) - 1 for i in range(n)]
+    center = values[:3]
+    if kind == "box":
+        axes = [values[3:6], values[6:9], values[9:12]]
+        local = (
+            [
+                center[x] + side * axes[k][x] + u * axes[i][x] + v * axes[j][x]
+                for x in range(3)
+            ]
+            for k, i, j in ((0, 1, 2), (1, 0, 2), (2, 0, 1))
+            for side in (-1, 1)
+            for u in steps
+            for v in steps
+        )
+    else:
+        r = values[3]
+        local = (
+            [
+                center[0] + r * math.cos(lat) * math.cos(lon),
+                center[1] + r * math.cos(lat) * math.sin(lon),
+                center[2] + r * math.sin(lat),
+            ]
+            for lat in (s * math.pi / 2 for s in steps)
+            for lon in (s * math.pi for s in steps)
+        )
+    for point in local:
+        yield [
+            sum(transform[4 * col + row] * value for col, value in enumerate(point))
+            + transform[12 + row]
+            for row in range(3)
+        ]
+
+
+def _assert_extent_holds_the_surface(
+    kind: str, values: list[float], transform: list[float] = _IDENTITY, n: int = 100
+) -> tuple[float, float, float, float]:
+    document = json.loads(tileset_json(volume={kind: values}))
+    document["root"]["transform"] = transform
+    west, south, east, north = tileset_module.read_facts(document).extent_bbox
+    for point in _dense_surface(kind, values, transform, n):
+        lon, lat = tileset_module._geodetic(*point)
+        assert south <= lat <= north, (lon, lat)
+        if west <= east:
+            assert west <= lon <= east, (lon, lat)
+        else:
+            assert lon >= west or lon <= east, (lon, lat)
+    return west, south, east, north
+
+
+def test_a_latitude_extreme_on_a_face_stays_inside_the_extent() -> None:
+    """A large box peaks mid-face, beyond every corner's latitude."""
+    box = [6378137.0, 0, 0, 500_000, 0, 0, 0, 500_000, 0, 0, 0, 500_000]
+
+    _, south, _, north = _assert_extent_holds_the_surface("box", box, n=200)
+
+    # The north face's highest point; the corners reach only 4.8795.
+    assert north >= 4.8972 and south <= -4.8972
+
+
+def test_a_sphere_beside_the_pole_does_not_claim_it() -> None:
+    """900 m from a centre 1117 m off the axis leaves the pole outside."""
+    sphere = [*ecef(45.0, 89.99), 900.0]
+
+    west, south, east, north = _assert_extent_holds_the_surface("sphere", sphere)
+
+    assert (west, east) != (-180.0, 180.0)
+    assert south < 89.99 < north < 90.0
+
+
+def test_random_volumes_near_the_surface_stay_inside_their_extents() -> None:
+    """Boxes, spheres and a sheared transform, all within their padded extents."""
+    rng = random.Random(2463)
+    for index in range(12):
+        center = ecef(
+            rng.uniform(-180, 180), rng.uniform(-89.5, 89.5), rng.uniform(-5e4, 5e4)
+        )
+        if index % 2:
+            axes = [rng.uniform(-3e5, 3e5) for _ in range(9)]
+            _assert_extent_holds_the_surface("box", [*center, *axes], n=60)
+        else:
+            sphere = [*center, rng.uniform(1e3, 2e5)]
+            _assert_extent_holds_the_surface("sphere", sphere, n=60)
+    shear = [1.0, 0, 0, 0, 0.5, 1, 0, 0, 0.3, 0, 1.2, 0, *ecef(10.0, 60.0), 1]
+    _assert_extent_holds_the_surface("sphere", [0, 0, 0, 5e4], shear, n=120)
+
+
+def test_a_volume_across_the_antimeridian_keeps_west_greater_than_east(
+    tmp_path: Path,
+) -> None:
+    """Corners either side of 180 degrees read as a crossing, as a region does."""
+    sphere = [*ecef(180.0, -17.0), 2000.0]
+    facts = inspect_tileset(
+        tileset_zip(tmp_path / "t.zip", volume={"sphere": sphere})
+    ).facts
+
+    west, _, east, _ = facts.extent_bbox
+    assert 179.9 < west < 180.0
+    assert -180.0 < east < -179.9
+
+
 @pytest.mark.parametrize(
     ("volume", "kind"),
     [({"box": [0.0] * 12}, "box"), ({"sphere": [0.0, 0.0, 0.0, 10.0]}, "sphere")],
 )
-def test_a_box_or_sphere_leaves_the_extent_null(
+def test_a_box_or_sphere_in_a_local_frame_leaves_the_extent_null(
     tmp_path: Path, volume: dict, kind: str
 ) -> None:
-    """Only a region yields an extent; the kind says why there is none."""
+    """Near the origin with no transform, the volume is not georeferenced."""
     facts = inspect_tileset(tileset_zip(tmp_path / "t.zip", volume=volume)).facts
 
     assert facts.bounding_volume == kind
     assert facts.extent_bbox is None
+
+
+@pytest.mark.parametrize(
+    "transform",
+    [
+        [1.0] * 15,
+        ["1"] * 16,
+        {"0": 1.0},
+        [True] + [0.0] * 15,
+        [10**400] + [0.0] * 15,
+        [1e308] * 16,
+    ],
+    ids=["short", "strings", "object", "bool", "huge-int", "overflowing"],
+)
+def test_a_malformed_transform_leaves_the_extent_null(
+    tmp_path: Path, transform: object
+) -> None:
+    """The transform only places the extent, so a bad one drops the extent alone."""
+    sphere = [*ecef(4.9, 52.37), 500.0]
+    path = _root_zip(tmp_path / "t.zip", transform, volume={"sphere": sphere})
+
+    facts = inspect_tileset(path).facts
+
+    assert facts.bounding_volume == "sphere"
+    assert facts.extent_bbox is None
+
+
+def test_a_box_too_large_for_a_float_is_refused(tmp_path: Path) -> None:
+    """An integer past the float range is not a finite number."""
+    assert "box must be 12 finite numbers" in refused(
+        tileset_zip(tmp_path / "t.zip", volume={"box": [10**400] + [0] * 11})
+    )
+
+
+def test_a_region_ignores_the_root_transform(tmp_path: Path) -> None:
+    """A region is already in degrees, whatever the transform says."""
+    path = _root_zip(tmp_path / "t.zip", [2.0] * 16)
+
+    assert inspect_tileset(path).facts.extent_bbox == pytest.approx(
+        tuple(math.degrees(v) for v in REGION[:4])
+    )
 
 
 def test_a_missing_geometric_error_is_null(tmp_path: Path) -> None:

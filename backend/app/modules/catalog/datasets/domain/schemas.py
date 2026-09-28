@@ -255,8 +255,8 @@ class TilesetMetadata(BaseModel):
     bounding_volume: Literal["region", "box", "sphere"] | None = Field(
         default=None,
         description=(
-            "The kind of the root tile's bounding volume. Only a region yields "
-            "the dataset's extent; a box or sphere leaves it null."
+            "The kind of the root tile's bounding volume. A box or sphere not "
+            "in Earth-centred coordinates leaves the dataset's extent null."
         ),
     )
     content_types: list[str] | None = Field(

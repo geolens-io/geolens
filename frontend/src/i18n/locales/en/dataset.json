@@ -1201,7 +1201,7 @@
     "boundingVolume": "Bounding volume",
     "size": "Unpacked size",
     "extent": "Extent",
-    "noExtent": "Not available. GeoLens reads the extent only from a region bounding volume.",
+    "noExtent": "No extent recorded for this tileset.",
     "contentTypes": "Content types",
     "extensionsRequired": "Required extensions",
     "accessTitle": "Load in a 3D Tiles client",

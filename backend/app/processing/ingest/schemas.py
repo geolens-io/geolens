@@ -180,8 +180,9 @@ class TilesetPreviewResponse(BaseModel):
     )
     extent_bbox: list[float] | None = Field(
         description=(
-            "The root region as [west, south, east, north] in degrees; west > "
-            "east when it crosses the antimeridian. Null for a box or sphere."
+            "The root bounding volume's extent as [west, south, east, north] in "
+            "degrees; west > east when it crosses the antimeridian. Null for a "
+            "box or sphere that is not placed in Earth-centred coordinates."
         )
     )
     unpacked_bytes: int = Field(

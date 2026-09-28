@@ -19,7 +19,7 @@ import unicodedata
 import uuid
 import zipfile
 from dataclasses import dataclass
-from itertools import pairwise
+from itertools import pairwise, product
 from pathlib import Path
 from typing import TYPE_CHECKING, Iterator, NoReturn
 from urllib.parse import unquote
@@ -70,12 +70,25 @@ MAX_ENTRY_SEGMENT_BYTES = 200
 TILESET_VERSIONS = frozenset({"1.0", "1.1"})
 
 # The volumes the root may declare and how many numbers each takes. A region
-# is read first because it is the only one that yields an extent.
+# is read first because it is already in degrees and ignores the transform.
 _BOUNDING_VOLUMES = (("region", 6), ("box", 12), ("sphere", 4))
 
 # How far a region may stray past a pole or the antimeridian and still be read
 # as reaching it; writers round pi, sometimes upward.
 _REGION_TOLERANCE_RADIANS = 1e-6
+
+# A box or sphere is georeferenced when its centre lies this far from the
+# Earth's centre, about 120 km either side of the WGS 84 ellipsoid; a local
+# frame's centre sits near the origin.
+_GEOCENTRIC_RANGE_METRES = (6.25e6, 6.5e6)
+_WGS84_A = 6378137.0
+_WGS84_B = _WGS84_A * (1 - 1 / 298.257223563)
+# Every meridian's centre of curvature lies within a*e^2 (42.7 km) of the
+# Earth's centre across the axis and a^2*e^2/b (42.8 km) along it.
+_EVOLUTE_REACH_METRES = 43_000.0
+# Samples along each edge of a box face, or along a sphere's meridians and
+# parallels; 32 keeps the padding for the gaps between them near 3% of the size.
+_SURFACE_SAMPLES = 32
 
 # Control characters, and the separators and escapes that let a name mean a
 # different path to storage, to a filesystem or to the tileset route.
@@ -123,7 +136,7 @@ class TilesetFacts:
     geometric_error: float | None
     bounding_volume: str
     # [west, south, east, north] in degrees; west > east when it crosses the
-    # antimeridian, and None for a box or sphere.
+    # antimeridian, and None for a box or sphere that is not in EPSG:4978.
     extent_bbox: tuple[float, float, float, float] | None
 
 
@@ -368,11 +381,12 @@ def _reject_constant(name: str) -> NoReturn:
 
 
 def _is_finite_number(value: object) -> bool:
-    return (
-        isinstance(value, (int, float))
-        and not isinstance(value, bool)
-        and math.isfinite(value)
-    )
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
 
 
 def _region_extent(region: list[float]) -> tuple[float, float, float, float]:
@@ -394,6 +408,176 @@ def _region_extent(region: list[float]) -> tuple[float, float, float, float]:
         max(-180.0, min(180.0, math.degrees(east))),
         max(-90.0, min(90.0, math.degrees(north))),
     )
+
+
+def _geodetic(x: float, y: float, z: float) -> tuple[float, float]:
+    """Longitude and latitude in degrees of an EPSG:4978 point, by Bowring's formula."""
+    e2 = 1 - (_WGS84_B / _WGS84_A) ** 2
+    ep2 = (_WGS84_A / _WGS84_B) ** 2 - 1
+    p = math.hypot(x, y)
+    theta = math.atan2(z * _WGS84_A, p * _WGS84_B)
+    latitude = math.atan2(
+        z + ep2 * _WGS84_B * math.sin(theta) ** 3,
+        p - e2 * _WGS84_A * math.cos(theta) ** 3,
+    )
+    return math.degrees(math.atan2(y, x)), math.degrees(latitude)
+
+
+def _cross(u: list[float], v: list[float]) -> list[float]:
+    return [
+        u[1] * v[2] - u[2] * v[1],
+        u[2] * v[0] - u[0] * v[2],
+        u[0] * v[1] - u[1] * v[0],
+    ]
+
+
+def _dot(u: list[float], v: list[float]) -> float:
+    return sum(a * b for a, b in zip(u, v))
+
+
+def _axis_span(
+    center: list[float], axes: list[list[float]]
+) -> tuple[float, float] | None:
+    """Where the volume meets the Earth's axis, as a range of z, or None if it misses.
+
+    The axis line is (0, 0, t); in the volume's own coordinates it is
+    ``origin + t * step``, and each coordinate must stay within ±1.
+    """
+    det = _dot(axes[0], _cross(axes[1], axes[2]))
+    if det == 0 or not math.isfinite(det):
+        return None
+
+    def local(point: list[float]) -> list[float]:
+        # Cramer's rule for the point's coordinates along the three half-axes.
+        return [
+            _dot(point, _cross(axes[1], axes[2])) / det,
+            _dot(axes[0], _cross(point, axes[2])) / det,
+            _dot(axes[0], _cross(axes[1], point)) / det,
+        ]
+
+    origin = local([-value for value in center])
+    step = local([0.0, 0.0, 1.0])
+    if not all(math.isfinite(value) for value in origin + step):
+        return None
+    low, high = -math.inf, math.inf
+    for start, rate in zip(origin, step):
+        if rate == 0:
+            if not abs(start) <= 1:
+                return None
+            continue
+        ends = sorted(((-1 - start) / rate, (1 - start) / rate))
+        low, high = max(low, ends[0]), min(high, ends[1])
+    return (low, high) if low <= high else None
+
+
+def _surface(
+    center: list[float], axes: list[list[float]], radius: float
+) -> tuple[list[list[float]], float]:
+    """Sample the faces of a box (``axes``) or a sphere (``radius``).
+
+    Returns the points and a distance every surface point lies within of one.
+    """
+    n = _SURFACE_SAMPLES
+    steps = [2 * i / (n - 1) - 1 for i in range(n)]
+    if axes:
+        points = [
+            [
+                c + side * axes[k][x] + u * axes[i][x] + v * axes[j][x]
+                for x, c in enumerate(center)
+            ]
+            for k, i, j in ((0, 1, 2), (1, 0, 2), (2, 0, 1))
+            for side, u, v in product((-1, 1), steps, steps)
+        ]
+        norms = [math.hypot(*axis) for axis in axes]
+        # A point of a grid cell is within half the sum of its sides of a corner.
+        return points, max(
+            norms[1] + norms[2], norms[0] + norms[2], norms[0] + norms[1]
+        ) / (n - 1)
+    points = [
+        [
+            center[0] + radius * math.cos(lat) * math.cos(lon),
+            center[1] + radius * math.cos(lat) * math.sin(lon),
+            center[2] + radius * math.sin(lat),
+        ]
+        for lat, lon in product(
+            [s * math.pi / 2 for s in steps], [s * math.pi for s in steps]
+        )
+    ]
+    # A point is within half a cell's meridian and widest parallel arcs of a sample.
+    return points, radius * 1.5 * math.pi / (n - 1)
+
+
+def _cartesian_extent(
+    kind: str, values: list[float], transform: object
+) -> tuple[float, float, float, float] | None:
+    """The WGS 84 extent of a root box or sphere placed in EPSG:4978, else None.
+
+    The extent may be wider than the volume, never narrower.
+    """
+    if transform is None:
+        transform = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
+    if not (
+        isinstance(transform, list)
+        and len(transform) == 16
+        and all(_is_finite_number(value) for value in transform)
+    ):
+        return None
+    m = [float(value) for value in transform]
+
+    # Column-major, and like CesiumJS the bottom row is not applied.
+    def linear(v: list[float]) -> list[float]:
+        return [m[i] * v[0] + m[4 + i] * v[1] + m[8 + i] * v[2] for i in range(3)]
+
+    center = [a + b for a, b in zip(linear([float(v) for v in values[:3]]), m[12:15])]
+    low, high = _GEOCENTRIC_RANGE_METRES
+    if not low <= math.hypot(*center) <= high:
+        return None
+    rest = [float(value) for value in values[3:]]
+    if kind == "box":
+        axes, radius = [linear(rest[i : i + 3]) for i in (0, 3, 6)], 0.0
+        crossing = _axis_span(center, axes)
+    else:
+        columns = [linear([float(i == j) for j in range(3)]) for i in range(3)]
+        # Gershgorin's bound on the largest eigenvalue of the transform's Gram
+        # matrix: the sphere stretches by at most its square root.
+        stretch = max(sum(abs(_dot(a, b)) for b in columns) for a in columns)
+        axes, radius = [], abs(rest[0]) * math.sqrt(stretch)
+        reach = radius * radius - center[0] * center[0] - center[1] * center[1]
+        crossing = None
+        if reach >= 0:
+            half = math.sqrt(reach)
+            crossing = (center[2] - half, center[2] + half)
+
+    points, gap = _surface(center, axes, radius)
+    if not all(math.isfinite(value) for point in points for value in point):
+        return None
+    # An interior point shares its latitude and longitude with the surface
+    # point where its outward ellipsoid normal leaves the volume.
+    lons, lats = zip(*(_geodetic(*point) for point in points))
+    nearest = min(math.hypot(*point) for point in points) - gap
+    if not nearest > _EVOLUTE_REACH_METRES:
+        return None
+    # A step of `gap` metres turns latitude by at most `gap` over the distance
+    # to the meridian's centre of curvature, and longitude by at most `gap`
+    # over the distance from the axis.
+    lat_pad = math.degrees(gap / (nearest - _EVOLUTE_REACH_METRES))
+    south, north = max(-90.0, min(lats) - lat_pad), min(90.0, max(lats) + lat_pad)
+    from_axis = min(math.hypot(point[0], point[1]) for point in points) - gap
+    lon_pad = math.degrees(gap / from_axis) if from_axis > 0 else math.inf
+
+    west, east = min(lons), max(lons)
+    # A convex volume clear of the Earth's axis spans under 180 degrees of
+    # longitude, so a wider span crosses the antimeridian.
+    if east - west > 180:
+        west = min(lon for lon in lons if lon >= 0)
+        east = max(lon for lon in lons if lon < 0)
+    if crossing is None and (east - west) % 360 + 2 * lon_pad < 360:
+        west, east = west - lon_pad, east + lon_pad
+        return west + 360 * (west < -180), south, east - 360 * (east > 180), north
+    if crossing is not None:
+        north = 90.0 if crossing[1] > 0 else north
+        south = -90.0 if crossing[0] < 0 else south
+    return -180.0, south, 180.0, north
 
 
 def _read_tileset_json(
@@ -581,7 +765,11 @@ def read_facts(document: dict) -> TilesetFacts:
         version=version,
         geometric_error=None if geometric_error is None else float(geometric_error),
         bounding_volume=kind,
-        extent_bbox=_region_extent(values) if kind == "region" else None,
+        extent_bbox=(
+            _region_extent(values)
+            if kind == "region"
+            else _cartesian_extent(kind, values, root.get("transform"))
+        ),
     )
 
 
