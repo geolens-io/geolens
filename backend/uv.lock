@@ -156,7 +156,7 @@ wheels = [
 
 [[package]]
 name = "azure-storage-blob"
-version = "12.30.2"
+version = "12.30.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "azure-core" },
@@ -164,9 +164,9 @@ dependencies = [
     { name = "isodate" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/eb/52/afb24161875c0a6fcba4ecb93d8c1c41a88898a0ed79a570724775eadfdc/azure_storage_blob-12.30.2.tar.gz", hash = "sha256:77f8e38c319d0b0efe9444c29179277157c5c2e5ddc40ec39f1f82faacebdcb4", size = 625010, upload-time = "2026-09-16T22:50:59.297Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c6/f0/3fb4ec2d4b3798e3bb8fefb1096d5728f2501c2ed52e0cb729a2c956cf00/azure_storage_blob-12.30.3.tar.gz", hash = "sha256:31760221ceff36b7ceed741ba0093d08ec857911b92294dce3e4efe8fa40245e", size = 625235, upload-time = "2026-09-22T21:50:04.985Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/4a/05/d932e048368f634a73b29385e59120aef161bea774d2f1ccddff9b2147cd/azure_storage_blob-12.30.2-py3-none-any.whl", hash = "sha256:057d1f78c7cf27a0b7ec54ffdbe2436c63474be0a0e25cc55c9ce6addcd13bae", size = 438231, upload-time = "2026-09-16T22:51:00.783Z" },
+    { url = "https://files.pythonhosted.org/packages/ff/20/6530bbc13fea536a1f2c0194034ae3f6880fbc0c1e7c229e3569450f7aef/azure_storage_blob-12.30.3-py3-none-any.whl", hash = "sha256:80729a5397e5f0a63dbbdff74da675c5db1eacaf25fd5db0074b7ba6c17e2498", size = 438390, upload-time = "2026-09-22T21:50:06.395Z" },
 ]
 
 [[package]]
