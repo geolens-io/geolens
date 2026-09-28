@@ -2035,6 +2035,51 @@ describe('useBuilderSave', () => {
       vi.useRealTimers();
     });
 
+    it('drops a capture edited between scheduling and render, and re-arms auto-capture', async () => {
+      vi.useFakeTimers();
+      expect(shouldAutoCapture('map-1', 'user-1')).toBe(true);
+      const mockMap = createMockMap({ loaded: true });
+      let state = makeSaveState({
+        mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+      });
+      const { result, rerender } = renderHook(() => useBuilderSave(state));
+      await act(async () => { await result.current.handleSave(); });
+      act(() => { vi.advanceTimersByTime(500); });
+      expect(mockMap.triggerRepaint).toHaveBeenCalled();
+
+      state = { ...state, hasUnsavedChanges: true };
+      rerender();
+      vi.useRealTimers();
+      await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
+
+      expect(mockUploadThumbnail).not.toHaveBeenCalled();
+      expect(shouldAutoCapture('map-1', 'user-1')).toBe(true);
+    });
+
+    it('does not hold a capture for a vector source that is still loading', async () => {
+      vi.useFakeTimers();
+      const mockMap = createMockMap({ loaded: false });
+      mockMap.getSource.mockImplementation((sourceId: string) =>
+        sourceId === 'source-layer-1' ? { type: 'raster' } : { type: 'vector' },
+      );
+      mockMap.isSourceLoaded.mockImplementation((sourceId: string) => sourceId === 'source-layer-1');
+
+      const state = makeSaveState({
+        localLayers: [
+          makeLayer({ layer_type: 'raster_geolens' }),
+          makeLayer({ id: 'layer-2', layer_type: 'raster_geolens' }),
+        ],
+        mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+      });
+      const { result } = renderHook(() => useBuilderSave(state));
+      await act(async () => { await result.current.handleSave(); });
+      act(() => { vi.advanceTimersByTime(3500); });
+
+      expect(mockMap.triggerRepaint).toHaveBeenCalled();
+
+      vi.useRealTimers();
+    });
+
     it('captures at the final deadline when the source loaded without an idle event', async () => {
       vi.useFakeTimers();
       const mockMap = createMockMap({ loaded: false });

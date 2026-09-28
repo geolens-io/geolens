@@ -256,8 +256,14 @@ function doCapture(
   mapId: string,
   queryClient: ReturnType<typeof useQueryClient>,
   trigger: CaptureTrigger,
+  hasUnsavedChanges?: () => boolean,
 ) {
   const onRender = () => {
+    // An edit made after the save must not reach the stored images.
+    if (hasUnsavedChanges?.()) {
+      rearmAutoCapture(mapId);
+      return;
+    }
     try {
       const srcCanvas = map.getCanvas();
       // fix(#1479 Codex P2 round 1): both crops carry the space backdrop when
@@ -356,10 +362,12 @@ function whenMapIdle(
   }, 3000);
 }
 
-/** Whether a source on the map is still loading. An id with no source is
- *  ignored: folder rows and terrain DEMs never get one. */
+/** Whether a raster source on the map is still loading. Other source types
+ *  and ids with no source (folder rows, terrain DEMs) don't hold a capture. */
 function anySourceStillLoading(map: MaplibreMap, sourceIds: string[]): boolean {
-  return sourceIds.some((sourceId) => !!map.getSource(sourceId) && !map.isSourceLoaded(sourceId));
+  return sourceIds.some(
+    (sourceId) => map.getSource(sourceId)?.type === 'raster' && !map.isSourceLoaded(sourceId),
+  );
 }
 
 function waitForVisibleLayerSources(
@@ -430,10 +438,14 @@ function runCaptureNow(
   trigger: CaptureTrigger = 'save',
   hasUnsavedChanges?: () => boolean,
 ) {
-  // The canvas is read when the capture runs, which can be well after the save;
-  // an edit made meanwhile must not reach the stored images.
+  // The canvas is read when the capture runs, which can be well after the save.
+  // An edit made meanwhile skips it and re-arms auto-capture for a later open.
   const capture = () => {
-    if (!hasUnsavedChanges?.()) doCapture(map, mapId, queryClient, trigger);
+    if (hasUnsavedChanges?.()) {
+      rearmAutoCapture(mapId);
+      return;
+    }
+    doCapture(map, mapId, queryClient, trigger, hasUnsavedChanges);
   };
   // POLISH-01: defer the first capture when a layer-add is pending (layersRef
   // provided) but no layers have synced yet. Poll the live ref so we pick up
