@@ -1064,8 +1064,8 @@ class TestAPreviewFailureCarriesNoCredential:
         Without a positive control an absence assertion is satisfied by a
         preview that never reached the failure block at all. This drives the
         same path with the scrub disabled and requires the credential to come
-        through, so the three tests above cannot be green for the wrong
-        reason.
+        through to the log, so the three tests above cannot be green for the
+        wrong reason. The exception never carries GDAL's text at all.
         """
         monkeypatch.setattr(
             preview_mod, "scrub_secret_value", lambda text, secret: text
@@ -1079,7 +1079,7 @@ class TestAPreviewFailureCarriesNoCredential:
             monkeypatch, credential, f"ERROR 1: sent '{blob}'"
         )
 
-        assert blob in str(error)
+        assert str(error) == "ogrinfo failed (exit 1)"
         assert blob in str(captured)
 
     async def test_unreadable_stdout_names_none_of_it(self, monkeypatch) -> None:

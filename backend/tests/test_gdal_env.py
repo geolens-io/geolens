@@ -144,19 +144,23 @@ class TestSchemaFetchesStayOffByValue:
     """
 
     def test_both_envs_pin_both_keys_to_no(self) -> None:
+        from app.platform.egress_proxy import ServiceEgress
         from app.platform.gdal_env import gdal_service_safe_env, gdal_vector_safe_env
 
-        for env in (gdal_vector_safe_env(), gdal_service_safe_env()):
+        egress = ServiceEgress("http://127.0.0.1:9")
+        for env in (gdal_vector_safe_env(), gdal_service_safe_env(egress)):
             for key in _SCHEMA_FETCH_KEYS:
                 assert env[key] == "NO", key
 
     def test_a_process_env_value_cannot_flip_either(self, monkeypatch) -> None:
+        from app.platform.egress_proxy import ServiceEgress
         from app.platform.gdal_env import gdal_service_safe_env, gdal_vector_safe_env
 
         for key in _SCHEMA_FETCH_KEYS:
             monkeypatch.setenv(key, "YES")
 
-        for env in (gdal_vector_safe_env(), gdal_service_safe_env()):
+        egress = ServiceEgress("http://127.0.0.1:9")
+        for env in (gdal_vector_safe_env(), gdal_service_safe_env(egress)):
             for key in _SCHEMA_FETCH_KEYS:
                 assert env[key] == "NO", key
         assert all(os.environ[key] == "YES" for key in _SCHEMA_FETCH_KEYS)
