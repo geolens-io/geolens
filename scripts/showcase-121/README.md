@@ -203,11 +203,9 @@ examples. No AI step is required.
    identities, restores captured editable fields and collection membership,
    unpublishes newly named showcase maps/datasets, and removes a new Client
    Connections collection only when it contains only new showcase datasets.
-   The seed restyles some layers by swapping in a copy, adding it and removing
-   the original in one request so no embed token scoped to that dataset is
-   revoked. The copy has a new ID. Restore matches it to the saved layer by
-   dataset and display name, and refuses when the match is missing or
-   ambiguous. It removes Matterhorn route
+   The seed restyles layers in place with a full-body update, so layer IDs and
+   embed tokens survive, and restore compares layers by ID. It removes
+   Matterhorn route
    and peak layers that an overlay repair added; any other new layer except
    the hurricane context layer stops the restore.
    Restore does not undo a quake `--refresh-quakes` pull, which is ordinary
@@ -262,9 +260,9 @@ A second isolated project (`showcase121u`, ports 63586-63588) was seeded with
 `origin/main`'s seed script, the generation the public demo runs. A share link
 was minted on Restless Earth; the seed's private embed token was also kept.
 The guarded update above then exited 0. All seven map IDs and every existing
-dataset ID survived. City in Shade and five datasets were added. Restyling
-replaced one layer each on Manhattan, Hurricane Exposure, and Restless Earth,
-with the same dataset and name. That run skipped the Client Connections
+dataset ID survived. City in Shade and five datasets were added. At that
+point restyling deleted and re-added one layer each on Manhattan, Hurricane
+Exposure, and Restless Earth; see below. That run skipped the Client Connections
 collection because the cached admin dataset list had not yet shown the new
 samples. The seed now reads titles it created itself. A retry with a fresh
 precondition snapshot created that collection and changed nothing else: no
@@ -274,15 +272,18 @@ differences), unpublished the new map and datasets, and removed Client
 Connections. The share link (200) and embed (204, 403 without its token)
 worked before, during, and after.
 
-An adversarial review then found three more rollback gaps, and all three were
-fixed and rehearsed. First, the layer delete revoked embed tokens scoped to the
-restyled layer's dataset. The swap now happens in one request, and an embed
-token minted on Manhattan stayed active through a re-apply and two restores.
-Second, the snapshot missed the prefix-matched Sentinel-2 scenes. With the
+Adversarial review rounds then found more rollback gaps, each fixed and
+rehearsed. Deleting a layer revoked embed tokens scoped to its dataset and
+changed its ID. A full-body update on the existing layer keeps both: in the
+final cycle only `visible`, `show_in_legend`, and `label_config` changed on the
+three restyled layers, their IDs held, and an embed token minted on Manhattan
+stayed active. Second, the snapshot missed the prefix-matched Sentinel-2 scenes. With the
 scenes set back to main's `continual` cadence, the update changed them to
 `notPlanned` and restore put `continual` back, again with zero differences.
 Third, a new Client Connections collection holding pre-existing samples blocked
-the final restore step. That check now runs before any write.
+the final restore step. That check now runs before any write. The preflight
+refusals listed in step 3 came from later rounds. The final cycle, run from
+this branch's head, exited 0 for the guarded update and 0 for the restore.
 The standard post-deployment smoke is
 `E2E_DEMO_BASE_URL=https://demo.getgeolens.com E2E_EXPECT_VERSION=1.21.0 npm run e2e:smoke:demo`.
 

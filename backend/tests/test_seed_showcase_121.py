@@ -183,24 +183,6 @@ def _layer(dataset_id, name, opacity=1.0):
     }
 
 
-def test_restore_follows_a_layer_the_seed_replaced_under_a_new_id():
-    saved = {"maps": {"m": {"layers": {"old": _layer("ds", "Subway", 1.0)}}}}
-    current = {"maps": {"m": {"layers": {"new": _layer("ds", "Subway", 0.4)}}}}
-    state.rebind_replaced_layers(saved, current)
-    assert saved["maps"]["m"]["layers"] == {"new": _layer("ds", "Subway", 1.0)}
-
-
-def test_restore_does_not_guess_between_two_replacement_candidates():
-    saved = {"maps": {"m": {"layers": {"old": _layer("ds", "Subway")}}}}
-    current = {
-        "maps": {
-            "m": {"layers": {"a": _layer("ds", "Subway"), "b": _layer("ds", "Subway")}}
-        }
-    }
-    state.rebind_replaced_layers(saved, current)
-    assert list(saved["maps"]["m"]["layers"]) == ["old"]
-
-
 class TargetApi:
     user_id = "u"
 
@@ -352,30 +334,31 @@ def test_snapshot_captures_datasets_the_seed_patches_by_title_prefix(monkeypatch
     assert list(captured) == ["Sentinel-2 TCI S2A_T18TXL_20260918"]
 
 
-class SwapApi:
-    def __init__(self, landed):
-        self.landed = landed
-        self.swaps = []
+class LayerApi:
+    def __init__(self):
+        self.updates = []
 
-    def swap_layer(self, map_id, layer_id, body):
-        self.swaps.append((layer_id, body))
-        raise seed.httpx.TimeoutException("lost response")
-
-    def get_map(self, _):
-        return {"layers": [] if self.landed else [{"id": "old"}]}
+    def update_layer(self, map_id, body):
+        self.updates.append(body)
 
 
-@pytest.mark.parametrize("landed", [True, False])
-def test_restyle_swaps_in_one_request_and_trusts_the_map_after_a_lost_reply(landed):
-    api = SwapApi(landed)
-    layer = {"id": "old", "dataset_id": "ds", "display_name": "Subway"}
-    if landed:
-        seed._restyle_layer(api, "m", layer, fields={"show_in_legend": False})
-    else:
-        with pytest.raises(seed.httpx.TimeoutException):
-            seed._restyle_layer(api, "m", layer, fields={"show_in_legend": False})
-    assert api.swaps == [
-        ("old", {"dataset_id": "ds", "display_name": "Subway", "show_in_legend": False})
+def test_restyle_updates_the_layer_in_place_with_its_whole_body():
+    api = LayerApi()
+    layer = {
+        "id": "old",
+        "dataset_id": "ds",
+        "display_name": "Subway",
+        "style_config": {"builder": {"mode": "simple"}},
+    }
+    seed._restyle_layer(api, "m", layer, fields={"show_in_legend": False})
+    assert api.updates == [
+        {
+            "id": "old",
+            "dataset_id": "ds",
+            "display_name": "Subway",
+            "style_config": {"builder": {"mode": "simple"}},
+            "show_in_legend": False,
+        }
     ]
 
 
@@ -437,3 +420,12 @@ class UnstylableApi:
 
 def test_styling_reports_a_map_it_could_not_style():
     assert seed.apply_showcase_styling(UnstylableApi()) == ["Restless Earth"]
+
+
+class UnwritableMetadataApi(EnrichApi):
+    def patch_dataset(self, _dataset_id, **_fields):
+        raise seed.httpx.TimeoutException("lost response")
+
+
+def test_enrich_reports_a_dataset_it_could_not_write():
+    assert seed.enrich_showcase_metadata(UnwritableMetadataApi()) == [seed.QUAKES_TITLE]

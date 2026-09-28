@@ -808,11 +808,11 @@ class Api:
         job = self.poll(r.json()["job_id"], timeout=timeout)
         return self._created(title, job["dataset_id"])
 
-    def swap_layer(self, map_id: str, layer_id: str, body: dict) -> None:
+    def update_layer(self, map_id: str, body: dict) -> None:
         r = self.client.patch(
             f"{self.base}/api/maps/{map_id}/layers",
             headers=self.h,
-            json={"added": [body], "removed": [layer_id]},
+            json={"updated": [body]},
         )
         r.raise_for_status()
 
@@ -5913,7 +5913,7 @@ def _metadata_spec(title: str) -> dict | None:
     return None
 
 
-def enrich_showcase_metadata(api: "Api") -> None:
+def enrich_showcase_metadata(api: "Api") -> list[str]:
     """Backfill the catalog metadata the ingest flow does not set.
 
     License and keywords (fix(#614)), plus the provenance fields that make a
@@ -5926,7 +5926,8 @@ def enrich_showcase_metadata(api: "Api") -> None:
     keywords are added only when absent, so re-running never duplicates. Only
     datasets that actually exist are touched, so this composes with --only. Each
     dataset is isolated the same way the builders are - one flaky PATCH must not
-    skip the rest - and the whole pass is best-effort: it never fails the seed.
+    skip the rest. Returns the titles it could not write; only a guarded update
+    fails on them.
 
     Safe on the three externally pinned datasets: a metadata PATCH does not
     touch a title, a table name or an id, which are the only things an outside
@@ -5940,6 +5941,7 @@ def enrich_showcase_metadata(api: "Api") -> None:
     those: a same-titled dataset belonging to someone else is not this
     seeder's to relicense (list_own_datasets).
     """
+    unenriched: list[str] = []
     for ds in api.list_own_datasets():
         spec = _metadata_spec(ds["title"])
         if not spec:
@@ -5979,6 +5981,8 @@ def enrich_showcase_metadata(api: "Api") -> None:
             print(
                 f"  WARNING: metadata enrich failed for {title!r}: {e}", file=sys.stderr
             )
+            unenriched.append(title)
+    return unenriched
 
 
 # --- post-builder styling pass --------------------------------------------------
@@ -6206,17 +6210,11 @@ _LAYER_WRITABLE_FIELDS = (
 def _restyle_layer(
     api: "Api", map_id: str, layer: dict, paint=None, builder=None, fields=None
 ) -> None:
-    """Apply a style delta to an EXISTING layer by swapping in a new copy.
+    """Apply a style delta to an EXISTING layer in place, keeping its id.
 
-    One layer-diff request adds the replacement and removes the original. A
-    field PATCH is avoided because the diff's update path can null style_config
-    when one key changes. A separate DELETE is avoided because it leaves the
-    dataset off the map for a moment, and the server then revokes every embed
-    token scoped to that dataset. The body is the layer's own state read back
-    from the server, so only the keys in the delta differ.
-
-    A lost response is resolved by re-reading the map: the swap is atomic, so
-    the original being gone means the replacement landed.
+    The layer-diff update sends every writable field, not just the delta: a
+    partial update can null style_config. The body is the layer's own state
+    read back from the server, so only the keys in the delta differ.
     """
     body = {k: layer[k] for k in _LAYER_WRITABLE_FIELDS if layer.get(k) is not None}
     if fields:
@@ -6229,14 +6227,7 @@ def _restyle_layer(
         style_config = dict(body.get("style_config") or {})
         style_config["builder"] = {**(style_config.get("builder") or {}), **builder}
         body["style_config"] = style_config
-    try:
-        api.swap_layer(map_id, layer["id"], body)
-    except (httpx.HTTPStatusError, httpx.TimeoutException):
-        if any(
-            x.get("id") == layer["id"]
-            for x in (api.get_map(map_id).get("layers") or [])
-        ):
-            raise
+    api.update_layer(map_id, {"id": layer["id"], **body})
 
 
 def _basin_context_layer_body(regions_ds: str) -> dict:
@@ -6348,8 +6339,9 @@ def apply_showcase_styling(api: "Api") -> list[str]:
 
     Idempotent throughout: every write is preceded by a read of the current
     value and skipped when it already matches, so a re-run costs GETs and
-    changes nothing. Best-effort per map, like the other post-builder passes -
-    a flaky PUT must not fail a seed whose maps and data are already built.
+    changes nothing. Isolated per map, like the other post-builder passes: a
+    flaky PUT does not stop the rest. Returns the maps it could not style; only
+    a guarded update fails on them.
 
     Reads look for the SNAKE_CASE builder keys. The server canonicalizes
     style_config.builder on save, so folder_group_id is what comes back
@@ -6881,10 +6873,12 @@ def main() -> int:
             print(outcome)
 
     # Backfill license + keywords on whatever showcase datasets now exist (the
-    # ingest flow leaves them "proprietary" with no keywords). Best-effort and
-    # self-isolating - see enrich_showcase_metadata - so it never fails the seed.
+    # ingest flow leaves them "proprietary" with no keywords). Isolated per
+    # dataset; a guarded update fails on any it could not write.
     print("\nEnriching catalog metadata (license + keywords)...")
-    enrich_showcase_metadata(api)
+    unenriched = enrich_showcase_metadata(api)
+    if unenriched and args.expected_state:
+        failed["metadata"] = ", ".join(unenriched)
 
     # Rename before the passes below, not only inside build_hurricanes. Both
     # passes look the map up by its CURRENT name, and the builder that renames

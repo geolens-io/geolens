@@ -385,40 +385,11 @@ def hide_new_content(api, saved, current):
             print(f"removed new collection {name}")
 
 
-def rebind_replaced_layers(saved, current):
-    """Point saved layers at the seed's replacements for them.
-
-    The seed restyles some layers by deleting and re-adding them, so the same
-    dataset and display name return under a new id. Only a unique match is
-    rebound; anything else is left for verify_restorable to refuse.
-    """
-    for name, original in saved["maps"].items():
-        now = current["maps"].get(name)
-        if not now:
-            continue
-        extra = set(now["layers"]) - set(original["layers"])
-        for layer_id in [i for i in original["layers"] if i not in now["layers"]]:
-            layer = original["layers"][layer_id]
-            matches = [
-                i
-                for i in extra
-                if now["layers"][i]["dataset_id"] == layer["dataset_id"]
-                and now["layers"][i]["fields"]["display_name"]
-                == layer["fields"]["display_name"]
-            ]
-            if len(matches) == 1:
-                original["layers"][matches[0]] = original["layers"].pop(layer_id)
-                extra.discard(matches[0])
-
-
 def unrestored(saved, after):
     """Name saved maps, datasets and collections a fresh read does not match."""
 
     def layers(item):
-        return sorted(
-            (layer["dataset_id"], json.dumps(layer["fields"], sort_keys=True))
-            for layer in item["layers"].values()
-        )
+        return item["layers"]
 
     def keywords(item):
         return {
@@ -464,7 +435,6 @@ def restore(api, saved):
     if active_jobs(api):
         raise RuntimeError("wait for this account's pending or running jobs to finish")
     current = snapshot(api)
-    rebind_replaced_layers(saved, current)
     verify_restorable(api, saved, current)
     restore_maps(api, saved, current)
     restore_datasets(api, saved, current)
