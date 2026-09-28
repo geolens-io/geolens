@@ -105,6 +105,8 @@ async def _extent(
     )
 
     key = _tileset_json_key(await get_tileset_href(db, dataset_id), dataset_id)
+    # A slow storage read must not hold the catalog's locks.
+    await db.rollback()
     if key is None:
         raise _Broken("no usable tileset pointer")
     raw = await get_storage().get_range(key, 0, MAX_TILESET_JSON_BYTES + 1)
@@ -139,6 +141,7 @@ async def backfill(db: AsyncSession, *, dry_run: bool = False) -> BackfillReport
         await _end_failed_transaction(db)
 
     dataset_ids = (await db.execute(_SELECT_WITHOUT_EXTENT)).scalars().all()
+    await db.rollback()
     for dataset_id in dataset_ids:
         try:
             extent = await _extent(db, dataset_id)

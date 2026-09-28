@@ -207,6 +207,31 @@ async def test_a_georeferenced_box_gets_its_extent_once(
     assert await _extent(client, uploader, dataset_id) == extent
 
 
+async def test_no_transaction_is_open_while_storage_is_read(
+    client: AsyncClient,
+    test_db_session,
+    uploader,  # noqa: F811
+    queued,  # noqa: F811
+    monkeypatch,
+) -> None:
+    dataset_id = await _published(client, test_db_session, uploader, queued, _AMSTERDAM)
+    await _forget_extent(test_db_session, dataset_id)
+    storage = storage_provider.get_storage()
+    get_range = storage.get_range
+    open_during_read: list[bool] = []
+
+    async def watched_get_range(*args, **kwargs):
+        open_during_read.append(test_db_session.in_transaction())
+        return await get_range(*args, **kwargs)
+
+    monkeypatch.setattr(storage, "get_range", watched_get_range)
+
+    report = await backfill(test_db_session, dry_run=True)
+
+    assert _outcome(report, dataset_id) == "updated"
+    assert open_during_read == [False]
+
+
 async def test_a_dry_run_writes_nothing(
     client: AsyncClient,
     test_db_session,
