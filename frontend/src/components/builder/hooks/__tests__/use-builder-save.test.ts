@@ -2127,7 +2127,10 @@ describe('useBuilderSave', () => {
     it('holds a capture on a map with no visible layers while its raster basemap loads', async () => {
       vi.useFakeTimers();
       const mockMap = createMockMap({ loaded: false });
-      mockMap.getStyle.mockReturnValue({ sources: { basemap: { attribution: '' } }, layers: [] });
+      mockMap.getStyle.mockReturnValue({
+        sources: { basemap: { attribution: '' } },
+        layers: [{ id: 'basemap', source: 'basemap', layout: {} }],
+      });
       mockMap.getSource.mockImplementation((sourceId: string) =>
         sourceId === 'basemap' ? { type: 'raster' } : undefined,
       );
@@ -2145,10 +2148,37 @@ describe('useBuilderSave', () => {
       vi.useRealTimers();
     });
 
+    it('does not hold a capture for a hidden raster layer that is still loading', async () => {
+      vi.useFakeTimers();
+      const mockMap = createMockMap({ loaded: false });
+      mockMap.getStyle.mockReturnValue({
+        sources: { hidden: { attribution: '' } },
+        layers: [{ id: 'hidden', source: 'hidden', layout: { visibility: 'none' } }],
+      });
+      mockMap.getSource.mockImplementation((sourceId: string) =>
+        sourceId === 'hidden' ? { type: 'raster' } : undefined,
+      );
+      mockMap.isSourceLoaded.mockReturnValue(false);
+
+      const state = makeSaveState({
+        mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+      });
+      const { result } = renderHook(() => useBuilderSave(state));
+      await act(async () => { await result.current.handleSave(); });
+      act(() => { vi.advanceTimersByTime(3500); });
+
+      expect(mockMap.triggerRepaint).toHaveBeenCalled();
+
+      vi.useRealTimers();
+    });
+
     it('holds a capture while a raster basemap is still loading', async () => {
       vi.useFakeTimers();
       const mockMap = createMockMap({ loaded: false });
-      mockMap.getStyle.mockReturnValue({ sources: { basemap: { attribution: '' } }, layers: [] });
+      mockMap.getStyle.mockReturnValue({
+        sources: { basemap: { attribution: '' } },
+        layers: [{ id: 'basemap', source: 'basemap', layout: {} }],
+      });
       mockMap.getSource.mockImplementation((sourceId: string) =>
         sourceId === 'basemap' ? { type: 'raster' } : undefined,
       );

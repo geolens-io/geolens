@@ -369,9 +369,18 @@ function anySourceStillLoading(map: MaplibreMap, sourceIds: string[]): boolean {
   });
 }
 
+/** Sources drawn by style layers that aren't hidden. */
+function visibleStyleSourceIds(map: MaplibreMap): string[] {
+  return (map.getStyle()?.layers ?? []).flatMap((layer) =>
+    'source' in layer && typeof layer.source === 'string' && layer.layout?.visibility !== 'none'
+      ? [layer.source]
+      : [],
+  );
+}
+
 /** whenMapIdle, holding the capture while a raster or hillshade source loads.
- *  Every source in the style counts, not only the layers': a raster basemap and
- *  the shared terrain source load outside them. A deferred capture re-arms
+ *  Every source a visible style layer draws counts, not only the map layers':
+ *  a raster basemap and the shared terrain source load outside them. A deferred capture re-arms
  *  auto-capture at once, as the blank-frame guard does, so a reopen during the
  *  wait, or after a capture that never runs, can schedule its own. */
 function whenMapIdleAndRasterLoaded(
@@ -384,7 +393,7 @@ function whenMapIdleAndRasterLoaded(
     anySourceStillLoading(map, [
       ...sourceIds,
       TERRAIN_SOURCE_ID,
-      ...Object.keys(map.getStyle()?.sources ?? {}),
+      ...visibleStyleSourceIds(map),
     ]);
   whenMapIdle(map, fn, stillLoading, () => rearmAutoCapture(mapId));
 }
