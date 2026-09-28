@@ -2056,6 +2056,45 @@ describe('useBuilderSave', () => {
       expect(shouldAutoCapture('map-1', 'user-1')).toBe(true);
     });
 
+    it('drops a capture once the builder has moved to another map', async () => {
+      vi.useFakeTimers();
+      const mockMap = createMockMap({ loaded: true });
+      let state = makeSaveState({
+        mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+      });
+      const { result, rerender } = renderHook(() => useBuilderSave(state));
+      await act(async () => { await result.current.handleSave(); });
+      act(() => { vi.advanceTimersByTime(500); });
+
+      state = { ...state, mapId: 'map-2' };
+      rerender();
+      vi.useRealTimers();
+      await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
+
+      expect(mockUploadThumbnail).not.toHaveBeenCalled();
+    });
+
+    it('holds a capture for a hillshade source that is still loading', async () => {
+      vi.useFakeTimers();
+      const mockMap = createMockMap({ loaded: false });
+      mockMap.getSource.mockImplementation((sourceId: string) =>
+        sourceId === 'source-layer-1' ? { type: 'raster-dem' } : undefined,
+      );
+      mockMap.isSourceLoaded.mockReturnValue(false);
+
+      const state = makeSaveState({
+        localLayers: [makeLayer({ layer_type: 'raster_geolens' })],
+        mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+      });
+      const { result } = renderHook(() => useBuilderSave(state));
+      await act(async () => { await result.current.handleSave(); });
+      act(() => { vi.advanceTimersByTime(3500); });
+
+      expect(mockMap.triggerRepaint).not.toHaveBeenCalled();
+
+      vi.useRealTimers();
+    });
+
     it('does not hold a capture for a vector source that is still loading', async () => {
       vi.useFakeTimers();
       const mockMap = createMockMap({ loaded: false });
