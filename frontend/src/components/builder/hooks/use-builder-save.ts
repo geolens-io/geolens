@@ -428,7 +428,13 @@ function runCaptureNow(
   signal?: { cancelled: boolean },
   layersRef?: React.RefObject<MapLayerResponse[]>,
   trigger: CaptureTrigger = 'save',
+  hasUnsavedChanges?: () => boolean,
 ) {
+  // The canvas is read when the capture runs, which can be well after the save;
+  // an edit made meanwhile must not reach the stored images.
+  const capture = () => {
+    if (!hasUnsavedChanges?.()) doCapture(map, mapId, queryClient, trigger);
+  };
   // POLISH-01: defer the first capture when a layer-add is pending (layersRef
   // provided) but no layers have synced yet. Poll the live ref so we pick up
   // the layer that ?add_dataset adds after initializedRef resolves.
@@ -439,7 +445,7 @@ function runCaptureNow(
       const live = layersRef.current ?? [];
       if (live.length > 0) {
         // Layers have arrived — proceed through normal source-readiness path.
-        waitForVisibleLayerSources(map, mapId, live, () => doCapture(map, mapId, queryClient, trigger), signal);
+        waitForVisibleLayerSources(map, mapId, live, capture, signal);
         return;
       }
       if (Date.now() >= deadline) {
@@ -448,7 +454,7 @@ function runCaptureNow(
         // callback (WR-02): whenMapIdle can fire up to ~3s later, possibly after
         // an unmount, so the guard must be at capture time, not registration time.
         whenMapIdle(map, () => {
-          if (!signal?.cancelled) doCapture(map, mapId, queryClient, trigger);
+          if (!signal?.cancelled) capture();
         });
         return;
       }
@@ -457,7 +463,7 @@ function runCaptureNow(
     pollForLayers();
     return;
   }
-  waitForVisibleLayerSources(map, mapId, layers, () => doCapture(map, mapId, queryClient, trigger), signal);
+  waitForVisibleLayerSources(map, mapId, layers, capture, signal);
 }
 
 /** SP-16: 500ms trailing-edge debounce around captureThumbnail.
@@ -508,6 +514,7 @@ function captureThumbnail(
   signal?: { cancelled: boolean },
   layersRef?: React.RefObject<MapLayerResponse[]>,
   trigger: CaptureTrigger = 'save',
+  hasUnsavedChanges?: () => boolean,
 ) {
   // SP-16: clear any prior pending capture for this mapId; the latest call
   // wins (trailing edge), reflecting the final state once the window settles.
@@ -519,7 +526,7 @@ function captureThumbnail(
     // POLISH-01: pass layersRef through so runCaptureNow can defer on the
     // new-map + ?add_dataset path. Save-path callers do not pass layersRef,
     // so they remain on the existing waitForVisibleLayerSources path.
-    runCaptureNow(map, mapId, queryClient, layers, signal, layersRef, trigger);
+    runCaptureNow(map, mapId, queryClient, layers, signal, layersRef, trigger, hasUnsavedChanges);
   }, THUMBNAIL_DEBOUNCE_MS);
 
   pendingCaptures.set(mapId, timer);
@@ -1031,6 +1038,7 @@ export function useBuilderSave(state: SaveState) {
   // commits could read the stale ref and clear the dirty flag anyway.
   const latestStateRef = useRef(state);
   latestStateRef.current = state;
+  const hasUnsavedChanges = useCallback(() => latestStateRef.current.hasUnsavedChanges, []);
 
   function editedDuringSave(
     sent: SaveState,
@@ -1203,7 +1211,7 @@ export function useBuilderSave(state: SaveState) {
               if (!editedDuringSave(state, sentPluginSet, camera)) {
                 state.setHasUnsavedChanges(false);
               }
-              if (map && id) captureThumbnail(map, id, queryClient, localLayers);
+              if (map && id) captureThumbnail(map, id, queryClient, localLayers, undefined, undefined, 'save', hasUnsavedChanges);
               return;
             }
             if (!isUnsupportedLayerPatchError(error)) throw error;
@@ -1228,7 +1236,7 @@ export function useBuilderSave(state: SaveState) {
             if (!editedDuringSave(state, sentPluginSet, camera)) {
               state.setHasUnsavedChanges(false);
             }
-            if (map && id) captureThumbnail(map, id, queryClient, localLayers);
+            if (map && id) captureThumbnail(map, id, queryClient, localLayers, undefined, undefined, 'save', hasUnsavedChanges);
             return;
           }
         }
@@ -1252,7 +1260,7 @@ export function useBuilderSave(state: SaveState) {
       // Use `map` captured before mutate — mapInstanceRef.current may be
       // transiently null during re-render (callback ref identity change).
       if (map && id) {
-        captureThumbnail(map, id, queryClient, localLayers);
+        captureThumbnail(map, id, queryClient, localLayers, undefined, undefined, 'save', hasUnsavedChanges);
       }
     } catch (err) {
       setLastSaveFailed(true);
@@ -1580,8 +1588,8 @@ export function useBuilderSave(state: SaveState) {
     // the live localLayersRef so runCaptureNow can defer the capture until layers
     // arrive. For all other paths, layersRef is undefined → existing behavior.
     const layersRef = state.pendingLayerAdd ? localLayersRef : undefined;
-    captureThumbnail(map, state.mapId, queryClient, localLayersRef.current, captureSignalRef.current, layersRef, 'auto');
-  }, [state.hasThumbnail, state.mapId, state.pendingLayerAdd, queryClient]);
+    captureThumbnail(map, state.mapId, queryClient, localLayersRef.current, captureSignalRef.current, layersRef, 'auto', hasUnsavedChanges);
+  }, [state.hasThumbnail, state.mapId, state.pendingLayerAdd, queryClient, hasUnsavedChanges]);
 
   // P-08: Cancel in-flight polling on unmount
   useEffect(() => {

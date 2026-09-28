@@ -2008,6 +2008,33 @@ describe('useBuilderSave', () => {
       expect(mockUploadThumbnail).toHaveBeenCalledWith('map-1', expect.stringContaining('data:image/jpeg'));
     });
 
+    it('drops a deferred capture when the map was edited after the save', async () => {
+      vi.useFakeTimers();
+      const mockMap = createMockMap({ loaded: false });
+      mockMap.getSource.mockImplementation((sourceId: string) =>
+        sourceId === 'source-layer-1' ? { type: 'raster' } : undefined,
+      );
+      mockMap.isSourceLoaded.mockReturnValue(false);
+
+      let state = makeSaveState({
+        localLayers: [makeLayer({ layer_type: 'raster_geolens' })],
+        mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+      });
+      const { result, rerender } = renderHook(() => useBuilderSave(state));
+      await act(async () => { await result.current.handleSave(); });
+      act(() => { vi.advanceTimersByTime(3500); });
+
+      state = { ...state, hasUnsavedChanges: true };
+      rerender();
+      mockMap.isSourceLoaded.mockReturnValue(true);
+      const idle = mockMap.once.mock.calls.find((c: unknown[]) => c[0] === 'idle');
+      act(() => { (idle?.[1] as () => void)(); });
+
+      expect(mockMap.triggerRepaint).not.toHaveBeenCalled();
+
+      vi.useRealTimers();
+    });
+
     it('captures at the final deadline when the source loaded without an idle event', async () => {
       vi.useFakeTimers();
       const mockMap = createMockMap({ loaded: false });
