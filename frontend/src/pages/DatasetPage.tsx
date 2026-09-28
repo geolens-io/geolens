@@ -201,8 +201,14 @@ export function DatasetPage() {
   const [isDataTabExpanded, setIsDataTabExpanded] = useState(false);
   const toggleDataTabExpand = useCallback(() => setIsDataTabExpanded((prev) => !prev), []);
   const [isTaskMapPreviewOpen, setIsTaskMapPreviewOpen] = useState(false);
+  // This page stays mounted across a dataset id change (only DetailPanel's
+  // key remounts), so per-dataset UI state needs its own reset. A dataset
+  // with no Data tab (tiles3d_dataset, pointcloud_dataset) has no control
+  // left to clear this if it survives from a previous, table-backed dataset —
+  // it would otherwise hide the map-preview section (and stats bar) for good.
   useEffect(() => {
     setIsTaskMapPreviewOpen(false);
+    setIsDataTabExpanded(false);
   }, [id]);
   // fix(#583): pad the page clear of the open AI chat panel — the fixed panel
   // otherwise floats over the sticky detail tabs and header stat cells.
@@ -384,13 +390,21 @@ export function DatasetPage() {
   const isTable = dataset.record_type === 'table';
   const isTileset = dataset.record_type === 'tiles3d_dataset';
   const isPointCloud = dataset.record_type === 'pointcloud_dataset';
+  // Neither type has in-app tiles to draw, so the preview would otherwise
+  // request nothing and show an empty box. An extent still orients the
+  // reader, drawn as an outline over the basemap with no data layer.
+  const showFootprintOnly = (isTileset || isPointCloud) && bbox !== null;
   const { featureTable, mapLayerType, tileToken: tileKind } = recordTypeCapabilities(dataset.record_type);
   const canAddToMap = !isTable && mapLayerType !== null;
   const canReupload = featureTable || isRaster;
-  // DetailPanel renders a raster/VRT deep link to Data or Structure as the
-  // Overview tab. Keep the page-level map in that same effective layout so
-  // the tab fallback never leaves the preview in its compact task-tab state.
-  const effectivePageTab = (isRaster || isVrt) && (activeTab === 'data' || activeTab === 'structure')
+  // DetailPanel deep-links Data/Structure to Overview for any record type
+  // without those tabs (raster/VRT, and now tiles3d/pointcloud's footprint-
+  // only preview). Keep the page-level map in that same effective layout, or
+  // an activeTab left over from an earlier, table-backed dataset (its real
+  // Data tab) renders this one's footprint in the collapsed task-tab state
+  // instead of the prominent overview one.
+  const effectivePageTab = (isRaster || isVrt || isTileset || isPointCloud)
+    && (activeTab === 'data' || activeTab === 'structure')
     ? 'overview'
     : activeTab;
   const isOverview = effectivePageTab === 'overview';
@@ -578,10 +592,20 @@ export function DatasetPage() {
       {isTable && <TableHero />}
 
       {/* Keep the spatial canvas prominent for orientation, but let task tabs
-          lead with their own work instead of a full-height map. The map cannot
-          draw 3D Tiles or COPC, so those pages have no map section. */}
-      {!isDataTabExpanded && !isTable && !isTileset && !isPointCloud && (
-        <section aria-label={t('page.mapPreview')} className="rounded-lg border shadow-sm overflow-hidden">
+          lead with their own work instead of a full-height map. The map has
+          no in-app renderer for 3D Tiles or COPC, so those pages get a map
+          section only to show the dataset's extent, and only when one exists.
+          Expanding the Data tab normally unmounts this section — but that
+          would destroy an in-progress geometry edit, which lives only in
+          this map's own TerraDraw instance and nowhere the app could restore
+          it from. Toggling isDataTabExpanded doesn't change the route, so
+          the unsaved-changes guard (route-navigation only) never sees it.
+          Keep the section mounted, just hidden, while a session is active. */}
+      {(!isDataTabExpanded || isDrawing) && !isTable && (!(isTileset || isPointCloud) || showFootprintOnly) && (
+        <section
+          aria-label={t('page.mapPreview')}
+          className={cn('rounded-lg border shadow-sm overflow-hidden', isDataTabExpanded && 'hidden')}
+        >
           {!isOverview && !isDrawing && (
             <Button
               type="button"
@@ -639,6 +663,7 @@ export function DatasetPage() {
                   rasterTileUrl={dataset.raster?.tile_url}
                   tileVersion={dataset.updated_at}
                   attribution={dataset.attribution}
+                  shortcutsEnabled={!isDataTabExpanded}
                   onFeatureClick={setReadOnlyFeatureGid}
                   {...(tracksHero ? {
                     onMapReady,

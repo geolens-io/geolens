@@ -26,6 +26,7 @@ import { findElevationColumn } from '@/lib/geo-utils';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { recordTypeCapabilities } from '@/lib/record-types';
+import { toMapLibreAttribution } from '@/lib/attribution-safety';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -73,6 +74,33 @@ function isAppSourceId(id: string, vectorSourceId: string | null): boolean {
 }
 
 /**
+ * Whether the drawing store's session belongs to THIS map's dataset. Used
+ * both to gate the toolbar render and to decide whether an inherited
+ * session should be torn down on mount (see the staleSessionCheckedRef
+ * effect). `targetDatasetId === null` means nothing has adopted a target —
+ * drawing-store.ts's `setDrawing` always sets it together with
+ * `isDrawing: true`, so a real active session always has one — treated as
+ * "not a mismatch" rather than as belonging to no dataset.
+ */
+function targetsDataset(targetDatasetId: string | null, datasetId: string | undefined): boolean {
+  return targetDatasetId === null || targetDatasetId === (datasetId ?? null);
+}
+
+/**
+ * True when a document-level keyboard shortcut should defer to the target's
+ * own native handling instead — a hidden drawing session (see the
+ * isDataTabExpanded gate in DatasetPage) keeps this map's document-level
+ * listeners attached while the Data tab's own table is what has focus. Same
+ * check MapToolbar.tsx and MapBuilderPage.tsx already use for their own
+ * hotkeys, shared here between this file's two document-level listeners.
+ */
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
+}
+
+/**
  * Dataset detail map preview.
  *
  * Renders a single dataset's vector tiles with the user's currently active
@@ -115,6 +143,13 @@ interface DatasetMapProps {
   /** fix(#1472 review): the dataset's required credit line, rendered in the
    *  preview's attribution control alongside the basemap's. */
   attribution?: string | null;
+  /** False while this instance is kept mounted but hidden (DatasetPage's
+   *  isDataTabExpanded gate, so an active drawing session survives the
+   *  Data tab's own table expanding over it) — its document-level Ctrl/
+   *  Meta+Z and Escape handlers must not act on geometry the user can't
+   *  see, even from a target isEditableTarget doesn't otherwise catch
+   *  (e.g. a focused button in that table). */
+  shortcutsEnabled?: boolean;
 }
 
 export const DatasetMap = memo(function DatasetMap({
@@ -133,6 +168,7 @@ export const DatasetMap = memo(function DatasetMap({
   onTileError,
   onFeatureClick,
   attribution,
+  shortcutsEnabled = true,
 }: DatasetMapProps) {
   const { t } = useTranslation(['dataset', 'common']);
   const { resolvedTheme } = useTheme();
@@ -262,12 +298,30 @@ export const DatasetMap = memo(function DatasetMap({
   const discardActionRef = useRef<(() => void) | null>(null);
 
   const isDrawing = useDrawingStore((s) => s.isDrawing);
+  const drawingTargetDatasetId = useDrawingStore((s) => s.targetDatasetId);
   const activeMode = useDrawingStore((s) => s.activeMode);
   const setDrawing = useDrawingStore((s) => s.setDrawing);
   const setMode = useDrawingStore((s) => s.setMode);
   const clearDrawing = useDrawingStore((s) => s.clearDrawing);
   const selectedFeature = useDrawingStore((s) => s.selectedFeature);
   const sessionEpoch = useDrawingStore((s) => s.sessionEpoch);
+  // Whether the store's session actually belongs to THIS map's dataset —
+  // gates the toolbar so a render before the stale-session effect above
+  // has run never shows controls for a different dataset's selection.
+  const isOwnDrawingSession = isDrawing && targetsDataset(drawingTargetDatasetId, datasetId);
+  // The tdId of a DIRTY selection already present when this instance first
+  // rendered — i.e. inherited, not made by clicking within this instance
+  // (which could only happen after this first render). Read directly here,
+  // during render, like initialBasemapStyle above: the mount effect below
+  // only runs AFTER the first paint, so a ref it set would still show
+  // Delete for that one paint. `undefined` (not yet computed) vs `null` (no
+  // orphaned selection) distinguishes "first render" from "checked, none".
+  const orphanedSelectionTdIdRef = useRef<string | null | undefined>(undefined);
+  if (orphanedSelectionTdIdRef.current === undefined) {
+    const initial = useDrawingStore.getState();
+    orphanedSelectionTdIdRef.current =
+      initial.isEditDirty && initial.selectedFeature ? initial.selectedFeature.tdId : null;
+  }
   const requestScopeRef = useRef({ datasetId, sessionEpoch });
   if (
     requestScopeRef.current.datasetId !== datasetId
@@ -492,6 +546,16 @@ export const DatasetMap = memo(function DatasetMap({
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        // shortcutsEnabled is false while this instance is hidden
+        // (isDataTabExpanded) — that table's own focusable elements
+        // (e.g. a button) aren't caught by isEditableTarget below, so this
+        // catches those too, on top of typed-in inputs.
+        if (!shortcutsEnabled) return;
+        // AttributeTable's cell editor also uses Escape (to cancel an edit)
+        // without stopping propagation — without this check Escape there
+        // would also deselect or open a discard dialog for a feature the
+        // user can't see.
+        if (isEditableTarget(e.target)) return;
         const hasSketchInProgress = canUndo && useDrawingStore.getState().activeMode !== 'select';
         if (selectedFeature) {
           if (useDrawingStore.getState().isEditDirty) {
@@ -514,7 +578,7 @@ export const DatasetMap = memo(function DatasetMap({
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [activeMode, canUndo, clear, performDeselect, requestDiscardConfirmation, selectedFeature, tdSetMode]);
+  }, [activeMode, canUndo, clear, performDeselect, requestDiscardConfirmation, selectedFeature, shortcutsEnabled, tdSetMode]);
 
   // --- Ctrl+Z / Meta+Z undo shortcut ---
   useEffect(() => {
@@ -522,6 +586,12 @@ export const DatasetMap = memo(function DatasetMap({
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        // shortcutsEnabled is false while this instance is hidden
+        // (isDataTabExpanded) — that table's own focusable elements aren't
+        // caught by isEditableTarget below, so this catches those too.
+        if (!shortcutsEnabled) return;
+        // Don't hijack the input's native undo while typing.
+        if (isEditableTarget(e.target)) return;
         // Only undo in drawing modes, not select mode
         const currentMode = useDrawingStore.getState().activeMode;
         if (currentMode && currentMode !== 'select') {
@@ -535,7 +605,7 @@ export const DatasetMap = memo(function DatasetMap({
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isDrawing, undo]);
+  }, [isDrawing, shortcutsEnabled, undo]);
 
   // --- Fullscreen state sync ---
   useEffect(() => {
@@ -651,6 +721,10 @@ export const DatasetMap = memo(function DatasetMap({
         : null,
     [hasBbox, minx, miny, maxx, maxy],
   );
+  // Only when there's no vector/raster source of this dataset's own to
+  // carry it (tileKind null: tiles3d/pointcloud's footprint-only preview) —
+  // otherwise that source already shows it, and this would duplicate it.
+  const bboxAttribution = tileKind === null ? toMapLibreAttribution(attribution) : null;
 
   const handleLoad = useCallback(
     (e: MapLibreEvent) => {
@@ -886,6 +960,46 @@ export const DatasetMap = memo(function DatasetMap({
     finishDrawingSession();
   }, [sessionEpoch, finishDrawingSession]);
 
+  // The drawing store is global but this component is remounted per dataset
+  // (DatasetPage keys it on dataset id), so a client-side navigation away
+  // from an in-progress edit — with nothing dirty, so the unsaved guard lets
+  // it through — can land here with the store still holding the previous
+  // dataset's session, even between two datasets that can both edit (no
+  // canEdit mismatch to catch it, and no identity change to bump
+  // sessionEpoch). A map must not inherit a session for a dataset that
+  // is not its own: besides hiding the toolbar below, end the session so
+  // its mutation hooks, now bound to this dataset's id and table, never
+  // act on the old selection.
+  const staleSessionCheckedRef = useRef(false);
+  useEffect(() => {
+    if (staleSessionCheckedRef.current) return;
+    staleSessionCheckedRef.current = true;
+    const state = useDrawingStore.getState();
+    if (!state.isDrawing) return;
+    if (!canEdit || !targetsDataset(state.targetDatasetId, datasetId)) {
+      finishDrawingSession();
+    } else if (state.selectedFeature) {
+      if (state.isEditDirty) {
+        // A dirty selection is kept rather than dropped (see
+        // orphanedSelectionTdIdRef above, computed at render time), so
+        // DatasetPage's unsaved-changes guard still warns before a further
+        // navigation — its edited geometry lives only in the TerraDraw
+        // instance that made the edit, which this fresh mount is not.
+        return;
+      }
+      // Same route in, no map mounted in between (e.g. a table dataset
+      // with no preview), then back to this same, still-editable dataset:
+      // the session belongs here, but this is a brand-new TerraDraw
+      // instance that never made this selection. performDeselect() drops
+      // it (and its edit-dirty/undo state) and restores any tile filter
+      // hidden for its gid, the same cleanup a real deselect does, without
+      // touching isDrawing/activeMode/targetDatasetId — a legitimate
+      // resume keeps its drawing session, just not a selection this
+      // instance never had.
+      performDeselect();
+    }
+  }, [canEdit, datasetId, finishDrawingSession, performDeselect]);
+
   // Handle close / stop drawing
   const handleCloseDrawing = useCallback(() => {
     const hasDirtyFeatureEdit = Boolean(useDrawingStore.getState().selectedFeature) &&
@@ -1020,7 +1134,7 @@ export const DatasetMap = memo(function DatasetMap({
 
         {/* Bbox overlay for spatial context */}
         {bboxGeojson && (
-          <Source id="bbox-source" type="geojson" data={bboxGeojson}>
+          <Source id="bbox-source" type="geojson" data={bboxGeojson} attribution={bboxAttribution ?? undefined}>
             <Layer
               id="bbox-fill"
               type="fill"
@@ -1093,8 +1207,11 @@ export const DatasetMap = memo(function DatasetMap({
         )}
       </div>
 
-      {/* Drawing toolbar overlay */}
-      {isDrawing && (
+      {/* Drawing toolbar overlay. canEdit guards a session left by a
+          non-editable map; isOwnDrawingSession also guards one left by a
+          DIFFERENT editable dataset (see the staleSessionCheckedRef effect
+          above, which ends either kind of inherited session). */}
+      {canEdit && isOwnDrawingSession && (
         <DrawingToolbar
           geometryType={drawGeometryType}
           onClose={handleCloseDrawing}
@@ -1106,6 +1223,7 @@ export const DatasetMap = memo(function DatasetMap({
           onUndo={undo}
           canUndo={canUndo}
           isMutating={isFeatureMutationPending}
+          hideDelete={selectedFeature != null && selectedFeature.tdId === orphanedSelectionTdIdRef.current}
         />
       )}
 

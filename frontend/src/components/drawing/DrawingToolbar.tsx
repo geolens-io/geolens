@@ -44,6 +44,10 @@ interface DrawingToolbarProps {
   onUndo?: () => void;
   canUndo?: boolean;
   isMutating?: boolean;
+  /** Hides Delete for a selection inherited dirty from elsewhere: it acts by
+   *  gid, so it would otherwise still work, but the edit the user actually
+   *  meant to finish lives in geometry this instance never had. */
+  hideDelete?: boolean;
 }
 
 export function DrawingToolbar({
@@ -57,6 +61,7 @@ export function DrawingToolbar({
   onUndo,
   canUndo,
   isMutating = false,
+  hideDelete = false,
 }: DrawingToolbarProps) {
   const { t } = useTranslation('builder');
   const activeMode = useDrawingStore((s) => s.activeMode);
@@ -165,17 +170,19 @@ export function DrawingToolbar({
             <span className="hidden sm:inline">{t('drawing.editAttributes')}</span>
           </Button>
 
-          <Button
-            variant="destructive"
-            size="sm"
-            title={t('drawing.deleteFeature')}
-            aria-label={t('drawing.deleteFeature')}
-            onClick={onDeleteFeature}
-            disabled={isMutating}
-          >
-            <Trash2 className="h-4 w-4" />
-            <span className="hidden sm:inline">{t('common:delete')}</span>
-          </Button>
+          {!hideDelete && (
+            <Button
+              variant="destructive"
+              size="sm"
+              title={t('drawing.deleteFeature')}
+              aria-label={t('drawing.deleteFeature')}
+              onClick={onDeleteFeature}
+              disabled={isMutating}
+            >
+              <Trash2 className="h-4 w-4" />
+              <span className="hidden sm:inline">{t('common:delete')}</span>
+            </Button>
+          )}
         </div>
       )}
     </div>

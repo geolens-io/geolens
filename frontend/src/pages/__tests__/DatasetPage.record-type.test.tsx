@@ -56,9 +56,14 @@ vi.mock('@/hooks/use-mobile', () => ({
   useIsMobile: () => false,
 }));
 
+const drawingStoreState = vi.hoisted(() => ({
+  isDrawing: false,
+  isEditDirty: false,
+  setDrawing: vi.fn(),
+  clearDrawing: vi.fn(),
+}));
 vi.mock('@/stores/drawing-store', () => ({
-  useDrawingStore: (selector: (state: Record<string, unknown>) => unknown) =>
-    selector({ isDrawing: false, isEditDirty: false, setDrawing: vi.fn(), clearDrawing: vi.fn() }),
+  useDrawingStore: (selector: (state: typeof drawingStoreState) => unknown) => selector(drawingStoreState),
 }));
 
 const mapInstances = vi.hoisted(() => ({ count: 0 }));
@@ -66,13 +71,19 @@ const mapInstances = vi.hoisted(() => ({ count: 0 }));
 vi.mock('@/components/dataset/DatasetMap', async () => {
   const { useState } = await import('react');
   return {
-    DatasetMap: ({ canEdit }: { canEdit?: boolean }) => {
+    DatasetMap: ({ canEdit, bbox, shortcutsEnabled }: {
+      canEdit?: boolean;
+      bbox?: [number, number, number, number] | null;
+      shortcutsEnabled?: boolean;
+    }) => {
       const [instance] = useState(() => ++mapInstances.count);
       return (
         <div
           data-testid="dataset-map"
           data-can-edit={String(Boolean(canEdit))}
           data-instance={instance}
+          data-bbox={bbox ? JSON.stringify(bbox) : ''}
+          data-shortcuts-enabled={String(shortcutsEnabled !== false)}
         />
       );
     },
@@ -251,6 +262,8 @@ async function openMoreActions() {
 describe('DatasetPage actions by record type', () => {
   beforeEach(() => {
     permissions.editMetadata = true;
+    drawingStoreState.isDrawing = false;
+    drawingStoreState.isEditDirty = false;
     vi.mocked(useParams).mockReturnValue({ id: 'dataset-1' });
     vi.mocked(useUpdateDataset).mockReturnValue({
       mutateAsync: vi.fn(),
@@ -313,9 +326,15 @@ describe('DatasetPage actions by record type', () => {
     expect(screen.getByRole('region', { name: 'Map Preview' })).toBeInTheDocument();
   });
 
-  it('has no map preview and none of the table actions for a 3D Tiles tileset', async () => {
+  it('has no map preview and none of the table actions for a 3D Tiles tileset with no extent', async () => {
     vi.mocked(useDataset).mockReturnValue({
-      data: { ...makeDataset('tiles3d_dataset'), geometry_type: null, feature_count: null, column_info: null },
+      data: {
+        ...makeDataset('tiles3d_dataset'),
+        geometry_type: null,
+        feature_count: null,
+        column_info: null,
+        extent_bbox: null,
+      },
       isLoading: false,
       error: null,
     } as ReturnType<typeof useDataset>);
@@ -328,7 +347,53 @@ describe('DatasetPage actions by record type', () => {
     expect(screen.queryByTestId('dataset-table-readout')).not.toBeInTheDocument();
   });
 
-  it('shows a point cloud without a map preview or table actions', async () => {
+  it('shows the extent as a map preview for a 3D Tiles tileset that has one', async () => {
+    vi.mocked(useDataset).mockReturnValue({
+      data: { ...makeDataset('tiles3d_dataset'), geometry_type: null, feature_count: null, column_info: null },
+      isLoading: false,
+      error: null,
+    } as ReturnType<typeof useDataset>);
+    render(<DatasetPage />, { route: '/datasets/dataset-1' });
+
+    await screen.findByRole('tab', { name: 'Overview' });
+    const map = await screen.findByTestId('dataset-map');
+    expect(screen.getByRole('region', { name: 'Map Preview' })).toBeInTheDocument();
+    expect(map).toHaveAttribute('data-bbox', JSON.stringify([-180, -90, 180, 90]));
+    // The 3D Tiles page keeps its own facts/connection content; adding a
+    // footprint preview does not turn on feature-table actions.
+    expect(screen.queryByRole('button', { name: 'Add to map' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('dataset-table-readout')).not.toBeInTheDocument();
+  });
+
+  it('shows a point cloud without a map preview or table actions when it has no extent', async () => {
+    vi.mocked(useDataset).mockReturnValue({
+      data: {
+        ...makeDataset('pointcloud_dataset'),
+        geometry_type: null,
+        feature_count: null,
+        column_info: null,
+        extent_bbox: null,
+        pointcloud: {
+          url: '/api/datasets/dataset-1/copc/attempt-1/data.copc.laz',
+          size_bytes: 1048576,
+          point_count: 9000,
+          point_format: 7,
+          vertical_crs: null,
+        },
+      },
+      isLoading: false,
+      error: null,
+    } as ReturnType<typeof useDataset>);
+    render(<DatasetPage />, { route: '/datasets/dataset-1' });
+
+    expect(await screen.findByRole('heading', { name: 'COPC point cloud' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Map Preview' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('dataset-map')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add to map' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('dataset-table-readout')).not.toBeInTheDocument();
+  });
+
+  it('shows the extent as a map preview for a point cloud that has one', async () => {
     vi.mocked(useDataset).mockReturnValue({
       data: {
         ...makeDataset('pointcloud_dataset'),
@@ -349,10 +414,80 @@ describe('DatasetPage actions by record type', () => {
     render(<DatasetPage />, { route: '/datasets/dataset-1' });
 
     expect(await screen.findByRole('heading', { name: 'COPC point cloud' })).toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: 'Map Preview' })).not.toBeInTheDocument();
-    expect(screen.queryByTestId('dataset-map')).not.toBeInTheDocument();
+    const map = await screen.findByTestId('dataset-map');
+    expect(screen.getByRole('region', { name: 'Map Preview' })).toBeInTheDocument();
+    expect(map).toHaveAttribute('data-bbox', JSON.stringify([-180, -90, 180, 90]));
     expect(screen.queryByRole('button', { name: 'Add to map' })).not.toBeInTheDocument();
     expect(screen.queryByTestId('dataset-table-readout')).not.toBeInTheDocument();
+  });
+
+  it('resets an expanded Data tab when navigating to a dataset with a footprint-only map preview', async () => {
+    vi.mocked(useDataset).mockImplementation(((datasetId: string) => ({
+      data: datasetId === 'dataset-2'
+        ? {
+            ...makeDataset('pointcloud_dataset'),
+            id: 'dataset-2',
+            geometry_type: null,
+            feature_count: null,
+            column_info: null,
+            pointcloud: {
+              url: '/api/datasets/dataset-2/copc/attempt-1/data.copc.laz',
+              size_bytes: 1048576,
+              point_count: 9000,
+              point_format: 7,
+              vertical_crs: null,
+            },
+          }
+        : makeDataset('vector_dataset'),
+      isLoading: false,
+      error: null,
+    })) as unknown as typeof useDataset);
+    const { rerender } = render(<DatasetPage />, { route: '/datasets/dataset-1' });
+    await screen.findByTestId('dataset-map');
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('tab', { name: 'Data' }));
+    await user.click(await screen.findByRole('button', { name: 'Expand table' }));
+    // Sanity: expanding the Data tab hides the map preview on THIS dataset too.
+    expect(screen.queryByRole('region', { name: 'Map Preview' })).not.toBeInTheDocument();
+
+    vi.mocked(useParams).mockReturnValue({ id: 'dataset-2' });
+    rerender(<DatasetPage />);
+
+    expect(await screen.findByRole('region', { name: 'Map Preview' })).toBeInTheDocument();
+    // Not just present: a stale activeTab of 'data' (a tab pointcloud_dataset
+    // doesn't have) would otherwise render this in its collapsed task-tab
+    // state, behind a "Show map preview" toggle that only exists there.
+    expect(screen.queryByRole('button', { name: /map preview/i })).not.toBeInTheDocument();
+    expect(document.getElementById('dataset-map-preview')).not.toHaveClass('hidden');
+  });
+
+  it('keeps the same DatasetMap instance mounted through a Data-tab expand and collapse while a drawing session is dirty', async () => {
+    drawingStoreState.isDrawing = true;
+    drawingStoreState.isEditDirty = true;
+    const map = await renderAs('vector_dataset');
+    const instanceBefore = map.getAttribute('data-instance');
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('tab', { name: 'Data' }));
+    await user.click(await screen.findByRole('button', { name: 'Expand table' }));
+
+    // The map preview section is hidden (not unmounted) while the Data tab
+    // is expanded — hiding it, instead of unmounting it, keeps the same
+    // DatasetMap (and its TerraDraw instance) alive, so an in-progress edit
+    // — which lives only in that instance — survives.
+    expect(screen.getByRole('region', { name: 'Map Preview' })).toHaveClass('hidden');
+    expect(screen.getByTestId('dataset-map')).toHaveAttribute('data-instance', instanceBefore);
+    // Hidden but mounted still handles document-level keydowns unless told
+    // not to: shortcutsEnabled must go false so it can't act on geometry
+    // the user can't see.
+    expect(screen.getByTestId('dataset-map')).toHaveAttribute('data-shortcuts-enabled', 'false');
+
+    await user.click(screen.getByRole('button', { name: 'Collapse table' }));
+
+    expect(screen.getByRole('region', { name: 'Map Preview' })).not.toHaveClass('hidden');
+    expect(screen.getByTestId('dataset-map')).toHaveAttribute('data-instance', instanceBefore);
+    expect(screen.getByTestId('dataset-map')).toHaveAttribute('data-shortcuts-enabled', 'true');
   });
 
   it('gives an unknown record type its own map after a vector dataset', async () => {
