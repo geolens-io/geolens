@@ -329,13 +329,14 @@ function doCapture(
 
 /** Run `fn` immediately if the map is loaded, otherwise wait for the idle event
  *  with a 3-second safety timeout to prevent silent drops. When `stillLoading`
- *  is true at that timeout, keep waiting for `idle` for up to 30 more seconds
- *  (remote raster tiles can be slow), then give up and call `onGiveUp`. */
+ *  is true at that timeout, call `onDefer` and keep waiting for `idle` for up
+ *  to 30 more seconds (remote raster tiles can be slow). At that deadline `fn`
+ *  runs only if nothing is still loading. */
 function whenMapIdle(
   map: MaplibreMap,
   fn: () => void,
   stillLoading?: () => boolean,
-  onGiveUp?: () => void,
+  onDefer?: () => void,
 ) {
   if (map.loaded()) { fn(); return; }
   let done = false;
@@ -346,7 +347,12 @@ function whenMapIdle(
   timer = setTimeout(() => {
     if (done) return;
     if (!stillLoading?.()) { finish(); fn(); return; }
-    timer = setTimeout(() => { if (!done) { finish(); onGiveUp?.(); } }, 30000);
+    onDefer?.();
+    timer = setTimeout(() => {
+      if (done) return;
+      finish();
+      if (!stillLoading()) fn();
+    }, 30000);
   }, 3000);
 }
 
@@ -373,14 +379,10 @@ function waitForVisibleLayerSources(
   }
 
   const stillLoading = () => anySourceStillLoading(map, visibleSourceIds);
-  // A capture given up on re-arms auto-capture, as the blank-frame guard does,
-  // so the next open can try again.
-  const giveUp = () => {
-    rearmAutoCapture(mapId);
-    if (import.meta.env.DEV) {
-      console.warn('[thumbnail] capture skipped: a visible source never finished loading');
-    }
-  };
+  // A deferred capture re-arms auto-capture at once, as the blank-frame guard
+  // does, so a reopen during the wait, or after a capture that never runs, can
+  // schedule its own.
+  const defer = () => rearmAutoCapture(mapId);
 
   const deadline = Date.now() + 5000;
 
@@ -388,7 +390,7 @@ function waitForVisibleLayerSources(
     if (signal?.cancelled) return;
     const sourcesReady = visibleSourceIds.every((sourceId) => !!map.getSource(sourceId));
     if (sourcesReady || Date.now() >= deadline) {
-      if (!signal?.cancelled) whenMapIdle(map, () => { if (!signal?.cancelled) fn(); }, stillLoading, giveUp);
+      if (!signal?.cancelled) whenMapIdle(map, () => { if (!signal?.cancelled) fn(); }, stillLoading, defer);
       return;
     }
     setTimeout(poll, 100);
@@ -414,7 +416,7 @@ function waitForVisibleLayerSources(
  *  - A genuinely empty map (layers stay [] until the deadline) falls through to
  *    whenMapIdle, so this never polls forever.
  *  - shouldAutoCapture runs before captureThumbnail. This function changes
- *    autoCapturedKeys only to re-arm a capture given up while a source loads.
+ *    autoCapturedKeys only to re-arm a capture deferred while a source loads.
  *  - The 500ms debounce is upstream in captureThumbnail.
  *  - The 5000ms deadline, the 30s idle wait and the cancellation signal bound
  *    the waiting. */

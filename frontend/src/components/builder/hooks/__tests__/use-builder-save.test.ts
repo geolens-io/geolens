@@ -2008,7 +2008,30 @@ describe('useBuilderSave', () => {
       expect(mockUploadThumbnail).toHaveBeenCalledWith('map-1', expect.stringContaining('data:image/jpeg'));
     });
 
-    it('gives up on a source that never loads and re-arms auto-capture', async () => {
+    it('captures at the final deadline when the source loaded without an idle event', async () => {
+      vi.useFakeTimers();
+      const mockMap = createMockMap({ loaded: false });
+      mockMap.getSource.mockImplementation((sourceId: string) =>
+        sourceId === 'source-layer-1' ? { type: 'raster' } : undefined,
+      );
+      mockMap.isSourceLoaded.mockReturnValue(false);
+
+      const state = makeSaveState({
+        localLayers: [makeLayer({ layer_type: 'raster_geolens' })],
+        mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+      });
+      const { result } = renderHook(() => useBuilderSave(state));
+      await act(async () => { await result.current.handleSave(); });
+      act(() => { vi.advanceTimersByTime(3500); });
+      mockMap.isSourceLoaded.mockReturnValue(true);
+      act(() => { vi.advanceTimersByTime(30000); });
+
+      expect(mockMap.triggerRepaint).toHaveBeenCalled();
+
+      vi.useRealTimers();
+    });
+
+    it('re-arms auto-capture as soon as it defers, and gives up on a source that never loads', async () => {
       vi.useFakeTimers();
       expect(shouldAutoCapture('map-1', 'user-1')).toBe(true);
       const mockMap = createMockMap({ loaded: false });
@@ -2024,11 +2047,11 @@ describe('useBuilderSave', () => {
       const { result } = renderHook(() => useBuilderSave(state));
       await act(async () => { await result.current.handleSave(); });
       act(() => { vi.advanceTimersByTime(3500); });
+      expect(shouldAutoCapture('map-1', 'user-1')).toBe(true);
       act(() => { vi.advanceTimersByTime(30000); });
 
       expect(mockMap.triggerRepaint).not.toHaveBeenCalled();
       expect(mockMap.off).toHaveBeenCalledWith('idle', expect.any(Function));
-      expect(shouldAutoCapture('map-1', 'user-1')).toBe(true);
       await act(async () => { await Promise.resolve(); });
       expect(mockUploadThumbnail).not.toHaveBeenCalled();
 
