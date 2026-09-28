@@ -11,6 +11,7 @@ import { BLANK_BASEMAP_ID } from '@/lib/basemap-utils';
 const mapSpy = vi.hoisted(() => ({
   initialViewState: null as Record<string, unknown> | null,
   sourceData: null as { features: { geometry: { coordinates: number[][][][] } }[] } | null,
+  bboxSourceAttribution: undefined as string | undefined,
   fitBounds: vi.fn(),
   flyTo: vi.fn(),
   // Opt-in: driving onLoad instantiates the whole tile/recovery wiring, which
@@ -19,6 +20,7 @@ const mapSpy = vi.hoisted(() => ({
   reset() {
     this.initialViewState = null;
     this.sourceData = null;
+    this.bboxSourceAttribution = undefined;
     this.fitBounds.mockReset();
     this.flyTo.mockReset();
     this.attachMapInstance = false;
@@ -41,6 +43,10 @@ const fakeMap = vi.hoisted(
 const drawingState = vi.hoisted(() => ({
   isDrawing: false,
   activeMode: null as string | null,
+  // null means "no target adopted" and is treated as a match (see
+  // DatasetMap.tsx's targetsDataset) — most fixtures below never call the
+  // real setDrawing, so this must default to null, not a stale dataset id.
+  targetDatasetId: null as string | null,
   setDrawing: vi.fn(),
   setMode: vi.fn(),
   clearDrawing: vi.fn(),
@@ -79,8 +85,14 @@ vi.mock('@vis.gl/react-maplibre', async () => {
         </div>
       );
     },
-    Source: ({ children, data }: { children?: React.ReactNode; data?: unknown }) => {
+    Source: ({ id, children, data, attribution }: {
+      id?: string;
+      children?: React.ReactNode;
+      data?: unknown;
+      attribution?: string;
+    }) => {
       if (data !== undefined) mapSpy.sourceData = data as typeof mapSpy.sourceData;
+      if (id === 'bbox-source') mapSpy.bboxSourceAttribution = attribution;
       return children ?? null;
     },
     Layer: () => null,
@@ -103,9 +115,12 @@ vi.mock('@/hooks/use-settings', () => ({
   useTileConfig: () => ({ data: tileConfigState.data }),
 }));
 
+// A spy (not a plain stub) so a test can assert what datasetId it was
+// called with — undefined means the record type never asked for a token.
+const useTileTokenSpy = vi.hoisted(() => vi.fn(() => ({ data: null })));
 vi.mock('@/hooks/use-tile-token', () => ({
   useInvalidateTileTokens: () => vi.fn(),
-  useTileToken: () => ({ data: null }),
+  useTileToken: useTileTokenSpy,
 }));
 
 vi.mock('@/stores/drawing-store', () => {
@@ -155,10 +170,12 @@ import { getAvailableModes } from '@/components/drawing/hooks/use-terra-draw';
 // resolves, to simulate an identity change while it is in flight.
 const updateFeatureMutateAsync = vi.hoisted(() => vi.fn().mockResolvedValue({}));
 const createFeatureMutateAsync = vi.hoisted(() => vi.fn().mockResolvedValue({}));
+// A spy (not an inline vi.fn()) so a test can assert a Delete never went out.
+const deleteFeatureMutateAsync = vi.hoisted(() => vi.fn().mockResolvedValue({}));
 vi.mock('@/hooks/use-features', () => ({
   useCreateFeature: () => ({ mutateAsync: createFeatureMutateAsync }),
   useUpdateFeature: () => ({ mutateAsync: updateFeatureMutateAsync }),
-  useDeleteFeature: () => ({ mutateAsync: vi.fn() }),
+  useDeleteFeature: () => ({ mutateAsync: deleteFeatureMutateAsync }),
 }));
 
 vi.mock('@/api/features', () => ({
@@ -177,6 +194,13 @@ vi.mock('@/components/dataset/hooks/use-feature-editing', async (importOriginal)
     ...actual,
     showAllFeaturesInTiles: showAllFeaturesInTilesMock,
   };
+});
+
+// targetDatasetId is shared across describes and most of them never set it,
+// so reset it here to keep a mismatched value from leaking between tests.
+// A describe that tests the mismatch overrides it in its own beforeEach.
+beforeEach(() => {
+  drawingState.targetDatasetId = null;
 });
 
 describe('DatasetMap interaction state', () => {
@@ -505,6 +529,472 @@ describe('DatasetMap editing UI states', () => {
     );
 
     expect(screen.getByTestId('dataset-map-shell')).toBeInTheDocument();
+  });
+});
+
+// The Ctrl/Meta+Z listener is attached at the document level, so it still
+// fires while this instance is mounted but hidden (isDataTabExpanded keeps
+// a dirty session's map alive off-screen — see DatasetPage) and while focus
+// is anywhere else on the page, including inputs the expanded Data tab's
+// own table renders. It must not hijack the browser/input's native undo.
+describe('DatasetMap undo shortcut ignores editable targets', () => {
+  beforeEach(() => {
+    drawingState.isDrawing = true;
+    drawingState.activeMode = 'polygon';
+    terraDrawState.undo.mockClear();
+  });
+
+  function renderDrawing() {
+    return render(
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName="example_table"
+        geometryType="Polygon"
+        datasetId="dataset-1"
+        canEdit
+      />,
+    );
+  }
+
+  it('does not undo the sketch or preventDefault for Ctrl+Z or Meta+Z with focus in an input', () => {
+    renderDrawing();
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    input.focus();
+
+    const ctrlEvent = new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true });
+    input.dispatchEvent(ctrlEvent);
+    const metaEvent = new KeyboardEvent('keydown', { key: 'z', metaKey: true, bubbles: true, cancelable: true });
+    input.dispatchEvent(metaEvent);
+
+    expect(terraDrawState.undo).not.toHaveBeenCalled();
+    expect(ctrlEvent.defaultPrevented).toBe(false);
+    expect(metaEvent.defaultPrevented).toBe(false);
+
+    document.body.removeChild(input);
+  });
+
+  it('still undoes the sketch for Ctrl+Z when focus has no editable target', () => {
+    renderDrawing();
+
+    const event = new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true });
+    document.body.dispatchEvent(event);
+
+    expect(terraDrawState.undo).toHaveBeenCalledTimes(1);
+    expect(event.defaultPrevented).toBe(true);
+  });
+});
+
+describe('DatasetMap Escape shortcut ignores editable targets', () => {
+  beforeEach(() => {
+    drawingState.isDrawing = true;
+    drawingState.activeMode = 'select';
+    drawingState.targetDatasetId = 'dataset-1';
+    drawingState.selectedFeature = null;
+    drawingState.isEditDirty = false;
+    drawingState.clearSelectedFeature.mockClear();
+  });
+
+  /** Selects a feature AFTER mount (a rerender, not the initial render), so
+   *  the once-per-mount inherited-selection cleanup (which only ever checks
+   *  what was already selected at that first render) never runs for it —
+   *  this selection is made within this instance, like a real click would. */
+  function renderWithSelection(isDirty: boolean) {
+    // DatasetMap is memo()-wrapped: a shared props object across render and
+    // rerender is Object.is-equal on every prop, so React bails out and
+    // never re-runs this effect. A fresh bbox array literal each call (like
+    // every other rerender in this file) is enough to force it through.
+    const utils = render(
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName="example_table"
+        geometryType="Polygon"
+        datasetId="dataset-1"
+        recordType="vector_dataset"
+        canEdit
+      />,
+    );
+    drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    drawingState.isEditDirty = isDirty;
+    utils.rerender(
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName="example_table"
+        geometryType="Polygon"
+        datasetId="dataset-1"
+        recordType="vector_dataset"
+        canEdit
+      />,
+    );
+    return utils;
+  }
+
+  it('does not deselect a clean selection for Escape with focus in an input', () => {
+    renderWithSelection(false);
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    input.focus();
+
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+
+    expect(drawingState.clearSelectedFeature).not.toHaveBeenCalled();
+
+    document.body.removeChild(input);
+  });
+
+  it('still deselects a clean selection for Escape when focus has no editable target', () => {
+    renderWithSelection(false);
+
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+
+    expect(drawingState.clearSelectedFeature).toHaveBeenCalled();
+  });
+
+  it('does not open the discard dialog for a dirty selection when Escape is pressed in an input', () => {
+    renderWithSelection(true);
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    input.focus();
+
+    // Opening the dialog is a React state update (setDiscardConfirmOpen) —
+    // wrapped in act() so a false "not open" isn't just React not having
+    // re-rendered yet (see the sibling "still opens" test for the same).
+    act(() => {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    });
+
+    expect(screen.queryByText('Discard unsaved map edits?')).not.toBeInTheDocument();
+
+    document.body.removeChild(input);
+  });
+
+  it('still opens the discard dialog for a dirty selection when Escape has no editable target', () => {
+    renderWithSelection(true);
+
+    // Opening the dialog is a React state update (setDiscardConfirmOpen),
+    // unlike the other assertions in this block which read a plain
+    // function-call spy or the event's own property.
+    act(() => {
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    });
+
+    expect(screen.getByText('Discard unsaved map edits?')).toBeInTheDocument();
+  });
+});
+
+// DatasetPage sets this false while this instance is kept mounted but
+// hidden behind the expanded Data tab (see isDataTabExpanded), so its
+// document-level shortcuts can't act on geometry the user can't see —
+// covers focusable elements the table itself renders (e.g. a button),
+// which isEditableTarget alone does not catch.
+describe('DatasetMap shortcutsEnabled disables the document-level shortcuts', () => {
+  beforeEach(() => {
+    drawingState.isDrawing = true;
+    drawingState.activeMode = 'polygon';
+    drawingState.targetDatasetId = 'dataset-1';
+    drawingState.selectedFeature = null;
+    drawingState.isEditDirty = false;
+    terraDrawState.undo.mockClear();
+    drawingState.clearSelectedFeature.mockClear();
+  });
+
+  it('does not undo or preventDefault for Ctrl+Z on document.body when shortcutsEnabled is false', () => {
+    render(
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName="example_table"
+        geometryType="Polygon"
+        datasetId="dataset-1"
+        canEdit
+        shortcutsEnabled={false}
+      />,
+    );
+
+    const event = new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true });
+    document.body.dispatchEvent(event);
+
+    expect(terraDrawState.undo).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('does not deselect for Escape on document.body when shortcutsEnabled is false', () => {
+    const utils = render(
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName="example_table"
+        geometryType="Polygon"
+        datasetId="dataset-1"
+        canEdit
+        shortcutsEnabled={false}
+      />,
+    );
+    // Selected after mount, like the sibling Escape-shortcut tests above —
+    // DatasetMap is memo()-wrapped, so a fresh bbox literal on rerender is
+    // what actually forces it to pick up the new store state.
+    drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    utils.rerender(
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName="example_table"
+        geometryType="Polygon"
+        datasetId="dataset-1"
+        canEdit
+        shortcutsEnabled={false}
+      />,
+    );
+
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+
+    expect(drawingState.clearSelectedFeature).not.toHaveBeenCalled();
+  });
+
+  it('does not open the discard dialog for a dirty selection on Escape when shortcutsEnabled is false', () => {
+    const utils = render(
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName="example_table"
+        geometryType="Polygon"
+        datasetId="dataset-1"
+        canEdit
+        shortcutsEnabled={false}
+      />,
+    );
+    drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    drawingState.isEditDirty = true;
+    utils.rerender(
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName="example_table"
+        geometryType="Polygon"
+        datasetId="dataset-1"
+        canEdit
+        shortcutsEnabled={false}
+      />,
+    );
+
+    act(() => {
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    });
+
+    expect(screen.queryByText('Discard unsaved map edits?')).not.toBeInTheDocument();
+  });
+});
+
+// A client-side navigation with nothing dirty (unsaved guard lets it
+// through) can land on a non-editable dataset's map while the global
+// drawing store still holds the previous dataset's session. That map's
+// mutation hooks are bound to the new dataset id/table, so a stale Delete
+// would target the wrong dataset with the old gid.
+describe('DatasetMap stale drawing session on a non-editable mount', () => {
+  beforeEach(() => {
+    drawingState.isDrawing = true;
+    drawingState.activeMode = 'select';
+    drawingState.targetDatasetId = null;
+    drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    drawingState.isEditDirty = false;
+    drawingState.clearDrawing.mockClear();
+    drawingState.clearSelectedFeature.mockClear();
+  });
+
+  it('ends the stale session and hides the toolbar for a non-editable dataset', () => {
+    render(
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName={null}
+        geometryType={null}
+        datasetId="dataset-2"
+        recordType="pointcloud_dataset"
+        canEdit={false}
+      />,
+    );
+
+    expect(screen.queryByRole('toolbar')).not.toBeInTheDocument();
+    expect(drawingState.clearDrawing).toHaveBeenCalled();
+  });
+
+  it('keeps an active session but drops its inherited selection for a dataset that can edit (route resume)', () => {
+    // A real resume: the session's target matches the dataset this map is
+    // for, not just the permissive "nothing adopted yet" default.
+    drawingState.targetDatasetId = 'dataset-1';
+    render(
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName="example_table"
+        geometryType="Polygon"
+        datasetId="dataset-1"
+        recordType="vector_dataset"
+        canEdit
+      />,
+    );
+
+    expect(screen.getByRole('toolbar')).toBeInTheDocument();
+    expect(drawingState.clearDrawing).not.toHaveBeenCalled();
+    // The session (isDrawing/mode/target) is kept, but a brand-new TerraDraw
+    // instance never made the inherited selection (gid 7 from before this
+    // remount) — performDeselect() drops it independently of the session.
+    expect(drawingState.clearSelectedFeature).toHaveBeenCalled();
+  });
+});
+
+// Between two editable datasets canEdit can't tell the sessions apart. A
+// clean selection on A survives navigation to B, where B's mutation hooks
+// would act on A's gid if B has a feature with the same id.
+describe('DatasetMap stale drawing session across an editable-to-editable dataset change', () => {
+  beforeEach(() => {
+    drawingState.isDrawing = true;
+    drawingState.activeMode = 'select';
+    drawingState.targetDatasetId = 'dataset-A';
+    drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    drawingState.isEditDirty = false;
+    drawingState.clearDrawing.mockClear();
+    drawingState.clearSelectedFeature.mockClear();
+    deleteFeatureMutateAsync.mockClear();
+  });
+
+  it('ends the session, hides the toolbar, and never sends a delete for the colliding gid', async () => {
+    render(
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName="dataset_b_table"
+        geometryType="Polygon"
+        datasetId="dataset-B"
+        recordType="vector_dataset"
+        canEdit
+      />,
+    );
+
+    expect(screen.queryByRole('toolbar')).not.toBeInTheDocument();
+    expect(drawingState.clearDrawing).toHaveBeenCalled();
+    // There is no toolbar to click Delete on; this pins that the mutation
+    // itself never fires, not just that its button is hidden.
+    expect(deleteFeatureMutateAsync).not.toHaveBeenCalled();
+  });
+});
+
+// A to a page with no map preview and back to A: no DatasetMap mounted in
+// between, so the store still holds A's selection, but the map that mounts
+// on return has a new TerraDraw instance that never made it.
+describe('DatasetMap drops an inherited selection when the same dataset remounts with no map in between', () => {
+  beforeEach(() => {
+    drawingState.isDrawing = true;
+    drawingState.activeMode = 'select';
+    drawingState.targetDatasetId = 'dataset-1';
+    drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    drawingState.isEditDirty = false;
+    drawingState.clearDrawing.mockClear();
+    drawingState.clearSelectedFeature.mockClear();
+    deleteFeatureMutateAsync.mockClear();
+  });
+
+  function renderOnDatasetOne() {
+    return render(
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName="example_table"
+        geometryType="Polygon"
+        datasetId="dataset-1"
+        recordType="vector_dataset"
+        canEdit
+      />,
+    );
+  }
+
+  it('drops the selection, keeps the session, and never sends a delete for the stale gid', () => {
+    const { rerender } = renderOnDatasetOne();
+
+    // The mount effect ran performDeselect(), which calls the store's
+    // clearSelectedFeature — this mock has no real zustand reactivity (see
+    // the identity-change cleanup tests above for the same pattern), so
+    // simulate its result and re-render to observe the settled UI.
+    expect(drawingState.clearSelectedFeature).toHaveBeenCalled();
+    drawingState.selectedFeature = null;
+    rerender(<DatasetMap
+      bbox={[-10, -10, 10, 10]}
+      tableName="example_table"
+      geometryType="Polygon"
+      datasetId="dataset-1"
+      recordType="vector_dataset"
+      canEdit
+    />);
+
+    // The session stays — the toolbar (mode buttons) is still there — but
+    // its action bar for a selection this instance never made is gone.
+    expect(screen.getByRole('toolbar')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Delete feature/i })).not.toBeInTheDocument();
+    expect(drawingState.isDrawing).toBe(true);
+    expect(drawingState.clearDrawing).not.toHaveBeenCalled();
+    expect(deleteFeatureMutateAsync).not.toHaveBeenCalled();
+  });
+});
+
+// A DIRTY inherited selection (an in-progress, unsaved geometry edit) is
+// kept rather than dropped, unlike the clean case above: DatasetPage's
+// unsaved-changes guard reads isEditDirty, so silently clearing it here
+// would let the user navigate away from an edit with no warning at all.
+describe('DatasetMap keeps a dirty inherited selection and hides Delete for it', () => {
+  beforeEach(() => {
+    drawingState.isDrawing = true;
+    drawingState.activeMode = 'select';
+    drawingState.targetDatasetId = 'dataset-1';
+    drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    drawingState.isEditDirty = true;
+    drawingState.clearDrawing.mockClear();
+    drawingState.clearSelectedFeature.mockClear();
+    deleteFeatureMutateAsync.mockClear();
+  });
+
+  it('keeps the selection and isEditDirty, and hides Delete for it', () => {
+    render(
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName="example_table"
+        geometryType="Polygon"
+        datasetId="dataset-1"
+        recordType="vector_dataset"
+        canEdit
+      />,
+    );
+
+    // No silent deselect: performDeselect (and its clearSelectedFeature
+    // call) never ran for a dirty inherited selection.
+    expect(drawingState.clearSelectedFeature).not.toHaveBeenCalled();
+    expect(drawingState.selectedFeature).toEqual({ gid: 7, tdId: 'td-7', properties: {} });
+    expect(drawingState.isEditDirty).toBe(true);
+    // The action bar shows (a selection is present) but not Delete: it acts
+    // by gid and would still succeed, but the edit this bar represents
+    // lives in geometry only the ORIGINAL TerraDraw instance ever had.
+    expect(screen.getByRole('button', { name: /Save changes/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Delete feature/i })).not.toBeInTheDocument();
+  });
+
+  it('shows Delete again once a fresh selection replaces the orphaned one', () => {
+    const { rerender } = render(
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName="example_table"
+        geometryType="Polygon"
+        datasetId="dataset-1"
+        recordType="vector_dataset"
+        canEdit
+      />,
+    );
+    expect(screen.queryByRole('button', { name: /Delete feature/i })).not.toBeInTheDocument();
+
+    // A genuinely new selection made in THIS instance (a different tdId) —
+    // the suppression is scoped to the one orphaned selection, not "ever".
+    drawingState.selectedFeature = { gid: 9, tdId: 'td-9', properties: {} };
+    rerender(
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName="example_table"
+        geometryType="Polygon"
+        datasetId="dataset-1"
+        recordType="vector_dataset"
+        canEdit
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: /Delete feature/i })).toBeInTheDocument();
   });
 });
 
@@ -943,6 +1433,55 @@ describe('DatasetMap record types', () => {
 
     expect(fakeMap.addSource).not.toHaveBeenCalled();
     expect(onMapReady).toHaveBeenCalled();
+  });
+
+  it.each(['tiles3d_dataset', 'pointcloud_dataset'])('draws only the extent outline for a %s, with no tile-token request', (recordType) => {
+    useTileTokenSpy.mockClear();
+    render(
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName={null}
+        geometryType={null}
+        datasetId="dataset-1"
+        recordType={recordType}
+      />,
+    );
+
+    // tileKind is null for these types, so useTileToken must be called with
+    // undefined (its `enabled: !!datasetId` gate), never the real dataset id.
+    expect(useTileTokenSpy).toHaveBeenCalledWith(undefined);
+    expect(mapSpy.sourceData).not.toBeNull();
+    expect(screen.getByRole('region', { name: /dataset map/i })).toBeInTheDocument();
+  });
+
+  it('carries the dataset attribution on the bbox source for a footprint-only pointcloud', () => {
+    render(
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName={null}
+        geometryType={null}
+        datasetId="dataset-1"
+        recordType="pointcloud_dataset"
+        attribution="Autzen Stadium LiDAR (CC BY 4.0)"
+      />,
+    );
+
+    expect(mapSpy.bboxSourceAttribution).toBe('Autzen Stadium LiDAR (CC BY 4.0)');
+  });
+
+  it('does not duplicate the attribution on a vector dataset\'s bbox source (its own vector source already carries it)', () => {
+    render(
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName="cloud"
+        geometryType="Point"
+        datasetId="dataset-1"
+        recordType="vector_dataset"
+        attribution="World Countries (public domain)"
+      />,
+    );
+
+    expect(mapSpy.bboxSourceAttribution).toBeUndefined();
   });
 });
 

@@ -112,6 +112,29 @@ function isSelectionStale(
     || useDrawingStore.getState().selectedFeature !== selectedFeature;
 }
 
+/**
+ * A mutation entry point acts on whatever `selectedFeature` the global
+ * store currently holds. A client-side navigation with nothing dirty (the
+ * unsaved guard allows it) can leave that selection targeting a DIFFERENT
+ * dataset than the one this hook instance is bound to — same identity, so
+ * no session epoch bump, and this instance's own generation counter starts
+ * fresh at 0 on mount, so neither staleness check above ever fires for it.
+ * Refuse before the mutation goes out, and end the mismatched session so
+ * its selection cannot be reused by a later render or click.
+ *
+ * `targetDatasetId === null` (nothing ever adopted a target) is treated as
+ * no mismatch: the store's own `setSelectedFeature` already refuses to
+ * populate `selectedFeature` while there is no target (drawing-store.ts),
+ * so a real session always has one by the time this runs.
+ */
+function refuseIfWrongDataset(datasetId: string | undefined): boolean {
+  const state = useDrawingStore.getState();
+  const { targetDatasetId } = state;
+  if (targetDatasetId === null || targetDatasetId === (datasetId ?? null)) return false;
+  state.clearDrawing();
+  return true;
+}
+
 export function useFeatureEditing({
   mapRef,
   datasetId,
@@ -315,6 +338,7 @@ export function useFeatureEditing({
   const handleSaveEdit = useCallback(async () => {
     const sf = useDrawingStore.getState().selectedFeature;
     if (!sf || !datasetId || !tableName) return;
+    if (refuseIfWrongDataset(datasetId)) return;
 
     const feature = getSnapshotFeature(sf.tdId);
     if (!feature) {
@@ -365,6 +389,7 @@ export function useFeatureEditing({
   const handleDeleteFeature = useCallback(async () => {
     const sf = useDrawingStore.getState().selectedFeature;
     if (!sf || !datasetId || !tableName) return;
+    if (refuseIfWrongDataset(datasetId)) return;
 
     // fix(#1761 review round 3 P2): captured before the mutation's
     // await. A second identity can adopt their own selection while this
@@ -412,6 +437,7 @@ export function useFeatureEditing({
     async (properties: Record<string, unknown>): Promise<{ applied: boolean }> => {
       const sf = useDrawingStore.getState().selectedFeature;
       if (!sf || !datasetId) return { applied: true };
+      if (refuseIfWrongDataset(datasetId)) return { applied: true };
       // fix(#1761 review round 2 P1): captured BEFORE the mutation's await,
       // not re-read afterward — by the time this resolves, a second
       // identity may have adopted its own new target, whose fresh epoch

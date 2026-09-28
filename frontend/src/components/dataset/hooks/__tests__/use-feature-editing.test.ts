@@ -1075,6 +1075,93 @@ describe('drawing session return to the same dataset', () => {
   });
 });
 
+// A client-side navigation with nothing dirty (the unsaved guard allows it)
+// can leave the store's target pointing at a dataset OTHER than the one a
+// mounted map's useFeatureEditing is bound to, with no epoch bump (same
+// identity) and no generation change (a fresh hook instance starts at 0) to
+// catch it via the staleness checks above. These entry-point guards are the
+// last line of defense even if a stale toolbar render slips through.
+describe('useFeatureEditing — mutation entry points refuse a session for a different dataset', () => {
+  const baseAuth = useDrawingStore.getState();
+
+  beforeEach(() => {
+    useDrawingStore.setState(baseAuth, true);
+    createMutateAsync.mockClear();
+    updateMutateAsync.mockClear();
+    deleteMutateAsync.mockClear();
+  });
+
+  function adoptOtherDatasetSelection() {
+    useDrawingStore.getState().setDrawing('ds-A', 'a_table', 'Point');
+    useDrawingStore.getState().setSelectedFeature(
+      { gid: 7, tdId: 'td-7', properties: {} },
+      useDrawingStore.getState().sessionEpoch,
+    );
+  }
+
+  it('handleDeleteFeature refuses and ends the session for a different dataset\'s selection', async () => {
+    adoptOtherDatasetSelection();
+    const map = { getLayer: vi.fn(() => true), getFilter: vi.fn(() => null), setFilter: vi.fn(), getSource: vi.fn(() => undefined) } as unknown as MaplibreMap;
+    const { result } = renderEditing(map); // bound to datasetId: 'ds-1'
+
+    await act(async () => {
+      await result.current.handleDeleteFeature();
+    });
+
+    expect(deleteMutateAsync).not.toHaveBeenCalled();
+    expect(useDrawingStore.getState().isDrawing).toBe(false);
+    expect(useDrawingStore.getState().targetDatasetId).toBeNull();
+  });
+
+  it('handleSaveEdit refuses a geometry update for a different dataset\'s selection', async () => {
+    adoptOtherDatasetSelection();
+    const getSnapshotFeature = vi.fn(() => ({
+      type: 'Feature' as const,
+      geometry: { type: 'Point' as const, coordinates: [0, 0] },
+      properties: {},
+    }));
+    const map = { getLayer: vi.fn(() => true), getFilter: vi.fn(() => null), setFilter: vi.fn(), getSource: vi.fn(() => undefined) } as unknown as MaplibreMap;
+    const { result } = renderEditing(map, { getSnapshotFeature });
+
+    await act(async () => {
+      await result.current.handleSaveEdit();
+    });
+
+    expect(updateMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('handleEditAttributeSubmit refuses an attribute save for a different dataset\'s selection', async () => {
+    adoptOtherDatasetSelection();
+    const map = makeMapWithVectorSource(vi.fn());
+    const { result } = renderEditing(map);
+
+    let outcome: { applied: boolean } | undefined;
+    await act(async () => {
+      outcome = await result.current.handleEditAttributeSubmit({ name: 'new' });
+    });
+
+    expect(updateMutateAsync).not.toHaveBeenCalled();
+    expect(outcome).toEqual({ applied: true });
+  });
+
+  it('handleDeleteFeature still proceeds when the selection belongs to this hook\'s own dataset', async () => {
+    useDrawingStore.getState().setDrawing('ds-1', 'parcels', 'Point');
+    useDrawingStore.getState().setSelectedFeature(
+      { gid: 7, tdId: 'td-7', properties: {} },
+      useDrawingStore.getState().sessionEpoch,
+    );
+    deleteMutateAsync.mockResolvedValueOnce({ tile_cache_version: 1 });
+    const map = { getLayer: vi.fn(() => true), getFilter: vi.fn(() => null), setFilter: vi.fn(), getSource: vi.fn(() => undefined) } as unknown as MaplibreMap;
+    const { result } = renderEditing(map);
+
+    await act(async () => {
+      await result.current.handleDeleteFeature();
+    });
+
+    expect(deleteMutateAsync).toHaveBeenCalledWith({ datasetId: 'ds-1', gid: 7 });
+  });
+});
+
 /** A map holding what the dataset preview adds for a `parcels` table of the given geometry. */
 function previewMap(geometryType: string, elevationColumn?: string) {
   const sources = new Map<string, { setTiles: ReturnType<typeof vi.fn>; setData: ReturnType<typeof vi.fn> }>();
