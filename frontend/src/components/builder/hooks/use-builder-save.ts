@@ -328,18 +328,37 @@ function doCapture(
 }
 
 /** Run `fn` immediately if the map is loaded, otherwise wait for the idle event
- *  with a 3-second safety timeout to prevent silent drops. */
-function whenMapIdle(map: MaplibreMap, fn: () => void) {
+ *  with a 3-second safety timeout to prevent silent drops. At the timeout,
+ *  `fn` is dropped when `skip` returns true: `idle` waits for every source, but
+ *  remote raster tiles can still be loading when the timeout fires. */
+function whenMapIdle(map: MaplibreMap, fn: () => void, skip?: () => boolean) {
   if (map.loaded()) { fn(); return; }
   let done = false;
   const onIdle = () => { if (done) return; done = true; clearTimeout(timer); fn(); };
   map.once('idle', onIdle);
-  const timer = setTimeout(() => { if (!done) { done = true; map.off('idle', onIdle); fn(); } }, 3000);
+  const timer = setTimeout(() => {
+    if (done) return;
+    done = true;
+    map.off('idle', onIdle);
+    if (skip?.()) return;
+    fn();
+  }, 3000);
+}
+
+/** Whether any of `sourceIds` is still loading. A source not yet on the map
+ *  counts as loading. */
+function anySourceStillLoading(map: MaplibreMap, sourceIds: string[]): boolean {
+  return sourceIds.some((sourceId) => {
+    const source = map.getSource(sourceId);
+    return !source || !map.isSourceLoaded(sourceId);
+  });
 }
 
 function waitForVisibleLayerSources(
   map: MaplibreMap,
+  mapId: string,
   layers: MapLayerResponse[],
+  trigger: CaptureTrigger,
   fn: () => void,
   signal?: { cancelled: boolean },
 ) {
@@ -352,13 +371,24 @@ function waitForVisibleLayerSources(
     return;
   }
 
+  // A skipped auto-capture is re-armed, as the blank-frame guard does, so the
+  // next open can try again.
+  const skipIfStillLoading = () => {
+    if (!anySourceStillLoading(map, visibleSourceIds)) return false;
+    if (trigger === 'auto') rearmAutoCapture(mapId);
+    if (import.meta.env.DEV) {
+      console.warn('[thumbnail] capture skipped: a visible source is still loading; will retry on next save');
+    }
+    return true;
+  };
+
   const deadline = Date.now() + 5000;
 
   const poll = () => {
     if (signal?.cancelled) return;
     const sourcesReady = visibleSourceIds.every((sourceId) => !!map.getSource(sourceId));
     if (sourcesReady || Date.now() >= deadline) {
-      if (!signal?.cancelled) whenMapIdle(map, fn);
+      if (!signal?.cancelled) whenMapIdle(map, fn, skipIfStillLoading);
       return;
     }
     setTimeout(poll, 100);
@@ -380,13 +410,13 @@ function waitForVisibleLayerSources(
  *  waitForVisibleLayerSources normally. This fixes the new-map + ?add_dataset race
  *  where the 500ms debounce fires before the layer-add effect has run.
  *
- *  Invariants preserved:
- *  - SF-05: a genuinely-empty map (layers stay [] until deadline) falls through
- *    to the existing whenMapIdle path, so we never busy-loop forever.
- *  - SF-07: shouldAutoCapture fires before captureThumbnail; this function does
- *    not touch autoCapturedKeys.
- *  - SP-16: the 500ms debounce is upstream in captureThumbnail; unaffected.
- *  - T-1233-01: the 5000ms bounded deadline + cancellation signal prevent DoS. */
+ *  Invariants:
+ *  - A genuinely empty map (layers stay [] until the deadline) falls through to
+ *    whenMapIdle, so this never polls forever.
+ *  - shouldAutoCapture runs before captureThumbnail. This function changes
+ *    autoCapturedKeys only to re-arm a capture skipped while a source loads.
+ *  - The 500ms debounce is upstream in captureThumbnail.
+ *  - The 5000ms deadline and the cancellation signal bound the polling. */
 function runCaptureNow(
   map: MaplibreMap,
   mapId: string,
@@ -406,7 +436,7 @@ function runCaptureNow(
       const live = layersRef.current ?? [];
       if (live.length > 0) {
         // Layers have arrived — proceed through normal source-readiness path.
-        waitForVisibleLayerSources(map, live, () => doCapture(map, mapId, queryClient, trigger), signal);
+        waitForVisibleLayerSources(map, mapId, live, trigger, () => doCapture(map, mapId, queryClient, trigger), signal);
         return;
       }
       if (Date.now() >= deadline) {
@@ -424,7 +454,7 @@ function runCaptureNow(
     pollForLayers();
     return;
   }
-  waitForVisibleLayerSources(map, layers, () => doCapture(map, mapId, queryClient, trigger), signal);
+  waitForVisibleLayerSources(map, mapId, layers, trigger, () => doCapture(map, mapId, queryClient, trigger), signal);
 }
 
 /** SP-16: 500ms trailing-edge debounce around captureThumbnail.

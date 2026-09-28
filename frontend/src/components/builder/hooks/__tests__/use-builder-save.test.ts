@@ -184,6 +184,7 @@ function createMockMap(
     getBearing: vi.fn(() => 0),
     getPitch: vi.fn(() => 0),
     getSource: vi.fn<(sourceId: string) => unknown>(() => undefined),
+    isSourceLoaded: vi.fn<(sourceId: string) => boolean>(() => true),
     triggerRepaint: vi.fn(),
     once: vi.fn(),
     off: vi.fn(),
@@ -1975,6 +1976,62 @@ describe('useBuilderSave', () => {
       expect(mockUploadThumbnail).toHaveBeenCalledTimes(1);
 
       vi.useRealTimers();
+    });
+
+    it('skips the capture when a visible raster source is still loading past the idle fallback', async () => {
+      vi.useFakeTimers();
+      const mockMap = createMockMap({ loaded: false });
+      mockMap.getSource.mockImplementation((sourceId: string) =>
+        sourceId === 'source-layer-1' ? { type: 'raster' } : undefined,
+      );
+      mockMap.isSourceLoaded.mockReturnValue(false);
+
+      const state = makeSaveState({
+        localLayers: [makeLayer({ layer_type: 'raster_geolens' })],
+        mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+      });
+      const { result } = renderHook(() => useBuilderSave(state));
+      await act(async () => { await result.current.handleSave(); });
+
+      act(() => { vi.advanceTimersByTime(500); });
+      act(() => { vi.advanceTimersByTime(3000); });
+
+      // The map save itself is unaffected by the skip.
+      expect(mockUpdateMapMutateAsync).toHaveBeenCalled();
+
+      expect(mockMap.once).not.toHaveBeenCalledWith('render', expect.any(Function));
+      expect(mockMap.triggerRepaint).not.toHaveBeenCalled();
+      await act(async () => { await Promise.resolve(); });
+      expect(mockUploadThumbnail).not.toHaveBeenCalled();
+
+      vi.useRealTimers();
+    });
+
+    it('uploads the thumbnail once the raster source finishes loading before the idle fallback', async () => {
+      vi.useFakeTimers();
+      const mockMap = createMockMap({ loaded: false });
+      mockMap.getSource.mockImplementation((sourceId: string) =>
+        sourceId === 'source-layer-1' ? { type: 'raster' } : undefined,
+      );
+      mockMap.isSourceLoaded.mockReturnValue(true);
+
+      const state = makeSaveState({
+        localLayers: [makeLayer({ layer_type: 'raster_geolens' })],
+        mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+      });
+      const { result } = renderHook(() => useBuilderSave(state));
+      await act(async () => { await result.current.handleSave(); });
+
+      act(() => { vi.advanceTimersByTime(500); });
+      act(() => { vi.advanceTimersByTime(3000); });
+
+      expect(mockMap.once).toHaveBeenCalledWith('render', expect.any(Function));
+      expect(mockMap.triggerRepaint).toHaveBeenCalled();
+
+      vi.useRealTimers();
+      await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
+
+      expect(mockUploadThumbnail).toHaveBeenCalledWith('map-1', expect.stringContaining('data:image/jpeg'));
     });
 
     it('SHARE-08: doCapture uploads both 1200x630 OG image and 400x250 thumbnail in one render event (triggerRepaint called once)', async () => {
