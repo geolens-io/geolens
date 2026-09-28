@@ -391,10 +391,14 @@ function waitForVisibleLayerSources(
     return;
   }
 
-  // A DEM driving 3-D terrain loads through the shared terrain source instead of
-  // its own.
-  const heldSourceIds = [...visibleSourceIds, TERRAIN_SOURCE_ID];
-  const stillLoading = () => anySourceStillLoading(map, heldSourceIds);
+  // Every source in the style counts, not only the layers': a raster basemap and
+  // the shared terrain source load outside them.
+  const stillLoading = () =>
+    anySourceStillLoading(map, [
+      ...visibleSourceIds,
+      TERRAIN_SOURCE_ID,
+      ...Object.keys(map.getStyle()?.sources ?? {}),
+    ]);
   // A deferred capture re-arms auto-capture at once, as the blank-frame guard
   // does, so a reopen during the wait, or after a capture that never runs, can
   // schedule its own.

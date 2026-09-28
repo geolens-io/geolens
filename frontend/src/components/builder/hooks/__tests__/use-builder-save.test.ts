@@ -2124,6 +2124,30 @@ describe('useBuilderSave', () => {
       vi.useRealTimers();
     });
 
+    it('holds a capture while a raster basemap is still loading', async () => {
+      vi.useFakeTimers();
+      const mockMap = createMockMap({ loaded: false });
+      mockMap.getStyle.mockReturnValue({ sources: { basemap: { attribution: '' } }, layers: [] });
+      mockMap.getSource.mockImplementation((sourceId: string) =>
+        sourceId === 'basemap' ? { type: 'raster' } : undefined,
+      );
+      mockMap.isSourceLoaded.mockReturnValue(false);
+
+      const state = makeSaveState({
+        localLayers: [makeLayer({ layer_type: 'raster_geolens' })],
+        mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+      });
+      const { result } = renderHook(() => useBuilderSave(state));
+      await act(async () => { await result.current.handleSave(); });
+      act(() => { vi.advanceTimersByTime(500); });
+      act(() => { vi.advanceTimersByTime(5100); });
+      act(() => { vi.advanceTimersByTime(3000); });
+
+      expect(mockMap.triggerRepaint).not.toHaveBeenCalled();
+
+      vi.useRealTimers();
+    });
+
     it('holds a capture for a hillshade source that is still loading', async () => {
       vi.useFakeTimers();
       const mockMap = createMockMap({ loaded: false });
