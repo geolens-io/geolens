@@ -143,6 +143,14 @@ class RasterBandInfo(BaseModel):
         default=None, description="Color interpretation, e.g. Red, Green, Gray"
     )
 
+    @field_validator("nodata", mode="before")
+    @classmethod
+    def _nodata_as_text(cls, v: object) -> str | None:
+        # band_info is schemaless JSONB; one stray value must not fail a whole list.
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            return str(v)
+        return v if isinstance(v, str) else None
+
 
 class RasterConnect(BaseModel):
     download_url: str | None = Field(
