@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Map as MaplibreMap } from 'maplibre-gl';
-import { getSourceIdForLayer } from '@/components/builder/map-sync';
+import { getSourceIdForLayer, TERRAIN_SOURCE_ID } from '@/components/builder/map-sync';
 import { readMapCamera, sameMapCamera, type BuilderCamera } from '@/components/builder/builder-camera';
 import { hasGlobeSpaceBackdrop } from '@/components/builder/map-composition-sync';
 import { ApiError } from '@/api/client';
@@ -391,7 +391,10 @@ function waitForVisibleLayerSources(
     return;
   }
 
-  const stillLoading = () => anySourceStillLoading(map, visibleSourceIds);
+  // A DEM driving 3-D terrain loads through the shared terrain source instead of
+  // its own.
+  const heldSourceIds = [...visibleSourceIds, TERRAIN_SOURCE_ID];
+  const stillLoading = () => anySourceStillLoading(map, heldSourceIds);
   // A deferred capture re-arms auto-capture at once, as the blank-frame guard
   // does, so a reopen during the wait, or after a capture that never runs, can
   // schedule its own.
