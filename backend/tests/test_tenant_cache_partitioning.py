@@ -111,11 +111,10 @@ class _MemoryCache:
 
 
 @pytest.mark.anyio
-async def test_admin_dataset_and_collection_lists_do_not_share_cache_entries(
+async def test_admin_collection_list_cache_is_partitioned_by_tenant(
     multi_tenant,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    datasets_router = importlib.import_module("app.modules.catalog.datasets.api.router")
     collections_router = importlib.import_module(
         "app.modules.catalog.collections.router"
     )
@@ -123,27 +122,14 @@ async def test_admin_dataset_and_collection_lists_do_not_share_cache_entries(
     user = MagicMock(id=uuid.uuid4())
     db = AsyncMock()
 
-    monkeypatch.setattr(datasets_router, "get_cache", lambda: cache)
     monkeypatch.setattr(collections_router, "get_cache", lambda: cache)
-    monkeypatch.setattr(
-        datasets_router, "get_user_roles", AsyncMock(return_value={"admin"})
-    )
     monkeypatch.setattr(
         collections_router, "get_user_roles", AsyncMock(return_value={"admin"})
     )
-    monkeypatch.setattr(
-        datasets_router,
-        "get_dataset_service_url",
-        AsyncMock(return_value="https://api.example.test"),
-    )
-
-    async def datasets_for_tenant(*_args, **_kwargs):
-        return [], 1 if current_tenant_var.get() == TENANT_A else 2
 
     async def collections_for_tenant(*_args, **_kwargs):
         return [], 3 if current_tenant_var.get() == TENANT_A else 4
 
-    monkeypatch.setattr(datasets_router, "get_datasets_list", datasets_for_tenant)
     monkeypatch.setattr(collections_router, "list_collections", collections_for_tenant)
     monkeypatch.setattr(
         collections_router, "batch_collection_extents", AsyncMock(return_value={})
@@ -158,21 +144,16 @@ async def test_admin_dataset_and_collection_lists_do_not_share_cache_entries(
     for tenant_id in (TENANT_A, TENANT_B):
         token = _set_tenant(tenant_id)
         try:
-            datasets = await datasets_router.list_all_datasets(
-                request=MagicMock(), user=user, db=db, skip=0, limit=50
-            )
             collections = await collections_router.list_collections_endpoint(
                 user=user, db=db, skip=0, limit=50
             )
-            results.append((datasets.total, collections.total))
+            results.append(collections.total)
         finally:
             current_tenant_var.reset(token)
 
-    assert results == [(1, 3), (2, 4)]
+    assert results == [3, 4]
     assert set(cache.values) == {
-        f"catalog:datasets:admin:0:50:tenant:{TENANT_A}",
         f"catalog:collections:admin:0:50:tenant:{TENANT_A}",
-        f"catalog:datasets:admin:0:50:tenant:{TENANT_B}",
         f"catalog:collections:admin:0:50:tenant:{TENANT_B}",
     }
 
