@@ -446,7 +446,8 @@ async def run_service_preview(
         _remove_quietly(items_path)
         _remove_quietly(header_file_path)
 
-    if proc.returncode != 0:
+    # GDAL can exit 0 after a request fails, so a refusal fails the preview too.
+    if proc.returncode != 0 or egress.refused:
         error_msg = stderr.decode().strip() if stderr else "unknown error"
         # fix(#1746): a credential GDAL echoes back in stderr prose isn't a
         # URL shape or a KEY name, so redact_url_credentials and the log
@@ -468,6 +469,11 @@ async def run_service_preview(
             returncode=proc.returncode,
             stderr=safe_error_msg,
         )
+        if egress.refused:
+            raise IngestionError(
+                "the source service pointed to an address this server does not "
+                "connect to"
+            )
         # GDAL's text can quote whatever the service answered; it stays in the log.
         raise IngestionError(f"ogrinfo failed (exit {proc.returncode})")
 

@@ -1396,7 +1396,8 @@ async def run_ogr2ogr_service(
                 # the file as 0600.
                 pass
 
-    if proc.returncode != 0:
+    # GDAL can exit 0 after a request fails, so a refusal fails the import too.
+    if proc.returncode != 0 or egress.refused:
         # The GDAL text can quote whatever the service answered, so it goes to
         # the log, redacted by value too: a service can echo the ArcGIS token,
         # which rides in the source URL, as plain text.

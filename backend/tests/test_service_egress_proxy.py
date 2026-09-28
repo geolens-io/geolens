@@ -21,6 +21,7 @@ import re
 import shutil
 import socket
 import subprocess
+import sys
 import threading
 import uuid
 from collections.abc import Iterator
@@ -916,6 +917,50 @@ def ogr_writes_the_test_database(monkeypatch) -> None:
     from app.core.config import settings
 
     monkeypatch.setattr(settings, "postgres_db", settings.postgres_db_test)
+
+
+# Stands in for GDAL: one request the proxy refuses, then a clean exit.
+_EXITS_ZERO_AFTER_A_REFUSAL = """
+import os, socket, urllib.parse
+proxy = urllib.parse.urlsplit(os.environ["GDAL_HTTP_PROXY"])
+with socket.create_connection((proxy.hostname, proxy.port)) as conn:
+    conn.sendall(b"CONNECT 10.0.0.1:80 HTTP/1.1\\r\\n\\r\\n")
+    conn.recv(1024)
+"""
+
+
+@pytest.fixture
+def gdal_exits_zero_after_a_refusal(monkeypatch):
+    real = asyncio.create_subprocess_exec
+
+    async def spawn(*_cmd, **kwargs):
+        return await real(sys.executable, "-c", _EXITS_ZERO_AFTER_A_REFUSAL, **kwargs)
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+
+
+class TestARefusalFailsARunThatExitsZero:
+    async def test_the_import_fails(
+        self, resolver_calls, gdal_exits_zero_after_a_refusal
+    ):
+        with pytest.raises(IngestionError) as error:
+            await run_ogr2ogr_service(
+                f"WFS:http://{_HOST}:1/wfs",
+                _LAYER,
+                f"egress_{uuid.uuid4().hex[:12]}",
+                build_pg_conn_str(),
+                "wfs",
+                timeout=60.0,
+                schema="data",
+            )
+
+        assert str(error.value) == f"ogr2ogr failed (exit 0): {SERVICE_ADDRESS_REFUSED}"
+
+    async def test_the_preview_fails(
+        self, resolver_calls, gdal_exits_zero_after_a_refusal
+    ):
+        with pytest.raises(IngestionError, match="does not connect to"):
+            await run_service_preview(f"WFS:http://{_HOST}:1/wfs", _LAYER)
 
 
 @needs_ogr
