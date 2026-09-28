@@ -185,14 +185,16 @@ async def backfill(db: AsyncSession, *, dry_run: bool = False) -> BackfillReport
     return report
 
 
-async def _tenant_exists(db_module, tenant: str) -> bool:
-    """Whether the tenant registry, which has no RLS, holds ``tenant``."""
+async def _registered_tenant(db_module, tenant: str) -> str | None:
+    """The canonical id of ``tenant`` if the tenant registry, which has no RLS, holds it."""
     try:
         tenant_id = uuid.UUID(tenant)
     except ValueError:
-        return False
+        return None
     async with db_module.async_session() as db:
-        return await db.scalar(_TENANT_EXISTS, {"tenant_id": tenant_id}) is not None
+        if await db.scalar(_TENANT_EXISTS, {"tenant_id": tenant_id}) is None:
+            return None
+    return str(tenant_id)
 
 
 async def _run(dry_run: bool, tenant: str | None) -> int:
@@ -226,9 +228,12 @@ async def _run(dry_run: bool, tenant: str | None) -> int:
     except RuntimeError as exc:
         print(f"Startup check failed: {exc}", file=sys.stderr)
         return 2
-    if tenant is not None and not await _tenant_exists(db_module, tenant):
-        print(f"Unknown tenant: {tenant}", file=sys.stderr)
-        return 2
+    if tenant is not None:
+        registered = await _registered_tenant(db_module, tenant)
+        if registered is None:
+            print(f"Unknown tenant: {tenant}", file=sys.stderr)
+            return 2
+        tenant = registered
     with tenant_job_context(tenant):
         async with db_module.async_session() as db:
             report = await backfill(db, dry_run=dry_run)

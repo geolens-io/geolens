@@ -428,6 +428,42 @@ async def test_a_tenant_missing_from_the_registry_stops_the_run(
     assert port.asked == []
 
 
+async def test_a_tenant_given_as_bare_hex_runs_under_its_canonical_id(
+    test_db_session, overlays, monkeypatch
+) -> None:
+    import scripts.backfill_tileset_extents as script
+    from app.core.db.tenant_session import current_tenant_var
+
+    monkeypatch.setattr(settings, "geolens_tenancy_mode", "multi_tenant")
+    monkeypatch.setenv("GEOLENS_TENANCY_MODE", "multi_tenant")
+    overlays.append(
+        _overlay(catalog_port=_SpyCatalogPort(), **_ENTERPRISE_PORTS, **_CLOUD_PORTS)
+    )
+    tenant_id = uuid.uuid4()
+    seen: list[str | None] = []
+
+    async def record_tenant(db, dry_run=False):
+        seen.append(current_tenant_var.get())
+        return script.BackfillReport()
+
+    monkeypatch.setattr(script, "backfill", record_tenant)
+    await test_db_session.execute(
+        text("INSERT INTO catalog.tenants (id, slug, name) VALUES (:id, :slug, 'Hex')"),
+        {"id": tenant_id, "slug": f"hex-{tenant_id.hex[:8]}"},
+    )
+    await test_db_session.commit()
+    try:
+        exit_code = await _run(dry_run=True, tenant=tenant_id.hex)
+    finally:
+        await test_db_session.execute(
+            text("DELETE FROM catalog.tenants WHERE id = :id"), {"id": tenant_id}
+        )
+        await test_db_session.commit()
+
+    assert exit_code == 0
+    assert seen == [str(tenant_id)]
+
+
 # Raises from the database for one record only, as a row error or lock timeout would.
 _REFUSE_UNWRITABLE_FUNCTION = text(
     "CREATE FUNCTION catalog.refuse_unwritable() RETURNS trigger "
