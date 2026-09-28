@@ -799,6 +799,8 @@ from app.standards.ogc.errors import (  # noqa: E402
     ProblemDetail,
     RATE_LIMIT_RESPONSE,
     UNRESOLVABLE_CREDENTIAL_RESPONSE,
+    UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_CAPABILITY,
+    UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_EMBED_TOKEN,
     register_error_handlers,
 )
 
@@ -1330,6 +1332,11 @@ def _document_unresolvable_credential_401(schema: dict) -> None:
     from the security-marker set (fix(#430)). Only writes ``responses``,
     never ``security``, so it can't stamp an auth requirement back on.
     Pinned by ``test_no_security_schema_ops_get_401_without_security``.
+
+    A handler ``CAPABILITY`` marks in ``FAIL_OPEN_ALLOWLIST``
+    (``tests/test_optional_auth_failure_mode_1518.py``) gets a response
+    naming only the capability it actually accepts; every other operation
+    gets the plain, capability-free description.
     """
 
     from app.modules.auth.dependencies import (
@@ -1337,11 +1344,32 @@ def _document_unresolvable_credential_401(schema: dict) -> None:
         get_optional_user_fail_open,
         get_optional_user_no_security_schema,
     )
+    from app.modules.catalog.features.router import get_features_geojson_z_endpoint
+    from app.modules.catalog.maps.router_sharing import get_shared_map_endpoint
+    from app.processing.tiles.router import (
+        cluster_tile_endpoint,
+        get_tile_tokens_batch,
+        raster_auth_check,
+        raster_tile_proxy,
+        tile_endpoint,
+    )
 
     credential_aware = {
         get_optional_user,
         get_optional_user_fail_open,
         get_optional_user_no_security_schema,
+    }
+    # Vector/raster tile serving verifies both X-Embed-Token and a signed
+    # template (sig, exp, scope); the batch token mint and the other two
+    # capability handlers check X-Embed-Token only.
+    capability_responses = {
+        get_features_geojson_z_endpoint: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_EMBED_TOKEN,
+        get_shared_map_endpoint: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_EMBED_TOKEN,
+        get_tile_tokens_batch: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_EMBED_TOKEN,
+        tile_endpoint: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_CAPABILITY,
+        cluster_tile_endpoint: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_CAPABILITY,
+        raster_tile_proxy: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_CAPABILITY,
+        raster_auth_check: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_CAPABILITY,
     }
 
     for ctx in _iter_api_routes(app):
@@ -1350,15 +1378,23 @@ def _document_unresolvable_credential_401(schema: dict) -> None:
             continue
         if not _dependency_uses(route.dependant, credential_aware):
             continue
+        response = capability_responses.get(route.endpoint)
         for method in route.methods or ():
             operation = _route_operation(schema, ctx, method)
             if operation is None:
                 continue
-            # setdefault: a route that already documents its own 401 with a
-            # more specific description keeps it.
-            operation.setdefault("responses", {}).setdefault(
-                "401", UNRESOLVABLE_CREDENTIAL_RESPONSE
-            )
+            responses = operation.setdefault("responses", {})
+            if response is not None:
+                # A mapped route's shared generic 401 (spread from an
+                # ERROR_RESPONSES_* constant on the route or an ancestor
+                # router) would otherwise win by already occupying the key;
+                # the mapping names what this route actually accepts, so it
+                # overrides rather than defers to that generic text.
+                responses["401"] = response
+            else:
+                # setdefault: a route that already documents its own 401 with
+                # a more specific description keeps it.
+                responses.setdefault("401", UNRESOLVABLE_CREDENTIAL_RESPONSE)
 
 
 def _document_global_failures(schema: dict) -> None:

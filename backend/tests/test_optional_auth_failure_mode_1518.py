@@ -987,6 +987,153 @@ def test_no_security_schema_ops_get_401_without_security() -> None:
     )
 
 
+@pytest.mark.architecture
+def test_401_capability_sentence_matches_the_allowlist() -> None:
+    """Each CAPABILITY handler's 401 must name only the capability it accepts.
+
+    ``_document_unresolvable_credential_401`` (app/api/main.py) hardcodes a
+    ``capability_responses`` mapping of handler function to response; nothing
+    ties that mapping to ``FAIL_OPEN_ALLOWLIST`` above, so the two could
+    silently disagree. ``EXPECTED_CAPABILITY_TEXT`` below is this test's own
+    mapping, keyed by the allowlist's dotted-name keys, from CAPABILITY
+    handler to the exact 401 description it should get: the vector/raster
+    tile-serving routes verify both X-Embed-Token and a signed template (sig,
+    exp, scope), but ``get_tile_tokens_batch`` (POST /tiles/tokens/) checks
+    only X-Embed-Token and never reads sig/exp/scope, so a stale bearer
+    alongside a signed template must NOT be treated as authorized there.
+
+    This walks every operation whose 401 description is literally one of the
+    three texts ``_document_unresolvable_credential_401`` chooses between,
+    and checks it against the expected text for that key: the mapping above
+    for a CAPABILITY handler, the plain capability-free text otherwise.
+
+    A mapped handler's own generic 401 (``get_features_geojson_z_endpoint``
+    spreads ``ERROR_RESPONSES_AUTH``; ``get_shared_map_endpoint`` inherits
+    ``ERROR_RESPONSES_WRITE`` from its ``/maps`` ancestor router) does not
+    exempt it here: ``_document_unresolvable_credential_401`` overrides a
+    mapped route's 401 outright rather than deferring to it, so every mapped
+    key covered by the walk must show its exact expected text, no skip. The
+    skip for 401 text matching none of the three constants applies only to
+    unmapped routes, where a route's own genuinely route-specific 401 (like
+    the COPC file route's) is left alone and is not this function's output.
+    """
+    from fastapi.routing import APIRoute, iter_route_contexts
+
+    from app.api.main import _dependency_uses, _route_operation, app
+    from app.modules.auth.dependencies import (
+        get_optional_user,
+        get_optional_user_fail_open,
+        get_optional_user_no_security_schema,
+    )
+    from app.processing.tiles.router import raster_auth_check
+    from app.standards.ogc.errors import (
+        UNRESOLVABLE_CREDENTIAL_RESPONSE,
+        UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_CAPABILITY,
+        UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_EMBED_TOKEN,
+    )
+
+    plain_description = UNRESOLVABLE_CREDENTIAL_RESPONSE["description"]
+    capability_description = UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_CAPABILITY[
+        "description"
+    ]
+    embed_token_description = UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_EMBED_TOKEN[
+        "description"
+    ]
+    managed_descriptions = {
+        plain_description,
+        capability_description,
+        embed_token_description,
+    }
+
+    EXPECTED_CAPABILITY_TEXT = {
+        "app.modules.catalog.features.router.get_features_geojson_z_endpoint": embed_token_description,
+        "app.modules.catalog.maps.router_sharing.get_shared_map_endpoint": embed_token_description,
+        "app.processing.tiles.router.get_tile_tokens_batch": embed_token_description,
+        "app.processing.tiles.router.tile_endpoint": capability_description,
+        "app.processing.tiles.router.cluster_tile_endpoint": capability_description,
+        "app.processing.tiles.router.raster_tile_proxy": capability_description,
+        "app.processing.tiles.router.raster_auth_check": capability_description,
+    }
+
+    capability_keys = {
+        key
+        for key, (category, _why) in FAIL_OPEN_ALLOWLIST.items()
+        if category == CAPABILITY
+    }
+    missing_mapping = capability_keys - set(EXPECTED_CAPABILITY_TEXT)
+    assert not missing_mapping, (
+        "EXPECTED_CAPABILITY_TEXT is missing an entry for CAPABILITY "
+        f"handler(s): {sorted(missing_mapping)}"
+    )
+
+    targets = {
+        get_optional_user,
+        get_optional_user_fail_open,
+        get_optional_user_no_security_schema,
+    }
+
+    schema = _schema()
+    checked_keys: set[str] = set()
+    tiles3d_checked = False
+    batch_checked = False
+
+    raster_auth_check_routes = [
+        ctx
+        for ctx in iter_route_contexts(app.routes)
+        if isinstance(ctx.route, APIRoute) and ctx.route.endpoint is raster_auth_check
+    ]
+    assert raster_auth_check_routes, "raster_auth_check route not found at all"
+    assert not any(ctx.route.include_in_schema for ctx in raster_auth_check_routes), (
+        "raster_auth_check must stay include_in_schema=False; its EXPECTED_CAPABILITY_TEXT "
+        "entry assumes it never reaches the published contract."
+    )
+
+    for ctx in iter_route_contexts(app.routes):
+        route = ctx.route
+        if not isinstance(route, APIRoute) or not route.include_in_schema:
+            continue
+        if not _dependency_uses(route.dependant, targets):
+            continue
+        fn = route.endpoint
+        key = f"{fn.__module__}.{fn.__qualname__}"
+        is_mapped = key in EXPECTED_CAPABILITY_TEXT
+        expected = EXPECTED_CAPABILITY_TEXT.get(key, plain_description)
+        for method in route.methods or ():
+            operation = _route_operation(schema, ctx, method)
+            if operation is None:
+                continue
+            description = (
+                operation.get("responses", {}).get("401", {}).get("description")
+            )
+            if not is_mapped and description not in managed_descriptions:
+                # An unmapped route's own genuinely route-specific 401 (like
+                # the COPC file route's); not this function's output.
+                continue
+            checked_keys.add(key)
+            label = f"{method} {ctx.path or route.path} ({key})"
+            if (
+                key
+                == "app.modules.catalog.datasets.api.router_tiles3d.get_tileset_file"
+            ):
+                tiles3d_checked = True
+            if key == "app.processing.tiles.router.get_tile_tokens_batch":
+                batch_checked = True
+            assert description == expected, (
+                f"{label}: expected the "
+                f"{'plain' if expected == plain_description else 'embed-token-only' if expected == embed_token_description else 'full-capability'} "
+                "401 text but got a different one:\n"
+                f"  {description}"
+            )
+
+    # Vacuity guards: without these, a walk that matched nothing (a rename, a
+    # detection change) would pass by checking nothing at all.
+    assert tiles3d_checked, "the 3D Tiles file route was not found in the walk"
+    assert batch_checked, "the tile token batch route was not found in the walk"
+    assert len(checked_keys) >= 5, (
+        f"expected at least 5 distinct handlers covered, found {len(checked_keys)}"
+    )
+
+
 class TestEveryNoCapabilityExitAppliesTheRule:
     """One row per no-capability EXIT CLASS, not per handler (codex P2 round 3).
 
