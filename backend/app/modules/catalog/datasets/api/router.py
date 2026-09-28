@@ -60,7 +60,6 @@ from app.modules.catalog.datasets.domain.schemas import (
     SchemaDiff,
 )
 from app.platform.refresh.service import list_runs_for_dataset
-from app.platform.cache import get_cache, tenant_cache_key
 from app.platform.cache.provider import get_tile_cache, notify_table_invalidated
 from app.platform.cache.scope import is_publicly_cacheable
 from app.platform.cache.tiles import invalidate_catalog_cache
@@ -86,8 +85,6 @@ logger = structlog.get_logger()
 router = APIRouter(
     prefix="/datasets", tags=["Datasets"], responses=ERROR_RESPONSES_WRITE
 )
-
-_CATALOG_CACHE_TTL = 60  # seconds
 
 
 # ROUTE-01: dual-shape decorator -- both trailing-slash and no-trailing-slash
@@ -116,32 +113,11 @@ async def list_all_datasets(
 ) -> DatasetListResponse:
     """List datasets with visibility filtering and pagination."""
     user_roles = await get_user_roles(db, user)
-
-    # Cache admin views only (non-admin results vary by user identity)
-    is_admin = "admin" in user_roles
-    cache_key = (
-        tenant_cache_key(f"catalog:datasets:admin:{skip}:{limit}") if is_admin else None
-    )
-
-    if cache_key:
-        cache = get_cache()
-        cached = await cache.get(cache_key)
-        if cached is not None:
-            return DatasetListResponse(**cached)
-
     base_url = await get_dataset_service_url(db, request=request)
     datasets, total = await get_datasets_list(
         db, user, user_roles, skip=skip, limit=limit, base_url=base_url
     )
-    response = DatasetListResponse(datasets=datasets, total=total)
-
-    if cache_key:
-        cache = get_cache()
-        await cache.set(
-            cache_key, response.model_dump(mode="json"), ttl=_CATALOG_CACHE_TTL
-        )
-
-    return response
+    return DatasetListResponse(datasets=datasets, total=total)
 
 
 @router.post(
