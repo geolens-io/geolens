@@ -25,10 +25,12 @@ export function TilesetCard({ tileset, extentBbox }: TilesetCardProps) {
     },
     { label: t('tileset.size'), value: formatBytes(tileset.size_bytes) },
   ];
-  // Only a region carries geographic bounds; a box or sphere is in the tileset's own frame.
-  const extent = tileset.bounding_volume === 'box' || tileset.bounding_volume === 'sphere'
-    ? t('tileset.noExtent')
-    : formatBbox(extentBbox, notAvailable);
+  // A box or sphere has no extent when it isn't georeferenced or was published before GeoLens read one.
+  const extent = extentBbox
+    ? formatBbox(extentBbox, notAvailable)
+    : tileset.bounding_volume === 'box' || tileset.bounding_volume === 'sphere'
+      ? t('tileset.noExtent')
+      : notAvailable;
   // Null for a tileset published before its contents were recorded, so the row is left out.
   const lists = [
     { label: t('tileset.contentTypes'), values: tileset.content_types },

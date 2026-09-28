@@ -58,6 +58,7 @@ from tests.tiles3d_archives import (
     b3dm,
     build_zip,
     cmpt,
+    ecef,
     glb,
     gltf_json,
     i3dm,
@@ -299,10 +300,10 @@ async def test_an_antimeridian_region_reads_back_as_the_crossing_pair(
     ("volume", "kind"),
     [({"box": [0.0] * 12}, "box"), ({"sphere": [0.0, 0.0, 0.0, 5.0]}, "sphere")],
 )
-async def test_a_box_or_sphere_tileset_has_no_extent(
+async def test_a_local_box_or_sphere_tileset_has_no_extent(
     client: AsyncClient, test_db_session, uploader, queued, volume, kind
 ) -> None:
-    """Only a region yields an extent; the stored kind says why it is null."""
+    """A volume in a local frame has no extent; the stored kind says why."""
     headers, _ = uploader
     job_id = await publish(client, headers, queued, campus_zip(volume=volume))
     job = await load_job(test_db_session, job_id)
@@ -311,6 +312,24 @@ async def test_a_box_or_sphere_tileset_has_no_extent(
 
     assert body["extent_bbox"] is None
     assert body["tileset"]["bounding_volume"] == kind
+
+
+async def test_a_georeferenced_sphere_tileset_gets_its_extent(
+    client: AsyncClient, test_db_session, uploader, queued
+) -> None:
+    """A sphere in Earth-centred coordinates gives the dataset its footprint."""
+    headers, _ = uploader
+    sphere = [*ecef(4.9, 52.37), 500.0]
+    job_id = await publish(
+        client, headers, queued, campus_zip(volume={"sphere": sphere})
+    )
+    job = await load_job(test_db_session, job_id)
+
+    body = (await client.get(f"/datasets/{job.dataset_id}", headers=headers)).json()
+
+    west, south, east, north = body["extent_bbox"]
+    assert west < 4.9 < east and east - west < 0.05
+    assert south < 52.37 < north and north - south < 0.05
 
 
 async def test_the_dataset_lists_the_tileset_contents(

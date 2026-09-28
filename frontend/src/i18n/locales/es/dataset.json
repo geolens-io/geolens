@@ -1201,7 +1201,7 @@
     "boundingVolume": "Volumen envolvente",
     "size": "Tamaño descomprimido",
     "extent": "Extensión",
-    "noExtent": "No disponible. GeoLens solo obtiene la extensión de un volumen envolvente de tipo región.",
+    "noExtent": "No hay extensión registrada para este tileset.",
     "contentTypes": "Tipos de contenido",
     "extensionsRequired": "Extensiones requeridas",
     "accessTitle": "Cargar en un cliente de 3D Tiles",

@@ -13710,7 +13710,7 @@ export interface components {
             geometric_error?: number | null;
             /**
              * Bounding Volume
-             * @description The kind of the root tile's bounding volume. Only a region yields the dataset's extent; a box or sphere leaves it null.
+             * @description The kind of the root tile's bounding volume. A box or sphere not in Earth-centred coordinates leaves the dataset's extent null.
              */
             bounding_volume?: ("region" | "box" | "sphere") | null;
             /**
@@ -13759,7 +13759,7 @@ export interface components {
             bounding_volume: "region" | "box" | "sphere";
             /**
              * Extent Bbox
-             * @description The root region as [west, south, east, north] in degrees; west > east when it crosses the antimeridian. Null for a box or sphere.
+             * @description The root bounding volume's extent as [west, south, east, north] in degrees; west > east when it crosses the antimeridian. Null for a box or sphere that is not placed in Earth-centred coordinates.
              */
             extent_bbox: number[] | null;
             /**

@@ -1201,7 +1201,7 @@
     "boundingVolume": "包围体",
     "size": "解压后大小",
     "extent": "范围",
-    "noExtent": "不可用。GeoLens 仅从 region 类型的包围体读取范围。",
+    "noExtent": "此瓦片集未记录范围。",
     "contentTypes": "内容类型",
     "extensionsRequired": "必需的扩展",
     "accessTitle": "在 3D Tiles 客户端中加载",

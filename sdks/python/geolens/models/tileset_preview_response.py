@@ -34,8 +34,9 @@ class TilesetPreviewResponse:
         version (TilesetPreviewResponseVersion): The tileset's asset.version from its tileset.json.
         geometric_error (float | None): The root tile's geometricError, or null when tileset.json gives none.
         bounding_volume (TilesetPreviewResponseBoundingVolume): The kind of the root tile's bounding volume.
-        extent_bbox (list[float] | None): The root region as [west, south, east, north] in degrees; west > east when it
-            crosses the antimeridian. Null for a box or sphere.
+        extent_bbox (list[float] | None): The root bounding volume's extent as [west, south, east, north] in degrees;
+            west > east when it crosses the antimeridian. Null for a box or sphere that is not placed in Earth-centred
+            coordinates.
         unpacked_bytes (int): Total size of the archive's files once unpacked.
         entry_count (int): Number of entries, files and folders, in the archive.
     """

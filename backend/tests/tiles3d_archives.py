@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import math
 import struct
 import zipfile
 from pathlib import Path
@@ -33,6 +34,19 @@ def tileset_json(
             **(extra or {}),
         }
     ).encode()
+
+
+def ecef(lon: float, lat: float, height: float = 0.0) -> list[float]:
+    """A WGS 84 position in EPSG:4978 metres."""
+    a, f = 6378137.0, 1 / 298.257223563
+    e2 = f * (2 - f)
+    lon, lat = math.radians(lon), math.radians(lat)
+    n = a / math.sqrt(1 - e2 * math.sin(lat) ** 2)
+    return [
+        (n + height) * math.cos(lat) * math.cos(lon),
+        (n + height) * math.cos(lat) * math.sin(lon),
+        (n * (1 - e2) + height) * math.sin(lat),
+    ]
 
 
 def zip_bytes(

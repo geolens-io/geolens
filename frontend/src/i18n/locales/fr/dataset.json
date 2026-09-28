@@ -1201,7 +1201,7 @@
     "boundingVolume": "Volume englobant",
     "size": "Taille décompressée",
     "extent": "Emprise",
-    "noExtent": "Non disponible. GeoLens ne lit l'emprise que depuis un volume englobant de type région.",
+    "noExtent": "Aucune emprise enregistrée pour ce tileset.",
     "contentTypes": "Types de contenu",
     "extensionsRequired": "Extensions requises",
     "accessTitle": "Charger dans un client 3D Tiles",

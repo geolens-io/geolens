@@ -21,13 +21,18 @@ describe('TilesetCard', () => {
     expect(screen.getByText('(179.5000, -17.0000) to (-179.5000, -16.0000)')).toBeInTheDocument();
   });
 
-  it('says why a box or sphere tileset has no extent', () => {
+  it('shows the extent of a georeferenced box', () => {
+    render(<TilesetCard tileset={{ ...TILESET, bounding_volume: 'box' }} extentBbox={[4.87, 52.36, 4.93, 52.38]} />);
+
+    expect(screen.getByText('Box')).toBeInTheDocument();
+    expect(screen.getByText('(4.8700, 52.3600) to (4.9300, 52.3800)')).toBeInTheDocument();
+  });
+
+  it('says a box or sphere tileset has no extent recorded', () => {
     render(<TilesetCard tileset={{ ...TILESET, bounding_volume: 'sphere' }} extentBbox={null} />);
 
     expect(screen.getByText('Sphere')).toBeInTheDocument();
-    expect(
-      screen.getByText('Not available. GeoLens reads the extent only from a region bounding volume.'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('No extent recorded for this tileset.')).toBeInTheDocument();
   });
 
   it('marks facts the tileset does not give as not available', () => {

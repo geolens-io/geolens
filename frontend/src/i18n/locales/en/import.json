@@ -607,7 +607,7 @@
       "type": "Type"
     },
     "tilesetInfo": "Tileset",
-    "noExtent": "none; only a region gives one"
+    "noExtent": "none; the volume is not georeferenced"
   },
   "eyebrow": "Import",
   "pageDescription": "Upload files, register tables from your Postgres, or connect a remote service. GeoLens detects geometry, schema, and CRS, then makes it queryable, styleable, and embeddable.",
