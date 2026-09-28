@@ -44,6 +44,8 @@ const PROVIDER_AUTH_HOSTS: Record<string, string> = {
 // Parsed the same way playwright.demo.config.ts derives baseURL, so the
 // redirect_uri check is pinned to the actual target, not a loose pattern.
 const DEMO_ORIGIN = new URL(process.env.E2E_DEMO_BASE_URL!).origin;
+// The geolens-examples pages read the client samples from this origin.
+const EXAMPLES_ORIGIN = process.env.E2E_EXAMPLES_ORIGIN ?? 'https://geolens-io.github.io';
 
 type BrowserDiagnostics = {
   assertClean: () => void;
@@ -206,15 +208,22 @@ test.describe('live demo read-only smoke', () => {
 
     const copc = await findDataset('Autzen Stadium Classified Point Cloud (COPC)');
     expect(copc.record_type).toBe('pointcloud_dataset');
-    const range = await request.get(copc.pointcloud.url, { headers: { Range: 'bytes=0-15' } });
+    // The request client skips browser CORS, so the allow-origin header is checked here.
+    const allowsExamples = (response: { headers(): Record<string, string> }) =>
+      ['*', EXAMPLES_ORIGIN].includes(response.headers()['access-control-allow-origin']);
+    const range = await request.get(copc.pointcloud.url, {
+      headers: { Range: 'bytes=0-15', Origin: EXAMPLES_ORIGIN },
+    });
     expect(range.status()).toBe(206);
+    expect(allowsExamples(range), `COPC range is not readable from ${EXAMPLES_ORIGIN}`).toBe(true);
     expect(range.headers()['content-range']).toMatch(/^bytes 0-15\/\d+$/);
     expect((await range.body()).length).toBe(16);
 
     const tiles = await findDataset('Amsterdam Canal Buildings (3DBAG 3D Tiles)');
     expect(tiles.record_type).toBe('tiles3d_dataset');
-    const manifest = await request.get(tiles.tileset.url);
+    const manifest = await request.get(tiles.tileset.url, { headers: { Origin: EXAMPLES_ORIGIN } });
     expect(manifest.ok(), `3D Tiles manifest returned HTTP ${manifest.status()}`).toBeTruthy();
+    expect(allowsExamples(manifest), `3D Tiles manifest is not readable from ${EXAMPLES_ORIGIN}`).toBe(true);
     expect((await manifest.json()).root).toBeTruthy();
   });
 

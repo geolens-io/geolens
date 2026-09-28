@@ -286,6 +286,11 @@ refusals listed in step 3 came from later rounds. The final cycle, run from
 this branch's head, exited 0 for the guarded update and 0 for the restore.
 The standard post-deployment smoke is
 `E2E_DEMO_BASE_URL=https://demo.getgeolens.com E2E_EXPECT_VERSION=1.21.0 npm run e2e:smoke:demo`.
+Its client-sample test also requires the COPC range and 3D Tiles manifest to
+answer the geolens-examples origin (`E2E_EXAMPLES_ORIGIN`, default
+`https://geolens-io.github.io`) with an allow-origin header. It fails until
+[#2433](https://github.com/geolens-io/geolens/issues/2433) ships or that origin
+is allowlisted. Staging runs set `E2E_EXAMPLES_ORIGIN=http://localhost:18081`.
 
 Deferred work stays separate: Earth After Dark, temperature overlays, a
 featured gallery, native COPC/3D Tiles rendering, timelines, and swipe views.
