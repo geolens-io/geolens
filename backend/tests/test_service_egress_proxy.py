@@ -247,6 +247,7 @@ def _silent_upstream() -> Iterator[tuple[int, asyncio.Event]]:
         yield listener.getsockname()[1], closed
     finally:
         listener.close()
+        thread.join(timeout=5)
 
 
 def _get(url: str, host: str) -> bytes:
