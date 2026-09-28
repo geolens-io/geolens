@@ -258,6 +258,7 @@ def test_guarded_update_waits_for_a_running_job(job_counts):
         TargetApi(titles={seed.QUAKES_TITLE_LEGACY: "legacy"}),
         TargetApi(maps=[*state.MAP_NAMES], visibility="private"),
         TargetApi(titles={seed.COPC_TITLE: "copc"}, visibility="private"),
+        TargetApi(titles={"Matterhorn Peaks": "peaks"}, visibility="private"),
         TargetApi(
             titles={"Meteorite Landings (Meteoritical Society)": "m"}, features=4800
         ),

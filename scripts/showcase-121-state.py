@@ -224,6 +224,8 @@ def unrestorable_changes(api):
         seed.CITY_SHADE_RESULT,
         seed.COPC_TITLE,
         seed.TILES3D_TITLE,
+        "Matterhorn Climbing Routes",
+        "Matterhorn Peaks",
     ):
         if (
             title in titles

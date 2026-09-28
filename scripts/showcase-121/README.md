@@ -222,7 +222,8 @@ examples. No AI step is required.
    whose data replacement the snapshot cannot undo; run the quake refresh as
    its own step.
    After a rollback, the guarded seed refuses before any write while the City
-   in Shade map or any new sample dataset is private. Review them and publish
+   in Shade map, any new sample dataset, or a Matterhorn overlay dataset is
+   private. Review them and publish
    them deliberately (datasets first, then the map) before applying again.
    A guarded update skips the automatic Sentinel-2 refresh and the private
    embed builder, whose results are outside the snapshot, and exits nonzero if
