@@ -40,8 +40,10 @@ _SEARCH_PUBLIC_METHODS = "GET, OPTIONS"
 
 # A COPC or 3D Tiles file answers an anonymous caller only for a public,
 # published dataset, so ``_dispatch`` adds the wildcard to its successes alone
-# and a private dataset's 404 stays identical to an unknown one's. The
-# preflight is answered by path, the same for every id.
+# and a private dataset's 404 stays identical to an unknown one's. A 429 also
+# gets it: the COPC limits refuse a read before the dataset is looked up and
+# count per client, so every id gets the same one. The preflight is answered
+# by path, the same for every id.
 _PUBLIC_ASSET_PATHS: tuple[tuple[re.Pattern[str], str], ...] = (
     (
         re.compile(r"/datasets/[^/]+/copc/[^/]+/[^/]+\.copc\.laz"),
@@ -49,7 +51,7 @@ _PUBLIC_ASSET_PATHS: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     (re.compile(r"/datasets/[^/]+/tiles3d/.+"), "GET, OPTIONS"),
 )
-_ASSET_SUCCESS_STATUSES = frozenset({200, 206, 304})
+_ASSET_WILDCARD_STATUSES = frozenset({200, 206, 304, 429})
 
 
 def _merge_vary_origin(response: Response) -> None:
@@ -133,7 +135,7 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
                     response = await call_next(request)
                     if (
                         self._public_asset_methods(request) is not None
-                        and response.status_code not in _ASSET_SUCCESS_STATUSES
+                        and response.status_code not in _ASSET_WILDCARD_STATUSES
                     ):
                         return response
                 self._set_public_cors_headers(response, request, allow_methods)
@@ -255,15 +257,15 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         the explicit-origin policy or no CORS headers. Each surface
         advertises only the methods its routes answer: standards routes
         GET/HEAD, plus POST on ``/stac/search``; search GET; the asset
-        files their own set, with ``Range`` and ``If-Range`` allowed in the
-        preflight. Everything after the surface check is shared
+        files their own set, with the range and conditional request headers
+        allowed in the preflight. Everything after the surface check is shared
         deliberately: the credential exclusion and safelisted-header
         check make a wildcard safe, and a new surface must not opt out.
         """
         request_path = cls._request_path(request)
         standards_path = standards_api_path(request_path)
         asset_methods = cls._public_asset_methods(request)
-        range_headers: set[str] = set()
+        asset_headers: set[str] = set()
         stac_search = False
         if standards_path is not None:
             allow_methods = _STANDARDS_PUBLIC_METHODS
@@ -275,7 +277,7 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         elif asset_methods is not None:
             allow_methods = asset_methods
             permitted = {m.strip() for m in asset_methods.split(",")} - {"OPTIONS"}
-            range_headers = {"range", "if-range"}
+            asset_headers = {"range", "if-range", "if-none-match", "if-match"}
         else:
             return None
 
@@ -313,7 +315,7 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
             "content-language",
             "content-type",
         }
-        if not requested_headers <= allowed_headers | range_headers:
+        if not requested_headers <= allowed_headers | asset_headers:
             return None
         return allow_methods
 

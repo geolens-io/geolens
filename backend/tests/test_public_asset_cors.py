@@ -158,6 +158,77 @@ async def test_the_range_preflight_is_answered_alike_for_any_id(
     assert len(policies) == 1
 
 
+@pytest.mark.parametrize("header", ["If-None-Match", "If-Match"])
+@pytest.mark.parametrize("target", ["copc", "content"])
+async def test_a_conditional_read_passes_the_preflight(
+    client: AsyncClient, publish, target, header
+) -> None:
+    """Both routes honour these validators, so a page that sets one must be let through."""
+    url = await publish(target)
+
+    resp = await client.options(
+        url,
+        headers={
+            "Origin": _FOREIGN_ORIGIN,
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": header.lower(),
+        },
+    )
+
+    assert resp.status_code == 200
+    assert resp.headers["access-control-allow-origin"] == "*"
+    assert header.lower() in _listed(resp.headers.get("access-control-allow-headers"))
+
+
+async def test_a_throttled_copc_read_is_readable_and_the_same_for_any_id(
+    client: AsyncClient, publish, monkeypatch
+) -> None:
+    """The limit refuses before the dataset is read, so the 429 names no dataset."""
+    from app.modules.catalog.datasets.api.router_pointcloud import _WHOLE_FILE_LIMIT
+    from app.platform import ratelimit
+    from tests.test_ogc_features_filter import _freeze_rate_limit_window
+
+    _freeze_rate_limit_window(monkeypatch)
+    monkeypatch.setattr(ratelimit, "get_cached_global_rate_limit", lambda: 1)
+    public = await publish("copc")
+    private = await publish("copc", visibility="private")
+    unknown = public.replace(public.split("/")[2], str(uuid.uuid4()), 1)
+    headers = {"Origin": _FOREIGN_ORIGIN}
+    ratelimit.limiter.enabled = True
+    ratelimit.limiter._storage.reset()
+    try:
+        for _ in range(int(_WHOLE_FILE_LIMIT.split("/")[0])):
+            assert (await client.get(public, headers=headers)).status_code == 200
+        refused = [
+            await client.get(url, headers=headers) for url in (public, private, unknown)
+        ]
+    finally:
+        ratelimit.limiter.enabled = False
+        ratelimit.limiter._storage.reset()
+
+    for resp in refused:
+        assert resp.status_code == 429
+        assert int(resp.headers["retry-after"]) > 0
+        assert resp.headers["access-control-allow-origin"] == "*"
+        assert "access-control-allow-credentials" not in resp.headers
+        assert "retry-after" in _listed(resp.headers["access-control-expose-headers"])
+    per_request = {"x-request-id", "date"}
+    answers = {
+        (
+            resp.content,
+            tuple(
+                sorted(
+                    (name, value)
+                    for name, value in resp.headers.items()
+                    if name not in per_request
+                )
+            ),
+        )
+        for resp in refused
+    }
+    assert len(answers) == 1
+
+
 async def test_the_preflight_offers_head_only_where_the_route_serves_it(
     client: AsyncClient, publish
 ) -> None:
