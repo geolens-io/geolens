@@ -130,4 +130,35 @@ describe('useRemoteBasemapStyle', () => {
     }));
     expect(clearTerrainForStyleSwap).toHaveBeenCalledWith(fakeMap);
   });
+
+  it.each([
+    ['the sanitized style', { ok: true, json: () => Promise.resolve(REMOTE_STYLE) }],
+    ['the raw URL fallback', { ok: false, status: 502 }],
+  ])('clears terrain on a map that loaded mid-fetch before swapping in %s', async (_label, response) => {
+    let resolveFetch: (value: unknown) => void = () => {};
+    fetchMock.mockReturnValueOnce(new Promise((resolve) => { resolveFetch = resolve; }));
+    const { result } = renderHook(() => useRemoteBasemapStyle({
+      styleValue: REMOTE_URL,
+      mapRef,
+      logLabel: 'Test',
+      fallbackToRawUrlOnError: true,
+    }));
+    expect(clearTerrainForStyleSwap).not.toHaveBeenCalled();
+
+    // The map loads the placeholder and turns terrain on while the fetch is in flight.
+    const fakeMap = {} as MaplibreMap;
+    mapRef.current = fakeMap;
+    const styleAtClear: Array<string | StyleSpecification> = [];
+    vi.mocked(clearTerrainForStyleSwap).mockImplementation(() => {
+      styleAtClear.push(result.current);
+    });
+    resolveFetch(response);
+
+    await waitFor(() => {
+      expect(isPlaceholder(result.current)).toBe(false);
+    });
+    expect(clearTerrainForStyleSwap).toHaveBeenCalledTimes(1);
+    expect(clearTerrainForStyleSwap).toHaveBeenCalledWith(fakeMap);
+    expect(isPlaceholder(styleAtClear[0])).toBe(true);
+  });
 });

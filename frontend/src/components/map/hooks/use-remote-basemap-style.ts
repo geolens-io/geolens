@@ -59,20 +59,22 @@ export function useRemoteBasemapStyle({
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
-    const map = mapRef.current;
-
-    if (map) {
-      clearTerrainForStyleSwap(map);
-    }
+    // A non-diff swap leaves the map without a projection until the new style
+    // loads, and a frame drawn with terrain in that gap throws in MapLibre's
+    // terrain depth pass. Style-load handlers restore terrain afterwards.
+    const swapStyle = (next: string | StyleSpecification) => {
+      if (mapRef.current) clearTerrainForStyleSwap(mapRef.current);
+      setMapStyle(next);
+    };
 
     if (typeof styleValue !== 'string' || !styleValue.includes('/styles/')) {
-      setMapStyle(styleValue);
+      swapStyle(styleValue);
       return () => {
         controller.abort();
       };
     }
 
-    setMapStyle({
+    swapStyle({
       version: 8,
       sources: {},
       layers: [
@@ -93,7 +95,7 @@ export function useRemoteBasemapStyle({
       })
       .then((style) => {
         if (!cancelled) {
-          setMapStyle(sanitizeMaplibreStyle(style));
+          swapStyle(sanitizeMaplibreStyle(style));
           callbacksRef.current.onFetchSuccess?.();
         }
       })
@@ -101,7 +103,7 @@ export function useRemoteBasemapStyle({
         if (controller.signal.aborted) return;
         if (import.meta.env.DEV) console.warn(`[${logLabel}] Basemap style sanitization failed:`, error);
         if (!cancelled) {
-          if (fallbackToRawUrlOnError) setMapStyle(styleValue);
+          if (fallbackToRawUrlOnError) swapStyle(styleValue);
           callbacksRef.current.onFetchError?.();
         }
       });
