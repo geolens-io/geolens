@@ -345,20 +345,16 @@ function whenMapIdle(map: MaplibreMap, fn: () => void, skip?: () => boolean) {
   }, 3000);
 }
 
-/** Whether any of `sourceIds` is still loading. A source not yet on the map
- *  counts as loading. */
+/** Whether a source on the map is still loading. An id with no source is
+ *  ignored: folder rows and terrain DEMs never get one. */
 function anySourceStillLoading(map: MaplibreMap, sourceIds: string[]): boolean {
-  return sourceIds.some((sourceId) => {
-    const source = map.getSource(sourceId);
-    return !source || !map.isSourceLoaded(sourceId);
-  });
+  return sourceIds.some((sourceId) => !!map.getSource(sourceId) && !map.isSourceLoaded(sourceId));
 }
 
 function waitForVisibleLayerSources(
   map: MaplibreMap,
   mapId: string,
   layers: MapLayerResponse[],
-  trigger: CaptureTrigger,
   fn: () => void,
   signal?: { cancelled: boolean },
 ) {
@@ -371,11 +367,11 @@ function waitForVisibleLayerSources(
     return;
   }
 
-  // A skipped auto-capture is re-armed, as the blank-frame guard does, so the
-  // next open can try again.
+  // A skipped capture re-arms auto-capture, as the blank-frame guard does, so
+  // the next open can try again even when a save replaced the auto attempt.
   const skipIfStillLoading = () => {
     if (!anySourceStillLoading(map, visibleSourceIds)) return false;
-    if (trigger === 'auto') rearmAutoCapture(mapId);
+    rearmAutoCapture(mapId);
     if (import.meta.env.DEV) {
       console.warn('[thumbnail] capture skipped: a visible source is still loading; will retry on next save');
     }
@@ -436,7 +432,7 @@ function runCaptureNow(
       const live = layersRef.current ?? [];
       if (live.length > 0) {
         // Layers have arrived — proceed through normal source-readiness path.
-        waitForVisibleLayerSources(map, mapId, live, trigger, () => doCapture(map, mapId, queryClient, trigger), signal);
+        waitForVisibleLayerSources(map, mapId, live, () => doCapture(map, mapId, queryClient, trigger), signal);
         return;
       }
       if (Date.now() >= deadline) {
@@ -454,7 +450,7 @@ function runCaptureNow(
     pollForLayers();
     return;
   }
-  waitForVisibleLayerSources(map, mapId, layers, trigger, () => doCapture(map, mapId, queryClient, trigger), signal);
+  waitForVisibleLayerSources(map, mapId, layers, () => doCapture(map, mapId, queryClient, trigger), signal);
 }
 
 /** SP-16: 500ms trailing-edge debounce around captureThumbnail.
