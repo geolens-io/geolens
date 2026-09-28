@@ -17,6 +17,7 @@ import pytest
 from sqlalchemy import delete, select, text
 
 from app.modules.auth.models import User
+from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.jobs.models import IngestJob
 from app.platform.storage import provider as storage_provider
@@ -63,6 +64,39 @@ class _Poller:
 
 
 @pytest.fixture
+async def job_ids(client, admin_auth_header, test_db_session):
+    """Jobs a test ran; each is removed afterwards with its dataset and table."""
+    ids: list[uuid.UUID] = []
+    yield ids
+    session = test_db_session
+    session.expire_all()
+    for job_id in ids:
+        dataset = (
+            await session.execute(
+                select(Dataset.id, Dataset.table_name, Record.id, Record.title)
+                .join(Record, Record.id == Dataset.record_id)
+                .join(IngestJob, IngestJob.dataset_id == Dataset.id)
+                .where(IngestJob.id == job_id)
+            )
+        ).one_or_none()
+        if dataset is not None:
+            dataset_id, table_name, record_id, title = dataset
+            await client.request(
+                "DELETE",
+                f"/datasets/{dataset_id}",
+                json={"confirm_title": title},
+                headers=admin_auth_header,
+            )
+        await session.execute(delete(IngestJob).where(IngestJob.id == job_id))
+        if dataset is not None:
+            await session.execute(delete(Dataset).where(Dataset.id == dataset_id))
+            await session.execute(delete(Record).where(Record.id == record_id))
+            for name in (table_name, f"{table_name}_old"):
+                await session.execute(text(f'DROP TABLE IF EXISTS data."{name}"'))
+        await session.commit()
+
+
+@pytest.fixture
 def store(tmp_path, monkeypatch) -> LocalStorageProvider:
     storage = LocalStorageProvider(str(tmp_path / "objects"))
     monkeypatch.setattr(storage_provider, "_storage", storage)
@@ -89,7 +123,7 @@ async def _fake_ogr2ogr(file_path, table_name, db_conn_str, *, schema, **kwargs)
 
 
 async def test_a_first_import_is_listed_once_its_job_reads_complete(
-    client, admin_auth_header, test_db_session, tmp_path, store
+    client, admin_auth_header, test_db_session, tmp_path, store, job_ids
 ) -> None:
     await invalidate_catalog_cache()
     poller = _Poller(client, admin_auth_header)
@@ -111,54 +145,43 @@ async def test_a_first_import_is_listed_once_its_job_reads_complete(
     test_db_session.add(job)
     await test_db_session.commit()
     job_id = poller.job_id = job.id
+    job_ids.append(job_id)
 
     ogrinfo = {
         "srid": 4326,
         "geometry_type": "Point",
         "columns": [{"name": "name", "type": "String"}],
     }
-    dataset_id = None
-    try:
-        with (
-            patch(
-                "app.processing.ingest.service.resolve_file_path",
-                AsyncMock(return_value=str(source)),
-            ),
-            patch(
-                "app.processing.ingest.ogr.run_ogrinfo",
-                AsyncMock(return_value=ogrinfo),
-            ),
-            patch("app.processing.ingest.ogr.run_ogr2ogr", new=_fake_ogr2ogr),
-            patch("app.processing.ingest.metadata.grant_reader_access", AsyncMock()),
-            patch(
-                "app.processing.ingest.tasks_common.invalidate_catalog_cache",
-                AsyncMock(side_effect=poller.between_commit_and_purge),
-            ),
-            patch("app.processing.ingest.tasks_common.defer_embedding", AsyncMock()),
-        ):
-            await ingest_file.func(
-                job_id=str(job_id),
-                file_path=str(source),
-                user_id=str(admin_id),
-                attempt_id=str(job.attempt_id),
-            )
+    with (
+        patch(
+            "app.processing.ingest.service.resolve_file_path",
+            AsyncMock(return_value=str(source)),
+        ),
+        patch(
+            "app.processing.ingest.ogr.run_ogrinfo",
+            AsyncMock(return_value=ogrinfo),
+        ),
+        patch("app.processing.ingest.ogr.run_ogr2ogr", new=_fake_ogr2ogr),
+        patch("app.processing.ingest.metadata.grant_reader_access", AsyncMock()),
+        patch(
+            "app.processing.ingest.tasks_common.invalidate_catalog_cache",
+            AsyncMock(side_effect=poller.between_commit_and_purge),
+        ),
+        patch("app.processing.ingest.tasks_common.defer_embedding", AsyncMock()),
+    ):
+        await ingest_file.func(
+            job_id=str(job_id),
+            file_path=str(source),
+            user_id=str(admin_id),
+            attempt_id=str(job.attempt_id),
+        )
 
-        test_db_session.expire_all()
-        dataset_id = (await test_db_session.get(IngestJob, job_id)).dataset_id
-        assert dataset_id is not None
-        assert str(dataset_id) not in before
-        assert poller.job_status == "complete"
-        assert str(dataset_id) in poller.listed
-    finally:
-        if dataset_id is not None:
-            await client.request(
-                "DELETE",
-                f"/datasets/{dataset_id}",
-                json={"confirm_title": title},
-                headers=admin_auth_header,
-            )
-        await test_db_session.execute(delete(IngestJob).where(IngestJob.id == job_id))
-        await test_db_session.commit()
+    test_db_session.expire_all()
+    dataset_id = (await test_db_session.get(IngestJob, job_id)).dataset_id
+    assert dataset_id is not None
+    assert str(dataset_id) not in before
+    assert poller.job_status == "complete"
+    assert str(dataset_id) in poller.listed
 
 
 async def _fake_run_ogr2ogr_service(
@@ -180,7 +203,7 @@ async def _fake_run_ogr2ogr_service(
 
 
 async def test_a_service_reupload_lists_the_new_origin_once_its_job_reads_complete(
-    client, admin_auth_header, test_db_session
+    client, admin_auth_header, test_db_session, job_ids
 ) -> None:
     await invalidate_catalog_cache()
     poller = _Poller(client, admin_auth_header)
@@ -197,8 +220,6 @@ async def test_a_service_reupload_lists_the_new_origin_once_its_job_reads_comple
             {"name": "value", "type": "integer"},
         ],
     )
-    assert (await poller.list())[str(dataset.id)]["origin"] == "upload"
-
     job = IngestJob(
         dataset_id=dataset.id,
         source_filename="roads_wfs",
@@ -217,6 +238,8 @@ async def test_a_service_reupload_lists_the_new_origin_once_its_job_reads_comple
     test_db_session.add(job)
     await test_db_session.commit()
     poller.job_id = job.id
+    job_ids.append(job.id)
+    assert (await poller.list())[str(dataset.id)]["origin"] == "upload"
 
     metadata = {
         "srid": 4326,
