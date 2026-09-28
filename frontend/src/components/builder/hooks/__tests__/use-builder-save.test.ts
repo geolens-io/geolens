@@ -2124,6 +2124,27 @@ describe('useBuilderSave', () => {
       vi.useRealTimers();
     });
 
+    it('holds a capture on a map with no visible layers while its raster basemap loads', async () => {
+      vi.useFakeTimers();
+      const mockMap = createMockMap({ loaded: false });
+      mockMap.getStyle.mockReturnValue({ sources: { basemap: { attribution: '' } }, layers: [] });
+      mockMap.getSource.mockImplementation((sourceId: string) =>
+        sourceId === 'basemap' ? { type: 'raster' } : undefined,
+      );
+      mockMap.isSourceLoaded.mockReturnValue(false);
+
+      const state = makeSaveState({
+        mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+      });
+      const { result } = renderHook(() => useBuilderSave(state));
+      await act(async () => { await result.current.handleSave(); });
+      act(() => { vi.advanceTimersByTime(3500); });
+
+      expect(mockMap.triggerRepaint).not.toHaveBeenCalled();
+
+      vi.useRealTimers();
+    });
+
     it('holds a capture while a raster basemap is still loading', async () => {
       vi.useFakeTimers();
       const mockMap = createMockMap({ loaded: false });

@@ -375,6 +375,26 @@ function anySourceStillLoading(map: MaplibreMap, sourceIds: string[]): boolean {
   });
 }
 
+/** whenMapIdle, holding the capture while a raster or hillshade source loads.
+ *  Every source in the style counts, not only the layers': a raster basemap and
+ *  the shared terrain source load outside them. A deferred capture re-arms
+ *  auto-capture at once, as the blank-frame guard does, so a reopen during the
+ *  wait, or after a capture that never runs, can schedule its own. */
+function whenMapIdleAndRasterLoaded(
+  map: MaplibreMap,
+  mapId: string,
+  sourceIds: string[],
+  fn: () => void,
+) {
+  const stillLoading = () =>
+    anySourceStillLoading(map, [
+      ...sourceIds,
+      TERRAIN_SOURCE_ID,
+      ...Object.keys(map.getStyle()?.sources ?? {}),
+    ]);
+  whenMapIdle(map, fn, stillLoading, () => rearmAutoCapture(mapId));
+}
+
 function waitForVisibleLayerSources(
   map: MaplibreMap,
   mapId: string,
@@ -387,22 +407,9 @@ function waitForVisibleLayerSources(
     .map((layer) => getSourceIdForLayer(layer));
 
   if (visibleSourceIds.length === 0) {
-    whenMapIdle(map, fn);
+    whenMapIdleAndRasterLoaded(map, mapId, [], fn);
     return;
   }
-
-  // Every source in the style counts, not only the layers': a raster basemap and
-  // the shared terrain source load outside them.
-  const stillLoading = () =>
-    anySourceStillLoading(map, [
-      ...visibleSourceIds,
-      TERRAIN_SOURCE_ID,
-      ...Object.keys(map.getStyle()?.sources ?? {}),
-    ]);
-  // A deferred capture re-arms auto-capture at once, as the blank-frame guard
-  // does, so a reopen during the wait, or after a capture that never runs, can
-  // schedule its own.
-  const defer = () => rearmAutoCapture(mapId);
 
   const deadline = Date.now() + 5000;
 
@@ -410,7 +417,9 @@ function waitForVisibleLayerSources(
     if (signal?.cancelled) return;
     const sourcesReady = visibleSourceIds.every((sourceId) => !!map.getSource(sourceId));
     if (sourcesReady || Date.now() >= deadline) {
-      if (!signal?.cancelled) whenMapIdle(map, () => { if (!signal?.cancelled) fn(); }, stillLoading, defer);
+      if (!signal?.cancelled) {
+        whenMapIdleAndRasterLoaded(map, mapId, visibleSourceIds, () => { if (!signal?.cancelled) fn(); });
+      }
       return;
     }
     setTimeout(poll, 100);
@@ -478,7 +487,7 @@ function runCaptureNow(
         // we never leave an open poll. Re-check cancellation INSIDE the idle
         // callback (WR-02): whenMapIdle can fire up to ~3s later, possibly after
         // an unmount, so the guard must be at capture time, not registration time.
-        whenMapIdle(map, () => {
+        whenMapIdleAndRasterLoaded(map, mapId, [], () => {
           if (!signal?.cancelled) capture();
         });
         return;
