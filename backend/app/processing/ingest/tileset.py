@@ -592,7 +592,11 @@ def _read_tileset_json(
         )
     with _member_read_errors(name):
         with archive.open(info) as handle:
-            raw = handle.read(MAX_TILESET_JSON_BYTES + 1)
+            return parse_tileset_json(handle.read(MAX_TILESET_JSON_BYTES + 1), name)
+
+
+def parse_tileset_json(raw: bytes, name: str) -> dict:
+    """Parse a tileset JSON document within the depth bound; refuse anything else."""
     try:
         text = raw.decode("utf-8-sig")
     except UnicodeDecodeError:
