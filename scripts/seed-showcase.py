@@ -6743,8 +6743,12 @@ def main() -> int:
         or args.prune_userdata
         or args.refresh_quakes
         or args.refresh_hurdat2
+        or args.only == "embed"
     ):
-        ap.error("--expected-state cannot be combined with force, prune or refresh modes")
+        ap.error(
+            "--expected-state cannot be combined with force, prune, refresh or "
+            "embed runs"
+        )
 
     print(f"Logging in to {args.base_url} as {args.username}...")
     api = Api.login(args.base_url, args.username, args.password)
