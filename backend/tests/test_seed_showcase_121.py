@@ -273,6 +273,7 @@ def _verify(name, extra_name, collections=None, datasets=None):
     saved = {
         "base_url": "b",
         "owner": "o",
+        "owner_id": "oid",
         "maps": {name: {"id": "m", "created_by": "o", "layers": {}}},
         "datasets": {seed.COPC_TITLE: {"id": "copc", "created_by": "o"}},
         "collections": {},
@@ -295,14 +296,19 @@ def _verify(name, extra_name, collections=None, datasets=None):
     state.verify_restorable(api, saved, current)
 
 
+def _client_collection(owner="oid", members=("copc",)):
+    return {"Client Connections": {"created_by": owner, "dataset_ids": list(members)}}
+
+
 def test_restore_removes_a_new_client_collection_only_when_it_holds_samples():
-    _verify("Restless Earth", None, {"Client Connections": {"dataset_ids": ["copc"]}})
-    with pytest.raises(RuntimeError, match="unexpected members"):
-        _verify(
-            "Restless Earth",
-            None,
-            {"Client Connections": {"dataset_ids": ["copc", "visitor"]}},
-        )
+    _verify("Restless Earth", None, _client_collection())
+    with pytest.raises(RuntimeError, match="not the seed's own"):
+        _verify("Restless Earth", None, _client_collection(members=("copc", "visitor")))
+
+
+def test_restore_keeps_a_client_collection_another_account_created():
+    with pytest.raises(RuntimeError, match="not the seed's own"):
+        _verify("Restless Earth", None, _client_collection(owner="visitor"))
 
 
 def test_restore_accepts_matterhorn_overlay_repair_only_on_matterhorn():
@@ -314,6 +320,7 @@ def test_restore_accepts_matterhorn_overlay_repair_only_on_matterhorn():
 class SnapshotApi:
     base = "b"
     username = "o"
+    user_id = "oid"
 
     def list_all_maps(self):
         return []

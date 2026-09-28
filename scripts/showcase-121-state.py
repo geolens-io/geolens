@@ -145,6 +145,7 @@ def snapshot(api):
         if item["name"] in COLLECTION_NAMES:
             collections[item["name"]] = {
                 "id": item["id"],
+                "created_by": item.get("created_by"),
                 "description": item.get("description"),
                 "dataset_ids": collection_members(api, item["id"]),
             }
@@ -152,6 +153,7 @@ def snapshot(api):
         "version": 1,
         "base_url": api.base,
         "owner": api.username,
+        "owner_id": api.user_id,
         "maps": maps,
         "datasets": datasets,
         "collections": collections,
@@ -242,9 +244,11 @@ def verify_restorable(api, saved, current):
     }
     for name, item in current["collections"].items():
         if name not in saved["collections"] and (
-            name != "Client Connections" or not set(item["dataset_ids"]) <= removable
+            name != "Client Connections"
+            or item.get("created_by") != saved.get("owner_id")
+            or not set(item["dataset_ids"]) <= removable
         ):
-            raise RuntimeError(f"new collection has unexpected members: {name}")
+            raise RuntimeError(f"new collection is not the seed's own: {name}")
     for name, original in saved["maps"].items():
         now = current["maps"].get(name)
         if not now or (now["id"], now["created_by"]) != (

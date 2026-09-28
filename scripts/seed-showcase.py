@@ -5445,6 +5445,7 @@ def build_collections(api: Api, force: bool = False, force_pinned: bool = False)
     existing = {c["name"]: c for c in api.list_collections()}
     titles = api.datasets_by_title()
     ids = []
+    stale: list[str] = []
     for cname, (desc, wanted) in COLLECTIONS.items():
         if cname == "Client Connections" and not any(title in titles for title in wanted):
             continue
@@ -5465,10 +5466,13 @@ def build_collections(api: Api, force: bool = False, force_pinned: bool = False)
                         f"  ! could not update {cname!r} description: {e}",
                         file=sys.stderr,
                     )
+                    stale.append(cname)
         member_ids = [titles[t] for t in wanted if t in titles]
         added = api.add_to_collection(coll_id, member_ids) if member_ids else 0
         print(f"  {cname}: +{added} datasets ({len(member_ids)} referenced)")
         ids.append(coll_id)
+    if stale:
+        raise RuntimeError(f"collection descriptions not updated: {', '.join(stale)}")
     return ids[0] if ids else "(none)"
 
 
@@ -5479,8 +5483,7 @@ def build_collections(api: Api, force: bool = False, force_pinned: bool = False)
 # own summaries cite (fix(#614): proprietary licenses + empty keyword facets on
 # the demo, flagged in the 2026-07-20 pre-launch audit).
 # Licenses are each dataset's real upstream terms; keywords power the faceted-
-# search sidebar. "World States & Provinces" is intentionally omitted - it is
-# the summary-less canvas for the AI metadata-generation demo and must stay bare.
+# search sidebar.
 #
 # Beyond license + keywords, each entry may carry the provenance fields the
 # catalog, the DCAT/ISO exports and the metadata-quality score all read:
@@ -6452,7 +6455,7 @@ def apply_showcase_styling(api: "Api") -> list[str]:
     return unstyled
 
 
-def apply_globe_projection(api: "Api") -> None:
+def apply_globe_projection(api: "Api") -> list[str]:
     """Put the global showcase maps on the globe projection (GLOBE_PROJECTION_MAPS).
 
     Runs over the maps that EXIST rather than inside each builder, because a
@@ -6469,6 +6472,7 @@ def apply_globe_projection(api: "Api") -> None:
     whose maps and data are already built.
     """
     maps = api.list_maps()
+    missed: list[str] = []
     for name in GLOBE_PROJECTION_MAPS:
         map_id = maps.get(name)
         if not map_id:
@@ -6486,6 +6490,8 @@ def apply_globe_projection(api: "Api") -> None:
                 f"  WARNING: could not set globe projection on {name!r}: {e}",
                 file=sys.stderr,
             )
+            missed.append(name)
+    return missed
 
 
 def run_maintenance_mode(api: Api, args) -> int | None:
@@ -6890,7 +6896,9 @@ def main() -> int:
     # Same shape and the same reason: applied to whatever showcase maps exist,
     # so an instance seeded before this landed gets the globe too.
     print("\nApplying the globe projection to the global showcase maps...")
-    apply_globe_projection(api)
+    unprojected = apply_globe_projection(api)
+    if unprojected and args.expected_state:
+        failed["globe projection"] = ", ".join(unprojected)
 
     print("\nApplying showcase styling (legends, groups, context layer)...")
     unstyled = apply_showcase_styling(api)
