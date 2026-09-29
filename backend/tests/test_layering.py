@@ -1185,7 +1185,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # Shared-map audience decisions stay behind the permission extension seam.
         "backend/app/modules/catalog/maps/service_public.py": 987,
         # Record assembly keeps one format and asset branch per record type.
-        "backend/app/modules/catalog/search/service_records.py": 619,
+        "backend/app/modules/catalog/search/service_records.py": 614,
         "backend/app/modules/catalog/search/service_semantic.py": 481,
         "backend/app/modules/catalog/maps/service_diff.py": 400,
         "backend/app/modules/catalog/maps/service_shared.py": 400,

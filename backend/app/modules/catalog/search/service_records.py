@@ -193,9 +193,7 @@ def build_assets(
         storage_backend=storage_backend,
         public_api_url=public_api_url,
         storage_provider=storage_provider,
-        proxy_routes=_proxied_raster_asset_routes(
-            dataset, record_type, record_status, storage_backend
-        ),
+        proxy_routes=_proxied_raster_asset_routes(dataset, record_type, record_status),
         cog_download=cog_download,
     )
     assets.update(stac_built)
@@ -207,20 +205,16 @@ def _proxied_raster_asset_routes(
     dataset: Dataset,
     record_type: str,
     record_status: str,
-    storage_backend: str,
 ) -> dict[str, str] | None:
-    """API routes serving a published raster's stored files on local or Azure storage.
+    """API routes serving a published raster's stored files behind its access checks.
 
-    Those keys have no URL of their own, but these routes serve the same
-    files behind the dataset's access checks. VRTs have no single COG.
-    The quicklook URLs carry the tile cache-key params: that route is cached
-    publicly, and a replaced raster must not show the old images.
+    They stand in for an asset that has no URL of its own: any key on local
+    or Azure storage, and an S3 key where the caller passed no provider to
+    sign it. VRTs have no single COG. The quicklook URLs carry the tile
+    cache-key params: that route is cached publicly, and a replaced raster
+    must not show the old images.
     """
-    if not (
-        storage_backend != "s3"
-        and record_status == "published"
-        and record_type == "raster_dataset"
-    ):
+    if not (record_status == "published" and record_type == "raster_dataset"):
         return None
     version = tile_template_params(
         getattr(dataset, "tile_cache_version", None),
@@ -532,6 +526,7 @@ def dataset_to_ogc_record(
                 "type": "application/json",
             },
         ],
+        # Unsigned: a signed URL outlives a revocation, and search pages are cached.
         "assets": build_assets(
             dataset,
             public_api_url,

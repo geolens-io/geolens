@@ -2,7 +2,8 @@
 
 A key on local or Azure storage has no URL of its own, so the ``data`` asset
 points at the COG download route and the quicklooks at the quicklook route; on
-S3 each is a signed URL. Anonymous callers get public datasets, authenticated
+S3 each is a signed URL. OGC records never offer data and point at the
+quicklook route on every store. Anonymous callers get public datasets, authenticated
 ones also need the export capability. The Azure cases run on the test's local
 store: neither can sign a URL, and both serve an object's bytes to those routes.
 
@@ -59,14 +60,14 @@ async def viewer_without_export(client: AsyncClient, admin_auth_header: dict):
 
 
 async def _published_raster_with_assets(
-    session, record_type: str = "raster_dataset"
+    session, record_type: str = "raster_dataset", visibility: str = "public"
 ) -> str:
     admin_id = await get_user_id(session, "admin")
     dataset = await create_raster_dataset(
         session,
         created_by=admin_id,
         name="STAC local COG assets",
-        visibility="public",
+        visibility=visibility,
         record_status="published",
         record_type=record_type,
         create_raster_asset=True,
@@ -170,22 +171,74 @@ async def test_item_links_serve_the_stored_files(
         assert served.content == body
 
 
-@pytest.mark.parametrize("backend", ["local", "azure"])
+async def _ogc_record(client, dataset_id: str, surface: str, headers=None) -> dict:
+    if surface == "item":
+        resp = await client.get(
+            f"/collections/datasets/items/{dataset_id}", headers=headers
+        )
+        assert resp.status_code == 200, resp.text
+        return resp.json()
+    resp = await client.get(
+        "/collections/datasets/items", params={"ids": dataset_id}, headers=headers
+    )
+    assert resp.status_code == 200, resp.text
+    [feature] = resp.json()["features"]
+    return feature
+
+
+@pytest.mark.parametrize("surface", ["item", "search"])
+@pytest.mark.parametrize("backend", ["local", "s3", "azure"])
 async def test_ogc_record_points_at_the_quicklook_route_without_data(
-    client: AsyncClient, test_db_session, monkeypatch, backend: str
+    client: AsyncClient, test_db_session, monkeypatch, backend: str, surface: str
 ):
     dataset_id = await _published_raster_with_assets(test_db_session)
-    monkeypatch.setattr(settings, "storage_provider", backend)
+    if backend == "s3":
+        _use_s3(monkeypatch)
+    else:
+        monkeypatch.setattr(settings, "storage_provider", backend)
 
-    resp = await client.get(f"/collections/datasets/items/{dataset_id}")
+    record = await _ogc_record(client, dataset_id, surface)
 
-    assert resp.status_code == 200, resp.text
-    assets = resp.json()["assets"]
+    assert record["id"] == dataset_id
+    assets = record["assets"]
     for key, size in (("thumbnail", 256), ("overview", 512)):
         assert f"/datasets/{dataset_id}/quicklook?size={size}&" in assets[key]["href"]
     # The record carries no per-caller download check, so it never offers data.
     assert "data" not in assets
     assert not [a for a in assets.values() if "source.cog.tif" in a["href"]]
+    assert "s3.example.com" not in str(assets)
+
+
+@pytest.mark.parametrize("surface", ["item", "search"])
+async def test_ogc_record_of_a_private_raster_on_s3_reaches_only_a_reader(
+    client: AsyncClient,
+    test_db_session,
+    admin_auth_header: dict,
+    monkeypatch,
+    surface: str,
+):
+    dataset_id = await _published_raster_with_assets(
+        test_db_session, visibility="private"
+    )
+    _use_s3(monkeypatch)
+
+    if surface == "item":
+        anonymous = await client.get(f"/collections/datasets/items/{dataset_id}")
+        assert anonymous.status_code == 404
+    else:
+        anonymous = await client.get(
+            "/collections/datasets/items", params={"ids": dataset_id}
+        )
+        assert anonymous.status_code == 200, anonymous.text
+        assert anonymous.json()["features"] == []
+
+    record = await _ogc_record(client, dataset_id, surface, admin_auth_header)
+    thumbnail = record["assets"]["thumbnail"]["href"]
+    assert f"/datasets/{dataset_id}/quicklook?size=256&" in thumbnail
+    # The route behind the link checks access on each request.
+    assert (
+        await client.get(thumbnail[thumbnail.index("/datasets/") :])
+    ).status_code == 404
 
 
 async def test_anonymous_item_of_a_public_raster_on_s3_signs_data(
