@@ -76,6 +76,15 @@ describe('useDrawingStore', () => {
     expect(useDrawingStore.getState().isEditDirty).toBe(false);
   });
 
+  it('clearDrawing drops unsaved map work', () => {
+    useDrawingStore.getState().setDrawing('ds-1', 'my_table', 'Polygon');
+    useDrawingStore.getState().setHasUnsavedMapWork(true);
+
+    useDrawingStore.getState().clearDrawing();
+
+    expect(useDrawingStore.getState().hasUnsavedMapWork).toBe(false);
+  });
+
   it('clearDrawing resets all state', () => {
     // Set everything
     useDrawingStore.getState().setDrawing('ds-1', 'my_table', 'Point');

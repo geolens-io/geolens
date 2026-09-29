@@ -54,6 +54,7 @@ const drawingState = vi.hoisted(() => ({
   setSelectedFeature: vi.fn(),
   clearSelectedFeature: vi.fn(),
   setEditDirty: vi.fn(),
+  setHasUnsavedMapWork: vi.fn(),
   isEditDirty: false,
   // fix(#1761 review round 3 P1): identity-change session counter. Real
   // usage never resets this to 0 mid-life, so tests that bump it use a high
@@ -1197,6 +1198,105 @@ describe('DatasetMap when edit rights are lost mid-session', () => {
 
     expect(drawingState.clearDrawing).not.toHaveBeenCalled();
     expect(screen.getByRole('alert')).toHaveTextContent(/can no longer edit this dataset/i);
+  });
+});
+
+// DatasetPage's unsaved-changes guard reads this flag, so it covers every
+// kind of unsaved map work, not just a dirty selection.
+describe('DatasetMap reports unsaved map work to the page guard', () => {
+  const setUnsaved = drawingState.setHasUnsavedMapWork;
+
+  beforeEach(() => {
+    drawingState.isDrawing = true;
+    drawingState.activeMode = 'select';
+    drawingState.targetDatasetId = 'dataset-1';
+    drawingState.selectedFeature = null;
+    drawingState.isEditDirty = false;
+    drawingState.clearDrawing.mockClear();
+    setUnsaved.mockClear();
+    createFeatureMutateAsync.mockClear();
+  });
+
+  afterEach(() => {
+    terraDrawState.canUndo = false;
+  });
+
+  function renderMap(canEdit: boolean, columnInfo?: { name: string; type: string }[]) {
+    return (
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName="example_table"
+        geometryType="Point"
+        datasetId="dataset-1"
+        recordType="vector_dataset"
+        columnInfo={columnInfo}
+        canEdit={canEdit}
+      />
+    );
+  }
+
+  function finishSketch() {
+    act(() => {
+      terraDrawState.handleDrawFinish?.({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [1, 1] },
+        properties: {},
+      });
+    });
+    terraDrawState.canUndo = false;
+  }
+
+  it('reports a clean session as having none', () => {
+    render(renderMap(true));
+
+    expect(setUnsaved).toHaveBeenLastCalledWith(false);
+    expect(setUnsaved).not.toHaveBeenCalledWith(true);
+  });
+
+  it('reports an unfinished sketch', () => {
+    drawingState.activeMode = 'point';
+    terraDrawState.canUndo = true;
+
+    render(renderMap(true));
+
+    expect(setUnsaved).toHaveBeenLastCalledWith(true);
+  });
+
+  it('reports a new feature whose attribute form is open', () => {
+    const { rerender } = render(renderMap(true, [{ name: 'population', type: 'integer' }]));
+    finishSketch();
+    rerender(renderMap(true, [{ name: 'population', type: 'integer' }]));
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(setUnsaved).toHaveBeenLastCalledWith(true);
+  });
+
+  it('reports a sketch held after rights are lost, and none once it is discarded', () => {
+    drawingState.activeMode = 'point';
+    terraDrawState.canUndo = true;
+    const { rerender } = render(renderMap(true));
+    rerender(renderMap(false));
+    finishSketch();
+    rerender(renderMap(false));
+
+    expect(createFeatureMutateAsync).not.toHaveBeenCalled();
+    expect(setUnsaved).toHaveBeenLastCalledWith(true);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Discard changes' }));
+
+    expect(setUnsaved).toHaveBeenLastCalledWith(false);
+  });
+
+  it('reports none once the map unmounts', () => {
+    drawingState.activeMode = 'point';
+    terraDrawState.canUndo = true;
+    const { unmount } = render(renderMap(true));
+    expect(setUnsaved).toHaveBeenLastCalledWith(true);
+
+    unmount();
+
+    expect(setUnsaved).toHaveBeenLastCalledWith(false);
   });
 });
 

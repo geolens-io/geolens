@@ -318,6 +318,7 @@ export const DatasetMap = memo(function DatasetMap({
   const clearDrawing = useDrawingStore((s) => s.clearDrawing);
   const selectedFeature = useDrawingStore((s) => s.selectedFeature);
   const isEditDirty = useDrawingStore((s) => s.isEditDirty);
+  const setHasUnsavedMapWork = useDrawingStore((s) => s.setHasUnsavedMapWork);
   const sessionEpoch = useDrawingStore((s) => s.sessionEpoch);
   // Whether the store's session actually belongs to THIS map's dataset —
   // gates the toolbar so a render before the stale-session effect above
@@ -406,6 +407,13 @@ export const DatasetMap = memo(function DatasetMap({
     || hasSketchInProgress
     || pendingGeometry !== null
     || editingAttributes;
+
+  useEffect(() => {
+    setHasUnsavedMapWork(hasUnsavedWork);
+  }, [hasUnsavedWork, setHasUnsavedMapWork]);
+  // The sketch, pending geometry and attribute editor all die with this
+  // instance, so a stale true must not keep blocking navigation.
+  useEffect(() => () => setHasUnsavedMapWork(false), [setHasUnsavedMapWork]);
 
   // --- Feature editing hook (all CRUD logic) ---
   const {
