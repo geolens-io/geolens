@@ -1046,6 +1046,10 @@ export const DatasetMap = memo(function DatasetMap({
     if (canEdit || !isDrawing || hasUnsavedWork || isFeatureMutationPending) return;
     finishDrawingSession();
   }, [canEdit, isDrawing, hasUnsavedWork, isFeatureMutationPending, finishDrawingSession]);
+  // A delete confirmed before rights were lost must not reappear if they return.
+  useEffect(() => {
+    if (!canEdit) setDeleteConfirmOpen(false);
+  }, [canEdit]);
 
   // Handle close / stop drawing
   const handleCloseDrawing = useCallback(() => {

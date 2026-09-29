@@ -1212,6 +1212,19 @@ describe('DatasetMap when edit rights are lost mid-session', () => {
     expect(drawingState.clearDrawing).toHaveBeenCalled();
   });
 
+  it('does not reopen the delete confirmation when rights return', () => {
+    const { rerender } = render(renderMap(true));
+    drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    drawingState.isEditDirty = true;
+    rerender(renderMap(true));
+    fireEvent.click(screen.getByRole('button', { name: /Delete feature/i }));
+
+    rerender(renderMap(false));
+    rerender(renderMap(true));
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
   it('keeps an open discard confirmation usable', () => {
     const { rerender } = render(renderMap(true));
     drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
