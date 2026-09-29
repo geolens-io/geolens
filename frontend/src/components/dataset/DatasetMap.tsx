@@ -101,12 +101,12 @@ function isEditableTarget(target: EventTarget | null): boolean {
 }
 
 /** Stands in for Save when this map can't save an unsaved edit, so the only way out is an explicit discard. */
-function UnsavedEditNotice({ message, onDiscard }: { message: string; onDiscard: () => void }) {
+function UnsavedEditNotice({ message, onDiscard, disabled }: { message: string; onDiscard: () => void; disabled: boolean }) {
   const { t } = useTranslation('dataset');
   return (
     <div role="alert" className="max-w-md rounded-lg shadow-lg border bg-background p-2 flex items-center gap-2">
       <p className="text-sm">{message}</p>
-      <Button type="button" variant="destructive" size="sm" onClick={onDiscard}>
+      <Button type="button" variant="destructive" size="sm" onClick={onDiscard} disabled={disabled}>
         {t('map.discardChangesAction')}
       </Button>
     </div>
@@ -1256,6 +1256,7 @@ export const DatasetMap = memo(function DatasetMap({
             <UnsavedEditNotice
               message={t('map.editLostOnReloadNotice')}
               onDiscard={() => requestDiscardConfirmation(performDeselect)}
+              disabled={isFeatureMutationPending}
             />
           ) : undefined}
         />
@@ -1264,6 +1265,7 @@ export const DatasetMap = memo(function DatasetMap({
           <UnsavedEditNotice
             message={t('map.editAccessLostNotice')}
             onDiscard={() => requestDiscardConfirmation(finishDrawingSession)}
+            disabled={isFeatureMutationPending}
           />
         </div>
       ))}

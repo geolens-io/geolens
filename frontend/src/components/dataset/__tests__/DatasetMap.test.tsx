@@ -169,12 +169,13 @@ import { getAvailableModes } from '@/components/drawing/hooks/use-terra-draw';
 // vi.fn() per render) so a test can control WHEN the update mutation
 // resolves, to simulate an identity change while it is in flight.
 const updateFeatureMutateAsync = vi.hoisted(() => vi.fn().mockResolvedValue({}));
+const updateFeatureState = vi.hoisted(() => ({ isPending: false }));
 const createFeatureMutateAsync = vi.hoisted(() => vi.fn().mockResolvedValue({}));
 // A spy (not an inline vi.fn()) so a test can assert a Delete never went out.
 const deleteFeatureMutateAsync = vi.hoisted(() => vi.fn().mockResolvedValue({}));
 vi.mock('@/hooks/use-features', () => ({
   useCreateFeature: () => ({ mutateAsync: createFeatureMutateAsync }),
-  useUpdateFeature: () => ({ mutateAsync: updateFeatureMutateAsync }),
+  useUpdateFeature: () => ({ mutateAsync: updateFeatureMutateAsync, isPending: updateFeatureState.isPending }),
   useDeleteFeature: () => ({ mutateAsync: deleteFeatureMutateAsync }),
 }));
 
@@ -1061,6 +1062,18 @@ describe('DatasetMap when edit rights are lost mid-session', () => {
     expect(drawingState.clearDrawing).not.toHaveBeenCalled();
     fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Discard changes' }));
     expect(drawingState.clearDrawing).toHaveBeenCalled();
+  });
+
+  it('holds the discard while a save is still in flight', () => {
+    drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    drawingState.isEditDirty = true;
+    updateFeatureState.isPending = true;
+    try {
+      render(renderMap(false));
+      expect(screen.getByRole('button', { name: 'Discard changes' })).toBeDisabled();
+    } finally {
+      updateFeatureState.isPending = false;
+    }
   });
 
   it('keeps a dirty edit a non-editable map inherits on mount', () => {
