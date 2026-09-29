@@ -1292,7 +1292,7 @@ export const DatasetMap = memo(function DatasetMap({
 
       {/* Attribute form dialog (edit existing feature) */}
       <AttributeForm
-        open={editingAttributes}
+        open={canEdit && editingAttributes}
         onOpenChange={(open) => {
           if (!open) setEditingAttributes(false);
         }}

@@ -1021,7 +1021,7 @@ describe('DatasetMap when edit rights are lost mid-session', () => {
     drawingState.clearSelectedFeature.mockClear();
   });
 
-  function renderMap(canEdit: boolean) {
+  function renderMap(canEdit: boolean, columnInfo?: { name: string; type: string }[]) {
     return (
       <DatasetMap
         bbox={[-10, -10, 10, 10]}
@@ -1029,6 +1029,7 @@ describe('DatasetMap when edit rights are lost mid-session', () => {
         geometryType="Polygon"
         datasetId="dataset-1"
         recordType="vector_dataset"
+        columnInfo={columnInfo}
         canEdit={canEdit}
       />
     );
@@ -1138,6 +1139,27 @@ describe('DatasetMap when edit rights are lost mid-session', () => {
       terraDrawState.canUndo = false;
       terraDrawState.isReady = false;
     }
+  });
+
+  it('closes an existing feature\'s attribute editor and keeps its session until Discard', () => {
+    const columns = [{ name: 'population', type: 'integer' }];
+    updateFeatureMutateAsync.mockClear();
+    const { rerender } = render(renderMap(true, columns));
+    drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    rerender(renderMap(true, columns));
+    fireEvent.click(screen.getByRole('button', { name: /Edit attributes/i }));
+    fireEvent.change(screen.getByLabelText('population'), { target: { value: '100' } });
+
+    rerender(renderMap(false, columns));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(updateFeatureMutateAsync).not.toHaveBeenCalled();
+    expect(drawingState.clearDrawing).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent(/can no longer edit this dataset/i);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Discard changes' }));
+    expect(drawingState.clearDrawing).toHaveBeenCalled();
   });
 
   it('keeps a dirty edit a non-editable map inherits on mount', () => {
