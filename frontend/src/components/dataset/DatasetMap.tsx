@@ -401,7 +401,8 @@ export const DatasetMap = memo(function DatasetMap({
   } = useTerraDraw(mapInstance, handleDrawFinish, stableEditFinish, stableHistoryBaseline, stableSelectionLost);
 
   const hasSketchInProgress = canUndo && activeMode !== null && activeMode !== 'select';
-  const hasUnsavedWork = (selectedFeature !== null && isEditDirty)
+  // A drag in progress has undoable changes before its finish marks the edit dirty.
+  const hasUnsavedWork = (selectedFeature !== null && (isEditDirty || canUndo))
     || hasSketchInProgress
     || pendingGeometry !== null
     || editingAttributes;

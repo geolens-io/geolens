@@ -1162,6 +1162,33 @@ describe('DatasetMap when edit rights are lost mid-session', () => {
     expect(drawingState.clearDrawing).toHaveBeenCalled();
   });
 
+  it('keeps a selection with an undoable change not yet marked dirty', () => {
+    const { rerender } = render(renderMap(true));
+    drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    terraDrawState.canUndo = true;
+    try {
+      rerender(renderMap(true));
+
+      rerender(renderMap(false));
+
+      expect(drawingState.clearDrawing).not.toHaveBeenCalled();
+      expect(drawingState.clearSelectedFeature).not.toHaveBeenCalled();
+      expect(screen.getByRole('alert')).toHaveTextContent(/can no longer edit this dataset/i);
+    } finally {
+      terraDrawState.canUndo = false;
+    }
+  });
+
+  it('ends a session whose selection has nothing to undo', () => {
+    const { rerender } = render(renderMap(true));
+    drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    rerender(renderMap(true));
+
+    rerender(renderMap(false));
+
+    expect(drawingState.clearDrawing).toHaveBeenCalled();
+  });
+
   it('keeps a dirty edit a non-editable map inherits on mount', () => {
     drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
     drawingState.isEditDirty = true;
