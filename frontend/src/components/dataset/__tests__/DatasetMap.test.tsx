@@ -1,5 +1,5 @@
 import type { StyleSpecification } from 'maplibre-gl';
-import { render, screen, fireEvent, act } from '@/test/test-utils';
+import { render, screen, fireEvent, act, within } from '@/test/test-utils';
 import type { BasemapEntry } from '@/api/settings';
 import { DatasetMap } from '@/components/dataset/DatasetMap';
 import { previewSourceId } from '@/components/maps/hooks/use-map-layers';
@@ -54,6 +54,7 @@ const drawingState = vi.hoisted(() => ({
   setSelectedFeature: vi.fn(),
   clearSelectedFeature: vi.fn(),
   setEditDirty: vi.fn(),
+  setHasUnsavedMapWork: vi.fn(),
   isEditDirty: false,
   // fix(#1761 review round 3 P1): identity-change session counter. Real
   // usage never resets this to 0 mid-life, so tests that bump it use a high
@@ -169,12 +170,14 @@ import { getAvailableModes } from '@/components/drawing/hooks/use-terra-draw';
 // vi.fn() per render) so a test can control WHEN the update mutation
 // resolves, to simulate an identity change while it is in flight.
 const updateFeatureMutateAsync = vi.hoisted(() => vi.fn().mockResolvedValue({}));
+const updateFeatureState = vi.hoisted(() => ({ isPending: false }));
+const createFeatureState = vi.hoisted(() => ({ isPending: false }));
 const createFeatureMutateAsync = vi.hoisted(() => vi.fn().mockResolvedValue({}));
 // A spy (not an inline vi.fn()) so a test can assert a Delete never went out.
 const deleteFeatureMutateAsync = vi.hoisted(() => vi.fn().mockResolvedValue({}));
 vi.mock('@/hooks/use-features', () => ({
-  useCreateFeature: () => ({ mutateAsync: createFeatureMutateAsync }),
-  useUpdateFeature: () => ({ mutateAsync: updateFeatureMutateAsync }),
+  useCreateFeature: () => ({ mutateAsync: createFeatureMutateAsync, isPending: createFeatureState.isPending }),
+  useUpdateFeature: () => ({ mutateAsync: updateFeatureMutateAsync, isPending: updateFeatureState.isPending }),
   useDeleteFeature: () => ({ mutateAsync: deleteFeatureMutateAsync }),
 }));
 
@@ -927,11 +930,13 @@ describe('DatasetMap drops an inherited selection when the same dataset remounts
   });
 });
 
-// A DIRTY inherited selection (an in-progress, unsaved geometry edit) is
-// kept rather than dropped, unlike the clean case above: DatasetPage's
-// unsaved-changes guard reads isEditDirty, so silently clearing it here
-// would let the user navigate away from an edit with no warning at all.
-describe('DatasetMap keeps a dirty inherited selection and hides Delete for it', () => {
+// A DIRTY inherited selection (an in-progress, unsaved geometry edit, e.g.
+// after the map crashed and Retry remounted it) is kept rather than
+// dropped, unlike the clean case above: DatasetPage's unsaved-changes guard
+// reads isEditDirty, so silently clearing it here would let the user
+// navigate away from an edit with no warning at all. Its geometry lived
+// only in the old TerraDraw instance, so Save could never work.
+describe('DatasetMap keeps a dirty inherited selection and offers only a discard for it', () => {
   beforeEach(() => {
     drawingState.isDrawing = true;
     drawingState.activeMode = 'select';
@@ -943,7 +948,7 @@ describe('DatasetMap keeps a dirty inherited selection and hides Delete for it',
     deleteFeatureMutateAsync.mockClear();
   });
 
-  it('keeps the selection and isEditDirty, and hides Delete for it', () => {
+  it('keeps the selection and isEditDirty, and offers a discard in place of Save', () => {
     render(
       <DatasetMap
         bbox={[-10, -10, 10, 10]}
@@ -960,11 +965,16 @@ describe('DatasetMap keeps a dirty inherited selection and hides Delete for it',
     expect(drawingState.clearSelectedFeature).not.toHaveBeenCalled();
     expect(drawingState.selectedFeature).toEqual({ gid: 7, tdId: 'td-7', properties: {} });
     expect(drawingState.isEditDirty).toBe(true);
-    // The action bar shows (a selection is present) but not Delete: it acts
-    // by gid and would still succeed, but the edit this bar represents
-    // lives in geometry only the ORIGINAL TerraDraw instance ever had.
-    expect(screen.getByRole('button', { name: /Save changes/i })).toBeInTheDocument();
+    expect(screen.getByRole('toolbar')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(/change to this feature was lost/i);
+    expect(screen.queryByRole('button', { name: /Save changes/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Delete feature/i })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
+    expect(drawingState.clearSelectedFeature).not.toHaveBeenCalled();
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Discard changes' }));
+    expect(drawingState.clearSelectedFeature).toHaveBeenCalled();
+    expect(drawingState.clearDrawing).not.toHaveBeenCalled();
   });
 
   it('shows Delete again once a fresh selection replaces the orphaned one', () => {
@@ -995,6 +1005,435 @@ describe('DatasetMap keeps a dirty inherited selection and hides Delete for it',
     );
 
     expect(screen.getByRole('button', { name: /Delete feature/i })).toBeInTheDocument();
+  });
+});
+
+// Edit rights can go away while this map is mounted: the editing flag is
+// switched off, or a refetch changes the user's permission. The toolbar goes
+// with them, so a dirty edit needs another way to be resolved.
+describe('DatasetMap when edit rights are lost mid-session', () => {
+  beforeEach(() => {
+    drawingState.isDrawing = true;
+    drawingState.activeMode = 'select';
+    drawingState.targetDatasetId = 'dataset-1';
+    drawingState.selectedFeature = null;
+    drawingState.isEditDirty = false;
+    drawingState.clearDrawing.mockClear();
+    drawingState.clearSelectedFeature.mockClear();
+  });
+
+  function renderMap(canEdit: boolean, columnInfo?: { name: string; type: string }[]) {
+    return (
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName="example_table"
+        geometryType="Polygon"
+        datasetId="dataset-1"
+        recordType="vector_dataset"
+        columnInfo={columnInfo}
+        canEdit={canEdit}
+      />
+    );
+  }
+
+  it('ends a clean session', () => {
+    const { rerender } = render(renderMap(true));
+    expect(screen.getByRole('toolbar')).toBeInTheDocument();
+
+    rerender(renderMap(false));
+
+    expect(drawingState.clearDrawing).toHaveBeenCalled();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('ends a clean session only after a feature write in flight settles', () => {
+    const { rerender } = render(renderMap(true));
+    createFeatureState.isPending = true;
+    try {
+      rerender(renderMap(false));
+      expect(drawingState.clearDrawing).not.toHaveBeenCalled();
+    } finally {
+      createFeatureState.isPending = false;
+    }
+
+    rerender(renderMap(false));
+
+    expect(drawingState.clearDrawing).toHaveBeenCalled();
+  });
+
+  it('keeps a dirty edit and offers a discard that ends the session', () => {
+    const { rerender } = render(renderMap(true));
+    // A selection made and dragged in this instance, not an inherited one.
+    drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    drawingState.isEditDirty = true;
+    rerender(renderMap(true));
+    expect(screen.getByRole('button', { name: /Save changes/i })).toBeInTheDocument();
+
+    rerender(renderMap(false));
+
+    expect(drawingState.clearDrawing).not.toHaveBeenCalled();
+    expect(drawingState.clearSelectedFeature).not.toHaveBeenCalled();
+    expect(screen.queryByRole('toolbar')).not.toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(/can no longer edit this dataset/i);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
+    expect(drawingState.clearDrawing).not.toHaveBeenCalled();
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Discard changes' }));
+    expect(drawingState.clearDrawing).toHaveBeenCalled();
+  });
+
+  it('holds the discard while a save is still in flight', () => {
+    drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    drawingState.isEditDirty = true;
+    updateFeatureState.isPending = true;
+    try {
+      render(renderMap(false));
+      expect(screen.getByRole('button', { name: 'Discard changes' })).toBeDisabled();
+    } finally {
+      updateFeatureState.isPending = false;
+    }
+  });
+
+  it('keeps a session whose attribute editor is open', () => {
+    const { rerender } = render(renderMap(true));
+    drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    rerender(renderMap(true));
+    fireEvent.click(screen.getByRole('button', { name: /Edit attributes/i }));
+
+    rerender(renderMap(false));
+
+    expect(drawingState.clearDrawing).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent(/can no longer edit this dataset/i);
+  });
+
+  it('holds a sketch finished after rights are lost until Discard', () => {
+    drawingState.activeMode = 'polygon';
+    terraDrawState.canUndo = true;
+    terraDrawState.isReady = true;
+    createFeatureMutateAsync.mockClear();
+    terraDrawState.setMode.mockClear();
+    try {
+      const { rerender } = render(renderMap(true));
+      rerender(renderMap(false));
+      expect(screen.getByRole('alert')).toHaveTextContent(/can no longer edit this dataset/i);
+
+      act(() => {
+        terraDrawState.handleDrawFinish?.({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [1, 1] },
+          properties: {},
+        });
+      });
+      // TerraDraw resets its history once a sketch finishes.
+      terraDrawState.canUndo = false;
+      rerender(renderMap(false));
+
+      expect(createFeatureMutateAsync).not.toHaveBeenCalled();
+      expect(drawingState.clearDrawing).not.toHaveBeenCalled();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(terraDrawState.setMode).toHaveBeenLastCalledWith('static');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
+      fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Discard changes' }));
+      expect(drawingState.clearDrawing).toHaveBeenCalled();
+    } finally {
+      terraDrawState.canUndo = false;
+      terraDrawState.isReady = false;
+    }
+  });
+
+  it('closes an existing feature\'s attribute editor and keeps its session until Discard', () => {
+    const columns = [{ name: 'population', type: 'integer' }];
+    updateFeatureMutateAsync.mockClear();
+    const { rerender } = render(renderMap(true, columns));
+    drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    rerender(renderMap(true, columns));
+    fireEvent.click(screen.getByRole('button', { name: /Edit attributes/i }));
+    fireEvent.change(screen.getByLabelText('population'), { target: { value: '100' } });
+
+    rerender(renderMap(false, columns));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(updateFeatureMutateAsync).not.toHaveBeenCalled();
+    expect(drawingState.clearDrawing).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent(/can no longer edit this dataset/i);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Discard changes' }));
+    expect(drawingState.clearDrawing).toHaveBeenCalled();
+  });
+
+  it('keeps a selection with an undoable change not yet marked dirty', () => {
+    const { rerender } = render(renderMap(true));
+    drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    terraDrawState.canUndo = true;
+    try {
+      rerender(renderMap(true));
+
+      rerender(renderMap(false));
+
+      expect(drawingState.clearDrawing).not.toHaveBeenCalled();
+      expect(drawingState.clearSelectedFeature).not.toHaveBeenCalled();
+      expect(screen.getByRole('alert')).toHaveTextContent(/can no longer edit this dataset/i);
+    } finally {
+      terraDrawState.canUndo = false;
+    }
+  });
+
+  it('ends a session whose selection has nothing to undo', () => {
+    const { rerender } = render(renderMap(true));
+    drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    rerender(renderMap(true));
+
+    rerender(renderMap(false));
+
+    expect(drawingState.clearDrawing).toHaveBeenCalled();
+  });
+
+  it('closes the delete confirmation and sends no delete', () => {
+    deleteFeatureMutateAsync.mockClear();
+    const { rerender } = render(renderMap(true));
+    drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    drawingState.isEditDirty = true;
+    rerender(renderMap(true));
+    fireEvent.click(screen.getByRole('button', { name: /Delete feature/i }));
+    expect(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Delete' })).toBeInTheDocument();
+
+    rerender(renderMap(false));
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument();
+    expect(deleteFeatureMutateAsync).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent(/can no longer edit this dataset/i);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Discard changes' }));
+    expect(deleteFeatureMutateAsync).not.toHaveBeenCalled();
+    expect(drawingState.clearDrawing).toHaveBeenCalled();
+  });
+
+  it('does not reopen the delete confirmation when rights return', () => {
+    const { rerender } = render(renderMap(true));
+    drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    drawingState.isEditDirty = true;
+    rerender(renderMap(true));
+    fireEvent.click(screen.getByRole('button', { name: /Delete feature/i }));
+
+    rerender(renderMap(false));
+    rerender(renderMap(true));
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  it('keeps an open discard confirmation usable', () => {
+    const { rerender } = render(renderMap(true));
+    drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    drawingState.isEditDirty = true;
+    rerender(renderMap(true));
+    fireEvent.click(screen.getByRole('button', { name: /Cancel editing/i }));
+
+    rerender(renderMap(false));
+
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Discard changes' }));
+    expect(drawingState.clearSelectedFeature).toHaveBeenCalled();
+  });
+
+  async function saveAttributesThenLoseRights(outcome: 'reject' | 'resolve') {
+    const columns = [{ name: 'population', type: 'integer' }];
+    let settle!: () => void;
+    updateFeatureMutateAsync.mockReturnValueOnce(new Promise((resolve, reject) => {
+      settle = () => (outcome === 'reject' ? reject(new Error('forbidden')) : resolve({}));
+    }));
+    const { rerender } = render(renderMap(true, columns));
+    drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    rerender(renderMap(true, columns));
+    fireEvent.click(screen.getByRole('button', { name: /Edit attributes/i }));
+    fireEvent.change(screen.getByLabelText('population'), { target: { value: '100' } });
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Save' }));
+    expect(updateFeatureMutateAsync).toHaveBeenCalledTimes(1);
+
+    rerender(renderMap(false, columns));
+    await act(async () => {
+      settle();
+    });
+    rerender(renderMap(false, columns));
+  }
+
+  it('keeps an attribute edit whose save is refused after rights are lost', async () => {
+    await saveAttributesThenLoseRights('reject');
+
+    expect(drawingState.clearDrawing).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent(/can no longer edit this dataset/i);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Discard changes' }));
+    expect(drawingState.clearDrawing).toHaveBeenCalled();
+  });
+
+  it('closes an attribute edit whose save succeeds after rights are lost', async () => {
+    await saveAttributesThenLoseRights('resolve');
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(drawingState.clearDrawing).toHaveBeenCalled();
+  });
+
+  async function finishSketchThenLoseRights(outcome: 'reject' | 'resolve') {
+    let settle!: () => void;
+    createFeatureMutateAsync.mockReset();
+    createFeatureMutateAsync.mockReturnValueOnce(new Promise((resolve, reject) => {
+      settle = () => (outcome === 'reject' ? reject(new Error('forbidden')) : resolve({}));
+    }));
+    drawingState.activeMode = 'point';
+    terraDrawState.canUndo = true;
+    const { rerender } = render(renderMap(true));
+    act(() => {
+      terraDrawState.handleDrawFinish?.({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [1, 1] },
+        properties: {},
+      });
+    });
+    terraDrawState.canUndo = false;
+    expect(createFeatureMutateAsync).toHaveBeenCalledTimes(1);
+    createFeatureState.isPending = true;
+    try {
+      rerender(renderMap(false));
+      expect(drawingState.clearDrawing).not.toHaveBeenCalled();
+      await act(async () => {
+        settle();
+      });
+    } finally {
+      createFeatureState.isPending = false;
+    }
+    rerender(renderMap(false));
+  }
+
+  it('holds a sketch whose automatic save is refused after rights are lost', async () => {
+    await finishSketchThenLoseRights('reject');
+
+    expect(drawingState.clearDrawing).not.toHaveBeenCalled();
+    expect(drawingState.setHasUnsavedMapWork).toHaveBeenLastCalledWith(true);
+    expect(screen.getByRole('alert')).toHaveTextContent(/can no longer edit this dataset/i);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Discard changes' }));
+    expect(drawingState.clearDrawing).toHaveBeenCalled();
+  });
+
+  it('holds nothing when the automatic save succeeds after rights are lost', async () => {
+    await finishSketchThenLoseRights('resolve');
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(drawingState.clearDrawing).toHaveBeenCalled();
+  });
+
+  it('keeps a dirty edit a non-editable map inherits on mount', () => {
+    drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    drawingState.isEditDirty = true;
+
+    render(renderMap(false));
+
+    expect(drawingState.clearDrawing).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent(/can no longer edit this dataset/i);
+  });
+});
+
+// DatasetPage's unsaved-changes guard reads this flag, so it covers every
+// kind of unsaved map work, not just a dirty selection.
+describe('DatasetMap reports unsaved map work to the page guard', () => {
+  const setUnsaved = drawingState.setHasUnsavedMapWork;
+
+  beforeEach(() => {
+    drawingState.isDrawing = true;
+    drawingState.activeMode = 'select';
+    drawingState.targetDatasetId = 'dataset-1';
+    drawingState.selectedFeature = null;
+    drawingState.isEditDirty = false;
+    drawingState.clearDrawing.mockClear();
+    setUnsaved.mockClear();
+    createFeatureMutateAsync.mockClear();
+  });
+
+  afterEach(() => {
+    terraDrawState.canUndo = false;
+  });
+
+  function renderMap(canEdit: boolean, columnInfo?: { name: string; type: string }[]) {
+    return (
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName="example_table"
+        geometryType="Point"
+        datasetId="dataset-1"
+        recordType="vector_dataset"
+        columnInfo={columnInfo}
+        canEdit={canEdit}
+      />
+    );
+  }
+
+  function finishSketch() {
+    act(() => {
+      terraDrawState.handleDrawFinish?.({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [1, 1] },
+        properties: {},
+      });
+    });
+    terraDrawState.canUndo = false;
+  }
+
+  it('reports a clean session as having none', () => {
+    render(renderMap(true));
+
+    expect(setUnsaved).toHaveBeenLastCalledWith(false);
+    expect(setUnsaved).not.toHaveBeenCalledWith(true);
+  });
+
+  it('reports an unfinished sketch', () => {
+    drawingState.activeMode = 'point';
+    terraDrawState.canUndo = true;
+
+    render(renderMap(true));
+
+    expect(setUnsaved).toHaveBeenLastCalledWith(true);
+  });
+
+  it('reports a new feature whose attribute form is open', () => {
+    const { rerender } = render(renderMap(true, [{ name: 'population', type: 'integer' }]));
+    finishSketch();
+    rerender(renderMap(true, [{ name: 'population', type: 'integer' }]));
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(setUnsaved).toHaveBeenLastCalledWith(true);
+  });
+
+  it('reports a sketch held after rights are lost, and none once it is discarded', () => {
+    drawingState.activeMode = 'point';
+    terraDrawState.canUndo = true;
+    const { rerender } = render(renderMap(true));
+    rerender(renderMap(false));
+    finishSketch();
+    rerender(renderMap(false));
+
+    expect(createFeatureMutateAsync).not.toHaveBeenCalled();
+    expect(setUnsaved).toHaveBeenLastCalledWith(true);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Discard changes' }));
+
+    expect(setUnsaved).toHaveBeenLastCalledWith(false);
+  });
+
+  it('reports none once the map unmounts', () => {
+    drawingState.activeMode = 'point';
+    terraDrawState.canUndo = true;
+    const { unmount } = render(renderMap(true));
+    expect(setUnsaved).toHaveBeenLastCalledWith(true);
+
+    unmount();
+
+    expect(setUnsaved).toHaveBeenLastCalledWith(false);
   });
 });
 

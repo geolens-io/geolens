@@ -100,6 +100,19 @@ function isEditableTarget(target: EventTarget | null): boolean {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
 }
 
+/** Stands in for Save when this map can't save an unsaved edit, so the only way out is an explicit discard. */
+function UnsavedEditNotice({ message, onDiscard, disabled }: { message: string; onDiscard: () => void; disabled: boolean }) {
+  const { t } = useTranslation('dataset');
+  return (
+    <div role="alert" className="max-w-md rounded-lg shadow-lg border bg-background p-2 flex items-center gap-2">
+      <p className="text-sm">{message}</p>
+      <Button type="button" variant="destructive" size="sm" onClick={onDiscard} disabled={disabled}>
+        {t('map.discardChangesAction')}
+      </Button>
+    </div>
+  );
+}
+
 /**
  * Dataset detail map preview.
  *
@@ -304,6 +317,10 @@ export const DatasetMap = memo(function DatasetMap({
   const setMode = useDrawingStore((s) => s.setMode);
   const clearDrawing = useDrawingStore((s) => s.clearDrawing);
   const selectedFeature = useDrawingStore((s) => s.selectedFeature);
+  const isEditDirty = useDrawingStore((s) => s.isEditDirty);
+  const setHasUnsavedMapWork = useDrawingStore((s) => s.setHasUnsavedMapWork);
+  const canEditRef = useRef(canEdit);
+  canEditRef.current = canEdit;
   const sessionEpoch = useDrawingStore((s) => s.sessionEpoch);
   // Whether the store's session actually belongs to THIS map's dataset —
   // gates the toolbar so a render before the stale-session effect above
@@ -314,7 +331,7 @@ export const DatasetMap = memo(function DatasetMap({
   // (which could only happen after this first render). Read directly here,
   // during render, like initialBasemapStyle above: the mount effect below
   // only runs AFTER the first paint, so a ref it set would still show
-  // Delete for that one paint. `undefined` (not yet computed) vs `null` (no
+  // Save for that one paint. `undefined` (not yet computed) vs `null` (no
   // orphaned selection) distinguishes "first render" from "checked, none".
   const orphanedSelectionTdIdRef = useRef<string | null | undefined>(undefined);
   if (orphanedSelectionTdIdRef.current === undefined) {
@@ -338,7 +355,9 @@ export const DatasetMap = memo(function DatasetMap({
 
   // Refs to break circular dependency: handleDrawFinish needs saveAndRefresh,
   // and onEditFinish needs setEditDirty — both come from hooks that need TerraDraw.
-  const saveAndRefreshRef = useRef<(g: Geometry, p: Record<string, unknown>) => void>(() => {});
+  const saveAndRefreshRef = useRef<
+    (g: Geometry, p: Record<string, unknown>) => Promise<{ saved: boolean; refused?: boolean }>
+  >(async () => ({ saved: false }));
   const editFinishRef = useRef<(tdId: string, feature: Feature) => void>(() => {});
   const stableEditFinish = useCallback((tdId: string, feature: Feature) => {
     editFinishRef.current(tdId, feature);
@@ -361,13 +380,18 @@ export const DatasetMap = memo(function DatasetMap({
     (feature: Feature<Geometry, GeoJsonProperties>) => {
       const geom = feature.geometry;
       if (!geom) return;
-      if (editableColumns.length > 0) {
+      // TerraDraw drops the shape once it finishes. Without edit rights the
+      // save would be refused, so hold it as unsaved work until Discard; the
+      // same goes for a save refused after rights went mid-request.
+      if (editableColumns.length > 0 || !canEdit) {
         setPendingGeometry(geom);
       } else {
-        saveAndRefreshRef.current(geom, {});
+        void saveAndRefreshRef.current(geom, {}).then(({ refused }) => {
+          if (refused && !canEditRef.current) setPendingGeometry(geom);
+        });
       }
     },
-    [editableColumns],
+    [canEdit, editableColumns],
   );
 
   // --- Terra Draw hook ---
@@ -383,6 +407,20 @@ export const DatasetMap = memo(function DatasetMap({
     canUndo,
     resetHistory,
   } = useTerraDraw(mapInstance, handleDrawFinish, stableEditFinish, stableHistoryBaseline, stableSelectionLost);
+
+  const hasSketchInProgress = canUndo && activeMode !== null && activeMode !== 'select';
+  // A drag in progress has undoable changes before its finish marks the edit dirty.
+  const hasUnsavedWork = (selectedFeature !== null && (isEditDirty || canUndo))
+    || hasSketchInProgress
+    || pendingGeometry !== null
+    || editingAttributes;
+
+  useEffect(() => {
+    setHasUnsavedMapWork(hasUnsavedWork);
+  }, [hasUnsavedWork, setHasUnsavedMapWork]);
+  // The sketch, pending geometry and attribute editor all die with this
+  // instance, so a stale true must not keep blocking navigation.
+  useEffect(() => () => setHasUnsavedMapWork(false), [setHasUnsavedMapWork]);
 
   // --- Feature editing hook (all CRUD logic) ---
   const {
@@ -472,12 +510,15 @@ export const DatasetMap = memo(function DatasetMap({
     performDeselect();
   }, [performDeselect, requestDiscardConfirmation]);
 
-  // Sync activeMode from store to Terra Draw
+  // Sync activeMode from store to Terra Draw. A finished sketch held for a
+  // map that can no longer edit stops drawing input, so a second sketch
+  // can't replace it; switching earlier would drop the unfinished sketch.
+  const holdsRevokedSketch = !canEdit && pendingGeometry !== null;
   useEffect(() => {
     if (isReady && activeMode) {
-      tdSetMode(activeMode);
+      tdSetMode(holdsRevokedSketch ? 'static' : activeMode);
     }
-  }, [isReady, activeMode, tdSetMode]);
+  }, [isReady, activeMode, holdsRevokedSketch, tdSetMode]);
 
   // --- Select mode click handler ---
   // Use canvas click instead of map.on('click') because TerraDraw's adapter
@@ -969,22 +1010,24 @@ export const DatasetMap = memo(function DatasetMap({
   // sessionEpoch). A map must not inherit a session for a dataset that
   // is not its own: besides hiding the toolbar below, end the session so
   // its mutation hooks, now bound to this dataset's id and table, never
-  // act on the old selection.
+  // act on the old selection. A session of this dataset that this map
+  // can't edit is left to the edit-rights effect below.
   const staleSessionCheckedRef = useRef(false);
   useEffect(() => {
     if (staleSessionCheckedRef.current) return;
     staleSessionCheckedRef.current = true;
     const state = useDrawingStore.getState();
     if (!state.isDrawing) return;
-    if (!canEdit || !targetsDataset(state.targetDatasetId, datasetId)) {
+    if (!targetsDataset(state.targetDatasetId, datasetId)) {
       finishDrawingSession();
-    } else if (state.selectedFeature) {
+    } else if (canEdit && state.selectedFeature) {
       if (state.isEditDirty) {
         // A dirty selection is kept rather than dropped (see
         // orphanedSelectionTdIdRef above, computed at render time), so
         // DatasetPage's unsaved-changes guard still warns before a further
-        // navigation — its edited geometry lives only in the TerraDraw
-        // instance that made the edit, which this fresh mount is not.
+        // navigation. Its edited geometry lives only in the TerraDraw
+        // instance that made the edit, which this fresh mount is not, so
+        // the toolbar offers a discard for it in place of Save.
         return;
       }
       // Same route in, no map mounted in between (e.g. a table dataset
@@ -999,6 +1042,21 @@ export const DatasetMap = memo(function DatasetMap({
       performDeselect();
     }
   }, [canEdit, datasetId, finishDrawingSession, performDeselect]);
+
+  // Edit rights can go away mid-session: the editing flag is switched off,
+  // or a refetch changes the user's permission. A clean session ends once
+  // any feature write in flight has settled, since ending it first would
+  // drop that write's result. One with unsaved work stays, with a discard
+  // notice in place of the toolbar, so the unsaved-changes guard never
+  // warns about an edit the page offers no way to resolve.
+  useEffect(() => {
+    if (canEdit || !isDrawing || hasUnsavedWork || isFeatureMutationPending) return;
+    finishDrawingSession();
+  }, [canEdit, isDrawing, hasUnsavedWork, isFeatureMutationPending, finishDrawingSession]);
+  // A delete confirmed before rights were lost must not reappear if they return.
+  useEffect(() => {
+    if (!canEdit) setDeleteConfirmOpen(false);
+  }, [canEdit]);
 
   // Handle close / stop drawing
   const handleCloseDrawing = useCallback(() => {
@@ -1056,7 +1114,7 @@ export const DatasetMap = memo(function DatasetMap({
       if (pendingGeometry) {
         const submittedGeometry = pendingGeometry;
         const submittedScope = requestScopeRef.current;
-        const saved = await saveAndRefresh(submittedGeometry, properties);
+        const { saved } = await saveAndRefresh(submittedGeometry, properties);
         if (saved && requestScopeRef.current === submittedScope) {
           setPendingGeometry((current) => current === submittedGeometry ? null : current);
         }
@@ -1207,11 +1265,11 @@ export const DatasetMap = memo(function DatasetMap({
         )}
       </div>
 
-      {/* Drawing toolbar overlay. canEdit guards a session left by a
-          non-editable map; isOwnDrawingSession also guards one left by a
-          DIFFERENT editable dataset (see the staleSessionCheckedRef effect
-          above, which ends either kind of inherited session). */}
-      {canEdit && isOwnDrawingSession && (
+      {/* Drawing toolbar overlay. isOwnDrawingSession guards a session left
+          by a DIFFERENT dataset (see the staleSessionCheckedRef effect
+          above, which ends it). A map that can't edit shows only the
+          discard notice, and only while there is unsaved work to resolve. */}
+      {isOwnDrawingSession && (canEdit ? (
         <DrawingToolbar
           geometryType={drawGeometryType}
           onClose={handleCloseDrawing}
@@ -1223,13 +1281,27 @@ export const DatasetMap = memo(function DatasetMap({
           onUndo={undo}
           canUndo={canUndo}
           isMutating={isFeatureMutationPending}
-          hideDelete={selectedFeature != null && selectedFeature.tdId === orphanedSelectionTdIdRef.current}
+          selectionNotice={selectedFeature != null && selectedFeature.tdId === orphanedSelectionTdIdRef.current ? (
+            <UnsavedEditNotice
+              message={t('map.editLostOnReloadNotice')}
+              onDiscard={() => requestDiscardConfirmation(performDeselect)}
+              disabled={isFeatureMutationPending}
+            />
+          ) : undefined}
         />
-      )}
+      ) : hasUnsavedWork && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10">
+          <UnsavedEditNotice
+            message={t('map.editAccessLostNotice')}
+            onDiscard={() => requestDiscardConfirmation(finishDrawingSession)}
+            disabled={isFeatureMutationPending}
+          />
+        </div>
+      ))}
 
       {/* Attribute form dialog (new feature creation) */}
       <AttributeForm
-        open={pendingGeometry !== null}
+        open={canEdit && pendingGeometry !== null}
         onOpenChange={(open) => {
           if (!open) setPendingGeometry(null);
         }}
@@ -1240,25 +1312,24 @@ export const DatasetMap = memo(function DatasetMap({
 
       {/* Attribute form dialog (edit existing feature) */}
       <AttributeForm
-        open={editingAttributes}
+        open={canEdit && editingAttributes}
         onOpenChange={(open) => {
           if (!open) setEditingAttributes(false);
         }}
         columns={columnInfo ?? []}
         onSubmit={async (properties) => {
-          // fix(#1761 review round 4): only close on `applied` — a
-          // stale-epoch result means a second identity may have this
-          // dialog open for their own feature, and unconditionally
-          // closing it here would discard that in-progress edit.
-          const { applied } = await handleEditAttributeSubmit(properties);
-          if (applied) setEditingAttributes(false);
+          // A stale result may belong to a different identity's own open
+          // editor. A write refused after this map lost edit rights stays
+          // open as unsaved work, to leave through the discard notice.
+          const { applied, refused } = await handleEditAttributeSubmit(properties);
+          if (applied && !(refused && !canEditRef.current)) setEditingAttributes(false);
         }}
         onCancel={() => setEditingAttributes(false)}
         initialValues={selectedFeature?.properties}
       />
 
       {/* Delete confirmation dialog */}
-      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+      <AlertDialog open={canEdit && deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t('map.deleteFeatureTitle')}</AlertDialogTitle>

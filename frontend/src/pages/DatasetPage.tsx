@@ -235,6 +235,7 @@ export function DatasetPage() {
   const capabilities = useDatasetEditCapabilities(capabilityHelperOverrides, canEdit);
   const isDrawing = useDrawingStore((s) => s.isDrawing);
   const isGeometryEditDirty = useDrawingStore((s) => s.isEditDirty);
+  const hasUnsavedMapWork = useDrawingStore((s) => s.hasUnsavedMapWork);
   useDocumentTitle(dataset?.title ?? t('common:pageTitle.dataset'));
 
   const {
@@ -287,7 +288,7 @@ export function DatasetPage() {
   );
 
   const updateDataset = useUpdateDataset();
-  const hasUnsavedChanges = metadataPendingCount > 0 || isGeometryEditDirty;
+  const hasUnsavedChanges = metadataPendingCount > 0 || isGeometryEditDirty || hasUnsavedMapWork;
   const blocker = useUnsavedGuard(hasUnsavedChanges);
 
   const handleSaveName = useCallback(

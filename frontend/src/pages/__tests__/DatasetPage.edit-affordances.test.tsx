@@ -10,6 +10,7 @@ import type { DatasetResponse, UserResponse } from '@/types/api';
 const drawingStoreState = vi.hoisted(() => ({
   isDrawing: false,
   isEditDirty: false,
+  hasUnsavedMapWork: false,
   setDrawing: vi.fn(),
   clearDrawing: vi.fn(),
 }));
@@ -65,6 +66,7 @@ vi.mock('@/stores/drawing-store', () => ({
   useDrawingStore: (selector: (state: {
     isDrawing: boolean;
     isEditDirty: boolean;
+    hasUnsavedMapWork: boolean;
     setDrawing: () => void;
     clearDrawing: () => void;
   }) => unknown) => selector(drawingStoreState),
@@ -261,6 +263,7 @@ describe('DatasetPage editable affordance integration', () => {
     mutateAsync.mockResolvedValue({});
     drawingStoreState.isDrawing = false;
     drawingStoreState.isEditDirty = false;
+    drawingStoreState.hasUnsavedMapWork = false;
     drawingStoreState.setDrawing.mockReset();
     drawingStoreState.clearDrawing.mockReset();
     mockUseUnsavedGuard.mockReset();
@@ -467,6 +470,23 @@ describe('DatasetPage editable affordance integration', () => {
       window.dispatchEvent(new HashChangeEvent('hashchange'));
     });
     expect(sourceTab).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('guards navigation for unsaved map work beyond a dirty selection', () => {
+    setUser(EDITOR_USER);
+    drawingStoreState.hasUnsavedMapWork = true;
+
+    render(<DatasetPage />, { route: '/datasets/dataset-1' });
+
+    expect(mockUseUnsavedGuard).toHaveBeenLastCalledWith(true);
+  });
+
+  it('does not guard navigation with no unsaved work', () => {
+    setUser(EDITOR_USER);
+
+    render(<DatasetPage />, { route: '/datasets/dataset-1' });
+
+    expect(mockUseUnsavedGuard).toHaveBeenLastCalledWith(false);
   });
 
   it('does not show metadata pending controls when only geometry edits are dirty', () => {
