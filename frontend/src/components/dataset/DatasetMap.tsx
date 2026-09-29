@@ -375,13 +375,15 @@ export const DatasetMap = memo(function DatasetMap({
     (feature: Feature<Geometry, GeoJsonProperties>) => {
       const geom = feature.geometry;
       if (!geom) return;
-      if (editableColumns.length > 0) {
+      // TerraDraw drops the shape once it finishes. Without edit rights the
+      // save would be refused, so hold it as unsaved work until Discard.
+      if (editableColumns.length > 0 || !canEdit) {
         setPendingGeometry(geom);
       } else {
         saveAndRefreshRef.current(geom, {});
       }
     },
-    [editableColumns],
+    [canEdit, editableColumns],
   );
 
   // --- Terra Draw hook ---
@@ -492,12 +494,15 @@ export const DatasetMap = memo(function DatasetMap({
     performDeselect();
   }, [performDeselect, requestDiscardConfirmation]);
 
-  // Sync activeMode from store to Terra Draw
+  // Sync activeMode from store to Terra Draw. A finished sketch held for a
+  // map that can no longer edit stops drawing input, so a second sketch
+  // can't replace it; switching earlier would drop the unfinished sketch.
+  const holdsRevokedSketch = !canEdit && pendingGeometry !== null;
   useEffect(() => {
     if (isReady && activeMode) {
-      tdSetMode(activeMode);
+      tdSetMode(holdsRevokedSketch ? 'static' : activeMode);
     }
-  }, [isReady, activeMode, tdSetMode]);
+  }, [isReady, activeMode, holdsRevokedSketch, tdSetMode]);
 
   // --- Select mode click handler ---
   // Use canvas click instead of map.on('click') because TerraDraw's adapter
@@ -1276,7 +1281,7 @@ export const DatasetMap = memo(function DatasetMap({
 
       {/* Attribute form dialog (new feature creation) */}
       <AttributeForm
-        open={pendingGeometry !== null}
+        open={canEdit && pendingGeometry !== null}
         onOpenChange={(open) => {
           if (!open) setPendingGeometry(null);
         }}

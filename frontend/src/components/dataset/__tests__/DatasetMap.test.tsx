@@ -1104,6 +1104,42 @@ describe('DatasetMap when edit rights are lost mid-session', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(/can no longer edit this dataset/i);
   });
 
+  it('holds a sketch finished after rights are lost until Discard', () => {
+    drawingState.activeMode = 'polygon';
+    terraDrawState.canUndo = true;
+    terraDrawState.isReady = true;
+    createFeatureMutateAsync.mockClear();
+    terraDrawState.setMode.mockClear();
+    try {
+      const { rerender } = render(renderMap(true));
+      rerender(renderMap(false));
+      expect(screen.getByRole('alert')).toHaveTextContent(/can no longer edit this dataset/i);
+
+      act(() => {
+        terraDrawState.handleDrawFinish?.({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [1, 1] },
+          properties: {},
+        });
+      });
+      // TerraDraw resets its history once a sketch finishes.
+      terraDrawState.canUndo = false;
+      rerender(renderMap(false));
+
+      expect(createFeatureMutateAsync).not.toHaveBeenCalled();
+      expect(drawingState.clearDrawing).not.toHaveBeenCalled();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(terraDrawState.setMode).toHaveBeenLastCalledWith('static');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
+      fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Discard changes' }));
+      expect(drawingState.clearDrawing).toHaveBeenCalled();
+    } finally {
+      terraDrawState.canUndo = false;
+      terraDrawState.isReady = false;
+    }
+  });
+
   it('keeps a dirty edit a non-editable map inherits on mount', () => {
     drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
     drawingState.isEditDirty = true;
