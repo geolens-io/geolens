@@ -1277,6 +1277,56 @@ describe('DatasetMap when edit rights are lost mid-session', () => {
     expect(drawingState.clearDrawing).toHaveBeenCalled();
   });
 
+  async function finishSketchThenLoseRights(outcome: 'reject' | 'resolve') {
+    let settle!: () => void;
+    createFeatureMutateAsync.mockReset();
+    createFeatureMutateAsync.mockReturnValueOnce(new Promise((resolve, reject) => {
+      settle = () => (outcome === 'reject' ? reject(new Error('forbidden')) : resolve({}));
+    }));
+    drawingState.activeMode = 'point';
+    terraDrawState.canUndo = true;
+    const { rerender } = render(renderMap(true));
+    act(() => {
+      terraDrawState.handleDrawFinish?.({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [1, 1] },
+        properties: {},
+      });
+    });
+    terraDrawState.canUndo = false;
+    expect(createFeatureMutateAsync).toHaveBeenCalledTimes(1);
+    createFeatureState.isPending = true;
+    try {
+      rerender(renderMap(false));
+      expect(drawingState.clearDrawing).not.toHaveBeenCalled();
+      await act(async () => {
+        settle();
+      });
+    } finally {
+      createFeatureState.isPending = false;
+    }
+    rerender(renderMap(false));
+  }
+
+  it('holds a sketch whose automatic save is refused after rights are lost', async () => {
+    await finishSketchThenLoseRights('reject');
+
+    expect(drawingState.clearDrawing).not.toHaveBeenCalled();
+    expect(drawingState.setHasUnsavedMapWork).toHaveBeenLastCalledWith(true);
+    expect(screen.getByRole('alert')).toHaveTextContent(/can no longer edit this dataset/i);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Discard changes' }));
+    expect(drawingState.clearDrawing).toHaveBeenCalled();
+  });
+
+  it('holds nothing when the automatic save succeeds after rights are lost', async () => {
+    await finishSketchThenLoseRights('resolve');
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(drawingState.clearDrawing).toHaveBeenCalled();
+  });
+
   it('keeps a dirty edit a non-editable map inherits on mount', () => {
     drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
     drawingState.isEditDirty = true;

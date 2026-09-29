@@ -220,10 +220,10 @@ export function useFeatureEditing({
     }
   }, [cleanupOverlayListener, mapRef]);
 
-  /** Create a new feature and refresh tiles. */
+  /** Create a new feature and refresh tiles. `refused` marks a failed write for the current session. */
   const saveAndRefresh = useCallback(
-    async (geometry: Geometry, properties: Record<string, unknown>): Promise<boolean> => {
-      if (!datasetId || !tableName) return false;
+    async (geometry: Geometry, properties: Record<string, unknown>): Promise<{ saved: boolean; refused?: boolean }> => {
+      if (!datasetId || !tableName) return { saved: false };
       const map = mapRef.current;
 
       // fix(#1761 review round 4): captured before the mutation's await —
@@ -255,7 +255,7 @@ export function useFeatureEditing({
         // here would only be feedback for an identity that is no longer
         // looking, and re-arming the listener below would have nothing
         // useful left to clear.
-        if (isStale(epoch, targetDatasetId, generation, drawingGenerationRef.current)) return false;
+        if (isStale(epoch, targetDatasetId, generation, drawingGenerationRef.current)) return { saved: false };
         toast.success(t('map.featureSaved'));
         reloadTiles(created.tile_cache_version);
 
@@ -292,14 +292,15 @@ export function useFeatureEditing({
             clearTimer: () => clearTimeout(fallbackTimer),
           };
         }
-        return true;
+        return { saved: true };
       } catch (err) {
         // fix(#1761 review round 7): the toast is feedback for whoever
         // issued this request — reject it the same way the success branch
         // above already does, or a failed create surfaces A's backend
         // error to B. The overlay-ref filtering below stays unconditional:
         // see its own comment for why it's already safe either way.
-        if (!isStale(epoch, targetDatasetId, generation, drawingGenerationRef.current)) {
+        const stale = isStale(epoch, targetDatasetId, generation, drawingGenerationRef.current);
+        if (!stale) {
           // fix(#458 E-36): surface the backend's reason (invalid geometry,
           // type mismatch) like the table path does, not a bare "failed".
           toast.error(formatMutationError('dataset:map.featureSaveFailed', err));
@@ -314,7 +315,7 @@ export function useFeatureEditing({
           const src = map.getSource('drawn-overlay') as GeoJSONSource | undefined;
           src?.setData({ type: 'FeatureCollection', features: overlayFeaturesRef.current });
         }
-        return false;
+        return stale ? { saved: false } : { saved: false, refused: true };
       }
     },
     [datasetId, tableName, mapRef, createFeature, reloadTiles, cleanupOverlayListener, t],

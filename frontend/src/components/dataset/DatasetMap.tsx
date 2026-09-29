@@ -355,7 +355,9 @@ export const DatasetMap = memo(function DatasetMap({
 
   // Refs to break circular dependency: handleDrawFinish needs saveAndRefresh,
   // and onEditFinish needs setEditDirty — both come from hooks that need TerraDraw.
-  const saveAndRefreshRef = useRef<(g: Geometry, p: Record<string, unknown>) => void>(() => {});
+  const saveAndRefreshRef = useRef<
+    (g: Geometry, p: Record<string, unknown>) => Promise<{ saved: boolean; refused?: boolean }>
+  >(async () => ({ saved: false }));
   const editFinishRef = useRef<(tdId: string, feature: Feature) => void>(() => {});
   const stableEditFinish = useCallback((tdId: string, feature: Feature) => {
     editFinishRef.current(tdId, feature);
@@ -379,11 +381,14 @@ export const DatasetMap = memo(function DatasetMap({
       const geom = feature.geometry;
       if (!geom) return;
       // TerraDraw drops the shape once it finishes. Without edit rights the
-      // save would be refused, so hold it as unsaved work until Discard.
+      // save would be refused, so hold it as unsaved work until Discard; the
+      // same goes for a save refused after rights went mid-request.
       if (editableColumns.length > 0 || !canEdit) {
         setPendingGeometry(geom);
       } else {
-        saveAndRefreshRef.current(geom, {});
+        void saveAndRefreshRef.current(geom, {}).then(({ refused }) => {
+          if (refused && !canEditRef.current) setPendingGeometry(geom);
+        });
       }
     },
     [canEdit, editableColumns],
@@ -1109,7 +1114,7 @@ export const DatasetMap = memo(function DatasetMap({
       if (pendingGeometry) {
         const submittedGeometry = pendingGeometry;
         const submittedScope = requestScopeRef.current;
-        const saved = await saveAndRefresh(submittedGeometry, properties);
+        const { saved } = await saveAndRefresh(submittedGeometry, properties);
         if (saved && requestScopeRef.current === submittedScope) {
           setPendingGeometry((current) => current === submittedGeometry ? null : current);
         }

@@ -870,11 +870,13 @@ describe('useFeatureEditing — stale-failure feedback suppressed (fix #1761 rev
       useDrawingStore.getState().bumpSessionEpoch();
     });
     create.reject(new Error('boom'));
+    let outcome: { saved: boolean; refused?: boolean } | undefined;
     await act(async () => {
-      await saving;
+      outcome = await saving;
     });
 
     expect(toast.error).not.toHaveBeenCalled();
+    expect(outcome).toEqual({ saved: false });
   });
 
   it('saveAndRefresh (create) still reports a real failure when the identity has not changed', async () => {
@@ -884,12 +886,12 @@ describe('useFeatureEditing — stale-failure feedback suppressed (fix #1761 rev
 
     createMutateAsync.mockRejectedValueOnce(new Error('boom'));
 
-    let saved: boolean | undefined;
+    let outcome: { saved: boolean; refused?: boolean } | undefined;
     await act(async () => {
-      saved = await result.current.saveAndRefresh({ type: 'Point', coordinates: [0, 0] }, {});
+      outcome = await result.current.saveAndRefresh({ type: 'Point', coordinates: [0, 0] }, {});
     });
 
-    expect(saved).toBe(false);
+    expect(outcome).toEqual({ saved: false, refused: true });
     expect(toast.error).toHaveBeenCalledTimes(1);
   });
 
@@ -1034,7 +1036,7 @@ describe('drawing session return to the same dataset', () => {
     const request = deferred<unknown>();
     createMutateAsync.mockReturnValueOnce(request.promise);
     const { result } = renderEditing(makeMapWithVectorSource(vi.fn()));
-    let saving!: Promise<boolean>;
+    let saving!: Promise<{ saved: boolean; refused?: boolean }>;
     act(() => {
       saving = result.current.saveAndRefresh({ type: 'Point', coordinates: [0, 0] }, {});
     });
@@ -1044,7 +1046,7 @@ describe('drawing session return to the same dataset', () => {
     });
     await act(async () => {
       request.resolve({});
-      expect(await saving).toBe(false);
+      expect(await saving).toEqual({ saved: false });
     });
     expect(toast.success).not.toHaveBeenCalled();
   });
