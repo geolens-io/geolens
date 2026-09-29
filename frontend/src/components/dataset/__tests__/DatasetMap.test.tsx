@@ -170,11 +170,12 @@ import { getAvailableModes } from '@/components/drawing/hooks/use-terra-draw';
 // resolves, to simulate an identity change while it is in flight.
 const updateFeatureMutateAsync = vi.hoisted(() => vi.fn().mockResolvedValue({}));
 const updateFeatureState = vi.hoisted(() => ({ isPending: false }));
+const createFeatureState = vi.hoisted(() => ({ isPending: false }));
 const createFeatureMutateAsync = vi.hoisted(() => vi.fn().mockResolvedValue({}));
 // A spy (not an inline vi.fn()) so a test can assert a Delete never went out.
 const deleteFeatureMutateAsync = vi.hoisted(() => vi.fn().mockResolvedValue({}));
 vi.mock('@/hooks/use-features', () => ({
-  useCreateFeature: () => ({ mutateAsync: createFeatureMutateAsync }),
+  useCreateFeature: () => ({ mutateAsync: createFeatureMutateAsync, isPending: createFeatureState.isPending }),
   useUpdateFeature: () => ({ mutateAsync: updateFeatureMutateAsync, isPending: updateFeatureState.isPending }),
   useDeleteFeature: () => ({ mutateAsync: deleteFeatureMutateAsync }),
 }));
@@ -1041,6 +1042,21 @@ describe('DatasetMap when edit rights are lost mid-session', () => {
 
     expect(drawingState.clearDrawing).toHaveBeenCalled();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('ends a clean session only after a feature write in flight settles', () => {
+    const { rerender } = render(renderMap(true));
+    createFeatureState.isPending = true;
+    try {
+      rerender(renderMap(false));
+      expect(drawingState.clearDrawing).not.toHaveBeenCalled();
+    } finally {
+      createFeatureState.isPending = false;
+    }
+
+    rerender(renderMap(false));
+
+    expect(drawingState.clearDrawing).toHaveBeenCalled();
   });
 
   it('keeps a dirty edit and offers a discard that ends the session', () => {

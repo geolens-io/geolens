@@ -1020,14 +1020,15 @@ export const DatasetMap = memo(function DatasetMap({
   }, [canEdit, datasetId, finishDrawingSession, performDeselect]);
 
   // Edit rights can go away mid-session: the editing flag is switched off,
-  // or a refetch changes the user's permission. A clean session just ends.
-  // One with unsaved work stays, with a discard notice in place of the
-  // toolbar, so the unsaved-changes guard never warns about an edit the
-  // page offers no way to resolve.
+  // or a refetch changes the user's permission. A clean session ends once
+  // any feature write in flight has settled, since ending it first would
+  // drop that write's result. One with unsaved work stays, with a discard
+  // notice in place of the toolbar, so the unsaved-changes guard never
+  // warns about an edit the page offers no way to resolve.
   useEffect(() => {
-    if (canEdit || !isDrawing || hasUnsavedWork) return;
+    if (canEdit || !isDrawing || hasUnsavedWork || isFeatureMutationPending) return;
     finishDrawingSession();
-  }, [canEdit, isDrawing, hasUnsavedWork, finishDrawingSession]);
+  }, [canEdit, isDrawing, hasUnsavedWork, isFeatureMutationPending, finishDrawingSession]);
 
   // Handle close / stop drawing
   const handleCloseDrawing = useCallback(() => {
