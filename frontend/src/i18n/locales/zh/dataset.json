@@ -426,6 +426,8 @@
     "discardChangesTitle": "放弃未保存的地图编辑？",
     "discardChangesDescription": "您的几何更改尚未保存。您可以继续编辑，也可以放弃更改。",
     "discardChangesAction": "放弃更改",
+    "editAccessLostNotice": "您已无法编辑此数据集，因此无法保存这些地图更改。",
+    "editLostOnReloadNotice": "地图已重新加载，此要素未保存的更改已丢失。",
     "deleteFeatureTitle": "删除要素",
     "deleteFeatureDescription": "确定删除此要素吗？此操作无法撤销。",
     "multiPartNotEditable": "此要素包含多个部分，无法在地图上编辑。",

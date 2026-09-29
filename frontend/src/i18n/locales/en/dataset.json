@@ -426,6 +426,8 @@
     "discardChangesTitle": "Discard unsaved map edits?",
     "discardChangesDescription": "Your geometry changes have not been saved. You can continue editing or discard them.",
     "discardChangesAction": "Discard changes",
+    "editAccessLostNotice": "You can no longer edit this dataset, so these map changes can't be saved.",
+    "editLostOnReloadNotice": "The map reloaded, and your unsaved change to this feature was lost.",
     "deleteFeatureTitle": "Delete Feature",
     "deleteFeatureDescription": "Delete this feature? This cannot be undone.",
     "multiPartNotEditable": "This feature has multiple parts and cannot be edited on the map.",

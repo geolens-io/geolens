@@ -1,5 +1,5 @@
 import type { StyleSpecification } from 'maplibre-gl';
-import { render, screen, fireEvent, act } from '@/test/test-utils';
+import { render, screen, fireEvent, act, within } from '@/test/test-utils';
 import type { BasemapEntry } from '@/api/settings';
 import { DatasetMap } from '@/components/dataset/DatasetMap';
 import { previewSourceId } from '@/components/maps/hooks/use-map-layers';
@@ -927,11 +927,13 @@ describe('DatasetMap drops an inherited selection when the same dataset remounts
   });
 });
 
-// A DIRTY inherited selection (an in-progress, unsaved geometry edit) is
-// kept rather than dropped, unlike the clean case above: DatasetPage's
-// unsaved-changes guard reads isEditDirty, so silently clearing it here
-// would let the user navigate away from an edit with no warning at all.
-describe('DatasetMap keeps a dirty inherited selection and hides Delete for it', () => {
+// A DIRTY inherited selection (an in-progress, unsaved geometry edit, e.g.
+// after the map crashed and Retry remounted it) is kept rather than
+// dropped, unlike the clean case above: DatasetPage's unsaved-changes guard
+// reads isEditDirty, so silently clearing it here would let the user
+// navigate away from an edit with no warning at all. Its geometry lived
+// only in the old TerraDraw instance, so Save could never work.
+describe('DatasetMap keeps a dirty inherited selection and offers only a discard for it', () => {
   beforeEach(() => {
     drawingState.isDrawing = true;
     drawingState.activeMode = 'select';
@@ -943,7 +945,7 @@ describe('DatasetMap keeps a dirty inherited selection and hides Delete for it',
     deleteFeatureMutateAsync.mockClear();
   });
 
-  it('keeps the selection and isEditDirty, and hides Delete for it', () => {
+  it('keeps the selection and isEditDirty, and offers a discard in place of Save', () => {
     render(
       <DatasetMap
         bbox={[-10, -10, 10, 10]}
@@ -960,11 +962,16 @@ describe('DatasetMap keeps a dirty inherited selection and hides Delete for it',
     expect(drawingState.clearSelectedFeature).not.toHaveBeenCalled();
     expect(drawingState.selectedFeature).toEqual({ gid: 7, tdId: 'td-7', properties: {} });
     expect(drawingState.isEditDirty).toBe(true);
-    // The action bar shows (a selection is present) but not Delete: it acts
-    // by gid and would still succeed, but the edit this bar represents
-    // lives in geometry only the ORIGINAL TerraDraw instance ever had.
-    expect(screen.getByRole('button', { name: /Save changes/i })).toBeInTheDocument();
+    expect(screen.getByRole('toolbar')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(/change to this feature was lost/i);
+    expect(screen.queryByRole('button', { name: /Save changes/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Delete feature/i })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
+    expect(drawingState.clearSelectedFeature).not.toHaveBeenCalled();
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Discard changes' }));
+    expect(drawingState.clearSelectedFeature).toHaveBeenCalled();
+    expect(drawingState.clearDrawing).not.toHaveBeenCalled();
   });
 
   it('shows Delete again once a fresh selection replaces the orphaned one', () => {
@@ -995,6 +1002,75 @@ describe('DatasetMap keeps a dirty inherited selection and hides Delete for it',
     );
 
     expect(screen.getByRole('button', { name: /Delete feature/i })).toBeInTheDocument();
+  });
+});
+
+// Edit rights can go away while this map is mounted: the editing flag is
+// switched off, or a refetch changes the user's permission. The toolbar goes
+// with them, so a dirty edit needs another way to be resolved.
+describe('DatasetMap when edit rights are lost mid-session', () => {
+  beforeEach(() => {
+    drawingState.isDrawing = true;
+    drawingState.activeMode = 'select';
+    drawingState.targetDatasetId = 'dataset-1';
+    drawingState.selectedFeature = null;
+    drawingState.isEditDirty = false;
+    drawingState.clearDrawing.mockClear();
+    drawingState.clearSelectedFeature.mockClear();
+  });
+
+  function renderMap(canEdit: boolean) {
+    return (
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName="example_table"
+        geometryType="Polygon"
+        datasetId="dataset-1"
+        recordType="vector_dataset"
+        canEdit={canEdit}
+      />
+    );
+  }
+
+  it('ends a clean session', () => {
+    const { rerender } = render(renderMap(true));
+    expect(screen.getByRole('toolbar')).toBeInTheDocument();
+
+    rerender(renderMap(false));
+
+    expect(drawingState.clearDrawing).toHaveBeenCalled();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('keeps a dirty edit and offers a discard that ends the session', () => {
+    const { rerender } = render(renderMap(true));
+    // A selection made and dragged in this instance, not an inherited one.
+    drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    drawingState.isEditDirty = true;
+    rerender(renderMap(true));
+    expect(screen.getByRole('button', { name: /Save changes/i })).toBeInTheDocument();
+
+    rerender(renderMap(false));
+
+    expect(drawingState.clearDrawing).not.toHaveBeenCalled();
+    expect(drawingState.clearSelectedFeature).not.toHaveBeenCalled();
+    expect(screen.queryByRole('toolbar')).not.toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(/can no longer edit this dataset/i);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
+    expect(drawingState.clearDrawing).not.toHaveBeenCalled();
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Discard changes' }));
+    expect(drawingState.clearDrawing).toHaveBeenCalled();
+  });
+
+  it('keeps a dirty edit a non-editable map inherits on mount', () => {
+    drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    drawingState.isEditDirty = true;
+
+    render(renderMap(false));
+
+    expect(drawingState.clearDrawing).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent(/can no longer edit this dataset/i);
   });
 });
 

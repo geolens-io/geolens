@@ -475,6 +475,8 @@
     "discardChangesTitle": "Ignorer les modifications cartographiques non enregistrées ?",
     "discardChangesDescription": "Vos modifications de géométrie ne sont pas enregistrées. Vous pouvez continuer la modification ou les ignorer.",
     "discardChangesAction": "Ignorer les modifications",
+    "editAccessLostNotice": "Vous ne pouvez plus modifier ce jeu de données : ces modifications de la carte ne peuvent pas être enregistrées.",
+    "editLostOnReloadNotice": "La carte a été rechargée et la modification non enregistrée de cette entité a été perdue.",
     "deleteFeatureTitle": "Supprimer l'entité",
     "deleteFeatureDescription": "Supprimer cette entité ? Cette action est irréversible.",
     "zoomToExtent": "Zoomer sur l'étendue du jeu de données",
