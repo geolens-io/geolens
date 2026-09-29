@@ -396,11 +396,11 @@ async def _registered_dataset(session):
 
 
 @contextlib.contextmanager
-def _counting_row_reads(table_name: str):
+def _counting_row_reads(table_name: str, clock=time.monotonic):
     """Record when each SELECT naming ``table_name`` reaches the database.
 
     Recorded at the engine, so reads count whichever request's session runs
-    them.
+    them. ``clock`` supplies the timestamps.
     """
     import app.core.db as db_module
 
@@ -410,7 +410,7 @@ def _counting_row_reads(table_name: str):
         if statement.lstrip().upper().startswith("SELECT") and table_name in str(
             parameters
         ):
-            reads.append(time.monotonic())
+            reads.append(clock())
 
     engine = db_module.engine.sync_engine
     event.listen(engine, "before_cursor_execute", on_execute)
@@ -442,6 +442,32 @@ async def _meta_for_request(
         )
 
 
+class _VirtualClock:
+    """A clock the router's waits advance instead of the wall.
+
+    Elapsed time then depends only on the router's scheduling, not on how
+    fast the runner executes each read.
+    """
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+    async def sleep(self, delay: float) -> None:
+        self.now += delay
+        await asyncio.sleep(0)
+
+
+class _RouterAsyncio:
+    def __init__(self, clock: _VirtualClock) -> None:
+        self.sleep = clock.sleep
+
+    def __getattr__(self, name):
+        return getattr(asyncio, name)
+
+
 async def test_an_unreached_version_re_reads_the_row_at_most_once_per_interval(
     test_db_session, monkeypatch
 ):
@@ -451,12 +477,14 @@ async def test_an_unreached_version_re_reads_the_row_at_most_once_per_interval(
     arrived cannot answer it, so every request in the sequence needs the next
     interval's read.
     """
-    interval = 0.2
-    monkeypatch.setattr(tile_router, "_FORCED_REREAD_INTERVAL", interval)
+    interval = tile_router._FORCED_REREAD_INTERVAL
+    clock = _VirtualClock()
+    monkeypatch.setattr(tile_router, "time", clock)
+    monkeypatch.setattr(tile_router, "asyncio", _RouterAsyncio(clock))
     table = (await _registered_dataset(test_db_session)).table_name
     try:
         await tile_router._resolve_dataset_meta(table, test_db_session)
-        with _counting_row_reads(table) as reads:
+        with _counting_row_reads(table, clock.monotonic) as reads:
             for _ in range(4):
                 meta = await tile_router._resolve_dataset_meta(
                     table, test_db_session, _UNREACHED_VERSION
@@ -465,7 +493,7 @@ async def test_an_unreached_version_re_reads_the_row_at_most_once_per_interval(
 
         assert len(reads) == 4
         gaps = [later - earlier for earlier, later in zip(reads, reads[1:])]
-        assert min(gaps) >= 0.8 * interval, gaps
+        assert gaps == [interval] * 3
     finally:
         tile_router._evict_dataset_meta(table)
 
