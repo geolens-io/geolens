@@ -794,18 +794,18 @@ describe('useFeatureEditing — handleEditAttributeSubmit result (fix #1761 revi
     expect(useDrawingStore.getState().selectedFeature).toEqual({ gid: 7, tdId: 'td-7', properties: { name: 'new' } });
   });
 
-  it('returns applied: true on a real failure, preserving the pre-existing close-on-error behavior', async () => {
+  it('returns applied: true and refused: true on a real failure', async () => {
     useDrawingStore.setState({ selectedFeature: { gid: 7, tdId: 'td-7', properties: {} } });
     updateMutateAsync.mockRejectedValueOnce(new Error('boom'));
     const map = makeMapWithVectorSource(vi.fn());
     const { result } = renderEditing(map);
 
-    let outcome: { applied: boolean } | undefined;
+    let outcome: { applied: boolean; refused?: boolean } | undefined;
     await act(async () => {
       outcome = await result.current.handleEditAttributeSubmit({ name: 'new' });
     });
 
-    expect(outcome).toEqual({ applied: true });
+    expect(outcome).toEqual({ applied: true, refused: true });
   });
 
   // fix(#1761 review round 5): the catch path returned applied: true

@@ -1238,6 +1238,45 @@ describe('DatasetMap when edit rights are lost mid-session', () => {
     expect(drawingState.clearSelectedFeature).toHaveBeenCalled();
   });
 
+  async function saveAttributesThenLoseRights(outcome: 'reject' | 'resolve') {
+    const columns = [{ name: 'population', type: 'integer' }];
+    let settle!: () => void;
+    updateFeatureMutateAsync.mockReturnValueOnce(new Promise((resolve, reject) => {
+      settle = () => (outcome === 'reject' ? reject(new Error('forbidden')) : resolve({}));
+    }));
+    const { rerender } = render(renderMap(true, columns));
+    drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    rerender(renderMap(true, columns));
+    fireEvent.click(screen.getByRole('button', { name: /Edit attributes/i }));
+    fireEvent.change(screen.getByLabelText('population'), { target: { value: '100' } });
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Save' }));
+    expect(updateFeatureMutateAsync).toHaveBeenCalledTimes(1);
+
+    rerender(renderMap(false, columns));
+    await act(async () => {
+      settle();
+    });
+    rerender(renderMap(false, columns));
+  }
+
+  it('keeps an attribute edit whose save is refused after rights are lost', async () => {
+    await saveAttributesThenLoseRights('reject');
+
+    expect(drawingState.clearDrawing).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent(/can no longer edit this dataset/i);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Discard changes' }));
+    expect(drawingState.clearDrawing).toHaveBeenCalled();
+  });
+
+  it('closes an attribute edit whose save succeeds after rights are lost', async () => {
+    await saveAttributesThenLoseRights('resolve');
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(drawingState.clearDrawing).toHaveBeenCalled();
+  });
+
   it('keeps a dirty edit a non-editable map inherits on mount', () => {
     drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
     drawingState.isEditDirty = true;

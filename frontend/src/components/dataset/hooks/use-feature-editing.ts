@@ -425,16 +425,14 @@ export function useFeatureEditing({
     }
   }, [datasetId, tableName, mapRef, deleteFeatureMutation, removeFeatures, clearSelectedFeature, reloadTiles, resetHistory, t]);
 
-  /** Update attributes of the selected feature. */
-  // fix(#1761 review round 4): returns whether the caller may treat this
-  // submission as settled. DatasetMap's AttributeForm onSubmit closes the
-  // dialog unconditionally once this resolves — for a stale request that
-  // discards a SECOND identity's own now-open editor for their feature.
-  // `applied: false` ONLY for that stale-epoch case, so the caller keeps
-  // the dialog open; a real failure still resolves `applied: true`,
-  // preserving the pre-existing behavior of closing on error.
+  /**
+   * Update attributes of the selected feature. `applied` says whether the
+   * caller may treat the submission as settled: false only for a stale
+   * request, whose dialog may now belong to a different identity's own edit.
+   * A failed write still resolves `applied: true` and adds `refused: true`.
+   */
   const handleEditAttributeSubmit = useCallback(
-    async (properties: Record<string, unknown>): Promise<{ applied: boolean }> => {
+    async (properties: Record<string, unknown>): Promise<{ applied: boolean; refused?: boolean }> => {
       const sf = useDrawingStore.getState().selectedFeature;
       if (!sf || !datasetId) return { applied: true };
       if (refuseIfWrongDataset(datasetId)) return { applied: true };
@@ -475,7 +473,7 @@ export function useFeatureEditing({
         if (isSelectionStale(epoch, targetDatasetId, sf, generation, drawingGenerationRef.current)) return { applied: false };
         // fix(#458 E-36): keep the backend detail.
         toast.error(formatMutationError('dataset:map.attributesUpdateFailed', err));
-        return { applied: true };
+        return { applied: true, refused: true };
       }
     },
     [datasetId, updateFeatureMutation, setSelectedFeature, reloadTiles, t],

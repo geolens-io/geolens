@@ -319,6 +319,8 @@ export const DatasetMap = memo(function DatasetMap({
   const selectedFeature = useDrawingStore((s) => s.selectedFeature);
   const isEditDirty = useDrawingStore((s) => s.isEditDirty);
   const setHasUnsavedMapWork = useDrawingStore((s) => s.setHasUnsavedMapWork);
+  const canEditRef = useRef(canEdit);
+  canEditRef.current = canEdit;
   const sessionEpoch = useDrawingStore((s) => s.sessionEpoch);
   // Whether the store's session actually belongs to THIS map's dataset —
   // gates the toolbar so a render before the stale-session effect above
@@ -1311,12 +1313,11 @@ export const DatasetMap = memo(function DatasetMap({
         }}
         columns={columnInfo ?? []}
         onSubmit={async (properties) => {
-          // fix(#1761 review round 4): only close on `applied` — a
-          // stale-epoch result means a second identity may have this
-          // dialog open for their own feature, and unconditionally
-          // closing it here would discard that in-progress edit.
-          const { applied } = await handleEditAttributeSubmit(properties);
-          if (applied) setEditingAttributes(false);
+          // A stale result may belong to a different identity's own open
+          // editor. A write refused after this map lost edit rights stays
+          // open as unsaved work, to leave through the discard notice.
+          const { applied, refused } = await handleEditAttributeSubmit(properties);
+          if (applied && !(refused && !canEditRef.current)) setEditingAttributes(false);
         }}
         onCancel={() => setEditingAttributes(false)}
         initialValues={selectedFeature?.properties}
