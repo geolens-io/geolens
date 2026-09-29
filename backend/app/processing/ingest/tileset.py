@@ -78,8 +78,8 @@ _BOUNDING_VOLUMES = (("region", 6), ("box", 12), ("sphere", 4))
 _REGION_TOLERANCE_RADIANS = 1e-6
 
 # A box or sphere is georeferenced when its centre lies this far from the
-# Earth's centre, about 120 km either side of the WGS 84 ellipsoid; a local
-# frame's centre sits near the origin.
+# Earth's centre, about 120 km either side of the WGS 84 ellipsoid, or when the
+# volume meets the ellipsoid; a local frame sits near the origin, well inside it.
 _GEOCENTRIC_RANGE_METRES = (6.25e6, 6.5e6)
 _WGS84_A = 6378137.0
 _WGS84_B = _WGS84_A * (1 - 1 / 298.257223563)
@@ -529,9 +529,6 @@ def _cartesian_extent(
         return [m[i] * v[0] + m[4 + i] * v[1] + m[8 + i] * v[2] for i in range(3)]
 
     center = [a + b for a, b in zip(linear([float(v) for v in values[:3]]), m[12:15])]
-    low, high = _GEOCENTRIC_RANGE_METRES
-    if not low <= math.hypot(*center) <= high:
-        return None
     rest = [float(value) for value in values[3:]]
     if kind == "box":
         axes, radius = [linear(rest[i : i + 3]) for i in (0, 3, 6)], 0.0
@@ -551,12 +548,22 @@ def _cartesian_extent(
     points, gap = _surface(center, axes, radius)
     if not all(math.isfinite(value) for point in points for value in point):
         return None
+    nearest = min(math.hypot(*point) for point in points) - gap
+    holds_origin = crossing is not None and crossing[0] <= 0 <= crossing[1]
+    # Stretching z by a/b turns the ellipsoid into a sphere; a box peaks at a corner.
+    outer = [math.hypot(x, y, z * _WGS84_A / _WGS84_B) for x, y, z in [center, *points]]
+    outermost = max(outer) if axes else outer[0] + radius * _WGS84_A / _WGS84_B
+    low, high = _GEOCENTRIC_RANGE_METRES
+    meets_ellipsoid = outermost >= _WGS84_A and (holds_origin or nearest <= _WGS84_A)
+    if not (low <= math.hypot(*center) <= high or meets_ellipsoid):
+        return None
+    # Latitude and longitude lose their meaning near the Earth's centre, so a
+    # volume reaching in that far may hold content anywhere.
+    if holds_origin or not nearest > _EVOLUTE_REACH_METRES:
+        return -180.0, -90.0, 180.0, 90.0
     # An interior point shares its latitude and longitude with the surface
     # point where its outward ellipsoid normal leaves the volume.
     lons, lats = zip(*(_geodetic(*point) for point in points))
-    nearest = min(math.hypot(*point) for point in points) - gap
-    if not nearest > _EVOLUTE_REACH_METRES:
-        return None
     # A step of `gap` metres turns latitude by at most `gap` over the distance
     # to the meridian's centre of curvature, and longitude by at most `gap`
     # over the distance from the axis.

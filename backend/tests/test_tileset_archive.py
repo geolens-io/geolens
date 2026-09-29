@@ -975,6 +975,81 @@ def test_a_box_or_sphere_in_a_local_frame_leaves_the_extent_null(
     assert facts.extent_bbox is None
 
 
+def _extent(kind: str, values: list[float]) -> tuple[float, float, float, float]:
+    return tileset_module.read_facts(
+        json.loads(tileset_json(volume={kind: values}))
+    ).extent_bbox
+
+
+_POLAR_RADIUS = 6356752.3
+
+
+def _cube(half: float) -> list[float]:
+    return [0, 0, 0, half, 0, 0, 0, half, 0, 0, 0, half]
+
+
+@pytest.mark.parametrize(
+    ("kind", "values"),
+    [
+        ("box", _cube(7e6)),
+        ("sphere", [0, 0, 0, 7e6]),
+        ("box", [0, 0, 0, 6.4e6, 0, 0, 0, 1e3, 0, 0, 0, 1e3]),
+        ("sphere", [0, 0, 0, _POLAR_RADIUS + 10]),
+        # The faces stay 3700 km out; only the corners pass the surface.
+        ("box", _cube(3.7e6)),
+        ("sphere", [*ecef(20.0, 0.0), 6.4e6]),
+    ],
+    ids=[
+        "box-enclosing",
+        "sphere-enclosing",
+        "box-rod",
+        "sphere-past-poles",
+        "box-corners",
+        "sphere-surface-through-centre",
+    ],
+)
+def test_a_volume_reaching_the_surface_from_the_centre_is_global(
+    kind: str, values: list[float]
+) -> None:
+    """Content near the Earth's centre has no one latitude or longitude."""
+    assert _extent(kind, values) == (-180.0, -90.0, 180.0, 90.0)
+
+
+@pytest.mark.parametrize(
+    ("kind", "values"),
+    [
+        ("box", _cube((_POLAR_RADIUS - 10) / math.sqrt(3))),
+        ("sphere", [0, 0, 0, _POLAR_RADIUS - 10]),
+        # Past the polar radius at the equator, yet inside the ellipsoid there.
+        ("box", [0, 0, 0, 6.36e6, 0, 0, 0, 1e3, 0, 0, 0, 1e3]),
+    ],
+)
+def test_a_volume_at_the_origin_short_of_the_surface_stays_local(
+    kind: str, values: list[float]
+) -> None:
+    """Only a volume that meets the ellipsoid is read as placed on it."""
+    assert _extent(kind, values) is None
+
+
+@pytest.mark.parametrize(
+    ("kind", "values"),
+    [
+        ("sphere", [6.2e6, 0, 0, 1e6]),
+        ("box", [6.2e6, 0, 0, 1e6, 0, 0, 0, 1e6, 0, 0, 0, 1e6]),
+        ("sphere", [7e6, 0, 0, 7e5]),
+    ],
+    ids=["sphere-below", "box-below", "sphere-above"],
+)
+def test_a_volume_crossing_the_surface_from_off_centre_is_placed(
+    kind: str, values: list[float]
+) -> None:
+    """A centre far below or above the surface still places a volume that meets it."""
+    west, south, east, north = _assert_extent_holds_the_surface(kind, values, n=60)
+
+    assert -90 < west < 0 < east < 90
+    assert -90 < south < 0 < north < 90
+
+
 @pytest.mark.parametrize(
     "transform",
     [
