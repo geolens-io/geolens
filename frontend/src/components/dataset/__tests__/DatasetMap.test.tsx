@@ -1190,6 +1190,41 @@ describe('DatasetMap when edit rights are lost mid-session', () => {
     expect(drawingState.clearDrawing).toHaveBeenCalled();
   });
 
+  it('closes the delete confirmation and sends no delete', () => {
+    deleteFeatureMutateAsync.mockClear();
+    const { rerender } = render(renderMap(true));
+    drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    drawingState.isEditDirty = true;
+    rerender(renderMap(true));
+    fireEvent.click(screen.getByRole('button', { name: /Delete feature/i }));
+    expect(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Delete' })).toBeInTheDocument();
+
+    rerender(renderMap(false));
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument();
+    expect(deleteFeatureMutateAsync).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent(/can no longer edit this dataset/i);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Discard changes' }));
+    expect(deleteFeatureMutateAsync).not.toHaveBeenCalled();
+    expect(drawingState.clearDrawing).toHaveBeenCalled();
+  });
+
+  it('keeps an open discard confirmation usable', () => {
+    const { rerender } = render(renderMap(true));
+    drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    drawingState.isEditDirty = true;
+    rerender(renderMap(true));
+    fireEvent.click(screen.getByRole('button', { name: /Cancel editing/i }));
+
+    rerender(renderMap(false));
+
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Discard changes' }));
+    expect(drawingState.clearSelectedFeature).toHaveBeenCalled();
+  });
+
   it('keeps a dirty edit a non-editable map inherits on mount', () => {
     drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
     drawingState.isEditDirty = true;

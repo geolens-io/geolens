@@ -1319,7 +1319,7 @@ export const DatasetMap = memo(function DatasetMap({
       />
 
       {/* Delete confirmation dialog */}
-      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+      <AlertDialog open={canEdit && deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t('map.deleteFeatureTitle')}</AlertDialogTitle>
