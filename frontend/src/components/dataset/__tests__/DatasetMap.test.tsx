@@ -1092,6 +1092,18 @@ describe('DatasetMap when edit rights are lost mid-session', () => {
     }
   });
 
+  it('keeps a session whose attribute editor is open', () => {
+    const { rerender } = render(renderMap(true));
+    drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    rerender(renderMap(true));
+    fireEvent.click(screen.getByRole('button', { name: /Edit attributes/i }));
+
+    rerender(renderMap(false));
+
+    expect(drawingState.clearDrawing).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent(/can no longer edit this dataset/i);
+  });
+
   it('keeps a dirty edit a non-editable map inherits on mount', () => {
     drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
     drawingState.isEditDirty = true;

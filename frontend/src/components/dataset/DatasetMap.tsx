@@ -399,7 +399,10 @@ export const DatasetMap = memo(function DatasetMap({
   } = useTerraDraw(mapInstance, handleDrawFinish, stableEditFinish, stableHistoryBaseline, stableSelectionLost);
 
   const hasSketchInProgress = canUndo && activeMode !== null && activeMode !== 'select';
-  const hasUnsavedWork = (selectedFeature !== null && isEditDirty) || hasSketchInProgress || pendingGeometry !== null;
+  const hasUnsavedWork = (selectedFeature !== null && isEditDirty)
+    || hasSketchInProgress
+    || pendingGeometry !== null
+    || editingAttributes;
 
   // --- Feature editing hook (all CRUD logic) ---
   const {
