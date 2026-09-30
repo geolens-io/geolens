@@ -1,22 +1,21 @@
 #!/bin/sh
-# BUG-015 (Phase 1184): Extracted from docker-compose.yml minio-setup entrypoint.
-#
-# Previously the entrypoint used a YAML `>` (folded scalar) which collapses
-# every newline into a space — the heredoc marker (CORSJSON) never appeared on
-# its own line, so `cat << 'CORSJSON' ... CORSJSON` was never terminated and
-# the CORS/anon policy was never applied.
-#
-# Mounting this file and using it as the entrypoint avoids the YAML scalar
-# issue entirely, and lets `bash -n scripts/minio-setup.sh` catch syntax errors.
+# Creates the geolens bucket on the cloud-dev MinIO. It is a mounted script
+# because a YAML folded scalar collapses the heredoc below into one line.
 #
 # Environment variables (passed via docker-compose.yml environment:):
-#   MINIO_ROOT_USER      MinIO root user  (fail-closed via :? in docker-compose.yml)
+#   MINIO_ROOT_USER      MinIO root user
 #   MINIO_ROOT_PASSWORD  MinIO root password
+# The minio service entrypoint refuses to start when either is blank.
 #
-# Note: this script runs inside the MinIO mc image (Alpine/busybox sh), not bash.
+# Note: this script runs under /bin/sh inside the mc image, not necessarily bash.
 # Use POSIX sh syntax only.
 
 set -eu
+
+# The image's /root is read-only and the container drops every capability, so
+# root cannot create mc's default config directory there.
+MC_CONFIG_DIR=/tmp/.mc
+export MC_CONFIG_DIR
 
 mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
 mc mb --ignore-existing local/geolens
@@ -42,7 +41,7 @@ mc anonymous set-json /tmp/cors.json local/geolens || true
 
 # ops(#1211): deliberately NO `mc ilm` rule here for aborting abandoned
 # multipart uploads. mc has no abort-incomplete-multipart flag (verified
-# against the pinned RELEASE.2025-08-13T08-35-41Z image), and MinIO strips
+# against the pinned RELEASE.2026-09-16T00-00-00Z image), and MinIO strips
 # AbortIncompleteMultipartUpload from imported lifecycle JSON
 # (minio/minio#19115, closed "working as intended"). The cleanup is
 # server-side instead: MINIO_API_STALE_UPLOADS_EXPIRY on the minio service
