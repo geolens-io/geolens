@@ -560,7 +560,7 @@ export function DatasetPage() {
         actions={headerActions}
         statsLine={statsLine}
         leadingContent={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {canAddToMap && can('edit_metadata') && <AddToMapButton datasetId={dataset.id} datasetTitle={dataset.title} />}
             {!token && (canAddToMap || isTable) && (
               <AuthPrompt
