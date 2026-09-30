@@ -546,10 +546,16 @@ async def _load_setting_state(
     registry: list[Any],
 ) -> tuple[dict[str, Any], set[str], set[str]]:
     """Load effective values plus source and stored-validity markers."""
-    from app.core.persistent_config import _validate_or_fallback
+    from app.core.persistent_config import _validate_or_fallback, is_unset_model
 
     result = await db.execute(select(AppSetting.key, AppSetting.value))
-    stored_settings = {key: value for key, value in result.all()}
+    stored_settings = {
+        key: value
+        for key, value in result.all()
+        if not is_unset_model(
+            key, value["v"] if isinstance(value, dict) and "v" in value else value
+        )
+    }
     overridden_keys = set(stored_settings)
     current_settings: dict[str, Any] = {}
     valid_stored_keys: set[str] = set()
@@ -577,11 +583,16 @@ def _build_setting_changes(
     current_settings: dict[str, Any],
     overridden_keys: set[str],
     valid_stored_keys: set[str],
+    blank_model_defaults: dict[str, str],
     *,
     caller_is_enterprise: bool,
     enterprise_only_tabs: set[str] | frozenset[str],
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Create source-aware setting diffs and the exact write subset."""
+    """Create source-aware setting diffs and the exact write subset.
+
+    ``blank_model_defaults`` maps each blank model key to the provider default
+    it resets to; writing the blank removes the override.
+    """
     settings_to_apply: dict[str, Any] = {}
     changes: list[dict[str, Any]] = []
     for key, raw_value in raw_settings.items():
@@ -611,6 +622,19 @@ def _build_setting_changes(
 
         value = validated_settings[key]
         current = current_settings[key]
+        if key in blank_model_defaults:
+            resets = key in overridden_keys
+            if resets:
+                settings_to_apply[key] = value
+            changes.append(
+                SettingChange(
+                    key=key,
+                    current=current,
+                    imported=blank_model_defaults[key],
+                    action="reset" if resets else "no_change",
+                ).model_dump()
+            )
+            continue
         pins_runtime_default = key not in overridden_keys and current == value
         repairs_invalid_override = (
             key in overridden_keys and key not in valid_stored_keys
@@ -680,6 +704,7 @@ async def preflight_import(
         LLM_MODEL_LIGHT,
         LLM_PROVIDER,
         _registry,
+        is_unset_model,
         llm_model_default,
     )
     from app.core.public_urls import _is_env_only
@@ -722,6 +747,18 @@ async def preflight_import(
         db,
         _registry,
     )
+    # Model defaults follow the provider this import leaves in place.
+    final_provider = validated_settings.get(
+        "llm_provider",
+        LLM_PROVIDER.env_default
+        if mode == "overwrite"
+        else current_settings["llm_provider"],
+    )
+    blank_model_defaults = {
+        cfg.key: llm_model_default(final_provider, light=cfg is LLM_MODEL_LIGHT)
+        for cfg in (LLM_MODEL, LLM_MODEL_LIGHT)
+        if is_unset_model(cfg.key, validated_settings.get(cfg.key))
+    }
     settings_to_apply, setting_changes = _build_setting_changes(
         raw_settings,
         registry_map,
@@ -729,15 +766,12 @@ async def preflight_import(
         current_settings,
         overridden_keys,
         valid_stored_keys,
+        blank_model_defaults,
         caller_is_enterprise=caller_is_enterprise,
         enterprise_only_tabs=ENTERPRISE_ONLY_TABS,
     )
 
     if mode == "overwrite":
-        # Omitted model settings follow the provider this import leaves in place.
-        final_provider = validated_settings.get(
-            "llm_provider", LLM_PROVIDER.env_default
-        )
         for cfg in _registry:
             if cfg.key in raw_settings:
                 continue
@@ -1028,10 +1062,13 @@ async def import_config(
     # Apply side effects only after the terminal commit succeeds.
     deferred_side_effects: list = []
 
-    # Sets go first so a reset that resolves against another key, as the model
-    # settings do against the provider, sees the value this import applies.
-    for key, value in plan.settings_to_apply.items():
+    # Sets go first, in registry order, so a model reset that resolves against
+    # the provider sees the provider this import applies.
+    for key in sorted(
+        plan.settings_to_apply, key=lambda k: _registry.index(registry_map[k])
+    ):
         cfg = registry_map[key]
+        value = plan.settings_to_apply[key]
         await cfg.set(db, value, user_id=user_id, ip_address=ip_address, commit=False)
         deferred_side_effects.append((cfg, value))
 

@@ -719,6 +719,16 @@ LLM_MODEL_LIGHT = _ProviderModelConfig(
     "llm_model_light", light=True, label="Light LLM Model (SQL/Metadata)"
 )
 
+
+def is_unset_model(key: str, value: object) -> bool:
+    """Whether a stored model value is blank, which means the provider's default."""
+    return (
+        key in (LLM_MODEL.key, LLM_MODEL_LIGHT.key)
+        and isinstance(value, str)
+        and not value.strip()
+    )
+
+
 MAX_AI_TOKENS_PER_USER_PER_DAY = PersistentConfig[int](
     key="max_ai_tokens_per_user_per_day",
     type_=int,

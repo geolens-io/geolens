@@ -1318,7 +1318,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # boundary, including task-capability selection.
     "backend/app/modules/catalog/datasets/api/router_refresh.py": 1397,
     # Config planning, signed dry runs and application share one transaction workflow.
-    "backend/app/platform/config_ops/service.py": 1190,
+    "backend/app/platform/config_ops/service.py": 1227,
     # One settlement pass, its precheck and its reapers serve startup recovery, the
     # lifespan sweep, admin cleanup, the job status poll and manifest expiry.
     "backend/app/platform/jobs/sweep.py": 1791,
@@ -1330,7 +1330,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/core/config.py": 1502,
     # Config resolution coordinates validation, overrides, caching, audit and side
     # effects, including model defaults that follow the selected LLM provider.
-    "backend/app/core/persistent_config.py": 986,
+    "backend/app/core/persistent_config.py": 996,
     # Backfill batches share vector/model validation and progress/cancellation
     # semantics.
     "backend/app/processing/embeddings/backfill.py": 933,

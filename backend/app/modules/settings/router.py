@@ -26,6 +26,7 @@ from app.core.persistent_config import (
     PASSWORD_LOGIN_ENABLED,
     _registry,
     apply_side_effects_batch,
+    is_unset_model,
 )
 from app.platform.ratelimit import limiter
 from app.core.public_urls import (
@@ -295,6 +296,7 @@ async def get_all_settings(
         db_settings[row[0]] = (
             raw if not isinstance(raw, dict) or "v" not in raw else raw["v"]
         )
+    db_settings = {k: v for k, v in db_settings.items() if not is_unset_model(k, v)}
     db_keys = set(db_settings.keys())
 
     tabs: dict[str, list[SettingItem]] = {}
@@ -458,9 +460,15 @@ async def update_settings(
             old_model_value = await EMBEDDING_MODEL.get_uncached(db)
 
     ip = get_client_ip(request)
-    for key, value in validated_settings.items():
+    # Registry order writes the provider before a model whose blank value
+    # resets against it.
+    for key in sorted(
+        validated_settings, key=lambda k: _registry.index(registry_map[k])
+    ):
         cfg = registry_map[key]
-        await cfg.set(db, value, user_id=user.id, ip_address=ip, commit=False)
+        await cfg.set(
+            db, validated_settings[key], user_id=user.id, ip_address=ip, commit=False
+        )
 
     # Single commit for all setting writes
     await db.commit()
