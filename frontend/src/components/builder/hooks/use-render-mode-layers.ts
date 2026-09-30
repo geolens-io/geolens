@@ -7,7 +7,8 @@ import { DEFAULT_HEATMAP_PAINT } from '@/components/builder/layer-adapters/heatm
 import { normalizeDemStyleConfig } from '@/lib/dem-render-mode';
 import type { MapLayerResponse, StyleConfig, SymbolStyleConfig } from '@/types/api';
 import { builderAdapterInput } from '@/components/builder/hooks/use-layer-map-sync';
-import { getCompanionLayerIds } from '@/components/builder/companion-ids';
+import { getDrawingLayerIds } from '@/components/builder/companion-ids';
+import { removeDescribedLayers } from '@/components/builder/layer-writer';
 import { DEFAULT_CIRCLE_PAINT } from '@/components/builder/layer-adapters/builder-defaults';
 import { buildRenderAsPatch } from '@/components/builder/renderAs';
 import type { RenderAsId, RenderAsAdapterType } from '@/components/builder/renderAs';
@@ -84,43 +85,7 @@ export function useRenderModeLayers({
       return;
     }
 
-    // SYNC-04: companion ids from the single source of truth.
-    const ids = getCompanionLayerIds(layer.id);
-    const mapLayerId = ids.layer;
-    const labelId = ids.label;
-    const colorReliefId = ids.colorRelief;
-
-    // Remove old layer
-    if (map.getLayer(colorReliefId)) {
-      map.removeLayer(colorReliefId);
-    }
-    if (map.getLayer(mapLayerId)) {
-      map.removeLayer(mapLayerId);
-    }
-    if (map.getLayer(ids.outline)) {
-      map.removeLayer(ids.outline);
-    }
-    if (map.getLayer(ids.extrusion)) {
-      map.removeLayer(ids.extrusion);
-    }
-    if (map.getLayer(ids.arrow)) {
-      map.removeLayer(ids.arrow);
-    }
-    if (map.getLayer(ids.mixedLines)) {
-      map.removeLayer(ids.mixedLines);
-    }
-    if (map.getLayer(ids.mixedPoints)) {
-      map.removeLayer(ids.mixedPoints);
-    }
-    // The label companion is removed unconditionally too, the way every other
-    // companion above is: the new adapter's own addLayers (below) re-adds it,
-    // filter and all, when the new family is labelled and label_config is set.
-    // Heatmap and symbol never re-add it, since neither's describe() carries
-    // one — this is why heatmap now drops an existing label instead of only
-    // hiding it (documented visible change).
-    if (map.getLayer(labelId)) {
-      map.removeLayer(labelId);
-    }
+    removeDescribedLayers(map, getDrawingLayerIds(layer.id));
 
     const adapterInput = builderAdapterInput(layer, mvtSourceLayerPrefix, { paint: updatedPaint });
     if (!adapterInput) return;
@@ -157,10 +122,7 @@ export function useRenderModeLayers({
       map.once('idle', () => runRemove(layerId));
       return;
     }
-    const ids = getCompanionLayerIds(layerId);
-    for (const id of [ids.colorRelief, ids.label, ids.arrow, ids.extrusion, ids.outline, ids.clusterCount, ids.cluster, ids.mixedLines, ids.mixedPoints, ids.layer]) {
-      if (map.getLayer(id)) map.removeLayer(id);
-    }
+    removeDescribedLayers(map, getDrawingLayerIds(layerId));
   }, [mapInstanceRef]);
 
   const handleRenderAsChange = useCallback((layerId: string, renderAs: RenderAsId) => {

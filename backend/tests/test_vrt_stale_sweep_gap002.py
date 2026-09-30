@@ -434,8 +434,7 @@ async def test_retention_purge_keeps_latest_complete_job_per_dataset(
         test_db_session, created_by=user_id, name="Retention Exemption DS"
     )
 
-    # Staged local upload kept for retry by a failed job (see
-    # _should_unlink_staging) — must be unlinked when its row is purged.
+    # Retryable input outlives its task; the durable purge disposes of it.
     monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path))
     staged_file = tmp_path / "failed-upload.geojson"
     staged_file.write_text("{}")

@@ -12,6 +12,7 @@ import { ApiError } from '@/api/client';
 const mockUploadFile = vi.fn();
 const mockPreviewFile = vi.fn();
 const mockCommitImport = vi.fn();
+let droppedFiles: File[];
 
 vi.mock('@/api/ingest', () => ({
   uploadFile: (...args: unknown[]) => mockUploadFile(...args),
@@ -43,7 +44,7 @@ vi.mock('@/hooks/use-settings', () => ({
 
 vi.mock('../FileDropzone', () => ({
   FileDropzone: ({ onFilesAccepted }: { onFilesAccepted: (files: File[]) => void }) => (
-    <button data-testid="simulate-drop" onClick={() => onFilesAccepted([new File(['{}'], 'roads.geojson')])}>
+    <button data-testid="simulate-drop" onClick={() => onFilesAccepted(droppedFiles)}>
       Drop
     </button>
   ),
@@ -73,6 +74,30 @@ const PREVIEW = {
 beforeEach(() => {
   vi.clearAllMocks();
   clearUploadBatch();
+  droppedFiles = [new File(['{}'], 'roads.geojson')];
+});
+
+test('collapsed forms keep unsent edits and confirmed batch defaults ignore them', async () => {
+  const user = userEvent.setup();
+  droppedFiles.push(new File(['{}'], 'stations.geojson'));
+  mockUploadFile.mockImplementation(async (file: File) => ({ job_id: file.name }));
+  mockPreviewFile.mockImplementation(async (jobId: string) => ({ ...PREVIEW, job_id: jobId, source_filename: jobId }));
+  mockCommitImport.mockResolvedValue({});
+  render(<UploadForm />);
+  await user.click(screen.getByTestId('simulate-drop'));
+  const name = (await screen.findAllByLabelText('metadata.nameLabel'))[0];
+  await user.clear(name);
+  await user.type(name, 'Unsent title');
+  await user.type(screen.getAllByLabelText('metadata.descriptionLabel')[0], 'Unsent notes');
+  await user.click(screen.getAllByRole('button', { name: 'bulk.toggleDetails' })[1]);
+  await user.click(screen.getAllByRole('button', { name: 'bulk.toggleDetails' })[0]);
+  expect(screen.getAllByLabelText('metadata.nameLabel')[0]).toHaveValue('Unsent title');
+  expect(screen.getAllByLabelText('metadata.descriptionLabel')[0]).toHaveValue('Unsent notes');
+  await user.click(screen.getByRole('button', { name: 'bulk.importAllDefaults' }));
+  expect(mockCommitImport).not.toHaveBeenCalled();
+  await user.click(screen.getByRole('button', { name: 'bulk.confirmDefaults' }));
+  expect(mockCommitImport).toHaveBeenCalledWith('roads.geojson', { title: 'roads' });
+  expect(mockCommitImport).toHaveBeenCalledWith('stations.geojson', { title: 'stations' });
 });
 
 afterEach(() => {

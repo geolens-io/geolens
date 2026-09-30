@@ -1,19 +1,12 @@
-"""#1202 review r5: the presigned staging key must be swept at job end.
+"""Presigned staging ownership, terminal disposal and post-expiry retention.
 
-A completed presigned upload points ``file_path`` at a frozen copy, which
-leaves ``user_metadata["s3_key"]`` as the only reference to the key the
-client can still write through its unexpired PUT URL. Both staging reapers
-now sweep it, and this file pins the decision policy plus the reaper that is
-directly callable.
-
-The decision policy is tested as a pure helper rather than by driving
-ogr2ogr, matching ``test_ingest_staging_cleanup_gap018.py`` — the sibling
-file that pins ``_should_unlink_staging`` for the same reason.
+A frozen upload and its client-writable presigned key have distinct owners.
+These tests cover the existing reaper and durable sweep; task-ending disposal
+is exercised through ``UploadedSource`` in ``test_uploaded_source.py``.
 """
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from unittest.mock import AsyncMock, patch
 
@@ -236,33 +229,6 @@ class TestReapPresignedStagingObject:
         )
 
         storage.delete.assert_awaited_once()
-
-
-def test_both_task_tails_sweep_through_the_shared_helper():
-    """Neither ingest path may grow its own copy of the sweep.
-
-    The raster tail was added a round after the vector one precisely because
-    the two had drifted; this catches a third path arriving without the sweep,
-    or either call being deleted outright.
-
-    KNOWN BLIND SPOT, stated so nobody mistakes this for reachability: it
-    greps the module source, so a call that is PRESENT but UNREACHABLE passes.
-    Measured — disabling the raster sweep with `if False:` left this test
-    green. ``test_failed_raster_ingest_sweeps_its_presigned_staging_object``
-    is the one that fails in that case, and it is the one to trust.
-    """
-    import inspect
-
-    from app.processing.ingest import tasks_raster, tasks_vector
-
-    for module in (tasks_vector, tasks_raster):
-        source = inspect.getsource(module)
-        assert "reap_presigned_staging_object(" in source, (
-            f"{module.__name__} does not sweep the presigned staging key"
-        )
-        assert "owned_presigned_staging_key(" in source, (
-            f"{module.__name__} does not resolve staging-key ownership"
-        )
 
 
 def _geotiff_bytes(*, crs=None) -> bytes:
@@ -1178,101 +1144,3 @@ class TestPostExpirySweep:
             "the key was reaped more than once — the child's purge reaped "
             "a key it does not own, in addition to the parent's own sweep"
         )
-
-
-class TestFailedSourceRetention:
-    """fix(#1213 review r6): whether a FAILED job's source may be reaped is a
-    property of the CALLER, not of the helper.
-
-    `_retry_capability` refuses reupload, service-auth and analysis jobs; an
-    ordinary failed import with a `staging/` file_path is retryable exactly
-    when the object still exists. Reaping it there is what makes the retry the
-    endpoint advertises impossible, and the stale purge is the designed
-    eventual owner ("failed keeps it for /jobs/{id}/retry").
-    """
-
-    @staticmethod
-    async def _reap(monkeypatch, *, final_status: str, replayable: bool):
-        from app.processing.ingest.tasks_staging import (
-            reap_downloaded_staging_source,
-        )
-
-        storage = AsyncMock()
-        monkeypatch.setattr(
-            "app.platform.storage.get_storage", lambda: storage, raising=True
-        )
-        await reap_downloaded_staging_source(
-            "job-1",
-            original_file_path="staging/job-1/frozen/roads.geojson",
-            final_status=final_status,
-            failed_source_replayable=replayable,
-        )
-        return storage
-
-    async def test_an_ordinary_import_retains_its_source_on_failure(
-        self, monkeypatch
-    ) -> None:
-        """The retry endpoint promises a replay while the object exists."""
-        storage = await self._reap(monkeypatch, final_status="failed", replayable=True)
-        storage.delete.assert_not_awaited()
-
-    async def test_a_reupload_still_reaps_on_failure(self, monkeypatch) -> None:
-        """_retry_capability refuses these outright, so nothing else ever will."""
-        storage = await self._reap(monkeypatch, final_status="failed", replayable=False)
-        storage.delete.assert_awaited_once()
-
-    async def test_success_reaps_for_both_kinds(self, monkeypatch) -> None:
-        """Retention is about the RETRY, which only exists for failed jobs."""
-        for replayable in (True, False):
-            storage = await self._reap(
-                monkeypatch, final_status="complete", replayable=replayable
-            )
-            storage.delete.assert_awaited_once()
-
-
-class TestTerminalCleanupDrainsThroughCancellation:
-    """fix(#1213 review r6): both tails call the source reap BEFORE the
-    presigned-key sweep, so a CancelledError escaping the first skips the
-    second — and that second one deletes the key a client may still hold an
-    unexpired PUT URL for. Same pattern r5 restored in _cleanup_presigned_object.
-    """
-
-    async def test_a_cancelled_source_delete_does_not_escape(self, monkeypatch) -> None:
-        from app.processing.ingest.tasks_staging import (
-            reap_downloaded_staging_source,
-        )
-
-        storage = AsyncMock()
-        storage.delete.side_effect = asyncio.CancelledError()
-        monkeypatch.setattr(
-            "app.platform.storage.get_storage", lambda: storage, raising=True
-        )
-
-        # Must not raise: the caller has a second sweep to run after this.
-        await reap_downloaded_staging_source(
-            "job-1",
-            original_file_path="staging/job-1/frozen/roads.geojson",
-            final_status="complete",
-            failed_source_replayable=True,
-        )
-
-        storage.delete.assert_awaited_once()
-
-    async def test_a_cancelled_presigned_sweep_does_not_escape(
-        self, monkeypatch
-    ) -> None:
-        from app.processing.ingest.tasks_staging import (
-            reap_presigned_staging_object,
-        )
-
-        storage = AsyncMock()
-        storage.delete.side_effect = asyncio.CancelledError()
-        monkeypatch.setattr(
-            "app.platform.storage.get_storage", lambda: storage, raising=True
-        )
-
-        await reap_presigned_staging_object(
-            "job-1", "staging/job-1/roads.geojson", final_status="complete"
-        )
-
-        storage.delete.assert_awaited_once()

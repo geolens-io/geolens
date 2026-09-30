@@ -8,7 +8,8 @@ import type { MapLayerResponse } from '@/types/api';
 import { VIEWER_PREFIX } from '@/components/viewer/viewer-query-layer-ids';
 import { getSourceIdForLayer, syncLayersToMap, toSyncInput } from '../map-sync';
 import { describeLayers } from '../layer-description';
-import { addDescribedLayer, writeDescribedLayer, writeDescribedVisibility } from '../layer-writer';
+import { addDescribedLayer, finishDescribedLayer, removeDescribedLayers, writeDescribedLayer, writeDescribedVisibility } from '../layer-writer';
+import { getCompanionLayerIds, getDrawingLayerIds } from '../companion-ids';
 import type { ImageSpec, LayerDrawing, LayerSpec } from '../layer-adapters/types';
 
 const FILTER = ['==', ['get', 'kind'], 'school'] as FilterSpecification;
@@ -373,6 +374,81 @@ describe('a sync pass that replaces a raster source', () => {
     expect(recording.callsTo('removeLayer')).toEqual([[`layer-${dem.id}-colorrelief`], [`layer-${dem.id}`]]);
     expect(recording.callsTo('removeSource')).toEqual([[getSourceIdForLayer(dem)]]);
     expect(recording.layerIds().map((id) => recording.layer(id))).toEqual(described(dem));
+    expect(recording.errors).toEqual([]);
+  });
+});
+
+
+describe('drawing lifecycle', () => {
+  it('retires disabled companions from prospective ownership and preserves unrelated layers and layout', () => {
+    const recording = mapWithSource();
+    const primary = circleSpec({ layout: { visibility: 'visible', 'circle-sort-key': 7 } });
+    const companions = ['points-arrow', 'points-extrusion', 'points-label'].map((id) => circleSpec({ id }));
+    writeDescribedLayer(recording.map, drawn([primary, ...companions, circleSpec({ id: 'unrelated' })]));
+
+    writeDescribedLayer(recording.map, drawn([primary]), ['points', ...companions.map(({ layer }) => layer.id)]);
+
+    expect(recording.layerIds()).toEqual(['points', 'unrelated']);
+    expect(recording.layer('points')?.layout).toEqual({ visibility: 'visible', 'circle-sort-key': 7 });
+    expect(recording.errors).toEqual([]);
+  });
+
+  it('restores a retired companion above its primary with its filter and hidden visibility', () => {
+    const recording = mapWithSource();
+    const primary = circleSpec();
+    const label = circleSpec({ id: 'points-label', filter: FILTER, layout: { visibility: 'none' } });
+    const ids = ['points', 'points-label'];
+    writeDescribedLayer(recording.map, drawn([primary, label]), ids);
+    writeDescribedLayer(recording.map, drawn([primary]), ids);
+
+    writeDescribedLayer(recording.map, drawn([primary, label]), ids);
+
+    expect(recording.layerIds()).toEqual(ids);
+    expect(recording.layer('points-label')).toEqual(label.layer);
+    expect(recording.errors).toEqual([]);
+  });
+
+  it('finishes visibility and zoom with spec overrides while retiring an old label without replaying paint', () => {
+    const recording = mapWithSource();
+    const primary = circleSpec();
+    const extrusion = circleSpec({ id: 'points-extrusion', minzoom: 14, maxzoom: 18, layout: { visibility: 'none' } });
+    writeDescribedLayer(recording.map, drawn([primary, extrusion, circleSpec({ id: 'points-label' })]));
+    recording.calls.length = 0;
+
+    finishDescribedLayer(recording.map, drawn([primary, extrusion]), ['points', 'points-extrusion', 'points-label'], { minzoom: 3, maxzoom: 18 });
+
+    expect(recording.layer('points')).toMatchObject({ minzoom: 3, maxzoom: 18, layout: { visibility: 'visible' } });
+    expect(recording.layer('points-extrusion')).toMatchObject({ minzoom: 14, maxzoom: 18, layout: { visibility: 'none' } });
+    expect(recording.layer('points-label')).toBeUndefined();
+    expect(recording.callsTo('setPaintProperty')).toEqual([]);
+    expect(recording.errors).toEqual([]);
+  });
+
+  it('uses the vector default and resets an unranged raster to native defaults', () => {
+    const recording = mapWithSource();
+    const vector = circleSpec();
+    const raster = circleSpec({ id: 'image', type: 'raster', minzoom: 5, maxzoom: 12, paint: {} });
+    writeDescribedLayer(recording.map, drawn([vector, raster]));
+
+    finishDescribedLayer(recording.map, drawn([vector]), ['points'], null);
+    finishDescribedLayer(recording.map, drawn([circleSpec({ id: 'image', type: 'raster', paint: {} })]), ['image'], null);
+
+    expect(recording.layer('points')).toMatchObject({ minzoom: 0, maxzoom: 22 });
+    expect(recording.layer('image')).toMatchObject({ minzoom: 0, maxzoom: 24 });
+    expect(recording.errors).toEqual([]);
+  });
+
+  it('removes every prefixed prospective companion while preserving its source and other drawings', () => {
+    const recording = mapWithSource();
+    const ids = getDrawingLayerIds('saved', 'viewer-');
+    const { source: _source, ...companions } = getCompanionLayerIds('saved', 'viewer-');
+    writeDescribedLayer(recording.map, drawn([...Object.values(companions), 'unrelated'].map((id) => circleSpec({ id }))));
+
+    removeDescribedLayers(recording.map, ids);
+    removeDescribedLayers(recording.map, ids);
+
+    expect(recording.layerIds()).toEqual(['unrelated']);
+    expect(recording.map.getSource('places')).toBeDefined();
     expect(recording.errors).toEqual([]);
   });
 });

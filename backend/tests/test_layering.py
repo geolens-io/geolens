@@ -1312,8 +1312,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/publish_followups.py": 1090,
     # Shared ingest finalization carries verification, bounded ArcGIS requests and lifecycle context.
     "backend/app/processing/ingest/tasks_common.py": 1731,
-    # The file and service strategies: retrieval, staging, verification and cleanup.
-    "backend/app/processing/ingest/tasks_reupload.py": 1217,
+    # File and remote-source replacement strategies own retrieval, staging and verification.
+    "backend/app/processing/ingest/tasks_reupload.py": 1189,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection.
     "backend/app/modules/catalog/datasets/api/router_refresh.py": 1397,
@@ -1338,11 +1338,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/datasets/api/router_reupload.py": 1540,
     # VRT creation and regeneration share publication and superseded-object cleanup.
     "backend/app/processing/ingest/tasks_vrt.py": 1628,
-    # The raster strategy: conversion, read-back, object puts and their cleanup.
-    "backend/app/processing/ingest/tasks_raster_replace.py": 642,
-    # File/service tasks share publication fencing, heartbeat phases and failure
-    # cleanup.
-    "backend/app/processing/ingest/tasks_vector.py": 1173,
+    # Raster replacement owns conversion, read-back and published-object cleanup.
+    "backend/app/processing/ingest/tasks_raster_replace.py": 614,
+    # File and remote-source imports own publication fencing, heartbeat phases
+    # and failure settlement.
+    "backend/app/processing/ingest/tasks_vector.py": 1110,
     # GDAL environments, timeouts, reaping and error sanitization share one process
     # boundary.
     "backend/app/processing/ingest/ogr.py": 1423,

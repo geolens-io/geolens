@@ -256,14 +256,8 @@ export const fillAdapter: LayerAdapter = {
   syncPaint(map, input) {
     if (!map.getLayer(input.layerId)) return;
     const drawing = describeFill(input);
-    writeDescribedLayer(map, drawing);
-    // The writer removes no layer, so an extrusion the layer no longer describes goes here.
-    const extrusionId = `${input.layerId}-extrusion`;
-    if (!map.getLayer(extrusionId)) return;
-    if (!drawing.specs.some(({ layer }) => layer.id === extrusionId)) {
-      map.removeLayer(extrusionId);
-      return;
-    }
+    writeDescribedLayer(map, drawing, fillAdapter.getLayerIds(input.layerId));
+    if (!map.getLayer(`${input.layerId}-extrusion`)) return;
     // Workaround MapLibre v5 bug: setPaintProperty only applies every other call with terrain active
     try { map.triggerRepaint(); } catch (e) { if (import.meta.env.DEV) console.debug('[map-sync] triggerRepaint not available:', e); }
   },

@@ -6,11 +6,14 @@ import {
   syncOwnedLayoutProperties,
   syncOwnedPaintProperties,
 } from './layer-adapters/shared';
+import { FULL_ZOOM_RANGE } from './layer-adapters/builder-defaults';
+import type { ZoomRange } from './layer-description';
 import type { ImageSpec, LayerDrawing, LayerSpec } from './layer-adapters/types';
 
 /** The map calls a write makes. A MapLibre map provides them, and so does the recording fake in the tests. */
 export type LayerWriteTarget = Pick<
   MaplibreMap,
+  | 'removeLayer'
   | 'getLayer'
   | 'addLayer'
   | 'getFilter'
@@ -123,9 +126,15 @@ function writeSpecs(
 
 /**
  * Register the drawing's images, add each spec the map lacks, and bring the
- * owned keys and filter of every other spec in step with it.
+ * owned keys and filter of every other spec in step with it. Prospective owned
+ * layer IDs also retire companions absent from the drawing.
  */
-export function writeDescribedLayer(map: LayerWriteTarget, drawing: LayerDrawing): void {
+export function writeDescribedLayer(
+  map: LayerWriteTarget,
+  drawing: LayerDrawing,
+  ownedLayerIds: readonly string[] = [],
+): void {
+  retireAbsentLayers(map, drawing, ownedLayerIds);
   writeSpecs(map, drawing, (spec, beforeId) => (map.getLayer(spec.layer.id) ? updateSpec(map, spec) : addSpec(map, spec, beforeId)));
 }
 
@@ -145,4 +154,47 @@ export function writeDescribedVisibility(
       setDynamicLayoutProperty(map, layer.id, 'visibility', visibility);
     }
   }
+}
+
+/** Remove the owned map layers that the drawing no longer describes. */
+function retireAbsentLayers(
+  map: Pick<MaplibreMap, 'getLayer' | 'removeLayer'>,
+  drawing: LayerDrawing,
+  ownedLayerIds: readonly string[],
+): void {
+  const desired = new Set(drawing.specs.map(({ layer }) => layer.id));
+  removeDescribedLayers(map, ownedLayerIds.filter((id) => !desired.has(id)));
+}
+
+/** Remove the prospective drawing layers, including companions absent from its current specs. */
+export function removeDescribedLayers(
+  map: Pick<MaplibreMap, 'getLayer' | 'removeLayer'>,
+  ownedLayerIds: readonly string[],
+): void {
+  for (const id of ownedLayerIds) {
+    if (map.getLayer(id)) map.removeLayer(id);
+  }
+}
+
+/** Finish a drawing without replaying paint: retire absent companions, apply zooms and visibility. */
+export function finishDescribedLayer(
+  map: Pick<MaplibreMap, 'getLayer' | 'removeLayer' | 'setLayerZoomRange' | 'setLayoutProperty'>,
+  drawing: LayerDrawing,
+  ownedLayerIds: readonly string[],
+  savedZoom: ZoomRange | null,
+): void {
+  retireAbsentLayers(map, drawing, ownedLayerIds);
+  // Raster drawings without a saved range retain MapLibre's native maximum zoom.
+  const raster = drawing.specs.some(({ layer }) => layer.type === 'raster' || layer.type === 'hillshade');
+  const zoom = savedZoom ?? (raster ? null : FULL_ZOOM_RANGE);
+  for (const { layer: spec } of drawing.specs) {
+    const layer = map.getLayer(spec.id);
+    if (!layer) continue;
+    if (zoom) {
+      map.setLayerZoomRange(spec.id, spec.minzoom ?? zoom.minzoom, spec.maxzoom ?? zoom.maxzoom);
+    } else if ((layer.minzoom ?? 0) > 0 || (layer.maxzoom ?? DEFAULT_LAYER_MAXZOOM) < DEFAULT_LAYER_MAXZOOM) {
+      map.setLayerZoomRange(spec.id, 0, DEFAULT_LAYER_MAXZOOM);
+    }
+  }
+  writeDescribedVisibility(map, drawing);
 }
