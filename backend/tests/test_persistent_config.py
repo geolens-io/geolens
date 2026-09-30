@@ -1022,6 +1022,23 @@ async def test_model_default_is_cached_apart_from_the_plain_key(
     assert await cache.get(LLM_MODEL.cache_key) == ""
 
 
+@pytest.mark.anyio
+async def test_model_update_evicts_the_plain_key_older_releases_cache(
+    client: AsyncClient, admin_auth_header: dict
+):
+    from app.platform.cache import get_cache, init_cache
+
+    init_cache()
+    cache = get_cache()
+    await cache.set("config:llm_model", "claude-old-model", ttl=60)
+    await client.put(
+        "/settings/",
+        json={"settings": {"llm_model": "gpt-new-model"}},
+        headers=admin_auth_header,
+    )
+    assert await cache.get("config:llm_model") is None
+
+
 @pytest.fixture
 def _both_ai_keys(monkeypatch):
     """Both provider keys set, with recognisable env model names."""
