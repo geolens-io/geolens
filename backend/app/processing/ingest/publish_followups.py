@@ -397,6 +397,24 @@ async def _confirm_owed_item(job_uuid: uuid.UUID, attempt_id: str, item: str) ->
     await _write_record(job_uuid, attempt_id, IngestJob.user_metadata.op("#-")(path))
 
 
+async def _delete_orphaned_archive(job_uuid: uuid.UUID, archive_key: str) -> bool:
+    """Delete the archive a deleted dataset left under ``archive_key``; False when the delete failed.
+
+    A write that outlived the connection holding its job row can land after the
+    dataset's prefix was reaped. A missing object counts as deleted.
+    """
+    from app.platform.storage.titiler_url import resolve_current_storage_key
+    from app.processing.ingest.tasks_raster_common import (
+        _cleanup_orphaned_storage_keys,
+    )
+
+    try:
+        key = resolve_current_storage_key(archive_key)
+    except ValueError:
+        return True
+    return not await _cleanup_orphaned_storage_keys([key], job_id=str(job_uuid))
+
+
 async def _confirm_archive(job_uuid: uuid.UUID, attempt_id: str) -> bool:
     """Take the archive item and the job's archive flags off in one write.
 
@@ -636,9 +654,10 @@ async def _settle_owed_items(
     its original only under that key, so the key stays, and its delete owed,
     until the job holds no unarchived original. With a live dataset the
     upload's original is archived first, and the upload is deleted only once
-    that archive is confirmed. A deleted dataset owes no archive, so the item and
-    the job's archive flags go together. A job naming no upload keeps its
-    flags and is marked for review, unless storage already holds its archive.
+    that archive is confirmed. A deleted dataset owes no archive: one left under
+    its key is deleted, then the item and the job's archive flags go together.
+    A job naming no upload keeps its flags and is marked for review, unless
+    storage already holds its archive.
     The delete is confirmed only once nothing it should remove is left. What a
     raster replacement superseded is deleted unless a live catalog row names
     it, or, for its COG, a VRT may read it. An item left over is tried again
@@ -651,7 +670,9 @@ async def _settle_owed_items(
     file_path = row.file_path
     failed_before = row.user_metadata.get("archive_failed") is not None
     if _ARCHIVE_KEY in left and row.dataset_id is None:
-        if await _confirm_archive(job_uuid, attempt_id):
+        if await _delete_orphaned_archive(
+            job_uuid, record[_ARCHIVE_KEY]
+        ) and await _confirm_archive(job_uuid, attempt_id):
             left.discard(_ARCHIVE_KEY)
     elif _ARCHIVE_KEY in left and not file_path:
         if await _review_archive_of_no_upload(
