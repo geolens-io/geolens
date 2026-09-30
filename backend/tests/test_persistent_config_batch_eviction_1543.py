@@ -108,8 +108,10 @@ async def _clean_settings(client: AsyncClient):
         cache = get_cache()
     except RuntimeError:
         return
-    await cache.delete("config:llm_provider")
-    await cache.delete("config:llm_model")
+    from app.core.persistent_config import LLM_MODEL, LLM_PROVIDER
+
+    await cache.delete(LLM_PROVIDER.cache_key)
+    await cache.delete(LLM_MODEL.cache_key)
 
 
 # ---------------------------------------------------------------------------

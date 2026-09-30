@@ -129,13 +129,17 @@ class PersistentConfig(Generic[T]):
         """The value this key takes when it has no override."""
         return self.env_default
 
+    @property
+    def cache_key(self) -> str:
+        return f"{_CACHE_PREFIX}{self.key}"
+
     async def get(self, db: AsyncSession) -> T:
         """Resolve effective value: env_only -> cache -> DB -> env_default."""
         if _is_env_only():
             return self.env_default
 
         cache = _get_cache_safe()
-        cache_key = f"{_CACHE_PREFIX}{self.key}"
+        cache_key = self.cache_key
         if cache is not None:
             cached = await cache.get(cache_key)
             if cached is not None:
@@ -360,7 +364,7 @@ async def apply_side_effects_batch(
 
     cache = _get_cache_safe()
     if cache is not None:
-        await cache.delete_many(*(f"{_CACHE_PREFIX}{cfg.key}" for cfg, _ in items))
+        await cache.delete_many(*(cfg.cache_key for cfg, _ in items))
 
     for cfg, value in items:
         cfg._apply_local_side_effects(value)
@@ -631,6 +635,12 @@ class _ProviderModelConfig(PersistentConfig[str]):
     def __init__(self, key: str, *, light: bool, label: str) -> None:
         super().__init__(key, type_=str, env_default="", tab="ai", label=label)
         self.light = light
+
+    @property
+    def cache_key(self) -> str:
+        # Older releases read the plain key as the model itself, so the empty
+        # "follow the provider" value is cached under its own key.
+        return f"{_CACHE_PREFIX}{self.key}:follows-provider"
 
     async def resolved_default(self, db: AsyncSession) -> str:
         # Uncached, so a batch that changed the provider earlier in this

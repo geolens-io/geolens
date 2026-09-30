@@ -36,7 +36,7 @@ async def _clean_settings(client: AsyncClient):
         from app.core.persistent_config import _registry
 
         for cfg in _registry:
-            await cache.delete(f"config:{cfg.key}")
+            await cache.delete(cfg.cache_key)
     except RuntimeError:
         pass
 

@@ -30,7 +30,7 @@ async def _clean_settings(client: AsyncClient):
         from app.core.persistent_config import _registry
 
         for cfg in _registry:
-            await cache.delete(f"config:{cfg.key}")
+            await cache.delete(cfg.cache_key)
     except RuntimeError:
         pass
 
@@ -1001,6 +1001,27 @@ async def test_llm_provider_from_persistent_config(
         assert model == "gpt-4o"
 
 
+@pytest.mark.anyio
+async def test_model_default_is_cached_apart_from_the_plain_key(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """Older releases read config:llm_model as the model, so the empty default
+    this release caches must not land there."""
+    from app.api.main import app
+    from app.core.dependencies import get_db
+    from app.core.persistent_config import LLM_MODEL
+    from app.platform.cache import get_cache, init_cache
+
+    init_cache()
+    cache = get_cache()
+    await cache.delete("config:llm_model")
+    await cache.delete(LLM_MODEL.cache_key)
+    async for db in app.dependency_overrides[get_db]():
+        await LLM_MODEL.get(db)
+    assert await cache.get("config:llm_model") is None
+    assert await cache.get(LLM_MODEL.cache_key) == ""
+
+
 @pytest.fixture
 def _both_ai_keys(monkeypatch):
     """Both provider keys set, with recognisable env model names."""
@@ -1243,6 +1264,32 @@ async def test_overwrite_import_audits_the_model_under_the_imported_provider(
     )
     assert applied.status_code == 200, applied.text
     assert await _latest_model_reset_value() == "openai-chat-env"
+
+
+@pytest.mark.anyio
+async def test_overwrite_blank_model_resets_after_the_omitted_provider(
+    client: AsyncClient, admin_auth_header: dict, _both_ai_keys
+):
+    """A blank model in an overwrite resolves against the provider's reset value."""
+    await client.put(
+        "/settings/",
+        json={"settings": {"llm_provider": "openai_compatible", "llm_model": "x"}},
+        headers=admin_auth_header,
+    )
+    payload = {"settings": {"llm_model": ""}}
+    preview = await client.post(
+        "/config-ops/dry-run/?mode=overwrite", json=payload, headers=admin_auth_header
+    )
+    applied = await client.post(
+        "/config-ops/import/?mode=overwrite",
+        json=payload,
+        headers={
+            **admin_auth_header,
+            "X-Config-Preview-Token": preview.json()["preview_token"],
+        },
+    )
+    assert applied.status_code == 200, applied.text
+    assert await _latest_model_reset_value() == "anthropic-chat-env"
 
 
 @pytest.mark.anyio

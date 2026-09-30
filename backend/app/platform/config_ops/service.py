@@ -1049,7 +1049,6 @@ async def import_config(
     if mode == "overwrite":
         _verify_preview_token(preview_token, plan, mode)
 
-    registry_map = {cfg.key: cfg for cfg in _registry}
     settings_no_change = len(plan.validated_settings) - len(plan.settings_to_apply)
     settings_skipped = (
         len(plan.skipped_unknown) + len(plan.skipped_restricted) + settings_no_change
@@ -1062,22 +1061,20 @@ async def import_config(
     # Apply side effects only after the terminal commit succeeds.
     deferred_side_effects: list = []
 
-    # Sets go first, in registry order, so a model reset that resolves against
-    # the provider sees the provider this import applies.
-    for key in sorted(
-        plan.settings_to_apply, key=lambda k: _registry.index(registry_map[k])
-    ):
-        cfg = registry_map[key]
-        value = plan.settings_to_apply[key]
-        await cfg.set(db, value, user_id=user_id, ip_address=ip_address, commit=False)
-        deferred_side_effects.append((cfg, value))
-
-    if mode == "overwrite":
-        for cfg in _registry:
-            if cfg.key in plan.validated_settings:
-                continue
-            if not plan.caller_is_enterprise and cfg.tab in ENTERPRISE_ONLY_TABS:
-                continue
+    # One pass in registry order, so the provider reaches its final value before
+    # a model setting that resolves against it is written or reset.
+    for cfg in _registry:
+        if cfg.key in plan.settings_to_apply:
+            value = plan.settings_to_apply[cfg.key]
+            await cfg.set(
+                db, value, user_id=user_id, ip_address=ip_address, commit=False
+            )
+            deferred_side_effects.append((cfg, value))
+        elif (
+            mode == "overwrite"
+            and cfg.key not in plan.validated_settings
+            and (plan.caller_is_enterprise or cfg.tab not in ENTERPRISE_ONLY_TABS)
+        ):
             await cfg.reset(db, user_id=user_id, ip_address=ip_address, commit=False)
             deferred_side_effects.append((cfg, cfg.env_default))
 
