@@ -426,6 +426,7 @@
     "sketchStillSaving": "The previous feature is still saving. Try again once it has saved.",
     "discardChangesTitle": "Discard unsaved map edits?",
     "discardChangesDescription": "Your geometry changes have not been saved. You can continue editing or discard them.",
+    "discardChangesAccessLostDescription": "You can no longer edit this dataset, so discarding removes these unsaved geometry changes from the map.",
     "discardChangesAction": "Discard changes",
     "editAccessLostNotice": "You can no longer edit this dataset, so these map changes can't be saved.",
     "editLostOnReloadNotice": "The map reloaded, and your unsaved change to this feature was lost.",

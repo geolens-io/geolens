@@ -426,6 +426,7 @@
     "sketchStillSaving": "上一个要素仍在保存。请在保存完成后重试。",
     "discardChangesTitle": "放弃未保存的地图编辑？",
     "discardChangesDescription": "您的几何更改尚未保存。您可以继续编辑，也可以放弃更改。",
+    "discardChangesAccessLostDescription": "您已无法编辑此数据集，放弃后将从地图上移除这些未保存的几何更改。",
     "discardChangesAction": "放弃更改",
     "editAccessLostNotice": "您已无法编辑此数据集，因此无法保存这些地图更改。",
     "editLostOnReloadNotice": "地图已重新加载，此要素未保存的更改已丢失。",

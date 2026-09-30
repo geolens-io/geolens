@@ -1391,7 +1391,7 @@ export const DatasetMap = memo(function DatasetMap({
           <AlertDialogHeader>
             <AlertDialogTitle>{t('map.discardChangesTitle')}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t('map.discardChangesDescription')}
+              {canEdit ? t('map.discardChangesDescription') : t('map.discardChangesAccessLostDescription')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
