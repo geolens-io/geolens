@@ -1,18 +1,19 @@
 """The follow-ups a job owes once its terminal commit has landed.
 
-A first ingest owes its completion follow-ups, and a rejected replacement its
-failure notice. A publish that consumed a staged upload also owes items: the
-upload's archive and then its deletion. A raster replacement owes deleting the
-objects it superseded, apart from a COG a VRT may still read, which stays
-charged to the dataset for the stale-job sweep to reclaim. The terminal
-transaction records them on the job row, so the record exists exactly when the
-commit does. The task runs them after its commit, or the stale-job sweep when
-the task could not. The rest runs once, at the first claim, without waiting on
-the items. Each item is confirmed on its own and retried, after a doubling delay
-capped at a few hours, until it is; the record goes once it is claimed and no
-item is left. A job that holds an unarchived original but owes no archive, as
-one flagged before archives were owed does, has its archive owed again when its
-row establishes it, and is marked for review otherwise.
+A first ingest or a VRT regeneration owes its completion follow-ups, and a
+rejected replacement its failure notice. A publish that consumed a staged
+upload also owes items: the upload's archive and then its deletion. A raster
+replacement owes deleting the objects it superseded, apart from a COG a VRT
+may still read, which stays charged to the dataset for the stale-job sweep to
+reclaim. The terminal transaction records them on the job row, so the record
+exists exactly when the commit does. The task runs them after its commit, or
+the stale-job sweep when the task could not. The rest runs once, at the first
+claim, without waiting on the items. Each item is confirmed on its own and
+retried, after a doubling delay capped at a few hours, until it is; the record
+goes once it is claimed and no item is left. A job that holds an unarchived
+original but owes no archive, as one flagged before archives were owed does,
+has its archive owed again when its row establishes it, and is marked for
+review otherwise.
 """
 
 from __future__ import annotations
@@ -67,22 +68,21 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
-# Each first ingest's completion-notice label, or None when it sends no notice
-# and bills nothing.
+# The completion-notice label of each task that owes the completion follow-ups,
+# or None when it sends no notice and bills nothing.
 _LABELS: dict[str, str | None] = {
     "ingest_raster": "Raster",
     "ingest_tileset": "3D Tiles",
     "ingest_pointcloud": "Point cloud",
     "ingest_vrt": None,
+    "regenerate_vrt": None,
 }
 
 _SWEEP_BATCH = 50
 
 # A replacement or a vector import runs its own completion steps, so its
 # record owes only its items.
-_ITEMS_ONLY = frozenset(
-    {"reupload_file", "reupload_raster", "ingest_file", "regenerate_vrt"}
-)
+_ITEMS_ONLY = frozenset({"reupload_file", "reupload_raster", "ingest_file"})
 
 # The items a record can owe, each a key in the record that is removed alone
 # once it is confirmed.
@@ -775,12 +775,12 @@ async def run_publish_followups(
     so a caller stopped short leaves it for the next one. The claim then runs
     the rest exactly once, without waiting on the items: it marks the record
     claimed while items are left, and removes it once none are. The job's
-    status chooses what runs: a complete first ingest's follow-ups, or a failed
-    job's ``ingest_failed`` notice. A replacement or a vector import owes
-    nothing past its items. A job in neither status runs nothing, and a row
-    another caller has locked nothing past the items. A record an earlier
-    attempt wrote is cleared and runs nothing, and a deleted dataset skips the
-    rest. Returns whether this call ran the rest.
+    status chooses what runs: a complete first ingest's or VRT regeneration's
+    follow-ups, or a failed job's ``ingest_failed`` notice. A replacement or a
+    vector import owes nothing past its items. A job in neither status runs
+    nothing, and a row another caller has locked nothing past the items. A
+    record an earlier attempt wrote is cleared and runs nothing, and a deleted
+    dataset skips the rest. Returns whether this call ran the rest.
 
     ``local_copy`` is a copy of the upload the caller holds and keeps; the
     archive reads it instead of downloading the upload again.

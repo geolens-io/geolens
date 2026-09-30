@@ -6915,15 +6915,7 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
     async def test_a_post_publish_followup_failure_writes_no_failure_row(
         self, client, admin_auth_header, test_db_session, raster_storage, monkeypatch
     ) -> None:
-        """fix(#1778 codex r1): the other way into the failure handler.
-
-        The stand-down covers the lost acknowledgement. It cannot cover this:
-        the prior-key reap, `invalidate_catalog_cache` and `defer_embedding`
-        all run inside the same `try` as the publish, so a Valkey outage
-        reaches the handler with the swap already durable. The handler's job
-        and asset writes are fenced; its generation write was not, and
-        `get_vrt_status` reads exactly that row.
-        """
+        """Follow-ups that fail after a durable swap leave the generation completed."""
         from app.processing.ingest.tasks_vrt import regenerate_vrt
         from app.processing.raster.models import VrtGeneration
 
@@ -6978,11 +6970,10 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
         attempt_id = job.attempt_id
 
         async def _die(*args, **kwargs):
-            raise RuntimeError("valkey went away right after the swap")
+            raise RuntimeError("the session dropped right after the swap")
 
-        # The first await after the publish commit that can fail.
         monkeypatch.setattr(
-            "app.processing.ingest.tasks_vrt.invalidate_catalog_cache",
+            "app.processing.ingest.tasks_vrt.run_publish_followups",
             _die,
             raising=True,
         )
@@ -7002,8 +6993,8 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
                 )
             ).scalar_one()
             assert generation.status == "completed", (
-                f"the generation reads {generation.status!r} because a cache "
-                "purge failed after the swap was durable"
+                f"the generation reads {generation.status!r} because the "
+                "follow-ups failed after the swap was durable"
             )
             assert generation.error_message is None
             asset = (
@@ -7025,8 +7016,8 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
             )
             assert resp.status_code == 200, resp.text
             assert resp.json()["last_generation_at"] is not None, (
-                "the VRT status endpoint lost the completed generation to a "
-                "failed cache purge"
+                "the VRT status endpoint lost the completed generation to "
+                "failed follow-ups"
             )
         finally:
             await _purge_vrt(test_db_session, ids=ids)

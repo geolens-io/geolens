@@ -21,7 +21,6 @@ from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 
 from sqlalchemy import select
 
-from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.jobs import ledger
 from app.platform.jobs.heartbeat import (
     JOB_ERROR_WRITE_TIMEOUT_MS,
@@ -34,7 +33,6 @@ from app.platform.jobs.heartbeat import (
 )
 from app.core.failure_reason import redact_failure_reason
 from app.core.db import tenant_task
-from app.processing.embeddings.helpers import defer_embedding
 from app.processing.raster.cog import sha256_file
 from app.processing.raster.probe import (
     RENDER_TIMEOUT_SECONDS,
@@ -1503,23 +1501,15 @@ async def regenerate_vrt(
                     # not fenced the way the job and asset writes are.
                     publish_committed = True
                     absorb_cancellation(exc)
-                    # With the outcome unknown, the prior generation may still
-                    # be live; the sweep runs the follow-ups once it shows.
+                    # With the outcome unknown, the sweep runs the follow-ups
+                    # once the commit shows.
                     if observation is PublishObservation.LANDED:
-                        # Same order as the committed path below: the sweep
-                        # retries the follow-ups but nothing retries these.
-                        await invalidate_catalog_cache()
-                        if vrt_dataset is not None:
-                            await defer_embedding(vrt_dataset)
                         await run_publish_followups(job_uuid)
                     return
                 publish_committed = True
 
-                # 15. Invalidate cache and defer embedding, before the
-                # follow-ups: the sweep retries those, and nothing retries these.
-                await invalidate_catalog_cache()
-                if vrt_dataset is not None:
-                    await defer_embedding(vrt_dataset)
+                # 15. The follow-ups purge the catalog cache and refresh the
+                # embedding, so the sweep runs them too when the task can't.
                 await run_publish_followups(job_uuid)
 
             except Exception:  # broad: re-raised below; rollback first so the
@@ -1529,15 +1519,9 @@ async def regenerate_vrt(
 
     except Exception as exc:  # broad: VRT regeneration includes GDAL subprocesses and rasterio — any step can fail
         if publish_committed:
-            # fix(#1778): the second way this handler is reached with
-            # a durable publish behind it, and the one the stand-down above
-            # cannot cover: the follow-ups, `invalidate_catalog_cache` and
-            # `defer_embedding` all run inside the same try. The generation
-            # write below is not fenced the way the job and asset writes are,
-            # so reaching here after the swap stamped a `completed` generation
-            # `failed`, which `get_vrt_status` reads as "no completed
-            # generation" and the stale-generation sweep reads as evidence the
-            # asset was unhealthy.
+            # The follow-ups failed after a durable publish. The generation
+            # write below is unfenced and would stamp a `completed` generation
+            # `failed`, which `get_vrt_status` reads as no completed generation.
             structlog.get_logger().warning(
                 "vrt_post_publish_followup_failed",
                 job_id=job_id,
