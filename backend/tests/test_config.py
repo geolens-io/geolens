@@ -1263,3 +1263,22 @@ class TestS3PresignedDownloads:
     def test_compose_passes_the_setting_to_the_app(self, manifest):
         text = (repo_root(__file__) / manifest).read_text()
         assert 'S3_PRESIGNED_DOWNLOADS: "${S3_PRESIGNED_DOWNLOADS:-false}"' in text
+
+
+class TestS3PublicEndpoint:
+    def test_unset_by_default(self):
+        assert _make_settings().s3_public_endpoint is None
+
+    def test_a_blank_value_is_unset(self):
+        assert _make_settings(s3_public_endpoint="  ").s3_public_endpoint is None
+
+    def test_a_value_is_kept(self):
+        url = "https://files.example.com:9443"
+        assert _make_settings(s3_public_endpoint=url).s3_public_endpoint == url
+
+    @pytest.mark.parametrize(
+        "manifest", ["docker-compose.yml", "docker-compose.prod.yml"]
+    )
+    def test_compose_passes_the_setting_to_the_app(self, manifest):
+        text = (repo_root(__file__) / manifest).read_text()
+        assert 'S3_PUBLIC_ENDPOINT: "${S3_PUBLIC_ENDPOINT:-}"' in text

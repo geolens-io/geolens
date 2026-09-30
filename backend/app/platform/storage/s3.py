@@ -11,6 +11,12 @@ GCP service account keys) for GCS.
 
 Addressing style: `path` for MinIO, `virtual` for some AWS regions, `auto`
 lets the SDK decide (usually correct for AWS).
+
+Public endpoint: when the endpoint is a container hostname or private address,
+presigned URLs signed against it are unreachable for browsers and external
+clients. SigV4 signs the Host header, so a URL can't be rewritten after
+signing; `public_endpoint` signs presigned URLs with a second client instead.
+Every other operation keeps using the internal endpoint.
 """
 
 from __future__ import annotations
@@ -43,8 +49,18 @@ def _as_utc(value: datetime) -> datetime:
     return value.astimezone(timezone.utc)
 
 
+def _endpoint_url(endpoint: str | None, allow_http: bool) -> str | None:
+    if not endpoint:
+        return None
+    if endpoint.startswith(("http://", "https://")):
+        return endpoint
+    return f"{'http' if allow_http else 'https'}://{endpoint}"
+
+
 class S3StorageProvider:
     """Storage provider wrapping boto3 S3 client via asyncio.to_thread."""
+
+    _public_client = None
 
     def __init__(
         self,
@@ -55,18 +71,9 @@ class S3StorageProvider:
         secret_access_key: str | None = None,
         allow_http: bool = False,
         addressing_style: str = "auto",
+        public_endpoint: str | None = None,
     ) -> None:
         self.bucket = bucket
-
-        endpoint_url = None
-        if endpoint:
-            if not endpoint.startswith("http://") and not endpoint.startswith(
-                "https://"
-            ):
-                scheme = "http" if allow_http else "https"
-                endpoint_url = f"{scheme}://{endpoint}"
-            else:
-                endpoint_url = endpoint
 
         config = Config(
             s3={"addressing_style": addressing_style},
@@ -80,14 +87,21 @@ class S3StorageProvider:
             "region_name": region,
             "config": config,
         }
-        if endpoint_url:
-            kwargs["endpoint_url"] = endpoint_url
         if access_key_id:
             kwargs["aws_access_key_id"] = access_key_id
         if secret_access_key:
             kwargs["aws_secret_access_key"] = secret_access_key
 
-        self.client = boto3.client(**kwargs)
+        self.client = boto3.client(
+            **kwargs, endpoint_url=_endpoint_url(endpoint, allow_http)
+        )
+        public_url = _endpoint_url(public_endpoint, allow_http)
+        if public_url:
+            self._public_client = boto3.client(**kwargs, endpoint_url=public_url)
+
+    @property
+    def _presign_client(self):
+        return self._public_client or self.client
 
     async def put(self, key: str, data: BinaryIO | bytes) -> str:
         """Store data at key. Returns s3://bucket/key URI.
@@ -347,7 +361,7 @@ class S3StorageProvider:
         from app.core.config import settings
 
         expiration = min(expiration, settings.pending_job_timeout_seconds)
-        return self.client.generate_presigned_url(
+        return self._presign_client.generate_presigned_url(
             ClientMethod="put_object",
             Params={"Bucket": self.bucket, "Key": key, "ContentType": content_type},
             ExpiresIn=expiration,
@@ -359,7 +373,7 @@ class S3StorageProvider:
         expiration: int = 3600,
     ) -> str:
         """Generate a presigned GET URL for download."""
-        return self.client.generate_presigned_url(
+        return self._presign_client.generate_presigned_url(
             ClientMethod="get_object",
             Params={"Bucket": self.bucket, "Key": key},
             ExpiresIn=expiration,
@@ -394,7 +408,7 @@ class S3StorageProvider:
         from app.core.config import settings
 
         expiration = min(expiration, settings.pending_job_timeout_seconds)
-        return self.client.generate_presigned_url(
+        return self._presign_client.generate_presigned_url(
             ClientMethod="upload_part",
             Params={
                 "Bucket": self.bucket,
