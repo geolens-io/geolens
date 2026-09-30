@@ -43,6 +43,22 @@ _VOCABULARY_CACHE_MAX = 32
 _neighbor_kw_cache: dict[str, tuple[float, list[str]]] = {}
 
 
+def _describe_extent(bounds: tuple[float, float, float, float]) -> str:
+    """Describe a west, south, east, north bbox as signed longitude and latitude ranges.
+
+    Bare W/S/E/N labels beside positive numbers read as hemisphere letters to some
+    models. A seam-crossing extent keeps west > east instead of a global footprint,
+    and says so, because west > east alone reads as a typo.
+    """
+    west, south, east, north = bounds
+    crossing = " (crosses the antimeridian)" if west > east else ""
+    return (
+        "Extent in signed decimal degrees (negative longitude is west, negative "
+        f"latitude is south): longitude {west:.4f} to {east:.4f}{crossing}, "
+        f"latitude {south:.4f} to {north:.4f}"
+    )
+
+
 async def _build_dataset_context(
     session: AsyncSession,
     dataset_id: str,
@@ -100,19 +116,11 @@ async def _build_dataset_context(
         parts.append(f"Source organization: {record.source_organization}")
 
     if record.spatial_extent is not None:
-        # fix(#892): the label below is literally "W, S, E, N", so the RFC 7946
-        # §5.2 spec bbox is the honest value -- a seam-crossing extent reads
-        # W > E rather than claiming a global -180..180 footprint. Spell the
-        # crossing out, because W > E alone reads as a typo to a summarizer.
         bounds = extent_to_bbox(record.spatial_extent)
         if bounds is None:
             logger.debug("Failed to parse spatial bounds for AI context")
         else:
-            crossing = " (crosses the antimeridian)" if bounds[0] > bounds[2] else ""
-            parts.append(
-                f"Bounding box (W, S, E, N): {bounds[0]:.4f}, {bounds[1]:.4f}, "
-                f"{bounds[2]:.4f}, {bounds[3]:.4f}{crossing}"
-            )
+            parts.append(_describe_extent(bounds))
 
     if record.access_constraints:
         parts.append(f"Access constraints: {record.access_constraints}")
