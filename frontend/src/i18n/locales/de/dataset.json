@@ -475,6 +475,7 @@
     "sketchStillSaving": "Das vorherige Feature wird noch gespeichert. Versuchen Sie es erneut, sobald es gespeichert ist.",
     "discardChangesTitle": "Ungespeicherte Kartenbearbeitungen verwerfen?",
     "discardChangesDescription": "Ihre Geometrieänderungen wurden nicht gespeichert. Sie können weiter bearbeiten oder sie verwerfen.",
+    "discardChangesAccessLostDescription": "Sie können diesen Datensatz nicht mehr bearbeiten. Beim Verwerfen werden diese nicht gespeicherten Geometrieänderungen von der Karte entfernt.",
     "discardChangesAction": "Änderungen verwerfen",
     "editAccessLostNotice": "Sie können diesen Datensatz nicht mehr bearbeiten, daher lassen sich diese Kartenänderungen nicht speichern.",
     "editLostOnReloadNotice": "Die Karte wurde neu geladen, und die nicht gespeicherte Änderung an diesem Feature ist verloren gegangen.",

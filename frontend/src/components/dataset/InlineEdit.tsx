@@ -143,11 +143,11 @@ export function InlineEdit({
     [],
   );
 
-  // Not editable -- render plain text
+  // The placeholder invites an edit, so a viewer who can't edit sees a neutral empty state.
   if (!canEdit) {
     return (
       <Tag className={className}>
-        {value || placeholder}
+        {value || <span className="text-muted-foreground">{t('common:notSet')}</span>}
       </Tag>
     );
   }

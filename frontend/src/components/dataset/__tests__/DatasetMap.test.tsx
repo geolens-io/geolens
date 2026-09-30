@@ -1131,7 +1131,10 @@ describe('DatasetMap when edit rights are lost mid-session', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
     expect(drawingState.clearDrawing).not.toHaveBeenCalled();
-    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Discard changes' }));
+    const dialog = screen.getByRole('alertdialog');
+    expect(dialog).toHaveTextContent(/can no longer edit this dataset/i);
+    expect(dialog).not.toHaveTextContent(/continue editing/i);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Discard changes' }));
     expect(drawingState.clearDrawing).toHaveBeenCalled();
   });
 

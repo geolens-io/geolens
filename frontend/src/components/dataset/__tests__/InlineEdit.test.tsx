@@ -308,3 +308,15 @@ describe('InlineEdit multiline keyboard reachability (#528 review)', () => {
     expect(input).toHaveAccessibleName('Dataset title');
   });
 });
+
+describe('InlineEdit without edit rights', () => {
+  it('shows a read-only viewer a neutral empty state instead of the edit prompt', () => {
+    const { container } = render(
+      <InlineEdit value="" onSave={vi.fn()} canEdit={false} placeholder="Add a description..." as="p" />,
+    );
+
+    expect(container).toHaveTextContent('common:notSet');
+    expect(container).not.toHaveTextContent('Add a description...');
+    expect(container.querySelector('[role="button"]')).toBeNull();
+  });
+});
