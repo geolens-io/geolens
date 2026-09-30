@@ -378,6 +378,82 @@ class TestGdalFailureTempCleanup:
         )
 
 
+class TestOverviewSidecarCleanup:
+    """On a COG-layout input without internal overviews, GDAL 3.10 exits 0 and
+    writes ``<copy>.ovr`` beside the temp copy instead of rewriting it. Newer
+    GDAL refuses outright, so the stand-in below models the 3.10 behavior
+    rather than depending on whichever GDAL runs the suite.
+    """
+
+    @staticmethod
+    def _gdal_writing_ovr_sidecar(
+        work_dir, *, addo_raises=False, translate_returncode=0
+    ):
+        from pathlib import Path
+
+        def _run(cmd, **_kwargs):
+            if cmd[0] == "gdaladdo":
+                copy = next(a for a in cmd if Path(a).parent == work_dir)
+                Path(f"{copy}.ovr").write_bytes(b"\x00")
+                if addo_raises:
+                    raise RuntimeError("gdaladdo timed out after 900s")
+                return mock.Mock(returncode=0, stderr="")
+            # COPY_SRC_OVERVIEWS reads the sidecar, so it must still be there.
+            assert Path(f"{cmd[-2]}.ovr").exists()
+            if translate_returncode == 0:
+                Path(cmd[-1]).write_bytes(b"\x00")
+            return mock.Mock(returncode=translate_returncode, stderr="translate failed")
+
+        return _run
+
+    def _stage(self, tmp_path, monkeypatch, **fake_options):
+        from app.processing.raster import cog as cog_module
+
+        src = tmp_path / "src.tif"
+        src.write_bytes(b"\x00" * 8)
+        work_dir = tmp_path / "work"
+        work_dir.mkdir()
+        monkeypatch.setattr(cog_module, "_scratch_dir", lambda: str(work_dir))
+        monkeypatch.setattr(
+            cog_module,
+            "run_gdal",
+            self._gdal_writing_ovr_sidecar(work_dir, **fake_options),
+        )
+        return src, tmp_path / "out.tif", work_dir
+
+    def test_success_removes_the_sidecar_with_the_copy(self, tmp_path, monkeypatch):
+        from app.processing.raster import cog as cog_module
+
+        src, out, work_dir = self._stage(tmp_path, monkeypatch)
+
+        cog_module.convert_to_cog(str(src), str(out), "uint8", **_NO_OVERVIEWS)
+
+        assert out.exists()
+        assert list(work_dir.iterdir()) == []
+
+    def test_translate_failure_removes_the_sidecar(self, tmp_path, monkeypatch):
+        import pytest
+        from app.processing.raster import cog as cog_module
+
+        src, out, work_dir = self._stage(tmp_path, monkeypatch, translate_returncode=1)
+
+        with pytest.raises(RuntimeError, match="translate failed"):
+            cog_module.convert_to_cog(str(src), str(out), "uint8", **_NO_OVERVIEWS)
+
+        assert list(work_dir.iterdir()) == []
+
+    def test_gdaladdo_timeout_removes_a_partial_sidecar(self, tmp_path, monkeypatch):
+        import pytest
+        from app.processing.raster import cog as cog_module
+
+        src, out, work_dir = self._stage(tmp_path, monkeypatch, addo_raises=True)
+
+        with pytest.raises(RuntimeError, match="timed out"):
+            cog_module.convert_to_cog(str(src), str(out), "uint8", **_NO_OVERVIEWS)
+
+        assert list(work_dir.iterdir()) == []
+
+
 # ---------------------------------------------------------------------------
 # Low-bit-depth predictor guard: production failure on
 # Peshawar_City_LULC_2050.tif (2026-08-21 demo ingest)
