@@ -237,6 +237,17 @@ async def check_upload_quota(
     await enforce_limit(request, "dataset_count", usage.dataset_count + 1)
 
 
+async def _cog_may_be_read(db: AsyncSession, dataset_id: uuid.UUID) -> bool:
+    """Whether a VRT may read the dataset's COG, by the test the publish applies."""
+    from app.processing.raster.vrt_members import cog_readers
+
+    asset_uri = await db.scalar(
+        text("SELECT asset_uri FROM catalog.raster_assets WHERE dataset_id = :id"),
+        {"id": dataset_id},
+    )
+    return asset_uri is not None and any(await cog_readers(db, dataset_id, asset_uri))
+
+
 async def check_replacement_quota(
     db: AsyncSession,
     owner_id: uuid.UUID | None,
@@ -247,7 +258,7 @@ async def check_replacement_quota(
 ) -> None:
     """Admit a REPLACEMENT at the door, where ``check_upload_quota`` cannot.
 
-    fix(#1290): ``check_upload_quota`` is creation-shaped (refuses at
+    ``check_upload_quota`` is creation-shaped (refuses at
     ``dataset_count >= count_cap``, charges the incoming file on top of
     existing usage). Both are wrong for a replacement -- the count check
     would lock out an owner already at their limit even though replacing
@@ -258,16 +269,21 @@ async def check_replacement_quota(
     crediting that would admit an overshoot). Archived originals are NOT
     credited: a replacement doesn't supersede them.
 
+    Nor is a COG a VRT may still read: the publish keeps it, charged, so
+    crediting it here could admit a replacement the publish then refuses.
+    The reader test is the publish's own, ``cog_readers``. A reader that
+    appears after this check is seen only by the publish.
+
     Deliberately an EARLY, approximate bound: the door sees the uploaded
     file, not the (possibly larger) COG it converts into. The authoritative
     check is ``reserve_storage_bytes`` at publish time, under the per-user
     advisory lock, against the real converted size. Shared by both reupload
     doors and every record type.
 
-    fix(#1290): identity is the dataset's OWNER, not the requester --
-    an admin replacing someone else's dataset must be checked against the
-    same identity the worker later reserves against
-    (``dataset.record.created_by``), or the two authorities could disagree.
+    Identity is the dataset's OWNER, not the requester -- an admin replacing
+    someone else's dataset must be checked against the same identity the
+    worker later reserves against (``dataset.record.created_by``), or the two
+    authorities could disagree.
 
     ``owner_id`` may be None for an ownerless dataset and passes straight
     through unchanged (module docstring's exemption policy), same route
@@ -282,14 +298,17 @@ async def check_replacement_quota(
         ),
         {"dataset_id": dataset_id},
     )
-    projected = usage.bytes_used - int(counted or 0) + incoming_bytes
+    credited = int(counted or 0)
+    if credited and await _cog_may_be_read(db, dataset_id):
+        credited = 0
+    projected = usage.bytes_used - credited + incoming_bytes
 
     if usage.storage_cap > 0 and projected > usage.storage_cap:
         raise HTTPException(
             status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             detail=(
                 f"Storage quota exceeded: used {usage.bytes_used} of "
-                f"{usage.storage_cap} bytes (replacing {int(counted or 0)} "
+                f"{usage.storage_cap} bytes (replacing {credited} "
                 f"bytes with {incoming_bytes} bytes)"
             ),
         )

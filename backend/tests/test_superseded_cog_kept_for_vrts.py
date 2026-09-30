@@ -15,13 +15,16 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+from unittest.mock import MagicMock
+
 import pytest
 import structlog
+from fastapi import HTTPException, Request
 from sqlalchemy import delete, select, text
 
 import app.core.db as db_module
 from app.modules.auth.models import User
-from app.modules.quota.service import get_user_quota_usage
+from app.modules.quota.service import check_replacement_quota, get_user_quota_usage
 from app.platform.jobs.models import PUBLISH_FOLLOWUPS_FIELD, IngestJob
 from app.platform.jobs.sweep import fail_stale_jobs
 from app.processing.ingest import tasks_raster_replace, tasks_vrt
@@ -680,6 +683,130 @@ async def test_a_replacement_near_the_cap_fits_only_when_the_old_cog_goes(
             await _purge_vrt(
                 test_db_session,
                 ids=(parent_id, parent_record, member_id, member_record),
+            )
+        else:
+            await _purge(test_db_session, dataset_id=member_id, record_id=member_record)
+        await _drop_owner(test_db_session, owner_id)
+
+
+async def _add_reader(session, storage, *, kind: str, owner_id, member):
+    """Make ``member``'s COG readable by a VRT, or a build, of the given ``kind``.
+
+    Returns ``(parent_ids, job_ids)`` for the cleanup: the VRT's dataset and
+    record ids, and the ids of any ingest job added.
+    """
+    cog = member.cog_key
+    member_id = member.dataset.id
+    if kind == "creation":
+        job = IngestJob(
+            source_filename="mosaic.vrt",
+            created_by=owner_id,
+            status="running",
+            user_metadata={vrt_members.VRT_MEMBERS_FIELD: [str(member_id)]},
+        )
+        session.add(job)
+        await session.commit()
+        return None, [job.id]
+    parent = await _make_vrt_parent(
+        session, storage, created_by=owner_id, member=member
+    )
+    parent_ids = (parent.dataset.id, parent.dataset.record_id)
+    if kind == "built_from":
+        await _set_built_from(session, parent_ids[0], {str(member_id): cog})
+    elif kind == "generation":
+        await _set_built_from(
+            session, parent_ids[0], {str(member_id): "rasters/elsewhere.cog.tif"}
+        )
+        session.add(
+            VrtGeneration(
+                vrt_dataset_id=parent_ids[0],
+                status="pending",
+                started_at=datetime.now(timezone.utc),
+            )
+        )
+        await session.commit()
+    return parent_ids, []
+
+
+async def _door(session, owner_id, dataset_id, incoming_bytes: int) -> None:
+    await check_replacement_quota(
+        session,
+        owner_id,
+        incoming_bytes,
+        MagicMock(spec=Request),
+        dataset_id=dataset_id,
+    )
+
+
+@pytest.mark.parametrize("kind", ["built_from", "no_record", "generation", "creation"])
+async def test_the_door_does_not_credit_a_cog_a_vrt_may_read(
+    test_db_session, raster_storage, kind: str
+) -> None:
+    """The publish keeps that COG charged, so a swap that fits only by crediting it is refused up front."""
+    owner_id = await _make_owner(test_db_session)
+    member = await _make_live_raster(
+        test_db_session, raster_storage, created_by=owner_id
+    )
+    member_id, member_record = member.dataset.id, member.dataset.record_id
+    parent_ids, job_ids = await _add_reader(
+        test_db_session, raster_storage, kind=kind, owner_id=owner_id, member=member
+    )
+    await _set_counted_data_bytes(test_db_session, member_id, 10_000_000)
+    try:
+        with _capped(storage_cap=10_000_001):
+            with pytest.raises(HTTPException) as refused:
+                await _door(test_db_session, owner_id, member_id, 100)
+            assert refused.value.status_code == 413
+            assert "replacing 0 bytes with 100 bytes" in refused.value.detail
+            await _door(test_db_session, owner_id, member_id, 1)
+    finally:
+        await test_db_session.execute(
+            delete(IngestJob).where(IngestJob.id.in_(job_ids))
+        )
+        await test_db_session.commit()
+        if parent_ids is not None:
+            await _purge_vrt(
+                test_db_session, ids=(*parent_ids, member_id, member_record)
+            )
+        else:
+            await _purge(test_db_session, dataset_id=member_id, record_id=member_record)
+        await _drop_owner(test_db_session, owner_id)
+
+
+@pytest.mark.parametrize("in_a_vrt", [True, False])
+async def test_the_door_credits_the_old_cog_when_no_vrt_may_read_it(
+    test_db_session, raster_storage, in_a_vrt: bool
+) -> None:
+    """A member whose VRT was built from another COG, or none at all, still swaps at the cap."""
+    owner_id = await _make_owner(test_db_session)
+    member = await _make_live_raster(
+        test_db_session, raster_storage, created_by=owner_id
+    )
+    member_id, member_record = member.dataset.id, member.dataset.record_id
+    parent_ids = None
+    if in_a_vrt:
+        parent = await _make_vrt_parent(
+            test_db_session, raster_storage, created_by=owner_id, member=member
+        )
+        parent_ids = (parent.dataset.id, parent.dataset.record_id)
+        await _set_built_from(
+            test_db_session,
+            parent_ids[0],
+            {str(member_id): "rasters/elsewhere.cog.tif"},
+        )
+    await _set_counted_data_bytes(test_db_session, member_id, 10_000_000)
+    try:
+        with _capped(storage_cap=10_000_001):
+            await _door(test_db_session, owner_id, member_id, 100)
+            with pytest.raises(HTTPException) as refused:
+                await _door(test_db_session, owner_id, member_id, 10_000_002)
+            assert (
+                "replacing 10000000 bytes with 10000002 bytes" in refused.value.detail
+            )
+    finally:
+        if parent_ids is not None:
+            await _purge_vrt(
+                test_db_session, ids=(*parent_ids, member_id, member_record)
             )
         else:
             await _purge(test_db_session, dataset_id=member_id, record_id=member_record)
