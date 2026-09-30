@@ -1,6 +1,7 @@
 // Binary rounding noise from a SUM or AVG shows as a run of 0s or 9s and a stray
 // digit or two at the end of the fraction (491.9000000000001). Only that shape is
-// rounded, so values with genuine 16th and 17th digits keep them.
+// rounded, to the 15 significant digits a double carries. A genuine value of the
+// same shape rounds too, so the result tables keep the exact value in each title.
 const NOISE_TAIL = /\.\d*?(?:0{6,}|9{6,})\d{1,2}$/;
 
 /** Display text for one cell of an AI chat query result. */

@@ -339,7 +339,7 @@ describe('QueryResultTable', () => {
       />,
     );
 
-    expect(screen.getByRole('cell', { name: '491.9' })).toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: '491.9' })).toHaveAttribute('title', '491.9000000000001');
     expect(screen.getByRole('cell', { name: '56.025' })).toBeInTheDocument();
     expect(screen.getByRole('cell', { name: '1234567890123456' })).toBeInTheDocument();
     expect(screen.getByRole('cell', { name: '100000000000000.5' })).toBeInTheDocument();
