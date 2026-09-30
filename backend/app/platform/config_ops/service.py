@@ -676,7 +676,11 @@ async def preflight_import(
     from app.core.edition import is_enterprise
     from app.core.persistent_config import (
         ENTERPRISE_ONLY_TABS,
+        LLM_MODEL,
+        LLM_MODEL_LIGHT,
+        LLM_PROVIDER,
         _registry,
+        llm_model_default,
     )
     from app.core.public_urls import _is_env_only
     from app.modules.auth.oauth import service as oauth_service
@@ -730,16 +734,25 @@ async def preflight_import(
     )
 
     if mode == "overwrite":
+        # Omitted model settings follow the provider this import leaves in place.
+        final_provider = validated_settings.get(
+            "llm_provider", LLM_PROVIDER.env_default
+        )
         for cfg in _registry:
             if cfg.key in raw_settings:
                 continue
             if not caller_is_enterprise and cfg.tab in ENTERPRISE_ONLY_TABS:
                 continue
+            imported = cfg.env_default
+            if cfg in (LLM_MODEL, LLM_MODEL_LIGHT):
+                imported = llm_model_default(
+                    final_provider, light=cfg is LLM_MODEL_LIGHT
+                )
             setting_changes.append(
                 SettingChange(
                     key=cfg.key,
                     current=current_settings[cfg.key],
-                    imported=await cfg.resolved_default(db),
+                    imported=imported,
                     action="reset",
                     reason="Omitted from overwrite payload; reset to runtime default.",
                 ).model_dump()

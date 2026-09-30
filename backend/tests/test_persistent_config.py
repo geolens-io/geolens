@@ -1134,6 +1134,43 @@ async def test_model_reset_and_import_state_use_the_provider_default(
         assert current["llm_model_light"] == "openai-light-env"
 
 
+@pytest.mark.anyio
+async def test_overwrite_preview_resolves_models_against_the_imported_provider(
+    client: AsyncClient, admin_auth_header: dict, _both_ai_keys
+):
+    """Omitted model settings preview the provider the overwrite leaves in place."""
+    await client.put(
+        "/settings/",
+        json={"settings": {"llm_provider": "anthropic"}},
+        headers=admin_auth_header,
+    )
+    switched = await client.post(
+        "/config-ops/dry-run/?mode=overwrite",
+        json={"settings": {"llm_provider": "openai_compatible"}},
+        headers=admin_auth_header,
+    )
+    assert switched.status_code == 200, switched.text
+    changes = {c["key"]: c for c in switched.json()["settings"]["changes"]}
+    assert changes["llm_model"]["current"] == "anthropic-chat-env"
+    assert changes["llm_model"]["imported"] == "openai-chat-env"
+    assert changes["llm_model_light"]["imported"] == "openai-light-env"
+
+    await client.put(
+        "/settings/",
+        json={"settings": {"llm_provider": "openai_compatible"}},
+        headers=admin_auth_header,
+    )
+    provider_reset = await client.post(
+        "/config-ops/dry-run/?mode=overwrite",
+        json={"settings": {"log_level": "INFO"}},
+        headers=admin_auth_header,
+    )
+    assert provider_reset.status_code == 200, provider_reset.text
+    changes = {c["key"]: c for c in provider_reset.json()["settings"]["changes"]}
+    assert changes["llm_model"]["current"] == "openai-chat-env"
+    assert changes["llm_model"]["imported"] == "anthropic-chat-env"
+
+
 # ---------------------------------------------------------------------------
 # Log level propagation tests (CFG-06)
 # ---------------------------------------------------------------------------
