@@ -306,6 +306,9 @@ export const DatasetMap = memo(function DatasetMap({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [pendingGeometry, setPendingGeometry] = useState<Geometry | null>(null);
   const [autoSavingGeometry, setAutoSavingGeometry] = useState<Geometry | null>(null);
+  // A ref, because a finish event can land before the render that applies the
+  // state above.
+  const autoSaveInFlightRef = useRef<Geometry | null>(null);
   const [editingAttributes, setEditingAttributes] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
@@ -381,17 +384,25 @@ export const DatasetMap = memo(function DatasetMap({
     (feature: Feature<Geometry, GeoJsonProperties>) => {
       const geom = feature.geometry;
       if (!geom) return;
+      // A sketch that finishes while an automatic save is in flight is dropped,
+      // so the held shape can't be replaced before that save settles.
+      if (autoSaveInFlightRef.current) return;
       // TerraDraw drops the shape once it finishes, so it stays unsaved work
       // until a create succeeds. Without edit rights the save would be
       // refused, so it waits for Discard instead of being sent. With no
       // attributes to ask for, it saves at once, and a refusal leaves it held.
       setPendingGeometry(geom);
       if (editableColumns.length > 0 || !canEdit) return;
+      autoSaveInFlightRef.current = geom;
       setAutoSavingGeometry(geom);
-      void saveAndRefreshRef.current(geom, {}).then(({ refused }) => {
-        setAutoSavingGeometry((current) => (current === geom ? null : current));
-        if (!refused) setPendingGeometry((current) => (current === geom ? null : current));
-      });
+      void saveAndRefreshRef.current(geom, {})
+        .then(({ refused }) => {
+          if (!refused) setPendingGeometry((current) => (current === geom ? null : current));
+        })
+        .finally(() => {
+          if (autoSaveInFlightRef.current === geom) autoSaveInFlightRef.current = null;
+          setAutoSavingGeometry((current) => (current === geom ? null : current));
+        });
     },
     [canEdit, editableColumns],
   );
@@ -969,6 +980,9 @@ export const DatasetMap = memo(function DatasetMap({
     clear();
     tdSetMode('select');
     setPendingGeometry(null);
+    // The save still in flight belongs to the session that just ended.
+    autoSaveInFlightRef.current = null;
+    setAutoSavingGeometry(null);
     setEditingAttributes(false);
     // fix(#1761 review round 4, sweep): the delete/discard confirmation
     // dialogs are the same class as pendingGeometry/editingAttributes —

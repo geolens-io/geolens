@@ -1371,38 +1371,6 @@ describe('DatasetMap when edit rights are lost mid-session', () => {
     expect(drawingState.clearDrawing).toHaveBeenCalled();
   });
 
-  it('keeps a clean session until every overlapping write has settled', async () => {
-    const settles: (() => void)[] = [];
-    createFeatureMutateAsync.mockReset();
-    createFeatureMutateAsync.mockImplementation(() => new Promise((resolve) => {
-      settles.push(() => resolve({}));
-    }));
-    const { rerender } = render(renderMap(true));
-    for (const x of [1, 2]) {
-      act(() => {
-        terraDrawState.handleDrawFinish?.({
-          type: 'Feature',
-          geometry: { type: 'Point', coordinates: [x, x] },
-          properties: {},
-        });
-      });
-    }
-    expect(createFeatureMutateAsync).toHaveBeenCalledTimes(2);
-    rerender(renderMap(false));
-
-    await act(async () => {
-      settles[1]();
-    });
-    rerender(renderMap(false));
-    expect(drawingState.clearDrawing).not.toHaveBeenCalled();
-
-    await act(async () => {
-      settles[0]();
-    });
-    rerender(renderMap(false));
-    expect(drawingState.clearDrawing).toHaveBeenCalled();
-  });
-
   it('keeps a dirty edit a non-editable map inherits on mount', () => {
     drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
     drawingState.isEditDirty = true;
@@ -1635,6 +1603,64 @@ describe('DatasetMap new feature saved without an attribute form', () => {
     );
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(setUnsaved).toHaveBeenLastCalledWith(false);
+  });
+
+  it('starts one create when a second sketch finishes before the map re-renders, and keeps the first after a refusal', async () => {
+    const settle = pendingCreate('reject');
+    render(renderMap());
+
+    act(() => {
+      for (const x of [1, 2]) {
+        terraDrawState.handleDrawFinish?.({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [x, x] },
+          properties: {},
+        });
+      }
+    });
+    expect(createFeatureMutateAsync).toHaveBeenCalledTimes(1);
+
+    await settle();
+    createFeatureMutateAsync.mockResolvedValueOnce({});
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Save' }));
+    });
+
+    expect(createFeatureMutateAsync).toHaveBeenCalledTimes(2);
+    expect(createFeatureMutateAsync).toHaveBeenLastCalledWith(
+      expect.objectContaining({ geometry: { type: 'Point', coordinates: [1, 1] } }),
+    );
+  });
+
+  it('saves the next sketch once the earlier automatic save has settled', async () => {
+    const settle = pendingCreate('resolve');
+    render(renderMap());
+    finishSketch();
+    await settle();
+
+    createFeatureMutateAsync.mockResolvedValueOnce({});
+    finishSketch();
+
+    expect(createFeatureMutateAsync).toHaveBeenCalledTimes(2);
+  });
+
+  it('saves a new session\'s first sketch while the previous session\'s save is still in flight', () => {
+    pendingCreate('resolve');
+    const epoch = drawingState.sessionEpoch;
+    try {
+      const { rerender } = render(renderMap());
+      finishSketch();
+      expect(createFeatureMutateAsync).toHaveBeenCalledTimes(1);
+
+      drawingState.sessionEpoch = epoch + 1;
+      rerender(renderMap());
+      createFeatureMutateAsync.mockResolvedValueOnce({});
+      finishSketch();
+
+      expect(createFeatureMutateAsync).toHaveBeenCalledTimes(2);
+    } finally {
+      drawingState.sessionEpoch = epoch;
+    }
   });
 
   it('lets the user drop a shape whose automatic save was refused', async () => {
