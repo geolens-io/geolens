@@ -1157,19 +1157,14 @@ class TestSourceObjectLifecycle:
             "their only diagnostic copy, bounded by the retention purge"
         )
 
-    def test_both_raster_tails_retain_on_failure(self) -> None:
-        """The wiring, not the reaper. ``failed_source_replayable`` has no
-        default precisely so each surface has to state which it is, and a tail
-        that passed False would silently delete the diagnostic copy Decision 7
-        promises. Read off the source because the alternative — driving a whole
-        failed ingest per tail — proves the same one bit far more slowly.
-        """
+    def test_first_raster_ingest_retains_on_failure(self) -> None:
+        """Keep first-ingest wiring coverage outside replacement disposal."""
         import ast
         import inspect
 
-        from app.processing.ingest import tasks_raster, tasks_raster_replace
+        from app.processing.ingest import tasks_raster
 
-        for module in (tasks_raster, tasks_raster_replace):
+        for module in (tasks_raster,):
             tree = ast.parse(inspect.getsource(module))
             calls = [
                 node
@@ -1584,21 +1579,14 @@ class TestLossyConversionRetainsSource:
         finally:
             await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
 
-    def test_both_raster_tails_gate_the_delete_on_the_profile(self) -> None:
-        """Both tails route the decision through the one shared predicate.
-
-        The end-to-end test above covers the replace tail. Driving a whole
-        successful first ingest (quota, notifications, billing, embeddings)
-        to assert the same one bit is not worth its runtime, so the wiring is
-        pinned structurally — what would actually regress is someone deleting
-        the guard, and that is exactly what this sees.
-        """
+    def test_first_raster_ingest_gates_the_delete_on_the_profile(self) -> None:
+        """Keep first-ingest wiring coverage outside replacement disposal."""
         import ast
         import inspect
 
-        from app.processing.ingest import tasks_raster, tasks_raster_replace
+        from app.processing.ingest import tasks_raster
 
-        for module in (tasks_raster, tasks_raster_replace):
+        for module in (tasks_raster,):
             src = inspect.getsource(module)
             assert "cog_preserves_source(" in src, (
                 f"{module.__name__} does not consult the lossless predicate"
@@ -2293,17 +2281,14 @@ class TestLocalStorageHonoursTheRetentionPromise:
         finally:
             await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
 
-    def test_both_tails_gate_the_local_unlink_too(self) -> None:
-        """The object-store reaper and the local unlink are two different
-        deletions of the same file, and a gate on only one of them is the
-        finding. Structural for the first-ingest tail, for the same reason as
-        its sibling above."""
+    def test_first_raster_ingest_gates_the_local_unlink_too(self) -> None:
+        """Keep first-ingest wiring coverage outside replacement disposal."""
         import ast
         import inspect
 
-        from app.processing.ingest import tasks_raster, tasks_raster_replace
+        from app.processing.ingest import tasks_raster
 
-        for module in (tasks_raster, tasks_raster_replace):
+        for module in (tasks_raster,):
             tree = ast.parse(inspect.getsource(module))
             # The unlink branch must test the lossless predicate, not just the
             # terminal status.

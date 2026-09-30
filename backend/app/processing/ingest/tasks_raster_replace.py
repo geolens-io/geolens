@@ -27,7 +27,6 @@ import os
 import shutil
 import tempfile
 import uuid
-from pathlib import Path
 
 import structlog
 from sqlalchemy import select
@@ -37,6 +36,7 @@ from app.core.failure_reason import FixedReason
 from app.platform.catalog_locks import CATALOG_LOCK_CONFLICT_CODE, CatalogLockConflict
 from app.platform.jobs.heartbeat import StaleIngestAttempt
 from app.platform.jobs.models import owned_presigned_staging_key
+from app.processing.ingest.uploaded_source import UploadedSource
 from app.processing.raster.cog import (
     MissingRasterCrsError,
     _scratch_dir,
@@ -60,8 +60,6 @@ from app.processing.ingest.tasks_common import (
 )
 from app.processing.ingest.tasks_staging import (
     _validate_upload_file_safety,
-    reap_downloaded_staging_source,
-    reap_presigned_staging_object,
 )
 from app.processing.ingest.publication import (
     PUBLISH,
@@ -559,47 +557,21 @@ class _RasterReplace:
                             orphans, job_id=self.job_id
                         )
         finally:
-            await self._clean_up(
-                "complete"
-                if publication is PublicationCommit.ACKNOWLEDGED
-                else "failed"
-                if failed
-                else "pending"
+            async with cleanup_step("reupload_raster temp dir", job_id=self.job_id):
+                if self.tmp_dir:
+                    shutil.rmtree(self.tmp_dir, ignore_errors=True)
+            await UploadedSource(
+                job_id=self.job_id,
+                original_path=self.original_file_path,
+                local_path=self.file_path,
+                owned_presigned_key=self.owned_staging_key,
+            ).release_raster_replacement(
+                publication=publication,
+                failed=failed,
+                original_preserved=(
+                    self.source_preserved_in_cog or self.lossy_original_archived
+                ),
             )
-
-    async def _clean_up(self, final_status: str) -> None:
-        # A publish seen only through the probe is "pending", which keeps the
-        # staged upload for the follow-ups to delete once the publish is visible.
-        async with cleanup_step("reupload_raster temp dir", job_id=self.job_id):
-            if self.tmp_dir:
-                shutil.rmtree(self.tmp_dir, ignore_errors=True)
-        # A downloaded copy is scratch. An upload staged in place is the
-        # durable original, kept until the COG carries it or it is archived.
-        async with cleanup_step("reupload_raster local file", job_id=self.job_id):
-            if self.file_path != self.original_file_path or (
-                final_status == "complete"
-                and (self.source_preserved_in_cog or self.lossy_original_archived)
-            ):
-                Path(self.file_path).unlink(missing_ok=True)
-        # The client-writable key, recreatable through an unexpired PUT URL.
-        async with cleanup_step(
-            "reupload_raster presigned staging object", job_id=self.job_id
-        ):
-            await reap_presigned_staging_object(
-                self.job_id, self.owned_staging_key, final_status=final_status
-            )
-        # Kept on failure as the operator's only diagnostic copy, and after a
-        # lossy conversion until its original is archived.
-        async with cleanup_step(
-            "reupload_raster downloaded source", job_id=self.job_id
-        ):
-            if self.source_preserved_in_cog or self.lossy_original_archived:
-                await reap_downloaded_staging_source(
-                    self.job_id,
-                    original_file_path=self.original_file_path,
-                    final_status=final_status,
-                    failed_source_replayable=True,
-                )
 
     async def _progress(self, step: str, progress: float) -> None:
         await _stamp_progress(

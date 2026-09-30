@@ -4,7 +4,6 @@ import asyncio
 import uuid
 from datetime import datetime, timezone
 from functools import partial, wraps
-from pathlib import Path
 
 import structlog
 from sqlalchemy import select, text
@@ -21,6 +20,7 @@ from app.platform.dataset_origin import classify_origin, service_layer_identity
 from app.processing.raster.cog import sha256_file
 
 from app.platform.jobs.models import owned_presigned_staging_key
+from app.processing.ingest.uploaded_source import UploadedSource
 from app.platform.refresh import verification as refresh_policy
 from app.platform.refresh.credentials import resolve_worker_credential
 from app.platform.refresh.service import (
@@ -58,8 +58,6 @@ from app.processing.ingest.tasks_common import (
 from app.processing.ingest.tasks_staging import (
     StagingResult,
     original_archive_key,
-    reap_downloaded_staging_source,
-    reap_presigned_staging_object,
     _run_staging_pipeline,
     _validate_upload_file_safety,
 )
@@ -397,39 +395,13 @@ class _FileReupload:
                         uuid.UUID(self.job_id), local_copy=self.file_path
                     )
         finally:
-            await self._clean_up(
-                "complete"
-                if publication is PublicationCommit.ACKNOWLEDGED
-                else "failed"
-                if failed
-                else "pending"
-            )
-
-    async def _clean_up(self, final_status: str) -> None:
-        # The follow-ups archive a published upload's original before deleting
-        # it, and a publish seen only through the probe keeps it too. A refused
-        # upload and a download go here, and so does a failed attempt's copy.
-        async with cleanup_step("reupload_file local file", job_id=self.job_id):
-            if self.refused or self.file_path != self.original_file_path:
-                Path(self.file_path).unlink(missing_ok=True)
-        # The object the task downloaded from, which after a presigned
-        # completion is the frozen copy the job is bound to.
-        async with cleanup_step("reupload_file downloaded source", job_id=self.job_id):
-            if final_status == "failed":
-                await reap_downloaded_staging_source(
-                    self.job_id,
-                    original_file_path=self.original_file_path,
-                    final_status=final_status,
-                    # _retry_capability refuses reupload jobs outright, so nothing
-                    # else will ever reap this; reap on failure too.
-                    failed_source_replayable=False,
-                )
-        # The presigned staging key, which no other reaper sweeps.
-        async with cleanup_step(
-            "reupload_file presigned staging object", job_id=self.job_id
-        ):
-            await reap_presigned_staging_object(
-                self.job_id, self.owned_staging_key, final_status=final_status
+            await UploadedSource(
+                job_id=self.job_id,
+                original_path=self.original_file_path,
+                local_path=self.file_path,
+                owned_presigned_key=self.owned_staging_key,
+            ).release_file_replacement(
+                publication=publication, failed=failed, refused=self.refused
             )
 
     def _archive_name(self) -> str:
