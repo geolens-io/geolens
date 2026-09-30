@@ -45,3 +45,23 @@ def test_a_port_missing_the_narrow_raster_meta_read_does_not_satisfy_the_contrac
             return getattr(self._inner, name)
 
     assert not isinstance(_OverlayPortWithoutIt(), CatalogPort)
+
+
+def test_a_port_missing_the_cog_reader_test_does_not_satisfy_the_contract() -> None:
+    """Why EXTENSION_API_VERSION went 12 -> 13.
+
+    ``cog_may_be_read`` is REQUIRED: every reupload request reaches it through
+    the replacement quota check, so an overlay that replaces the
+    ``catalog_port`` slot without it would answer AttributeError instead of
+    admitting or refusing the upload. The bump is what makes the loader refuse
+    such an overlay at boot.
+
+    The overlay is a subclass that sets the method to ``None``: the protocol
+    check reads attributes statically, so a ``__getattr__`` wrapper that hides
+    the method would fail the check whatever the protocol declares.
+    """
+
+    class _OverlayPortWithoutIt(DefaultCatalogPort):
+        cog_may_be_read = None
+
+    assert not isinstance(_OverlayPortWithoutIt(), CatalogPort)

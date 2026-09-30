@@ -46,6 +46,7 @@ from app.core.record_types import DATASET_RECORD_TYPES
 from app.core.pointcloud import POINTCLOUD_ASSET_KEY
 from app.core.tiles3d import TILESET_ASSET_KEY
 from app.modules.quota.schemas import UserQuotaUsage
+from app.platform.extensions import get_catalog_port
 from app.platform.extensions.entitlement import enforce_limit
 
 
@@ -237,17 +238,6 @@ async def check_upload_quota(
     await enforce_limit(request, "dataset_count", usage.dataset_count + 1)
 
 
-async def _cog_may_be_read(db: AsyncSession, dataset_id: uuid.UUID) -> bool:
-    """Whether a VRT may read the dataset's COG, by the test the publish applies."""
-    from app.processing.raster.vrt_members import cog_readers
-
-    asset_uri = await db.scalar(
-        text("SELECT asset_uri FROM catalog.raster_assets WHERE dataset_id = :id"),
-        {"id": dataset_id},
-    )
-    return asset_uri is not None and any(await cog_readers(db, dataset_id, asset_uri))
-
-
 async def check_replacement_quota(
     db: AsyncSession,
     owner_id: uuid.UUID | None,
@@ -271,8 +261,8 @@ async def check_replacement_quota(
 
     Nor is a COG a VRT may still read: the publish keeps it, charged, so
     crediting it here could admit a replacement the publish then refuses.
-    The reader test is the publish's own, ``cog_readers``. A reader that
-    appears after this check is seen only by the publish.
+    The reader test is the publish's own, asked through the catalog port. A
+    reader that appears after this check is seen only by the publish.
 
     Deliberately an EARLY, approximate bound: the door sees the uploaded
     file, not the (possibly larger) COG it converts into. The authoritative
@@ -299,7 +289,7 @@ async def check_replacement_quota(
         {"dataset_id": dataset_id},
     )
     credited = int(counted or 0)
-    if credited and await _cog_may_be_read(db, dataset_id):
+    if credited and await get_catalog_port().cog_may_be_read(db, dataset_id):
         credited = 0
     projected = usage.bytes_used - credited + incoming_bytes
 
