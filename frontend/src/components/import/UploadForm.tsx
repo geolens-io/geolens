@@ -36,7 +36,7 @@ import {
 import { CheckCircle2, AlertCircle } from 'lucide-react';
 import { FileDropzone, effectiveBatchLimit } from './FileDropzone';
 import { BulkUploadProgress } from './BulkUploadProgress';
-import { allowedTilesetExtensions, inferImportedKind, isFilePreview, stripExtension } from './utils';
+import { allowedTilesetExtensions } from './utils';
 import { UploadKindChoice } from './UploadKindChoice';
 import { BulkReviewList } from './BulkReviewList';
 import { BulkTrackingList } from './BulkTrackingList';
@@ -165,9 +165,7 @@ export function UploadForm({ onPhaseChange, onOutcomeChange }: UploadFormProps) 
   }, []);
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [autoOpenVrt, setAutoOpenVrt] = useState(false);
-  // A refused commit that can be retried keeps the batch in review, even
-  // alongside rows that are already tracked.
-  const [awaitingRetry, setAwaitingRetry] = useState(false);
+  const [canTrack, setCanTrack] = useState(false);
   // Batch-level quota notice (the "X of Y datasets used" detail), shown once.
   const [quotaNotice, setQuotaNotice] = useState<string | null>(null);
   // GPKG-03 Phase 1058: results modal state for the multi-layer fan-out
@@ -212,7 +210,7 @@ export function UploadForm({ onPhaseChange, onOutcomeChange }: UploadFormProps) 
     setPhase('idle');
     setEntries([]);
     setAutoOpenVrt(false);
-    setAwaitingRetry(false);
+    setCanTrack(false);
     setQuotaNotice(null);
     setPendingFiles(null);
     // An explicit reset means the user is done with this batch; a commit
@@ -239,7 +237,7 @@ export function UploadForm({ onPhaseChange, onOutcomeChange }: UploadFormProps) 
       },
     );
     if (batch.autoOpenVrt) setAutoOpenVrt(true);
-    setAwaitingRetry(batch.awaitingRetry);
+    setCanTrack(batch.canTrack);
   }, [t]);
 
   // Adopt a batch that kept uploading, previewing or committing while this
@@ -289,21 +287,8 @@ export function UploadForm({ onPhaseChange, onOutcomeChange }: UploadFormProps) 
       setPhase('idle');
       return;
     }
-    if (phase === 'reviewing' && entries.length > 0) {
-      const allTerminal = entries.every(
-        (e) =>
-          e.status === 'tracking' ||
-          e.status === 'upload-failed' ||
-          e.status === 'commit-failed',
-      );
-      const hasTracking = entries.some((e) => e.status === 'tracking');
-      // fix(#2034): a partial-failure fan-out modal (real 'rejected' results) holds the reviewing phase open — the queued layers it also tracked would otherwise hide it before it's read. A full-success modal never blocks, matching prior behavior.
-      const fanOutHasFailure = fanOutResults?.results.some((r) => r.status === 'rejected') ?? false;
-      if (allTerminal && hasTracking && !fanOutHasFailure && !awaitingRetry) {
-        setPhase('tracking');
-      }
-    }
-  }, [entries, phase, setPhase, fanOutResults, awaitingRetry]);
+    if (phase === 'reviewing' && canTrack) setPhase('tracking');
+  }, [entries, phase, setPhase, canTrack]);
 
   // Once the tracking view is on screen the batch has been shown, so the
   // session lets it go (see `releaseUploadBatch`).
@@ -423,48 +408,12 @@ export function UploadForm({ onPhaseChange, onOutcomeChange }: UploadFormProps) 
     entryId: string,
     request: CommitImportRequest,
   ) => {
-    const entry = entries.find((e) => e.id === entryId);
-    if (!entry) return;
-    // The session refuses a second commit for the same entry, so a double
-    // click that lands before the 'committing' re-render issues only one.
-    const committed = await commitUploadEntry(entryId, request, {
-      title: request.title,
-      visibility: request.visibility ?? 'private',
-      kind: inferImportedKind(entry, request),
-    });
+    const committed = await commitUploadEntry(entryId, request);
     if (committed) toast.success(t('upload.importStarted'));
   };
 
-  const commitAll = async (asVrt: boolean) => {
-    const reviewable = entries.filter(
-      (e) => e.status === 'preview' && e.jobId,
-    );
-    if (reviewable.length === 0) return;
-
-    await commitUploadEntries(
-      reviewable.map((entry) => {
-        const name =
-          stripExtension(
-            entry.previewData?.source_filename ?? entry.fileName,
-          ) || 'Untitled';
-        // fix(#1685): multi-layer files must carry the layer selected in the
-        // review picker into the default-import path too — omitting it left
-        // the backend defaulting to the first layer regardless of what the
-        // user picked, silently importing a different layer than shown.
-        const fp = entry.previewData && isFilePreview(entry.previewData) ? entry.previewData : null;
-        const layerName = fp?.layers && fp.layers.length > 1 ? fp.layer_name : undefined;
-        return {
-          id: entry.id,
-          request: layerName ? { title: name, layer_name: layerName } : { title: name },
-          submission: { title: name, visibility: 'private', kind: inferImportedKind(entry) },
-        };
-      }),
-      { autoOpenVrt: asVrt },
-    );
-  };
-
-  const handleCommitAll = () => commitAll(false);
-  const handleCommitAllAsVrt = () => commitAll(true);
+  const handleCommitAll = () => commitUploadEntries();
+  const handleCommitAllAsVrt = () => commitUploadEntries({ autoOpenVrt: true });
 
   // The session owns the re-preview, so its result survives an unmount, and
   // it refuses an entry whose commit was already issued.
@@ -474,30 +423,8 @@ export function UploadForm({ onPhaseChange, onOutcomeChange }: UploadFormProps) 
     startLayerPreview(entryId, entry.jobId, layerName);
   };
 
-  // GPKG-03 Phase 1058-04: fan-out handler — single commitFanOut call replaces
-  // the N-separate-commit loop. Backend POST /ingest/commit-fan-out/{job_id}
-  // dispatches one Procrastinate task per layer from a single uploaded file,
-  // closing T-1058C-03 (backend previously rejected commits 2..N with 400).
   const handleIngestAllLayers = async (entryId: string) => {
-    const entry = entries.find((e) => e.id === entryId);
-    if (!entry?.jobId || !entry.previewData) return;
-    if (!isFilePreview(entry.previewData)) return;
-    const layers = entry.previewData.layers ?? [];
-    if (layers.length <= 1) return;
-
-    const fileBase = stripExtension(entry.previewData.source_filename ?? entry.fileName) || 'Untitled';
-    // Each queued layer is tracked by its own job, since the parent settles
-    // 'fanned_out' with no dataset. Every layer takes the previewed layer's
-    // kind: LayerPreview carries no per-layer geometry type.
-    const previewedLayerKind = entry.previewData.geometry_type ? ('vector' as const) : ('table' as const);
-    const results = await commitUploadFanOut(
-      entryId,
-      layers.map((layer) => ({
-        layer_name: layer.name,
-        title: `${fileBase}: ${layer.name}`,
-      })),
-      previewedLayerKind,
-    );
+    const results = await commitUploadFanOut(entryId);
     if (results?.every((r) => r.status === 'fulfilled')) {
       toast.success(t('upload.multiLayerSuccess', { count: results.length }));
     }

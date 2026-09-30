@@ -3,6 +3,7 @@ import { commitFanOut } from './datasets';
 import { ApiError } from './client';
 import { useAuthStore } from '@/stores/auth-store';
 import { randomId } from '@/lib/random-id';
+import { inferImportedKind, isFilePreview, stripExtension } from '@/lib/import-preview';
 import type {
   CommitImportRequest,
   DataKind,
@@ -82,8 +83,8 @@ export interface UploadBatchSnapshot {
   fanOutResults: { entryId: string; results: FanOutLayerOutcome[] } | null;
   /** The batch was committed with "commit all as VRT". */
   autoOpenVrt: boolean;
-  /** Some refused commit can still be retried, so the batch stays in review. */
-  awaitingRetry: boolean;
+  /** All entries settled, with tracking to show and no unread failure or retry. */
+  canTrack: boolean;
 }
 
 interface UploadBatchSession {
@@ -245,12 +246,22 @@ function claimForCommit(
 function commitEntry(
   id: string,
   request: CommitImportRequest,
-  submission: UploadSubmission,
   via: 'single' | 'all',
 ): Promise<boolean> {
-  const claim = claimForCommit(id, via, request);
+  const entry = current?.entries.get(id);
+  if (!entry) return Promise.resolve(false);
+  const preview = entry.previewData;
+  const layerName = preview && isFilePreview(preview) && (preview.layers?.length ?? 0) > 1
+    ? preview.layer_name : undefined;
+  const normalized = layerName ? { ...request, layer_name: layerName } : request;
+  const submission: UploadSubmission = {
+    title: normalized.title,
+    visibility: normalized.visibility ?? 'private',
+    kind: inferImportedKind(entry, normalized),
+  };
+  const claim = claimForCommit(id, via, normalized);
   if (!claim) return Promise.resolve(false);
-  return commitImport(claim.jobId, request).then(
+  return commitImport(claim.jobId, normalized).then(
     () =>
       claim.settle((_session, entry) => {
         entry.status = 'committed';
@@ -273,18 +284,22 @@ function commitEntry(
 export function commitUploadEntry(
   id: string,
   request: CommitImportRequest,
-  submission: UploadSubmission,
 ): Promise<boolean> {
-  return commitEntry(id, request, submission, 'single');
+  return commitEntry(id, request, 'single');
 }
 
-/** Commit several reviewed entries at once ("Commit All"); never rejects. */
+/** Commit preview-ready entries with defaults, ignoring unsent metadata drafts; never rejects. */
 export async function commitUploadEntries(
-  commits: { id: string; request: CommitImportRequest; submission: UploadSubmission }[],
   { autoOpenVrt = false }: { autoOpenVrt?: boolean } = {},
 ): Promise<void> {
+  const entries = Array.from(current?.entries.values() ?? []).filter(
+    (entry) => entry.status === 'preview' && entry.jobId,
+  );
+  if (entries.length === 0) return;
   if (autoOpenVrt && current) current.autoOpenVrt = true;
-  await Promise.all(commits.map((c) => commitEntry(c.id, c.request, c.submission, 'all')));
+  await Promise.all(entries.map((entry) => commitEntry(entry.id, {
+    title: stripExtension(entry.previewData?.source_filename ?? entry.fileName) || 'Untitled',
+  }, 'all')));
 }
 
 /**
@@ -294,11 +309,18 @@ export async function commitUploadEntries(
  * `commit-failed` with the per-layer outcome. Resolves with that outcome
  * once this batch records it, or null; never rejects.
  */
-export function commitUploadFanOut(
-  id: string,
-  layers: { layer_name: string; title: string }[],
-  kind: DataKind,
-): Promise<FanOutLayerOutcome[] | null> {
+export function commitUploadFanOut(id: string): Promise<FanOutLayerOutcome[] | null> {
+  const entry = current?.entries.get(id);
+  const preview = entry?.previewData;
+  if (!entry || !preview || !isFilePreview(preview) || !preview.layers || preview.layers.length <= 1) {
+    return Promise.resolve(null);
+  }
+  const fileBase = stripExtension(preview.source_filename ?? entry.fileName) || 'Untitled';
+  const layers = preview.layers.map((layer) => ({
+    layer_name: layer.name, title: `${fileBase}: ${layer.name}`,
+  }));
+  // Layer previews carry no per-layer geometry type, so all children use the selected layer's kind.
+  const kind: DataKind = preview.geometry_type ? 'vector' : 'table';
   const claim = claimForCommit(id, 'fan-out', null);
   if (!claim) return Promise.resolve(null);
   const titles = new Map(layers.map((l) => [l.layer_name, l.title]));
@@ -391,7 +413,10 @@ export function peekUploadBatch(): UploadBatchSnapshot | null {
     entries,
     fanOutResults: current.fanOutResults,
     autoOpenVrt: current.autoOpenVrt,
-    awaitingRetry: entries.some(canRetryCommit),
+    canTrack: entries.every((entry) => ['committed', 'upload-failed', 'commit-failed'].includes(entry.status))
+      && entries.some((entry) => entry.status === 'committed')
+      && !entries.some(canRetryCommit)
+      && !current.fanOutResults?.results.some((result) => result.status === 'rejected'),
   };
 }
 

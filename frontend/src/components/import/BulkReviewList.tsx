@@ -200,20 +200,12 @@ function ReviewFormBlock({
   const raster = isRasterPreview(preview);
   const fp = isFilePreview(preview) ? preview : null;
 
-  function getLayerName(): string | undefined {
-    if (!fp?.layers || fp.layers.length <= 1) return undefined;
-    return fp.layer_name;
-  }
-
   return (
     <div className="col-span-full border-t border-border pt-4 mt-2">
       <ImportMetadataForm
         defaultName={preview.source_filename ?? entry.fileName}
         detectedCrs={raster ? preview.crs_epsg : fp?.crs ?? null}
-        onCommit={(req) => {
-          const layerName = getLayerName();
-          onCommitSingle(entry.id, layerName ? { ...req, layer_name: layerName } : req);
-        }}
+        onCommit={(req) => onCommitSingle(entry.id, req)}
         isCommitting={isCommitting}
         initialRequest={entry.commitRequest}
         isRaster={raster}
