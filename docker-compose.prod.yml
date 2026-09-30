@@ -702,7 +702,7 @@ services:
   # --- cloud-dev profile: local S3 + cache (identical to docker-compose.yml) ---
   minio:
     logging: *bounded-logs
-    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z@sha256:b6bfe7239bfc83fb90d31612d9704d86039dd714f7904b3f1ad68f211e602372
+    image: pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46
     profiles: ["cloud-dev"]
     # INST-01 + Codex P1 (true fail-closed, parse-safe) — mirrors the
     # docker-compose.yml minio guard. `${VAR:?}` would abort `compose config`/`up`
@@ -721,7 +721,7 @@ services:
           echo "FATAL: cloud-dev MinIO requires MINIO_ROOT_USER and MINIO_ROOT_PASSWORD in .env — refusing to start with default/blank credentials." >&2
           exit 1
         fi
-        exec minio server /data --console-address ":9001"
+        exec silo server /data --console-address ":9001"
     security_opt:
       - no-new-privileges:true
     cap_drop:

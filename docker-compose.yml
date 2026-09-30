@@ -838,9 +838,10 @@ services:
   # All cloud-dev services bind to 127.0.0.1 only — they're for local dev,
   # not for sharing on a LAN or exposing through Docker port forwarding.
   minio:
-    # Community-maintained MinIO fork with the same CLI; the quay.io/minio images
-    # no longer allow anonymous pulls. Pinned by SHA256 digest (tag is documentation).
-    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z@sha256:b6bfe7239bfc83fb90d31612d9704d86039dd714f7904b3f1ad68f211e602372
+    # Silo is the community-maintained MinIO fork; it is still configured through
+    # MINIO_* variables. The quay.io/minio images no longer allow anonymous pulls.
+    # Pinned by SHA256 digest (tag is documentation).
+    image: pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46
     profiles: ["cloud-dev"]
     # INST-01 + Codex P1 (true fail-closed, parse-safe). `${VAR:?}` would abort
     # `compose config`/`up` at PARSE time even when cloud-dev is inactive (breaks
@@ -857,7 +858,7 @@ services:
           echo "FATAL: cloud-dev MinIO requires MINIO_ROOT_USER and MINIO_ROOT_PASSWORD in .env — refusing to start with default/blank credentials." >&2
           exit 1
         fi
-        exec minio server /data --console-address ":9001"
+        exec silo server /data --console-address ":9001"
     # D04 (docker-audit-20260604): cloud-dev is opt-in + loopback-only, but minio
     # holds root S3 creds — drop caps + block privilege gain as cheap insurance.
     security_opt:

@@ -37,12 +37,12 @@ def test_minio_image_pinned_by_digest(compose):
 
     The digest pin makes pulls reproducible across machines (ADMIN-12) and the
     date-stamped tag must be after the prior 2025-04-22 pin (ADMIN-10). The
-    image comes from pgsty/minio because the quay.io/minio repositories no
-    longer serve anonymous pulls.
+    image is pgsty/silo, the maintained fork, because the quay.io/minio
+    repositories no longer serve anonymous pulls.
     """
     text = compose.read_text()
     match = re.search(
-        r"^\s*image:\s*pgsty/minio:"
+        r"^\s*image:\s*pgsty/silo:"
         r"(RELEASE\.\d{4}-\d{2}-\d{2}T[\d-]+Z)@sha256:[a-f0-9]{64}",
         text,
         re.MULTILINE,
@@ -55,6 +55,14 @@ def test_minio_image_pinned_by_digest(compose):
     assert (year, month, day) > (2025, 4, 22), (
         f"MinIO tag {tag} is older than the pre-bump pin 2025-04-22"
     )
+
+
+@pytest.mark.parametrize("compose", COMPOSE_FILES, ids=lambda path: path.name)
+def test_minio_entrypoint_execs_the_silo_binary(compose):
+    """The silo image ships no `minio` binary, so the entrypoint must run `silo`."""
+    text = compose.read_text()
+    assert re.search(r"^\s*exec silo server /data\b", text, re.MULTILINE)
+    assert not re.search(r"^\s*exec minio server\b", text, re.MULTILINE)
 
 
 @pytest.mark.parametrize("compose", COMPOSE_FILES, ids=lambda path: path.name)

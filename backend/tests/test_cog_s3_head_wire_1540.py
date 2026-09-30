@@ -37,7 +37,7 @@ Requirements:
 
         docker run -d --name minio-1540 -p 127.0.0.1:9010:9000 \\
           -e MINIO_ROOT_USER=user -e MINIO_ROOT_PASSWORD=secretpw \\
-          pgsty/minio:RELEASE.2026-08-04T00-00-00Z server /data
+          pgsty/silo:RELEASE.2026-09-16T00-00-00Z server /data
 
   - Run with::
 
