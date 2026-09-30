@@ -1005,10 +1005,6 @@ class TestRegenerateVrtTask:
                     return_value=b"\x89PNG",
                 ),
                 patch(
-                    "app.processing.ingest.tasks_vrt.invalidate_catalog_cache",
-                    new_callable=AsyncMock,
-                ),
-                patch(
                     "app.processing.ingest.tasks_vrt.rewrite_vrt_sources",
                     return_value=[],
                 ),
@@ -1030,15 +1026,9 @@ class TestRegenerateVrtTask:
 
                 mock_storage = AsyncMock()
                 mock_storage.put = AsyncMock()
-                with (
-                    patch(
-                        "app.processing.ingest.tasks_vrt.get_storage",
-                        return_value=mock_storage,
-                    ),
-                    patch(
-                        "app.processing.ingest.tasks_vrt.defer_embedding",
-                        new_callable=AsyncMock,
-                    ),
+                with patch(
+                    "app.processing.ingest.tasks_vrt.get_storage",
+                    return_value=mock_storage,
                 ):
                     await regenerate_vrt.func(
                         job_id=job_id,
@@ -1168,10 +1158,6 @@ class TestRegenerateVrtTask:
                     return_value=b"\x89PNG",
                 ),
                 patch(
-                    "app.processing.ingest.tasks_vrt.invalidate_catalog_cache",
-                    new_callable=AsyncMock,
-                ),
-                patch(
                     "app.processing.ingest.tasks_vrt.rewrite_vrt_sources",
                     return_value=[],
                 ),
@@ -1193,15 +1179,9 @@ class TestRegenerateVrtTask:
 
                 mock_storage = AsyncMock()
                 mock_storage.put = mock_put
-                with (
-                    patch(
-                        "app.processing.ingest.tasks_vrt.get_storage",
-                        return_value=mock_storage,
-                    ),
-                    patch(
-                        "app.processing.ingest.tasks_vrt.defer_embedding",
-                        new_callable=AsyncMock,
-                    ),
+                with patch(
+                    "app.processing.ingest.tasks_vrt.get_storage",
+                    return_value=mock_storage,
                 ):
                     await regenerate_vrt.func(
                         job_id=job_id,

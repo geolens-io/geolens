@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import io
 import uuid
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
@@ -22,7 +22,8 @@ from sqlalchemy import select, text
 import app.core.db as db_module
 from app.modules.auth.models import User
 from app.platform.jobs.models import PUBLISH_FOLLOWUPS_FIELD, IngestJob
-from app.processing.ingest import tasks_vrt
+from app.processing.embeddings import helpers as embedding_helpers
+from app.processing.ingest import publish_followups, tasks_vrt
 from app.processing.ingest.publish_followups import run_owed_publish_followups
 from app.processing.ingest.tasks_raster_common import PublishObservation
 from app.processing.raster.models import RasterAsset, VrtGeneration
@@ -144,6 +145,24 @@ async def _owed(job_id) -> dict | None:
     return (metadata or {}).get(PUBLISH_FOLLOWUPS_FIELD)
 
 
+@contextmanager
+def _completion_steps():
+    """Record each catalog cache purge and embedding refresh the follow-ups run, in order."""
+    steps: list[str] = []
+
+    async def _cache() -> None:
+        steps.append("cache")
+
+    async def _embedding(dataset) -> None:
+        steps.append("embedding")
+
+    with (
+        patch.object(publish_followups, "invalidate_catalog_cache", _cache),
+        patch.object(embedding_helpers, "defer_embedding", _embedding),
+    ):
+        yield steps
+
+
 def _observed(observation: PublishObservation):
     return patch.object(
         tasks_vrt, "observe_publish_commit", AsyncMock(return_value=observation)
@@ -179,31 +198,58 @@ async def test_a_confirmed_regeneration_deletes_what_it_superseded(
         await _purge_vrt(test_db_session, ids=ids)
 
 
-async def test_a_landed_lost_ack_still_purges_the_cache_and_refreshes_the_embedding(
-    test_db_session, raster_storage
+@pytest.mark.parametrize("publish", ["acknowledged", "observed"])
+async def test_a_confirmed_regeneration_purges_the_cache_and_refreshes_the_embedding_once(
+    test_db_session, raster_storage, publish: str
 ) -> None:
-    """The stand-down for a lost ack the probe reads as landed still runs the
-    cache purge and embedding refresh nothing else retries, not just the
-    follow-ups the sweep would retry on its own."""
+    """The follow-ups the task runs purge the catalog cache and refresh the embedding once."""
     admin_id, ids, prior = await _vrt_with_quicklooks(test_db_session, raster_storage)
     job, generation_id = await _queue_regeneration(
         test_db_session, vrt_id=ids[0], user_id=admin_id
     )
     lost = _LostAcknowledgement(job.id, ConnectionResetError("dropped"))
-    purge, embed = AsyncMock(), AsyncMock()
     try:
-        with (
-            lost.installed(),
-            _observed(PublishObservation.LANDED),
-            patch.object(tasks_vrt, "invalidate_catalog_cache", purge),
-            patch.object(tasks_vrt, "defer_embedding", embed),
-        ):
+        with ExitStack() as stack:
+            steps = stack.enter_context(_completion_steps())
+            if publish == "observed":
+                stack.enter_context(lost.installed())
+                stack.enter_context(_observed(PublishObservation.LANDED))
             await _regenerate(job, generation_id, ids[0])
+            assert steps == ["cache", "embedding"]
 
-        assert lost.fired == 1
-        assert purge.await_count == 1
-        assert embed.await_count == 1
+            await run_owed_publish_followups()
+            assert steps == ["cache", "embedding"]
+
+        assert lost.fired == (publish == "observed")
         assert await _left(raster_storage, prior) == []
+    finally:
+        await _purge_vrt(test_db_session, ids=ids)
+
+
+async def test_a_regeneration_that_landed_unseen_gets_its_completion_steps_from_the_sweep(
+    test_db_session, raster_storage
+) -> None:
+    """With the outcome unknown the sweep purges the cache and refreshes the embedding once."""
+    admin_id, ids, prior = await _vrt_with_quicklooks(test_db_session, raster_storage)
+    job, generation_id = await _queue_regeneration(
+        test_db_session, vrt_id=ids[0], user_id=admin_id
+    )
+    lost = _LostAcknowledgement(job.id, ConnectionResetError("dropped"))
+    try:
+        with _completion_steps() as steps:
+            with lost.installed(), _observed(PublishObservation.UNKNOWN):
+                await _regenerate(job, generation_id, ids[0])
+            assert lost.fired == 1
+            assert steps == []
+
+            await run_owed_publish_followups()
+            assert steps == ["cache", "embedding"]
+
+            await run_owed_publish_followups()
+            assert steps == ["cache", "embedding"]
+
+        assert await _left(raster_storage, prior) == []
+        assert await _owed(job.id) is None
     finally:
         await _purge_vrt(test_db_session, ids=ids)
 
@@ -295,41 +341,70 @@ async def test_a_superseded_delete_that_fails_is_retried_once_due(
         await _purge_vrt(test_db_session, ids=ids)
 
 
-async def test_a_followups_failure_still_purges_the_cache_and_refreshes_the_embedding(
+async def test_a_followups_failure_leaves_the_completion_steps_to_the_sweep(
     test_db_session, raster_storage
 ) -> None:
-    """The follow-ups failing after the publish skips neither step the sweep can't redo.
-
-    The job stays complete, and the sweep deletes the prior generation later.
-    """
+    """Follow-ups that fail after the publish leave the job complete and every step to the sweep."""
     admin_id, ids, prior = await _vrt_with_quicklooks(test_db_session, raster_storage)
     job, generation_id = await _queue_regeneration(
         test_db_session, vrt_id=ids[0], user_id=admin_id
     )
-    purge, embed = AsyncMock(), AsyncMock()
     try:
-        with (
-            patch.object(
+        with _completion_steps() as steps:
+            with patch.object(
                 tasks_vrt,
                 "run_publish_followups",
                 AsyncMock(side_effect=ConnectionResetError("the session dropped")),
-            ),
-            patch.object(tasks_vrt, "invalidate_catalog_cache", purge),
-            patch.object(tasks_vrt, "defer_embedding", embed),
-        ):
-            await _regenerate(job, generation_id, ids[0])
+            ):
+                await _regenerate(job, generation_id, ids[0])
 
-        assert purge.await_count == 1
-        assert embed.await_count == 1
-        async with db_module.async_session() as session:
-            status = await session.scalar(
-                select(IngestJob.status).where(IngestJob.id == job.id)
-            )
-        assert status == "complete"
-        assert await _left(raster_storage, prior) == list(prior)
+            assert steps == []
+            async with db_module.async_session() as session:
+                status = await session.scalar(
+                    select(IngestJob.status).where(IngestJob.id == job.id)
+                )
+            assert status == "complete"
+            assert await _left(raster_storage, prior) == list(prior)
 
-        await run_owed_publish_followups()
+            await run_owed_publish_followups()
 
+            assert steps == ["cache", "embedding"]
         assert await _left(raster_storage, prior) == []
+    finally:
+        await _purge_vrt(test_db_session, ids=ids)
+
+
+async def test_a_crash_between_the_reap_and_the_claim_leaves_the_completion_steps_to_the_sweep(
+    test_db_session, raster_storage
+) -> None:
+    """The prior generation goes before the claim, and the sweep still runs each step once."""
+    admin_id, ids, prior = await _vrt_with_quicklooks(test_db_session, raster_storage)
+    job, generation_id = await _queue_regeneration(
+        test_db_session, vrt_id=ids[0], user_id=admin_id
+    )
+    settle = publish_followups._settle_owed_items
+
+    async def _crash_once_settled(*args, **kwargs):
+        await settle(*args, **kwargs)
+        raise ConnectionResetError("the worker died before the claim")
+
+    try:
+        with _completion_steps() as steps:
+            with patch.object(
+                publish_followups, "_settle_owed_items", _crash_once_settled
+            ):
+                await _regenerate(job, generation_id, ids[0])
+
+            assert steps == []
+            assert await _left(raster_storage, prior) == []
+            assert "superseded_keys" not in await _owed(job.id)
+
+            await run_owed_publish_followups()
+            assert steps == ["cache", "embedding"]
+
+            await run_owed_publish_followups()
+            assert steps == ["cache", "embedding"]
+
+        assert await _owed(job.id) is None
     finally:
         await _purge_vrt(test_db_session, ids=ids)
