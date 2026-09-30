@@ -527,6 +527,35 @@ describe('DatasetPage editable affordance integration', () => {
     ).toBeInTheDocument();
   });
 
+  // jsdom has no layout, so assert the class that lets the row wrap instead of
+  // widening the page past a phone viewport.
+  it('lets a raster owner\'s header actions wrap within the viewport', () => {
+    setUser(EDITOR_USER);
+    mockUseDataset.mockReturnValue({
+      data: {
+        ...makeDataset(),
+        record_type: 'raster_dataset',
+        raster: {
+          tile_url: '/raster-tiles/test/{z}/{x}/{y}.png',
+          connect: {
+            download_url: 'https://example.test/cog.tif',
+            tile_url: '/raster-tiles/test/{z}/{x}/{y}.png',
+          },
+        } as DatasetResponse['raster'],
+      },
+      isLoading: false,
+      error: null,
+    } as ReturnType<typeof useDataset>);
+
+    render(<DatasetPage />, { route: '/datasets/dataset-1' });
+
+    const downloadCog = screen.getByRole('button', { name: 'Download COG' });
+    expect(downloadCog.parentElement).toHaveClass('flex-wrap');
+    expect(screen.getByRole('button', { name: 'Connect' }).parentElement).toBe(
+      downloadCog.parentElement,
+    );
+  });
+
   // VRT stays on the regenerate flow — it never gets a reupload action,
   // and Create VRT is raster-only so it's absent here too.
   it('does not offer reupload or create-vrt for VRT datasets', async () => {
