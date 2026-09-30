@@ -14,12 +14,14 @@ ADMIN-13           — Non-blocking `license-check` job added to ci.yml that
 import re
 import tomllib
 
+import pytest
 import yaml
 
 from tests.repo_paths import repo_root
 
 REPO_ROOT = repo_root(__file__)
 COMPOSE = REPO_ROOT / "docker-compose.yml"
+COMPOSE_FILES = [COMPOSE, REPO_ROOT / "docker-compose.prod.yml"]
 CI = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 UV_LOCK = REPO_ROOT / "backend" / "uv.lock"
 
@@ -29,15 +31,18 @@ UV_LOCK = REPO_ROOT / "backend" / "uv.lock"
 # -------------------------------------------------------------------
 
 
-def test_minio_image_pinned_by_digest():
+@pytest.mark.parametrize("compose", COMPOSE_FILES, ids=lambda path: path.name)
+def test_minio_image_pinned_by_digest(compose):
     """The MinIO image is pinned as <RELEASE.YYYY-...>@sha256:<64-hex>.
 
     The digest pin makes pulls reproducible across machines (ADMIN-12) and the
-    date-stamped tag must be after the prior 2025-04-22 pin (ADMIN-10).
+    date-stamped tag must be after the prior 2025-04-22 pin (ADMIN-10). The
+    image is pgsty/silo, the maintained fork, because the quay.io/minio
+    repositories no longer serve anonymous pulls.
     """
-    text = COMPOSE.read_text()
+    text = compose.read_text()
     match = re.search(
-        r"^\s*image:\s*quay\.io/minio/minio:"
+        r"^\s*image:\s*pgsty/silo:"
         r"(RELEASE\.\d{4}-\d{2}-\d{2}T[\d-]+Z)@sha256:[a-f0-9]{64}",
         text,
         re.MULTILINE,
@@ -52,11 +57,20 @@ def test_minio_image_pinned_by_digest():
     )
 
 
-def test_mc_image_pinned_by_digest():
+@pytest.mark.parametrize("compose", COMPOSE_FILES, ids=lambda path: path.name)
+def test_minio_entrypoint_execs_the_silo_binary(compose):
+    """The silo image ships no `minio` binary, so the entrypoint must run `silo`."""
+    text = compose.read_text()
+    assert re.search(r"^\s*exec silo server /data\b", text, re.MULTILINE)
+    assert not re.search(r"^\s*exec minio server\b", text, re.MULTILINE)
+
+
+@pytest.mark.parametrize("compose", COMPOSE_FILES, ids=lambda path: path.name)
+def test_mc_image_pinned_by_digest(compose):
     """The mc (minio client) image is pinned the same way as minio."""
-    text = COMPOSE.read_text()
+    text = compose.read_text()
     match = re.search(
-        r"^\s*image:\s*quay\.io/minio/mc:"
+        r"^\s*image:\s*pgsty/mc:"
         r"(RELEASE\.\d{4}-\d{2}-\d{2}T[\d-]+Z)@sha256:[a-f0-9]{64}",
         text,
         re.MULTILINE,
@@ -68,6 +82,18 @@ def test_mc_image_pinned_by_digest():
     assert (year, month, day) > (2025, 4, 22), (
         f"mc tag {tag} is older than the pre-bump pin 2025-04-22"
     )
+
+
+def test_minio_setup_keeps_mc_config_out_of_read_only_root():
+    """minio-setup drops every capability and the mc image's /root is read-only.
+
+    mc cannot create its default config directory there, so the script must
+    point MC_CONFIG_DIR at a writable path or the container exits before it
+    creates the bucket.
+    """
+    script = (REPO_ROOT / "scripts" / "minio-setup.sh").read_text()
+    assert re.search(r"^MC_CONFIG_DIR=/tmp/\S+$", script, re.MULTILINE)
+    assert re.search(r"^export MC_CONFIG_DIR$", script, re.MULTILINE)
 
 
 # -------------------------------------------------------------------

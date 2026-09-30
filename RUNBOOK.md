@@ -225,7 +225,7 @@ aws s3api put-bucket-lifecycle-configuration --bucket <your-bucket> \
 
 **MinIO** — do NOT reach for `mc ilm` here. The `mc ilm rule add` command has
 no abort-incomplete-multipart flag (verified against the `mc` release pinned
-in `docker-compose.yml`, `RELEASE.2025-08-13T08-35-41Z`), and MinIO strips
+in `docker-compose.yml`, `RELEASE.2026-09-16T00-00-00Z`), and MinIO strips
 `AbortIncompleteMultipartUpload` from lifecycle JSON supplied via
 `mc ilm rule import` — the import reports success and the rule silently
 disappears ([minio/minio#19115](https://github.com/minio/minio/issues/19115),

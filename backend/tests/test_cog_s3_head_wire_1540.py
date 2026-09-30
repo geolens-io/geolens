@@ -37,7 +37,7 @@ Requirements:
 
         docker run -d --name minio-1540 -p 127.0.0.1:9010:9000 \\
           -e MINIO_ROOT_USER=user -e MINIO_ROOT_PASSWORD=secretpw \\
-          quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z server /data
+          pgsty/silo:RELEASE.2026-09-16T00-00-00Z server /data
 
   - Run with::
 
