@@ -367,3 +367,30 @@ async def test_a_delete_during_a_deferred_archive_write_conflicts_until_it_lands
         assert await store.list(f"originals/{ingest.dataset_id}/") == []
     finally:
         await ingest.clean_up(client, admin_auth_header)
+
+
+async def test_an_original_left_after_its_dataset_delete_stays_owed_until_its_delete_lands(
+    client, admin_auth_header, test_db_session, tmp_path, store, monkeypatch
+) -> None:
+    """The follow-ups delete a deleted dataset's owed archive, and keep it owed while storage refuses."""
+    ingest = _Import(test_db_session, tmp_path)
+    try:
+        await ingest.run_holding_the_job_row()
+        assert await ingest.delete_dataset(client, admin_auth_header) == 204
+        key = f"originals/{ingest.dataset_id}/points.geojson"
+        await store.put(key, _GEOJSON)
+        monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path))
+
+        with patch.object(store, "delete", AsyncMock(side_effect=OSError("down"))):
+            await ingest.settle()
+
+        owed = (await ingest.job()).user_metadata[PUBLISH_FOLLOWUPS_FIELD]
+        assert owed["archive_key"] == key
+        assert await store.get(key) == _GEOJSON
+
+        await ingest.settle()
+
+        assert await store.list(f"originals/{ingest.dataset_id}/") == []
+        assert not _ARCHIVE_OWED_KEYS & (await ingest.job()).user_metadata.keys()
+    finally:
+        await ingest.clean_up(client, admin_auth_header)
