@@ -633,10 +633,31 @@ class _ProviderModelConfig(PersistentConfig[str]):
         self.light = light
 
     async def resolved_default(self, db: AsyncSession) -> str:
-        return llm_model_default(await LLM_PROVIDER.get(db), light=self.light)
+        # Uncached, so a batch that changed the provider earlier in this
+        # transaction is seen before its cache eviction.
+        return llm_model_default(await LLM_PROVIDER.get_uncached(db), light=self.light)
 
     async def get(self, db: AsyncSession) -> str:
-        return await super().get(db) or await self.resolved_default(db)
+        return await super().get(db) or llm_model_default(
+            await LLM_PROVIDER.get(db), light=self.light
+        )
+
+    async def set(
+        self,
+        db: AsyncSession,
+        value: str,
+        *,
+        user_id: uuid.UUID | None = None,
+        ip_address: str | None = None,
+        commit: bool = True,
+    ) -> None:
+        # An empty model means the provider's own, which is the same as no override.
+        if not value.strip():
+            await self.reset(db, user_id=user_id, ip_address=ip_address, commit=commit)
+            return
+        await super().set(
+            db, value, user_id=user_id, ip_address=ip_address, commit=commit
+        )
 
     async def get_uncached(self, db: AsyncSession) -> str:
         return await super().get_uncached(db) or llm_model_default(

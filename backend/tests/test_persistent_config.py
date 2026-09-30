@@ -1171,6 +1171,100 @@ async def test_overwrite_preview_resolves_models_against_the_imported_provider(
     assert changes["llm_model"]["imported"] == "anthropic-chat-env"
 
 
+async def _latest_model_reset_value() -> str:
+    from sqlalchemy import select
+
+    from app.api.main import app
+    from app.core.dependencies import get_db
+    from app.modules.audit.models import AuditLog
+
+    async for db in app.dependency_overrides[get_db]():
+        entries = (
+            (
+                await db.execute(
+                    select(AuditLog)
+                    .where(AuditLog.resource_type == "setting")
+                    .where(AuditLog.action == "reset")
+                    .order_by(AuditLog.created_at.desc())
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return next(
+            e.details["new_value"]
+            for e in entries
+            if e.details["setting_key"] == "llm_model"
+        )
+    raise AssertionError("no session")
+
+
+@pytest.mark.anyio
+async def test_batch_reset_audits_the_model_under_the_reset_provider(
+    client: AsyncClient, admin_auth_header: dict, _both_ai_keys
+):
+    """Resetting the model with the provider records the model that results."""
+    await client.put(
+        "/settings/",
+        json={"settings": {"llm_provider": "openai_compatible", "llm_model": "x"}},
+        headers=admin_auth_header,
+    )
+    # Warm the cache with the overridden provider first.
+    await client.get("/settings/all/", headers=admin_auth_header)
+    reset = await client.post(
+        "/settings/reset/",
+        json={"keys": ["llm_model", "llm_provider"]},
+        headers=admin_auth_header,
+    )
+    assert reset.status_code == 200, reset.text
+    assert await _latest_model_reset_value() == "anthropic-chat-env"
+
+
+@pytest.mark.anyio
+async def test_overwrite_import_audits_the_model_under_the_imported_provider(
+    client: AsyncClient, admin_auth_header: dict, _both_ai_keys
+):
+    await client.put(
+        "/settings/",
+        json={"settings": {"llm_provider": "anthropic", "llm_model": "x"}},
+        headers=admin_auth_header,
+    )
+    payload = {"settings": {"llm_provider": "openai_compatible"}}
+    preview = await client.post(
+        "/config-ops/dry-run/?mode=overwrite", json=payload, headers=admin_auth_header
+    )
+    applied = await client.post(
+        "/config-ops/import/?mode=overwrite",
+        json=payload,
+        headers={
+            **admin_auth_header,
+            "X-Config-Preview-Token": preview.json()["preview_token"],
+        },
+    )
+    assert applied.status_code == 200, applied.text
+    assert await _latest_model_reset_value() == "openai-chat-env"
+
+
+@pytest.mark.anyio
+async def test_empty_model_is_stored_as_no_override(
+    client: AsyncClient, admin_auth_header: dict, _both_ai_keys
+):
+    await client.put(
+        "/settings/",
+        json={"settings": {"llm_provider": "openai_compatible", "llm_model": "x"}},
+        headers=admin_auth_header,
+    )
+    await client.put(
+        "/settings/",
+        json={"settings": {"llm_model": ""}},
+        headers=admin_auth_header,
+    )
+    listing = await client.get("/settings/all/", headers=admin_auth_header)
+    ai = {item["key"]: item for item in listing.json()["tabs"]["ai"]}
+    assert ai["llm_model"]["source"] == "default"
+    assert ai["llm_model"]["value"] == "openai-chat-env"
+
+
 # ---------------------------------------------------------------------------
 # Log level propagation tests (CFG-06)
 # ---------------------------------------------------------------------------

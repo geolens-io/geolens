@@ -551,6 +551,9 @@ async def reset_settings(
             )
         _require_enterprise_for_key(key)
         configs_to_reset.append(cfg)
+    # Registry order resets the provider before the model settings that resolve
+    # against it.
+    configs_to_reset.sort(key=_registry.index)
 
     # Reset is another way to change the effective password-login value and
     # must enforce the same final-state lockout invariant as PUT/import. Hold

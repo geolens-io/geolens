@@ -1028,6 +1028,13 @@ async def import_config(
     # Apply side effects only after the terminal commit succeeds.
     deferred_side_effects: list = []
 
+    # Sets go first so a reset that resolves against another key, as the model
+    # settings do against the provider, sees the value this import applies.
+    for key, value in plan.settings_to_apply.items():
+        cfg = registry_map[key]
+        await cfg.set(db, value, user_id=user_id, ip_address=ip_address, commit=False)
+        deferred_side_effects.append((cfg, value))
+
     if mode == "overwrite":
         for cfg in _registry:
             if cfg.key in plan.validated_settings:
@@ -1036,11 +1043,6 @@ async def import_config(
                 continue
             await cfg.reset(db, user_id=user_id, ip_address=ip_address, commit=False)
             deferred_side_effects.append((cfg, cfg.env_default))
-
-    for key, value in plan.settings_to_apply.items():
-        cfg = registry_map[key]
-        await cfg.set(db, value, user_id=user_id, ip_address=ip_address, commit=False)
-        deferred_side_effects.append((cfg, value))
 
     (
         oauth_created,
