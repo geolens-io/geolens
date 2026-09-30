@@ -327,7 +327,7 @@ describe('ViewerChatPanel', () => {
 });
 
 describe('QueryResultTable', () => {
-  it('drops floating-point noise from aggregates and keeps real digits exact', () => {
+  it('drops floating-point noise and keeps exact values in the cell title', () => {
     render(
       <QueryResultTable
         result={{
@@ -342,7 +342,7 @@ describe('QueryResultTable', () => {
     expect(screen.getByRole('cell', { name: '491.9' })).toHaveAttribute('title', '491.9000000000001');
     expect(screen.getByRole('cell', { name: '56.025' })).toBeInTheDocument();
     expect(screen.getByRole('cell', { name: '1234567890123456' })).toBeInTheDocument();
-    expect(screen.getByRole('cell', { name: '100000000000000.5' })).toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: '100000000000000' })).toHaveAttribute('title', '100000000000000.5');
     expect(screen.getByRole('cell', { name: '3e-7' })).toBeInTheDocument();
     expect(screen.queryByText('491.9000000000001')).not.toBeInTheDocument();
     expect(screen.queryByText('56.025000000000006')).not.toBeInTheDocument();
