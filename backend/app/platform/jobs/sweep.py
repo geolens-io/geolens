@@ -59,6 +59,7 @@ from app.platform.jobs.models import (
     owned_presigned_staging_key,
 )
 from app.platform.jobs.ledger import Outcome, end_stale, run_stale_passes
+from app.platform.jobs.originals_reconcile import reconcile_orphaned_originals
 from app.platform.jobs.staging_reconcile import reconcile_orphaned_staging_objects
 from app.platform.storage.titiler_url import resolve_current_storage_key
 
@@ -1652,6 +1653,7 @@ async def fail_stale_jobs(
         # fix(#1249): starts from the OBJECTS and asks whether any row owns
         # them — the only direction that finds one nothing references.
         await reconcile_orphaned_staging_objects(db, now=now)
+        await reconcile_orphaned_originals(db, now=now)
         await run_owed_publish_followups()
         await reclaim_retained_cogs()
     if detailed:

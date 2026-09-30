@@ -11,6 +11,7 @@ follow-ups, and the archive and the reap on one local store.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -18,15 +19,18 @@ from sqlalchemy import delete, select, update
 
 from app.core.config import settings
 from app.modules.auth.models import User
+from app.modules.catalog.datasets.domain.models import Record
 from app.platform.jobs.models import (
     ARCHIVE_PENDING_METADATA_KEY,
     PUBLISH_FOLLOWUPS_FIELD,
     IngestJob,
 )
+from app.platform.jobs.originals_reconcile import reconcile_orphaned_originals
 from app.platform.storage import provider as storage_provider
 from app.platform.storage.local import LocalStorageProvider
 from app.processing.ingest.publish_followups import run_publish_followups
 from app.processing.ingest.tasks_vector import ingest_file
+from tests.factories import create_dataset, get_user_id
 
 pytestmark = pytest.mark.anyio
 
@@ -394,3 +398,38 @@ async def test_an_original_left_after_its_dataset_delete_stays_owed_until_its_de
         assert not _ARCHIVE_OWED_KEYS & (await ingest.job()).user_metadata.keys()
     finally:
         await ingest.clean_up(client, admin_auth_header)
+
+
+async def test_an_upload_landing_after_the_delete_and_the_settlement_is_reconciled_away(
+    client, admin_auth_header, test_db_session, tmp_path, store, monkeypatch
+) -> None:
+    """The reconcile deletes the late original once it is a day old, and not before."""
+    ingest = _Import(test_db_session, tmp_path)
+    other_record_id = None
+    try:
+        await ingest.run_holding_the_job_row()
+        assert await ingest.delete_dataset(client, admin_auth_header) == 204
+        monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path))
+        await ingest.settle()
+        assert not _ARCHIVE_OWED_KEYS & (await ingest.job()).user_metadata.keys()
+
+        key = f"originals/{ingest.dataset_id}/points.geojson"
+        await store.put(key, _GEOJSON)
+        other = await create_dataset(
+            test_db_session, created_by=await get_user_id(test_db_session, "admin")
+        )
+        other_record_id = other.record_id
+
+        now = datetime.now(timezone.utc)
+        await reconcile_orphaned_originals(test_db_session, now=now)
+        assert await store.get(key) == _GEOJSON
+
+        await reconcile_orphaned_originals(test_db_session, now=now + timedelta(days=2))
+        assert await store.list(f"originals/{ingest.dataset_id}/") == []
+    finally:
+        await ingest.clean_up(client, admin_auth_header)
+        if other_record_id is not None:
+            await test_db_session.execute(
+                delete(Record).where(Record.id == other_record_id)
+            )
+            await test_db_session.commit()
