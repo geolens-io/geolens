@@ -331,8 +331,8 @@ describe('QueryResultTable', () => {
     render(
       <QueryResultTable
         result={{
-          columns: ['borough', 'total_acres', 'mean_acres', 'id', 'precise'],
-          rows: [['Brooklyn', 491.9000000000001, 56.025000000000006, 1234567890123456, 100000000000000.5]],
+          columns: ['total_acres', 'mean_acres', 'id', 'precise', 'tiny'],
+          rows: [[491.9000000000001, 56.025000000000006, 1234567890123456, 100000000000000.5, 3.0000000000000004e-7]],
           rowCount: 1,
           truncated: false,
         }}
@@ -343,6 +343,7 @@ describe('QueryResultTable', () => {
     expect(screen.getByRole('cell', { name: '56.025' })).toBeInTheDocument();
     expect(screen.getByRole('cell', { name: '1234567890123456' })).toBeInTheDocument();
     expect(screen.getByRole('cell', { name: '100000000000000.5' })).toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: '3e-7' })).toBeInTheDocument();
     expect(screen.queryByText('491.9000000000001')).not.toBeInTheDocument();
     expect(screen.queryByText('56.025000000000006')).not.toBeInTheDocument();
   });
