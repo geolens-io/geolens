@@ -39,6 +39,9 @@ dependencies = [
   # httpx -> anyio. geolens>=1.2.0 admits SDK releases that carry no idna
   # floor of their own, so this wheel states it directly, matching cli/sdk.
   "idna>=3.18",
+  # PyJWT advisories through 2.14.0 (GHSA-ffc3-869f-jxw9 fixed in 2.14.0,
+  # GHSA-x33g-cr3x-6449 in 2.15.0), reached via mcp -> pyjwt[crypto].
+  "pyjwt>=2.15.0",
 ]
 
 [project.optional-dependencies]
