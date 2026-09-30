@@ -115,6 +115,16 @@ async def cog_readers(
     return vrt_ids, job_ids
 
 
+async def cog_may_be_read(session, dataset_id: uuid.UUID) -> bool:
+    """Whether a VRT may read the COG ``dataset_id`` serves now, by the publish's own test."""
+    asset_uri = await session.scalar(
+        select(RasterAsset.asset_uri).where(RasterAsset.dataset_id == dataset_id)
+    )
+    return asset_uri is not None and any(
+        await cog_readers(session, dataset_id, asset_uri)
+    )
+
+
 async def retain_cog(
     session,
     *,

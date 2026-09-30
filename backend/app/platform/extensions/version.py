@@ -118,7 +118,13 @@ logger = logging.getLogger(__name__)
 # 11 -> 12 (fix(refresh)): ProcessingPort.build_gdal_source gained the optional
 # ``force_arcgis_geojson`` keyword so every chunk in one verified ArcGIS ID
 # plan uses the same GDAL driver when any object ID exceeds ESRIJSON's range.
-EXTENSION_API_VERSION: int = 12
+#
+# 12 -> 13 (fix(quota)): CatalogPort gained the required ``cog_may_be_read``
+# method. The replacement quota check asks it whether a VRT may still read a
+# member's COG before crediting the bytes the publish would keep charged. An
+# overlay replacing the ``catalog_port`` slot without it would fail every
+# reupload request.
+EXTENSION_API_VERSION: int = 13
 
 
 def check_extension_api_version(name: str, declared_version: int | None) -> None:

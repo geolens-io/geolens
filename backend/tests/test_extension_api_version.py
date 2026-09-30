@@ -102,11 +102,16 @@ class TestExtensionApiVersionConstant:
         request, inside a broad handler, as an empty list. Silent skew is what
         this check refuses, and release boundaries are not what it measures.
 
+        v13 adds the required ``cog_may_be_read`` method to ``CatalogPort``.
+        The replacement quota check asks it on every reupload request, so an
+        overlay that replaces the ``catalog_port`` key without it answers
+        AttributeError instead of admitting or refusing the upload.
+
         Update this pin, and the note above it, whenever the constant moves.
         """
         from app.platform.extensions.version import EXTENSION_API_VERSION
 
-        assert EXTENSION_API_VERSION == 12
+        assert EXTENSION_API_VERSION == 13
 
 
 class TestCheckExtensionApiVersion:

@@ -323,6 +323,17 @@ class CatalogPort(Protocol):
         self, session: AsyncSession, generation_id: uuid.UUID
     ) -> int | None: ...
 
+    # Whether a VRT, or a build in flight, may still read the COG the dataset
+    # serves now. A replacement publish keeps such a COG charged, so the quota
+    # door asks before crediting it.
+    #
+    # REQUIRED (EXTENSION_API_VERSION 12 -> 13): every reupload request reaches
+    # it through the quota check, so an overlay without it would answer
+    # AttributeError instead of admitting or refusing.
+    async def cog_may_be_read(
+        self, session: AsyncSession, dataset_id: uuid.UUID
+    ) -> bool: ...
+
     async def get_ingest_job_or_404(
         self, session: AsyncSession, job_id: uuid.UUID, user: Any
     ) -> Any: ...

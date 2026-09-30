@@ -541,6 +541,11 @@ class DefaultCatalogPort:
         )
         return result.scalar_one_or_none()
 
+    async def cog_may_be_read(self, session, dataset_id):  # type: ignore[no-untyped-def]
+        from app.processing.raster.vrt_members import cog_may_be_read
+
+        return await cog_may_be_read(session, dataset_id)
+
     async def get_ingest_job_or_404(self, session, job_id, user):  # type: ignore[no-untyped-def]
         from app.processing.ingest.service import get_job_or_404
 
