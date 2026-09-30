@@ -18,7 +18,6 @@ describe('formatQueryCell', () => {
     [884256.9359999986, '884256.936'],
     [-12.300000000000004, '-12.3'],
     [3.0000000000000004e-7, '3e-7'],
-    [1.2000000000000003e21, '1.2e+21'],
   ])('drops the rounding noise in %s', (raw, shown) => {
     expect(formatQueryCell(raw)).toBe(shown);
   });
@@ -28,6 +27,8 @@ describe('formatQueryCell', () => {
     [3.14159, '3.14159'],
     [1e-7, '1e-7'],
     [1234567890123456, '1234567890123456'],
+    [9007199254740992, '9007199254740992'],
+    [1.2000000000000003e21, '1.2000000000000003e+21'],
   ])('leaves %s as it is', (raw, shown) => {
     expect(formatQueryCell(raw)).toBe(shown);
   });

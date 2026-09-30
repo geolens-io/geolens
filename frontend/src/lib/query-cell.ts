@@ -8,7 +8,7 @@ const DISPLAY_DIGITS = 12;
 /** Display text for one cell of an AI chat query result. */
 export function formatQueryCell(raw: unknown): string {
   if (raw == null) return '';
-  if (typeof raw === 'number' && !Number.isSafeInteger(raw)) {
+  if (typeof raw === 'number' && !Number.isInteger(raw)) {
     return String(Number(raw.toPrecision(DISPLAY_DIGITS)));
   }
   return String(raw);
