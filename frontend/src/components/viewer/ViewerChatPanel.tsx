@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import { chatOverlayCompleteness, overlayFeatureCount } from '@/lib/chat-result-completeness';
 import type { ChatAction, ChatHistoryMessage, MapLayerResponse } from '@/types/api';
 import { randomId } from '@/lib/random-id';
+import { formatQueryCell } from '@/lib/query-cell';
 
 const prefersReducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false;
 
@@ -54,12 +55,7 @@ export function QueryResultTable({ result }: { result: QueryResult }) {
   const visibleColumns = columns.slice(0, 5);
   const hasMore = columns.length > 5;
   const cellAt = (row: unknown, index: number): string => {
-    const raw = Array.isArray(row) ? row[index] : undefined;
-    if (raw == null) return '';
-    // A SUM or AVG over a double carries binary rounding noise past 15 significant
-    // digits. Integers stay exact, since large IDs can need more digits than that.
-    if (typeof raw === 'number' && !Number.isInteger(raw)) return String(Number(raw.toPrecision(15)));
-    return String(raw);
+    return formatQueryCell(Array.isArray(row) ? row[index] : undefined);
   };
   return (
     <div className="mt-2 overflow-hidden rounded-md border">

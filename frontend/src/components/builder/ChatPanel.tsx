@@ -19,6 +19,7 @@ import type { EphemeralAnalysisHandoff } from '@/components/builder/hooks/use-ep
 import { ChatInput } from './ChatInput';
 import { getSmartSuggestions, type ChatSuggestion, type ViewportContext } from './chat-suggestions';
 import { randomId } from '@/lib/random-id';
+import { formatQueryCell } from '@/lib/query-cell';
 
 const prefersReducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false;
 
@@ -1231,8 +1232,7 @@ export function ChatPanel({
                   const visibleColumns = allColumns.slice(0, visibleCount);
                   const hasMore = allColumns.length > 5;
                   const cellAt = (row: unknown, colIdx: number): string => {
-                    const raw = Array.isArray(row) ? row[colIdx] : undefined;
-                    return raw == null ? '' : String(raw);
+                    return formatQueryCell(Array.isArray(row) ? row[colIdx] : undefined);
                   };
                   return (
                     <div className="mt-2 rounded-md border border-border overflow-hidden">
