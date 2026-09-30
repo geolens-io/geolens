@@ -1318,7 +1318,7 @@ async def test_a_legacy_blank_model_row_reads_as_the_provider_default(
     from app.api.main import app
     from app.core.db.models import AppSetting
     from app.core.dependencies import get_db
-    from app.core.persistent_config import _registry
+    from app.core.persistent_config import LLM_MODEL_LIGHT, _registry
     from app.platform.config_ops.service import _load_setting_state
 
     await client.put(
@@ -1328,15 +1328,20 @@ async def test_a_legacy_blank_model_row_reads_as_the_provider_default(
     )
     async for db in app.dependency_overrides[get_db]():
         db.add(AppSetting(key="llm_model", value={"v": ""}))
+        db.add(AppSetting(key="llm_model_light", value={"v": "   "}))
         await db.commit()
+        assert await LLM_MODEL_LIGHT.get(db) == "openai-light-env"
+        assert await LLM_MODEL_LIGHT.get_uncached(db) == "openai-light-env"
         current, overridden, _ = await _load_setting_state(db, _registry)
         assert "llm_model" not in overridden
+        assert "llm_model_light" not in overridden
         assert current["llm_model"] == "openai-chat-env"
 
     listing = await client.get("/settings/all/", headers=admin_auth_header)
     ai = {item["key"]: item for item in listing.json()["tabs"]["ai"]}
     assert ai["llm_model"]["source"] == "default"
     assert ai["llm_model"]["value"] == "openai-chat-env"
+    assert ai["llm_model_light"]["value"] == "openai-light-env"
 
 
 # ---------------------------------------------------------------------------

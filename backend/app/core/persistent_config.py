@@ -624,8 +624,8 @@ class _ProviderModelConfig(PersistentConfig[str]):
 
     The stored default is empty, so only an admin override is cached. The
     provider's default is resolved on every read, so switching the provider
-    takes effect at once. An override, or an empty stored value, behaves the
-    same way it does for any other key.
+    takes effect at once. A blank or whitespace value, including one stored by
+    an older version, means no override.
     """
 
     def __init__(self, key: str, *, light: bool, label: str) -> None:
@@ -638,9 +638,14 @@ class _ProviderModelConfig(PersistentConfig[str]):
         return llm_model_default(await LLM_PROVIDER.get_uncached(db), light=self.light)
 
     async def get(self, db: AsyncSession) -> str:
-        return await super().get(db) or llm_model_default(
-            await LLM_PROVIDER.get(db), light=self.light
-        )
+        value = await super().get(db)
+        if value.strip():
+            return value
+        return llm_model_default(await LLM_PROVIDER.get(db), light=self.light)
+
+    async def get_uncached(self, db: AsyncSession) -> str:
+        value = await super().get_uncached(db)
+        return value if value.strip() else await self.resolved_default(db)
 
     async def set(
         self,
@@ -651,17 +656,11 @@ class _ProviderModelConfig(PersistentConfig[str]):
         ip_address: str | None = None,
         commit: bool = True,
     ) -> None:
-        # An empty model means the provider's own, which is the same as no override.
         if not value.strip():
             await self.reset(db, user_id=user_id, ip_address=ip_address, commit=commit)
             return
         await super().set(
             db, value, user_id=user_id, ip_address=ip_address, commit=commit
-        )
-
-    async def get_uncached(self, db: AsyncSession) -> str:
-        return await super().get_uncached(db) or llm_model_default(
-            await LLM_PROVIDER.get_uncached(db), light=self.light
         )
 
 
