@@ -4,7 +4,7 @@
  * Manages: create (with overlay), select, edit geometry, edit attributes,
  * delete, deselect, tile reload, and hide-filter lifecycle.
  */
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { useDrawingStore } from '@/stores/drawing-store';
@@ -157,6 +157,24 @@ export function useFeatureEditing({
   const clearSelectedFeature = useDrawingStore((s) => s.clearSelectedFeature);
   const setEditDirty = useDrawingStore((s) => s.setEditDirty);
 
+  // Each mutation hook's isPending follows only its latest call, so
+  // overlapping writes are tracked here until every one has settled. A write
+  // is filed under the session epoch it started in, so one left over from a
+  // previous identity doesn't keep the current session busy.
+  const sessionEpoch = useDrawingStore((s) => s.sessionEpoch);
+  const [pendingWriteEpochs, setPendingWriteEpochs] = useState<number[]>([]);
+  const beginWrite = useCallback(
+    (epoch: number) => setPendingWriteEpochs((pending) => [...pending, epoch]),
+    [],
+  );
+  const endWrite = useCallback(
+    (epoch: number) => setPendingWriteEpochs((pending) => {
+      const index = pending.indexOf(epoch);
+      return pending.filter((_, i) => i !== index);
+    }),
+    [],
+  );
+
   const drawingGenerationRef = useRef(0);
   useEffect(() => {
     // Subscribe synchronously so batched A→B→A transitions cannot look unchanged.
@@ -242,6 +260,7 @@ export function useFeatureEditing({
         src?.setData({ type: 'FeatureCollection', features: overlayFeaturesRef.current });
       }
 
+      beginWrite(epoch);
       try {
         const created = await createFeature.mutateAsync({
           datasetId,
@@ -316,9 +335,11 @@ export function useFeatureEditing({
           src?.setData({ type: 'FeatureCollection', features: overlayFeaturesRef.current });
         }
         return stale ? { saved: false } : { saved: false, refused: true };
+      } finally {
+        endWrite(epoch);
       }
     },
-    [datasetId, tableName, mapRef, createFeature, reloadTiles, cleanupOverlayListener, t],
+    [datasetId, tableName, mapRef, createFeature, reloadTiles, cleanupOverlayListener, beginWrite, endWrite, t],
   );
 
   /** Deselect the currently selected feature, restoring tile visibility. */
@@ -353,6 +374,7 @@ export function useFeatureEditing({
     const epoch = session.sessionEpoch;
     const targetDatasetId = session.targetDatasetId;
     const generation = drawingGenerationRef.current;
+    beginWrite(epoch);
     try {
       const updated = await updateFeatureMutation.mutateAsync({
         datasetId,
@@ -383,8 +405,10 @@ export function useFeatureEditing({
       if (isSelectionStale(epoch, targetDatasetId, sf, generation, drawingGenerationRef.current)) return;
       // fix(#458 E-36): keep the backend detail.
       toast.error(formatMutationError('dataset:map.featureUpdateFailed', err));
+    } finally {
+      endWrite(epoch);
     }
-  }, [datasetId, tableName, mapRef, getSnapshotFeature, updateFeatureMutation, removeFeatures, clearSelectedFeature, reloadTiles, resetHistory, t]);
+  }, [datasetId, tableName, mapRef, getSnapshotFeature, updateFeatureMutation, removeFeatures, clearSelectedFeature, reloadTiles, resetHistory, beginWrite, endWrite, t]);
 
   /** Delete the selected feature. */
   const handleDeleteFeature = useCallback(async () => {
@@ -401,6 +425,7 @@ export function useFeatureEditing({
     const epoch = session.sessionEpoch;
     const targetDatasetId = session.targetDatasetId;
     const generation = drawingGenerationRef.current;
+    beginWrite(epoch);
     try {
       const deleted = await deleteFeatureMutation.mutateAsync({ datasetId, gid: sf.gid });
       if (isSelectionStale(epoch, targetDatasetId, sf, generation, drawingGenerationRef.current)) return;
@@ -423,8 +448,10 @@ export function useFeatureEditing({
       if (isSelectionStale(epoch, targetDatasetId, sf, generation, drawingGenerationRef.current)) return;
       // fix(#458 E-36): keep the backend detail.
       toast.error(formatMutationError('dataset:map.featureDeleteFailed', err));
+    } finally {
+      endWrite(epoch);
     }
-  }, [datasetId, tableName, mapRef, deleteFeatureMutation, removeFeatures, clearSelectedFeature, reloadTiles, resetHistory, t]);
+  }, [datasetId, tableName, mapRef, deleteFeatureMutation, removeFeatures, clearSelectedFeature, reloadTiles, resetHistory, beginWrite, endWrite, t]);
 
   /**
    * Update attributes of the selected feature. `applied` says whether the
@@ -446,6 +473,7 @@ export function useFeatureEditing({
       const epoch = session.sessionEpoch;
       const targetDatasetId = session.targetDatasetId;
       const generation = drawingGenerationRef.current;
+      beginWrite(epoch);
       try {
         const updated = await updateFeatureMutation.mutateAsync({ datasetId, gid: sf.gid, properties });
         // fix(#1761 review round 4): recheck immediately after the await,
@@ -475,9 +503,11 @@ export function useFeatureEditing({
         // fix(#458 E-36): keep the backend detail.
         toast.error(formatMutationError('dataset:map.attributesUpdateFailed', err));
         return { applied: true, refused: true };
+      } finally {
+        endWrite(epoch);
       }
     },
-    [datasetId, updateFeatureMutation, setSelectedFeature, reloadTiles, t],
+    [datasetId, updateFeatureMutation, setSelectedFeature, reloadTiles, beginWrite, endWrite, t],
   );
 
   /** Handle Terra Draw edit-finish (drag complete). */
@@ -610,9 +640,6 @@ export function useFeatureEditing({
     reloadTiles,
     cleanupOverlayListener,
     resetOverlay,
-    isFeatureMutationPending:
-      Boolean(createFeature.isPending)
-      || Boolean(updateFeatureMutation.isPending)
-      || Boolean(deleteFeatureMutation.isPending),
+    isFeatureMutationPending: pendingWriteEpochs.includes(sessionEpoch),
   };
 }

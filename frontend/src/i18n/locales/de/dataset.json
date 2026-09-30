@@ -472,6 +472,7 @@
     "attributesUpdated": "Attribute aktualisiert",
     "attributesUpdateFailed": "Attribute konnten nicht aktualisiert werden",
     "unsavedDiscarded": "Nicht gespeicherte Änderungen verworfen",
+    "sketchStillSaving": "Das vorherige Feature wird noch gespeichert. Versuchen Sie es erneut, sobald es gespeichert ist.",
     "discardChangesTitle": "Ungespeicherte Kartenbearbeitungen verwerfen?",
     "discardChangesDescription": "Ihre Geometrieänderungen wurden nicht gespeichert. Sie können weiter bearbeiten oder sie verwerfen.",
     "discardChangesAction": "Änderungen verwerfen",

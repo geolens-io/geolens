@@ -146,6 +146,20 @@ describe('DrawingToolbar edit action bar', () => {
     expect(screen.getByLabelText('drawing.editAttributes')).toBeDisabled();
     expect(screen.getByLabelText('drawing.deleteFeature')).toBeDisabled();
   });
+
+  it('disables mode changes and Undo while a feature mutation is pending', () => {
+    render(<DrawingToolbar geometryType="POINT" onClose={vi.fn()} canUndo isMutating />);
+
+    expect(screen.getByLabelText('drawing.select')).toBeDisabled();
+    expect(screen.getByLabelText('drawing.point')).toBeDisabled();
+    expect(screen.getByLabelText('drawing.undo')).toBeDisabled();
+  });
+
+  it('disables Done while a feature mutation is pending', () => {
+    render(<DrawingToolbar geometryType="POINT" onClose={vi.fn()} isMutating />);
+
+    expect(screen.getByLabelText('drawing.done')).toBeDisabled();
+  });
 });
 
 describe('DrawingToolbar callbacks', () => {

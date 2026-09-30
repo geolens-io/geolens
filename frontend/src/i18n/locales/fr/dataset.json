@@ -472,6 +472,7 @@
     "attributesUpdated": "Attributs mis à jour",
     "attributesUpdateFailed": "Échec de la mise à jour des attributs",
     "unsavedDiscarded": "Modifications non enregistrées abandonnées",
+    "sketchStillSaving": "L'entité précédente est en cours d'enregistrement. Réessayez une fois qu'elle est enregistrée.",
     "discardChangesTitle": "Ignorer les modifications cartographiques non enregistrées ?",
     "discardChangesDescription": "Vos modifications de géométrie ne sont pas enregistrées. Vous pouvez continuer la modification ou les ignorer.",
     "discardChangesAction": "Ignorer les modifications",

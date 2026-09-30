@@ -1,4 +1,5 @@
 import type { StyleSpecification } from 'maplibre-gl';
+import { toast } from 'sonner';
 import { render, screen, fireEvent, act, within } from '@/test/test-utils';
 import type { BasemapEntry } from '@/api/settings';
 import { DatasetMap } from '@/components/dataset/DatasetMap';
@@ -170,14 +171,12 @@ import { getAvailableModes } from '@/components/drawing/hooks/use-terra-draw';
 // vi.fn() per render) so a test can control WHEN the update mutation
 // resolves, to simulate an identity change while it is in flight.
 const updateFeatureMutateAsync = vi.hoisted(() => vi.fn().mockResolvedValue({}));
-const updateFeatureState = vi.hoisted(() => ({ isPending: false }));
-const createFeatureState = vi.hoisted(() => ({ isPending: false }));
 const createFeatureMutateAsync = vi.hoisted(() => vi.fn().mockResolvedValue({}));
 // A spy (not an inline vi.fn()) so a test can assert a Delete never went out.
 const deleteFeatureMutateAsync = vi.hoisted(() => vi.fn().mockResolvedValue({}));
 vi.mock('@/hooks/use-features', () => ({
-  useCreateFeature: () => ({ mutateAsync: createFeatureMutateAsync, isPending: createFeatureState.isPending }),
-  useUpdateFeature: () => ({ mutateAsync: updateFeatureMutateAsync, isPending: updateFeatureState.isPending }),
+  useCreateFeature: () => ({ mutateAsync: createFeatureMutateAsync }),
+  useUpdateFeature: () => ({ mutateAsync: updateFeatureMutateAsync }),
   useDeleteFeature: () => ({ mutateAsync: deleteFeatureMutateAsync }),
 }));
 
@@ -577,6 +576,24 @@ describe('DatasetMap undo shortcut ignores editable targets', () => {
     document.body.removeChild(input);
   });
 
+  it('does not undo while a feature write is in flight', () => {
+    createFeatureMutateAsync.mockReturnValueOnce(new Promise(() => {}));
+    renderDrawing();
+    act(() => {
+      terraDrawState.handleDrawFinish?.({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [1, 1] },
+        properties: {},
+      });
+    });
+    expect(createFeatureMutateAsync).toHaveBeenCalledTimes(1);
+
+    const event = new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true });
+    document.body.dispatchEvent(event);
+
+    expect(terraDrawState.undo).not.toHaveBeenCalled();
+  });
+
   it('still undoes the sketch for Ctrl+Z when focus has no editable target', () => {
     renderDrawing();
 
@@ -669,6 +686,34 @@ describe('DatasetMap Escape shortcut ignores editable targets', () => {
     expect(screen.queryByText('Discard unsaved map edits?')).not.toBeInTheDocument();
 
     document.body.removeChild(input);
+  });
+
+  it('ignores Escape while a feature save is in flight', async () => {
+    let settle!: () => void;
+    updateFeatureMutateAsync.mockReturnValueOnce(new Promise((resolve) => {
+      settle = () => resolve({});
+    }));
+    terraDrawState.getSnapshotFeature.mockReturnValueOnce({
+      type: 'Feature',
+      geometry: { type: 'Polygon', coordinates: [] },
+      properties: {},
+    });
+    renderWithSelection(true);
+    fireEvent.click(screen.getByRole('button', { name: /Save changes/i }));
+    expect(updateFeatureMutateAsync).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    });
+    expect(screen.queryByText('Discard unsaved map edits?')).not.toBeInTheDocument();
+
+    await act(async () => {
+      settle();
+    });
+    act(() => {
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    });
+    expect(screen.getByText('Discard unsaved map edits?')).toBeInTheDocument();
   });
 
   it('still opens the discard dialog for a dirty selection when Escape has no editable target', () => {
@@ -1046,16 +1091,24 @@ describe('DatasetMap when edit rights are lost mid-session', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
-  it('ends a clean session only after a feature write in flight settles', () => {
+  it('ends a clean session only after a feature write in flight settles', async () => {
+    let settle!: () => void;
+    deleteFeatureMutateAsync.mockReturnValueOnce(new Promise((resolve) => {
+      settle = () => resolve({});
+    }));
     const { rerender } = render(renderMap(true));
-    createFeatureState.isPending = true;
-    try {
-      rerender(renderMap(false));
-      expect(drawingState.clearDrawing).not.toHaveBeenCalled();
-    } finally {
-      createFeatureState.isPending = false;
-    }
+    drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    rerender(renderMap(true));
+    fireEvent.click(screen.getByRole('button', { name: /Delete feature/i }));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Delete' }));
+    expect(deleteFeatureMutateAsync).toHaveBeenCalledTimes(1);
 
+    rerender(renderMap(false));
+    expect(drawingState.clearDrawing).not.toHaveBeenCalled();
+
+    await act(async () => {
+      settle();
+    });
     rerender(renderMap(false));
 
     expect(drawingState.clearDrawing).toHaveBeenCalled();
@@ -1082,16 +1135,31 @@ describe('DatasetMap when edit rights are lost mid-session', () => {
     expect(drawingState.clearDrawing).toHaveBeenCalled();
   });
 
-  it('holds the discard while a save is still in flight', () => {
+  it('holds the discard while a save is still in flight', async () => {
+    let settle!: () => void;
+    updateFeatureMutateAsync.mockReturnValueOnce(new Promise((resolve) => {
+      settle = () => resolve({});
+    }));
+    terraDrawState.getSnapshotFeature.mockReturnValueOnce({
+      type: 'Feature',
+      geometry: { type: 'Polygon', coordinates: [] },
+      properties: {},
+    });
+    const { rerender } = render(renderMap(true));
     drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
     drawingState.isEditDirty = true;
-    updateFeatureState.isPending = true;
-    try {
-      render(renderMap(false));
-      expect(screen.getByRole('button', { name: 'Discard changes' })).toBeDisabled();
-    } finally {
-      updateFeatureState.isPending = false;
-    }
+    rerender(renderMap(true));
+    fireEvent.click(screen.getByRole('button', { name: /Save changes/i }));
+    expect(updateFeatureMutateAsync).toHaveBeenCalledTimes(1);
+
+    rerender(renderMap(false));
+    expect(screen.getByRole('button', { name: 'Discard changes' })).toBeDisabled();
+
+    await act(async () => {
+      settle();
+    });
+    rerender(renderMap(false));
+    expect(screen.getByRole('button', { name: 'Discard changes' })).toBeEnabled();
   });
 
   it('keeps a session whose attribute editor is open', () => {
@@ -1295,16 +1363,11 @@ describe('DatasetMap when edit rights are lost mid-session', () => {
     });
     terraDrawState.canUndo = false;
     expect(createFeatureMutateAsync).toHaveBeenCalledTimes(1);
-    createFeatureState.isPending = true;
-    try {
-      rerender(renderMap(false));
-      expect(drawingState.clearDrawing).not.toHaveBeenCalled();
-      await act(async () => {
-        settle();
-      });
-    } finally {
-      createFeatureState.isPending = false;
-    }
+    rerender(renderMap(false));
+    expect(drawingState.clearDrawing).not.toHaveBeenCalled();
+    await act(async () => {
+      settle();
+    });
     rerender(renderMap(false));
   }
 
@@ -1335,6 +1398,95 @@ describe('DatasetMap when edit rights are lost mid-session', () => {
 
     expect(drawingState.clearDrawing).not.toHaveBeenCalled();
     expect(screen.getByRole('alert')).toHaveTextContent(/can no longer edit this dataset/i);
+  });
+});
+
+// Changing mode deselects the feature, so it must wait for the write that
+// refers to that selection.
+describe('DatasetMap while a feature write is in flight', () => {
+  beforeEach(() => {
+    drawingState.isDrawing = true;
+    drawingState.activeMode = 'select';
+    drawingState.targetDatasetId = 'dataset-1';
+    drawingState.selectedFeature = null;
+    drawingState.isEditDirty = false;
+    drawingState.setMode.mockClear();
+    drawingState.clearSelectedFeature.mockClear();
+    terraDrawState.undo.mockClear();
+  });
+
+  afterEach(() => {
+    terraDrawState.canUndo = false;
+  });
+
+  function renderMap() {
+    return (
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName="example_table"
+        geometryType="Point"
+        datasetId="dataset-1"
+        recordType="vector_dataset"
+        canEdit
+      />
+    );
+  }
+
+  function expectModeChangesBlocked() {
+    expect(screen.getByRole('button', { name: 'Select' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Point' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Undo (Ctrl+Z)' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Point' }));
+    expect(drawingState.setMode).not.toHaveBeenCalled();
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(drawingState.clearSelectedFeature).not.toHaveBeenCalled();
+  }
+
+  it('blocks mode changes and Undo while a geometry save is in flight', async () => {
+    let settle!: () => void;
+    updateFeatureMutateAsync.mockReturnValueOnce(new Promise((resolve) => {
+      settle = () => resolve({});
+    }));
+    terraDrawState.getSnapshotFeature.mockReturnValueOnce({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [1, 1] },
+      properties: {},
+    });
+    terraDrawState.canUndo = true;
+    const { rerender } = render(renderMap());
+    drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    drawingState.isEditDirty = true;
+    rerender(renderMap());
+    fireEvent.click(screen.getByRole('button', { name: /Save changes/i }));
+    expect(updateFeatureMutateAsync).toHaveBeenCalledTimes(1);
+
+    expectModeChangesBlocked();
+
+    await act(async () => {
+      settle();
+    });
+    expect(screen.getByRole('button', { name: 'Point' })).toBeEnabled();
+  });
+
+  it('blocks mode changes while a delete is in flight, so its tiles reload on success', async () => {
+    let settle!: () => void;
+    deleteFeatureMutateAsync.mockReturnValueOnce(new Promise((resolve) => {
+      settle = () => resolve({});
+    }));
+    terraDrawState.canUndo = true;
+    const { rerender } = render(renderMap());
+    drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    rerender(renderMap());
+    fireEvent.click(screen.getByRole('button', { name: /Delete feature/i }));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Delete' }));
+    expect(deleteFeatureMutateAsync).toHaveBeenCalledTimes(1);
+
+    expectModeChangesBlocked();
+
+    await act(async () => {
+      settle();
+    });
+    expect(drawingState.clearSelectedFeature).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -1433,6 +1585,205 @@ describe('DatasetMap reports unsaved map work to the page guard', () => {
 
     unmount();
 
+    expect(setUnsaved).toHaveBeenLastCalledWith(false);
+  });
+});
+
+// A dataset with no attribute columns has no form to fill in, so a finished
+// sketch is saved straight away. Until that save succeeds the shape is still
+// unsaved work.
+describe('DatasetMap new feature saved without an attribute form', () => {
+  const setUnsaved = drawingState.setHasUnsavedMapWork;
+
+  beforeEach(() => {
+    drawingState.isDrawing = true;
+    drawingState.activeMode = 'point';
+    drawingState.targetDatasetId = 'dataset-1';
+    drawingState.selectedFeature = null;
+    drawingState.isEditDirty = false;
+    drawingState.clearDrawing.mockClear();
+    setUnsaved.mockClear();
+    terraDrawState.setMode.mockClear();
+    terraDrawState.isReady = true;
+    createFeatureMutateAsync.mockReset();
+  });
+
+  afterEach(() => {
+    terraDrawState.canUndo = false;
+    terraDrawState.isReady = false;
+    createFeatureMutateAsync.mockReset();
+    createFeatureMutateAsync.mockResolvedValue({});
+  });
+
+  function renderMap() {
+    return (
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName="example_table"
+        geometryType="Point"
+        datasetId="dataset-1"
+        recordType="vector_dataset"
+        canEdit
+      />
+    );
+  }
+
+  function finishSketch() {
+    act(() => {
+      terraDrawState.handleDrawFinish?.({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [1, 1] },
+        properties: {},
+      });
+    });
+  }
+
+  function pendingCreate(outcome: 'reject' | 'resolve') {
+    let settle!: () => void;
+    createFeatureMutateAsync.mockReturnValueOnce(new Promise((resolve, reject) => {
+      settle = () => (outcome === 'reject' ? reject(new Error('refused')) : resolve({}));
+    }));
+    return async () => {
+      await act(async () => {
+        settle();
+      });
+    };
+  }
+
+  it('reports unsaved work while the automatic save is in flight, then none once it succeeds', async () => {
+    const settle = pendingCreate('resolve');
+    render(renderMap());
+
+    finishSketch();
+
+    expect(createFeatureMutateAsync).toHaveBeenCalledTimes(1);
+    expect(setUnsaved).toHaveBeenLastCalledWith(true);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    await settle();
+
+    expect(setUnsaved).toHaveBeenLastCalledWith(false);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('stops drawing input while the automatic save is in flight and resumes once it succeeds', async () => {
+    const settle = pendingCreate('resolve');
+    render(renderMap());
+
+    finishSketch();
+    expect(terraDrawState.setMode).toHaveBeenLastCalledWith('static');
+
+    await settle();
+    expect(terraDrawState.setMode).toHaveBeenLastCalledWith('point');
+  });
+
+  it('holds Done until the automatic save has settled', async () => {
+    const settle = pendingCreate('resolve');
+    render(renderMap());
+    finishSketch();
+
+    expect(screen.getByRole('button', { name: 'Done' })).toBeDisabled();
+
+    await settle();
+
+    expect(screen.getByRole('button', { name: 'Done' })).toBeEnabled();
+  });
+
+  it('keeps the shape when the automatic save is refused and saves it again on request', async () => {
+    const settle = pendingCreate('reject');
+    render(renderMap());
+    finishSketch();
+
+    await settle();
+
+    expect(setUnsaved).toHaveBeenLastCalledWith(true);
+    expect(drawingState.clearDrawing).not.toHaveBeenCalled();
+    const retry = within(screen.getByRole('dialog'));
+
+    createFeatureMutateAsync.mockResolvedValueOnce({});
+    await act(async () => {
+      fireEvent.click(retry.getByRole('button', { name: 'Save' }));
+    });
+
+    expect(createFeatureMutateAsync).toHaveBeenCalledTimes(2);
+    expect(createFeatureMutateAsync).toHaveBeenLastCalledWith(
+      expect.objectContaining({ geometry: { type: 'Point', coordinates: [1, 1] } }),
+    );
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(setUnsaved).toHaveBeenLastCalledWith(false);
+  });
+
+  it('starts one create when a second sketch finishes before the map re-renders, and keeps the first after a refusal', async () => {
+    const info = vi.spyOn(toast, 'info').mockImplementation(() => 'toast-id');
+    const settle = pendingCreate('reject');
+    render(renderMap());
+
+    act(() => {
+      for (const x of [1, 2]) {
+        terraDrawState.handleDrawFinish?.({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [x, x] },
+          properties: {},
+        });
+      }
+    });
+    expect(createFeatureMutateAsync).toHaveBeenCalledTimes(1);
+    expect(info).toHaveBeenCalledTimes(1);
+    expect(info).toHaveBeenCalledWith('The previous feature is still saving. Try again once it has saved.');
+    info.mockRestore();
+
+    await settle();
+    createFeatureMutateAsync.mockResolvedValueOnce({});
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Save' }));
+    });
+
+    expect(createFeatureMutateAsync).toHaveBeenCalledTimes(2);
+    expect(createFeatureMutateAsync).toHaveBeenLastCalledWith(
+      expect.objectContaining({ geometry: { type: 'Point', coordinates: [1, 1] } }),
+    );
+  });
+
+  it('saves the next sketch once the earlier automatic save has settled', async () => {
+    const settle = pendingCreate('resolve');
+    render(renderMap());
+    finishSketch();
+    await settle();
+
+    createFeatureMutateAsync.mockResolvedValueOnce({});
+    finishSketch();
+
+    expect(createFeatureMutateAsync).toHaveBeenCalledTimes(2);
+  });
+
+  it('saves a new session\'s first sketch while the previous session\'s save is still in flight', () => {
+    pendingCreate('resolve');
+    const epoch = drawingState.sessionEpoch;
+    try {
+      const { rerender } = render(renderMap());
+      finishSketch();
+      expect(createFeatureMutateAsync).toHaveBeenCalledTimes(1);
+
+      drawingState.sessionEpoch = epoch + 1;
+      rerender(renderMap());
+      createFeatureMutateAsync.mockResolvedValueOnce({});
+      finishSketch();
+
+      expect(createFeatureMutateAsync).toHaveBeenCalledTimes(2);
+    } finally {
+      drawingState.sessionEpoch = epoch;
+    }
+  });
+
+  it('lets the user drop a shape whose automatic save was refused', async () => {
+    const settle = pendingCreate('reject');
+    render(renderMap());
+    finishSketch();
+    await settle();
+
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(setUnsaved).toHaveBeenLastCalledWith(false);
   });
 });
@@ -1755,8 +2106,10 @@ describe('DatasetMap attribute-edit dialog respects handleEditAttributeSubmit re
 
     fireEvent.click(screen.getByRole('button', { name: /^Save$/i }));
 
-    // Identity changes while the update is in flight.
-    drawingState.sessionEpoch = 301;
+    // The session moves to another target while the update is in flight. The
+    // map re-renders when the write settles, so an epoch bump would also tear
+    // the editor down there; a new target leaves it alone.
+    drawingState.targetDatasetId = 'dataset-2';
 
     await act(async () => {
       resolveUpdate({});
