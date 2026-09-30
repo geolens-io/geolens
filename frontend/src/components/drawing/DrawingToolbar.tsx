@@ -126,7 +126,7 @@ export function DrawingToolbar({
 
         <div className="w-px h-6 bg-border mx-1" />
 
-        <Button variant="ghost" size="icon-sm" title={t('drawing.done')} aria-label={t('drawing.done')} onClick={onClose}>
+        <Button variant="ghost" size="icon-sm" title={t('drawing.done')} aria-label={t('drawing.done')} onClick={onClose} disabled={isMutating}>
           <Check className="h-4 w-4" />
         </Button>
       </div>

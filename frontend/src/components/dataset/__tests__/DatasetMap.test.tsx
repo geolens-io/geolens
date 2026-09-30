@@ -1601,6 +1601,18 @@ describe('DatasetMap new feature saved without an attribute form', () => {
     expect(terraDrawState.setMode).toHaveBeenLastCalledWith('point');
   });
 
+  it('holds Done until the automatic save has settled', async () => {
+    const settle = pendingCreate('resolve');
+    render(renderMap());
+    finishSketch();
+
+    expect(screen.getByRole('button', { name: 'Done' })).toBeDisabled();
+
+    await settle();
+
+    expect(screen.getByRole('button', { name: 'Done' })).toBeEnabled();
+  });
+
   it('keeps the shape when the automatic save is refused and saves it again on request', async () => {
     const settle = pendingCreate('reject');
     render(renderMap());
