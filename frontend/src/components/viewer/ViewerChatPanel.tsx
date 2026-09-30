@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import { chatOverlayCompleteness, overlayFeatureCount } from '@/lib/chat-result-completeness';
 import type { ChatAction, ChatHistoryMessage, MapLayerResponse } from '@/types/api';
 import { randomId } from '@/lib/random-id';
+import { formatQueryCell } from '@/lib/query-cell';
 
 const prefersReducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false;
 
@@ -53,10 +54,6 @@ export function QueryResultTable({ result }: { result: QueryResult }) {
   }
   const visibleColumns = columns.slice(0, 5);
   const hasMore = columns.length > 5;
-  const cellAt = (row: unknown, index: number): string => {
-    const raw = Array.isArray(row) ? row[index] : undefined;
-    return raw == null ? '' : String(raw);
-  };
   return (
     <div className="mt-2 overflow-hidden rounded-md border">
       <div className="max-h-48 overflow-y-auto" role="region" aria-label={t('viewer.ai.queryResult.tableLabel')}>
@@ -75,9 +72,10 @@ export function QueryResultTable({ result }: { result: QueryResult }) {
             {rows.map((row, idx) => (
               <tr key={idx} className="border-b border-border last:border-0">
                 {visibleColumns.map((col, colIdx) => {
-                  const display = cellAt(row, colIdx);
+                  const raw = Array.isArray(row) ? row[colIdx] : undefined;
+                  const display = formatQueryCell(raw);
                   return (
-                    <td key={col} className="max-w-[8rem] truncate px-2 py-1 text-foreground" title={display}>
+                    <td key={col} className="max-w-[8rem] truncate px-2 py-1 text-foreground" title={raw == null ? '' : String(raw)}>
                       {display}
                     </td>
                   );

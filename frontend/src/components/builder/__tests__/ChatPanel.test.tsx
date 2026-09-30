@@ -1641,6 +1641,25 @@ describe('ChatPanel — inline data-analysis card (Phase 1135 AI-08)', () => {
     expect(await screen.findByRole('region', { name: /query result table/i })).toBeInTheDocument();
   });
 
+  it('drops floating-point noise from aggregate cells', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            { type: 'show_query_result', columns: ['borough', 'total_acres'], rows: [['Brooklyn', 491.9000000000001]] },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Acreage by borough' } };
+    });
+    const user = userEvent.setup();
+    renderPanel();
+    await typeAndSend(user, 'acreage by borough');
+    expect(await screen.findByRole('cell', { name: '491.9' })).toBeInTheDocument();
+    expect(screen.queryByText(/491\.90000/)).not.toBeInTheDocument();
+  });
+
   it('renders the LAST query result when a retry supersedes an empty one (#534)', async () => {
     mockStreamChat.mockImplementation(async function* () {
       yield {

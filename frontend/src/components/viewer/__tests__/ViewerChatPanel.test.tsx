@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { streamChatMessage } from '@/api/maps';
 import { useAIAvailability } from '@/hooks/use-ai-availability';
 import { useEphemeralLayers } from '@/components/builder/hooks/use-ephemeral-layers';
-import { ViewerChatPanel } from '../ViewerChatPanel';
+import { QueryResultTable, ViewerChatPanel } from '../ViewerChatPanel';
 import type { MapLayerResponse } from '@/types/api';
 
 // scrollIntoView is not available in jsdom
@@ -323,5 +323,28 @@ describe('ViewerChatPanel', () => {
 
     await screen.findByText('Something went wrong. Please try again.');
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+  });
+});
+
+describe('QueryResultTable', () => {
+  it('drops floating-point noise and keeps exact values in the cell title', () => {
+    render(
+      <QueryResultTable
+        result={{
+          columns: ['total_acres', 'mean_acres', 'id', 'precise', 'tiny'],
+          rows: [[491.9000000000001, 56.025000000000006, 1234567890123456, 100000000000000.5, 3.0000000000000004e-7]],
+          rowCount: 1,
+          truncated: false,
+        }}
+      />,
+    );
+
+    expect(screen.getByRole('cell', { name: '491.9' })).toHaveAttribute('title', '491.9000000000001');
+    expect(screen.getByRole('cell', { name: '56.025' })).toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: '1234567890123456' })).toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: '100000000000000' })).toHaveAttribute('title', '100000000000000.5');
+    expect(screen.getByRole('cell', { name: '3e-7' })).toBeInTheDocument();
+    expect(screen.queryByText('491.9000000000001')).not.toBeInTheDocument();
+    expect(screen.queryByText('56.025000000000006')).not.toBeInTheDocument();
   });
 });

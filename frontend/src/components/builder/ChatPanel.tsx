@@ -19,6 +19,7 @@ import type { EphemeralAnalysisHandoff } from '@/components/builder/hooks/use-ep
 import { ChatInput } from './ChatInput';
 import { getSmartSuggestions, type ChatSuggestion, type ViewportContext } from './chat-suggestions';
 import { randomId } from '@/lib/random-id';
+import { formatQueryCell } from '@/lib/query-cell';
 
 const prefersReducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false;
 
@@ -1230,10 +1231,6 @@ export function ChatPanel({
                   const visibleCount = Math.min(allColumns.length, 5);
                   const visibleColumns = allColumns.slice(0, visibleCount);
                   const hasMore = allColumns.length > 5;
-                  const cellAt = (row: unknown, colIdx: number): string => {
-                    const raw = Array.isArray(row) ? row[colIdx] : undefined;
-                    return raw == null ? '' : String(raw);
-                  };
                   return (
                     <div className="mt-2 rounded-md border border-border overflow-hidden">
                       <div className="max-h-48 overflow-y-auto" role="region" aria-label={t('chat.queryResult.tableLabel')}>
@@ -1252,9 +1249,10 @@ export function ChatPanel({
                             {rows.map((row, idx) => (
                               <tr key={idx} className="border-b border-border last:border-0 hover:bg-muted/40">
                                 {visibleColumns.map((col, colIdx) => {
-                                  const display = cellAt(row, colIdx);
+                                  const raw = Array.isArray(row) ? row[colIdx] : undefined;
+                                  const display = formatQueryCell(raw);
                                   return (
-                                    <td key={col} className="px-2 py-1 text-foreground max-w-[8rem] truncate" title={display}>
+                                    <td key={col} className="px-2 py-1 text-foreground max-w-[8rem] truncate" title={raw == null ? '' : String(raw)}>
                                       {display}
                                     </td>
                                   );
