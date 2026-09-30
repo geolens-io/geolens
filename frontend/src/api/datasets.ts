@@ -438,15 +438,18 @@ export async function reuploadPresigned(
   datasetId: string,
   file: File,
 ): Promise<UploadResponse> {
+  // The presigned PUT URL is signed for this content type, and fetch sends no
+  // Content-Type for a Blob whose type is empty, so both sides name it.
+  const contentType = file.type || 'application/octet-stream';
   const { job_id, urls, upload_id, part_size } = await requestPresignedReupload(
     datasetId,
     file.name,
     file.size,
-    file.type || undefined,
+    contentType,
   );
 
   if (urls.length === 1 && !upload_id) {
-    const resp = await fetch(urls[0], { method: 'PUT', body: file });
+    const resp = await fetch(urls[0], { method: 'PUT', headers: { 'Content-Type': contentType }, body: file });
     if (!resp.ok) {
       throw new Error(
         i18n.t('common:errors.storageUploadFailed', { status: resp.status }),
