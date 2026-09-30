@@ -24,7 +24,11 @@ from app.core.geo import extent_to_bbox
 from app.platform.cache import tenant_cache_context_available, tenant_cache_key
 from app.platform.extensions import get_ai_provider
 from app.processing.embeddings.helpers import get_nearest_record_ids
-from app.core.persistent_config import LLM_MODEL_LIGHT, LLM_PROVIDER
+from app.core.persistent_config import (
+    LLM_MODEL_LIGHT,
+    LLM_PROVIDER,
+    llm_model_default,
+)
 from app.processing.ai.token_usage import record_token_usage
 
 if TYPE_CHECKING:
@@ -307,9 +311,7 @@ async def _generate_structured(
     model = (
         await LLM_MODEL_LIGHT.get(db)
         if db is not None
-        else (
-            settings.llm_model if settings.anthropic_api_key else settings.openai_model
-        )
+        else llm_model_default(provider, light=True)
     )
     provider_ext = get_ai_provider(provider)
     runtime_config = (

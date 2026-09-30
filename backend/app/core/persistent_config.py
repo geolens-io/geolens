@@ -603,15 +603,43 @@ LLM_PROVIDER = PersistentConfig[str](
     label="LLM Provider",
 )
 
-LLM_MODEL = PersistentConfig[str](
-    key="llm_model",
-    type_=str,
-    env_default_factory=lambda: (
-        settings.llm_model if settings.anthropic_api_key else settings.openai_model
-    ),
-    tab="ai",
-    label="LLM Model",
-)
+
+def llm_model_default(provider: str, *, light: bool = False) -> str:
+    """The model ``provider`` uses when no admin override is set."""
+    if provider == "anthropic":
+        return "claude-haiku-4-5-20251001" if light else settings.llm_model
+    if light:
+        # Reuse OPENAI_MODEL rather than a hardcoded name, which 404s on Azure
+        # OpenAI, gateways and Ollama, where it must match a real deployment.
+        return settings.openai_model_light or settings.openai_model
+    return settings.openai_model
+
+
+class _ProviderModelConfig(PersistentConfig[str]):
+    """A model setting whose default follows the selected LLM provider.
+
+    The stored default is empty, so only an admin override is cached. The
+    provider's default is resolved on every read, so switching the provider
+    takes effect at once. An override, or an empty stored value, behaves the
+    same way it does for any other key.
+    """
+
+    def __init__(self, key: str, *, light: bool, label: str) -> None:
+        super().__init__(key, type_=str, env_default="", tab="ai", label=label)
+        self.light = light
+
+    async def get(self, db: AsyncSession) -> str:
+        return await super().get(db) or llm_model_default(
+            await LLM_PROVIDER.get(db), light=self.light
+        )
+
+    async def get_uncached(self, db: AsyncSession) -> str:
+        return await super().get_uncached(db) or llm_model_default(
+            await LLM_PROVIDER.get_uncached(db), light=self.light
+        )
+
+
+LLM_MODEL = _ProviderModelConfig("llm_model", light=False, label="LLM Model")
 
 OPENAI_BASE_URL = PersistentConfig[str](
     key="openai_base_url",
@@ -661,19 +689,8 @@ AI_SEND_SAMPLE_VALUES = PersistentConfig[bool](
     label="Send Sample Values to LLM",
 )
 
-LLM_MODEL_LIGHT = PersistentConfig[str](
-    key="llm_model_light",
-    type_=str,
-    # Fall back to openai_model rather than a hardcoded model name — a
-    # hardcoded name 404s on Azure OpenAI/gateways/Ollama, where it must
-    # match a real deployment. Set OPENAI_MODEL_LIGHT for a cheaper model.
-    env_default_factory=lambda: (
-        "claude-haiku-4-5-20251001"
-        if settings.anthropic_api_key
-        else (settings.openai_model_light or settings.openai_model)
-    ),
-    tab="ai",
-    label="Light LLM Model (SQL/Metadata)",
+LLM_MODEL_LIGHT = _ProviderModelConfig(
+    "llm_model_light", light=True, label="Light LLM Model (SQL/Metadata)"
 )
 
 MAX_AI_TOKENS_PER_USER_PER_DAY = PersistentConfig[int](

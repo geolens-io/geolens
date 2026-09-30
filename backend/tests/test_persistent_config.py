@@ -1001,6 +1001,89 @@ async def test_llm_provider_from_persistent_config(
         assert model == "gpt-4o"
 
 
+@pytest.fixture
+def _both_ai_keys(monkeypatch):
+    """Both provider keys set, with recognisable env model names."""
+    from app.core.persistent_config import settings
+
+    monkeypatch.setattr(settings, "anthropic_api_key", "sk-ant-test")
+    monkeypatch.setattr(settings, "openai_api_key", "sk-openai")
+    monkeypatch.setattr(settings, "llm_model", "anthropic-chat-env")
+    monkeypatch.setattr(settings, "openai_model", "openai-chat-env")
+    monkeypatch.setattr(settings, "openai_model_light", "openai-light-env")
+
+
+@pytest.mark.anyio
+async def test_model_defaults_follow_the_selected_provider(
+    client: AsyncClient, admin_auth_header: dict, _both_ai_keys
+):
+    """Switching the provider moves both model defaults to that provider at once."""
+    from app.core.persistent_config import LLM_MODEL, LLM_MODEL_LIGHT
+    from app.core.dependencies import get_db
+    from app.api.main import app
+
+    async def models() -> tuple[str, str]:
+        async for db in app.dependency_overrides[get_db]():
+            return await LLM_MODEL.get(db), await LLM_MODEL_LIGHT.get(db)
+        raise AssertionError("no session")
+
+    await client.put(
+        "/settings/",
+        json={"settings": {"llm_provider": "anthropic"}},
+        headers=admin_auth_header,
+    )
+    assert await models() == ("anthropic-chat-env", "claude-haiku-4-5-20251001")
+
+    await client.put(
+        "/settings/",
+        json={"settings": {"llm_provider": "openai_compatible"}},
+        headers=admin_auth_header,
+    )
+    assert await models() == ("openai-chat-env", "openai-light-env")
+
+
+@pytest.mark.anyio
+async def test_model_override_survives_a_provider_switch(
+    client: AsyncClient, admin_auth_header: dict, _both_ai_keys
+):
+    from app.core.persistent_config import LLM_MODEL
+    from app.core.dependencies import get_db
+    from app.api.main import app
+
+    await client.put(
+        "/settings/",
+        json={
+            "settings": {
+                "llm_provider": "openai_compatible",
+                "llm_model": "my-deployment",
+            }
+        },
+        headers=admin_auth_header,
+    )
+    async for db in app.dependency_overrides[get_db]():
+        assert await LLM_MODEL.get(db) == "my-deployment"
+
+
+@pytest.mark.anyio
+async def test_settings_and_status_show_the_model_requests_use(
+    client: AsyncClient, admin_auth_header: dict, _both_ai_keys
+):
+    await client.put(
+        "/settings/",
+        json={"settings": {"llm_provider": "openai_compatible"}},
+        headers=admin_auth_header,
+    )
+
+    listing = await client.get("/settings/all/", headers=admin_auth_header)
+    ai = {item["key"]: item for item in listing.json()["tabs"]["ai"]}
+    assert ai["llm_model"]["value"] == "openai-chat-env"
+    assert ai["llm_model"]["source"] == "default"
+    assert ai["llm_model_light"]["value"] == "openai-light-env"
+
+    status = await client.get("/admin/ai-status/", headers=admin_auth_header)
+    assert status.json()["model"] == "openai-chat-env"
+
+
 # ---------------------------------------------------------------------------
 # Log level propagation tests (CFG-06)
 # ---------------------------------------------------------------------------

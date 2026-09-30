@@ -185,7 +185,7 @@ async def test_settings_reset_evicts_its_batch_in_one_step(
     probe_cache: _EvictionProbeCache,
 ):
     """POST /settings/reset is the other batch writer and has the same window."""
-    from app.core.persistent_config import LLM_MODEL, LLM_PROVIDER
+    from app.core.persistent_config import LLM_MODEL, LLM_PROVIDER, llm_model_default
 
     observations: list[tuple[str, str]] = []
 
@@ -203,7 +203,7 @@ async def test_settings_reset_evicts_its_batch_in_one_step(
     await read_the_pair()
     assert observations == [_OLD]
 
-    defaults = (LLM_PROVIDER.env_default, LLM_MODEL.env_default)
+    defaults = (LLM_PROVIDER.env_default, llm_model_default(LLM_PROVIDER.env_default))
 
     probe_cache.on_evict = read_the_pair
     try:

@@ -870,6 +870,7 @@ def _ai_status(
     provider: str,
     semantic_search_enabled: bool = False,
     has_embeddings: bool = False,
+    model: str | None = None,
 ) -> AIStatusResponse:
     """Build AIStatusResponse from the SELECTED provider + DB toggle.
 
@@ -881,17 +882,13 @@ def _ai_status(
         "anthropic": app_settings.anthropic_api_key,
         "openai_compatible": app_settings.openai_api_key,
     }
-    models = {
-        "anthropic": app_settings.llm_model,
-        "openai_compatible": app_settings.openai_model,
-    }
     display_names = {"anthropic": "anthropic", "openai_compatible": "openai"}
 
     selected_key = keys.get(provider)
     configured = bool(selected_key)
     return AIStatusResponse(
         provider=display_names.get(provider) if configured else None,
-        model=models.get(provider) if configured else None,
+        model=model if configured else None,
         enabled=enabled,
         configured=configured,
         semantic_search_enabled=semantic_search_enabled,
@@ -933,6 +930,7 @@ async def get_ai_status(
     """Return single-deployment AI status; no provider-routing policy controls (admin only)."""
     from app.core.persistent_config import (
         AI_ENABLED,
+        LLM_MODEL,
         LLM_PROVIDER,
         SEMANTIC_SEARCH_ENABLED,
     )
@@ -944,7 +942,11 @@ async def get_ai_status(
     semantic = await SEMANTIC_SEARCH_ENABLED.get(db)
     has_embeds = await has_embeddings(db)
     result = _ai_status(
-        enabled, provider, semantic_search_enabled=semantic, has_embeddings=has_embeds
+        enabled,
+        provider,
+        semantic_search_enabled=semantic,
+        has_embeddings=has_embeds,
+        model=await LLM_MODEL.get(db),
     )
     if probe:
         from app.processing.ai.probe import run_ai_probe
@@ -977,6 +979,7 @@ async def update_ai_status(
     from app.processing.embeddings.helpers import has_embeddings
     from app.core.persistent_config import (
         AI_ENABLED,
+        LLM_MODEL,
         LLM_PROVIDER,
         SEMANTIC_SEARCH_ENABLED,
     )
@@ -995,6 +998,7 @@ async def update_ai_status(
         provider,
         semantic_search_enabled=semantic,
         has_embeddings=has_embeds,
+        model=await LLM_MODEL.get(db),
     )
 
 
