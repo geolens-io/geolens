@@ -1084,6 +1084,56 @@ async def test_settings_and_status_show_the_model_requests_use(
     assert status.json()["model"] == "openai-chat-env"
 
 
+@pytest.mark.anyio
+async def test_model_reset_and_import_state_use_the_provider_default(
+    client: AsyncClient, admin_auth_header: dict, _both_ai_keys
+):
+    """The reset audit and config-import state show the model the key resolves to."""
+    from sqlalchemy import select
+
+    from app.api.main import app
+    from app.core.config import settings as app_settings
+    from app.core.dependencies import get_db
+    from app.core.persistent_config import LLM_MODEL, _registry
+    from app.modules.audit.models import AuditLog
+    from app.modules.auth.models import User
+    from app.platform.config_ops.service import _load_setting_state
+
+    await client.put(
+        "/settings/",
+        json={"settings": {"llm_provider": "openai_compatible"}},
+        headers=admin_auth_header,
+    )
+    async for db in app.dependency_overrides[get_db]():
+        admin = (
+            await db.execute(
+                select(User).where(User.username == app_settings.geolens_admin_username)
+            )
+        ).scalar_one()
+        await LLM_MODEL.set(db, "my-deployment", user_id=admin.id)
+        await LLM_MODEL.reset(db, user_id=admin.id)
+
+        entry = (
+            (
+                await db.execute(
+                    select(AuditLog)
+                    .where(AuditLog.resource_type == "setting")
+                    .where(AuditLog.action == "reset")
+                    .order_by(AuditLog.created_at.desc())
+                )
+            )
+            .scalars()
+            .first()
+        )
+        assert entry.details["setting_key"] == "llm_model"
+        assert entry.details["new_value"] == "openai-chat-env"
+
+        current, overridden, _ = await _load_setting_state(db, _registry)
+        assert "llm_model" not in overridden
+        assert current["llm_model"] == "openai-chat-env"
+        assert current["llm_model_light"] == "openai-light-env"
+
+
 # ---------------------------------------------------------------------------
 # Log level propagation tests (CFG-06)
 # ---------------------------------------------------------------------------

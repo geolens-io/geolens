@@ -125,6 +125,10 @@ class PersistentConfig(Generic[T]):
         # intentionally cast rather than assert non-None here.
         return cast(T, self._env_default_static)
 
+    async def resolved_default(self, db: AsyncSession) -> T:
+        """The value this key takes when it has no override."""
+        return self.env_default
+
     async def get(self, db: AsyncSession) -> T:
         """Resolve effective value: env_only -> cache -> DB -> env_default."""
         if _is_env_only():
@@ -302,7 +306,7 @@ class PersistentConfig(Generic[T]):
                         details={
                             "setting_key": self.key,
                             "old_value": old_value,
-                            "new_value": self.env_default,
+                            "new_value": await self.resolved_default(db),
                         },
                         ip_address=ip_address,
                     ),
@@ -628,10 +632,11 @@ class _ProviderModelConfig(PersistentConfig[str]):
         super().__init__(key, type_=str, env_default="", tab="ai", label=label)
         self.light = light
 
+    async def resolved_default(self, db: AsyncSession) -> str:
+        return llm_model_default(await LLM_PROVIDER.get(db), light=self.light)
+
     async def get(self, db: AsyncSession) -> str:
-        return await super().get(db) or llm_model_default(
-            await LLM_PROVIDER.get(db), light=self.light
-        )
+        return await super().get(db) or await self.resolved_default(db)
 
     async def get_uncached(self, db: AsyncSession) -> str:
         return await super().get_uncached(db) or llm_model_default(

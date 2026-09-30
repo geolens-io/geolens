@@ -23,8 +23,6 @@ from app.core.persistent_config import (
     EMBEDDING_DIMS,
     EMBEDDING_MODEL,
     ENTERPRISE_ONLY_TABS,
-    LLM_MODEL,
-    LLM_MODEL_LIGHT,
     PASSWORD_LOGIN_ENABLED,
     _registry,
     apply_side_effects_batch,
@@ -315,10 +313,7 @@ async def get_all_settings(
             # that are NOT in effect; show the effective env_default instead.
             value = db_settings[cfg.key]
         else:
-            value = cfg.env_default
-        if cfg in (LLM_MODEL, LLM_MODEL_LIGHT) and not value:
-            # Empty follows the selected provider; show the model it resolves to.
-            value = await cfg.get(db)
+            value = await cfg.resolved_default(db)
 
         if env_only:
             source = "env_only"

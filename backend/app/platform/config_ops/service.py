@@ -555,7 +555,7 @@ async def _load_setting_state(
     valid_stored_keys: set[str] = set()
     for cfg in registry:
         if cfg.key not in stored_settings:
-            current_settings[cfg.key] = cfg.env_default
+            current_settings[cfg.key] = await cfg.resolved_default(db)
             continue
         raw_value = stored_settings[cfg.key]
         unwrapped = (
@@ -739,7 +739,7 @@ async def preflight_import(
                 SettingChange(
                     key=cfg.key,
                     current=current_settings[cfg.key],
-                    imported=cfg.env_default,
+                    imported=await cfg.resolved_default(db),
                     action="reset",
                     reason="Omitted from overwrite payload; reset to runtime default.",
                 ).model_dump()
