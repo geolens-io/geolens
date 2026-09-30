@@ -228,6 +228,7 @@ def init_storage() -> None:
             secret_access_key=reveal(settings.s3_secret_access_key),
             allow_http=settings.s3_allow_http,
             addressing_style=settings.s3_addressing_style,
+            public_endpoint=settings.s3_public_endpoint,
         )
     elif settings.storage_provider == "azure":
         from app.platform.storage.azure import AzureBlobStorageProvider

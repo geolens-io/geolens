@@ -429,6 +429,9 @@ class Settings(BaseSettings):
 
     storage_provider: Literal["local", "s3", "azure"] = "local"
     s3_endpoint: str | None = None
+    # Presigned URLs are signed against this host when set, for clients that
+    # can't reach s3_endpoint (a container hostname, say).
+    s3_public_endpoint: str | None = None
     s3_bucket: str | None = None
     s3_access_key_id: str | None = None
     s3_secret_access_key: SecretStr | None = None
@@ -659,6 +662,7 @@ class Settings(BaseSettings):
         "geolens_migration_db_role",
         "tile_database_url_override",
         "s3_endpoint",
+        "s3_public_endpoint",
         "s3_bucket",
         "s3_access_key_id",
         "s3_secret_access_key",
