@@ -213,12 +213,7 @@ export const lineAdapter: LayerAdapter = {
 
   syncPaint(map, input) {
     if (!map.getLayer(input.layerId)) return;
-    // The writer never removes layers (it only adds and updates); a mode that
-    // stops being 'arrow' has to drop the companion by hand.
-    if (!isArrowMode(input) && map.getLayer(arrowLayerId(input.layerId))) {
-      map.removeLayer(arrowLayerId(input.layerId));
-    }
-    writeDescribedLayer(map, describeLine(input));
+    writeDescribedLayer(map, describeLine(input), lineAdapter.getLayerIds(input.layerId));
   },
 
   syncVisibility(map, input) {

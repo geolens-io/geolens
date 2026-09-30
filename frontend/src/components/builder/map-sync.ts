@@ -22,22 +22,19 @@ import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 import { toMapLibreAttribution } from '@/lib/attribution-safety';
 import { normalizeDemStyleConfig } from '@/lib/dem-render-mode';
 import { getAdapter } from './layer-adapters/registry';
-import type { AdapterLayerInput, LayerAdapter, LayerSpec } from './layer-adapters/types';
-import { FULL_ZOOM_RANGE } from './layer-adapters/builder-defaults';
+import type { AdapterLayerInput, LayerAdapter } from './layer-adapters/types';
 import {
   adapterInputFor,
   describeLayers,
   type DescribedLayer,
   type Description,
   type RenderContext,
-  type ZoomRange,
 } from './layer-description';
 import { clusterCircleLayerId, clusterCountLayerId, getClusterSourceOptions } from './layer-adapters/cluster-adapter';
 import { mixedLinesLayerId, mixedPointsLayerId } from './layer-adapters/mixed-adapter';
 import { getClusterSourceStrategy } from './cluster-source';
-import { getCompanionLayerIds, COLOR_RELIEF_SUFFIX } from './companion-ids';
-import { labelLayerId } from './label-layer-utils';
-import { DEFAULT_LAYER_MAXZOOM } from './layer-writer';
+import { getCompanionLayerIds, getDrawingLayerIds, COLOR_RELIEF_SUFFIX } from './companion-ids';
+import { finishDescribedLayer } from './layer-writer';
 
 // Shared utilities — imported for local use and re-exported for backward compatibility
 import {
@@ -612,25 +609,6 @@ function removeKnownVectorLayers(map: MaplibreMap, layerId: string, id: string, 
   }
 }
 
-/** Each layer's zoom range: the range its spec sets, else the saved layer's. */
-function syncLayerZoomRange(map: MaplibreMap, layerIds: string[], zoom: ZoomRange, specs: readonly LayerSpec[]) {
-  for (const id of layerIds) {
-    if (!map.getLayer(id)) continue;
-    const own = specs.find(({ layer }) => layer.id === id)?.layer;
-    map.setLayerZoomRange(id, own?.minzoom ?? zoom.minzoom, own?.maxzoom ?? zoom.maxzoom);
-  }
-}
-
-/** Put a layer still held to a range its saved layer dropped back on MapLibre's defaults. */
-function resetLayerZoomRange(map: MaplibreMap, layerIds: string[]) {
-  for (const id of layerIds) {
-    const layer = map.getLayer(id);
-    if (layer && ((layer.minzoom ?? 0) > 0 || (layer.maxzoom ?? DEFAULT_LAYER_MAXZOOM) < DEFAULT_LAYER_MAXZOOM)) {
-      map.setLayerZoomRange(id, 0, DEFAULT_LAYER_MAXZOOM);
-    }
-  }
-}
-
 // builder-audit #338 SYNC-05: the cluster signature and the tile-url signature are
 // kept in SEPARATE per-map WeakMaps. They were previously crammed into one Map
 // (cluster key = sourceId, tile-url key = `${sourceId}::tileurl`), where a
@@ -966,39 +944,15 @@ function removeReplacedLayer(map: MaplibreMap, layer: SyncLayerInput, described:
   removeKnownVectorLayers(map, described.id, layer.id, prefix);
 }
 
-/** Set the zoom range and visibility of each map layer a described layer draws,
- *  and remove a label its family no longer draws. */
+/** Finish the described drawing after its source and paint have been reconciled. */
 function syncDrawnLayer(
   map: MaplibreMap,
   described: DescribedLayer,
   adapterInput: AdapterLayerInput,
   prefix: string | undefined,
 ) {
-  const adapter = getAdapter(described.drawsAs);
-  const { outline, extrusion, arrow } = getCompanionLayerIds(adapterInput.id, prefix);
-  // The fixed ids also reach a companion that a previous family left on the map.
-  const ids = [...new Set([...adapter.getLayerIds(described.id), outline, extrusion, arrow])];
-  // A raster without a saved range keeps MapLibre's uncapped default, which
-  // FULL_ZOOM_RANGE would cut off at z22.
-  const raster = described.drawsAs === 'raster' || described.drawsAs === 'hillshade';
-  const zoom = described.zoom ?? (raster ? null : FULL_ZOOM_RANGE);
-  if (zoom) syncLayerZoomRange(map, ids, zoom, described.specs);
-  else resetLayerZoomRange(map, ids);
-  adapter.syncVisibility(map, adapterInput);
-  removeOrphanedLabelCompanion(map, described.drawsAs, adapterInput);
-}
-
-/** Remove a layer's label companion when its drawing has none: the label config
- *  was cleared, or the layer now draws as a family without labels. */
-function removeOrphanedLabelCompanion(
-  map: MaplibreMap,
-  drawsAs: DescribedLayer['drawsAs'],
-  adapterInput: AdapterLayerInput,
-): void {
-  const labelId = labelLayerId(adapterInput.layerId);
-  if (!map.getLayer(labelId)) return;
-  const hasLabelSpec = getAdapter(drawsAs).describe?.(adapterInput).specs.some((spec) => spec.layer.id === labelId) ?? false;
-  if (!hasLabelSpec) map.removeLayer(labelId);
+  const drawing = getAdapter(described.drawsAs).describe?.(adapterInput) ?? described;
+  finishDescribedLayer(map, drawing, getDrawingLayerIds(adapterInput.id, prefix), described.zoom);
 }
 
 /** Remove every map layer whose `source` references `sourceId`. builder-audit

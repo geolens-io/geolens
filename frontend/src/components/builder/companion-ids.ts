@@ -70,3 +70,20 @@ export function getCompanionLayerIds(rawLayerId: string, prefix?: string): Compa
     mixedPoints: mixedPointsLayerId(layer),
   };
 }
+
+/** All prospective map layers of a saved layer, including disabled companions; sources are excluded. */
+export function getDrawingLayerIds(rawLayerId: string, prefix?: string): string[] {
+  const ids = getCompanionLayerIds(rawLayerId, prefix);
+  return [
+    ids.colorRelief,
+    ids.label,
+    ids.arrow,
+    ids.extrusion,
+    ids.outline,
+    ids.clusterCount,
+    ids.cluster,
+    ids.mixedLines,
+    ids.mixedPoints,
+    ids.layer,
+  ];
+}
