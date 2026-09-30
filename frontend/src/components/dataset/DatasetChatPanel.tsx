@@ -17,6 +17,17 @@ import { randomId } from '@/lib/random-id';
 
 const prefersReducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false;
 
+// The launcher always clears the sticky pending-edits bar, which sits higher once the footer scrolls in.
+const LAUNCHER_ABOVE_PENDING_BAR = 'bottom-44 sm:bottom-32';
+// The open dialog gives way on short viewports (the 100dvh term) so it keeps a usable height.
+const DIALOG_ABOVE_PENDING_BAR =
+  'bottom-(--ask-ai-bottom) [--ask-ai-bottom:clamp(2.5rem,100dvh_-_18rem,11rem)] sm:[--ask-ai-bottom:clamp(2.5rem,100dvh_-_18rem,8rem)]';
+
+function dockPosition(abovePendingBar: boolean, open: boolean): string {
+  if (!abovePendingBar) return 'bottom-10';
+  return open ? DIALOG_ABOVE_PENDING_BAR : LAUNCHER_ABOVE_PENDING_BAR;
+}
+
 interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'error';
@@ -58,6 +69,8 @@ interface DatasetChatPanelProps {
    * its content clear of the fixed panel (which otherwise covers the sticky
    * detail tabs and other controls). */
   onOpenChange?: (open: boolean) => void;
+  /** The pending-edits bar is showing; the launcher and dialog rise above it. */
+  abovePendingBar?: boolean;
 }
 
 /**
@@ -74,7 +87,13 @@ interface DatasetChatPanelProps {
  * Self-gates on `useAIAvailability` (token + `use_ai_chat` + AI configured),
  * so anonymous or unpermitted visitors render nothing.
  */
-export function DatasetChatPanel({ datasetId, datasetTitle, showOpenInBuilder, onOpenChange }: DatasetChatPanelProps) {
+export function DatasetChatPanel({
+  datasetId,
+  datasetTitle,
+  showOpenInBuilder,
+  onOpenChange,
+  abovePendingBar = false,
+}: DatasetChatPanelProps) {
   const { t, i18n } = useTranslation('dataset');
   const navigate = useNavigate();
   const { isAIAvailable } = useAIAvailability();
@@ -214,20 +233,25 @@ export function DatasetChatPanel({ datasetId, datasetTitle, showOpenInBuilder, o
 
   if (!isAIAvailable) return null;
 
-  // bottom-10/end-16 (not bottom-6/end-6) clears the global ReportProblemHost
-  // lifebuoy (fixed bottom-10 right-4 z-40, size-10 + count badge): same
-  // baseline, 8px gap to its left, so neither the FAB nor the open dialog
-  // ever sits under the reporter (no spatial overlap, so the z-tie is moot).
-  // fix(#569): z-40 (was z-30) so the sticky z-40 PendingEditsBar can't cover
-  // the FAB when pending edits and AI chat coexist; this panel renders later
-  // in the DOM, so it wins the tie.
+  // bottom-10/end-16 clears the ReportProblemHost lifebuoy (fixed bottom-10
+  // right-4, size-10): same baseline, 8px gap to its left.
+  // Only the dialog and launcher take clicks; the empty corners must not block the bar.
   return (
-    <div className="fixed bottom-10 end-16 z-40 flex flex-col items-end gap-2">
+    <div
+      data-testid="dataset-chat-dock"
+      className={cn(
+        'pointer-events-none fixed end-16 z-40 flex flex-col items-end gap-2',
+        dockPosition(abovePendingBar, open),
+      )}
+    >
       {open && (
         <section
           role="dialog"
           aria-label={t('ai.chat.title')}
-          className="flex h-[min(70vh,520px)] w-[min(360px,calc(100vw-4.75rem))] flex-col overflow-hidden rounded-2xl border bg-background/98 shadow-lg backdrop-blur"
+          className={cn(
+            'pointer-events-auto flex h-[min(70vh,520px)] w-[min(360px,calc(100vw-4.75rem))] flex-col overflow-hidden rounded-2xl border bg-background/98 shadow-lg backdrop-blur',
+            abovePendingBar && 'max-h-[calc(100dvh-var(--ask-ai-bottom)-4.5rem)]',
+          )}
         >
           <div className="flex items-center justify-between border-b px-3 py-2">
             <div className="flex items-center gap-2">
@@ -358,7 +382,11 @@ export function DatasetChatPanel({ datasetId, datasetTitle, showOpenInBuilder, o
         </section>
       )}
       {!open && (
-        <Button onClick={() => setOpen(true)} aria-haspopup="dialog" className="gap-2 rounded-full shadow-lg">
+        <Button
+          onClick={() => setOpen(true)}
+          aria-haspopup="dialog"
+          className="pointer-events-auto gap-2 rounded-full shadow-lg"
+        >
           <Sparkles className="size-4" aria-hidden="true" />
           {t('common:viewer.ai.launch')}
         </Button>
