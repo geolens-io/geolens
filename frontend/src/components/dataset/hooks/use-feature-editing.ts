@@ -158,10 +158,22 @@ export function useFeatureEditing({
   const setEditDirty = useDrawingStore((s) => s.setEditDirty);
 
   // Each mutation hook's isPending follows only its latest call, so
-  // overlapping writes are counted here until every one has settled.
-  const [pendingWriteCount, setPendingWriteCount] = useState(0);
-  const beginWrite = useCallback(() => setPendingWriteCount((n) => n + 1), []);
-  const endWrite = useCallback(() => setPendingWriteCount((n) => n - 1), []);
+  // overlapping writes are tracked here until every one has settled. A write
+  // is filed under the session epoch it started in, so one left over from a
+  // previous identity doesn't keep the current session busy.
+  const sessionEpoch = useDrawingStore((s) => s.sessionEpoch);
+  const [pendingWriteEpochs, setPendingWriteEpochs] = useState<number[]>([]);
+  const beginWrite = useCallback(
+    (epoch: number) => setPendingWriteEpochs((pending) => [...pending, epoch]),
+    [],
+  );
+  const endWrite = useCallback(
+    (epoch: number) => setPendingWriteEpochs((pending) => {
+      const index = pending.indexOf(epoch);
+      return pending.filter((_, i) => i !== index);
+    }),
+    [],
+  );
 
   const drawingGenerationRef = useRef(0);
   useEffect(() => {
@@ -248,7 +260,7 @@ export function useFeatureEditing({
         src?.setData({ type: 'FeatureCollection', features: overlayFeaturesRef.current });
       }
 
-      beginWrite();
+      beginWrite(epoch);
       try {
         const created = await createFeature.mutateAsync({
           datasetId,
@@ -324,7 +336,7 @@ export function useFeatureEditing({
         }
         return stale ? { saved: false } : { saved: false, refused: true };
       } finally {
-        endWrite();
+        endWrite(epoch);
       }
     },
     [datasetId, tableName, mapRef, createFeature, reloadTiles, cleanupOverlayListener, beginWrite, endWrite, t],
@@ -362,7 +374,7 @@ export function useFeatureEditing({
     const epoch = session.sessionEpoch;
     const targetDatasetId = session.targetDatasetId;
     const generation = drawingGenerationRef.current;
-    beginWrite();
+    beginWrite(epoch);
     try {
       const updated = await updateFeatureMutation.mutateAsync({
         datasetId,
@@ -394,7 +406,7 @@ export function useFeatureEditing({
       // fix(#458 E-36): keep the backend detail.
       toast.error(formatMutationError('dataset:map.featureUpdateFailed', err));
     } finally {
-      endWrite();
+      endWrite(epoch);
     }
   }, [datasetId, tableName, mapRef, getSnapshotFeature, updateFeatureMutation, removeFeatures, clearSelectedFeature, reloadTiles, resetHistory, beginWrite, endWrite, t]);
 
@@ -413,7 +425,7 @@ export function useFeatureEditing({
     const epoch = session.sessionEpoch;
     const targetDatasetId = session.targetDatasetId;
     const generation = drawingGenerationRef.current;
-    beginWrite();
+    beginWrite(epoch);
     try {
       const deleted = await deleteFeatureMutation.mutateAsync({ datasetId, gid: sf.gid });
       if (isSelectionStale(epoch, targetDatasetId, sf, generation, drawingGenerationRef.current)) return;
@@ -437,7 +449,7 @@ export function useFeatureEditing({
       // fix(#458 E-36): keep the backend detail.
       toast.error(formatMutationError('dataset:map.featureDeleteFailed', err));
     } finally {
-      endWrite();
+      endWrite(epoch);
     }
   }, [datasetId, tableName, mapRef, deleteFeatureMutation, removeFeatures, clearSelectedFeature, reloadTiles, resetHistory, beginWrite, endWrite, t]);
 
@@ -461,7 +473,7 @@ export function useFeatureEditing({
       const epoch = session.sessionEpoch;
       const targetDatasetId = session.targetDatasetId;
       const generation = drawingGenerationRef.current;
-      beginWrite();
+      beginWrite(epoch);
       try {
         const updated = await updateFeatureMutation.mutateAsync({ datasetId, gid: sf.gid, properties });
         // fix(#1761 review round 4): recheck immediately after the await,
@@ -492,7 +504,7 @@ export function useFeatureEditing({
         toast.error(formatMutationError('dataset:map.attributesUpdateFailed', err));
         return { applied: true, refused: true };
       } finally {
-        endWrite();
+        endWrite(epoch);
       }
     },
     [datasetId, updateFeatureMutation, setSelectedFeature, reloadTiles, beginWrite, endWrite, t],
@@ -628,6 +640,6 @@ export function useFeatureEditing({
     reloadTiles,
     cleanupOverlayListener,
     resetOverlay,
-    isFeatureMutationPending: pendingWriteCount > 0,
+    isFeatureMutationPending: pendingWriteEpochs.includes(sessionEpoch),
   };
 }

@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { renderHook } from '@/test/test-utils';
 import { useFeatureEditing } from '@/components/dataset/hooks/use-feature-editing';
 import { createFeature } from '@/api/features';
+import { useDrawingStore } from '@/stores/drawing-store';
 
 vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn(), message: vi.fn(), info: vi.fn() },
@@ -35,6 +36,24 @@ const map = {
   off: vi.fn(),
 } as unknown as MaplibreMap;
 
+function renderEditing() {
+  return renderHook(() =>
+    useFeatureEditing({
+      mapRef: { current: map },
+      datasetId: 'ds-1',
+      tableName: 'parcels',
+      tileConfig: null,
+      tileToken: null,
+      removeFeatures: vi.fn(),
+      getSnapshotFeature: vi.fn(),
+      addFeatures: vi.fn(() => []),
+      selectFeature: vi.fn(),
+      clear: vi.fn(),
+      resetHistory: vi.fn(),
+    }),
+  );
+}
+
 describe('useFeatureEditing pending writes', () => {
   beforeEach(() => {
     vi.mocked(toast.success).mockClear();
@@ -47,21 +66,7 @@ describe('useFeatureEditing pending writes', () => {
     vi.mocked(createFeature)
       .mockReturnValueOnce(first.promise as ReturnType<typeof createFeature>)
       .mockReturnValueOnce(second.promise as ReturnType<typeof createFeature>);
-    const { result } = renderHook(() =>
-      useFeatureEditing({
-        mapRef: { current: map },
-        datasetId: 'ds-1',
-        tableName: 'parcels',
-        tileConfig: null,
-        tileToken: null,
-        removeFeatures: vi.fn(),
-        getSnapshotFeature: vi.fn(),
-        addFeatures: vi.fn(() => []),
-        selectFeature: vi.fn(),
-        clear: vi.fn(),
-        resetHistory: vi.fn(),
-      }),
-    );
+    const { result } = renderEditing();
 
     let firstSave!: Promise<unknown>;
     let secondSave!: Promise<unknown>;
@@ -83,6 +88,44 @@ describe('useFeatureEditing pending writes', () => {
       await firstSave;
     });
     expect(toast.error).toHaveBeenCalledTimes(1);
+    expect(result.current.isFeatureMutationPending).toBe(false);
+  });
+
+  it('does not count a write left over from a previous identity', async () => {
+    const old = deferred<{ id: number }>();
+    const current = deferred<{ id: number }>();
+    vi.mocked(createFeature)
+      .mockReturnValueOnce(old.promise as ReturnType<typeof createFeature>)
+      .mockReturnValueOnce(current.promise as ReturnType<typeof createFeature>);
+    const { result } = renderEditing();
+
+    let oldSave!: Promise<unknown>;
+    act(() => {
+      oldSave = result.current.saveAndRefresh({ type: 'Point', coordinates: [0, 0] }, {});
+    });
+    expect(result.current.isFeatureMutationPending).toBe(true);
+
+    act(() => {
+      useDrawingStore.getState().bumpSessionEpoch();
+    });
+    expect(result.current.isFeatureMutationPending).toBe(false);
+
+    let currentSave!: Promise<unknown>;
+    act(() => {
+      currentSave = result.current.saveAndRefresh({ type: 'Point', coordinates: [1, 1] }, {});
+    });
+    expect(result.current.isFeatureMutationPending).toBe(true);
+
+    await act(async () => {
+      current.resolve({ id: 2 });
+      await currentSave;
+    });
+    expect(result.current.isFeatureMutationPending).toBe(false);
+
+    await act(async () => {
+      old.resolve({ id: 1 });
+      await oldSave;
+    });
     expect(result.current.isFeatureMutationPending).toBe(false);
   });
 });
