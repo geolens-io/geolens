@@ -472,6 +472,7 @@
     "attributesUpdated": "Atributos actualizados",
     "attributesUpdateFailed": "Error al actualizar los atributos",
     "unsavedDiscarded": "Cambios no guardados descartados",
+    "sketchStillSaving": "La entidad anterior aún se está guardando. Intente de nuevo cuando se haya guardado.",
     "discardChangesTitle": "¿Descartar ediciones del mapa sin guardar?",
     "discardChangesDescription": "Los cambios de geometría no se han guardado. Puede continuar editando o descartarlos.",
     "discardChangesAction": "Descartar cambios",

@@ -423,6 +423,7 @@
     "attributesUpdated": "属性已更新",
     "attributesUpdateFailed": "更新属性失败",
     "unsavedDiscarded": "未保存的更改已放弃",
+    "sketchStillSaving": "上一个要素仍在保存。请在保存完成后重试。",
     "discardChangesTitle": "放弃未保存的地图编辑？",
     "discardChangesDescription": "您的几何更改尚未保存。您可以继续编辑，也可以放弃更改。",
     "discardChangesAction": "放弃更改",

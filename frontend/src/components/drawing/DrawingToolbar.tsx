@@ -88,6 +88,7 @@ export function DrawingToolbar({
           aria-label={t('drawing.select')}
           aria-pressed={activeMode === 'select'}
           onClick={() => handleModeChange('select')}
+          disabled={isMutating}
         >
           <MousePointer className="h-4 w-4" />
           <span className="hidden sm:inline">{t('drawing.select')}</span>
@@ -105,6 +106,7 @@ export function DrawingToolbar({
             aria-label={t(labelKey)}
             aria-pressed={activeMode === mode}
             onClick={() => handleModeChange(mode)}
+            disabled={isMutating}
           >
             <Icon className="h-4 w-4" />
             <span className="hidden sm:inline">{t(labelKey)}</span>
@@ -119,7 +121,7 @@ export function DrawingToolbar({
           title={t('drawing.undo')}
           aria-label={t('drawing.undo')}
           onClick={onUndo}
-          disabled={!canUndo}
+          disabled={!canUndo || isMutating}
         >
           <Undo2 className="h-4 w-4" />
         </Button>

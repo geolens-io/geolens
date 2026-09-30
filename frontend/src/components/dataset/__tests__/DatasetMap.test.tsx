@@ -1,4 +1,5 @@
 import type { StyleSpecification } from 'maplibre-gl';
+import { toast } from 'sonner';
 import { render, screen, fireEvent, act, within } from '@/test/test-utils';
 import type { BasemapEntry } from '@/api/settings';
 import { DatasetMap } from '@/components/dataset/DatasetMap';
@@ -573,6 +574,24 @@ describe('DatasetMap undo shortcut ignores editable targets', () => {
     expect(metaEvent.defaultPrevented).toBe(false);
 
     document.body.removeChild(input);
+  });
+
+  it('does not undo while a feature write is in flight', () => {
+    createFeatureMutateAsync.mockReturnValueOnce(new Promise(() => {}));
+    renderDrawing();
+    act(() => {
+      terraDrawState.handleDrawFinish?.({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [1, 1] },
+        properties: {},
+      });
+    });
+    expect(createFeatureMutateAsync).toHaveBeenCalledTimes(1);
+
+    const event = new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true });
+    document.body.dispatchEvent(event);
+
+    expect(terraDrawState.undo).not.toHaveBeenCalled();
   });
 
   it('still undoes the sketch for Ctrl+Z when focus has no editable target', () => {
@@ -1382,6 +1401,95 @@ describe('DatasetMap when edit rights are lost mid-session', () => {
   });
 });
 
+// Changing mode deselects the feature, so it must wait for the write that
+// refers to that selection.
+describe('DatasetMap while a feature write is in flight', () => {
+  beforeEach(() => {
+    drawingState.isDrawing = true;
+    drawingState.activeMode = 'select';
+    drawingState.targetDatasetId = 'dataset-1';
+    drawingState.selectedFeature = null;
+    drawingState.isEditDirty = false;
+    drawingState.setMode.mockClear();
+    drawingState.clearSelectedFeature.mockClear();
+    terraDrawState.undo.mockClear();
+  });
+
+  afterEach(() => {
+    terraDrawState.canUndo = false;
+  });
+
+  function renderMap() {
+    return (
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName="example_table"
+        geometryType="Point"
+        datasetId="dataset-1"
+        recordType="vector_dataset"
+        canEdit
+      />
+    );
+  }
+
+  function expectModeChangesBlocked() {
+    expect(screen.getByRole('button', { name: 'Select' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Point' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Undo (Ctrl+Z)' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Point' }));
+    expect(drawingState.setMode).not.toHaveBeenCalled();
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(drawingState.clearSelectedFeature).not.toHaveBeenCalled();
+  }
+
+  it('blocks mode changes and Undo while a geometry save is in flight', async () => {
+    let settle!: () => void;
+    updateFeatureMutateAsync.mockReturnValueOnce(new Promise((resolve) => {
+      settle = () => resolve({});
+    }));
+    terraDrawState.getSnapshotFeature.mockReturnValueOnce({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [1, 1] },
+      properties: {},
+    });
+    terraDrawState.canUndo = true;
+    const { rerender } = render(renderMap());
+    drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    drawingState.isEditDirty = true;
+    rerender(renderMap());
+    fireEvent.click(screen.getByRole('button', { name: /Save changes/i }));
+    expect(updateFeatureMutateAsync).toHaveBeenCalledTimes(1);
+
+    expectModeChangesBlocked();
+
+    await act(async () => {
+      settle();
+    });
+    expect(screen.getByRole('button', { name: 'Point' })).toBeEnabled();
+  });
+
+  it('blocks mode changes while a delete is in flight, so its tiles reload on success', async () => {
+    let settle!: () => void;
+    deleteFeatureMutateAsync.mockReturnValueOnce(new Promise((resolve) => {
+      settle = () => resolve({});
+    }));
+    terraDrawState.canUndo = true;
+    const { rerender } = render(renderMap());
+    drawingState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    rerender(renderMap());
+    fireEvent.click(screen.getByRole('button', { name: /Delete feature/i }));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Delete' }));
+    expect(deleteFeatureMutateAsync).toHaveBeenCalledTimes(1);
+
+    expectModeChangesBlocked();
+
+    await act(async () => {
+      settle();
+    });
+    expect(drawingState.clearSelectedFeature).toHaveBeenCalledTimes(1);
+  });
+});
+
 // DatasetPage's unsaved-changes guard reads this flag, so it covers every
 // kind of unsaved map work, not just a dirty selection.
 describe('DatasetMap reports unsaved map work to the page guard', () => {
@@ -1606,6 +1714,7 @@ describe('DatasetMap new feature saved without an attribute form', () => {
   });
 
   it('starts one create when a second sketch finishes before the map re-renders, and keeps the first after a refusal', async () => {
+    const info = vi.spyOn(toast, 'info').mockImplementation(() => 'toast-id');
     const settle = pendingCreate('reject');
     render(renderMap());
 
@@ -1619,6 +1728,9 @@ describe('DatasetMap new feature saved without an attribute form', () => {
       }
     });
     expect(createFeatureMutateAsync).toHaveBeenCalledTimes(1);
+    expect(info).toHaveBeenCalledTimes(1);
+    expect(info).toHaveBeenCalledWith('The previous feature is still saving. Try again once it has saved.');
+    info.mockRestore();
 
     await settle();
     createFeatureMutateAsync.mockResolvedValueOnce({});

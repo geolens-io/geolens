@@ -386,7 +386,10 @@ export const DatasetMap = memo(function DatasetMap({
       if (!geom) return;
       // A sketch that finishes while an automatic save is in flight is dropped,
       // so the held shape can't be replaced before that save settles.
-      if (autoSaveInFlightRef.current) return;
+      if (autoSaveInFlightRef.current) {
+        toast.info(t('map.sketchStillSaving'));
+        return;
+      }
       // TerraDraw drops the shape once it finishes, so it stays unsaved work
       // until a create succeeds. Without edit rights the save would be
       // refused, so it waits for Discard instead of being sent. With no
@@ -404,7 +407,7 @@ export const DatasetMap = memo(function DatasetMap({
           setAutoSavingGeometry((current) => (current === geom ? null : current));
         });
     },
-    [canEdit, editableColumns],
+    [canEdit, editableColumns, t],
   );
 
   // --- Terra Draw hook ---
@@ -650,6 +653,7 @@ export const DatasetMap = memo(function DatasetMap({
         if (!shortcutsEnabled) return;
         // Don't hijack the input's native undo while typing.
         if (isEditableTarget(e.target)) return;
+        if (isFeatureMutationPending) return;
         // Only undo in drawing modes, not select mode
         const currentMode = useDrawingStore.getState().activeMode;
         if (currentMode && currentMode !== 'select') {
@@ -663,7 +667,7 @@ export const DatasetMap = memo(function DatasetMap({
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isDrawing, shortcutsEnabled, undo]);
+  }, [isDrawing, isFeatureMutationPending, shortcutsEnabled, undo]);
 
   // --- Fullscreen state sync ---
   useEffect(() => {
@@ -1080,6 +1084,7 @@ export const DatasetMap = memo(function DatasetMap({
 
   // Handle close / stop drawing
   const handleCloseDrawing = useCallback(() => {
+    if (isFeatureMutationPending) return;
     const hasDirtyFeatureEdit = Boolean(useDrawingStore.getState().selectedFeature) &&
       useDrawingStore.getState().isEditDirty;
     const hasSketchInProgress = canUndo && activeMode !== null && activeMode !== 'select';
@@ -1090,11 +1095,11 @@ export const DatasetMap = memo(function DatasetMap({
     }
 
     finishDrawingSession();
-  }, [activeMode, canUndo, finishDrawingSession, requestDiscardConfirmation]);
+  }, [activeMode, canUndo, finishDrawingSession, isFeatureMutationPending, requestDiscardConfirmation]);
 
   const handleModeChange = useCallback(
     (nextMode: string) => {
-      if (nextMode === activeMode) return;
+      if (nextMode === activeMode || isFeatureMutationPending) return;
 
       const sf = useDrawingStore.getState().selectedFeature;
       const hasDirtyFeatureEdit = Boolean(sf) && useDrawingStore.getState().isEditDirty;
@@ -1125,8 +1130,12 @@ export const DatasetMap = memo(function DatasetMap({
 
       setMode(nextMode);
     },
-    [activeMode, canUndo, clear, performDeselect, requestDiscardConfirmation, setMode],
+    [activeMode, canUndo, clear, isFeatureMutationPending, performDeselect, requestDiscardConfirmation, setMode],
   );
+
+  const handleUndo = useCallback(() => {
+    if (!isFeatureMutationPending) undo();
+  }, [isFeatureMutationPending, undo]);
 
   // Attribute form handlers (new feature creation)
   const handleAttributeSubmit = useCallback(
@@ -1298,7 +1307,7 @@ export const DatasetMap = memo(function DatasetMap({
           onCancelEdit={handleDeselect}
           onEditAttributes={() => setEditingAttributes(true)}
           onDeleteFeature={() => setDeleteConfirmOpen(true)}
-          onUndo={undo}
+          onUndo={handleUndo}
           canUndo={canUndo}
           isMutating={isFeatureMutationPending}
           selectionNotice={selectedFeature != null && selectedFeature.tdId === orphanedSelectionTdIdRef.current ? (

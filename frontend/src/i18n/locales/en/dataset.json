@@ -423,6 +423,7 @@
     "attributesUpdated": "Attributes updated",
     "attributesUpdateFailed": "Failed to update attributes",
     "unsavedDiscarded": "Unsaved changes discarded",
+    "sketchStillSaving": "The previous feature is still saving. Try again once it has saved.",
     "discardChangesTitle": "Discard unsaved map edits?",
     "discardChangesDescription": "Your geometry changes have not been saved. You can continue editing or discard them.",
     "discardChangesAction": "Discard changes",
