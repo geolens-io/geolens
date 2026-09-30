@@ -388,6 +388,16 @@ def check_cog_compliance(
     return True, ""
 
 
+def _remove_temp_copy(tmp_path: str) -> None:
+    """Remove a temp raster copy and the ``.ovr`` sidecar ``gdaladdo`` may leave.
+
+    GDAL 3.10 won't rewrite a COG-layout file in place, so it exits 0 and writes
+    the overviews beside the copy instead.
+    """
+    Path(tmp_path).unlink(missing_ok=True)
+    Path(f"{tmp_path}.ovr").unlink(missing_ok=True)
+
+
 def prepare_with_overviews(
     input_path: str,
     dtype: str,
@@ -454,7 +464,7 @@ def prepare_with_overviews(
     except (
         Exception
     ):  # broad: cleanup-and-reraise — tmp copy must not survive any failure
-        Path(tmp_path).unlink(missing_ok=True)
+        _remove_temp_copy(tmp_path)
         raise
 
 
@@ -577,7 +587,7 @@ def convert_to_cog(
         if result.returncode != 0:
             raise RuntimeError(f"gdal_translate failed: {result.stderr}")
     finally:
-        Path(tmp_path).unlink(missing_ok=True)
+        _remove_temp_copy(tmp_path)
 
 
 def check_and_prepare_cog(
