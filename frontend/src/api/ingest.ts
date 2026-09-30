@@ -463,12 +463,15 @@ export async function uploadPresigned(
   onProgress?: UploadProgress,
   kind?: UploadKind | null,
 ): Promise<UploadResponse> {
+  // The presigned PUT URL is signed for this content type, and fetch sends no
+  // Content-Type for a Blob whose type is empty, so both sides name it.
+  const contentType = file.type || 'application/octet-stream';
   let job_id: string, urls: string[], upload_id: string | null | undefined, part_size: number | null | undefined;
   try {
     ({ job_id, urls, upload_id, part_size } = await requestPresignedUpload(
       file.name,
       file.size,
-      file.type || undefined,
+      contentType,
       kind,
     ));
   } catch (err) {
@@ -482,7 +485,7 @@ export async function uploadPresigned(
     onProgress?.(0);
     let resp: Response;
     try {
-      resp = await fetch(urls[0], { method: 'PUT', body: file });
+      resp = await fetch(urls[0], { method: 'PUT', headers: { 'Content-Type': contentType }, body: file });
     } catch (err) {
       reportPresignFailure('put', file.name, err);
       throw err;
