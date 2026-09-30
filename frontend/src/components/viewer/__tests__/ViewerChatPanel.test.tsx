@@ -327,12 +327,12 @@ describe('ViewerChatPanel', () => {
 });
 
 describe('QueryResultTable', () => {
-  it('drops floating-point noise from aggregates and keeps integers exact', () => {
+  it('drops floating-point noise from aggregates and keeps real digits exact', () => {
     render(
       <QueryResultTable
         result={{
-          columns: ['borough', 'total_acres', 'mean_acres', 'id'],
-          rows: [['Brooklyn', 491.9000000000001, 56.025000000000006, 1234567890123456]],
+          columns: ['borough', 'total_acres', 'mean_acres', 'id', 'precise'],
+          rows: [['Brooklyn', 491.9000000000001, 56.025000000000006, 1234567890123456, 100000000000000.5]],
           rowCount: 1,
           truncated: false,
         }}
@@ -342,6 +342,8 @@ describe('QueryResultTable', () => {
     expect(screen.getByRole('cell', { name: '491.9' })).toBeInTheDocument();
     expect(screen.getByRole('cell', { name: '56.025' })).toBeInTheDocument();
     expect(screen.getByRole('cell', { name: '1234567890123456' })).toBeInTheDocument();
-    expect(screen.queryByText(/000000000/)).not.toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: '100000000000000.5' })).toBeInTheDocument();
+    expect(screen.queryByText('491.9000000000001')).not.toBeInTheDocument();
+    expect(screen.queryByText('56.025000000000006')).not.toBeInTheDocument();
   });
 });

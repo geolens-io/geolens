@@ -1,8 +1,12 @@
+// Binary rounding noise from a SUM or AVG shows as a run of 0s or 9s and a stray
+// digit or two at the end of the fraction (491.9000000000001). Only that shape is
+// rounded, so values with genuine 16th and 17th digits keep them.
+const NOISE_TAIL = /\.\d*?(?:0{6,}|9{6,})\d{1,2}$/;
+
 /** Display text for one cell of an AI chat query result. */
 export function formatQueryCell(raw: unknown): string {
   if (raw == null) return '';
-  // A SUM or AVG over a double carries binary rounding noise past 15 significant
-  // digits. Integers stay exact, since large IDs can need more digits than that.
-  if (typeof raw === 'number' && !Number.isInteger(raw)) return String(Number(raw.toPrecision(15)));
-  return String(raw);
+  const text = String(raw);
+  if (typeof raw === 'number' && NOISE_TAIL.test(text)) return String(Number(raw.toPrecision(15)));
+  return text;
 }
