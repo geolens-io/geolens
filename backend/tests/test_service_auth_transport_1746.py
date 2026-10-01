@@ -9050,7 +9050,7 @@ class TestAdapterProbeReadsAreBounded:
     turn.
 
     Fixed by routing each read through `bounded_probe_read`
-    (`platform/probe_bounds.py`), which streams via `client.stream` and
+    (`platform/probe_bounds.py`), which streams via `client.send` and
     `read_bounded_body` -- the same `MAX_DOCUMENT_BYTES` on the wire,
     identity-only so a compressed body is refused before a byte of it is
     inflated -- and `require_decodable` for the same `MAX_DOCUMENT_TOKENS`/
@@ -9221,7 +9221,7 @@ class TestAdapterProbeReadsAreBounded:
             # for these four before this round.
             # The two already-bounded implementations themselves.
             ("app.platform.service_endpoints", "fetch_document", "stream"),
-            ("app.platform.probe_bounds", "bounded_probe_exchange", "stream"),
+            ("app.platform.probe_bounds", "bounded_probe_exchange", "send"),
             # fix(#1770 round 43 P1): the tree-wide widening. See class
             # docstring for why each of these is out of scope.
             ("app.modules.auth.oauth.service", "_resolve_github_identity", "get"),

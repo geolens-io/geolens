@@ -209,7 +209,8 @@ SSRF_SINK_MODULES = (
 )
 
 SINK_CALL_RE = re.compile(
-    r"\bclient\.(get|post|put|patch|delete|head|options|request|stream|send)\("
+    r"\bclient\.(get|post|put|patch|delete|head|options|request|stream|send"
+    r"|build_request)\("
 )
 
 
