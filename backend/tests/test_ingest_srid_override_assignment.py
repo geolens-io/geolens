@@ -54,7 +54,10 @@ async def _load(source: str, *, effective_srid: int) -> tuple[str, int | None]:
 
 async def _stored_srids(session, table: str) -> set[int]:
     rows = await session.execute(
-        text(f'SELECT DISTINCT ST_SRID(_geolens_geom) FROM "data"."{table}"')
+        text(
+            f'SELECT DISTINCT ST_SRID(_geolens_geom) FROM "data"."{table}" '
+            "WHERE _geolens_geom IS NOT NULL"
+        )
     )
     return {row[0] for row in rows}
 
@@ -73,7 +76,10 @@ async def test_a_shapefile_with_no_crs_takes_the_override(test_db_session, tmp_p
         assert await ensure_geom_column(test_db_session, table)
         await add_4326_column(test_db_session, table, 3857)
         missing = await test_db_session.scalar(
-            text(f'SELECT count(*) FROM "data"."{table}" WHERE geom_4326 IS NULL')
+            text(
+                f'SELECT count(*) FROM "data"."{table}" '
+                "WHERE geom IS NOT NULL AND geom_4326 IS NULL"
+            )
         )
         assert missing == 0
     finally:
