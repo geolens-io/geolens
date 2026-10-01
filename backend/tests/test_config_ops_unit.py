@@ -3,6 +3,7 @@
 import hashlib
 import json
 import uuid
+from contextlib import nullcontext
 from dataclasses import replace
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -487,6 +488,7 @@ async def test_overwrite_saml_uses_certificate_not_oauth_client_secret(
 async def test_import_result_and_audit_report_exact_account_link_deletions():
     """The exact cascade count reaches both the response and aggregate audit."""
     from app.platform.config_ops.service import ConfigImportPlan, import_config
+    from app.processing.embeddings.service import CommittedEmbeddingPair
 
     plan = ConfigImportPlan(
         validated_settings={},
@@ -527,6 +529,27 @@ async def test_import_result_and_audit_report_exact_account_link_deletions():
             AsyncMock(),
         ),
         patch("app.modules.audit.service.audit_emit", AsyncMock()) as audit_emit,
+        # The overwrite resets embedding_dims, so it reconciles the column; the
+        # live column already matches.
+        patch(
+            "app.processing.embeddings.service.embedding_change_lock",
+            lambda _needed, **_kwargs: nullcontext(),
+        ),
+        patch(
+            "app.processing.embeddings.service.read_committed_embedding_pair",
+            AsyncMock(
+                return_value=CommittedEmbeddingPair(
+                    dims=1536,
+                    model="text-embedding-3-small",
+                    dims_overridden=False,
+                    model_overridden=False,
+                )
+            ),
+        ),
+        patch(
+            "app.processing.embeddings.service.rebuild_embedding_column",
+            AsyncMock(return_value=False),
+        ),
     ):
         result = await import_config(
             db,

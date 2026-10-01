@@ -1,6 +1,9 @@
 """Settings API endpoints: unified admin settings, public basemaps/map-defaults/tile-config."""
 
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -64,6 +67,9 @@ from app.modules.settings.router_public import router as public_router
 # (same discipline as app.platform.notifications.env_sink from Plan 02).
 from app.platform.notifications.smtp_channel import send_email  # noqa: E402
 from app.platform.notifications.webhook_channel import post_webhook  # noqa: E402
+
+if TYPE_CHECKING:
+    from app.processing.embeddings.service import CommittedEmbeddingPair
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -273,6 +279,88 @@ async def _detect_dims_for_requested_model(
         ) from exc
 
 
+async def _rebuild_column_or_503(
+    db: AsyncSession,
+    new_dims: int,
+    previous: "CommittedEmbeddingPair",
+    *,
+    user_id: uuid.UUID,
+    ip_address: str | None,
+    others_kept: str | None = None,
+) -> None:
+    """Resize the vector column to a committed width; a failed rebuild is a 503.
+
+    ``others_kept`` is appended to the 503 detail when the request also
+    changed settings that stay committed after the embedding pair is restored.
+    """
+    from app.processing.embeddings.service import (
+        EmbeddingColumnRebuildError,
+        rebuild_column_or_restore,
+    )
+
+    try:
+        await rebuild_column_or_restore(
+            db, new_dims, previous, user_id=user_id, ip_address=ip_address
+        )
+    except EmbeddingColumnRebuildError as exc:
+        detail = f"{exc} {others_kept}" if others_kept else str(exc)
+        raise HTTPException(status_code=503, detail=detail) from exc
+
+
+_PUT_LOCKOUT_DETAIL = (
+    "Cannot disable password login while no SSO provider is enabled "
+    "— enable an OAuth provider first"
+)
+_RESET_LOCKOUT_DETAIL = (
+    "Cannot reset password login to disabled while no SSO provider "
+    "is enabled — enable an OAuth provider first"
+)
+
+
+async def _refuse_password_lockout(
+    db: AsyncSession, detail: str, *, lock_rows: bool
+) -> None:
+    """422 when no OAuth provider is enabled.
+
+    ``lock_rows`` row-locks the enabled providers (FOR UPDATE) for the rest of
+    the transaction; without it this is a read-only early answer.
+    """
+    if lock_rows:
+        enabled = await oauth_service.lock_enabled_providers(db)
+    else:
+        enabled = await oauth_service.list_providers(db, enabled_only=True)
+    if not enabled:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=detail
+        )
+
+
+@asynccontextmanager
+async def _embedding_change(db: AsyncSession, needed: bool) -> AsyncIterator[None]:
+    """Hold the embedding change lock when ``needed``; a change already running is a 409.
+
+    In env-only mode the write is refused with the 403 PersistentConfig.set()
+    gives, before lock contention could turn it into a 409.
+    """
+    if needed and _is_env_only():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Configuration locked to environment variables",
+        )
+    from app.processing.embeddings.service import (
+        EmbeddingChangeBusyError,
+        embedding_change_lock,
+    )
+
+    try:
+        async with embedding_change_lock(needed, db=db):
+            yield
+    except EmbeddingChangeBusyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+
+
 # ROUTE-01 (Phase 1092): dual-shape decorator — both trailing-slash and
 # no-trailing-slash variants register against the same handler. Slash form
 # stays canonical (already in OpenAPI); no-slash is a hidden alias closing
@@ -402,144 +490,118 @@ async def update_settings(
 
         validated_settings[key] = _canonicalize_setting_value(key, value, cfg)
 
-    # fix(#1529): publish embedding_model and its detected width ATOMICALLY —
-    # the probe runs HERE, before the provider row locks and the batch commit,
-    # so its result joins the same batch and a reader never sees the new model
-    # beside the old dimension count (or a failed probe leaves both untouched).
-    #
-    # Folding the width into validated_settings puts auto-detect on the SAME
-    # commit-and-rebuild path as an explicit embedding_dims, avoiding a
-    # detected width persisting while the vector column keeps the old one.
-    #
-    # Probed ahead of the SSO guard (which row-locks OAuth providers) so a
-    # provider network call doesn't serialize unrelated provider mutations
-    # behind those locks. The whole validated batch is handed to the probe,
-    # not just the model, since a PUT can change the endpoint too (see
-    # _probe_base_url).
-    if (
+    # Answered read-only before the lock as well, so the lockout 422 never
+    # depends on lock contention; the row-locked check below is authoritative.
+    disables_password_login = validated_settings.get("password_login_enabled") is False
+    if disables_password_login:
+        await _refuse_password_lockout(db, _PUT_LOCKOUT_DETAIL, lock_rows=False)
+
+    # A model the request repeats skips the probe below, so the model check
+    # has to sit under the lock too; otherwise a concurrent change could pair
+    # the repeated model with another model's width.
+    async with _embedding_change(
+        db,
         "embedding_model" in validated_settings
-        and "embedding_dims" not in validated_settings
-        # In ENV_ONLY_CONFIG mode every cfg.set() below raises 403, so probing
-        # would only burn a provider call on a request that cannot land.
-        and not _is_env_only()
+        or "embedding_dims" in validated_settings,
     ):
-        requested_model = str(validated_settings["embedding_model"])
-        # Uncached on purpose: a stale cache entry naming the requested model
-        # would skip the probe and publish that model with an unrelated width.
-        if requested_model != await EMBEDDING_MODEL.get_uncached(db):
-            validated_settings["embedding_dims"] = _canonicalize_setting_value(
-                "embedding_dims",
-                await _detect_dims_for_requested_model(
-                    db, requested_model, validated_settings
-                ),
-                registry_map["embedding_dims"],
+        # Publish embedding_model and its detected width atomically: the probe
+        # runs before the provider row locks and the batch commit, so its result
+        # joins the same batch and a reader never sees the new model beside the
+        # old dimension count (or a failed probe leaves both untouched).
+        #
+        # Folding the width into validated_settings puts auto-detect on the SAME
+        # commit-and-rebuild path as an explicit embedding_dims, avoiding a
+        # detected width persisting while the vector column keeps the old one.
+        #
+        # Probed ahead of the SSO guard (which row-locks OAuth providers) so a
+        # provider network call doesn't serialize unrelated provider mutations
+        # behind those locks. The whole validated batch is handed to the probe,
+        # not just the model, since a PUT can change the endpoint too (see
+        # _probe_base_url).
+        if (
+            "embedding_model" in validated_settings
+            and "embedding_dims" not in validated_settings
+            # In ENV_ONLY_CONFIG mode every cfg.set() below raises 403, so probing
+            # would only burn a provider call on a request that cannot land.
+            and not _is_env_only()
+        ):
+            requested_model = str(validated_settings["embedding_model"])
+            # Uncached on purpose: a stale cache entry naming the requested model
+            # would skip the probe and publish that model with an unrelated width.
+            if requested_model != await EMBEDDING_MODEL.get_uncached(db):
+                validated_settings["embedding_dims"] = _canonicalize_setting_value(
+                    "embedding_dims",
+                    await _detect_dims_for_requested_model(
+                        db, requested_model, validated_settings
+                    ),
+                    registry_map["embedding_dims"],
+                )
+
+        # Lockout guard: refuse to disable password login when zero
+        # enabled OAuth providers exist. Runs AFTER Pass-1 validation but BEFORE
+        # the apply loop so nothing persists on rejection.
+        #
+        # Row-locks the enabled providers (FOR UPDATE) so a concurrent
+        # provider-disable/delete is serialized against this check — the two can
+        # no longer both pass and together remove the last provider. See
+        # oauth_service.lock_enabled_providers.
+        if disables_password_login:
+            await _refuse_password_lockout(db, _PUT_LOCKOUT_DETAIL, lock_rows=True)
+
+        # The rollback source for the column rebuild below. A request that
+        # publishes both halves rolls back both, or a failed rebuild would leave
+        # the new model beside the old width.
+        embedding_before = None
+        if "embedding_dims" in validated_settings:
+            from app.processing.embeddings.service import read_committed_embedding_pair
+
+            embedding_before = await read_committed_embedding_pair(
+                db, with_model="embedding_model" in validated_settings
             )
 
-    # SSO-04: lockout guard — refuse to disable password login when zero
-    # enabled OAuth providers exist. Runs AFTER Pass-1 validation but BEFORE
-    # the apply loop so nothing persists on rejection.
-    #
-    # Row-locks the enabled providers (FOR UPDATE) so a concurrent
-    # provider-disable/delete is serialized against this check — the two can
-    # no longer both pass and together remove the last provider. See
-    # oauth_service.lock_enabled_providers.
-    if validated_settings.get("password_login_enabled") is False:
-        locked_provider_ids = await oauth_service.lock_enabled_providers(db)
-        if len(locked_provider_ids) == 0:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=(
-                    "Cannot disable password login while no SSO provider is enabled "
-                    "— enable an OAuth provider first"
-                ),
+        ip = get_client_ip(request)
+        # Registry order writes the provider before a model whose blank value
+        # resets against it; audits record the values from before the batch.
+        ordered = sorted(
+            validated_settings, key=lambda k: _registry.index(registry_map[k])
+        )
+        before = {key: await registry_map[key].get(db) for key in ordered}
+        for key in ordered:
+            await registry_map[key].set(
+                db,
+                validated_settings[key],
+                user_id=user.id,
+                ip_address=ip,
+                commit=False,
+                old_value=before[key],
             )
 
-    # Capture the previous embedding pair before any changes (rollback source
-    # for the column rebuild below). Uncached so the rollback restores what is
-    # actually committed rather than a cache entry that may already be stale.
-    old_dims_value: int | None = None
-    old_model_value: str | None = None
-    rollback_model = False
-    if "embedding_dims" in validated_settings:
-        old_dims_value = await EMBEDDING_DIMS.get_uncached(db)
-        # fix(#1529): a request that publishes both halves has to roll back
-        # both halves. Restoring embedding_dims alone would leave the NEW model
-        # standing beside the OLD width — the mismatched pair, reached through
-        # the failure path instead of the probe window.
-        rollback_model = "embedding_model" in validated_settings
-        if rollback_model:
-            old_model_value = await EMBEDDING_MODEL.get_uncached(db)
+        # Single commit for all setting writes
+        await db.commit()
 
-    ip = get_client_ip(request)
-    # Registry order writes the provider before a model whose blank value
-    # resets against it; audits record the values from before the batch.
-    ordered = sorted(validated_settings, key=lambda k: _registry.index(registry_map[k]))
-    before = {key: await registry_map[key].get(db) for key in ordered}
-    for key in ordered:
-        await registry_map[key].set(
-            db,
-            validated_settings[key],
-            user_id=user.id,
-            ip_address=ip,
-            commit=False,
-            old_value=before[key],
+        # set(commit=False) defers side effects (cache invalidation, _on_change
+        # hooks, rate-limit warm) so a rollback can't leave process-local state
+        # diverged from the DB. Apply them as one step now the batch is durable;
+        # a per-key loop let a reader see some keys new and the rest cached old.
+        await apply_side_effects_batch(
+            [(registry_map[key], value) for key, value in validated_settings.items()]
         )
 
-    # Single commit for all setting writes
-    await db.commit()
-
-    # fix(#430): set(commit=False) defers side effects (cache invalidation,
-    # _on_change hooks, rate-limit warm) so a rollback can't leave
-    # process-local state diverged from the DB; apply them now the batch is
-    # durable. fix(#1543): as ONE step — a per-key loop let a reader see
-    # already-evicted keys at their new values and the rest still cached old.
-    await apply_side_effects_batch(
-        [(registry_map[key], value) for key, value in validated_settings.items()]
-    )
-
-    # Rebuild column + index when embedding dimensions change. An
-    # auto-detected width reaches this branch too (#1529), added to
-    # validated_settings above, so the column follows every published width.
-    if "embedding_dims" in validated_settings:
-        from app.processing.embeddings.service import rebuild_embedding_column
-
-        new_dims = int(validated_settings["embedding_dims"])
-        try:
-            await rebuild_embedding_column(db, new_dims)
-        except Exception as exc:  # broad: DDL rebuild can fail for schema/lock reasons; roll setting back atomically
-            # Roll the published pair back in ONE transaction, same reason as
-            # the forward publish. Side effects follow the commit, never
-            # precede it (fix(#430)): invalidating the cache first would let a
-            # concurrent reader repopulate it with the value being rolled back.
-            await EMBEDDING_DIMS.set(
-                db, old_dims_value, user_id=user.id, ip_address=ip, commit=False
-            )
-            if rollback_model:
-                await EMBEDDING_MODEL.set(
-                    db, old_model_value, user_id=user.id, ip_address=ip, commit=False
-                )
-            await db.commit()
-            # fix(#1543): in ONE step, same reason the rollback is one
-            # transaction — evicting the two keys in sequence would put the
-            # mismatched pair back into readable state on the way out.
-            rolled_back: list[tuple] = [(EMBEDDING_DIMS, old_dims_value)]
-            if rollback_model:
-                rolled_back.append((EMBEDDING_MODEL, old_model_value))
-            await apply_side_effects_batch(rolled_back)
-            logger.exception(
-                "Embedding column rebuild failed, rolling back the embedding pair",
-                old_dims=old_dims_value,
-                new_dims=new_dims,
-                old_model=old_model_value if rollback_model else None,
-                rolled_back_model=rollback_model,
-            )
-            raise HTTPException(
-                status_code=503,
-                detail=(
-                    "Embedding column rebuild failed. The embedding settings have "
-                    "been reverted to their previous values."
+        # An auto-detected width reaches this branch too, added to
+        # validated_settings above, so the column follows every published width.
+        if embedding_before is not None:
+            await _rebuild_column_or_503(
+                db,
+                int(validated_settings["embedding_dims"]),
+                embedding_before,
+                user_id=user.id,
+                ip_address=ip,
+                others_kept=(
+                    "The other settings in the request were saved."
+                    if set(validated_settings) - {"embedding_dims", "embedding_model"}
+                    else None
                 ),
-            ) from exc
+            )
 
     # Phase 279 (L-01): second get_all_settings() call is INTENTIONAL — this
     # handler can persist values the request body doesn't name: auto-detected
@@ -578,40 +640,69 @@ async def reset_settings(
     # against it.
     configs_to_reset.sort(key=_registry.index)
 
-    # Reset is another way to change the effective password-login value and
-    # must enforce the same final-state lockout invariant as PUT/import. Hold
-    # the provider locks through the settings transaction so a concurrent IdP
-    # disable/delete cannot race this check.
-    if (
+    # Answered read-only before the lock as well, so the lockout 422 never
+    # depends on lock contention; the row-locked check below is authoritative.
+    disables_password_login = (
         PASSWORD_LOGIN_ENABLED in configs_to_reset
         and PASSWORD_LOGIN_ENABLED.env_default is False
+    )
+    if disables_password_login:
+        await _refuse_password_lockout(db, _RESET_LOCKOUT_DETAIL, lock_rows=False)
+
+    # Taken before the provider row locks below, so this request never waits
+    # for the lock's connection while holding locks another write may wait on.
+    async with _embedding_change(
+        db, EMBEDDING_DIMS in configs_to_reset or EMBEDDING_MODEL in configs_to_reset
     ):
-        locked_provider_ids = await oauth_service.lock_enabled_providers(db)
-        if len(locked_provider_ids) == 0:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=(
-                    "Cannot reset password login to disabled while no SSO provider "
-                    "is enabled — enable an OAuth provider first"
-                ),
+        # Reset is another way to change the effective password-login value and
+        # must enforce the same final-state lockout invariant as PUT/import. Hold
+        # the provider locks through the settings transaction so a concurrent IdP
+        # disable/delete cannot race this check.
+        if disables_password_login:
+            await _refuse_password_lockout(db, _RESET_LOCKOUT_DETAIL, lock_rows=True)
+
+        embedding_before = None
+        if EMBEDDING_DIMS in configs_to_reset:
+            from app.processing.embeddings.service import read_committed_embedding_pair
+
+            embedding_before = await read_committed_embedding_pair(
+                db, with_model=EMBEDDING_MODEL in configs_to_reset
             )
 
-    ip = get_client_ip(request)
-    before = [await cfg.get(db) for cfg in configs_to_reset]
-    for cfg, old_value in zip(configs_to_reset, before):
-        await cfg.reset(
-            db,
-            user_id=user.id,
-            ip_address=ip,
-            commit=False,
-            old_value=old_value,
+        ip = get_client_ip(request)
+        before = [await cfg.get(db) for cfg in configs_to_reset]
+        for cfg, old_value in zip(configs_to_reset, before):
+            await cfg.reset(
+                db,
+                user_id=user.id,
+                ip_address=ip,
+                commit=False,
+                old_value=old_value,
+            )
+
+        # The setting deletes and their audit rows form one transaction. Runtime
+        # caches/hooks are changed only after that transaction is durable, and in
+        # one step so no reader sees a half-reset batch.
+        await db.commit()
+        await apply_side_effects_batch(
+            [(cfg, cfg.env_default) for cfg in configs_to_reset]
         )
 
-    # The setting deletes and their audit rows form one transaction. Runtime
-    # caches/hooks are changed only after that transaction is durable, and in
-    # one step so no reader sees a half-reset batch (fix(#1543)).
-    await db.commit()
-    await apply_side_effects_batch([(cfg, cfg.env_default) for cfg in configs_to_reset])
+        # The rebuild compares against the live column, so resetting a width
+        # that is already in effect only repairs a column left at another one.
+        if embedding_before is not None:
+            await _rebuild_column_or_503(
+                db,
+                EMBEDDING_DIMS.env_default,
+                embedding_before,
+                user_id=user.id,
+                ip_address=ip,
+                others_kept=(
+                    "The other settings in the request were reset."
+                    if set(configs_to_reset) - {EMBEDDING_DIMS, EMBEDDING_MODEL}
+                    else None
+                ),
+            )
 
     # Phase 279 (L-01): intentional second SELECT — cfg.reset() writes
     # env_default to AppSetting; re-read captures the post-reset state, which

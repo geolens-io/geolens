@@ -165,6 +165,11 @@ class TestResetSettings:
         from app.core.persistent_config import PASSWORD_LOGIN_ENABLED
 
         monkeypatch.setattr(PASSWORD_LOGIN_ENABLED, "_env_default_static", False)
+        # An enabled provider exists, so only the lock can refuse the reset.
+        monkeypatch.setattr(
+            "app.modules.settings.router.oauth_service.list_providers",
+            AsyncMock(return_value=[object()]),
+        )
         provider_lock = AsyncMock(return_value=[])
         monkeypatch.setattr(
             "app.modules.settings.router.oauth_service.lock_enabled_providers",

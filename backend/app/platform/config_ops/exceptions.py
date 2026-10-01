@@ -7,8 +7,20 @@ class ConfigValidationError(Exception):
     pass
 
 
+class ConfigBusyError(Exception):
+    """Raised when another embedding width change is still running."""
+
+    pass
+
+
 class ConfigLockedError(Exception):
     """Raised when configuration is locked to environment variables."""
+
+    pass
+
+
+class ConfigApplyError(Exception):
+    """Raised when part of a committed import could not take effect and was reverted."""
 
     pass
 

@@ -22,6 +22,8 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.platform.config_ops.exceptions import (
+    ConfigApplyError,
+    ConfigBusyError,
     ConfigLockedError,
     ConfigPreviewError,
     ConfigValidationError,
@@ -1052,6 +1054,8 @@ async def import_config(
     additionally requires the signed token from a matching, current dry-run.
     """
     from app.core.persistent_config import (
+        EMBEDDING_DIMS,
+        EMBEDDING_MODEL,
         ENTERPRISE_ONLY_TABS,
         _registry,
         apply_side_effects_batch,
@@ -1060,110 +1064,184 @@ async def import_config(
         AuditEvent,
         audit_emit,
     )  # LAZY — preserved per D-17
-
-    # Database-enforced write fence covering state recompute, confirmation
-    # check, and apply — otherwise a concurrent transaction could commit
-    # after the state read against an already-stale token.
-    await acquire_config_import_lock(db)
-    plan = await preflight_import(
-        db,
-        data,
-        mode,
-        lock_dependent_accounts=mode == "overwrite",
+    from app.processing.embeddings.service import (
+        EmbeddingColumnRebuildError,
+        EmbeddingChangeBusyError,
+        embedding_change_lock,
+        read_committed_embedding_pair,
+        rebuild_column_or_restore,
     )
+
+    # Invalid input, env-only mode and a stale preview get their own answer
+    # whatever the lock state: the read-only preflight runs before the lock,
+    # and again under the fence below, where its plan is the one applied.
+    early_plan = await preflight_import(db, data, mode)
     if mode == "overwrite":
-        _verify_preview_token(preview_token, plan, mode)
+        _verify_preview_token(preview_token, early_plan, mode)
 
-    settings_no_change = len(plan.validated_settings) - len(plan.settings_to_apply)
-    settings_skipped = (
-        len(plan.skipped_unknown) + len(plan.skipped_restricted) + settings_no_change
+    # Taken before the settings fence and any write, so no request waits for
+    # the lock's connection while holding locks another write may wait on.
+    # The plan needs the fence, so the payload decides whether to lock.
+    raw_settings = data.get("settings")
+    names_embedding = isinstance(raw_settings, dict) and (
+        EMBEDDING_DIMS.key in raw_settings or EMBEDDING_MODEL.key in raw_settings
     )
-    settings_applied = len(plan.settings_to_apply)
-
-    # fix(#430): with commit=False, set()/reset() DEFER their side effects
-    # (cache invalidation, _on_change hooks, rate-limit warm) — running them
-    # pre-commit flipped process-local state a rollback wouldn't restore.
-    # Apply side effects only after the terminal commit succeeds.
-    deferred_side_effects: list = []
-
-    # One pass in registry order, so the provider reaches its final value before
-    # a model setting that resolves against it is written or reset. Audits
-    # record the values from before the import.
-    resets = [
-        cfg
-        for cfg in _registry
-        if mode == "overwrite"
-        and cfg.key not in plan.validated_settings
-        and (plan.caller_is_enterprise or cfg.tab not in ENTERPRISE_ONLY_TABS)
-    ]
-    touched = [
-        cfg for cfg in _registry if cfg.key in plan.settings_to_apply or cfg in resets
-    ]
-    before = {cfg.key: await cfg.get(db) for cfg in touched}
-    for cfg in touched:
-        if cfg.key in plan.settings_to_apply:
-            value = plan.settings_to_apply[cfg.key]
-            await cfg.set(
+    reverted_on_failure: list[str] = []
+    try:
+        async with embedding_change_lock(mode == "overwrite" or names_embedding, db=db):
+            # Database-enforced write fence covering state recompute, confirmation
+            # check, and apply — otherwise a concurrent transaction could commit
+            # after the state read against an already-stale token.
+            await acquire_config_import_lock(db)
+            plan = await preflight_import(
                 db,
-                value,
-                user_id=user_id,
-                ip_address=ip_address,
-                commit=False,
-                old_value=before[cfg.key],
+                data,
+                mode,
+                lock_dependent_accounts=mode == "overwrite",
             )
-            deferred_side_effects.append((cfg, value))
-        else:
-            await cfg.reset(
-                db,
-                user_id=user_id,
-                ip_address=ip_address,
-                commit=False,
-                old_value=before[cfg.key],
-            )
-            deferred_side_effects.append((cfg, cfg.env_default))
+            if mode == "overwrite":
+                _verify_preview_token(preview_token, plan, mode)
 
-    (
-        oauth_created,
-        oauth_updated,
-        oauth_deleted,
-        oauth_accounts_deleted,
-    ) = await _apply_oauth_providers(db, plan.providers_to_apply, mode)
-    if oauth_accounts_deleted != plan.oauth_accounts_deleted:
-        # Should be unreachable given the provider table fence plus dependent-
-        # row share locks. Fail closed rather than under-report a destructive
-        # cascade if a future write path bypasses those invariants.
-        raise ConfigPreviewError(
-            "OAuth account links changed during import; preview the configuration again."
+            settings_no_change = len(plan.validated_settings) - len(
+                plan.settings_to_apply
+            )
+            settings_skipped = (
+                len(plan.skipped_unknown)
+                + len(plan.skipped_restricted)
+                + settings_no_change
+            )
+            settings_applied = len(plan.settings_to_apply)
+
+            # set()/reset() with commit=False defer their side effects (cache
+            # invalidation, _on_change hooks, rate-limit warm): run before the
+            # commit, they flip process-local state a rollback wouldn't restore.
+            deferred_side_effects: list = []
+
+            # One pass in registry order, so the provider reaches its final value
+            # before a model setting that resolves against it is written or reset.
+            # Audits record the values from before the import.
+            resets = [
+                cfg
+                for cfg in _registry
+                if mode == "overwrite"
+                and cfg.key not in plan.validated_settings
+                and (plan.caller_is_enterprise or cfg.tab not in ENTERPRISE_ONLY_TABS)
+            ]
+            touched = [
+                cfg
+                for cfg in _registry
+                if cfg.key in plan.settings_to_apply or cfg in resets
+            ]
+            before = {cfg.key: await cfg.get(db) for cfg in touched}
+            # An import that names the width reconciles the column even when the
+            # setting already holds it; the rebuild compares against the live
+            # column.
+            carries_dims = (
+                EMBEDDING_DIMS.key in plan.validated_settings
+                or EMBEDDING_DIMS in resets
+            )
+            embedding_before = new_dims = None
+            if carries_dims:
+                embedding_before = await read_committed_embedding_pair(
+                    db, with_model=EMBEDDING_MODEL in touched
+                )
+                reverted_on_failure = [EMBEDDING_DIMS.key]
+                if EMBEDDING_MODEL in touched:
+                    reverted_on_failure.append(EMBEDDING_MODEL.key)
+                new_dims = plan.validated_settings.get(
+                    EMBEDDING_DIMS.key, EMBEDDING_DIMS.env_default
+                )
+            for cfg in touched:
+                if cfg.key in plan.settings_to_apply:
+                    value = plan.settings_to_apply[cfg.key]
+                    await cfg.set(
+                        db,
+                        value,
+                        user_id=user_id,
+                        ip_address=ip_address,
+                        commit=False,
+                        old_value=before[cfg.key],
+                    )
+                    deferred_side_effects.append((cfg, value))
+                else:
+                    await cfg.reset(
+                        db,
+                        user_id=user_id,
+                        ip_address=ip_address,
+                        commit=False,
+                        old_value=before[cfg.key],
+                    )
+                    deferred_side_effects.append((cfg, cfg.env_default))
+
+            (
+                oauth_created,
+                oauth_updated,
+                oauth_deleted,
+                oauth_accounts_deleted,
+            ) = await _apply_oauth_providers(db, plan.providers_to_apply, mode)
+            if oauth_accounts_deleted != plan.oauth_accounts_deleted:
+                # Should be unreachable given the provider table fence plus
+                # dependent-row share locks. Fail closed rather than under-report
+                # a destructive cascade if a future write path bypasses those
+                # invariants.
+                raise ConfigPreviewError(
+                    "OAuth account links changed during import; preview the configuration again."
+                )
+
+            # One aggregate import event, same transaction as the settings,
+            # per-setting audit rows, and OAuth mutations: either all of them
+            # are durable or none.
+            await audit_emit(
+                db,
+                AuditEvent(
+                    user_id=user_id,
+                    action="config_import",
+                    resource_type="config",
+                    details={
+                        "mode": mode,
+                        "settings_applied": settings_applied,
+                        "settings_skipped_unknown": plan.skipped_unknown,
+                        "settings_skipped_restricted": plan.skipped_restricted,
+                        "oauth_created": oauth_created,
+                        "oauth_updated": oauth_updated,
+                        "oauth_deleted": oauth_deleted,
+                        "oauth_accounts_deleted": oauth_accounts_deleted,
+                    },
+                    ip_address=ip_address,
+                ),
+            )
+
+            # Single commit for config changes and all associated audit rows.
+            await db.commit()
+
+            # One eviction for the whole import; a per-key loop here held the
+            # widest mismatch window of the three batch call sites.
+            await apply_side_effects_batch(deferred_side_effects)
+
+            if carries_dims:
+                await rebuild_column_or_restore(
+                    db,
+                    new_dims,
+                    embedding_before,
+                    user_id=user_id,
+                    ip_address=ip_address,
+                )
+    except EmbeddingChangeBusyError as exc:
+        raise ConfigBusyError(str(exc)) from exc
+    except EmbeddingColumnRebuildError as exc:
+        # The aggregate event above counted the settings the restore reverted.
+        await audit_emit(
+            db,
+            AuditEvent(
+                user_id=user_id,
+                action="config_import",
+                resource_type="config",
+                details={"mode": mode, "settings_reverted": reverted_on_failure},
+                ip_address=ip_address,
+            ),
         )
-
-    # One aggregate import event, same transaction as the settings, per-setting
-    # audit rows, and OAuth mutations: either all of them are durable or none.
-    await audit_emit(
-        db,
-        AuditEvent(
-            user_id=user_id,
-            action="config_import",
-            resource_type="config",
-            details={
-                "mode": mode,
-                "settings_applied": settings_applied,
-                "settings_skipped_unknown": plan.skipped_unknown,
-                "settings_skipped_restricted": plan.skipped_restricted,
-                "oauth_created": oauth_created,
-                "oauth_updated": oauth_updated,
-                "oauth_deleted": oauth_deleted,
-                "oauth_accounts_deleted": oauth_accounts_deleted,
-            },
-            ip_address=ip_address,
-        ),
-    )
-
-    # Single commit for config changes and all associated audit rows.
-    await db.commit()
-
-    # fix(#1543): one eviction for the whole import — a per-key loop here held
-    # the widest mismatch window of the three batch call sites.
-    await apply_side_effects_batch(deferred_side_effects)
+        await db.commit()
+        raise ConfigApplyError(f"{exc} The rest of the import was applied.") from exc
 
     logger.info(
         "config_imported",

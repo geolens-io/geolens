@@ -2,6 +2,9 @@
 
 import hashlib
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from typing import Any
 
 import structlog
@@ -13,7 +16,12 @@ from app.core.config import settings
 from app.platform.extensions import get_embedding_provider, get_processing_port
 from app.processing.embeddings.helpers import resolve_live_embedding_config
 from app.processing.embeddings.models import RecordEmbedding
-from app.core.persistent_config import AI_ENABLED, EMBEDDING_DIMS, EMBEDDING_MODEL
+from app.core.persistent_config import (
+    AI_ENABLED,
+    EMBEDDING_DIMS,
+    EMBEDDING_MODEL,
+    apply_side_effects_batch,
+)
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -289,6 +297,175 @@ async def rebuild_embedding_column(db: AsyncSession, new_dims: int) -> bool:
         raise
 
     return True
+
+
+class EmbeddingColumnRebuildError(RuntimeError):
+    """The column rebuild failed and the embedding settings were put back."""
+
+
+class EmbeddingChangeBusyError(RuntimeError):
+    """Another embedding model or width change still holds the lock."""
+
+
+_CHANGE_LOCK_SQL = (
+    "SELECT pg_try_advisory_xact_lock(hashtextextended('geolens:embedding_change', 0))"
+)
+
+
+@asynccontextmanager
+async def embedding_change_lock(
+    needed: bool = True, *, db: AsyncSession | None = None
+) -> AsyncIterator[None]:
+    """Run one embedding model or width change at a time, from reading the old
+    pair to the rebuild or restore. Does nothing unless ``needed``.
+
+    The lock holds a connection of its own, outside the request pool: the
+    change commits between those steps, and a burst of requests as large as
+    the pool would otherwise each wait at checkout for a connection the others
+    hold. ``db``, the request's session, has its read-only transaction ended
+    first, so under transaction pooling a request trying the lock holds no
+    other server connection. A second change is refused with
+    EmbeddingChangeBusyError rather than queued.
+    """
+    if not needed:
+        yield
+        return
+    if db is not None:
+        await db.commit()
+    from sqlalchemy import text as sa_text
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    from app.core.db import engine  # late-bound so a test engine applies
+
+    lock_engine = create_async_engine(
+        engine.url, poolclass=NullPool, connect_args=settings.database_connect_args
+    )
+    try:
+        async with lock_engine.connect() as lock_connection:
+            locked = await lock_connection.execute(sa_text(_CHANGE_LOCK_SQL))
+            if not locked.scalar():
+                raise EmbeddingChangeBusyError(
+                    "Another embedding configuration change is in progress. "
+                    "Retry once it finishes."
+                )
+            yield
+    finally:
+        await lock_engine.dispose()
+
+
+@dataclass(frozen=True)
+class CommittedEmbeddingPair:
+    """The embedding settings a failed column rebuild puts back.
+
+    ``model`` is None when the settings batch leaves the model alone. The
+    ``*_overridden`` flags record whether the key had a stored override, so a
+    restore deletes one the batch created instead of pinning the default.
+    """
+
+    dims: int
+    model: str | None
+    dims_overridden: bool
+    model_overridden: bool
+
+
+async def read_committed_embedding_pair(
+    db: AsyncSession, *, with_model: bool
+) -> CommittedEmbeddingPair:
+    """Read before a settings batch writes. Uncached, so a rollback restores
+    what is committed rather than a cache entry that may already be stale."""
+    from app.core.db.models import AppSetting
+
+    dims = await EMBEDDING_DIMS.get_uncached(db)
+    model = await EMBEDDING_MODEL.get_uncached(db) if with_model else None
+    overridden = set(
+        (
+            await db.execute(
+                select(AppSetting.key).where(
+                    AppSetting.key.in_((EMBEDDING_DIMS.key, EMBEDDING_MODEL.key))
+                )
+            )
+        ).scalars()
+    )
+    return CommittedEmbeddingPair(
+        dims=dims,
+        model=model,
+        dims_overridden=EMBEDDING_DIMS.key in overridden,
+        model_overridden=EMBEDDING_MODEL.key in overridden,
+    )
+
+
+async def _restore_setting(
+    db: AsyncSession,
+    cfg: Any,
+    value: Any,
+    overridden: bool,
+    *,
+    user_id: uuid.UUID,
+    ip_address: str | None,
+) -> None:
+    if overridden:
+        await cfg.set(db, value, user_id=user_id, ip_address=ip_address, commit=False)
+    else:
+        await cfg.reset(db, user_id=user_id, ip_address=ip_address, commit=False)
+
+
+async def rebuild_column_or_restore(
+    db: AsyncSession,
+    new_dims: int,
+    previous: CommittedEmbeddingPair,
+    *,
+    user_id: uuid.UUID,
+    ip_address: str | None,
+) -> None:
+    """Rebuild the column to the width a settings batch just committed.
+
+    Callers hold ``embedding_change_lock`` from before they read
+    ``previous``. On failure, restores ``previous`` and raises
+    EmbeddingColumnRebuildError, so published settings never name a width the
+    column does not have.
+    """
+    try:
+        await rebuild_embedding_column(db, new_dims)
+    except Exception as exc:  # broad: DDL rebuild can fail for schema/lock reasons; roll setting back atomically
+        # A failure before the rebuild's own rollback leaves the transaction
+        # aborted, and the restore below would fail on it.
+        await db.rollback()
+        # One transaction, then one side-effect step, so no reader sees the
+        # new model beside the old width. Evicting before the commit would let
+        # a concurrent reader re-cache the value being rolled back.
+        await _restore_setting(
+            db,
+            EMBEDDING_DIMS,
+            previous.dims,
+            previous.dims_overridden,
+            user_id=user_id,
+            ip_address=ip_address,
+        )
+        rolled_back: list[tuple] = [(EMBEDDING_DIMS, previous.dims)]
+        if previous.model is not None:
+            await _restore_setting(
+                db,
+                EMBEDDING_MODEL,
+                previous.model,
+                previous.model_overridden,
+                user_id=user_id,
+                ip_address=ip_address,
+            )
+            rolled_back.append((EMBEDDING_MODEL, previous.model))
+        await db.commit()
+        await apply_side_effects_batch(rolled_back)
+        logger.exception(
+            "Embedding column rebuild failed, rolling back the embedding pair",
+            old_dims=previous.dims,
+            new_dims=new_dims,
+            old_model=previous.model,
+            rolled_back_model=previous.model is not None,
+        )
+        raise EmbeddingColumnRebuildError(
+            "Embedding column rebuild failed. The embedding settings have "
+            "been reverted to their previous values."
+        ) from exc
 
 
 def build_content_text(
