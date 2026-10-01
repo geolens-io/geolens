@@ -41,14 +41,17 @@ function nextCreateAttempt(geometry: Geometry): { key: string; attempt: number }
   return { key: entry.key, attempt: entry.count };
 }
 
-/** The structured refusal a keyed create gets back for a retry the server can't apply. */
-function createRefusal(err: unknown): { code: 'feature_changed' | 'feature_gone'; tileCacheVersion?: number } | null {
-  if (!(err instanceof ApiError)) return null;
-  if (err.status !== 409) return null;
-  const detail = err.body as { code?: string; feature?: { tile_cache_version?: number } } | undefined;
-  if (detail?.code === 'feature_changed') {
-    return { code: 'feature_changed', tileCacheVersion: detail.feature?.tile_cache_version };
-  }
+/**
+ * The feature a sketch already created, once a retry learns someone else has
+ * edited it. The sketch's next Save updates that feature rather than creating.
+ */
+const createdFeatures = new WeakMap<Geometry, number>();
+
+/** The structured 409 a keyed create gets for a retry the server can't apply. */
+function createRefusal(err: unknown): { code: 'feature_changed' | 'feature_gone'; feature?: { id?: number; tile_cache_version?: number } } | null {
+  if (!(err instanceof ApiError) || err.status !== 409) return null;
+  const detail = err.body as { code?: string; feature?: { id?: number; tile_cache_version?: number } } | undefined;
+  if (detail?.code === 'feature_changed') return { code: 'feature_changed', feature: detail.feature };
   return detail?.code === 'feature_gone' ? { code: 'feature_gone' } : null;
 }
 
@@ -290,7 +293,41 @@ export function useFeatureEditing({
         src?.setData({ type: 'FeatureCollection', features: overlayFeaturesRef.current });
       }
 
-      const clearOverlayAfterTiles = () => {
+      let existingGid: number | undefined;
+      beginWrite(epoch);
+      try {
+        existingGid = createdFeatures.get(geometry);
+        let created;
+        if (existingGid !== undefined) {
+          created = await updateFeatureMutation.mutateAsync({
+            datasetId,
+            gid: existingGid,
+            geometry: geometry as Geometry,
+            properties,
+          });
+          createdFeatures.delete(geometry);
+        } else {
+          const { key, attempt } = nextCreateAttempt(geometry);
+          created = await createFeature.mutateAsync({
+            datasetId,
+            geometry: geometry as Geometry,
+            properties,
+            idempotencyKey: key,
+            attempt,
+          });
+        }
+        // fix(#1761 review round 4): if the identity changed while this
+        // request was in flight, the identity-change cleanup already
+        // emptied the overlay ref/source (resetOverlay, via
+        // finishDrawingSession). Reporting success and reloading tiles
+        // here would only be feedback for an identity that is no longer
+        // looking, and re-arming the listener below would have nothing
+        // useful left to clear.
+        if (isStale(epoch, targetDatasetId, generation, drawingGenerationRef.current)) return { saved: false };
+        toast.success(t('map.featureSaved'));
+        reloadTiles(created.tile_cache_version);
+
+        // Clear overlay after tiles load
         if (map) {
           cleanupOverlayListener();
           const clearOverlay = () => {
@@ -323,30 +360,6 @@ export function useFeatureEditing({
             clearTimer: () => clearTimeout(fallbackTimer),
           };
         }
-      };
-
-      beginWrite(epoch);
-      try {
-        const { key, attempt } = nextCreateAttempt(geometry);
-        const created = await createFeature.mutateAsync({
-          datasetId,
-          geometry: geometry as Geometry,
-          properties,
-          idempotencyKey: key,
-          attempt,
-        });
-        // fix(#1761 review round 4): if the identity changed while this
-        // request was in flight, the identity-change cleanup already
-        // emptied the overlay ref/source (resetOverlay, via
-        // finishDrawingSession). Reporting success and reloading tiles
-        // here would only be feedback for an identity that is no longer
-        // looking, and re-arming the listener below would have nothing
-        // useful left to clear.
-        if (isStale(epoch, targetDatasetId, generation, drawingGenerationRef.current)) return { saved: false };
-        toast.success(t('map.featureSaved'));
-        reloadTiles(created.tile_cache_version);
-
-        clearOverlayAfterTiles();
         return { saved: true };
       } catch (err) {
         // fix(#1761 review round 7): the toast is feedback for whoever
@@ -356,19 +369,18 @@ export function useFeatureEditing({
         // see its own comment for why it's already safe either way.
         const stale = isStale(epoch, targetDatasetId, generation, drawingGenerationRef.current);
         const refusal = createRefusal(err);
-        if (refusal?.code === 'feature_changed') {
-          // The create committed on an earlier attempt; the map shows the
-          // other editor's version, so the sketch is done.
-          if (stale) return { saved: false };
-          toast.info(t('map.featureSavedThenChanged'));
-          reloadTiles(refusal.tileCacheVersion);
-          clearOverlayAfterTiles();
-          return { saved: true };
-        }
-        if (refusal?.code === 'feature_gone') {
+        const updateTargetGone = existingGid !== undefined && err instanceof ApiError && err.status === 404;
+        if (refusal?.code === 'feature_gone' || updateTargetGone) {
           createAttempts.delete(geometry);
+          createdFeatures.delete(geometry);
         }
-        if (!stale && refusal?.code === 'feature_gone') {
+        if (refusal?.code === 'feature_changed' && refusal.feature?.id !== undefined) {
+          createdFeatures.set(geometry, refusal.feature.id);
+        }
+        if (!stale && refusal?.code === 'feature_changed') {
+          toast.warning(t('map.featureSavedThenChanged'));
+          reloadTiles(refusal.feature?.tile_cache_version);
+        } else if (!stale && (refusal?.code === 'feature_gone' || updateTargetGone)) {
           toast.error(t('map.featureSavedThenRemoved'));
         } else if (!stale) {
           // fix(#458 E-36): surface the backend's reason (invalid geometry,
@@ -390,7 +402,7 @@ export function useFeatureEditing({
         endWrite(epoch);
       }
     },
-    [datasetId, tableName, mapRef, createFeature, reloadTiles, cleanupOverlayListener, beginWrite, endWrite, t],
+    [datasetId, tableName, mapRef, createFeature, updateFeatureMutation, reloadTiles, cleanupOverlayListener, beginWrite, endWrite, t],
   );
 
   /** Deselect the currently selected feature, restoring tile visibility. */
