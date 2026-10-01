@@ -619,6 +619,11 @@ _BUILDERS = {
     "stac": _stac_replacement,
 }
 
+_QUICKLOOK_RENDER = (
+    "app.processing.vector.quicklook.generate_vector_quicklook_with_timeout"
+)
+_QUICKLOOK_DRAW = "app.processing.ingest.publication._generate_quicklook"
+
 # Where each path looks up the post-commit steps it runs.
 _STEPS = {
     "file": {
@@ -628,6 +633,8 @@ _STEPS = {
         ),
         "archive": "app.processing.ingest.publish_followups._archive_original_file",
         "embedding": "app.processing.embeddings.helpers.defer_embedding",
+        "quicklook": _QUICKLOOK_RENDER,
+        "quicklook session": _QUICKLOOK_DRAW,
     },
     "service": {
         "catalog cache": "app.processing.ingest.publication.invalidate_catalog_cache",
@@ -635,6 +642,8 @@ _STEPS = {
             "app.processing.ingest.publication.invalidate_tile_cache_for_table"
         ),
         "embedding": "app.processing.embeddings.helpers.defer_embedding",
+        "quicklook": _QUICKLOOK_RENDER,
+        "quicklook session": _QUICKLOOK_DRAW,
     },
     "raster": {
         "catalog cache": "app.processing.ingest.publication.invalidate_catalog_cache",

@@ -733,7 +733,7 @@ PUT_SITES_WITH_ANOTHER_OWNER: dict[tuple[str, str], tuple[int, str]] = {
         "dataset_assets row names - archive_lossy_original's own pre-write "
         "probe is what decides that one",
     ),
-    ("processing/ingest/tasks_common.py", "_generate_quicklook"): (
+    ("processing/ingest/tasks_common.py", "_draw_quicklook"): (
         1,
         "vectors/{dataset_id}/quicklook_256.png, written after the vector "
         "dataset row is committed, so delete_dataset's vectors/ prefix reap "

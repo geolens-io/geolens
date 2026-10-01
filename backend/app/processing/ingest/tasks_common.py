@@ -1071,29 +1071,53 @@ async def load_job_for_error_write(
         return None
 
 
-async def _generate_quicklook(
-    session, dataset, table_name: str, geometry_type: str
-) -> None:
-    """Generate and upload a vector quicklook thumbnail (non-fatal).
+async def _generate_quicklook(session, dataset_id: uuid.UUID, table_name: str) -> None:
+    """Draw ``table_name``'s quicklook and point the dataset at it (non-fatal).
 
-    Runs after the outer ingest commit so a connection-killing query
-    (OOM, timeout on complex geometry) cannot roll back the dataset.
+    Runs after the commit that published the table, so a connection-killing
+    query (OOM, timeout on complex geometry) cannot roll back the dataset.
     Separate try/except blocks around generate+upload, rollback+URI-write,
     and commit let operators tell which phase failed from the logs.
 
-    INGEST-01 / Phase 1091-02: caller MUST pass a FRESH session isolated
-    from the outer ``_finalize_ingest`` session (use ``_job_phase_session
-    (job_uuid, phase="quicklook")``). The generation timeout can cancel the
-    inner geom query mid-flight and poison the asyncpg cursor; the
-    defensive ``rollback()`` below then expires every ORM attribute
-    (``expire_on_rollback=True``). On the outer session that trips
-    ``MissingGreenlet`` on ``dataset.record``'s next lazy access.
+    The caller MUST pass a FRESH session, not the one that published the
+    table. The generation timeout can cancel the inner geom query mid-flight
+    and poison the asyncpg cursor; the defensive ``rollback()`` then expires
+    every ORM attribute (``expire_on_rollback=True``). On the publishing
+    session that trips ``MissingGreenlet`` on ``dataset.record``'s next lazy
+    access.
 
-    The outer session's view of ``quicklook_256_uri`` is stale after this
-    returns — callers needing it must ``session.refresh(dataset)`` or
-    re-fetch via ``port.get_dataset``.
+    Every draw of a dataset overwrites the same object. Draws take turns on an
+    advisory lock held on a connection of its own, which a cancelled query
+    cannot end, so each reads the table after the previous put and the last
+    put shows the newest data.
+
+    The caller's view of ``quicklook_256_uri`` is stale after this returns.
     """
+    from app.core.db import async_session
+    from app.platform.catalog_locks import WORKER_LOCK_TIMEOUT, lock_request_key
+
+    async with async_session() as turn:
+        try:
+            await lock_request_key(
+                turn,
+                scope=f"vector-quicklook:{dataset_id}",
+                lock_timeout=WORKER_LOCK_TIMEOUT,
+            )
+        except Exception as exc:  # broad: the dataset is already published
+            structlog.get_logger().warning(
+                "quicklook_failed", phase="lock", table=table_name, error=str(exc)
+            )
+            return
+        await _draw_quicklook(session, dataset_id, table_name)
+
+
+async def _draw_quicklook(session, dataset_id: uuid.UUID, table_name: str) -> None:
+    """The body of :func:`_generate_quicklook`, run while it holds the dataset's turn."""
     import io as _io
+
+    from sqlalchemy import update
+
+    from app.platform.extensions import get_processing_port
 
     _ql_log = structlog.get_logger()
     try:
@@ -1104,7 +1128,7 @@ async def _generate_quicklook(
         ql_bytes = await generate_vector_quicklook(
             session,
             table_name,
-            geometry_type,
+            "",
             256,
             schema=_current_tenant_schema(),
         )
@@ -1112,7 +1136,7 @@ async def _generate_quicklook(
         from app.platform.storage.titiler_url import resolve_storage_key
 
         ql_storage = get_storage()
-        ql_key = f"vectors/{dataset.id}/quicklook_256.png"
+        ql_key = f"vectors/{dataset_id}/quicklook_256.png"
         await ql_storage.put(
             resolve_storage_key(ql_key, tenant_id=current_tenant_var.get()),
             _io.BytesIO(ql_bytes),
@@ -1126,19 +1150,21 @@ async def _generate_quicklook(
         )
         return
 
-    # INGEST-01 iter-2: recovers a cursor poisoned by a wait_for cancel;
-    # no-op on the clean path. WR-01: wrapped in try/except because
-    # rollback()/merge() are themselves IO that can raise if the
-    # connection died — an uncaught escape here would propagate to
-    # status="failed" on a job whose dataset is already committed
-    # (dataset-published + job-failed, OPS-01's disagreement).
+    # The rollback recovers a cursor a wait_for cancel poisoned and is a no-op
+    # otherwise. It and the write are IO that can raise on a dead connection,
+    # and the dataset is already published, so their failure is only logged.
+    Dataset = get_processing_port().get_dataset_orm_class()
     try:
         await session.rollback()
-
-        # Re-merge into the now-clean session; the pre-generation merge
-        # entry was discarded by the rollback above.
-        merged_dataset = await session.merge(dataset)
-        merged_dataset.quicklook_256_uri = ql_key
+        await session.execute(
+            update(Dataset)
+            .where(
+                Dataset.id == dataset_id,
+                Dataset.quicklook_256_uri.is_distinct_from(ql_key),
+            )
+            .values(quicklook_256_uri=ql_key)
+            .execution_options(synchronize_session=False)
+        )
     except Exception as _ql_recovery_exc:  # broad: non-fatal contract — connection drop between upload and recovery must not propagate
         try:
             await session.rollback()
@@ -1359,9 +1385,7 @@ async def _finalize_ingest(ctx: IngestContext):
             ql_session,
             _ql_job,
         ):
-            await _generate_quicklook(
-                ql_session, dataset, table_name, metadata.get("geometry_type", "")
-            )
+            await _generate_quicklook(ql_session, dataset.id, table_name)
 
     # Invalidate caches after successful ingest
     await invalidate_catalog_cache()

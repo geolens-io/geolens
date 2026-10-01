@@ -286,7 +286,7 @@ async def test_generate_quicklook_timeout_does_not_poison_outer_session(
             ql_session,
             _ql_job,
         ):
-            await _generate_quicklook(ql_session, dataset, table_name, "MultiPolygon")
+            await _generate_quicklook(ql_session, dataset.id, table_name)
 
         # The outer session must remain healthy: dataset.record is lazy=joined
         # and was eagerly loaded inside _create_test_dataset_with_table's
@@ -445,12 +445,12 @@ async def test_generate_quicklook_completes_on_multipolygon_shape(
             ql_session,
             _ql_job,
         ):
-            await _generate_quicklook(ql_session, dataset, table_name, "MultiPolygon")
+            await _generate_quicklook(ql_session, dataset.id, table_name)
 
         # Re-fetch the dataset on the outer session to observe what
         # _generate_quicklook persisted via the fresh session. The fresh
-        # session committed its merged copy; the outer session's view of
-        # the row is stale until we refresh.
+        # session committed the URI; the outer session's view of the row is
+        # stale until we refresh.
         await session.refresh(dataset)
         # Blank canvas was uploaded on timeout — see
         # ``generate_vector_quicklook_with_timeout`` in
@@ -524,9 +524,7 @@ async def test_generate_quicklook_url_persists_after_geom_timeout(
                 ql_session,
                 _ql_job,
             ):
-                await _generate_quicklook(
-                    ql_session, dataset, table_name, "MultiPolygon"
-                )
+                await _generate_quicklook(ql_session, dataset.id, table_name)
 
         # URI must have persisted despite the forced timeout.
         await session.refresh(dataset)
@@ -572,13 +570,12 @@ async def test_generate_quicklook_url_persists_after_geom_timeout(
             "blank canvas bytes without raising. Logged dicts:\n"
             + "\n".join(repr(r.msg) for r in caplog.records)
         )
-        # WR-01 (post-1091 review): the recovery rollback + merge are now
-        # wrapped in their own try/except. A `phase=recovery` warning on
-        # the clean timeout path would indicate the rollback() itself
-        # raised — that should not happen when the connection survives
-        # the cancellation (the typical test shape). Pin it negatively so
-        # a future regression in recovery semantics (e.g., a stray IO call
-        # ordered before the rollback) surfaces here.
+        # The recovery rollback and URI write have their own try/except. A
+        # `phase=recovery` warning on the clean timeout path would mean the
+        # rollback itself raised, which should not happen when the
+        # connection survives the cancellation (the typical test shape).
+        # Pinned negatively so a stray IO call ordered before the rollback
+        # surfaces here.
         recovery_phase_records = [
             r for r in caplog.records if _is_quicklook_failed(r, phase="recovery")
         ]
