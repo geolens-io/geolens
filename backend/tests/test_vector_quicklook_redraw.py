@@ -405,3 +405,58 @@ async def test_a_stalled_upload_leaves_the_table_free_for_a_replacement(
     finally:
         release_upload.set()
         await asyncio.wait_for(draw, timeout=30)
+
+
+async def test_a_draw_overtaken_while_its_waiter_gave_up_draws_the_newer_table(
+    test_db_session, storage, tables, monkeypatch
+) -> None:
+    """An upload that outlasts the next draw's wait still ends on the newer data."""
+    dataset, _admin_id, before = await _published_one_point_dataset(
+        test_db_session, storage, tables
+    )
+    monkeypatch.setattr("app.platform.catalog_locks.WORKER_LOCK_TIMEOUT", "1s")
+    uploading = asyncio.Event()
+    release_upload = asyncio.Event()
+    real_put = storage.put
+    puts = 0
+
+    async def _first_put_stalls(key, data):
+        nonlocal puts
+        puts += 1
+        if puts == 1:
+            uploading.set()
+            await release_upload.wait()
+        return await real_put(key, data)
+
+    monkeypatch.setattr(storage, "put", _first_put_stalls)
+    older = asyncio.create_task(_draw(dataset))
+    try:
+        await asyncio.wait_for(uploading.wait(), timeout=10)
+        # A replacement publishes three points and rolls the tile version.
+        await test_db_session.execute(
+            text(f'DELETE FROM "data"."{dataset.table_name}"')
+        )
+        await test_db_session.execute(
+            text(
+                f'INSERT INTO "data"."{dataset.table_name}" (name, geom, geom_4326) '
+                "SELECT name, geom, geom FROM (VALUES "
+                f"{_points_sql(_SPREAD)}) AS v(name, geom)"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                "UPDATE catalog.datasets SET tile_cache_version = "
+                "coalesce(tile_cache_version, 1) + 1 WHERE id = :id"
+            ),
+            {"id": dataset.id},
+        )
+        await test_db_session.commit()
+        # Its draw waits out the budget and gives up.
+        await asyncio.wait_for(_draw(dataset), timeout=30)
+    finally:
+        release_upload.set()
+        await asyncio.wait_for(older, timeout=30)
+
+    _uri, stored = await _stored_quicklook(storage, dataset.id)
+    assert stored != before, "the slow draw of the replaced data was kept"
+    assert stored == await _render(dataset.table_name)

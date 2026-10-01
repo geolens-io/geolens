@@ -1071,6 +1071,10 @@ async def load_job_for_error_write(
         return None
 
 
+# Draws in a row before a quicklook stops chasing a table that keeps changing.
+_QUICKLOOK_DRAWS = 3
+
+
 async def _generate_quicklook(session, dataset_id: uuid.UUID, table_name: str) -> None:
     """Draw ``table_name``'s quicklook and point the dataset at it (non-fatal).
 
@@ -1089,13 +1093,19 @@ async def _generate_quicklook(session, dataset_id: uuid.UUID, table_name: str) -
     Every draw of a dataset overwrites the same object. Draws take turns on an
     advisory lock held on a connection of its own, which a cancelled query
     cannot end, so each reads the table after the previous put and the last
-    put shows the newest data.
+    put shows the newest data. A draw whose data changed while it ran draws
+    again, since the draw that change queued may have given up waiting.
 
     The caller's view of ``quicklook_256_uri`` is stale after this returns.
     """
+    from sqlalchemy import select
+
     from app.core.db import async_session
     from app.platform.catalog_locks import WORKER_LOCK_TIMEOUT, lock_request_key
+    from app.platform.extensions import get_processing_port
 
+    Dataset = get_processing_port().get_dataset_orm_class()
+    content_version = select(Dataset.tile_cache_version).where(Dataset.id == dataset_id)
     async with async_session() as turn:
         try:
             await lock_request_key(
@@ -1103,12 +1113,15 @@ async def _generate_quicklook(session, dataset_id: uuid.UUID, table_name: str) -
                 scope=f"vector-quicklook:{dataset_id}",
                 lock_timeout=WORKER_LOCK_TIMEOUT,
             )
+            for _ in range(_QUICKLOOK_DRAWS):
+                drawn = await turn.scalar(content_version)
+                await _draw_quicklook(session, dataset_id, table_name)
+                if await turn.scalar(content_version) == drawn:
+                    return
         except Exception as exc:  # broad: the dataset is already published
             structlog.get_logger().warning(
-                "quicklook_failed", phase="lock", table=table_name, error=str(exc)
+                "quicklook_failed", phase="turn", table=table_name, error=str(exc)
             )
-            return
-        await _draw_quicklook(session, dataset_id, table_name)
 
 
 async def _draw_quicklook(session, dataset_id: uuid.UUID, table_name: str) -> None:
