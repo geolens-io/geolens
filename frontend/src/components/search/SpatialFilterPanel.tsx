@@ -226,7 +226,7 @@ export function SpatialFilterPanel({
       const td = new TerraDraw({
         adapter: new TerraDrawMapLibreGLAdapter({ map }),
         modes: [
-          new TerraDrawRectangleMode({ styles: modeStyles }),
+          new TerraDrawRectangleMode({ styles: modeStyles, drawInteraction: 'click-move-or-drag' }),
           new TerraDrawPolygonMode({ styles: modeStyles }),
         ],
       });
