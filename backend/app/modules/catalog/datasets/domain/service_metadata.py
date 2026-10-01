@@ -336,11 +336,18 @@ async def update_user_metadata(
     explicitly set. Raises ValueError if dataset not found.
     Does not commit; caller controls transaction scope.
 
+    ``actor`` defaults to the identity ``actor_id`` names, since a workflow
+    decides status transitions by the actor's roles.
+
     ``warnings_out`` collects non-blocking warnings from the metadata extension.
     """
     dataset = await get_dataset(session, dataset_id)
     if dataset is None:
         raise ValueError(f"Dataset {dataset_id} not found.")
+    if actor is None and actor_id is not None:
+        from app.modules.catalog.datasets.domain.helpers import _load_actor_identities
+
+        actor = (await _load_actor_identities(session, [actor_id])).get(actor_id)
 
     from app.modules.catalog.features.service import lock_catalog_rows_for_write
 
