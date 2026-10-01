@@ -87,6 +87,7 @@ from app.processing.ingest.service import (
     PART_SIZE,
     _assert_header_token_dispatchable,
     _cleanup_saved_upload,
+    admit_import_commit,
     claim_fan_out_parent,
     create_fan_out_jobs,
     create_ingest_job,
@@ -134,6 +135,7 @@ from app.processing.ingest.validation import (
 )
 from app.platform.catalog_locks import admit_vrt_mutation
 from app.platform.jobs.defer_guard import (
+    DeferFailed,
     defer_with_orphan_guard,
     make_ingest_job_failed_rollback,
 )
@@ -971,6 +973,7 @@ async def commit_import(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Job already processed",
         )
+    observed_attempt_id = job.attempt_id
 
     # IA-P0-03: re-validate job.source_url against SSRF rules at commit time
     # — closes the preview→commit DNS-rebinding TOCTOU (default 60s job TTL).
@@ -1057,26 +1060,22 @@ async def commit_import(
         # Persist only the fact that retry needs fresh credentials. The
         # credential remains request-only and is never written to JSONB.
         commit_metadata["service_auth_required"] = True
-    if job.user_metadata:
-        # Service jobs already have service_type and layer_id from preview
-        merged = {**job.user_metadata, **commit_metadata}
-        job.user_metadata = merged
-    else:
-        job.user_metadata = commit_metadata
-    await db.commit()
+    await admit_import_commit(db, job, observed_attempt_id, commit_metadata)
+    staged_path = job.file_path
 
     # Dispatch routing lives in the service layer (KISS-9).
     # queue_ingest_job owns the orphan-guard: a defer failure flips the job
-    # to failed and raises 503 (RESILIENCE-2). Clean up the staging file
-    # on failure so it isn't orphaned on disk/S3.
+    # to failed and raises 503 (RESILIENCE-2). The staged file is deleted
+    # only when that flip landed: a missed one means a worker owns the job
+    # and is reading it.
     try:
         await queue_ingest_job(job, str(user.id), db=db, credential=credential)
-    except Exception:  # broad: defer failure or DB error during enqueue — clean up staging file then re-raise
-        if job.file_path:
+    except DeferFailed as exc:
+        if staged_path and exc.landed:
             saved: Path | str = (
-                Path(job.file_path) if job.file_path.startswith("/") else job.file_path
+                Path(staged_path) if staged_path.startswith("/") else staged_path
             )
-            await _cleanup_saved_upload(saved, str(job.id))
+            await _cleanup_saved_upload(saved, str(job_id))
         raise
 
     return CommitResponse(

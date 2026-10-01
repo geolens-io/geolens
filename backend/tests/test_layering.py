@@ -1303,7 +1303,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Ingest API router debt; split upload, import and registration endpoints before
     # raising further. Each upload door branches once per 3D upload kind: a 3D
     # Tiles tileset and a COPC point cloud.
-    "backend/app/processing/ingest/router.py": 1712,
+    "backend/app/processing/ingest/router.py": 1711,
     # One reader for untrusted COPC files: header, VLRs, hierarchy lookups,
     # chunk table, the checks before the decode child and the published extent.
     "backend/app/processing/ingest/pointcloud.py": 1085,
@@ -1356,7 +1356,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Admin mutations share locking and audit outcomes.
     "backend/app/modules/admin/service.py": 1022,
     # Ingest admission, staging and job settlement share one orchestration boundary.
-    "backend/app/processing/ingest/service.py": 1462,
+    "backend/app/processing/ingest/service.py": 1495,
     # The PostGIS strategy: geometry repair, the snapshot measurement and its
     # catalog writes.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 660,

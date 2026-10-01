@@ -59,6 +59,7 @@ from app.platform.jobs.heartbeat import (
 )
 from app.platform.jobs import ledger
 from app.platform.jobs.models import (
+    COMMIT_ATTEMPTED_METADATA_KEY,
     IngestJob,
     commit_attempted_marker,
 )
@@ -202,6 +203,38 @@ async def get_job_or_404(
             )
 
     return job
+
+
+async def admit_import_commit(
+    db: AsyncSession,
+    job: IngestJob,
+    attempt_id: uuid.UUID | None,
+    commit_metadata: dict,
+) -> None:
+    """Commit an import commit's metadata onto its job, or raise 400 when another writer took it.
+
+    The row lock orders concurrent commits of one upload, and the dispatch
+    marker rides this commit, so a later one finds the job taken. It also
+    refuses when a cancel or retry moved the status or attempt.
+    """
+    await db.refresh(job, with_for_update=True)
+    if (
+        job.status != "pending"
+        or job.attempt_id != attempt_id
+        or (job.user_metadata or {}).get(COMMIT_ATTEMPTED_METADATA_KEY)
+    ):
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Job already processed",
+        )
+    # Service jobs already carry service_type and layer_id from preview.
+    job.user_metadata = {
+        **(job.user_metadata or {}),
+        **commit_metadata,
+        **commit_attempted_marker(),
+    }
+    await db.commit()
 
 
 def safe_upload_basename(filename: str | None) -> str:
