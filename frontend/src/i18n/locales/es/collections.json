@@ -69,7 +69,7 @@
     "loading": "Cargando conjuntos de datos...",
     "errorMessage": "Error al cargar conjuntos de datos: {{error}}",
     "emptyTitle": "No hay conjuntos de datos en esta colección",
-    "emptyDescription": "Los conjuntos de datos se pueden agregar a esta colección desde la página de gestión.",
+    "emptyDescription": "Los conjuntos de datos agregados a esta colección aparecerán aquí.",
     "filterPlaceholder": "Filtrar conjuntos de datos por nombre...",
     "noMatch": "Ningún conjunto de datos coincide con \"{{filter}}\"",
     "featureCount_one": "{{count}} entidad",
@@ -81,6 +81,7 @@
     "searchPlaceholder": "Buscar conjuntos de datos por nombre...",
     "searchButton": "Buscar",
     "addButton": "Agregar",
+    "addAria": "Agregar {{title}} a la colección",
     "allAlreadyAdded": "Todos los conjuntos de datos coincidentes ya están en esta colección."
   },
   "badges": {

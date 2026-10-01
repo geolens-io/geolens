@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData, type QueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
 import {
   createDataset,
@@ -63,6 +63,12 @@ export function useDatasetRows(id: string, limit: number, cursor: number, filter
   });
 }
 
+/** Publication and visibility changes retire the signatures minted for the dataset. */
+function invalidateTileTokens(qc: QueryClient, datasetId: string) {
+  qc.invalidateQueries({ queryKey: queryKeys.tileTokens.token(datasetId) });
+  qc.invalidateQueries({ queryKey: ['tile-tokens-batch'] });
+}
+
 export function useUpdateDataset() {
   const qc = useQueryClient();
   return useMutation({
@@ -76,6 +82,7 @@ export function useUpdateDataset() {
       // otherwise refetch after a metadata edit. Force invalidation so the
       // quality-score badge reflects the freshly-computed value.
       qc.invalidateQueries({ queryKey: queryKeys.datasets.validation(variables.datasetId) });
+      if (variables.data.visibility !== undefined) invalidateTileTokens(qc, variables.datasetId);
     },
   });
 }
@@ -90,6 +97,7 @@ export function useSetTargetStatus() {
       qc.invalidateQueries({ queryKey: queryKeys.datasets.all });
       qc.invalidateQueries({ queryKey: queryKeys.search.all });
       qc.invalidateQueries({ queryKey: queryKeys.datasets.validation(variables.datasetId) });
+      invalidateTileTokens(qc, variables.datasetId);
     },
   });
 }

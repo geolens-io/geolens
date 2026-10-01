@@ -75,7 +75,7 @@
     "loading": "正在加载数据集...",
     "errorMessage": "加载数据集失败：{{error}}",
     "emptyTitle": "此集合中暂无数据集",
-    "emptyDescription": "可以在管理页面将数据集添加到此集合。",
+    "emptyDescription": "添加到此集合的数据集将显示在这里。",
     "filterPlaceholder": "按名称筛选数据集...",
     "noMatch": "没有数据集匹配“{{filter}}”",
     "featureCount_one": "{{count}} 个要素",
@@ -87,6 +87,7 @@
     "searchPlaceholder": "按名称搜索数据集...",
     "searchButton": "搜索",
     "addButton": "添加",
+    "addAria": "将 {{title}} 添加到集合",
     "allAlreadyAdded": "所有匹配的数据集都已在此集合中。"
   },
   "badges": {

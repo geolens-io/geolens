@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Calendar, ChevronDown, MapPin } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -42,10 +42,6 @@ const GEOMETRY_TYPES = [
   'MULTIPOLYGON',
 ] as const;
 const SORT_OPTIONS = ['relevance', 'date_added', 'name', 'last_updated'] as const;
-const LazySpatialFilterPanel = lazy(async () => {
-  const module = await import('./SpatialFilterPanel');
-  return { default: module.SpatialFilterPanel };
-});
 
 interface FilterPanelProps {
   totalResults: number | undefined;
@@ -208,7 +204,6 @@ export function FilterPanel({
   const [advancedFiltersOpen, setAdvancedFiltersOpen] = useState(false);
   const [localDateFrom, setLocalDateFrom] = useState(dateFrom);
   const [localDateTo, setLocalDateTo] = useState(dateTo);
-  const spatialPanelOpen = useSearchStore((s) => s.spatialPanelOpen);
   const setSpatialPanelOpen = useSearchStore((s) => s.setSpatialPanelOpen);
 
   const syncLocalDates = () => {
@@ -988,24 +983,6 @@ export function FilterPanel({
         </>
       )}
 
-
-      <Suspense fallback={null}>
-        {spatialPanelOpen ? (
-          <LazySpatialFilterPanel
-            open={spatialPanelOpen}
-            onClose={() => setSpatialPanelOpen(false)}
-            onApply={(bboxValue, predicate, geometry) => {
-              const store = useSearchStore.getState();
-              store.setFilter('bbox', bboxValue);
-              store.setFilter('spatial_predicate', predicate);
-              store.setFilter('geometry', geometry ? JSON.stringify(geometry) : '');
-              setSpatialPanelOpen(false);
-            }}
-            initialBbox={bbox}
-            initialPredicate={useSearchStore.getState().spatial_predicate}
-          />
-        ) : null}
-      </Suspense>
     </>
   );
 }

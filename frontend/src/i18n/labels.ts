@@ -38,6 +38,8 @@ const SOURCE_FORMAT_KEYS = {
   created: 'common:enums.sourceFormat.created',
   '3dtiles': 'common:enums.sourceFormat.tiles3d',
   copc: 'common:enums.sourceFormat.copc',
+  stac: 'common:enums.sourceFormat.stac',
+  geotiff: 'common:enums.sourceFormat.geotiff',
 } as const;
 
 const BOUNDING_VOLUME_KEYS = {
@@ -75,6 +77,8 @@ const SOURCE_FORMAT_DEFAULTS = {
   created: 'Created in GeoLens',
   '3dtiles': '3D Tiles',
   copc: 'COPC',
+  stac: 'STAC',
+  geotiff: 'GeoTIFF',
 } as const;
 
 function resolveLabel(t: Translate, key: string, defaultValue: string): string {
@@ -218,6 +222,33 @@ export function getSourceFormatLabel(
     humanizeToken(normalized);
 
   return key ? resolveLabel(t, key, defaultValue) : defaultValue;
+}
+
+const INGEST_SOURCE_KEYS = {
+  vrt_mosaic: 'common:enums.ingestSource.vrtMosaic',
+  vrt_band_stack: 'common:enums.ingestSource.vrtBandStack',
+} as const;
+
+const INGEST_SOURCE_DEFAULTS = {
+  vrt_mosaic: 'Virtual raster (mosaic)',
+  vrt_band_stack: 'Virtual raster (band stack)',
+} as const;
+
+/** Virtual raster jobs carry a type token where an uploaded file has a filename. */
+export function getIngestSourceLabel(t: Translate, sourceFilename: string): string {
+  if (!Object.prototype.hasOwnProperty.call(INGEST_SOURCE_KEYS, sourceFilename)) {
+    return sourceFilename;
+  }
+  const token = sourceFilename as keyof typeof INGEST_SOURCE_KEYS;
+  return resolveLabel(t, INGEST_SOURCE_KEYS[token], INGEST_SOURCE_DEFAULTS[token]);
+}
+
+/** A service type is a token (`arcgis_featureserver`) or a probe's own text (`WFS 2.0.0`); only a token is relabelled. */
+export function getServiceTypeLabel(t: Translate, serviceType: string): string {
+  const normalized = normalizeEnumValue(serviceType);
+  return Object.prototype.hasOwnProperty.call(SOURCE_FORMAT_KEYS, normalized)
+    ? getSourceFormatLabel(t, normalized)
+    : serviceType;
 }
 
 export function getSearchSortLabel(

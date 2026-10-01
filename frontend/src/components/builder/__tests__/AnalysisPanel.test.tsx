@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { TerraDraw } from 'terra-draw';
 import { render } from '@/test/test-utils';
 import { AnalysisPanel } from '../AnalysisPanel';
+import { isAnalysableLayer } from '../analysis-eligibility';
 import { ApiError } from '@/api/client';
 import { materializeAnalysis, previewAnalysis } from '@/api/analysis';
 import { useAnalysisFormStore } from '@/stores/analysis-form-store';
@@ -271,6 +272,26 @@ describe('AnalysisPanel', () => {
     useAnalysisJobStore.setState({ job: null });
     // fix(#833): the add-to-map single-use marker is a module-level store now.
     useAnalysisAddedStore.setState({ addedDatasetIds: [], pendingAddIds: [] });
+  });
+
+  it('notes that a layer filter is not applied to analysis', () => {
+    renderPanel([{ ...datasetLayer, filter: ['>=', ['get', 'mag'], 5] } as unknown as MapLayerResponse]);
+    expect(
+      screen.getByText("Analysis uses every feature in the dataset. This layer's filter isn't applied."),
+    ).toBeInTheDocument();
+  });
+
+  it('shows no filter note for a layer without a filter', () => {
+    renderPanel([{ ...datasetLayer, filter: null } as unknown as MapLayerResponse]);
+    expect(screen.queryByText(/filter isn't applied/)).not.toBeInTheDocument();
+  });
+
+  it('does not offer a folder group, which copies its first child dataset', () => {
+    const folderGroup = { ...datasetLayer, id: 'g1', display_name: 'Hazards', layer_type: 'group:folder' } as unknown as MapLayerResponse;
+    renderPanel([folderGroup]);
+    expect(screen.getByText('Add a dataset layer to use analysis tools')).toBeInTheDocument();
+    expect(isAnalysableLayer(folderGroup)).toBe(false);
+    expect(isAnalysableLayer(datasetLayer)).toBe(true);
   });
 
   it('treats a raster-only map as having no analysable layers (#720)', () => {

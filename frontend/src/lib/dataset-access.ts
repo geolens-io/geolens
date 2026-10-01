@@ -155,6 +155,16 @@ function resolveByType(
   return dist ? resolveDistributionUrl(dist.url, publicApiBaseUrl) : null;
 }
 
+// The signature requirement applies to this instance's own tile route, not to
+// an external tile service someone registered as a distribution.
+const GEOLENS_VECTOR_TILE_RE = /\/tiles\/data\.[^/?#]+\/\{z\}\/\{x\}\/\{y\}\.pbf/;
+
+export function isGeoLensVectorTileUrl(url: string, publicApiBaseUrl: string | null | undefined): boolean {
+  if (!GEOLENS_VECTOR_TILE_RE.test(url)) return false;
+  if (!isAbsoluteUrl(url) || isSameOriginAbsoluteUrl(url)) return true;
+  return !!publicApiBaseUrl && url.startsWith(`${stripTrailingSlashes(publicApiBaseUrl)}/`);
+}
+
 export interface DatasetAccessEndpoints {
   csvExportUrl: string | null;
   ogcFeaturesUrl: string | null;
@@ -162,12 +172,15 @@ export interface DatasetAccessEndpoints {
 }
 
 export function getDatasetAccessEndpoints(
-  dataset: Pick<DatasetResponse, 'id' | 'record_type' | 'table_name'>,
+  dataset: Pick<DatasetResponse, 'id' | 'record_type' | 'table_name' | 'visibility'>,
   publicApiBaseUrl: string | null | undefined,
   distributions: DistributionResponse[] = [],
 ): DatasetAccessEndpoints {
   const { featureTable, tileToken } = recordTypeCapabilities(dataset.record_type);
   const isTable = dataset.record_type === 'table';
+
+  // Non-public GeoLens tiles need a short-lived signature, so no static URL works for them.
+  const isPublic = dataset.visibility === 'public';
 
   return {
     ogcFeaturesUrl:
@@ -177,8 +190,12 @@ export function getDatasetAccessEndpoints(
       resolveByType(distributions, (d) => d.distribution_type === 'download' && d.format === 'csv', publicApiBaseUrl)
       ?? (featureTable ? resolveDistributionUrl(`/datasets/${dataset.id}/export?format=csv`, publicApiBaseUrl) : null),
     vectorTilesUrl:
-      resolveByType(distributions, (d) => d.distribution_type === 'vector_tiles', publicApiBaseUrl)
-      ?? (!isTable && tileToken === 'vector' && dataset.table_name
+      resolveByType(
+        distributions,
+        (d) => d.distribution_type === 'vector_tiles' && (isPublic || !isGeoLensVectorTileUrl(d.url, publicApiBaseUrl)),
+        publicApiBaseUrl,
+      )
+      ?? (isPublic && !isTable && tileToken === 'vector' && dataset.table_name
         ? resolveDistributionUrl(`/tiles/data.${dataset.table_name}/{z}/{x}/{y}.pbf`, publicApiBaseUrl)
         : null),
   };

@@ -509,6 +509,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                               id={`renderas-${layer.id}-${option.id}`}
                               type="button"
                               data-active={isActive ? 'true' : 'false'}
+                              aria-pressed={isActive}
                               onClick={() => handleRenderAsClick(option.id)}
                               className={cn(
                                 'rounded-md border border-transparent px-2.5 py-1 text-xs transition-colors',

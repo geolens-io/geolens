@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
+import { getIngestSourceLabel } from '@/i18n/labels';
 import { describeFailureReason, fixedFailureReason } from '@/lib/failure-reason';
 import {
   useJobStatus,
@@ -234,7 +235,7 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
           </div>
           <div className="flex items-center gap-2">
             {job.source_filename && (
-              <span className="text-sm text-muted-foreground">{job.source_filename}</span>
+              <span className="text-sm text-muted-foreground">{getIngestSourceLabel(t, job.source_filename)}</span>
             )}
             {isPolling && (
               <Button

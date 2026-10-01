@@ -28,7 +28,7 @@ export function TemporalExtentCard({
     async (value: string) => {
       await updateDataset.mutateAsync({
         datasetId,
-        data: { data_vintage_start: value || undefined },
+        data: { data_vintage_start: value || null },
       });
     },
     [datasetId, updateDataset],
@@ -38,7 +38,7 @@ export function TemporalExtentCard({
     async (value: string) => {
       await updateDataset.mutateAsync({
         datasetId,
-        data: { data_vintage_end: value || undefined },
+        data: { data_vintage_end: value || null },
       });
     },
     [datasetId, updateDataset],
@@ -58,7 +58,10 @@ export function TemporalExtentCard({
             </span>
             <EditableFieldShell capability={capabilities.data_vintage_start} testId="editable-field-shell-vintage-start">
               <InlineEdit
-                value={dataVintageStart ? formatDate(dataVintageStart) : ''}
+                value={dataVintageStart ?? ''}
+                displayValue={dataVintageStart ? formatDate(dataVintageStart) : undefined}
+                inputType="date"
+                allowClear
                 onSave={handleSaveVintageStart}
                 as="p"
                 canEdit={capabilities.data_vintage_start.editable}
@@ -73,7 +76,10 @@ export function TemporalExtentCard({
             </span>
             <EditableFieldShell capability={capabilities.data_vintage_end} testId="editable-field-shell-vintage-end">
               <InlineEdit
-                value={dataVintageEnd ? formatDate(dataVintageEnd) : ''}
+                value={dataVintageEnd ?? ''}
+                displayValue={dataVintageEnd ? formatDate(dataVintageEnd) : undefined}
+                inputType="date"
+                allowClear
                 onSave={handleSaveVintageEnd}
                 as="p"
                 canEdit={capabilities.data_vintage_end.editable}

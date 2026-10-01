@@ -1,6 +1,8 @@
 import i18n from '@/i18n/i18n';
 import { formatProvenanceTime } from '@/lib/provenance-attribution';
 
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
 export function formatDate(dateString: string | null): string {
   if (!dateString) return i18n.t('common:notAvailable');
   try {
@@ -8,6 +10,9 @@ export function formatDate(dateString: string | null): string {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
+      // A bare date parses as UTC midnight; formatting it in local time would
+      // show the previous day west of UTC.
+      ...(DATE_ONLY.test(dateString) && { timeZone: 'UTC' }),
     });
   } catch {
     return i18n.t('common:notAvailable');

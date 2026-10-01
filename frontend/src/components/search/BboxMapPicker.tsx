@@ -12,6 +12,7 @@ import {
   FALLBACK_BASEMAP_STYLE_URL,
   FALLBACK_BASEMAP_STYLE_URL_DARK,
 } from '@/lib/basemap-utils';
+import { normalizeBboxLongitudes } from '@/lib/bbox';
 import { MAP_COLORS } from '@/lib/map-colors';
 import 'maplibre-gl/dist/maplibre-gl.css';
 // feat(#846): wires maplibre v6's worker URL. Side-effect import, kept out of
@@ -84,7 +85,7 @@ export function BboxMapPicker({ onBboxSelected }: BboxMapPickerProps) {
         if (lat > maxY) maxY = lat;
       }
 
-      onBboxSelectedRef.current(`${minX},${minY},${maxX},${maxY}`);
+      onBboxSelectedRef.current(normalizeBboxLongitudes(`${minX},${minY},${maxX},${maxY}`));
       td.removeFeatures([id]);
     });
 

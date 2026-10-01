@@ -299,6 +299,21 @@ describe('LayerEditorPanel', () => {
       expect(activePill).not.toBeNull();
     });
 
+    it('exposes the selected render mode through aria-pressed', () => {
+      render(
+        <LayerEditorPanel
+          layer={makeLayer({ dataset_geometry_type: 'POINT' })}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab="style"
+        />
+      );
+      const pills = Array.from(document.querySelectorAll<HTMLElement>('[id^="renderas-layer-1-"]'));
+      expect(pills.length).toBeGreaterThan(1);
+      expect(pills.filter((p) => p.getAttribute('aria-pressed') === 'true')).toHaveLength(1);
+      expect(pills.filter((p) => p.getAttribute('aria-pressed') === 'false')).toHaveLength(pills.length - 1);
+    });
+
     // fix(#430 V-09): a fresh/default layer (no mode-specific customization) has
     // nothing to lose switching render-as modes, so the confirm is skipped.
     it('clicking a non-active render-as pill on a FRESH layer switches immediately — no confirm', () => {

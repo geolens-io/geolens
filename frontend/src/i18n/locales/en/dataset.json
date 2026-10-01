@@ -374,7 +374,7 @@
     }
   },
   "serviceUrls": {
-    "authHelpSimple": "These endpoints accept an X-Api-Key or Authorization: Bearer header.",
+    "authHelpSimple": "Downloads and OGC Features endpoints accept an X-Api-Key or Authorization: Bearer header.",
     "manageApiKeys": "Manage API keys"
   },
   "schema": {

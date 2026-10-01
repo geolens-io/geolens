@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import {
@@ -557,6 +558,10 @@ export function StacImportForm() {
       }, new Map<string, { message: string; itemIds: string[] }>()).values(),
     );
 
+    const createdDatasets = (importResult.results ?? []).filter(
+      (r) => r.status === 'created' && r.dataset_id,
+    );
+
     return (
       <div className="space-y-4">
         <div className="rounded-xl border border-success/30 bg-success/5 p-5">
@@ -575,6 +580,20 @@ export function StacImportForm() {
               <span className="text-destructive">{t('stac.failedCount', { count: importResult.errors })}</span>
             )}
           </div>
+          {createdDatasets.length > 0 && (
+            <ul className="mt-3 divide-y divide-success/15 border-t border-success/20">
+              {createdDatasets.map((r) => (
+                <li key={r.dataset_id} className="flex items-center justify-between gap-3 py-2">
+                  <span className="truncate font-mono text-2xs text-muted-foreground" title={r.item_id}>
+                    {r.item_id}
+                  </span>
+                  <Link to={`/datasets/${r.dataset_id}`} className="shrink-0 text-xs font-medium underline">
+                    {t('bulk.openDataset')}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
 
         {groupedFailures.length > 0 && (

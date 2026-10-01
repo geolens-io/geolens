@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import { getServiceTypeLabel } from '@/i18n/labels';
 import { describeFailureReason } from '@/lib/failure-reason';
 import { Link } from 'react-router';
 import { AlertCircle, Loader2 } from 'lucide-react';
@@ -754,7 +755,7 @@ export function SourcePanel({
                     {t(`sourcePanel.pointer.${pointer.label}`)}
                   </dt>
                   <dd className="mt-1 break-all font-mono text-xs" title={pointer.value}>
-                    {pointer.value}
+                    {pointer.label === 'serviceType' ? getServiceTypeLabel(t, pointer.value) : pointer.value}
                   </dd>
                 </div>
               ))}

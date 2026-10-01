@@ -69,7 +69,7 @@
     "loading": "Chargement des jeux de données...",
     "errorMessage": "Échec du chargement des jeux de données : {{error}}",
     "emptyTitle": "Aucun jeu de données dans cette collection",
-    "emptyDescription": "Des jeux de données peuvent être ajoutés à cette collection depuis la page de gestion.",
+    "emptyDescription": "Les jeux de données ajoutés à cette collection apparaîtront ici.",
     "filterPlaceholder": "Filtrer les jeux de données par nom...",
     "noMatch": "Aucun jeu de données ne correspond à \"{{filter}}\"",
     "featureCount_one": "{{count}} entité",
@@ -81,6 +81,7 @@
     "searchPlaceholder": "Rechercher des jeux de données par nom...",
     "searchButton": "Rechercher",
     "addButton": "Ajouter",
+    "addAria": "Ajouter {{title}} à la collection",
     "allAlreadyAdded": "Tous les jeux de données correspondants sont déjà dans cette collection."
   },
   "badges": {

@@ -165,7 +165,7 @@
     "close": "关闭",
     "rectangle": "矩形",
     "polygon": "多边形",
-    "rectangleInstruction": "点击并拖动以绘制边界框",
+    "rectangleInstruction": "点击开始绘制边界框，再次点击完成",
     "polygonInstruction": "点击添加点，双击结束",
     "predicate": "空间关系：",
     "intersects": "相交",
@@ -178,7 +178,7 @@
   "bbox": {
     "mapAriaLabel": "边界框地图",
     "noExtent": "无范围",
-    "instruction": "点击并拖动以绘制边界框",
+    "instruction": "点击开始绘制边界框，再次点击完成",
     "loading": "正在加载地图..."
   },
   "clearSearch": "清除搜索",

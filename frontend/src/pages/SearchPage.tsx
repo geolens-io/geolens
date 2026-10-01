@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { SearchBar } from '@/components/search/SearchBar';
 import { SavedSearches } from '@/components/search/SavedSearches';
 import { FilterPanel } from '@/components/search/FilterPanel';
+import { SearchSpatialSheet } from '@/components/search/SearchSpatialSheet';
 import { SearchResultCard } from '@/components/search/SearchResultCard';
 import { DatasetCardSkeleton } from '@/components/search/DatasetCardSkeleton';
 import { Pagination } from '@/components/layout/Pagination';
@@ -252,6 +253,7 @@ export function SearchPage() {
           </div>
         </div>
       </PageShell>
+      <SearchSpatialSheet />
     </>
   );
 }

@@ -20,6 +20,10 @@ interface InlineEditProps {
   /** fix(#458 E-04): emit an emptied value so the consumer can stage a clear.
    * Off by default — non-clearable fields (title) must never save empty. */
   allowClear?: boolean;
+  /** Input type of the single-line editor; `date` yields and expects ISO `YYYY-MM-DD`. */
+  inputType?: 'text' | 'date';
+  /** Shown in view mode in place of `value`, which stays the editable raw value. */
+  displayValue?: string;
 }
 
 export function InlineEdit({
@@ -34,6 +38,8 @@ export function InlineEdit({
   onDirtyChange,
   initialEditing = false,
   allowClear = false,
+  inputType = 'text',
+  displayValue,
 }: InlineEditProps) {
   const { t } = useTranslation();
   const [editing, setEditing] = useState(initialEditing);
@@ -80,8 +86,10 @@ export function InlineEdit({
 
   const save = useCallback(async () => {
     const trimmed = draft.trim();
+    // A half-edited date input reports an empty value; that is not a clear.
+    const incompleteInput = inputRef.current?.validity.badInput === true;
     try {
-      if ((trimmed || allowClear) && trimmed !== value) {
+      if (!incompleteInput && (trimmed || allowClear) && trimmed !== value) {
         // BUG-040: wrap onSave in try/catch so a rejected mutation never
         // strands the editor open or produces an unhandled rejection.
         await onSave(trimmed);
@@ -147,7 +155,7 @@ export function InlineEdit({
   if (!canEdit) {
     return (
       <Tag className={className}>
-        {value || <span className="text-muted-foreground">{t('common:notSet')}</span>}
+        {displayValue || value || <span className="text-muted-foreground">{t('common:notSet')}</span>}
       </Tag>
     );
   }
@@ -212,7 +220,7 @@ export function InlineEdit({
     return (
       <input
         ref={inputRef as React.RefObject<HTMLInputElement>}
-        type="text"
+        type={inputType}
         value={draft}
         onChange={(e) => handleDraftChange(e.target.value)}
         onBlur={save}
@@ -244,7 +252,7 @@ export function InlineEdit({
         className,
       )}
     >
-      {value || <span className="text-muted-foreground italic">{placeholder}</span>}
+      {displayValue || value || <span className="text-muted-foreground italic">{placeholder}</span>}
     </Tag>
   );
 }

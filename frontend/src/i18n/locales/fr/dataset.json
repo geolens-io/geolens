@@ -423,7 +423,7 @@
     }
   },
   "serviceUrls": {
-    "authHelpSimple": "Ces points d'accès acceptent un en-tête X-Api-Key ou Authorization: Bearer.",
+    "authHelpSimple": "Les téléchargements et les points d'accès OGC Features acceptent un en-tête X-Api-Key ou Authorization: Bearer.",
     "manageApiKeys": "Gérer les clés API"
   },
   "schema": {

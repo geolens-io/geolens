@@ -28,6 +28,8 @@ import {
   FALLBACK_BASEMAP_STYLE_URL_DARK,
 } from '@/lib/basemap-utils';
 import { MAP_COLORS } from '@/lib/map-colors';
+import { normalizeBboxLongitudes } from '@/lib/bbox';
+import { randomId } from '@/lib/random-id';
 import 'maplibre-gl/dist/maplibre-gl.css';
 // feat(#846): wires maplibre v6's worker URL. Side-effect import, kept out of
 // main.tsx so map-vendor stays out of the eager entry graph (fix(#1624)).
@@ -43,6 +45,8 @@ interface SpatialFilterPanelProps {
   onClose: () => void;
   onApply: (bbox: string, predicate: string, geometry?: GeoJSON.Geometry) => void;
   initialBbox?: string;
+  /** The applied polygon as GeoJSON text; it takes precedence over the bbox. */
+  initialGeometry?: string;
   initialPredicate?: string;
 }
 
@@ -56,24 +60,69 @@ function toStoreFeature(feature: GeoJSON.Feature<GeoJSON.Polygon>): GeoJSONStore
   return feature as unknown as GeoJSONStoreFeatures;
 }
 
-function bboxToPolygon(bbox: string): GeoJSON.Feature<GeoJSON.Polygon> {
+// Terra Draw rejects longitudes outside +/-180 and more than nine decimals.
+const roundCoord = (n: number) => Math.round(n * 1e9) / 1e9;
+
+function rectangleRing(west: number, south: number, east: number, north: number): number[][] {
+  const [w, s, e, n] = [west, south, east, north].map(roundCoord);
+  return [[w, s], [e, s], [e, n], [w, n], [w, s]];
+}
+
+/**
+ * The rings that draw a bbox. A normalized box that crosses the seam has
+ * west > east and cannot be one polygon within +/-180, so it is drawn as the
+ * two halves either side of the seam.
+ */
+export function bboxToRings(bbox: string): number[][][] {
   const [minX, minY, maxX, maxY] = bbox.split(',').map(Number);
-  return {
+  if (maxX >= minX) return [rectangleRing(minX, minY, maxX, maxY)];
+  return [rectangleRing(minX, minY, 180, maxY), rectangleRing(-180, minY, maxX, maxY)];
+}
+
+function ringFeature(ring: number[][], id: string): GeoJSONStoreFeatures {
+  return toStoreFeature({
     type: 'Feature',
-    properties: {},
-    geometry: {
-      type: 'Polygon',
-      coordinates: [
-        [
-          [minX, minY],
-          [maxX, minY],
-          [maxX, maxY],
-          [minX, maxY],
-          [minX, minY],
-        ],
-      ],
-    },
-  };
+    id,
+    properties: { mode: 'rectangle' },
+    geometry: { type: 'Polygon', coordinates: [ring] },
+  } as GeoJSON.Feature<GeoJSON.Polygon>);
+}
+
+/**
+ * Draws a bbox as rectangle(s); returns the drawn ids (empty when Terra Draw
+ * rejects it, which needs a registered mode and an id).
+ */
+function addRectangle(td: TerraDraw, bbox: string): Array<string | number> {
+  const ids = bboxToRings(bbox).map(() => randomId());
+  const results = td.addFeatures(bboxToRings(bbox).map((ring, i) => ringFeature(ring, ids[i])));
+  return results.every((r) => r.valid) ? ids : [];
+}
+
+function parsePolygon(text: string | undefined): GeoJSON.Polygon | null {
+  if (!text) return null;
+  try {
+    const geometry = JSON.parse(text) as GeoJSON.Geometry;
+    return geometry.type === 'Polygon' ? geometry : null;
+  } catch {
+    return null;
+  }
+}
+
+function addPolygon(td: TerraDraw, polygon: GeoJSON.Polygon): Array<string | number> {
+  const id = randomId();
+  const feature = { type: 'Feature', id, properties: { mode: 'polygon' }, geometry: polygon };
+  const [result] = td.addFeatures([feature as unknown as GeoJSONStoreFeatures]);
+  return result?.valid ? [id] : [];
+}
+
+function fitToBbox(map: MaplibreMap | null, bbox: string) {
+  const [minX, minY, maxX, maxY] = bbox.split(',').map(Number);
+  map?.fitBounds([[minX, minY], [maxX < minX ? maxX + 360 : maxX, maxY]], { padding: 40, duration: 0 });
+}
+
+function hasArea(coords: number[][]): boolean {
+  const [minX, minY, maxX, maxY] = extractBbox(coords).split(',').map(Number);
+  return maxX > minX && maxY > minY;
 }
 
 function extractBbox(coords: number[][]): string {
@@ -95,6 +144,7 @@ export function SpatialFilterPanel({
   onClose,
   onApply,
   initialBbox,
+  initialGeometry,
   initialPredicate,
 }: SpatialFilterPanelProps) {
   const { t } = useTranslation('search');
@@ -109,7 +159,13 @@ export function SpatialFilterPanel({
 
   const drawRef = useRef<TerraDraw | null>(null);
   const drawnFeatureIdRef = useRef<string | number | null>(null);
+  // The far half of a rectangle drawn across the seam.
+  const extraDrawnIdsRef = useRef<Array<string | number>>([]);
   const mapRef = useRef<MaplibreMap | null>(null);
+  // The applied polygon until the user draws or clears another area. Terra Draw
+  // can refuse to re-add a polygon it finished (longitudes past 180), and
+  // applying again must not turn that polygon into its bounding box.
+  const restoredPolygonRef = useRef<GeoJSON.Polygon | null>(null);
 
   const basemapStyle = useMemo(() => {
     const themeBasemap = getThemeBasemap(basemaps ?? [], resolvedTheme);
@@ -118,6 +174,28 @@ export function SpatialFilterPanel({
       resolvedTheme === 'dark' ? FALLBACK_BASEMAP_STYLE_URL_DARK : FALLBACK_BASEMAP_STYLE_URL,
     );
   }, [basemaps, resolvedTheme]);
+
+  const storedPolygon = useMemo(() => parsePolygon(initialGeometry), [initialGeometry]);
+
+  // Draws the applied area (a polygon wins over its bounding box) and selects
+  // the matching draw mode.
+  const restoreStoredArea = useCallback(
+    (td: TerraDraw, map: MaplibreMap | null) => {
+      if (!initialBbox) return;
+      const ids = storedPolygon ? addPolygon(td, storedPolygon) : addRectangle(td, initialBbox);
+      drawnFeatureIdRef.current = ids[0] ?? null;
+      extraDrawnIdsRef.current = ids.slice(1);
+      restoredPolygonRef.current = storedPolygon;
+      // The stored bbox is the active filter whether or not it could be drawn.
+      setPendingBbox(initialBbox);
+      if (storedPolygon) {
+        setDrawMode('polygon');
+        td.setMode('polygon');
+      }
+      fitToBbox(map, initialBbox);
+    },
+    [initialBbox, storedPolygon],
+  );
 
   // Restore drawn feature when panel reopens
   useEffect(() => {
@@ -131,8 +209,11 @@ export function SpatialFilterPanel({
       // Feature should still be in Terra Draw's store
       const feature = td.getSnapshotFeature(drawnFeatureIdRef.current);
       if (feature) {
-        const coords = (feature.geometry as GeoJSON.Polygon).coordinates[0];
-        setPendingBbox(extractBbox(coords));
+        // A seam box is drawn as two halves; the first alone is not the area.
+        if (extraDrawnIdsRef.current.length === 0) {
+          const coords = (feature.geometry as GeoJSON.Polygon).coordinates[0];
+          setPendingBbox(extractBbox(coords));
+        }
         return;
       }
       // Feature was lost, clear ref
@@ -142,17 +223,12 @@ export function SpatialFilterPanel({
     // Restore from initialBbox if no drawn feature
     if (initialBbox && !drawnFeatureIdRef.current) {
       try {
-        const poly = toStoreFeature(bboxToPolygon(initialBbox));
-        const results = td.addFeatures([poly]);
-        if (results.length > 0 && results[0].id != null) {
-          drawnFeatureIdRef.current = results[0].id;
-          setPendingBbox(initialBbox);
-        }
+        restoreStoredArea(td, mapRef.current);
       } catch {
         // Ignore restore errors
       }
     }
-  }, [open, initialBbox]);
+  }, [open, initialBbox, restoreStoredArea]);
 
   const handleModeChange = useCallback(
     (value: string) => {
@@ -166,13 +242,16 @@ export function SpatialFilterPanel({
       // Clear existing drawn feature
       if (drawnFeatureIdRef.current != null) {
         try {
-          td.removeFeatures([drawnFeatureIdRef.current]);
+          td.removeFeatures([drawnFeatureIdRef.current, ...extraDrawnIdsRef.current]);
+          extraDrawnIdsRef.current = [];
         } catch {
           // Already removed
         }
         drawnFeatureIdRef.current = null;
-        setPendingBbox('');
       }
+      // A restored area Terra Draw refused has no feature id but is still pending.
+      setPendingBbox('');
+      restoredPolygonRef.current = null;
 
       td.setMode(newMode);
     },
@@ -185,12 +264,14 @@ export function SpatialFilterPanel({
 
     if (drawnFeatureIdRef.current != null) {
       try {
-        td.removeFeatures([drawnFeatureIdRef.current]);
+        td.removeFeatures([drawnFeatureIdRef.current, ...extraDrawnIdsRef.current]);
+        extraDrawnIdsRef.current = [];
       } catch {
         // Already removed
       }
       drawnFeatureIdRef.current = null;
     }
+    restoredPolygonRef.current = null;
     setPendingBbox('');
     setPredicate('intersects');
   }, []);
@@ -207,7 +288,8 @@ export function SpatialFilterPanel({
         }
       }
     }
-    onApply(pendingBbox, predicate, geom);
+    if (!geom && drawMode === 'polygon') geom = restoredPolygonRef.current ?? undefined;
+    onApply(normalizeBboxLongitudes(pendingBbox), predicate, geom);
     onClose();
   }, [pendingBbox, predicate, drawMode, onApply, onClose]);
 
@@ -238,10 +320,19 @@ export function SpatialFilterPanel({
         const feature = td.getSnapshotFeature(id);
         if (!feature || feature.geometry.type !== 'Polygon') return;
 
+        // A click-click with no movement on one axis yields a line, not an area.
+        if (!hasArea(feature.geometry.coordinates[0])) {
+          td.removeFeatures([id]);
+          return;
+        }
+
+        restoredPolygonRef.current = null;
+
         // Remove previous feature if exists
         if (drawnFeatureIdRef.current != null && drawnFeatureIdRef.current !== id) {
           try {
-            td.removeFeatures([drawnFeatureIdRef.current]);
+            td.removeFeatures([drawnFeatureIdRef.current, ...extraDrawnIdsRef.current]);
+            extraDrawnIdsRef.current = [];
           } catch {
             // Already removed
           }
@@ -257,18 +348,13 @@ export function SpatialFilterPanel({
       // Restore initial bbox after Terra Draw is ready
       if (initialBbox) {
         try {
-          const poly = toStoreFeature(bboxToPolygon(initialBbox));
-          const results = td.addFeatures([poly]);
-          if (results.length > 0 && results[0].id != null) {
-            drawnFeatureIdRef.current = results[0].id;
-            setPendingBbox(initialBbox);
-          }
+          restoreStoredArea(td, map);
         } catch {
           // Ignore restore errors
         }
       }
     },
-    [initialBbox],
+    [initialBbox, restoreStoredArea],
   );
 
   // Cleanup on unmount
@@ -360,14 +446,14 @@ export function SpatialFilterPanel({
             {pendingBbox ? (
               <p className="mt-2 text-xs text-muted-foreground">
                 {drawMode === 'rectangle'
-                  ? `Bbox: ${pendingBbox.split(',').map((n) => Number(n).toFixed(2)).join(', ')}`
+                  ? `Bbox: ${normalizeBboxLongitudes(pendingBbox).split(',').map((n) => Number(n).toFixed(2)).join(', ')}`
                   : t('spatial.polygonSelected', { count: 1 })}
               </p>
             ) : (
               <p className="mt-2 text-xs text-muted-foreground">
                 {drawMode === 'rectangle'
                   ? t('spatial.rectangleInstruction', {
-                      defaultValue: 'Click and drag to draw a bounding box',
+                      defaultValue: 'Click to start the box, then click again to finish it',
                     })
                   : t('spatial.polygonInstruction', {
                       defaultValue: 'Click to add points, double-click to finish',
@@ -404,21 +490,24 @@ export function SpatialFilterPanel({
                 const map = mapRef.current;
                 if (!map) return;
                 const bounds = map.getBounds();
-                const bboxStr = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`;
+                const bboxStr = normalizeBboxLongitudes(
+                  `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`,
+                );
                 const td = drawRef.current;
+                restoredPolygonRef.current = null;
                 if (td && drawnFeatureIdRef.current != null) {
                   try {
-                    td.removeFeatures([drawnFeatureIdRef.current]);
+                    td.removeFeatures([drawnFeatureIdRef.current, ...extraDrawnIdsRef.current]);
+                    extraDrawnIdsRef.current = [];
                   } catch {
                     // Already removed
                   }
                   drawnFeatureIdRef.current = null;
                 }
                 if (td) {
-                  const poly = toStoreFeature(bboxToPolygon(bboxStr));
-                  const results = td.addFeatures([poly]);
-                  if (results.length > 0 && results[0].id != null)
-                    drawnFeatureIdRef.current = results[0].id;
+                  const ids = addRectangle(td, bboxStr);
+                  drawnFeatureIdRef.current = ids[0] ?? null;
+                  extraDrawnIdsRef.current = ids.slice(1);
                 }
                 setPendingBbox(bboxStr);
                 setDrawMode('rectangle');

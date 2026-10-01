@@ -1,4 +1,4 @@
-import type { RecordType } from '@/types/api';
+import type { DistributionResponse, RecordType } from '@/types/api';
 
 // fix(#1877): isSameOriginAbsoluteUrl must compare canonical URL.origin
 // values against getRuntimeApiBaseUrl() (reads API_BASE from lib/constants.ts)
@@ -66,12 +66,41 @@ describe('isSameOriginAbsoluteUrl (#1877)', () => {
 describe('getDatasetAccessEndpoints', () => {
   it('derives no OGC, CSV or vector tile URL for an unknown record type', async () => {
     const { getDatasetAccessEndpoints } = await import('@/lib/dataset-access');
-    const dataset = { id: 'ds-1', record_type: 'hologram_dataset' as RecordType, table_name: 'cloud' };
+    const dataset = { id: 'ds-1', record_type: 'hologram_dataset' as RecordType, table_name: 'cloud', visibility: 'public' as const };
 
     expect(getDatasetAccessEndpoints(dataset, null)).toEqual({
       csvExportUrl: null,
       ogcFeaturesUrl: null,
       vectorTilesUrl: null,
     });
+  });
+
+  it('offers the vector tile URL for a public dataset only', async () => {
+    const { getDatasetAccessEndpoints } = await import('@/lib/dataset-access');
+    const base = { id: 'ds-1', record_type: 'vector_dataset' as RecordType, table_name: 'parks' };
+
+    expect(getDatasetAccessEndpoints({ ...base, visibility: 'public' }, 'https://catalog.example.com/api').vectorTilesUrl)
+      .toContain('/tiles/data.parks/{z}/{x}/{y}.pbf');
+    for (const visibility of ['internal', 'restricted', 'private'] as const) {
+      expect(getDatasetAccessEndpoints({ ...base, visibility }, 'https://catalog.example.com/api').vectorTilesUrl).toBeNull();
+    }
+  });
+
+  it('keeps an externally hosted vector tile distribution on a non-public dataset', async () => {
+    const { getDatasetAccessEndpoints } = await import('@/lib/dataset-access');
+    const dataset = { id: 'ds-1', record_type: 'vector_dataset' as RecordType, table_name: 'parks', visibility: 'private' as const };
+    const dist = (url: string) => ({ distribution_type: 'vector_tiles', url }) as DistributionResponse;
+
+    expect(
+      getDatasetAccessEndpoints(dataset, 'https://catalog.example.com/api', [
+        dist('/tiles/data.parks/{z}/{x}/{y}.pbf'),
+        dist('https://tiles.example.org/{z}/{x}/{y}.pbf'),
+      ]).vectorTilesUrl,
+    ).toBe('https://tiles.example.org/{z}/{x}/{y}.pbf');
+    expect(
+      getDatasetAccessEndpoints(dataset, 'https://catalog.example.com/api', [
+        dist('https://partner.example/api/tiles/data.parks/{z}/{x}/{y}.pbf'),
+      ]).vectorTilesUrl,
+    ).toBe('https://partner.example/api/tiles/data.parks/{z}/{x}/{y}.pbf');
   });
 });

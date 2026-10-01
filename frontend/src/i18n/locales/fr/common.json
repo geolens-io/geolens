@@ -17,6 +17,7 @@
   "reload": "Recharger la page",
   "noResults": "Aucun résultat trouvé",
   "notAvailable": "N/D",
+  "notificationsRegion": "Notifications",
   "none": "Aucun",
   "yesterday": "Hier, {{time}}",
   "origin": {
@@ -547,6 +548,10 @@
       "internal": "Interne",
       "published": "Publié"
     },
+    "ingestSource": {
+      "vrtMosaic": "Raster virtuel (mosaïque)",
+      "vrtBandStack": "Raster virtuel (empilement de bandes)"
+    },
     "sourceFormat": {
       "geojson": "GeoJSON",
       "shp": "SHP",
@@ -561,7 +566,9 @@
       "ogcapiFeatures": "OGC API Features",
       "created": "Créé dans GeoLens",
       "tiles3d": "3D Tiles",
-      "copc": "COPC"
+      "copc": "COPC",
+      "stac": "STAC",
+      "geotiff": "GeoTIFF"
     },
     "boundingVolume": {
       "region": "Région",

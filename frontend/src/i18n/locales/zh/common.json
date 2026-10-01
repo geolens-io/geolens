@@ -17,6 +17,7 @@
   "reload": "重新加载页面",
   "noResults": "未找到结果",
   "notAvailable": "N/A",
+  "notificationsRegion": "通知",
   "none": "无",
   "yesterday": "昨天 {{time}}",
   "origin": {
@@ -564,6 +565,10 @@
       "internal": "内部",
       "published": "已发布"
     },
+    "ingestSource": {
+      "vrtMosaic": "虚拟栅格（镶嵌）",
+      "vrtBandStack": "虚拟栅格（波段堆叠）"
+    },
     "sourceFormat": {
       "geojson": "GeoJSON",
       "shp": "SHP",
@@ -578,7 +583,9 @@
       "ogcapiFeatures": "OGC API Features",
       "created": "在 GeoLens 中创建",
       "tiles3d": "3D Tiles",
-      "copc": "COPC"
+      "copc": "COPC",
+      "stac": "STAC",
+      "geotiff": "GeoTIFF"
     },
     "boundingVolume": {
       "region": "区域",

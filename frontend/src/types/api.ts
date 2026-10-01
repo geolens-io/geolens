@@ -391,8 +391,8 @@ export interface DatasetUpdateRequest {
   license?: string;
   attribution?: string | null;
   source_organization?: string;
-  data_vintage_start?: string;
-  data_vintage_end?: string;
+  data_vintage_start?: string | null;
+  data_vintage_end?: string | null;
   lineage_summary?: string;
   update_frequency?: string;
   usage_constraints?: string;

@@ -1000,6 +1000,7 @@
     "description": "Run buffer, centroid, and clip operations on a layer",
     "layerLabel": "Layer",
     "layerPlaceholder": "Select a layer",
+    "layerFilterNote": "Analysis uses every feature in the dataset. This layer's filter isn't applied.",
     "operationLabel": "Operation",
     "opBuffer": "Buffer",
     "opCentroid": "Centroids",

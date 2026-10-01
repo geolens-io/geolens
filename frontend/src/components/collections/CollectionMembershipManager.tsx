@@ -132,6 +132,7 @@ export function CollectionMembershipManager({
                 size="sm"
                 disabled={addingId === record.id}
                 onClick={() => handleAdd(record.id)}
+                aria-label={t('membership.addAria', { title: record.properties.title })}
                 className="flex-shrink-0"
               >
                 {addingId === record.id ? (

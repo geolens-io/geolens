@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
+import { getIngestSourceLabel } from '@/i18n/labels';
 import type { TFunction } from 'i18next';
 import { describeFailureReason } from '@/lib/failure-reason';
 import { useLocation, useSearchParams } from 'react-router';
@@ -432,7 +433,7 @@ export function JobList() {
                           className="max-w-[36vw] truncate sm:max-w-none"
                           title={job.source_filename ?? undefined}
                         >
-                          {job.source_filename ?? '-'}
+                          {job.source_filename ? getIngestSourceLabel(t, job.source_filename) : '-'}
                         </TableCell>
                         <TableCell>
                           <Badge

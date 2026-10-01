@@ -1000,6 +1000,7 @@
     "description": "Ejecuta operaciones de zona de influencia, centroides y recorte sobre una capa",
     "layerLabel": "Capa",
     "layerPlaceholder": "Selecciona una capa",
+    "layerFilterNote": "El análisis usa todas las entidades del conjunto de datos. El filtro de esta capa no se aplica.",
     "operationLabel": "Operación",
     "opBuffer": "Zona de influencia",
     "opCentroid": "Centroides",

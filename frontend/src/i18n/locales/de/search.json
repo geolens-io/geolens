@@ -161,7 +161,7 @@
   "bbox": {
     "mapAriaLabel": "Karte des Begrenzungsrahmens",
     "noExtent": "Keine Ausdehnung",
-    "instruction": "Klicken und ziehen, um einen Begrenzungsrahmen zu zeichnen",
+    "instruction": "Klicken, um den Rahmen zu beginnen, und erneut klicken, um ihn abzuschließen",
     "loading": "Karte wird geladen..."
   },
   "typeahead": {
@@ -210,7 +210,7 @@
     "close": "Schließen",
     "rectangle": "Rechteck",
     "polygon": "Polygon",
-    "rectangleInstruction": "Klicken und ziehen, um einen Begrenzungsrahmen zu zeichnen",
+    "rectangleInstruction": "Klicken, um den Rahmen zu beginnen, und erneut klicken, um ihn abzuschließen",
     "polygonInstruction": "Klicken, um Punkte hinzuzufügen, Doppelklick zum Beenden",
     "predicate": "Modus:",
     "intersects": "Schneidet",

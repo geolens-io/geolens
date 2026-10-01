@@ -1405,6 +1405,14 @@ export function AnalysisPanel({
             ))}
           </SelectContent>
         </Select>
+        {Array.isArray(selectedLayer?.filter) && selectedLayer.filter.length > 0 && (
+          <p className="text-xs text-muted-foreground">
+            {t('analysisTools.layerFilterNote', {
+              defaultValue:
+                "Analysis uses every feature in the dataset. This layer's filter isn't applied.",
+            })}
+          </p>
+        )}
       </div>
 
       <div className="space-y-1.5">
