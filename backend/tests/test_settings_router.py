@@ -18,6 +18,7 @@ async def test_put_settings_changing_embedding_dims_triggers_cleanup(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session,
+    restore_embedding_settings,
 ):
     """PUT /settings/ with a new embedding_dims value deletes existing embeddings
     and rebuilds the vector column + HNSW index."""
@@ -68,6 +69,7 @@ async def test_put_settings_same_embedding_dims_does_not_delete(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session,
+    restore_embedding_settings,
 ):
     """PUT /settings/ with the same embedding_dims does NOT delete embeddings."""
     from sqlalchemy import text
@@ -151,6 +153,7 @@ def test_router_has_no_dead_rebuild_embedding_column_shadow():
 async def test_put_settings_embedding_rebuild_failure_propagates_as_503(
     client: AsyncClient,
     admin_auth_header: dict,
+    restore_embedding_settings,
 ):
     """BUG-029: a DDL failure during embedding rebuild must surface as 503.
 
