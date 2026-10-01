@@ -1629,6 +1629,31 @@ describe('useFeatureEditing — dataset replaced since the edit began', () => {
     expect(setTiles.mock.calls.at(-1)?.[0][0]).toMatch(/cb=42$/);
   });
 
+  it('a create retry that finds the table replaced reloads tiles at the returned version and keeps the draft', async () => {
+    const gone = {
+      detail: {
+        code: 'feature_gone',
+        message: 'The feature created with this Idempotency-Key is gone. Use a new key to create another.',
+        tile_cache_version: 61,
+      },
+    };
+    respondWith(reply(500, { detail: 'boom' }), reply(409, gone));
+    const setTiles = vi.fn();
+    const sketch = { type: 'Point' as const, coordinates: [0, 0] };
+    const { result } = renderEditing(makeMapWithVectorSource(setTiles));
+    const outcomes: { saved: boolean; refused?: boolean }[] = [];
+
+    for (let i = 0; i < 2; i += 1) {
+      await act(async () => {
+        outcomes.push(await result.current.saveAndRefresh(sketch, { name: 'draft' }));
+      });
+    }
+
+    expect(outcomes[1]).toEqual({ saved: false, refused: true });
+    expect(toast.error).toHaveBeenCalledWith('map.featureSavedThenRemoved');
+    expect(setTiles.mock.calls.at(-1)?.[0][0]).toMatch(/cb=61$/);
+  });
+
   it('the save after a create refused as changed sends that feature table_id, and a replacement starts the sketch over', async () => {
     const changed = {
       detail: {

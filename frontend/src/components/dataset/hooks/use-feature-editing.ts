@@ -54,12 +54,19 @@ interface RefusedFeature {
   tile_cache_version?: number;
 }
 
-/** The structured 409 a keyed create gets for a retry the server can't apply. */
-function createRefusal(err: unknown): { code: 'feature_changed' | 'feature_gone'; feature?: RefusedFeature } | null {
+/**
+ * The structured 409 a keyed create gets for a retry the server can't apply.
+ * A feature_gone carries a tile_cache_version when the table was replaced.
+ */
+function createRefusal(err: unknown): {
+  code: 'feature_changed' | 'feature_gone';
+  feature?: RefusedFeature;
+  tile_cache_version?: number;
+} | null {
   if (!(err instanceof ApiError) || err.status !== 409) return null;
-  const detail = err.body as { code?: string; feature?: RefusedFeature } | undefined;
+  const detail = err.body as { code?: string; feature?: RefusedFeature; tile_cache_version?: number } | undefined;
   if (detail?.code === 'feature_changed') return { code: 'feature_changed', feature: detail.feature };
-  return detail?.code === 'feature_gone' ? { code: 'feature_gone' } : null;
+  return detail?.code === 'feature_gone' ? { code: 'feature_gone', tile_cache_version: detail.tile_cache_version } : null;
 }
 
 /**
@@ -403,6 +410,7 @@ export function useFeatureEditing({
           reloadTiles(refusal.feature?.tile_cache_version);
         } else if (!stale && (refusal?.code === 'feature_gone' || updateTargetGone)) {
           toast.error(t('map.featureSavedThenRemoved'));
+          if (refusal?.tile_cache_version !== undefined) reloadTiles(refusal.tile_cache_version);
         } else if (!stale && replaced) {
           toast.error(t('map.featureSavedThenReplaced'));
           reloadTiles(replaced.tile_cache_version);
