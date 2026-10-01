@@ -546,7 +546,13 @@ async def _load_setting_state(
     registry: list[Any],
 ) -> tuple[dict[str, Any], set[str], set[str]]:
     """Load effective values plus source and stored-validity markers."""
-    from app.core.persistent_config import _validate_or_fallback, is_unset_model
+    from app.core.persistent_config import (
+        LLM_MODEL,
+        LLM_MODEL_LIGHT,
+        LLM_PROVIDER,
+        _validate_or_fallback,
+        is_unset_model,
+    )
 
     result = await db.execute(select(AppSetting.key, AppSetting.value))
     stored_settings = {
@@ -561,7 +567,16 @@ async def _load_setting_state(
     valid_stored_keys: set[str] = set()
     for cfg in registry:
         if cfg.key not in stored_settings:
-            current_settings[cfg.key] = await cfg.resolved_default(db)
+            # Registry order loads the provider first; models follow this read.
+            if (
+                cfg in (LLM_MODEL, LLM_MODEL_LIGHT)
+                and LLM_PROVIDER.key in current_settings
+            ):
+                current_settings[cfg.key] = await cfg.default_for(
+                    db, current_settings[LLM_PROVIDER.key]
+                )
+            else:
+                current_settings[cfg.key] = await cfg.resolved_default(db)
             continue
         raw_value = stored_settings[cfg.key]
         unwrapped = (

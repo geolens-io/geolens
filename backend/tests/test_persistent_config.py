@@ -1980,6 +1980,29 @@ async def test_the_settings_list_resolves_models_against_its_own_provider_read(
 
 
 @pytest.mark.anyio
+async def test_import_state_resolves_models_against_its_own_provider_read(
+    client: AsyncClient, admin_auth_header: dict, _both_ai_keys
+):
+    from app.api.main import app
+    from app.core.dependencies import get_db
+    from app.core.persistent_config import LLM_PROVIDER, _registry
+    from app.platform.config_ops.service import _load_setting_state
+
+    await client.put(
+        "/settings/",
+        json={"settings": {"llm_provider": "openai_compatible"}},
+        headers=admin_auth_header,
+    )
+    with patch.object(LLM_PROVIDER, "get", return_value="anthropic"):
+        async for db in app.dependency_overrides[get_db]():
+            current, _, _ = await _load_setting_state(db, _registry)
+    assert (current["llm_provider"], current["llm_model"]) == (
+        "openai_compatible",
+        "openai-chat-env",
+    )
+
+
+@pytest.mark.anyio
 async def test_get_all_registry_values_resolves_unset_models(
     client: AsyncClient, admin_auth_header: dict, _both_ai_keys
 ):
