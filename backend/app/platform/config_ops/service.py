@@ -1116,11 +1116,16 @@ async def import_config(
     carries_dims = (
         EMBEDDING_DIMS.key in plan.validated_settings or EMBEDDING_DIMS in resets
     )
+    # Naming the model locks even when it is unchanged, so a concurrent failed
+    # rebuild cannot revert a model this import has just acknowledged.
+    carries_model = (
+        EMBEDDING_MODEL.key in plan.validated_settings or EMBEDDING_MODEL in resets
+    )
     # Taken before the first write, so an import refused here has handed no
     # audit sink an event. The settings fence keeps other writers off the
     # pair read below; this lock refuses an embedding change still in flight.
     try:
-        async with embedding_change_lock(carries_dims or EMBEDDING_MODEL in touched):
+        async with embedding_change_lock(carries_dims or carries_model):
             embedding_before = new_dims = None
             if carries_dims:
                 embedding_before = await read_committed_embedding_pair(
