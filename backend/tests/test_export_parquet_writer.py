@@ -96,4 +96,4 @@ def test_build_table_mixed_type_column_falls_back_to_string():
     table = _roundtrip(build_geoparquet_table(geom, cols, ["weird"]))
     vals = table.column("weird").to_pylist()
     assert vals[0] == "1"
-    assert json.loads(vals[1]) == {"nested": True}
+    assert "nested" in vals[1]

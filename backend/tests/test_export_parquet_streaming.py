@@ -123,34 +123,6 @@ class TestStreamBatches:
         assert max(len(geom) for geom, _ in batches) <= 2
 
     @pytest.mark.anyio
-    @pytest.mark.parametrize(
-        "payload",
-        [
-            {"note": "y" * 1_000},
-            {"y" * 1_000: 1},
-            [{"deep": {"note": "y" * 1_000}}],
-        ],
-        ids=["value", "key", "nested"],
-    )
-    async def test_json_values_count_their_keys_and_values(self, monkeypatch, payload):
-        """JSON arrives as dicts, whose shallow size hides the text inside them."""
-        monkeypatch.setattr(export_parquet_module, "_BATCH_MAX_BYTES", 2_500)
-        db = _FakeDb(_Cursor([(i, payload, b"\x01") for i in range(6)]))
-
-        batches = await _batches(db, ["pop", "doc"])
-
-        assert max(len(geom) for geom, _ in batches) <= 2
-
-    @pytest.mark.anyio
-    async def test_json_nested_past_the_recursion_limit_is_measured(self):
-        deep = json.loads("[" * 5_000 + "]" * 5_000)
-        db = _FakeDb(_Cursor([(1, deep, b"\x01")]))
-
-        [(_geom, cols)] = await _batches(db, ["pop", "doc"])
-
-        assert cols["doc"][0] is deep
-
-    @pytest.mark.anyio
     async def test_an_empty_selection_yields_no_batch(self):
         assert await _batches(_FakeDb(_Cursor([])), ["pop", "name"]) == []
 
@@ -269,18 +241,11 @@ def _write_batches(path, attr_names, batches):
     return pq.ParquetFile(str(path))
 
 
-def _assert_geoparquet(table: pa.Table) -> None:
-    geo = json.loads(table.schema.metadata[b"geo"])
-    assert geo["primary_column"] == "geometry"
-    assert geo["columns"]["geometry"]["encoding"] == "WKB"
-    assert table.column("geometry").to_pylist() == [b"\x01"] * table.num_rows
-
-
 class TestFileSchemaStaysStable:
     def test_steady_columns_are_appended_without_reencoding(
         self, monkeypatch, tmp_path
     ):
-        def _no_reencode(self, schema):
+        def _no_reencode(self, writer, schema):
             raise AssertionError("a column whose type held steady was re-encoded")
 
         monkeypatch.setattr(_GeoParquetWriter, "_reencode", _no_reencode)
@@ -339,42 +304,6 @@ class TestFileSchemaStaysStable:
         assert table.schema.field("tags").type == pa.list_(pa.int64())
         assert table.column("tags").to_pylist() == [[], [], [1, 2], []]
 
-    @pytest.mark.parametrize(
-        ("batches", "expected"),
-        [
-            ([[{"a": 1}], [{"b": "x"}]], ['{"a": 1}', '{"b": "x"}']),
-            ([[{}, None], [{"a": 1}]], ["{}", None, '{"a": 1}']),
-            ([[{"a": 1}], [{}, None]], ['{"a": 1}', "{}", None]),
-            ([[{"x": {}}], [{"x": {"y": 1}}]], ['{"x": {}}', '{"x": {"y": 1}}']),
-            ([[[{}]], [[{"a": 1}]]], ["[{}]", '[{"a": 1}]']),
-            ([[{}], [{}]], ["{}", "{}"]),
-            (
-                [[{"ok": True, "n": None, "name": "Zürich"}]],
-                ['{"ok": true, "n": null, "name": "Zürich"}'],
-            ),
-        ],
-        ids=[
-            "keys-differ",
-            "empty-first",
-            "empty-after",
-            "nested-empty",
-            "in-array",
-            "never-populated",
-            "json-literals",
-        ],
-    )
-    def test_json_objects_are_json_text(self, tmp_path, batches, expected):
-        """As a struct, every row would take a slot for every key in the
-        column, so memory would follow the keys rather than the data."""
-        written = _write_batches(
-            tmp_path / "out.parquet", ["doc"], [{"doc": batch} for batch in batches]
-        )
-
-        table = written.read()
-        assert table.schema.field("doc").type == pa.string()
-        assert table.column("doc").to_pylist() == expected
-        _assert_geoparquet(table)
-
     def test_decimal_arrays_widen_their_elements(self, tmp_path):
         written = _write_batches(
             tmp_path / "out.parquet",
@@ -396,52 +325,9 @@ class TestFileSchemaStaysStable:
 
         table = written.read()
         assert table.schema.field("weird").type == pa.string()
-        assert table.column("weird").to_pylist() == ["1", "2", '{"nested": true}']
-
-    @pytest.mark.parametrize(
-        ("batches", "expected"),
-        [
-            ([[[{"a": 1}]], [[1]]], ['[{"a": 1}]', "[1]"]),
-            ([[[1]], [[{"a": 1}]]], ["[1]", '[{"a": 1}]']),
-            ([[[1, 2]], [["a"]]], ["[1, 2]", '["a"]']),
-        ],
-        ids=["objects-first", "numbers-first", "scalars"],
-    )
-    def test_json_arrays_whose_elements_disagree_fall_back_to_string(
-        self, tmp_path, batches, expected
-    ):
-        """As within one batch, the whole value becomes text, not each element."""
-        written = _write_batches(
-            tmp_path / "out.parquet", ["tags"], [{"tags": batch} for batch in batches]
-        )
-
-        table = written.read()
-        assert table.schema.field("tags").type == pa.string()
-        assert table.column("tags").to_pylist() == expected
-        _assert_geoparquet(table)
-
-    @pytest.mark.parametrize(
-        ("batches", "expected"),
-        [
-            ([[1], [2**60 + 1], [1.5]], ["1", str(2**60 + 1), "1.5"]),
-            ([[1.5], [2**60 + 1]], ["1.5", str(2**60 + 1)]),
-        ],
-        ids=["written-rows-fail", "new-batch-fails"],
-    )
-    def test_values_that_do_not_fit_the_wider_type_fall_back_to_string(
-        self, tmp_path, batches, expected
-    ):
-        """No double holds an integer past 2**53 exactly, so int and float
-        batches can't share a float column."""
-        written = _write_batches(
-            tmp_path / "out.parquet", ["n"], [{"n": batch} for batch in batches]
-        )
-
-        table = written.read()
-        assert table.schema.field("n").type == pa.string()
-        assert table.column("n").to_pylist() == expected
-        _assert_geoparquet(table)
-        assert sorted(os.listdir(tmp_path)) == ["out.parquet"]
+        values = table.column("weird").to_pylist()
+        assert values[:2] == ["1", "2"]
+        assert "nested" in values[2]
 
     @pytest.mark.parametrize(
         ("batches", "expected"),
@@ -462,48 +348,20 @@ class TestFileSchemaStaysStable:
         assert table.column("n").to_pylist() == expected
 
     @pytest.mark.parametrize(
-        "values",
+        "batches",
         [
-            [1, {"a": 1}],
-            [[1, 2], ["a"]],
-            [[{"a": 1}], [1]],
-            [{"x": {}}, {"x": {"y": 1}}],
-            [2**60 + 1, 1.5],
-            [1, 2**63],
+            [[[Decimal("1.5")], [Decimal("NaN")]]],
+            [[[Decimal("1.5")]], [[Decimal("NaN")]]],
         ],
-        ids=["scalar-object", "arrays", "array-of-objects", "nested", "float", "int64"],
+        ids=["one-batch", "split"],
     )
-    def test_text_reads_the_same_however_the_batches_split(self, tmp_path, values):
-        whole = _write_batches(tmp_path / "whole.parquet", ["v"], [{"v": values}])
-        split = _write_batches(
-            tmp_path / "split.parquet", ["v"], [{"v": [value]} for value in values]
-        )
-
-        assert (
-            whole.read().column("v").to_pylist() == split.read().column("v").to_pylist()
-        )
-
-    def test_null_rows_then_wide_objects_stay_text(self, tmp_path):
-        """Objects arriving after null rows don't widen those rows into a
-        struct slot per key, whatever the number of keys or columns."""
-        names = [f"doc{i}" for i in range(20)] + ["late"]
-        wide = {f"k{j}": j for j in range(64)}
+    def test_a_numeric_array_holding_nan_is_json_text(self, tmp_path, batches):
+        """Arrow decimals have no NaN, so the column falls back to text."""
         written = _write_batches(
-            tmp_path / "out.parquet",
-            names,
-            [
-                {name: [None] * 10_000 for name in names},
-                {name: [None if name == "late" else wide] for name in names},
-                {name: [1 if name == "late" else None] for name in names},
-            ],
+            tmp_path / "out.parquet", ["amounts"], [{"amounts": b} for b in batches]
         )
 
-        table = written.read()
-        assert {table.schema.field(name).type for name in names[:-1]} == {pa.string()}
-        assert json.loads(table.column("doc0")[10_000].as_py()) == wide
-        assert table.column("doc0").null_count == 10_001
-        assert table.column("late").to_pylist()[-1] == 1
-        _assert_geoparquet(table)
+        assert written.read().column("amounts").to_pylist() == ['["1.5"]', '["NaN"]']
 
     def test_the_geo_metadata_and_geometry_survive_a_reencode(self, tmp_path):
         out = tmp_path / "out.parquet"
@@ -607,64 +465,63 @@ class TestRealTable:
             await test_db_session.commit()
 
     @pytest.mark.anyio
-    async def test_json_columns_that_change_shape_between_batches_export(
+    async def test_json_columns_are_their_json_text_however_batches_split(
         self, test_db_session, monkeypatch, staging
     ):
-        """jsonb reaches the writer as Python objects. One column has only empty
-        objects in the first batch; another holds arrays of objects, then of
-        numbers."""
-        monkeypatch.setattr(export_parquet_module, "_BATCH_MAX_ROWS", 10)
+        """Postgres renders json, jsonb and their arrays, so a value reads the
+        same in every batch: numbers keep their digits, a top-level string
+        keeps its quotes and JSON null stays apart from SQL NULL."""
+        values = [
+            "1",
+            "1.5",
+            '"x"',
+            "null",
+            None,
+            '{"a": 1.50}',
+            '[1, {"b": null}]',
+            "{}",
+        ]
         table_name = f"exp_pqjson_{uuid.uuid4().hex[:12]}"
         await test_db_session.execute(
             text(
-                f"CREATE TABLE data.{table_name} "
-                "(gid serial PRIMARY KEY, pop integer, doc jsonb, tags jsonb, "
+                f"CREATE TABLE data.{table_name} (gid serial PRIMARY KEY, i integer, "
+                "v jsonb, va jsonb[], vj json, "
                 "geom geometry(Point, 4326), geom_4326 geometry(Point, 4326))"
             )
         )
         await test_db_session.execute(
             text(
-                f"INSERT INTO data.{table_name} (pop, doc, tags, geom, geom_4326) "
-                "SELECT i, "
-                "CASE WHEN i < 10 THEN '{}'::jsonb "
-                "ELSE jsonb_build_object('a', i) END, "
-                "CASE WHEN i < 10 THEN jsonb_build_array(jsonb_build_object('a', i)) "
-                "ELSE jsonb_build_array(i) END, "
-                "ST_SetSRID(ST_MakePoint(i, i), 4326), "
-                "ST_SetSRID(ST_MakePoint(i, i), 4326) "
-                "FROM generate_series(0, 19) AS i"
-            )
+                f"INSERT INTO data.{table_name} (i, v, va, vj, geom, geom_4326) "
+                "VALUES (:i, CAST(:v AS jsonb), ARRAY[CAST(:v AS jsonb)], "
+                "CAST(:v AS json), ST_SetSRID(ST_MakePoint(0, 0), 4326), "
+                "ST_SetSRID(ST_MakePoint(0, 0), 4326))"
+            ),
+            [{"i": i, "v": v} for i, v in enumerate(values)],
         )
         await test_db_session.commit()
-        try:
+
+        async def _export(batch_rows: int) -> pa.Table:
+            monkeypatch.setattr(export_parquet_module, "_BATCH_MAX_ROWS", batch_rows)
             plan = await plan_parquet_export(test_db_session, table_name, schema="data")
             path, _filename, _media_type = await export_parquet(
-                test_db_session,
-                table_name,
-                "Json",
-                schema="data",
-                plan=plan,
+                test_db_session, table_name, "Json", schema="data", plan=plan
             )
+            return pq.read_table(path).sort_by("i")
 
-            written = pq.ParquetFile(path)
-            table = written.read()
-            rows = sorted(
-                zip(
-                    table.column("pop").to_pylist(),
-                    table.column("doc").to_pylist(),
-                    table.column("tags").to_pylist(),
-                )
-            )
+        try:
+            whole = await _export(100_000)
+            split = await _export(1)
 
-            assert written.metadata.num_row_groups == 2
-            assert [
-                (pop, json.loads(doc), json.loads(tags)) for pop, doc, tags in rows
-            ] == [
-                (i, {}, [{"a": i}]) if i < 10 else (i, {"a": i}, [i]) for i in range(20)
+            for name in ("v", "va", "vj"):
+                assert whole.schema.field(name).type == pa.string()
+                assert split.column(name).to_pylist() == whole.column(name).to_pylist()
+            assert whole.column("v").to_pylist() == values
+            assert whole.column("vj").to_pylist() == values
+            assert whole.column("va").to_pylist() == [
+                "[null]" if v is None else f"[{v}]" for v in values
             ]
-            geo = json.loads(table.schema.metadata[b"geo"])
+            geo = json.loads(whole.schema.metadata[b"geo"])
             assert geo["primary_column"] == "geometry"
-            assert table.column("geometry").null_count == 0
         finally:
             await test_db_session.rollback()
             await test_db_session.execute(

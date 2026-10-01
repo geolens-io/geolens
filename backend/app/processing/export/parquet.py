@@ -109,23 +109,9 @@ def _geometry_column_name(attr_names: list[str]) -> str:
     return candidate
 
 
-def _holds_object(value: object) -> bool:
-    """Whether ``value`` is a JSON object or an array holding one at any depth."""
-    if not isinstance(value, (dict, list)):
-        return False
-    pending = [value]
-    while pending:
-        item = pending.pop()
-        if isinstance(item, dict):
-            return True
-        if isinstance(item, list):
-            pending.extend(item)
-    return False
-
-
 def _as_text(value: object) -> str:
-    """JSON for an object or array, so readers can parse it; plain text otherwise."""
-    if isinstance(value, (dict, list)):
+    """An array as JSON, so readers can parse it; anything else as str()."""
+    if isinstance(value, list):
         return json.dumps(value, default=str, ensure_ascii=False)
     return str(value)
 
@@ -145,21 +131,15 @@ def build_geoparquet_table(
     """Build a GeoParquet-annotated Arrow table from columnar Python values.
 
     WKB geometry lives in ``geom_col`` (renamed off "geometry" only when a
-    user attribute claims that name). A column holding a JSON object, alone
-    or inside an array, is written as text, and so is a column pyarrow can't
-    unify, so the export still succeeds. Pure/DB-free, unit-testable.
+    user attribute claims that name). A column pyarrow can't unify falls
+    back to string so the export still succeeds. Pure/DB-free, unit-testable.
     """
     arrays: dict[str, "pa.Array"] = {}
     for name in attr_names:
-        values = cols[name]
-        # As a struct, every row would take a slot for every key in the column.
-        if any(_holds_object(v) for v in values):
-            arrays[name] = _text(values)
-            continue
         try:
-            arrays[name] = pa.array(values)
+            arrays[name] = pa.array(cols[name])
         except (pa.ArrowInvalid, pa.ArrowTypeError, OverflowError):
-            arrays[name] = _text(values)
+            arrays[name] = _text(cols[name])
     arrays[geom_col] = pa.array(geom, type=pa.binary())
 
     table = pa.table(arrays)
@@ -168,19 +148,18 @@ def build_geoparquet_table(
     )
 
 
-def _common_type(current: pa.DataType, incoming: pa.DataType) -> pa.DataType | None:
-    """The type holding the values of both, or None when none does.
+def _wider_type(current: pa.DataType, incoming: pa.DataType) -> pa.DataType:
+    """The type holding the values of both, or string when none does.
 
-    Arrow's promotion widens null and numeric types and the element of a list.
-    It takes the larger precision and the larger scale of two decimals
+    Arrow's promotion widens null, struct and numeric types and the element of
+    a list. It takes the larger precision and the larger scale of two decimals
     separately, which can drop integer digits, so decimals are widened here by
     digit counts instead.
     """
     if current.equals(incoming):
         return current
     if pa.types.is_list(current) and pa.types.is_list(incoming):
-        element = _common_type(current.value_type, incoming.value_type)
-        return None if element is None else pa.list_(element)
+        return pa.list_(_wider_type(current.value_type, incoming.value_type))
     if pa.types.is_decimal(current) and pa.types.is_decimal(incoming):
         scale = max(current.scale, incoming.scale)
         precision = scale + max(
@@ -188,52 +167,42 @@ def _common_type(current: pa.DataType, incoming: pa.DataType) -> pa.DataType | N
         )
         if precision <= 38:
             return pa.decimal128(precision, scale)
-        return pa.decimal256(precision, scale) if precision <= 76 else None
+        return pa.decimal256(precision, scale) if precision <= 76 else pa.string()
     try:
         unified = pa.unify_schemas(
             [pa.schema([("c", current)]), pa.schema([("c", incoming)])],
             promote_options="permissive",
         )
     except pa.ArrowTypeError:
-        return None
+        return pa.string()
     return unified.field("c").type
 
 
-def _wider_type(current: pa.DataType, incoming: pa.DataType) -> pa.DataType:
-    """The type holding the values of both, or string when none does."""
-    common = _common_type(current, incoming)
-    return pa.string() if common is None else common
+def _conform(table: pa.Table, schema: pa.Schema) -> pa.Table:
+    """Cast ``table`` to ``schema``.
 
-
-def _conform(table: pa.Table, schema: pa.Schema) -> tuple[pa.Table, pa.Schema]:
-    """Cast ``table`` to ``schema``; return the table and the schema it took.
-
-    A column whose values don't cast becomes string in both. Text is written
-    the way build_geoparquet_table's fallback writes it, so a column reads
-    the same whichever batch turned it into text.
+    A column that has to become string is stringified the way
+    build_geoparquet_table's fallback does, because Arrow cannot cast nested
+    values to string.
     """
     columns = []
-    for i, (field, column) in enumerate(zip(schema, table.columns)):
-        if not pa.types.is_string(field.type):
-            try:
-                columns.append(column.cast(field.type))
-                continue
-            except (pa.ArrowInvalid, pa.ArrowNotImplementedError, pa.ArrowTypeError):
-                schema = schema.set(i, field.with_type(pa.string()))
-        if not pa.types.is_string(column.type):
+    for field, column in zip(schema, table.columns):
+        if pa.types.is_string(field.type) and not pa.types.is_string(column.type):
             column = _text(column.to_pylist())
+        else:
+            column = column.cast(field.type)
         columns.append(column)
-    return pa.table(columns, schema=schema), schema
+    return pa.table(columns, schema=schema)
 
 
 class _GeoParquetWriter:
     """Appends batches to one GeoParquet file under a single file schema.
 
-    Each batch infers its own Arrow types, so a column that is all NULL in an
-    early batch, or whose later decimals have more digits, does not fit the
-    schema the first batch fixed. The file is then re-encoded under the wider
-    schema; a column whose type holds steady never pays for it. A column whose
-    batches share no type, or whose values don't cast to it, becomes text.
+    Each batch infers its own Arrow types, as the whole selection once did, so
+    a column that is all NULL in an early batch, or whose later decimals have
+    more digits, does not fit the schema the first batch fixed. The file is
+    re-encoded under the wider schema when that happens; a column whose type
+    holds steady never pays for it.
 
     Blocking; call ``write`` and ``close`` via run_in_thread_draining so they
     don't stall the event loop.
@@ -256,35 +225,23 @@ class _GeoParquetWriter:
             ],
             metadata=self._writer.schema.metadata,
         )
-        batch, target = _conform(table, target)
         if not target.equals(self._writer.schema):
-            self._reencode(target)
-            # Rewriting can turn more columns into text than this batch did.
-            batch, _ = _conform(table, self._writer.schema)
-        self._writer.write_table(batch)
+            self._writer = self._reencode(self._writer, target)
+        self._writer.write_table(_conform(table, target))
 
-    def _reencode(self, schema: pa.Schema) -> None:
-        """Rewrite the rows written so far under ``schema``, one row group at a time.
-
-        A column whose earlier values don't cast becomes text and the rewrite
-        starts over, so the reopened writer's schema can differ from ``schema``.
-        """
-        self._writer.close()
+    def _reencode(
+        self, writer: pq.ParquetWriter, schema: pa.Schema
+    ) -> pq.ParquetWriter:
+        """Rewrite the rows written so far under ``schema``, one row group at a time."""
+        writer.close()
         written = self._path + ".prev"
         os.replace(self._path, written)
+        widened = pq.ParquetWriter(self._path, schema)
         with pq.ParquetFile(written) as source:
-            while True:
-                self._writer = pq.ParquetWriter(self._path, schema)
-                for i in range(source.num_row_groups):
-                    rows, fitted = _conform(source.read_row_group(i), schema)
-                    if not fitted.equals(schema):
-                        break
-                    self._writer.write_table(rows)
-                else:
-                    break
-                self._writer.close()
-                schema = fitted
+            for i in range(source.num_row_groups):
+                widened.write_table(_conform(source.read_row_group(i), schema))
         os.remove(written)
+        return widened
 
     def close(self) -> None:
         if self._writer is not None:
@@ -315,6 +272,7 @@ class ParquetExportPlan(NamedTuple):
     attr_names: list[str]
     where_sql: str
     params: dict
+    json_columns: frozenset[str] = frozenset()
 
 
 async def plan_parquet_export(
@@ -343,6 +301,20 @@ async def plan_parquet_export(
     # are right here.
     live_columns = await get_column_info(db, table_name, schema=schema)
     attr_names = _attr_names(live_columns)
+    # The driver decodes json into Python objects, and Arrow would give every
+    # row a struct slot for every key in the column, so Postgres writes these
+    # as JSON text. udt_name is a domain's base type, and _json(b) for arrays.
+    json_columns = frozenset(
+        (
+            await db.execute(
+                text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_schema = :schema AND table_name = :table_name "
+                    "AND udt_name IN ('json', 'jsonb', '_json', '_jsonb')"
+                ).bindparams(schema=schema, table_name=table_name)
+            )
+        ).scalars()
+    )
 
     if where is not None:
         # Same trust boundary as the ogr2ogr -where path: AST allowlist + column
@@ -394,25 +366,14 @@ async def plan_parquet_export(
             "with a bbox or attribute filter."
         )
 
-    return ParquetExportPlan(attr_names, where_sql, params)
+    return ParquetExportPlan(attr_names, where_sql, params, json_columns)
 
 
 def _approx_bytes(value: object) -> int:
-    """Python memory held by one cell, counting what an array or JSON value holds."""
-    if not isinstance(value, (dict, list, tuple)):
-        return sys.getsizeof(value)
-    # A stack, not recursion: JSON can nest deeper than Python's recursion limit.
-    total = 0
-    pending = [value]
-    while pending:
-        item = pending.pop()
-        total += sys.getsizeof(item)
-        if isinstance(item, dict):
-            pending.extend(item.keys())
-            pending.extend(item.values())
-        elif isinstance(item, (list, tuple)):
-            pending.extend(item)
-    return total
+    """Python memory held by one cell, counting the elements of an array value."""
+    if isinstance(value, (list, tuple)):
+        return sys.getsizeof(value) + sum(_approx_bytes(v) for v in value)
+    return sys.getsizeof(value)
 
 
 async def _stream_batches(
@@ -500,13 +461,19 @@ async def export_parquet(
         stream past the edge-proxy window with nothing else to stop it. None
         outside a request.
     """
-    attr_names, where_sql, params = plan
+    attr_names, where_sql, params, json_columns = plan
 
     # Selects attribute columns directly (not via to_jsonb) so the async
-    # driver returns native Python values and Arrow infers real types.
-    # Geometry is selected last, read positionally, so a user column sharing
-    # the WKB alias can't shadow it. Idents double-quoted defensively.
-    select_parts = ['"' + n.replace('"', '""') + '"' for n in attr_names]
+    # driver returns native Python values and Arrow infers real types; json
+    # columns come back as their JSON text. Geometry is selected last, read
+    # positionally, so a user column sharing the WKB alias can't shadow it.
+    # Idents double-quoted defensively.
+    select_parts = []
+    for name in attr_names:
+        ident = '"' + name.replace('"', '""') + '"'
+        select_parts.append(
+            f"to_json({ident})::text" if name in json_columns else ident
+        )
     select_parts.append("ST_AsBinary(geom_4326)")
     sql = (
         f"SELECT {', '.join(select_parts)} "
