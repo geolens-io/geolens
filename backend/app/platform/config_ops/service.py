@@ -1062,20 +1062,39 @@ async def import_config(
     deferred_side_effects: list = []
 
     # One pass in registry order, so the provider reaches its final value before
-    # a model setting that resolves against it is written or reset.
-    for cfg in _registry:
+    # a model setting that resolves against it is written or reset. Audits
+    # record the values from before the import.
+    resets = [
+        cfg
+        for cfg in _registry
+        if mode == "overwrite"
+        and cfg.key not in plan.validated_settings
+        and (plan.caller_is_enterprise or cfg.tab not in ENTERPRISE_ONLY_TABS)
+    ]
+    touched = [
+        cfg for cfg in _registry if cfg.key in plan.settings_to_apply or cfg in resets
+    ]
+    before = {cfg.key: await cfg.get(db) for cfg in touched}
+    for cfg in touched:
         if cfg.key in plan.settings_to_apply:
             value = plan.settings_to_apply[cfg.key]
             await cfg.set(
-                db, value, user_id=user_id, ip_address=ip_address, commit=False
+                db,
+                value,
+                user_id=user_id,
+                ip_address=ip_address,
+                commit=False,
+                old_value=before[cfg.key],
             )
             deferred_side_effects.append((cfg, value))
-        elif (
-            mode == "overwrite"
-            and cfg.key not in plan.validated_settings
-            and (plan.caller_is_enterprise or cfg.tab not in ENTERPRISE_ONLY_TABS)
-        ):
-            await cfg.reset(db, user_id=user_id, ip_address=ip_address, commit=False)
+        else:
+            await cfg.reset(
+                db,
+                user_id=user_id,
+                ip_address=ip_address,
+                commit=False,
+                old_value=before[cfg.key],
+            )
             deferred_side_effects.append((cfg, cfg.env_default))
 
     (

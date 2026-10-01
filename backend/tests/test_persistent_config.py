@@ -1122,7 +1122,7 @@ async def test_an_extension_provider_without_an_override_uses_its_own_model(
 ):
     from app.api.main import app
     from app.core.dependencies import get_db
-    from app.core.persistent_config import LLM_PROVIDER
+    from app.core.persistent_config import LLM_MODEL, LLM_MODEL_LIGHT, LLM_PROVIDER
     from app.processing.ai.llm_loop import resolve_provider
 
     class _ExtensionProvider:
@@ -1143,6 +1143,18 @@ async def test_an_extension_provider_without_an_override_uses_its_own_model(
         raise AssertionError("no session")
 
     assert await resolved() == "extension-model"
+    with (
+        patch.object(LLM_PROVIDER, "get", return_value="extension"),
+        patch(
+            "app.platform.extensions.get_ai_provider",
+            return_value=_ExtensionProvider(),
+        ),
+    ):
+        async for db in app.dependency_overrides[get_db]():
+            assert await LLM_MODEL.resolved_default(db) == "extension-model"
+            assert (
+                await LLM_MODEL_LIGHT.for_provider(db, "extension") == "extension-model"
+            )
     await client.put(
         "/settings/",
         json={"settings": {"llm_model": "admin-model"}},
@@ -1280,7 +1292,7 @@ async def test_overwrite_preview_resolves_models_against_the_imported_provider(
     assert changes["llm_model"]["imported"] == "anthropic-chat-env"
 
 
-async def _latest_model_reset_value() -> str:
+async def _latest_model_audit(action: str) -> dict:
     from sqlalchemy import select
 
     from app.api.main import app
@@ -1293,7 +1305,7 @@ async def _latest_model_reset_value() -> str:
                 await db.execute(
                     select(AuditLog)
                     .where(AuditLog.resource_type == "setting")
-                    .where(AuditLog.action == "reset")
+                    .where(AuditLog.action == action)
                     .order_by(AuditLog.created_at.desc())
                 )
             )
@@ -1301,11 +1313,35 @@ async def _latest_model_reset_value() -> str:
             .all()
         )
         return next(
-            e.details["new_value"]
-            for e in entries
-            if e.details["setting_key"] == "llm_model"
+            e.details for e in entries if e.details["setting_key"] == "llm_model"
         )
     raise AssertionError("no session")
+
+
+async def _latest_model_reset_value() -> str:
+    return (await _latest_model_audit("reset"))["new_value"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("path", ["/settings/", "/config-ops/import/?mode=merge"])
+async def test_a_batch_audits_the_model_in_effect_before_it(
+    client: AsyncClient, admin_auth_header: dict, _both_ai_keys, path
+):
+    """Switching the provider and setting a model in one batch records the
+    previous provider's model as the old value."""
+    await client.put(
+        "/settings/",
+        json={"settings": {"llm_provider": "anthropic"}},
+        headers=admin_auth_header,
+    )
+    payload = {"settings": {"llm_provider": "openai_compatible", "llm_model": "m"}}
+    if path == "/settings/":
+        resp = await client.put(path, json=payload, headers=admin_auth_header)
+    else:
+        resp = await client.post(path, json=payload, headers=admin_auth_header)
+    assert resp.status_code == 200, resp.text
+    audit = await _latest_model_audit("update")
+    assert (audit["old_value"], audit["new_value"]) == ("anthropic-chat-env", "m")
 
 
 @pytest.mark.anyio

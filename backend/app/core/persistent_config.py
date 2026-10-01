@@ -39,6 +39,8 @@ T = TypeVar("T")
 
 _CACHE_TTL = 30  # seconds
 _CACHE_PREFIX = "config:"
+# Marks an omitted ``old_value``; ``None`` is a real setting value.
+_UNSET: Any = object()
 
 _registry: list[PersistentConfig] = []
 
@@ -198,15 +200,22 @@ class PersistentConfig(Generic[T]):
         user_id: uuid.UUID | None = None,
         ip_address: str | None = None,
         commit: bool = True,
+        old_value: Any = _UNSET,
     ) -> None:
-        """Upsert value into app_settings, audit, and invalidate cache."""
+        """Upsert value into app_settings, audit, and invalidate cache.
+
+        A batch passes ``old_value`` as read before its first write, so a key
+        whose value depends on another key in the batch audits what was in
+        effect before the batch.
+        """
         if _is_env_only():
             raise HTTPException(
                 status_code=403,
                 detail="Configuration locked to environment variables",
             )
 
-        old_value = await self.get(db)
+        if old_value is _UNSET:
+            old_value = await self.get(db)
 
         result = await db.execute(select(AppSetting).where(AppSetting.key == self.key))
         existing = result.scalar_one_or_none()
@@ -280,6 +289,7 @@ class PersistentConfig(Generic[T]):
         user_id: uuid.UUID | None = None,
         ip_address: str | None = None,
         commit: bool = True,
+        old_value: Any = _UNSET,
     ) -> None:
         """Delete DB override, reverting to env_default. Audit and invalidate cache.
 
@@ -293,7 +303,8 @@ class PersistentConfig(Generic[T]):
                 detail="Configuration locked to environment variables",
             )
 
-        old_value = await self.get(db)
+        if old_value is _UNSET:
+            old_value = await self.get(db)
 
         result = await db.execute(select(AppSetting).where(AppSetting.key == self.key))
         existing = result.scalar_one_or_none()
@@ -643,8 +654,20 @@ class _ProviderModelConfig(PersistentConfig[str]):
         )
         self.light = light
 
+    async def _default_for(self, db: AsyncSession, provider: str) -> str:
+        if provider in ("anthropic", "openai_compatible"):
+            return llm_model_default(provider, light=self.light)
+        # An extension provider names its own default model.
+        from app.platform.extensions import get_ai_provider
+
+        try:
+            runtime = await get_ai_provider(provider).resolve_runtime_config(db)
+        except ValueError:
+            return llm_model_default(provider, light=self.light)
+        return str(runtime.get("default_model") or "")
+
     async def resolved_default(self, db: AsyncSession) -> str:
-        return llm_model_default(await LLM_PROVIDER.get(db), light=self.light)
+        return await self._default_for(db, await LLM_PROVIDER.get(db))
 
     async def override(self, db: AsyncSession) -> str:
         """The admin's model, or ``""`` when none is set."""
@@ -659,7 +682,7 @@ class _ProviderModelConfig(PersistentConfig[str]):
         """The override, or ``provider``'s default, for a caller that has
         already chosen the provider, so a concurrent switch can't pair it with
         another provider's model."""
-        return await self.override(db) or llm_model_default(provider, light=self.light)
+        return await self.override(db) or await self._default_for(db, provider)
 
     async def set(
         self,
@@ -669,12 +692,24 @@ class _ProviderModelConfig(PersistentConfig[str]):
         user_id: uuid.UUID | None = None,
         ip_address: str | None = None,
         commit: bool = True,
+        old_value: Any = _UNSET,
     ) -> None:
         if not value.strip():
-            await self.reset(db, user_id=user_id, ip_address=ip_address, commit=commit)
+            await self.reset(
+                db,
+                user_id=user_id,
+                ip_address=ip_address,
+                commit=commit,
+                old_value=old_value,
+            )
             return
         await super().set(
-            db, value, user_id=user_id, ip_address=ip_address, commit=commit
+            db,
+            value,
+            user_id=user_id,
+            ip_address=ip_address,
+            commit=commit,
+            old_value=old_value,
         )
 
 

@@ -461,13 +461,17 @@ async def update_settings(
 
     ip = get_client_ip(request)
     # Registry order writes the provider before a model whose blank value
-    # resets against it.
-    for key in sorted(
-        validated_settings, key=lambda k: _registry.index(registry_map[k])
-    ):
-        cfg = registry_map[key]
-        await cfg.set(
-            db, validated_settings[key], user_id=user.id, ip_address=ip, commit=False
+    # resets against it; audits record the values from before the batch.
+    ordered = sorted(validated_settings, key=lambda k: _registry.index(registry_map[k]))
+    before = {key: await registry_map[key].get(db) for key in ordered}
+    for key in ordered:
+        await registry_map[key].set(
+            db,
+            validated_settings[key],
+            user_id=user.id,
+            ip_address=ip,
+            commit=False,
+            old_value=before[key],
         )
 
     # Single commit for all setting writes
