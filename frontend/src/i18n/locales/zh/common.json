@@ -564,6 +564,10 @@
       "internal": "内部",
       "published": "已发布"
     },
+    "ingestSource": {
+      "vrtMosaic": "虚拟栅格（镶嵌）",
+      "vrtBandStack": "虚拟栅格（波段堆叠）"
+    },
     "sourceFormat": {
       "geojson": "GeoJSON",
       "shp": "SHP",

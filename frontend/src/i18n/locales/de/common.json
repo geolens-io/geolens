@@ -547,6 +547,10 @@
       "internal": "Intern",
       "published": "Veröffentlicht"
     },
+    "ingestSource": {
+      "vrtMosaic": "Virtuelles Raster (Mosaik)",
+      "vrtBandStack": "Virtuelles Raster (Bandstapel)"
+    },
     "sourceFormat": {
       "geojson": "GeoJSON",
       "shp": "SHP",
