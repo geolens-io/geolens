@@ -354,9 +354,8 @@ class DefaultAnthropicProvider:
         raise ValueError("No tool_use block in Anthropic response")
 
     async def resolve_runtime_config(self, db) -> dict[str, object]:  # type: ignore[no-untyped-def]
-        from app.core.persistent_config import LLM_MODEL, llm_model_default
+        from app.core.persistent_config import llm_model_default
 
-        # Not for_provider(): an overlay wrapping this class would be asked
-        # for its default again.
-        model = await LLM_MODEL.override(db) or llm_model_default("anthropic")
+        # The default without the admin override, which callers apply.
+        model = llm_model_default("anthropic")
         return {"base_url": None, "default_model": model}

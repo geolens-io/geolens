@@ -1544,6 +1544,36 @@ async def test_an_overlay_wrapping_a_built_in_provider_resolves_its_default(
 
 
 @pytest.mark.anyio
+async def test_a_named_wrapper_previews_its_default_not_the_override(
+    client: AsyncClient, admin_auth_header: dict, _both_ai_keys
+):
+    """An extension that delegates to a built-in provider resolves to the
+    built-in default, not to the override a reset removes."""
+    from app.platform.extensions.defaults import DefaultAnthropicProvider
+
+    built_in = DefaultAnthropicProvider()
+
+    class _Wrapper:
+        async def resolve_runtime_config(self, db):
+            return await built_in.resolve_runtime_config(db)
+
+    await client.put(
+        "/settings/",
+        json={"settings": {"llm_model": "old-custom-model"}},
+        headers=admin_auth_header,
+    )
+    with patch("app.platform.extensions.get_ai_provider", return_value=_Wrapper()):
+        preview = await client.post(
+            "/config-ops/dry-run/?mode=merge",
+            json={"settings": {"llm_provider": "wrapped", "llm_model": ""}},
+            headers=admin_auth_header,
+        )
+    assert preview.status_code == 200, preview.text
+    changes = {c["key"]: c for c in preview.json()["settings"]["changes"]}
+    assert changes["llm_model"]["imported"] == "anthropic-chat-env"
+
+
+@pytest.mark.anyio
 async def test_a_reset_audits_the_model_in_effect_before_it(
     client: AsyncClient, admin_auth_header: dict, _both_ai_keys
 ):
