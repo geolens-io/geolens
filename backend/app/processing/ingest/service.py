@@ -146,7 +146,8 @@ async def discover_unregistered_tables(
                 t.table_name,
                 gc.type AS geometry_type,
                 gc.srid,
-                c.reltuples::bigint AS estimated_rows,
+                CASE WHEN c.reltuples >= 0 THEN c.reltuples::bigint END
+                    AS estimated_rows,
                 {GID_UNUSABLE_SQL} AS gid_unusable
             FROM information_schema.tables t
             LEFT JOIN catalog.datasets d ON d.table_name = t.table_name
