@@ -294,9 +294,17 @@ def test_has_embeddings_resolver_is_async():
 
 
 @pytest.mark.anyio
-async def test_has_embeddings_resolver_falls_back_safely():
+async def test_has_embeddings_resolver_falls_back_safely(monkeypatch):
     """PERF-10: model accessor errors fall back to the sentinel."""
+    from app.platform.cache import provider as cache_provider_module
+    from app.platform.cache.memory import InMemoryCacheProvider
     from app.processing.embeddings import helpers
+
+    # An earlier test can leave the model cached in the process-wide provider,
+    # which would answer before the failing session is ever asked.
+    monkeypatch.setattr(
+        cache_provider_module, "_cache_provider", InMemoryCacheProvider()
+    )
 
     # Force the persistent_config getter to raise; helper must catch and
     # return the sentinel string instead of propagating.
