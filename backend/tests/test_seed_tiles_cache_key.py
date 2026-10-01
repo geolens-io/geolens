@@ -12,6 +12,7 @@ from app.core.config import settings
 from app.platform.cache.tile_cache import InMemoryTileCacheProvider
 from app.processing.tiles import pool as pool_module
 from app.processing.tiles import router as tile_router
+from app.processing.tiles.cache_key import tile_cache_key
 from app.processing.tiles.service import get_tile
 from scripts import seed_tiles
 from tests.factories import create_dataset, get_user_id
@@ -130,4 +131,37 @@ async def test_a_seeded_tile_is_not_served_after_the_publication_changes(
         renderer.assert_awaited_once()
     finally:
         tile_router._evict_dataset_meta(table)
+        await _drop_table(test_db_session, table)
+
+
+async def test_a_dataset_deleted_during_seeding_gets_no_cache_entry(
+    test_db_session,
+):
+    dataset = await _public_point_dataset(test_db_session)
+    table = dataset.table_name
+    cache = InMemoryTileCacheProvider()
+    key = tile_cache_key(table, dataset.id, 0, 1, None)
+    try:
+        await test_db_session.execute(
+            text("DELETE FROM catalog.datasets WHERE id = :id"), {"id": dataset.id}
+        )
+        await test_db_session.commit()
+
+        seeded, errors = await seed_tiles._seed_dataset(
+            pool=pool_module.get_tile_pool(),
+            cache=cache,
+            dataset_id=dataset.id,
+            table_name=table,
+            cache_key=key,
+            columns=_COLUMNS,
+            tile_columns=None,
+            cache_ttl=60,
+            all_tiles=[(0, 0, 0)],
+            concurrency=1,
+            dry_run=False,
+        )
+
+        assert (seeded, errors) == (0, 1)
+        assert await cache.get(key, 0, 0, 0) is None
+    finally:
         await _drop_table(test_db_session, table)

@@ -155,6 +155,10 @@ _DATASET_QUERY = """
 
 _DATASET_QUERY_FILTERED = _DATASET_QUERY + "\n      AND d.table_name = $1"
 
+_STILL_REGISTERED = (
+    "SELECT true FROM catalog.datasets WHERE id = $1 AND table_name = $2"
+)
+
 
 # ---------------------------------------------------------------------------
 # Main seeding logic
@@ -164,6 +168,7 @@ _DATASET_QUERY_FILTERED = _DATASET_QUERY + "\n      AND d.table_name = $1"
 async def _seed_dataset(
     pool,
     cache,
+    dataset_id,
     table_name: str,
     cache_key: str,
     columns,
@@ -197,6 +202,11 @@ async def _seed_dataset(
             try:
                 from app.processing.tiles.service import get_tile, parse_cols_param
 
+                # The tile route asks the catalog the same question before it
+                # renders; without it a dataset deleted mid-run, whose name a
+                # stranger's table now holds, would be cached under its key.
+                if not await pool.fetchval(_STILL_REGISTERED, dataset_id, table_name):
+                    raise RuntimeError("dataset is no longer registered")
                 additional_columns, cols_key = parse_cols_param(
                     None, columns, z, tile_columns=tile_columns
                 )
@@ -393,6 +403,7 @@ async def main() -> None:
         seeded, errors = await _seed_dataset(
             pool=pool,
             cache=cache,
+            dataset_id=row["dataset_id"],
             table_name=table_name,
             cache_key=tile_cache_key(
                 table_name,
