@@ -69,12 +69,14 @@ export function useUpdateFeature() {
       gid,
       geometry,
       properties,
+      tableId,
     }: {
       datasetId: string;
       gid: number;
       geometry?: Geometry;
       properties?: Record<string, unknown>;
-    }) => updateFeature(datasetId, gid, geometry, properties),
+      tableId?: string | null;
+    }) => updateFeature(datasetId, gid, geometry, properties, tableId),
     onSuccess: (_data, variables) => {
       invalidateFeatureCaches(qc, variables.datasetId);
     },
@@ -90,10 +92,12 @@ export function useDeleteFeature() {
     mutationFn: ({
       datasetId,
       gid,
+      tableId,
     }: {
       datasetId: string;
       gid: number;
-    }) => deleteFeature(datasetId, gid),
+      tableId?: string | null;
+    }) => deleteFeature(datasetId, gid, tableId),
     onSuccess: (_data, variables) => {
       invalidateFeatureCaches(qc, variables.datasetId);
     },

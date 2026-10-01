@@ -465,6 +465,8 @@
     "featureSaveFailed": "Feature konnte nicht gespeichert werden",
     "featureSavedThenChanged": "Dieses Feature war bereits gespeichert und jemand anderes hat es seitdem geändert, daher wurden Ihre letzten Änderungen nicht übernommen. Speichern Sie erneut, um deren Änderungen durch Ihre zu ersetzen, oder verwerfen Sie, um deren Version zu behalten.",
     "featureSavedThenRemoved": "Die frühere Speicherung wurde entfernt. Speichern erstellt das Feature erneut.",
+    "featureSavedThenReplaced": "Die Daten dieses Datensatzes wurden nach Ihrer früheren Speicherung ersetzt, daher wurden Ihre Änderungen nicht übernommen. Speichern erstellt das Feature erneut.",
+    "featureDatasetReplaced": "Die Daten dieses Datensatzes wurden ersetzt, nachdem Sie mit der Bearbeitung begonnen haben, daher wurde Ihre Änderung nicht gespeichert.",
     "featureUpdated": "Feature aktualisiert",
     "featureUpdateFailed": "Feature konnte nicht aktualisiert werden",
     "featureDeleted": "Feature gelöscht",

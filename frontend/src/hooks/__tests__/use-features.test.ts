@@ -189,9 +189,10 @@ describe('useUpdateFeature', () => {
       datasetId: 'ds-1',
       gid: 1,
       geometry: { type: 'Point', coordinates: [1, 1] },
+      tableId: '111',
     });
 
-    expect(mockUpdateFeature).toHaveBeenCalledWith('ds-1', 1, { type: 'Point', coordinates: [1, 1] }, undefined);
+    expect(mockUpdateFeature).toHaveBeenCalledWith('ds-1', 1, { type: 'Point', coordinates: [1, 1] }, undefined, '111');
   });
 });
 
@@ -203,9 +204,9 @@ describe('useDeleteFeature', () => {
 
     const { result } = renderHook(() => useDeleteFeature());
 
-    await result.current.mutateAsync({ datasetId: 'ds-1', gid: 1 });
+    await result.current.mutateAsync({ datasetId: 'ds-1', gid: 1, tableId: '111' });
 
-    expect(mockDeleteFeature).toHaveBeenCalledWith('ds-1', 1);
+    expect(mockDeleteFeature).toHaveBeenCalledWith('ds-1', 1, '111');
   });
 
   it('returns error state on failure', async () => {

@@ -1520,6 +1520,148 @@ describe('useFeatureEditing — create refused as changed or gone', () => {
   });
 });
 
+// A reupload or overwrite replaces the dataset's table, and the new table can
+// give an open feature's gid to another row. Every write by gid sends the
+// table_id the edit began with; the bodies below are the routes' own, run
+// through the real apiFetch error path.
+describe('useFeatureEditing — dataset replaced since the edit began', () => {
+  const REPLACED_BODY = {
+    detail: {
+      code: 'dataset_replaced',
+      message: "The dataset's data was replaced after this feature was read, so nothing was written. Read the feature again.",
+      tile_cache_version: 42,
+    },
+  };
+  const OPENED = {
+    type: 'Feature',
+    id: 99,
+    geometry: { type: 'Point', coordinates: [1, 1] },
+    properties: { name: 'old' },
+    table_id: '111',
+  };
+  const baseState = useDrawingStore.getState();
+
+  function reply(status: number, body: unknown): Response {
+    return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+  }
+
+  function respondWith(...replies: Response[]) {
+    const fetchMock = vi.fn();
+    for (const r of replies) fetchMock.mockResolvedValueOnce(r);
+    vi.stubGlobal('fetch', fetchMock);
+    return fetchMock;
+  }
+
+  function sent(fetchMock: ReturnType<typeof vi.fn>, call: number): { url: string; method?: string } {
+    const [url, init] = fetchMock.mock.calls[call] as [string, RequestInit | undefined];
+    return { url: String(url), method: init?.method };
+  }
+
+  function makeEditableMap(setTiles: ReturnType<typeof vi.fn>) {
+    return {
+      getLayer: vi.fn(() => true),
+      getFilter: vi.fn(() => null),
+      setFilter: vi.fn(),
+      queryRenderedFeatures: vi.fn(() => [{ id: 99, properties: {} }]),
+      getSource: vi.fn((id: string) => (id === previewSourceId('parcels') ? { setTiles } : undefined)),
+      on: vi.fn(),
+      off: vi.fn(),
+    } as unknown as MaplibreMap;
+  }
+
+  beforeEach(async () => {
+    const actual = await vi.importActual<typeof import('@/api/features')>('@/api/features');
+    useDrawingStore.setState(baseState, true);
+    useDrawingStore.getState().setDrawing('ds-1', 'parcels', 'Point');
+    vi.mocked(getFeature).mockReset();
+    vi.mocked(getFeature).mockImplementation(actual.getFeature);
+    updateMutateAsync.mockReset();
+    updateMutateAsync.mockImplementation((v) =>
+      actual.updateFeature(v.datasetId, v.gid, v.geometry, v.properties, v.tableId),
+    );
+    deleteMutateAsync.mockReset();
+    deleteMutateAsync.mockImplementation((v) => actual.deleteFeature(v.datasetId, v.gid, v.tableId));
+    createMutateAsync.mockReset();
+    createMutateAsync.mockImplementation((v) =>
+      actual.createFeature(v.datasetId, v.geometry, v.properties, v.idempotencyKey, v.attempt),
+    );
+    vi.mocked(toast.error).mockClear();
+    vi.mocked(toast.success).mockClear();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const EDITS = [
+    ['attribute edit', (r: ReturnType<typeof useFeatureEditing>) => r.handleEditAttributeSubmit({ name: 'mine' }), 'PATCH'],
+    ['geometry edit', (r: ReturnType<typeof useFeatureEditing>) => r.handleSaveEdit(), 'PATCH'],
+    ['delete', (r: ReturnType<typeof useFeatureEditing>) => r.handleDeleteFeature(), 'DELETE'],
+  ] as const;
+
+  it.each(EDITS)('%s: begun before a replacement, it sends its table_id, writes nothing and closes', async (_name, save, method) => {
+    const fetchMock = respondWith(reply(200, OPENED), reply(409, REPLACED_BODY));
+    const setTiles = vi.fn();
+    const removeFeatures = vi.fn();
+    const map = makeEditableMap(setTiles);
+    const { result } = renderEditing(map, {
+      addFeatures: vi.fn(() => [{ id: 'td-1', valid: true }]),
+      removeFeatures,
+      getSnapshotFeature: vi.fn(() => ({
+        type: 'Feature' as const,
+        geometry: { type: 'Point' as const, coordinates: [2, 2] },
+        properties: {},
+      })),
+    });
+
+    await act(async () => {
+      await result.current.selectFeatureFromMap(map, FAKE_POINT);
+    });
+    await act(async () => {
+      await save(result.current);
+    });
+
+    expect(sent(fetchMock, 1)).toEqual({ url: expect.stringMatching(/\/datasets\/ds-1\/features\/99\?table_id=111$/), method });
+    expect(toast.error).toHaveBeenCalledWith('map.featureDatasetReplaced');
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(useDrawingStore.getState().selectedFeature).toBeNull();
+    expect(removeFeatures).toHaveBeenCalledWith(['td-1']);
+    expect(setTiles.mock.calls.at(-1)?.[0][0]).toMatch(/cb=42$/);
+  });
+
+  it('the save after a create refused as changed sends that feature table_id, and a replacement starts the sketch over', async () => {
+    const changed = {
+      detail: {
+        code: 'feature_changed',
+        message: 'Someone else changed this feature after the last attempt was saved, so this attempt was not applied.',
+        feature: { id: 7, geometry: { type: 'Point', coordinates: [0, 0] }, properties: {}, table_id: '111', tile_cache_version: 55 },
+      },
+    };
+    const fetchMock = respondWith(
+      reply(409, changed),
+      reply(409, REPLACED_BODY),
+      reply(201, { id: 3, geometry: { type: 'Point', coordinates: [0, 0] }, properties: {}, table_id: '222', tile_cache_version: 43 }),
+    );
+    const sketch = { type: 'Point' as const, coordinates: [0, 0] };
+    const { result } = renderEditing(makeMapWithVectorSource(vi.fn()));
+    const outcomes: { saved: boolean; refused?: boolean }[] = [];
+
+    for (let i = 0; i < 3; i += 1) {
+      await act(async () => {
+        outcomes.push(await result.current.saveAndRefresh(sketch, { name: 'draft' }));
+      });
+    }
+
+    expect(sent(fetchMock, 1)).toEqual({ url: expect.stringMatching(/\/datasets\/ds-1\/features\/7\?table_id=111$/), method: 'PATCH' });
+    expect(outcomes[1]).toEqual({ saved: false, refused: true });
+    expect(toast.error).toHaveBeenCalledWith('map.featureSavedThenReplaced');
+    const keys = createMutateAsync.mock.calls.map(([v]) => ({ key: v.idempotencyKey, attempt: v.attempt }));
+    expect(keys.map((k) => k.attempt)).toEqual([1, 1]);
+    expect(keys[1].key).not.toBe(keys[0].key);
+    expect(outcomes[2]).toEqual({ saved: true });
+  });
+});
+
 // The tile routes only recognise `_v` as a stored tile_cache_version or a
 // record updated_at timestamp, so the post-edit reload must send the value
 // the mutation response returns rather than a client timestamp (#2310).

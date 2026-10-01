@@ -5,6 +5,8 @@ interface SelectedFeature {
   gid: number;
   tdId: string;
   properties: Record<string, unknown>;
+  /** The table_id the feature was read with, sent with every write to it. */
+  tableId?: string | null;
 }
 
 interface DrawingState {

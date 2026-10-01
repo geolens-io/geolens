@@ -465,6 +465,8 @@
     "featureSaveFailed": "Error al guardar la entidad",
     "featureSavedThenChanged": "Esta entidad ya estaba guardada y otra persona la ha modificado desde entonces, por lo que tus últimos cambios no se aplicaron. Guarda de nuevo para reemplazar sus cambios con los tuyos o descarta para conservar los suyos.",
     "featureSavedThenRemoved": "El guardado anterior se eliminó. Guardar creará la entidad de nuevo.",
+    "featureSavedThenReplaced": "Los datos de este conjunto de datos se reemplazaron después de tu guardado anterior, por lo que tus cambios no se aplicaron. Guardar creará la entidad de nuevo.",
+    "featureDatasetReplaced": "Los datos de este conjunto de datos se reemplazaron después de que empezaras a editar, por lo que tu cambio no se guardó.",
     "featureUpdated": "Entidad actualizada",
     "featureUpdateFailed": "Error al actualizar la entidad",
     "featureDeleted": "Entidad eliminada",

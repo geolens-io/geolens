@@ -416,6 +416,8 @@
     "featureSaveFailed": "Failed to save feature",
     "featureSavedThenChanged": "This feature was already saved, and someone else has changed it since, so your latest edits were not applied. Save again to replace their changes with yours, or discard to keep theirs.",
     "featureSavedThenRemoved": "The earlier save was removed. Save will create the feature again.",
+    "featureSavedThenReplaced": "This dataset's data was replaced after your earlier save, so your edits were not applied. Save will create the feature again.",
+    "featureDatasetReplaced": "This dataset's data was replaced after you started editing, so your change was not saved.",
     "featureUpdated": "Feature updated",
     "featureUpdateFailed": "Failed to update feature",
     "featureDeleted": "Feature deleted",

@@ -42,17 +42,34 @@ function nextCreateAttempt(geometry: Geometry): { key: string; attempt: number }
 }
 
 /**
- * The feature a sketch already created, once a retry learns someone else has
- * edited it. The sketch's next Save updates that feature rather than creating.
+ * The feature a sketch already created, and the table it was read from, once
+ * a retry learns someone else has edited it. The sketch's next Save updates
+ * that feature rather than creating.
  */
-const createdFeatures = new WeakMap<Geometry, number>();
+const createdFeatures = new WeakMap<Geometry, { gid: number; tableId?: string | null }>();
+
+interface RefusedFeature {
+  id?: number;
+  table_id?: string | null;
+  tile_cache_version?: number;
+}
 
 /** The structured 409 a keyed create gets for a retry the server can't apply. */
-function createRefusal(err: unknown): { code: 'feature_changed' | 'feature_gone'; feature?: { id?: number; tile_cache_version?: number } } | null {
+function createRefusal(err: unknown): { code: 'feature_changed' | 'feature_gone'; feature?: RefusedFeature } | null {
   if (!(err instanceof ApiError) || err.status !== 409) return null;
-  const detail = err.body as { code?: string; feature?: { id?: number; tile_cache_version?: number } } | undefined;
+  const detail = err.body as { code?: string; feature?: RefusedFeature } | undefined;
   if (detail?.code === 'feature_changed') return { code: 'feature_changed', feature: detail.feature };
   return detail?.code === 'feature_gone' ? { code: 'feature_gone' } : null;
+}
+
+/**
+ * The 409 for a write sent with a table_id whose table a reupload or overwrite
+ * has since replaced. Nothing was written.
+ */
+function datasetReplaced(err: unknown): { tile_cache_version?: number | null } | null {
+  if (!(err instanceof ApiError) || err.status !== 409) return null;
+  const detail = err.body as { code?: string; tile_cache_version?: number | null } | undefined;
+  return detail?.code === 'dataset_replaced' ? { tile_cache_version: detail.tile_cache_version } : null;
 }
 
 /** Empty GeoJSON FeatureCollection for overlay reset */
@@ -293,17 +310,18 @@ export function useFeatureEditing({
         src?.setData({ type: 'FeatureCollection', features: overlayFeaturesRef.current });
       }
 
-      let existingGid: number | undefined;
+      let existing: { gid: number; tableId?: string | null } | undefined;
       beginWrite(epoch);
       try {
-        existingGid = createdFeatures.get(geometry);
+        existing = createdFeatures.get(geometry);
         let created;
-        if (existingGid !== undefined) {
+        if (existing !== undefined) {
           created = await updateFeatureMutation.mutateAsync({
             datasetId,
-            gid: existingGid,
+            gid: existing.gid,
             geometry: geometry as Geometry,
             properties,
+            tableId: existing.tableId,
           });
           createdFeatures.delete(geometry);
         } else {
@@ -369,19 +387,25 @@ export function useFeatureEditing({
         // see its own comment for why it's already safe either way.
         const stale = isStale(epoch, targetDatasetId, generation, drawingGenerationRef.current);
         const refusal = createRefusal(err);
-        const updateTargetGone = existingGid !== undefined && err instanceof ApiError && err.status === 404;
-        if (refusal?.code === 'feature_gone' || updateTargetGone) {
+        const updateTargetGone = existing !== undefined && err instanceof ApiError && err.status === 404;
+        // The feature the sketch created was in a table that is gone, so the
+        // sketch is created afresh under a new key.
+        const replaced = existing !== undefined ? datasetReplaced(err) : null;
+        if (refusal?.code === 'feature_gone' || updateTargetGone || replaced) {
           createAttempts.delete(geometry);
           createdFeatures.delete(geometry);
         }
         if (refusal?.code === 'feature_changed' && refusal.feature?.id !== undefined) {
-          createdFeatures.set(geometry, refusal.feature.id);
+          createdFeatures.set(geometry, { gid: refusal.feature.id, tableId: refusal.feature.table_id });
         }
         if (!stale && refusal?.code === 'feature_changed') {
           toast.warning(t('map.featureSavedThenChanged'));
           reloadTiles(refusal.feature?.tile_cache_version);
         } else if (!stale && (refusal?.code === 'feature_gone' || updateTargetGone)) {
           toast.error(t('map.featureSavedThenRemoved'));
+        } else if (!stale && replaced) {
+          toast.error(t('map.featureSavedThenReplaced'));
+          reloadTiles(replaced.tile_cache_version);
         } else if (!stale) {
           // fix(#458 E-36): surface the backend's reason (invalid geometry,
           // type mismatch) like the table path does, not a bare "failed".
@@ -419,6 +443,17 @@ export function useFeatureEditing({
     resetHistory();
   }, [mapRef, removeFeatures, clearSelectedFeature, resetHistory]);
 
+  /**
+   * End an edit whose write was refused because the dataset's table was
+   * replaced. The selected gid may now name another row, so the edit can't be
+   * saved; nothing was written, and the toast says so.
+   */
+  const closeReplacedEdit = useCallback((tileVersion?: number | null) => {
+    toast.error(t('map.featureDatasetReplaced'));
+    performDeselect();
+    reloadTiles(tileVersion);
+  }, [performDeselect, reloadTiles, t]);
+
   /** Save edited geometry for the selected feature. */
   const handleSaveEdit = useCallback(async () => {
     const sf = useDrawingStore.getState().selectedFeature;
@@ -443,6 +478,7 @@ export function useFeatureEditing({
         datasetId,
         gid: sf.gid,
         geometry: feature.geometry as Geometry,
+        tableId: sf.tableId,
       });
       // fix(#1761 review round 3 P2): if the identity changed while this
       // request was in flight, a second identity may have adopted their
@@ -466,12 +502,17 @@ export function useFeatureEditing({
       // a failed update is feedback for whoever issued it, not whoever is
       // signed in by the time it rejects.
       if (isSelectionStale(epoch, targetDatasetId, sf, generation, drawingGenerationRef.current)) return;
+      const replaced = datasetReplaced(err);
+      if (replaced) {
+        closeReplacedEdit(replaced.tile_cache_version);
+        return;
+      }
       // fix(#458 E-36): keep the backend detail.
       toast.error(formatMutationError('dataset:map.featureUpdateFailed', err));
     } finally {
       endWrite(epoch);
     }
-  }, [datasetId, tableName, mapRef, getSnapshotFeature, updateFeatureMutation, removeFeatures, clearSelectedFeature, reloadTiles, resetHistory, beginWrite, endWrite, t]);
+  }, [datasetId, tableName, mapRef, getSnapshotFeature, updateFeatureMutation, removeFeatures, clearSelectedFeature, reloadTiles, resetHistory, closeReplacedEdit, beginWrite, endWrite, t]);
 
   /** Delete the selected feature. */
   const handleDeleteFeature = useCallback(async () => {
@@ -490,7 +531,7 @@ export function useFeatureEditing({
     const generation = drawingGenerationRef.current;
     beginWrite(epoch);
     try {
-      const deleted = await deleteFeatureMutation.mutateAsync({ datasetId, gid: sf.gid });
+      const deleted = await deleteFeatureMutation.mutateAsync({ datasetId, gid: sf.gid, tableId: sf.tableId });
       if (isSelectionStale(epoch, targetDatasetId, sf, generation, drawingGenerationRef.current)) return;
       toast.success(t('map.featureDeleted'));
       try { removeFeatures([sf.tdId]); } catch { /* already removed */ }
@@ -509,12 +550,17 @@ export function useFeatureEditing({
       // a failed delete is feedback for whoever issued it, not whoever is
       // signed in by the time it rejects.
       if (isSelectionStale(epoch, targetDatasetId, sf, generation, drawingGenerationRef.current)) return;
+      const replaced = datasetReplaced(err);
+      if (replaced) {
+        closeReplacedEdit(replaced.tile_cache_version);
+        return;
+      }
       // fix(#458 E-36): keep the backend detail.
       toast.error(formatMutationError('dataset:map.featureDeleteFailed', err));
     } finally {
       endWrite(epoch);
     }
-  }, [datasetId, tableName, mapRef, deleteFeatureMutation, removeFeatures, clearSelectedFeature, reloadTiles, resetHistory, beginWrite, endWrite, t]);
+  }, [datasetId, tableName, mapRef, deleteFeatureMutation, removeFeatures, clearSelectedFeature, reloadTiles, resetHistory, closeReplacedEdit, beginWrite, endWrite, t]);
 
   /**
    * Update attributes of the selected feature. `applied` says whether the
@@ -538,7 +584,7 @@ export function useFeatureEditing({
       const generation = drawingGenerationRef.current;
       beginWrite(epoch);
       try {
-        const updated = await updateFeatureMutation.mutateAsync({ datasetId, gid: sf.gid, properties });
+        const updated = await updateFeatureMutation.mutateAsync({ datasetId, gid: sf.gid, properties, tableId: sf.tableId });
         // fix(#1761 review round 4): recheck immediately after the await,
         // before reporting success, writing to the store, or reloading
         // tiles. setSelectedFeature's own epoch check already refuses the
@@ -563,6 +609,11 @@ export function useFeatureEditing({
         // the same collateral damage the success path already guards
         // against, just via the rejection branch instead of the resolve one.
         if (isSelectionStale(epoch, targetDatasetId, sf, generation, drawingGenerationRef.current)) return { applied: false };
+        const replaced = datasetReplaced(err);
+        if (replaced) {
+          closeReplacedEdit(replaced.tile_cache_version);
+          return { applied: true, refused: true };
+        }
         // fix(#458 E-36): keep the backend detail.
         toast.error(formatMutationError('dataset:map.attributesUpdateFailed', err));
         return { applied: true, refused: true };
@@ -570,7 +621,7 @@ export function useFeatureEditing({
         endWrite(epoch);
       }
     },
-    [datasetId, updateFeatureMutation, setSelectedFeature, reloadTiles, beginWrite, endWrite, t],
+    [datasetId, updateFeatureMutation, setSelectedFeature, reloadTiles, closeReplacedEdit, beginWrite, endWrite, t],
   );
 
   /** Handle Terra Draw edit-finish (drag complete). */
@@ -672,7 +723,7 @@ export function useFeatureEditing({
 
         if (result[0]?.valid && result[0].id !== undefined) {
           const tdId = String(result[0].id);
-          setSelectedFeature({ gid, tdId, properties: fullFeature.properties }, epoch);
+          setSelectedFeature({ gid, tdId, properties: fullFeature.properties, tableId: fullFeature.table_id }, epoch);
           tdSelectFeature(tdId);
           hideFeatureFromTiles(map, gid);
         } else {

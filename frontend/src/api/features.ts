@@ -9,6 +9,14 @@ export interface GeoJSONFeature {
   id: number;
   geometry: Geometry;
   properties: Record<string, unknown>;
+  /**
+   * The data table the feature was read from or written to. Pass it to
+   * updateFeature or deleteFeature to have the write refused with a 409
+   * `dataset_replaced` once a reupload or overwrite has replaced that table,
+   * which can give the feature's id to another row. Absent from a server that
+   * predates this field.
+   */
+  table_id?: string | null;
 }
 
 /**
@@ -63,16 +71,22 @@ export async function getFeature(
   return apiFetch<GeoJSONFeature>(`/datasets/${datasetId}/features/${gid}`);
 }
 
+function featurePath(datasetId: string, gid: number, tableId?: string | null): string {
+  const path = `/datasets/${datasetId}/features/${gid}`;
+  return tableId ? `${path}?table_id=${encodeURIComponent(tableId)}` : path;
+}
+
 export async function updateFeature(
   datasetId: string,
   gid: number,
   geometry?: Geometry,
   properties?: Record<string, unknown>,
+  tableId?: string | null,
 ): Promise<GeoJSONFeatureWrite> {
   const body: Record<string, unknown> = {};
   if (geometry !== undefined) body.geometry = geometry;
   if (properties !== undefined) body.properties = properties;
-  return apiFetch<GeoJSONFeatureWrite>(`/datasets/${datasetId}/features/${gid}`, {
+  return apiFetch<GeoJSONFeatureWrite>(featurePath(datasetId, gid, tableId), {
     method: 'PATCH',
     body: JSON.stringify(body),
   });
@@ -81,9 +95,10 @@ export async function updateFeature(
 export async function deleteFeature(
   datasetId: string,
   gid: number,
+  tableId?: string | null,
 ): Promise<FeatureDeleteResult> {
   const version = await apiFetchHeader(
-    `/datasets/${datasetId}/features/${gid}`,
+    featurePath(datasetId, gid, tableId),
     TILE_CACHE_VERSION_HEADER,
     { method: 'DELETE' },
   );
