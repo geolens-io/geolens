@@ -12,6 +12,7 @@ from app.core.config import settings
 from app.platform.cache.tile_cache import InMemoryTileCacheProvider
 from app.processing.tiles import pool as pool_module
 from app.processing.tiles import router as tile_router
+from app.processing.tiles import service as tile_service
 from app.processing.tiles.cache_key import tile_cache_key
 from app.processing.tiles.service import get_tile
 from scripts import seed_tiles
@@ -206,5 +207,31 @@ async def test_seeding_stops_when_the_dataset_changes_generation(
         for z, x, y in tiles[2:]:
             assert await cache.get(key, z, x, y) is None
         assert "Stopped" in capsys.readouterr().out
+    finally:
+        await _drop_table(test_db_session, table)
+
+
+async def test_a_dataset_replaced_while_its_tile_renders_is_not_cached(
+    test_db_session, monkeypatch
+):
+    dataset = await _public_point_dataset(test_db_session)
+    table = dataset.table_name
+    cache = InMemoryTileCacheProvider()
+    key = tile_cache_key(table, dataset.id, 0, 1, None)
+    render_tile = tile_service.get_tile
+
+    async def render_after_the_dataset_is_deleted(*args, **kwargs):
+        await test_db_session.execute(
+            text("DELETE FROM catalog.datasets WHERE id = :id"), {"id": dataset.id}
+        )
+        await test_db_session.commit()
+        return await render_tile(*args, **kwargs)
+
+    monkeypatch.setattr(tile_service, "get_tile", render_after_the_dataset_is_deleted)
+    try:
+        seeded, errors = await _seed_tiles(cache, dataset, [(0, 0, 0)])
+
+        assert (seeded, errors) == (0, 1)
+        assert await cache.get(key, 0, 0, 0) is None
     finally:
         await _drop_table(test_db_session, table)

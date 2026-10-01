@@ -211,6 +211,17 @@ async def _seed_dataset(
     errors = [0]
     changed = [False]
 
+    async def ensure_current() -> None:
+        if changed[0] or not await pool.fetchval(
+            _STILL_CURRENT,
+            dataset_id,
+            table_name,
+            publication_version,
+            tile_cache_version,
+        ):
+            changed[0] = True
+            raise _DatasetChanged
+
     async def seed_one(z: int, x: int, y: int) -> None:
         async with sem:
             try:
@@ -221,15 +232,7 @@ async def _seed_dataset(
                 # stranger's table now holds, would be cached under its key.
                 # A moved publication or content version means the key is no
                 # longer the one the route reads, so the rest is left unseeded.
-                if changed[0] or not await pool.fetchval(
-                    _STILL_CURRENT,
-                    dataset_id,
-                    table_name,
-                    publication_version,
-                    tile_cache_version,
-                ):
-                    changed[0] = True
-                    raise _DatasetChanged
+                await ensure_current()
                 additional_columns, cols_key = parse_cols_param(
                     None, columns, z, tile_columns=tile_columns
                 )
@@ -243,6 +246,10 @@ async def _seed_dataset(
                     tile_columns=tile_columns,
                     additional_columns=additional_columns,
                 )
+                # The check above and the render are separate statements. A
+                # dataset id is never reissued, so a second look proves it still
+                # existed while its table was read.
+                await ensure_current()
                 if tile_data is None:
                     await cache.set(
                         cache_key, z, x, y, b"", ttl=cache_ttl, cols_key=cols_key
