@@ -329,4 +329,55 @@ describe('DatasetChatPanel', () => {
     await screen.findByText('Something went wrong. Please try again.');
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
   });
+
+  describe('dock placement', () => {
+    function renderDock(abovePendingBar: boolean) {
+      setAvailable(true);
+      render(
+        <DatasetChatPanel
+          datasetId="ds-1"
+          datasetTitle="NY Parks"
+          showOpenInBuilder
+          abovePendingBar={abovePendingBar}
+        />,
+      );
+      return screen.getByTestId('dataset-chat-dock');
+    }
+
+    it('keeps the default offset without pending edits', async () => {
+      const dock = renderDock(false);
+      expect(dock).toHaveClass('bottom-10');
+      expect(dock.className).not.toContain('--ask-ai-bottom');
+
+      await userEvent.click(screen.getByRole('button', { name: 'Ask AI' }));
+      expect(screen.getByRole('dialog').className).not.toContain('--ask-ai-bottom');
+    });
+
+    it('raises the launcher above the pending-edits bar while edits are pending', () => {
+      const dock = renderDock(true);
+      expect(dock).not.toHaveClass('bottom-10');
+      expect(dock).toHaveClass('bottom-44', 'sm:bottom-32');
+    });
+
+    it('keeps the open dialog above the bar and inside the viewport while edits are pending', async () => {
+      const dock = renderDock(true);
+      await userEvent.click(screen.getByRole('button', { name: 'Ask AI' }));
+
+      expect(dock).not.toHaveClass('bottom-10');
+      expect(dock).not.toHaveClass('bottom-44');
+      expect(dock).toHaveClass('bottom-(--ask-ai-bottom)');
+      expect(screen.getByRole('dialog').className).toContain('max-h-[calc(100dvh-var(--ask-ai-bottom)');
+    });
+
+    it('takes clicks only on the launcher and the dialog, never on the empty dock', async () => {
+      const dock = renderDock(true);
+      expect(dock).toHaveClass('pointer-events-none');
+
+      const launcher = screen.getByRole('button', { name: 'Ask AI' });
+      expect(launcher).toHaveClass('pointer-events-auto');
+
+      await userEvent.click(launcher);
+      expect(screen.getByRole('dialog')).toHaveClass('pointer-events-auto');
+    });
+  });
 });

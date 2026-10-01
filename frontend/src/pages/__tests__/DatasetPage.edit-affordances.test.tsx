@@ -81,6 +81,12 @@ vi.mock('@/components/import/hooks/use-vrt', () => ({
   useVrtStatus: () => ({ data: null }),
 }));
 
+vi.mock('@/components/dataset/DatasetChatPanel', () => ({
+  DatasetChatPanel: ({ abovePendingBar }: { abovePendingBar?: boolean }) => (
+    <div data-testid="dataset-chat-panel" data-above-pending-bar={String(Boolean(abovePendingBar))} />
+  ),
+}));
+
 vi.mock('@/components/dataset/DatasetDeleteDialog', () => ({
   DatasetDeleteDialog: () => null,
 }));
@@ -339,6 +345,31 @@ describe('DatasetPage editable affordance integration', () => {
     });
 
     expect(screen.getByText('Original summary')).toBeInTheDocument();
+  });
+
+  it('lifts the Ask AI dock above the pending-edits bar only while edits are pending', { timeout: 15_000 }, async () => {
+    setUser(EDITOR_USER);
+    const user = userEvent.setup();
+
+    render(<DatasetPage />, { route: '/datasets/dataset-1' });
+
+    expect(await screen.findByTestId('dataset-chat-panel')).toHaveAttribute('data-above-pending-bar', 'false');
+
+    await user.click(await screen.findByText('Original summary'));
+    const summaryInput = screen.getByDisplayValue('Original summary');
+    await user.clear(summaryInput);
+    await user.type(summaryInput, 'Updated summary pending save');
+    await user.keyboard('{Control>}{Enter}{/Control}');
+
+    expect(await screen.findByTestId('pending-edits-bar')).toBeInTheDocument();
+    expect(screen.getByTestId('dataset-chat-panel')).toHaveAttribute('data-above-pending-bar', 'true');
+
+    await user.click(screen.getByTestId('pending-edits-cancel'));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('pending-edits-bar')).not.toBeInTheDocument();
+    });
+    expect(screen.getByTestId('dataset-chat-panel')).toHaveAttribute('data-above-pending-bar', 'false');
   });
 
   // fix(#1851): "Leave" on the unsaved-changes dialog let navigation proceed

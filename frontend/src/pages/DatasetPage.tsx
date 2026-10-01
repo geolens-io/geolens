@@ -748,6 +748,7 @@ export function DatasetPage() {
           datasetTitle={dataset.title}
           showOpenInBuilder={!isTable}
           onOpenChange={setIsChatOpen}
+          abovePendingBar={metadataPendingCount > 0}
         />
       )}
 
