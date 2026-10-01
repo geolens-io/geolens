@@ -7,6 +7,7 @@ via a dedicated LLM call. The sandbox (app.sandbox) handles validation and execu
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import time
 import uuid as _uuid
@@ -61,7 +62,12 @@ def _schema_cache_key(
                 f"{c.get('name', '')}:{c.get('type', '')}"
                 for c in layer.column_info[:_MAX_COLUMNS]
             )
-        parts.append(f"{layer.dataset_table_name}|{layer.geometry_type}|{col_sig}")
+        # Samples are withheld when the admin disables sending them, so a
+        # context cached with samples must not answer a request without them.
+        sample_sig = json.dumps(layer.sample_values, default=str)
+        parts.append(
+            f"{layer.dataset_table_name}|{layer.geometry_type}|{col_sig}|{sample_sig}"
+        )
     raw = "\n".join(sorted(parts))
     content_hash = hashlib.md5(raw.encode(), usedforsecurity=False).hexdigest()
     map_key = tenant_cache_key(str(map_id) if map_id is not None else "__no_map__")

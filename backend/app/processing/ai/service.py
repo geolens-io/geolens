@@ -189,11 +189,9 @@ async def _should_send_sample_values(session: AsyncSession) -> bool:
         from app.core.persistent_config import AI_SEND_SAMPLE_VALUES
 
         return await AI_SEND_SAMPLE_VALUES.get(session)
-    except Exception:  # broad: persistent_config lookup is non-fatal; default to True on any DB/cache error
-        logger.warning(
-            "Failed to read AI_SEND_SAMPLE_VALUES, defaulting to True", exc_info=True
-        )
-        return True
+    except Exception:  # broad: withhold samples when the setting is unreadable
+        logger.warning("AI_SEND_SAMPLE_VALUES unreadable; withholding", exc_info=True)
+        return False
 
 
 async def _get_available_basemaps(session: AsyncSession) -> list[str] | None:

@@ -124,7 +124,13 @@ logger = logging.getLogger(__name__)
 # member's COG before crediting the bytes the publish would keep charged. An
 # overlay replacing the ``catalog_port`` slot without it would fail every
 # reupload request.
-EXTENSION_API_VERSION: int = 13
+#
+# 13 -> 14: ProcessingPort.get_catalog_vocabulary and get_keywords_for_records
+# take the caller's ``user`` and ``user_roles`` as required keywords and return
+# only keywords of records that caller may read, because AI keyword
+# suggestions send both to the model. An overlay on the old signatures fails
+# every keyword suggestion request.
+EXTENSION_API_VERSION: int = 14
 
 
 def check_extension_api_version(name: str, declared_version: int | None) -> None:

@@ -1202,7 +1202,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/platform/extensions/defaults_ai_anthropic.py": 372,
         "backend/app/platform/extensions/defaults_catalog_port.py": 569,
         # ProcessingPort signatures remain explicit across the catalog boundary.
-        "backend/app/platform/extensions/defaults_processing_port.py": 571,
+        "backend/app/platform/extensions/defaults_processing_port.py": 576,
         "backend/app/platform/extensions/defaults_extensions.py": 433,
         "backend/app/modules/catalog/search/service_filters.py": 366,
     }
@@ -1378,7 +1378,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # SQL allowlisting and cost validation must share canonical AST resolution.
     "backend/app/platform/sandbox/validator.py": 1706,
     # AI orchestration coordinates tool execution, usage accounting and SSE failures.
-    "backend/app/processing/ai/service.py": 994,
+    "backend/app/processing/ai/service.py": 992,
     # Record children share ownership, ordering and publication-version invariants.
     "backend/app/modules/catalog/records/service.py": 877,
     # Export formats share visibility, lineage, raster-asset presence and
