@@ -463,6 +463,8 @@
     "ariaLabel": "Datensatzkarte",
     "featureSaved": "Feature gespeichert",
     "featureSaveFailed": "Feature konnte nicht gespeichert werden",
+    "featureSavedThenChanged": "Feature gespeichert, aber jemand anderes hat es seitdem geändert. Die Karte zeigt deren Version.",
+    "featureSavedThenRemoved": "Die frühere Speicherung wurde entfernt. Speichern erstellt das Feature erneut.",
     "featureUpdated": "Feature aktualisiert",
     "featureUpdateFailed": "Feature konnte nicht aktualisiert werden",
     "featureDeleted": "Feature gelöscht",

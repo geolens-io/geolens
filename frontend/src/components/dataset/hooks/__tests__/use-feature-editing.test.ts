@@ -10,6 +10,7 @@ import { showAllFeaturesInTiles, useFeatureEditing } from '@/components/dataset/
 import { previewSourceId, useMapLayers } from '@/components/maps/hooks/use-map-layers';
 import { useDrawingStore } from '@/stores/drawing-store';
 import { getFeature } from '@/api/features';
+import { ApiError } from '@/api/client';
 import type { GeoJSONFeature } from '@/api/features';
 import type { Feature } from 'geojson';
 
@@ -1339,6 +1340,100 @@ describe('useFeatureEditing — create idempotency key', () => {
 
     expect(updateMutateAsync).not.toHaveBeenCalled();
     expect(outcome).toEqual({ saved: true });
+  });
+});
+
+// A retry the server can no longer apply comes back as a structured refusal.
+describe('useFeatureEditing — create refused as changed or gone', () => {
+  const sketch = () => ({ type: 'Point' as const, coordinates: [0, 0] });
+  const changed = () =>
+    new ApiError('changed', 409, {
+      code: 'feature_changed',
+      message: 'changed',
+      feature: { id: 7, geometry: sketch(), properties: {}, tile_cache_version: 55 },
+    });
+
+  beforeEach(() => {
+    createMutateAsync.mockReset();
+    createMutateAsync.mockResolvedValue({});
+    vi.mocked(toast.error).mockClear();
+    vi.mocked(toast.info).mockClear();
+    vi.mocked(toast.success).mockClear();
+  });
+
+  it('counts a 409 feature_changed as saved, reloads at the returned version and clears the overlay', async () => {
+    const setTiles = vi.fn();
+    const overlaySetData = vi.fn();
+    const map = {
+      getSource: vi.fn((id: string) =>
+        id === previewSourceId('parcels') ? { setTiles } : id === 'drawn-overlay' ? { setData: overlaySetData } : undefined,
+      ),
+      getLayer: vi.fn(() => undefined),
+      setFilter: vi.fn(),
+      on: vi.fn(),
+      off: vi.fn(),
+    } as unknown as MaplibreMap;
+    createMutateAsync.mockRejectedValueOnce(changed());
+    const { result } = renderEditing(map);
+    let outcome: { saved: boolean; refused?: boolean } | undefined;
+
+    await act(async () => {
+      outcome = await result.current.saveAndRefresh(sketch(), {});
+    });
+
+    expect(outcome).toEqual({ saved: true });
+    expect(setTiles.mock.calls[0][0][0]).toMatch(/cb=55$/);
+    expect(toast.info).toHaveBeenCalledWith('map.featureSavedThenChanged');
+    expect(toast.error).not.toHaveBeenCalled();
+    const [, onSourceData] = vi.mocked(map.on).mock.calls.find(([event]) => event === 'sourcedata') as unknown as [
+      string,
+      (e: { sourceId?: string; isSourceLoaded?: boolean }) => void,
+    ];
+    act(() => {
+      onSourceData({ sourceId: previewSourceId('parcels'), isSourceLoaded: true });
+    });
+    expect(overlaySetData).toHaveBeenLastCalledWith({ type: 'FeatureCollection', features: [] });
+  });
+
+  it('keeps the sketch pending on a 410 feature_gone and starts a new key at attempt 1 on the next Save', async () => {
+    const g = sketch();
+    createMutateAsync.mockRejectedValueOnce(new Error('timed out'));
+    createMutateAsync.mockRejectedValueOnce(new ApiError('gone', 410, { code: 'feature_gone', message: 'gone' }));
+    const { result } = renderEditing(makeMapWithOverlaySource(vi.fn()));
+    const outcomes: { saved: boolean; refused?: boolean }[] = [];
+
+    for (let i = 0; i < 3; i += 1) {
+      await act(async () => {
+        outcomes.push(await result.current.saveAndRefresh(g, {}));
+      });
+    }
+
+    expect(outcomes[1]).toEqual({ saved: false, refused: true });
+    expect(toast.error).toHaveBeenCalledWith('map.featureSavedThenRemoved');
+    const sent = createMutateAsync.mock.calls.map(([v]) => ({ key: v.idempotencyKey, attempt: v.attempt }));
+    expect(sent.map((a) => a.attempt)).toEqual([1, 2, 1]);
+    expect(sent[2].key).not.toBe(sent[0].key);
+    expect(outcomes[2]).toEqual({ saved: true });
+  });
+
+  it('gives a stale identity no toast and no tile reload for either refusal', async () => {
+    for (const refusal of [changed(), new ApiError('gone', 410, { code: 'feature_gone', message: 'gone' })]) {
+      const setTiles = vi.fn();
+      const { result } = renderEditing(makeMapWithVectorSource(setTiles));
+      const create = deferred<unknown>();
+      createMutateAsync.mockReturnValueOnce(create.promise);
+      const saving = result.current.saveAndRefresh(sketch(), {});
+      act(() => {
+        useDrawingStore.getState().bumpSessionEpoch();
+      });
+      create.reject(refusal);
+      await act(async () => {
+        await saving;
+      });
+      expect(toast.info).not.toHaveBeenCalled();
+      expect(toast.error).not.toHaveBeenCalled();
+      expect(setTiles).not.toHaveBeenCalled();
+    }
   });
 });
 

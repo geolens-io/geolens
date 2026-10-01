@@ -414,6 +414,8 @@
     "ariaLabel": "数据集地图",
     "featureSaved": "要素已保存",
     "featureSaveFailed": "保存要素失败",
+    "featureSavedThenChanged": "要素已保存，但之后有其他人修改了它。地图显示的是对方的版本。",
+    "featureSavedThenRemoved": "之前保存的要素已被移除。再次保存将重新创建该要素。",
     "featureUpdated": "要素已更新",
     "featureUpdateFailed": "更新要素失败",
     "featureDeleted": "要素已删除",

@@ -463,6 +463,8 @@
     "ariaLabel": "Mapa del conjunto de datos",
     "featureSaved": "Entidad guardada",
     "featureSaveFailed": "Error al guardar la entidad",
+    "featureSavedThenChanged": "Entidad guardada, pero otra persona la ha modificado desde entonces. El mapa muestra su versión.",
+    "featureSavedThenRemoved": "El guardado anterior se eliminó. Guardar creará la entidad de nuevo.",
     "featureUpdated": "Entidad actualizada",
     "featureUpdateFailed": "Error al actualizar la entidad",
     "featureDeleted": "Entidad eliminada",

@@ -463,6 +463,8 @@
     "ariaLabel": "Carte du jeu de données",
     "featureSaved": "Entité enregistrée",
     "featureSaveFailed": "Échec de l'enregistrement de l'entité",
+    "featureSavedThenChanged": "Entité enregistrée, mais quelqu'un d'autre l'a modifiée depuis. La carte affiche sa version.",
+    "featureSavedThenRemoved": "L'enregistrement précédent a été supprimé. Enregistrer recréera l'entité.",
     "featureUpdated": "Entité mise à jour",
     "featureUpdateFailed": "Échec de la mise à jour de l'entité",
     "featureDeleted": "Entité supprimée",

@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import { useDrawingStore } from '@/stores/drawing-store';
 import { useCreateFeature, useUpdateFeature, useDeleteFeature } from '@/hooks/use-features';
 import { getFeature } from '@/api/features';
+import { ApiError } from '@/api/client';
 import { getModeName, extractSingleGeometry, isMultiPartGeometry } from '@/components/drawing/hooks/use-terra-draw';
 import { buildSignedTileUrl } from '@/lib/tile-utils';
 import { formatMutationError } from '@/lib/error-map';
@@ -38,6 +39,17 @@ function nextCreateAttempt(geometry: Geometry): { key: string; attempt: number }
   entry.count += 1;
   createAttempts.set(geometry, entry);
   return { key: entry.key, attempt: entry.count };
+}
+
+/** The structured refusal a keyed create gets back for a retry the server can't apply. */
+function createRefusal(err: unknown): { code: 'feature_changed' | 'feature_gone'; tileCacheVersion?: number } | null {
+  if (!(err instanceof ApiError)) return null;
+  if (err.status === 410) return { code: 'feature_gone' };
+  const detail = err.body as { code?: string; feature?: { tile_cache_version?: number } } | undefined;
+  if (err.status === 409 && detail?.code === 'feature_changed') {
+    return { code: 'feature_changed', tileCacheVersion: detail.feature?.tile_cache_version };
+  }
+  return null;
 }
 
 /** Empty GeoJSON FeatureCollection for overlay reset */
@@ -278,28 +290,7 @@ export function useFeatureEditing({
         src?.setData({ type: 'FeatureCollection', features: overlayFeaturesRef.current });
       }
 
-      beginWrite(epoch);
-      try {
-        const { key, attempt } = nextCreateAttempt(geometry);
-        const created = await createFeature.mutateAsync({
-          datasetId,
-          geometry: geometry as Geometry,
-          properties,
-          idempotencyKey: key,
-          attempt,
-        });
-        // fix(#1761 review round 4): if the identity changed while this
-        // request was in flight, the identity-change cleanup already
-        // emptied the overlay ref/source (resetOverlay, via
-        // finishDrawingSession). Reporting success and reloading tiles
-        // here would only be feedback for an identity that is no longer
-        // looking, and re-arming the listener below would have nothing
-        // useful left to clear.
-        if (isStale(epoch, targetDatasetId, generation, drawingGenerationRef.current)) return { saved: false };
-        toast.success(t('map.featureSaved'));
-        reloadTiles(created.tile_cache_version);
-
-        // Clear overlay after tiles load
+      const clearOverlayAfterTiles = () => {
         if (map) {
           cleanupOverlayListener();
           const clearOverlay = () => {
@@ -332,6 +323,30 @@ export function useFeatureEditing({
             clearTimer: () => clearTimeout(fallbackTimer),
           };
         }
+      };
+
+      beginWrite(epoch);
+      try {
+        const { key, attempt } = nextCreateAttempt(geometry);
+        const created = await createFeature.mutateAsync({
+          datasetId,
+          geometry: geometry as Geometry,
+          properties,
+          idempotencyKey: key,
+          attempt,
+        });
+        // fix(#1761 review round 4): if the identity changed while this
+        // request was in flight, the identity-change cleanup already
+        // emptied the overlay ref/source (resetOverlay, via
+        // finishDrawingSession). Reporting success and reloading tiles
+        // here would only be feedback for an identity that is no longer
+        // looking, and re-arming the listener below would have nothing
+        // useful left to clear.
+        if (isStale(epoch, targetDatasetId, generation, drawingGenerationRef.current)) return { saved: false };
+        toast.success(t('map.featureSaved'));
+        reloadTiles(created.tile_cache_version);
+
+        clearOverlayAfterTiles();
         return { saved: true };
       } catch (err) {
         // fix(#1761 review round 7): the toast is feedback for whoever
@@ -340,7 +355,22 @@ export function useFeatureEditing({
         // error to B. The overlay-ref filtering below stays unconditional:
         // see its own comment for why it's already safe either way.
         const stale = isStale(epoch, targetDatasetId, generation, drawingGenerationRef.current);
-        if (!stale) {
+        const refusal = createRefusal(err);
+        if (refusal?.code === 'feature_changed') {
+          // The create committed on an earlier attempt; the map shows the
+          // other editor's version, so the sketch is done.
+          if (stale) return { saved: false };
+          toast.info(t('map.featureSavedThenChanged'));
+          reloadTiles(refusal.tileCacheVersion);
+          clearOverlayAfterTiles();
+          return { saved: true };
+        }
+        if (refusal?.code === 'feature_gone') {
+          createAttempts.delete(geometry);
+        }
+        if (!stale && refusal?.code === 'feature_gone') {
+          toast.error(t('map.featureSavedThenRemoved'));
+        } else if (!stale) {
           // fix(#458 E-36): surface the backend's reason (invalid geometry,
           // type mismatch) like the table path does, not a bare "failed".
           toast.error(formatMutationError('dataset:map.featureSaveFailed', err));

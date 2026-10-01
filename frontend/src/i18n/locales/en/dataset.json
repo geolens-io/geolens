@@ -414,6 +414,8 @@
     "ariaLabel": "Dataset map",
     "featureSaved": "Feature saved",
     "featureSaveFailed": "Failed to save feature",
+    "featureSavedThenChanged": "Feature saved, but someone else has changed it since. The map shows their version.",
+    "featureSavedThenRemoved": "The earlier save was removed. Save will create the feature again.",
     "featureUpdated": "Feature updated",
     "featureUpdateFailed": "Failed to update feature",
     "featureDeleted": "Feature deleted",
