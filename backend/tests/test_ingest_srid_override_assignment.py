@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import text
 
 from app.processing.ingest.metadata import add_4326_column, ensure_geom_column
-from app.processing.ingest.ogr import build_pg_conn_str, run_ogr2ogr, run_ogrinfo
+from app.processing.ingest import ogr
 
 pytestmark = [
     pytest.mark.anyio,
@@ -37,12 +37,13 @@ def _shapefile_without_prj(tmp_path: Path) -> str:
 
 
 async def _load(source: str, *, effective_srid: int) -> tuple[str, int | None]:
-    info = await run_ogrinfo(source)
+    info = await ogr.run_ogrinfo(source)
     table = f"srid_override_{uuid.uuid4().hex[:10]}"
-    await run_ogr2ogr(
+    await ogr.run_ogr2ogr(
         source,
         table,
-        build_pg_conn_str(),
+        # Through the module: the test fixture points this at the test database.
+        ogr.build_pg_conn_str(),
         source_srid=info.get("srid"),
         geometry_type=info.get("geometry_type"),
         schema="data",
