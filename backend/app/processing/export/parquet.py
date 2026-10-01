@@ -13,7 +13,9 @@ import asyncio
 import json
 import os
 import shutil
+import sys
 import uuid
+from collections.abc import AsyncIterator
 from typing import NamedTuple
 
 import pyarrow as pa
@@ -38,9 +40,15 @@ from app.processing.ingest.metadata import _qtable, get_column_info
 from app.processing.export.ogr import PARQUET_MEDIA_TYPE  # noqa: F401
 
 # Mirror router._MAX_EXPORT_FEATURES. The router skips its cap when a dataset's
-# feature_count is NULL (legacy/registered rows); the parquet path builds the
-# selection in memory, so it enforces its own bounded-count cap regardless.
+# feature_count is NULL (legacy/registered rows), so the parquet path enforces
+# its own bounded-count cap regardless.
 _MAX_EXPORT_FEATURES = 5_000_000
+
+# Rows, or approximate bytes of Python values, held before a batch is encoded
+# and appended to the file. Whichever bound trips first flushes, so memory
+# follows these rather than the size of the selection.
+_BATCH_MAX_ROWS = 100_000
+_BATCH_MAX_BYTES = 32 * 1024 * 1024
 
 
 class ExportTooLargeError(Exception):
@@ -125,19 +133,125 @@ def build_geoparquet_table(
     )
 
 
-def _write_geoparquet(
-    geom: list[bytes | None],
-    cols: dict[str, list],
-    attr_names: list[str],
-    geom_col: str,
-    output_path: str,
-) -> None:
-    """Build the Arrow table and write the Parquet file (both CPU-bound).
+def _wider_type(current: pa.DataType, incoming: pa.DataType) -> pa.DataType:
+    """The type holding the values of both, or string when none does.
 
-    Blocking; call via run_in_thread_draining so it doesn't stall the event loop.
+    Arrow's promotion widens null, struct and numeric types and the element of
+    a list. It takes the larger precision and the larger scale of two decimals
+    separately, which can drop integer digits, so decimals are widened here by
+    digit counts instead.
     """
-    table = build_geoparquet_table(geom, cols, attr_names, geom_col)
-    pq.write_table(table, output_path)
+    if current.equals(incoming):
+        return current
+    if pa.types.is_list(current) and pa.types.is_list(incoming):
+        return pa.list_(_wider_type(current.value_type, incoming.value_type))
+    if pa.types.is_decimal(current) and pa.types.is_decimal(incoming):
+        scale = max(current.scale, incoming.scale)
+        precision = scale + max(
+            current.precision - current.scale, incoming.precision - incoming.scale
+        )
+        if precision <= 38:
+            return pa.decimal128(precision, scale)
+        return pa.decimal256(precision, scale) if precision <= 76 else pa.string()
+    try:
+        unified = pa.unify_schemas(
+            [pa.schema([("c", current)]), pa.schema([("c", incoming)])],
+            promote_options="permissive",
+        )
+    except pa.ArrowTypeError:
+        return pa.string()
+    return unified.field("c").type
+
+
+def _conform(table: pa.Table, schema: pa.Schema) -> pa.Table:
+    """Cast ``table`` to ``schema``.
+
+    A column that has to become string is stringified the way
+    build_geoparquet_table's fallback does, because Arrow cannot cast nested
+    values to string.
+    """
+    columns = []
+    for field, column in zip(schema, table.columns):
+        if pa.types.is_string(field.type) and not pa.types.is_string(column.type):
+            column = pa.array(
+                [None if v is None else str(v) for v in column.to_pylist()],
+                type=pa.string(),
+            )
+        else:
+            column = column.cast(field.type)
+        columns.append(column)
+    return pa.table(columns, schema=schema)
+
+
+class _GeoParquetWriter:
+    """Appends batches to one GeoParquet file under a single file schema.
+
+    Each batch infers its own Arrow types, as the whole selection once did, so
+    a column that is all NULL in an early batch, or whose later decimals have
+    more digits, does not fit the schema the first batch fixed. The file is
+    re-encoded under the wider schema when that happens; a column whose type
+    holds steady never pays for it.
+
+    Blocking; call ``write`` and ``close`` via run_in_thread_draining so they
+    don't stall the event loop.
+    """
+
+    def __init__(self, output_path: str, attr_names: list[str], geom_col: str) -> None:
+        self._path = output_path
+        self._attr_names = attr_names
+        self._geom_col = geom_col
+        self._writer: pq.ParquetWriter | None = None
+
+    def write(self, geom: list[bytes | None], cols: dict[str, list]) -> None:
+        table = build_geoparquet_table(geom, cols, self._attr_names, self._geom_col)
+        if self._writer is None:
+            self._writer = pq.ParquetWriter(self._path, table.schema)
+        target = pa.schema(
+            [
+                field.with_type(_wider_type(field.type, incoming.type))
+                for field, incoming in zip(self._writer.schema, table.schema)
+            ],
+            metadata=self._writer.schema.metadata,
+        )
+        if not target.equals(self._writer.schema):
+            self._writer = self._reencode(self._writer, target)
+        self._writer.write_table(_conform(table, target))
+
+    def _reencode(
+        self, writer: pq.ParquetWriter, schema: pa.Schema
+    ) -> pq.ParquetWriter:
+        """Rewrite the rows written so far under ``schema``, one row group at a time."""
+        writer.close()
+        written = self._path + ".prev"
+        os.replace(self._path, written)
+        widened = pq.ParquetWriter(self._path, schema)
+        with pq.ParquetFile(written) as source:
+            for i in range(source.num_row_groups):
+                widened.write_table(_conform(source.read_row_group(i), schema))
+        os.remove(written)
+        return widened
+
+    def close(self) -> None:
+        if self._writer is not None:
+            self._writer.close()
+            return
+        # An empty selection still yields a valid file carrying the geo metadata.
+        empty = build_geoparquet_table(
+            [],
+            {name: [] for name in self._attr_names},
+            self._attr_names,
+            self._geom_col,
+        )
+        pq.write_table(empty, self._path)
+
+    def abort(self) -> None:
+        """Release the file handle of an export that is being discarded."""
+        writer, self._writer = self._writer, None
+        if writer is not None:
+            try:
+                writer.close()
+            except Exception:  # broad: best-effort close of a file about to be deleted
+                pass
 
 
 class ParquetExportPlan(NamedTuple):
@@ -207,9 +321,8 @@ async def plan_parquet_export(
         clauses.append(f"({escaped_where})")
     where_sql = " AND ".join(clauses) if clauses else "TRUE"
 
-    # Bound the in-memory build: the router's feature_count cap is skipped
-    # when NULL, so count the actual selection here (LIMIT stops the scan at
-    # cap+1) before streaming millions of rows into Python lists.
+    # The router's feature_count cap is skipped when NULL, so count the actual
+    # selection here (LIMIT stops the scan at cap+1) before streaming it.
     count_sql = (
         f"SELECT COUNT(*) FROM (SELECT 1 FROM "
         f"{_qtable(table_name, schema=schema)} t "
@@ -229,30 +342,71 @@ async def plan_parquet_export(
     return ParquetExportPlan(attr_names, where_sql, params)
 
 
-async def _stream_rows(
+def _approx_bytes(value: object) -> int:
+    """Python memory held by one cell, counting the elements of an array value."""
+    if isinstance(value, (list, tuple)):
+        return sys.getsizeof(value) + sum(_approx_bytes(v) for v in value)
+    return sys.getsizeof(value)
+
+
+async def _stream_batches(
     db: AsyncSession,
     sql: str,
     params: dict,
     attr_names: list[str],
     geom_idx: int,
-) -> tuple[list[bytes | None], dict[str, list]]:
-    """Read every row of the planned selection into columnar Python lists.
+) -> AsyncIterator[tuple[list[bytes | None], dict[str, list]]]:
+    """Yield the planned selection as columnar batches of bounded size.
 
-    Split out of ``export_parquet`` so ``asyncio.wait_for`` there bounds
-    exactly this — the row source — rather than the query construction and
-    file setup around it.
+    A batch ends at ``_BATCH_MAX_ROWS`` rows or ``_BATCH_MAX_BYTES`` of
+    accumulated values, whichever comes first, so a few very wide rows flush
+    early instead of growing a batch without limit.
     """
     geom: list[bytes | None] = []
     cols: dict[str, list] = {name: [] for name in attr_names}
+    held = 0
 
     result = await db.stream(text(sql).bindparams(**params))
     async for row in result:
         for i, name in enumerate(attr_names):
             cols[name].append(row[i])
+            held += _approx_bytes(row[i])
         wkb = row[geom_idx]
         geom.append(bytes(wkb) if wkb is not None else None)
+        held += _approx_bytes(wkb)
 
-    return geom, cols
+        if len(geom) >= _BATCH_MAX_ROWS or held >= _BATCH_MAX_BYTES:
+            yield geom, cols
+            geom = []
+            cols = {name: [] for name in attr_names}
+            held = 0
+
+    if geom:
+        yield geom, cols
+
+
+async def _write_batches(
+    sink: _GeoParquetWriter,
+    db: AsyncSession,
+    sql: str,
+    params: dict,
+    attr_names: list[str],
+    geom_idx: int,
+) -> None:
+    """Append each batch of the row stream to ``sink``.
+
+    Split out of ``export_parquet`` so ``asyncio.wait_for`` there bounds
+    exactly this, the row source and its encoding, rather than the query
+    construction and file setup around it.
+    """
+    async for geom, cols in _stream_batches(db, sql, params, attr_names, geom_idx):
+        # CPU-bound Arrow encode+write can block the loop for a large batch;
+        # threaded and drained (mirrors export/service.py's shapefile zip) so a
+        # disconnect can't rmtree temp_dir mid-write.
+        await run_in_thread_draining(sink.write, geom, cols)
+        # The generator starts the next batch only after this loop resumes, so
+        # drop ours first or two batches are live at once.
+        del geom, cols
 
 
 async def export_parquet(
@@ -267,17 +421,17 @@ async def export_parquet(
     """Write the planned selection to a GeoParquet file.
 
     Takes the plan from ``plan_parquet_export`` rather than deriving it, so
-    the route can decide the response status before committing to bytes
-    (fix(#1513)).
+    the route can decide the response status before committing to bytes.
 
     Returns (file_path, download_filename, media_type). The caller owns the
     returned file's parent directory (FileResponse background cleanup).
-    Builds the whole selection in memory; bounded by the plan's count check.
+    Rows are written in bounded batches, so memory does not grow with the
+    selection.
 
     deadline: ``time.monotonic()`` stamp for the whole request. Reuses
-        ``export_subprocess_timeout_seconds`` (fix(#1778)) since an
-        unindexed table can stream past the edge-proxy window with nothing
-        else to stop it. None outside a request.
+        ``export_subprocess_timeout_seconds`` since an unindexed table can
+        stream past the edge-proxy window with nothing else to stop it. None
+        outside a request.
     """
     attr_names, where_sql, params = plan
 
@@ -293,35 +447,31 @@ async def export_parquet(
     )
     geom_idx = len(attr_names)
 
-    row_stream_timeout = export_subprocess_timeout_seconds(deadline)
-    try:
-        geom, cols = await asyncio.wait_for(
-            _stream_rows(db, sql, params, attr_names, geom_idx),
-            timeout=row_stream_timeout,
-        )
-    except asyncio.TimeoutError:
-        raise ExportError(
-            f"GeoParquet export timed out after {int(row_stream_timeout)}s "
-            "— the row source is too slow"
-        )
-
     exports_root = ensure_staging_ready(
         os.path.join(settings.upload_staging_dir, "exports")
     )
     temp_dir = str(exports_root / uuid.uuid4().hex)
     os.mkdir(temp_dir)
-    # fix(#1513): one naming rule for both verbs — see export_descriptor.
+    # One naming rule for both verbs; see export_descriptor.
     filename, _ = export_descriptor(dataset_name, "parquet")
     output_path = os.path.join(temp_dir, filename)
-    geom_col = _geometry_column_name(attr_names)
+    sink = _GeoParquetWriter(output_path, attr_names, _geometry_column_name(attr_names))
+
+    row_stream_timeout = export_subprocess_timeout_seconds(deadline)
     try:
-        # CPU-bound Arrow encode+write can block the loop for a multi-GB
-        # export; threaded and drained (mirrors export/service.py's
-        # shapefile zip) so a disconnect can't rmtree temp_dir mid-write.
-        await run_in_thread_draining(
-            _write_geoparquet, geom, cols, attr_names, geom_col, output_path
-        )
+        try:
+            await asyncio.wait_for(
+                _write_batches(sink, db, sql, params, attr_names, geom_idx),
+                timeout=row_stream_timeout,
+            )
+        except asyncio.TimeoutError:
+            raise ExportError(
+                f"GeoParquet export timed out after {int(row_stream_timeout)}s "
+                "— the row source or the write is too slow"
+            )
+        await run_in_thread_draining(sink.close)
     except BaseException:
+        sink.abort()
         shutil.rmtree(temp_dir, ignore_errors=True)
         raise
 

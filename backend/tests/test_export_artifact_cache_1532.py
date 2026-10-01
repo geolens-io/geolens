@@ -3182,18 +3182,17 @@ def _build_export(
     stage.mkdir()
 
     if format_key == "parquet":
-        # The route's parquet writer is not ogr2ogr; it is this function, which
+        # The route's parquet writer is not ogr2ogr; it is this class, which
         # is deliberately DB-free so it can be driven directly.
-        from app.processing.export.parquet import _write_geoparquet
+        from app.processing.export.parquet import _GeoParquetWriter
 
         out = stage / "export.parquet"
-        _write_geoparquet(
-            geom=[b"\x01\x01\x00\x00\x00", None],
-            cols={"n": [1, 2], "s": ["alpha", "beta"]},
-            attr_names=["n", "s"],
-            geom_col="geometry",
-            output_path=str(out),
+        writer = _GeoParquetWriter(str(out), ["n", "s"], "geometry")
+        writer.write(
+            [b"\x01\x01\x00\x00\x00", None],
+            {"n": [1, 2], "s": ["alpha", "beta"]},
         )
+        writer.close()
         return out
 
     source = work_dir / "source.geojson"

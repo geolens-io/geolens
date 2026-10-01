@@ -4,17 +4,17 @@ fix(#1781) bounded every ogr2ogr export format by what is left of the edge
 proxy's read-timeout window (``export_subprocess_timeout_seconds`` in
 ``export/ogr.py``): a kill-on-timeout for the subprocess plus a matching libpq
 ``statement_timeout`` on its own connection. GeoParquet (``export/parquet.py``)
-has no subprocess — it streams SELECT rows straight into Python lists — and
+has no subprocess — it streams SELECT rows straight into the file writer — and
 inherited none of that: an unindexed table or a wide selection could stream
 well past the edge's window with nothing to stop it, holding the request open
 (and its pooled connection with it) long after nginx had already answered the
 client with a 504.
 
 The fix reuses ``export_subprocess_timeout_seconds`` rather than deriving a
-second bound, and wraps the row stream in ``asyncio.wait_for`` on that budget,
-raising the SAME ``ExportError`` the ogr2ogr timeout raises — so the router's
-``except ExportError`` handling (one 500, not a hang past the proxy's own
-timeout) is identical for every export format.
+second bound, and wraps the row stream and its encoding in ``asyncio.wait_for``
+on that budget, raising the SAME ``ExportError`` the ogr2ogr timeout raises — so
+the router's ``except ExportError`` handling (one 500, not a hang past the
+proxy's own timeout) is identical for every export format.
 
 Mirrors ``test_export_request_budget.py::TestExportSubprocessBudget::
 test_the_deadline_terminates_the_child``, the equivalent test for the ogr2ogr
@@ -40,24 +40,30 @@ def _plan() -> ParquetExportPlan:
 class TestParquetRowStreamBudget:
     @pytest.mark.anyio
     async def test_a_slow_row_source_past_the_deadline_raises_export_error(
-        self, monkeypatch
+        self, monkeypatch, tmp_path
     ):
         """A row source that outlives its budget stops the same way the
         ogr2ogr formats do: ``ExportError``, not a hang past the edge proxy's
-        own read timeout."""
+        own read timeout. The scratch directory the writer opened is removed."""
         monkeypatch.setattr(
             export_parquet_module,
             "export_subprocess_timeout_seconds",
             lambda deadline: 0.05,
         )
+        monkeypatch.setattr(
+            export_parquet_module.settings, "upload_staging_dir", str(tmp_path)
+        )
 
-        async def _slow_stream_rows(db, sql, params, attr_names, geom_idx):
+        async def _slow_stream_batches(db, sql, params, attr_names, geom_idx):
             await asyncio.sleep(30)
             raise AssertionError(
                 "the row source ran to completion instead of being bounded"
             )
+            yield  # pragma: no cover - makes this an async generator
 
-        monkeypatch.setattr(export_parquet_module, "_stream_rows", _slow_stream_rows)
+        monkeypatch.setattr(
+            export_parquet_module, "_stream_batches", _slow_stream_batches
+        )
 
         with pytest.raises(ExportError) as exc:
             await export_parquet(
@@ -69,6 +75,7 @@ class TestParquetRowStreamBudget:
             )
 
         assert "timed out" in str(exc.value)
+        assert os.listdir(tmp_path / "exports") == []
 
     @pytest.mark.anyio
     async def test_a_fast_row_source_is_unaffected(self, monkeypatch, tmp_path):
@@ -83,10 +90,12 @@ class TestParquetRowStreamBudget:
             export_parquet_module.settings, "upload_staging_dir", str(tmp_path)
         )
 
-        async def _fast_stream_rows(db, sql, params, attr_names, geom_idx):
-            return [b"\x01\x02"], {"name": ["a"]}
+        async def _fast_stream_batches(db, sql, params, attr_names, geom_idx):
+            yield [b"\x01\x02"], {"name": ["a"]}
 
-        monkeypatch.setattr(export_parquet_module, "_stream_rows", _fast_stream_rows)
+        monkeypatch.setattr(
+            export_parquet_module, "_stream_batches", _fast_stream_batches
+        )
 
         file_path, filename, media_type = await export_parquet(
             db=None,
@@ -122,10 +131,12 @@ class TestParquetRowStreamBudget:
             export_parquet_module.settings, "upload_staging_dir", str(tmp_path)
         )
 
-        async def _fast_stream_rows(db, sql, params, attr_names, geom_idx):
-            return [b"\x01"], {"name": ["a"]}
+        async def _fast_stream_batches(db, sql, params, attr_names, geom_idx):
+            yield [b"\x01"], {"name": ["a"]}
 
-        monkeypatch.setattr(export_parquet_module, "_stream_rows", _fast_stream_rows)
+        monkeypatch.setattr(
+            export_parquet_module, "_stream_batches", _fast_stream_batches
+        )
 
         file_path, _filename, _media_type = await export_parquet(
             db=None,
