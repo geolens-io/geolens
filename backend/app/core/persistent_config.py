@@ -656,15 +656,23 @@ class _ProviderModelConfig(PersistentConfig[str]):
 
     async def default_for(self, db: AsyncSession, provider: str) -> str:
         """The model ``provider`` uses when no admin override is set."""
-        if provider in ("anthropic", "openai_compatible"):
-            return llm_model_default(provider, light=self.light)
-        # An extension provider names its own default model.
         from app.platform.extensions import get_ai_provider
+        from app.platform.extensions.defaults import (
+            DefaultAnthropicProvider,
+            DefaultOpenAICompatibleProvider,
+        )
 
         try:
-            runtime = await get_ai_provider(provider).resolve_runtime_config(db)
+            registered = get_ai_provider(provider)
         except ValueError:
             return llm_model_default(provider, light=self.light)
+        if isinstance(
+            registered, (DefaultAnthropicProvider, DefaultOpenAICompatibleProvider)
+        ):
+            return llm_model_default(provider, light=self.light)
+        # An extension provider, or an overlay replacing a built-in one, names
+        # its own default model.
+        runtime = await registered.resolve_runtime_config(db)
         return str(runtime.get("default_model") or "")
 
     async def resolved_default(self, db: AsyncSession) -> str:

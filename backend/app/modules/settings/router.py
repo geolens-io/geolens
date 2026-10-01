@@ -586,12 +586,14 @@ async def reset_settings(
             )
 
     ip = get_client_ip(request)
-    for cfg in configs_to_reset:
+    before = [await cfg.get(db) for cfg in configs_to_reset]
+    for cfg, old_value in zip(configs_to_reset, before):
         await cfg.reset(
             db,
             user_id=user.id,
             ip_address=ip,
             commit=False,
+            old_value=old_value,
         )
 
     # The setting deletes and their audit rows form one transaction. Runtime

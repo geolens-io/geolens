@@ -1483,6 +1483,58 @@ async def test_blank_model_import_plans_and_applies_a_reset(
 
 
 @pytest.mark.anyio
+async def test_an_overlay_replacing_a_built_in_provider_supplies_its_model(
+    client: AsyncClient, _both_ai_keys
+):
+    from app.api.main import app
+    from app.core.dependencies import get_db
+    from app.core.persistent_config import LLM_MODEL_LIGHT
+
+    class _OverlayProvider:
+        async def resolve_runtime_config(self, _db):
+            return {"base_url": None, "default_model": "overlay-model"}
+
+    with patch(
+        "app.platform.extensions.get_ai_provider", return_value=_OverlayProvider()
+    ):
+        async for db in app.dependency_overrides[get_db]():
+            assert (
+                await LLM_MODEL_LIGHT.for_provider(db, "anthropic") == "overlay-model"
+            )
+
+
+@pytest.mark.anyio
+async def test_a_reset_audits_the_model_in_effect_before_it(
+    client: AsyncClient, admin_auth_header: dict, _both_ai_keys
+):
+    """Resetting the provider with a legacy blank model row records the model
+    the old provider resolved as the old value."""
+    from app.api.main import app
+    from app.core.db.models import AppSetting
+    from app.core.dependencies import get_db
+
+    await client.put(
+        "/settings/",
+        json={"settings": {"llm_provider": "openai_compatible"}},
+        headers=admin_auth_header,
+    )
+    async for db in app.dependency_overrides[get_db]():
+        db.add(AppSetting(key="llm_model", value={"v": ""}))
+        await db.commit()
+    reset = await client.post(
+        "/settings/reset/",
+        json={"keys": ["llm_model", "llm_provider"]},
+        headers=admin_auth_header,
+    )
+    assert reset.status_code == 200, reset.text
+    audit = await _latest_model_audit("reset")
+    assert (audit["old_value"], audit["new_value"]) == (
+        "openai-chat-env",
+        "anthropic-chat-env",
+    )
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize("mode", ["merge", "overwrite"])
 async def test_an_import_previews_an_extension_providers_own_model(
     client: AsyncClient, admin_auth_header: dict, mode
