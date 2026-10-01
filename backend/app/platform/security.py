@@ -230,6 +230,46 @@ def _redirect_hook(credential_header: str | None):
     return _hook
 
 
+# The statuses httpx follows when the response names a Location.
+_FOLLOWED_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
+
+# Headers that describe a body the redirect no longer has.
+_REDIRECT_BODY_HEADERS = frozenset(
+    {b"content-length", b"content-encoding", b"transfer-encoding"}
+)
+
+
+async def _without_redirect_body(response: httpx.Response) -> httpx.Response:
+    """The same redirect with its body discarded unread, or *response* as is.
+
+    With ``follow_redirects`` on, httpx reads each redirect's body in full,
+    decompressed, before it follows the Location, ahead of any size limit the
+    caller applies to the response it actually wants. Nothing reads a redirect
+    body usefully, so the upstream stream is closed here and the caller gets
+    an empty one under the same status and headers.
+    """
+    if (
+        response.status_code not in _FOLLOWED_REDIRECT_STATUSES
+        or "location" not in response.headers
+    ):
+        return response
+    await response.aclose()
+    return httpx.Response(
+        response.status_code,
+        headers=[
+            (name, value)
+            for name, value in response.headers.raw
+            if name.lower() not in _REDIRECT_BODY_HEADERS
+        ],
+        stream=httpx.ByteStream(b""),
+        extensions={
+            key: value
+            for key, value in response.extensions.items()
+            if key in ("http_version", "reason_phrase")
+        },
+    )
+
+
 class _SSRFGuardTransport(httpx.AsyncHTTPTransport):
     """Transport that re-resolves, re-validates, and PINS the IP at connect time.
 
@@ -250,7 +290,9 @@ class _SSRFGuardTransport(httpx.AsyncHTTPTransport):
         request.url = original_url.copy_with(host=validated_ip)
         request.extensions["sni_hostname"] = host
         try:
-            return await super().handle_async_request(request)
+            return await _without_redirect_body(
+                await super().handle_async_request(request)
+            )
         finally:
             # fix(#1271): restore the hostname after connect — leaving the
             # pinned IP would break relative-redirect resolution (next hop's
