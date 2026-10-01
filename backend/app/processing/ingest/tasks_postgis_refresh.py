@@ -578,8 +578,9 @@ class _PostgisRefresh:
                         "identify features by: an integer that is NOT NULL "
                         "and unique, such as a primary key, in a table no "
                         "other table inherits from. The catalog entry is "
-                        "unchanged; fix the gid column, or rename it so "
-                        "GeoLens can add its own, then refresh again.",
+                        "unchanged; add or fix the gid column, or rename one "
+                        "GeoLens can't use so it can add its own, then "
+                        "refresh again.",
                         error_code=UNUSABLE_GID_CODE,
                     )
                 self.measurement = await measure(

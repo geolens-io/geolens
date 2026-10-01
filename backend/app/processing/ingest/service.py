@@ -88,8 +88,9 @@ UNDECLARED_SRID_REASON = (
 UNUSABLE_GID_REASON = (
     "GeoLens identifies features by a column named gid: an integer that is NOT "
     "NULL and unique, such as a primary key, in a table no other table "
-    "inherits from. This table does not meet that. Fix the gid column, or "
-    "rename it so GeoLens can add its own, then register the table."
+    "inherits from. This table does not meet that. Add or fix the gid "
+    "column, or rename one GeoLens can't use so it can add its own, then "
+    "register the table."
 )
 
 

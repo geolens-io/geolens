@@ -401,7 +401,7 @@
     "internalFailure": "注册失败的原因服务器无法安全报告。请让运维人员检查服务器日志。",
     "refusal": {
       "source_srid_undeclared": "其 geom 列未声明 SRID，GeoLens 无法确定其坐标所在的位置。请先设置 SRID（例如使用 UpdateGeometrySRID），然后再注册该表。",
-      "source_gid_unusable": "GeoLens 通过名为 gid 的列来识别要素：该列必须是 NOT NULL 且唯一的整数（例如主键），并且所在的表没有被其他表继承。此表不满足该条件。请修正 gid 列，或将其重命名以便 GeoLens 添加自己的 gid 列，然后再注册该表。"
+      "source_gid_unusable": "GeoLens 通过名为 gid 的列来识别要素：该列必须是 NOT NULL 且唯一的整数（例如主键），并且所在的表没有被其他表继承。此表不满足该条件。请添加或修正 gid 列，或将无法使用的 gid 列重命名以便 GeoLens 添加自己的 gid 列，然后再注册该表。"
     },
     "unknownError": "未知错误",
     "searchPlaceholder": "搜索表…",

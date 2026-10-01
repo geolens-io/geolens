@@ -332,7 +332,7 @@
     "internalFailure": "No se pudo registrar la tabla por un motivo que el servidor no pudo comunicar de forma segura. Pide a un operador que revise el registro del servidor.",
     "refusal": {
       "source_srid_undeclared": "Su columna geom no declara ningún SRID, así que GeoLens no puede saber dónde están sus coordenadas. Define el SRID, por ejemplo con UpdateGeometrySRID, y luego registra la tabla.",
-      "source_gid_unusable": "GeoLens identifica las entidades por una columna llamada gid: un entero NOT NULL y único, como una clave primaria, en una tabla de la que no hereda ninguna otra. Esta tabla no lo cumple. Corrige la columna gid o cámbiale el nombre para que GeoLens pueda añadir la suya, y luego registra la tabla."
+      "source_gid_unusable": "GeoLens identifica las entidades por una columna llamada gid: un entero NOT NULL y único, como una clave primaria, en una tabla de la que no hereda ninguna otra. Esta tabla no lo cumple. Añade o corrige la columna gid, o cambia el nombre de una que GeoLens no pueda usar para que añada la suya, y luego registra la tabla."
     },
     "unknownError": "Error desconocido",
     "searchPlaceholder": "Buscar tablas…",

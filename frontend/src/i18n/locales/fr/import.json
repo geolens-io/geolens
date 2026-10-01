@@ -332,7 +332,7 @@
     "internalFailure": "L'enregistrement a échoué pour une raison que le serveur n'a pas pu signaler en toute sécurité. Demandez à un opérateur de consulter le journal du serveur.",
     "refusal": {
       "source_srid_undeclared": "Sa colonne geom ne déclare aucun SRID, donc GeoLens ne peut pas savoir où se trouvent ses coordonnées. Définissez le SRID, par exemple avec UpdateGeometrySRID, puis enregistrez la table.",
-      "source_gid_unusable": "GeoLens identifie les entités par une colonne nommée gid : un entier NOT NULL et unique, comme une clé primaire, dans une table dont aucune autre table n'hérite. Cette table ne remplit pas cette condition. Corrigez la colonne gid ou renommez-la pour que GeoLens puisse ajouter la sienne, puis enregistrez la table."
+      "source_gid_unusable": "GeoLens identifie les entités par une colonne nommée gid : un entier NOT NULL et unique, comme une clé primaire, dans une table dont aucune autre table n'hérite. Cette table ne remplit pas cette condition. Ajoutez ou corrigez la colonne gid, ou renommez celle que GeoLens ne peut pas utiliser pour qu'il ajoute la sienne, puis enregistrez la table."
     },
     "unknownError": "Erreur inconnue",
     "searchPlaceholder": "Rechercher des tables…",

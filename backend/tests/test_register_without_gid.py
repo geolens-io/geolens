@@ -37,31 +37,39 @@ _KEYED = {
 _INHERITED = "CREATE TABLE data.{t}_kid () INHERITS (data.{t})"
 
 _UNKEYABLE = {
-    "text": (
-        "gid text PRIMARY KEY",
-        ["INSERT INTO data.{t} (gid) VALUES ('a'), ('b')"],
-    ),
-    "duplicated": (
-        "gid integer NOT NULL",
-        ["INSERT INTO data.{t} (gid) VALUES (1), (1)"],
-    ),
-    "nullable": (
-        "gid integer UNIQUE",
-        ["INSERT INTO data.{t} (gid) VALUES (NULL), (1)"],
-    ),
-    "not_unique_alone": (
-        "gid integer NOT NULL, part integer, UNIQUE (gid, part)",
-        ["INSERT INTO data.{t} (gid) VALUES (1), (2)"],
-    ),
-    "inherited_gid": (
-        "gid integer PRIMARY KEY",
-        [
-            _INHERITED,
-            "INSERT INTO data.{t} (gid) VALUES (1)",
-            "INSERT INTO data.{t}_kid (gid) VALUES (1)",
-        ],
-    ),
-    "inherited_without_gid": ("name text", [_INHERITED]),
+    "text": [
+        "CREATE TABLE data.{t} (gid text PRIMARY KEY, geom geometry(Point, 4326))",
+        "INSERT INTO data.{t} (gid) VALUES ('a'), ('b')",
+    ],
+    "duplicated": [
+        "CREATE TABLE data.{t} (gid integer NOT NULL, geom geometry(Point, 4326))",
+        "INSERT INTO data.{t} (gid) VALUES (1), (1)",
+    ],
+    "nullable": [
+        "CREATE TABLE data.{t} (gid integer UNIQUE, geom geometry(Point, 4326))",
+        "INSERT INTO data.{t} (gid) VALUES (NULL), (1)",
+    ],
+    "not_unique_alone": [
+        "CREATE TABLE data.{t} (gid integer NOT NULL, part integer, "
+        "geom geometry(Point, 4326), UNIQUE (gid, part))",
+        "INSERT INTO data.{t} (gid) VALUES (1), (2)",
+    ],
+    "inherited_gid": [
+        "CREATE TABLE data.{t} (gid integer PRIMARY KEY, geom geometry(Point, 4326))",
+        _INHERITED,
+        "INSERT INTO data.{t} (gid) VALUES (1)",
+        "INSERT INTO data.{t}_kid (gid) VALUES (1)",
+    ],
+    "inherited_without_gid": [
+        "CREATE TABLE data.{t} (name text, geom geometry(Point, 4326))",
+        _INHERITED,
+    ],
+    "partitioned_without_gid": [
+        "CREATE TABLE data.{t} (name text, geom geometry(Point, 4326)) "
+        "PARTITION BY LIST (name)",
+        "CREATE TABLE data.{t}_a PARTITION OF data.{t} FOR VALUES IN ('a')",
+        "INSERT INTO data.{t} (name) VALUES ('a')",
+    ],
 }
 
 
@@ -187,19 +195,15 @@ async def test_a_non_spatial_table_without_gid_is_read_by_rows(
         await _drop(test_db_session, table)
 
 
-@pytest.mark.parametrize("shape", list(_UNKEYABLE.values()), ids=list(_UNKEYABLE))
+@pytest.mark.parametrize("statements", list(_UNKEYABLE.values()), ids=list(_UNKEYABLE))
 async def test_a_gid_readers_cannot_key_on_is_refused_and_flagged(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session,
-    shape: tuple[str, list[str]],
+    statements: list[str],
 ) -> None:
     """Registration answers 400 with the gid reason, and discovery gives its code."""
-    columns, statements = shape
     table = f"unkeyed_{uuid.uuid4().hex[:10]}"
-    await test_db_session.execute(
-        text(f"CREATE TABLE data.{table} ({columns}, geom geometry(Point, 4326))")
-    )
     for statement in statements:
         await test_db_session.execute(text(statement.format(t=table)))
     await test_db_session.commit()

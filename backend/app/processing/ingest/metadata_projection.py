@@ -435,12 +435,13 @@ async def grant_reader_access(
     # this GRANT atomically.
 
 
-# Readers page, fetch, edit and tile features by gid, so it must name one row
-# of everything a query on the table returns, inheriting tables' rows included.
-# Views and foreign tables have no index to check. Expects ``c``, the table's
-# pg_class row, and ``a``, its gid pg_attribute row or NULLs.
+# Readers page, fetch, edit and tile by gid, so it must name one row of all a
+# query on the table returns, inheriting tables' rows included. A partitioned
+# table can't take a unique gid outside its partition key; views and foreign
+# tables have no index to check. ``c`` is pg_class, ``a`` the gid pg_attribute.
 GID_UNUSABLE_SQL = """(
     (c.relkind = 'r' AND EXISTS (SELECT 1 FROM pg_inherits h WHERE h.inhparent = c.oid))
+    OR (c.relkind = 'p' AND a.attnum IS NULL)
     OR (
         a.attnum IS NOT NULL
         AND NOT (
