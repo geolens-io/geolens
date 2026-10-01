@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING
 from geoalchemy2.shape import to_shape
 from sqlalchemy import and_, case, column, func, or_, select, text
 from sqlalchemy import table as sql_table
-from sqlalchemy.dialects.postgresql import array
 from sqlalchemy.sql.elements import ColumnElement
 
 if TYPE_CHECKING:
@@ -448,28 +447,39 @@ def make_bbox_filter(
 def wrap_geometry_longitudes(geom: ColumnElement) -> ColumnElement:
     """Fold a 4326 geometry drawn on a wrapped web map into ``[-180, 180]``.
 
-    Returns ``geom`` itself when every longitude is already in range.
-    Otherwise repairs its polygons, moves it by whole turns so its centre lies
-    in ``[-180, 180)``, splits it at ±180, shifts the outer pieces one turn
-    back into range and returns their union. Points and lines in the input are
-    kept; lines or points that the repair collapses out of a polygon are not.
+    Returns ``geom`` itself when every longitude is already in range, and its
+    whole latitude band when it spans 360° of longitude or more. Otherwise
+    each member is repaired, moved by the whole turns that bring the
+    geometry's centre into ``[-180, 180)`` and split at ±180, the outer pieces
+    are shifted one turn back into range, and the union of all pieces is
+    returned. Points and lines are kept; lines or points that the repair
+    collapses out of a polygon are not.
     """
     xmin, xmax = func.ST_XMin(geom), func.ST_XMax(geom)
     turns = func.floor((xmin + xmax + 360.0) / 720.0)
-    # The union raises on overlapping invalid pieces; drawn input can self-intersect.
-    polygons = func.ST_CollectionExtract(
-        func.ST_MakeValid(func.ST_CollectionExtract(geom, 3)), 3
+    members = func.ST_Dump(geom).table_valued("geom")
+    member = members.c.geom
+    # Repairing overlapping polygons together would drop their shared area, and
+    # the union raises on an invalid one; repair each polygon on its own.
+    repaired = case(
+        (
+            func.ST_Dimension(member) == 2,
+            func.ST_CollectionExtract(func.ST_MakeValid(member), 3),
+        ),
+        else_=member,
     )
-    lines, points = (
-        func.ST_CollectionExtract(geom, 2),
-        func.ST_CollectionExtract(geom, 1),
+    moved = func.ST_Translate(repaired, turns * -360.0, 0)
+    pieces = func.ST_WrapX(func.ST_WrapX(moved, -180, 360), 180, -360)
+    folded = (
+        select(func.ST_UnaryUnion(func.ST_Collect(pieces)))
+        .select_from(members)
+        .scalar_subquery()
     )
-    parts = func.ST_Collect(array([polygons, lines, points]))
-    centred = func.ST_Translate(parts, turns * -360.0, 0)
-    folded = func.ST_WrapX(func.ST_WrapX(centred, -180, 360), 180, -360)
+    band = func.ST_MakeEnvelope(-180, func.ST_YMin(geom), 180, func.ST_YMax(geom), 4326)
     return case(
         (and_(xmin >= -180, xmax <= 180), geom),
-        else_=func.ST_UnaryUnion(folded),
+        (xmax - xmin >= 360, band),
+        else_=folded,
     )
 
 
