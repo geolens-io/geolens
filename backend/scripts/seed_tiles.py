@@ -139,9 +139,13 @@ def spec_bbox_to_tiles(
 
 _DATASET_QUERY = """
     SELECT
+        d.id AS dataset_id,
         d.table_name,
         d.column_info,
         d.tile_cache_ttl,
+        d.tile_columns,
+        d.publication_version,
+        d.tile_cache_version,
         ST_AsBinary(r.spatial_extent) AS extent_wkb
     FROM catalog.datasets d
     JOIN catalog.records r ON d.record_id = r.id
@@ -150,6 +154,17 @@ _DATASET_QUERY = """
 """
 
 _DATASET_QUERY_FILTERED = _DATASET_QUERY + "\n      AND d.table_name = $1"
+
+# The COALESCE defaults match what the tile route reads a null counter as.
+_STILL_CURRENT = (
+    "SELECT true FROM catalog.datasets WHERE id = $1 AND table_name = $2 "
+    "AND COALESCE(publication_version, 0) = $3 "
+    "AND COALESCE(tile_cache_version, 1) = $4"
+)
+
+
+class _DatasetChanged(Exception):
+    """The dataset left the catalog or moved to another cache generation."""
 
 
 # ---------------------------------------------------------------------------
@@ -160,8 +175,12 @@ _DATASET_QUERY_FILTERED = _DATASET_QUERY + "\n      AND d.table_name = $1"
 async def _seed_dataset(
     pool,
     cache,
+    dataset_id,
     table_name: str,
+    publication_version: int,
+    tile_cache_version: int,
     columns,
+    tile_columns: list[str] | None,
     cache_ttl: int,
     all_tiles,
     concurrency: int,
@@ -172,6 +191,11 @@ async def _seed_dataset(
     Returns:
         (seeded_count, error_count)
     """
+    from app.processing.tiles.cache_key import tile_cache_key
+
+    cache_key = tile_cache_key(
+        table_name, dataset_id, publication_version, tile_cache_version, None
+    )
     total = len(all_tiles)
     if dry_run:
         print(f"  [dry-run] {table_name}: {total} tiles (would seed)")
@@ -185,18 +209,64 @@ async def _seed_dataset(
     # Shared mutable state via list (avoids nonlocal for compatibility)
     counter = [0]
     errors = [0]
+    changed = [False]
+
+    async def ensure_current() -> None:
+        if changed[0] or not await pool.fetchval(
+            _STILL_CURRENT,
+            dataset_id,
+            table_name,
+            publication_version,
+            tile_cache_version,
+        ):
+            changed[0] = True
+            raise _DatasetChanged
 
     async def seed_one(z: int, x: int, y: int) -> None:
         async with sem:
             try:
-                from app.processing.tiles.service import get_tile
+                from app.processing.tiles.service import get_tile, parse_cols_param
 
-                tile_data = await get_tile(pool, table_name, z, x, y, columns)
+                # The tile route asks the catalog the same question before it
+                # renders; without it a dataset deleted mid-run, whose name a
+                # stranger's table now holds, would be cached under its key.
+                # A moved publication or content version means the key is no
+                # longer the one the route reads, so the rest is left unseeded.
+                await ensure_current()
+                additional_columns, cols_key = parse_cols_param(
+                    None, columns, z, tile_columns=tile_columns
+                )
+                tile_data = await get_tile(
+                    pool,
+                    table_name,
+                    z,
+                    x,
+                    y,
+                    columns,
+                    tile_columns=tile_columns,
+                    additional_columns=additional_columns,
+                )
+                # The check above and the render are separate statements. A
+                # dataset id is never reissued, so a second look proves it still
+                # existed while its table was read.
+                await ensure_current()
                 if tile_data is None:
-                    await cache.set(table_name, z, x, y, b"", ttl=cache_ttl)
+                    await cache.set(
+                        cache_key, z, x, y, b"", ttl=cache_ttl, cols_key=cols_key
+                    )
                 else:
-                    compressed = gzip.compress(tile_data, compresslevel=6)
-                    await cache.set(table_name, z, x, y, compressed, ttl=cache_ttl)
+                    compressed = gzip.compress(tile_data, compresslevel=6, mtime=0)
+                    await cache.set(
+                        cache_key,
+                        z,
+                        x,
+                        y,
+                        compressed,
+                        ttl=cache_ttl,
+                        cols_key=cols_key,
+                    )
+            except _DatasetChanged:
+                errors[0] += 1
             except Exception as exc:
                 logger.warning(
                     "seed_tile_failed",
@@ -215,6 +285,12 @@ async def _seed_dataset(
 
     tasks = [asyncio.create_task(seed_one(z, x, y)) for z, x, y in all_tiles]
     await asyncio.gather(*tasks)
+
+    if changed[0]:
+        print(
+            f"  Stopped {table_name}: the dataset changed while seeding;"
+            f" {errors[0]} tile(s) not seeded. Rerun to warm its new state."
+        )
 
     elapsed = time.monotonic() - start
     rate = counter[0] / elapsed if elapsed > 0 else 0
@@ -277,8 +353,18 @@ async def main() -> None:
     args = parser.parse_args()
 
     from app.core.config import settings
+    from app.core.tenancy import is_multi_tenant
     from app.processing.tiles.pool import close_tile_pool, init_tile_pool
     from app.platform.cache.tile_cache import TileCacheProvider
+
+    if is_multi_tenant():
+        print(
+            "ERROR: multi-tenant mode is not supported. Tiles would be rendered "
+            "from the shared data schema and cached without a tenant prefix, "
+            "under keys no tenant's request reads.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
 
     if not settings.redis_url:
         print(
@@ -354,8 +440,12 @@ async def main() -> None:
         seeded, errors = await _seed_dataset(
             pool=pool,
             cache=cache,
+            dataset_id=row["dataset_id"],
             table_name=table_name,
+            publication_version=row["publication_version"] or 0,
+            tile_cache_version=row["tile_cache_version"] or 1,
             columns=columns,
+            tile_columns=row["tile_columns"],
             cache_ttl=cache_ttl,
             all_tiles=all_tiles,
             concurrency=args.concurrency,

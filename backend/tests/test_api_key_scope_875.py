@@ -16,6 +16,7 @@ a "POST that looks like a read" category.
 import uuid
 
 import pytest
+import sqlalchemy
 from httpx import AsyncClient
 
 from app.core.config import settings
@@ -29,6 +30,37 @@ from tests.factories import create_dataset
 
 ADMIN_USER = settings.geolens_admin_username
 ADMIN_PASS = settings.geolens_admin_password.get_secret_value()
+
+
+@pytest.fixture(autouse=True)
+def _remove_keys_minted_by_the_test(request):
+    """Minting commits through the app's own sessions, so the test removes its keys.
+
+    An active read_only key left in the database makes the 0032 downgrade refuse,
+    which fails any later test in the same database that migrates past it.
+    """
+    if "client" not in request.fixturenames:
+        yield
+        return
+    engine = sqlalchemy.create_engine(settings.test_database_url_sync)
+    try:
+        with engine.begin() as conn:
+            before = [
+                row[0]
+                for row in conn.execute(
+                    sqlalchemy.text("SELECT id FROM catalog.api_keys")
+                )
+            ]
+        yield
+        with engine.begin() as conn:
+            conn.execute(
+                sqlalchemy.text(
+                    "DELETE FROM catalog.api_keys WHERE id <> ALL(:before)"
+                ),
+                {"before": before},
+            )
+    finally:
+        engine.dispose()
 
 
 async def _get_admin(client: AsyncClient, headers: dict) -> uuid.UUID:
