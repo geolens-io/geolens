@@ -317,36 +317,50 @@ async def embedding_change_lock(needed: bool = True) -> AsyncIterator[None]:
     """Run one embedding model or width change at a time, from reading the old
     pair to the rebuild or restore. Does nothing unless ``needed``.
 
-    The lock sits on its own session because the change commits between those
-    steps. A second change is refused with EmbeddingChangeBusyError rather than
-    queued, so a waiting request never holds a pooled connection.
+    The lock holds a connection of its own, outside the request pool: the
+    change commits between those steps, and a burst of requests as large as
+    the pool would otherwise each wait at checkout for a connection the others
+    hold. A second change is refused with EmbeddingChangeBusyError rather
+    than queued.
     """
     if not needed:
         yield
         return
     from sqlalchemy import text as sa_text
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
 
-    from app.core.db import async_session  # late-bound so a test engine applies
+    from app.core.db import engine  # late-bound so a test engine applies
 
-    async with async_session() as lock_session:
-        locked = await lock_session.execute(sa_text(_CHANGE_LOCK_SQL))
-        if not locked.scalar():
-            raise EmbeddingChangeBusyError(
-                "Another embedding configuration change is in progress. "
-                "Retry once it finishes."
-            )
-        yield
+    lock_engine = create_async_engine(
+        engine.url, poolclass=NullPool, connect_args=settings.database_connect_args
+    )
+    try:
+        async with lock_engine.connect() as lock_connection:
+            locked = await lock_connection.execute(sa_text(_CHANGE_LOCK_SQL))
+            if not locked.scalar():
+                raise EmbeddingChangeBusyError(
+                    "Another embedding configuration change is in progress. "
+                    "Retry once it finishes."
+                )
+            yield
+    finally:
+        await lock_engine.dispose()
 
 
 @dataclass(frozen=True)
 class CommittedEmbeddingPair:
     """The embedding settings a failed column rebuild puts back.
 
-    ``model`` is None when the settings batch leaves the model alone.
+    ``model`` is None when the settings batch leaves the model alone. The
+    ``*_overridden`` flags record whether the key had a stored override, so a
+    restore deletes one the batch created instead of pinning the default.
     """
 
     dims: int
     model: str | None
+    dims_overridden: bool
+    model_overridden: bool
 
 
 async def read_committed_embedding_pair(
@@ -354,9 +368,40 @@ async def read_committed_embedding_pair(
 ) -> CommittedEmbeddingPair:
     """Read before a settings batch writes. Uncached, so a rollback restores
     what is committed rather than a cache entry that may already be stale."""
+    from app.core.db.models import AppSetting
+
     dims = await EMBEDDING_DIMS.get_uncached(db)
     model = await EMBEDDING_MODEL.get_uncached(db) if with_model else None
-    return CommittedEmbeddingPair(dims=dims, model=model)
+    overridden = set(
+        (
+            await db.execute(
+                select(AppSetting.key).where(
+                    AppSetting.key.in_((EMBEDDING_DIMS.key, EMBEDDING_MODEL.key))
+                )
+            )
+        ).scalars()
+    )
+    return CommittedEmbeddingPair(
+        dims=dims,
+        model=model,
+        dims_overridden=EMBEDDING_DIMS.key in overridden,
+        model_overridden=EMBEDDING_MODEL.key in overridden,
+    )
+
+
+async def _restore_setting(
+    db: AsyncSession,
+    cfg: Any,
+    value: Any,
+    overridden: bool,
+    *,
+    user_id: uuid.UUID,
+    ip_address: str | None,
+) -> None:
+    if overridden:
+        await cfg.set(db, value, user_id=user_id, ip_address=ip_address, commit=False)
+    else:
+        await cfg.reset(db, user_id=user_id, ip_address=ip_address, commit=False)
 
 
 async def rebuild_column_or_restore(
@@ -380,17 +425,23 @@ async def rebuild_column_or_restore(
         # One transaction, then one side-effect step, so no reader sees the
         # new model beside the old width. Evicting before the commit would let
         # a concurrent reader re-cache the value being rolled back.
-        await EMBEDDING_DIMS.set(
-            db, previous.dims, user_id=user_id, ip_address=ip_address, commit=False
+        await _restore_setting(
+            db,
+            EMBEDDING_DIMS,
+            previous.dims,
+            previous.dims_overridden,
+            user_id=user_id,
+            ip_address=ip_address,
         )
         rolled_back: list[tuple] = [(EMBEDDING_DIMS, previous.dims)]
         if previous.model is not None:
-            await EMBEDDING_MODEL.set(
+            await _restore_setting(
                 db,
+                EMBEDDING_MODEL,
                 previous.model,
+                previous.model_overridden,
                 user_id=user_id,
                 ip_address=ip_address,
-                commit=False,
             )
             rolled_back.append((EMBEDDING_MODEL, previous.model))
         await db.commit()

@@ -567,3 +567,104 @@ async def test_an_import_refused_by_the_embedding_lock_reaches_no_audit_sink(
     )
     assert applied.status_code == 200, applied.text
     assert {event.action for event in _import_events()} == {"update", "config_import"}
+
+
+@pytest.mark.anyio
+async def test_a_width_change_succeeds_on_a_one_connection_pool(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    monkeypatch,
+    restore_embedding_settings,
+):
+    """The embedding change lock needs no second connection from the request pool."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    import app.core.db as db_module
+    from app.api.main import app
+    from app.core.config import settings
+    from app.core.dependencies import get_db
+
+    width = await _start_consistent(test_db_session)
+    target = _width_other_than(width)
+    one_connection = create_async_engine(
+        settings.test_database_url, pool_size=1, max_overflow=0, pool_timeout=2
+    )
+    factory = async_sessionmaker(one_connection, expire_on_commit=False)
+
+    async def _get_db_from_the_one_connection():
+        async with factory() as session:
+            yield session
+
+    monkeypatch.setitem(
+        app.dependency_overrides, get_db, _get_db_from_the_one_connection
+    )
+    monkeypatch.setattr(db_module, "engine", one_connection)
+    monkeypatch.setattr(db_module, "async_session", factory)
+    try:
+        with anyio.fail_after(30):
+            resp = await client.put(
+                "/settings/",
+                json={"settings": {"embedding_dims": target}},
+                headers=admin_auth_header,
+            )
+    finally:
+        await one_connection.dispose()
+
+    assert resp.status_code == 200, resp.text
+    assert await _column_dims(test_db_session) == target
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("how", ["reset", "import"])
+async def test_a_failed_rebuild_leaves_no_override_where_there_was_none(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    monkeypatch,
+    restore_embedding_settings,
+    how: str,
+):
+    """A failed rebuild removes the overrides the change wrote instead of pinning the defaults."""
+    from app.core.db.models import AppSetting
+
+    await EMBEDDING_DIMS.reset(test_db_session)
+    await EMBEDDING_MODEL.reset(test_db_session)
+    monkeypatch.setattr(
+        _REBUILD, AsyncMock(side_effect=RuntimeError("simulated DDL failure"))
+    )
+
+    if how == "reset":
+        resp = await client.post(
+            "/settings/reset/",
+            json={"keys": ["embedding_model", "embedding_dims"]},
+            headers=admin_auth_header,
+        )
+    else:
+        resp = await client.post(
+            "/config-ops/import/?mode=merge",
+            json={
+                "settings": {
+                    "embedding_model": _NEW_MODEL,
+                    "embedding_dims": _width_other_than(EMBEDDING_DIMS.env_default),
+                }
+            },
+            headers=admin_auth_header,
+        )
+
+    assert resp.status_code == 503, resp.text
+    overrides = (
+        await test_db_session.scalars(
+            select(AppSetting.key).where(
+                AppSetting.key.in_((EMBEDDING_DIMS.key, EMBEDDING_MODEL.key))
+            )
+        )
+    ).all()
+    assert overrides == []
+    assert (
+        await EMBEDDING_DIMS.get_uncached(test_db_session) == EMBEDDING_DIMS.env_default
+    )
+    assert (
+        await EMBEDDING_MODEL.get_uncached(test_db_session)
+        == EMBEDDING_MODEL.env_default
+    )
