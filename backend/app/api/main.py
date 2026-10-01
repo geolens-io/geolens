@@ -50,7 +50,7 @@ from app.platform.extensions.bootstrap import (
     bootstrap,
 )
 from app.modules.auth.models import Role, User, UserRole
-from app.modules.auth.providers.local import hash_password
+from app.modules.auth.providers.local import hash_password_async
 from app.platform.ratelimit import emit_startup_notices, limiter
 from app.processing.ingest.tasks import task_app
 from app.api.middleware.body_limit import RequestBodyLimitMiddleware
@@ -153,7 +153,7 @@ async def seed_initial_admin() -> None:
         if user_count == 0:
             admin_user = User(
                 username=settings.geolens_admin_username,
-                password_hash=hash_password(
+                password_hash=await hash_password_async(
                     settings.geolens_admin_password.get_secret_value()
                 ),
                 is_active=True,

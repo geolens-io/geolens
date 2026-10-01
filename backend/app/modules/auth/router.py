@@ -1209,7 +1209,10 @@ async def change_password(
         AuditEvent,
         audit_emit,
     )  # LAZY — preserved per D-17
-    from app.modules.auth.providers.local import hash_password, verify_password
+    from app.modules.auth.providers.local import (
+        hash_password_async,
+        verify_password_async,
+    )
 
     # fix(#1715): lock and reload the row BEFORE reading anything
     # off it. An admin reset takes the same row lock; without this ordering
@@ -1228,7 +1231,7 @@ async def change_password(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Password change only available for local accounts",
         )
-    if not current_user.password_hash or not verify_password(
+    if not current_user.password_hash or not await verify_password_async(
         body.current_password, current_user.password_hash
     ):
         raise HTTPException(
@@ -1236,7 +1239,7 @@ async def change_password(
             detail="Current password is incorrect",
         )
 
-    current_user.password_hash = hash_password(body.new_password)
+    current_user.password_hash = await hash_password_async(body.new_password)
 
     # SEC-S15 (Phase 1062-01): bump token_version so all outstanding access
     # JWTs for this user are invalidated on their next request, forcing

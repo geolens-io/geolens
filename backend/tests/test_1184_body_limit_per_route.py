@@ -14,10 +14,13 @@ Design:
 
 from __future__ import annotations
 
+import json
+import uuid
 from unittest.mock import patch
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import func, select
 
 from app.api.middleware.body_limit import (
     DEFAULT_BODY_LIMIT_BYTES,
@@ -26,6 +29,7 @@ from app.api.middleware.body_limit import (
     _is_feature_write_route,
     _is_upload_route,
 )
+from app.modules.catalog.maps.models import Map
 
 _11MB = 11 * 1024 * 1024  # 11 MB — over the 10 MB default cap
 
@@ -442,3 +446,58 @@ class TestGap032ProblemDetailShape:
         assert body["title"] == "Payload Too Large"
         assert body["status"] == 413
         assert "too large" in body["detail"].lower()
+
+
+class TestStreamedBodyOverflow:
+    """A body without Content-Length that passes the cap mid-stream must stop
+    the request before a handler can act on the bytes that already arrived.
+
+    The first chunk is a complete, valid map definition on its own, so a
+    middleware that ends the body early hands the handler something it can
+    parse and commit.
+    """
+
+    @staticmethod
+    async def _count_maps(session, name: str) -> int:
+        return await session.scalar(
+            select(func.count()).select_from(Map).where(Map.name == name)
+        )
+
+    @pytest.mark.anyio
+    async def test_overflow_after_a_valid_json_prefix_persists_nothing(
+        self, client: AsyncClient, editor_auth_header: dict, test_db_session
+    ):
+        name = f"streamed-overflow-{uuid.uuid4().hex}"
+
+        async def chunks():
+            yield json.dumps({"name": name}).encode()
+            yield b" " * (DEFAULT_BODY_LIMIT_BYTES + 1)
+
+        resp = await client.post(
+            "/maps/",
+            content=chunks(),
+            headers={**editor_auth_header, "Content-Type": "application/json"},
+        )
+
+        assert resp.status_code == 413
+        assert resp.json()["title"] == "Payload Too Large"
+        assert await self._count_maps(test_db_session, name) == 0
+
+    @pytest.mark.anyio
+    async def test_streamed_body_under_the_cap_still_creates_the_map(
+        self, client: AsyncClient, editor_auth_header: dict, test_db_session
+    ):
+        name = f"streamed-under-cap-{uuid.uuid4().hex}"
+
+        async def chunks():
+            yield json.dumps({"name": name}).encode()
+            yield b" " * 1024
+
+        resp = await client.post(
+            "/maps/",
+            content=chunks(),
+            headers={**editor_auth_header, "Content-Type": "application/json"},
+        )
+
+        assert resp.status_code == 201, resp.text
+        assert await self._count_maps(test_db_session, name) == 1

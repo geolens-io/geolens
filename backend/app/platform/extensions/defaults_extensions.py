@@ -149,6 +149,8 @@ class DefaultPermissionExtension:
                     DatasetGrant.dataset_id == dataset_id,
                     UserRole.user_id == user.id,
                 )
+                # Each granted role the user holds is its own row.
+                .limit(1)
             )
             return grant_result.scalar_one_or_none() is not None
 

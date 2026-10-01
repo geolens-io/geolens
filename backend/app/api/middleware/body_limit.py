@@ -18,6 +18,7 @@ import time
 import uuid
 from typing import Any
 
+from starlette.exceptions import HTTPException
 from starlette.responses import JSONResponse
 
 from app.api.middleware.liveness import is_liveness_request
@@ -286,8 +287,9 @@ class RequestBodyLimitMiddleware:
                 total_read += len(body)
                 if total_read > max_bytes:
                     limit_exceeded = True
-                    # Return an empty final chunk so the app sees EOF
-                    return {"type": "http.request", "body": b"", "more_body": False}
+                    # A synthetic end of body would let the app parse and act
+                    # on the prefix it already has, so the read fails instead.
+                    raise HTTPException(status_code=413)
             return message
 
         async def sending(message: dict) -> None:

@@ -13,7 +13,7 @@ from app.core.config import settings
 from app.core.tenancy import is_multi_tenant
 from app.modules.auth.models import ApiKey, RefreshToken, Role, User, UserRole
 from app.modules.auth.providers import AuthenticatedIdentity
-from app.modules.auth.providers.local import hash_password
+from app.modules.auth.providers.local import hash_password_async
 
 
 class AuthService:
@@ -466,7 +466,7 @@ class AuthService:
 
         user = User(
             username=username,
-            password_hash=hash_password(password),
+            password_hash=await hash_password_async(password),
             email=email,
             status="pending",
             is_active=False,
