@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy import select, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.processing.vector.quicklook as quicklook_module
@@ -286,6 +287,13 @@ async def test_a_replacement_draws_the_quicklook_from_the_new_table(
     assert after == await _render(dataset.table_name)
 
 
+async def _draw(dataset: Dataset) -> None:
+    import app.core.db as db_module
+
+    async with db_module.async_session() as session:
+        await _generate_quicklook(session, dataset.id, dataset.table_name)
+
+
 async def _wait_until_waiting_or_done(task: asyncio.Task) -> None:
     """Return once ``task`` has finished or a session waits on an advisory lock."""
     import app.core.db as db_module
@@ -313,8 +321,6 @@ async def test_an_older_draw_never_lands_over_a_newer_one(
     test_db_session, storage, tables
 ) -> None:
     """A draw that read the table before a replacement cannot put after a later draw."""
-    import app.core.db as db_module
-
     dataset, _admin_id, before = await _published_one_point_dataset(
         test_db_session, storage, tables
     )
@@ -332,14 +338,10 @@ async def test_an_older_draw_never_lands_over_a_newer_one(
             await release_first.wait()
         return png
 
-    async def _draw() -> None:
-        async with db_module.async_session() as session:
-            await _generate_quicklook(session, dataset.id, dataset.table_name)
-
     with patch.object(
         quicklook_module, "generate_vector_quicklook_with_timeout", _slow_first
     ):
-        older = asyncio.create_task(_draw())
+        older = asyncio.create_task(_draw(dataset))
         await asyncio.wait_for(first_drawn.wait(), timeout=10)
         # The older draw has read the one point; the table now holds three.
         await test_db_session.execute(
@@ -353,7 +355,7 @@ async def test_an_older_draw_never_lands_over_a_newer_one(
             )
         )
         await test_db_session.commit()
-        newer = asyncio.create_task(_draw())
+        newer = asyncio.create_task(_draw(dataset))
         try:
             await _wait_until_waiting_or_done(newer)
         finally:
@@ -363,3 +365,43 @@ async def test_an_older_draw_never_lands_over_a_newer_one(
     _uri, stored = await _stored_quicklook(storage, dataset.id)
     assert stored != before, "the draw of the replaced data was kept"
     assert stored == await _render(dataset.table_name)
+
+
+async def test_a_stalled_upload_leaves_the_table_free_for_a_replacement(
+    test_db_session, storage, tables, monkeypatch
+) -> None:
+    """A replacement's rename takes the live table while a draw's upload is stuck."""
+    import app.core.db as db_module
+
+    dataset, _admin_id, _before = await _published_one_point_dataset(
+        test_db_session, storage, tables
+    )
+    uploading = asyncio.Event()
+    release_upload = asyncio.Event()
+    real_put = storage.put
+
+    async def _stalled_put(key, data):
+        uploading.set()
+        await release_upload.wait()
+        return await real_put(key, data)
+
+    monkeypatch.setattr(storage, "put", _stalled_put)
+    draw = asyncio.create_task(_draw(dataset))
+    try:
+        await asyncio.wait_for(uploading.wait(), timeout=10)
+        async with db_module.async_session() as swap:
+            await swap.execute(text("SET LOCAL lock_timeout = '2s'"))
+            try:
+                await swap.execute(
+                    text(
+                        f'ALTER TABLE "data"."{dataset.table_name}" '
+                        f'RENAME TO "{dataset.table_name}_probe"'
+                    )
+                )
+            except DBAPIError as exc:
+                pytest.fail(f"the draw held the table through its upload: {exc}")
+            finally:
+                await swap.rollback()
+    finally:
+        release_upload.set()
+        await asyncio.wait_for(draw, timeout=30)

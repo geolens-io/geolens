@@ -1,62 +1,26 @@
-"""INGEST-01 / Phase 1091-02 — quicklook async-context boundary regression.
+"""The quicklook draw runs on a session of its own and survives its own timeout.
 
-Pins the bug shape audited in
-``.planning/audits/INGEST-QUICKLOOK-ASYNC-CONTEXT-v1021.md``: the same
-``AsyncSession`` was reused across the ``asyncio.wait_for`` cancellation
-boundary in ``tasks_common._generate_quicklook``. When the 10s quicklook
-timeout fires on pathologically-shaped geometry (the live trigger was
-``urban_areas_landscan_10m`` — 6018 multipolygons), the cancellation
-poisoned the asyncpg cursor. The defensive ``session.rollback()`` inside
-``_generate_quicklook`` then expired every ORM attribute (because
-``expire_on_rollback`` defaults to True even though ``expire_on_commit``
-is False at ``app/core/db/session.py``). The bug detonated two function
-calls later in ``defer_embedding`` when ``dataset.record.id`` was
-accessed and triggered a lazy-refresh against the still-poisoned
-greenlet bridge → ``MissingGreenlet`` escaped to the outer ``except``
-and the job row got ``status=failed``.
+The generation timeout cancels the geom query mid-flight, which poisons the
+asyncpg cursor of the session it ran on. The draw's ``session.rollback()``
+recovers that cursor, and also expires every ORM attribute on the session
+(``expire_on_rollback`` defaults to True even with ``expire_on_commit=False``).
+Run on the session that built the dataset, that expiry turns the next
+``dataset.record`` access in ``defer_embedding`` into ``MissingGreenlet`` and
+fails a job whose dataset is already committed, so the first ingest draws on
+its own ``_job_phase_session(job_uuid, phase="quicklook")``.
 
-Shape A fix (Plan 1091-02): wrap the quicklook block in its own
-``_job_phase_session(job_uuid, phase="quicklook")`` so the cancellation
-boundary cannot poison the outer ``_finalize_ingest`` session. The
-outer session's ORM identity-map for ``dataset.record`` stays warm and
-``defer_embedding`` completes cleanly.
-
-Four test functions:
-
-1. ``test_generate_quicklook_timeout_does_not_poison_outer_session`` —
-   positive-form pin. Confirms the post-fix call shape (quicklook in a
-   fresh session) keeps the outer session's ``dataset.record`` accessible
-   even after the quicklook session encounters a timeout-equivalent
-   failure.
-
-2. ``test_generate_quicklook_timeout_poisons_outer_session_pre_fix`` —
-   negative-form / mechanism pin. Forces a session.rollback() on the
-   same session that holds the dataset's eagerly-loaded ``record``
-   relationship, then confirms the next ``dataset.record`` access on
-   that rolled-back session expires the attribute. This pins the
-   half of the bug shape that is reliably reproducible in unit tests
-   (the rollback-expires-attributes half). The greenlet-bridge poison
-   half is a production-scale race that does not reproduce
-   deterministically under unit-test timing, so we pin the ORM-level
-   half here and let the live docker-rebuild verification (Task 2)
-   own the end-to-end shape.
-
-3. ``test_generate_quicklook_completes_on_multipolygon_shape`` — shape
-   regression UNDER forced timeout. Creates a synthetic data table
-   with 100 multipolygons, monkeypatches ``_GENERATION_TIMEOUT_SECONDS``
-   to 0.001 to force the cancellation path, and asserts the URI
-   persists despite the poisoned cursor — anchoring INGEST-01
-   acceptance criterion (b) via the iter-2 rollback-recovery shape.
-
-4. ``test_generate_quicklook_url_persists_after_geom_timeout`` —
-   explicit iter-2 pin with ``caplog`` assertion that no
-   ``phase=commit`` warning fires on the timeout path. Pins the
-   live verification gap that surfaced after iter-1: blank canvas
-   was uploaded but the URI never persisted because
-   ``ql_session.commit()`` failed on the still-poisoned cursor. The
-   iter-2 ``session.rollback()`` between upload and URI write clears
-   the cursor; this test guards against a regression that moves the
-   rollback back inside the commit-except branch.
+1. ``test_generate_quicklook_timeout_does_not_poison_outer_session``: a draw
+   that times out on its own session leaves the outer ``dataset.record``
+   readable.
+2. ``test_generate_quicklook_timeout_poisons_outer_session_pre_fix``: the
+   mechanism. A rollback on the session holding ``dataset.record`` expires
+   it, and the next access raises ``MissingGreenlet``. The greenlet-bridge
+   half of the production failure does not reproduce deterministically in a
+   unit test, so this pins the ORM half.
+3. ``test_generate_quicklook_completes_on_multipolygon_shape``: under a
+   forced timeout on 100 multipolygons, the URI still persists.
+4. ``test_generate_quicklook_url_persists_after_geom_timeout``: the same,
+   with no ``recovery``, ``generate`` or ``commit`` failure logged.
 """
 
 from __future__ import annotations
@@ -84,30 +48,15 @@ from tests.factories import get_user_id
 def _force_quicklook_timeout(monkeypatch, timeout: float = 0.001) -> None:
     """Force ``generate_vector_quicklook_with_timeout`` to use a tiny timeout.
 
-    CR-01 fix: ``_GENERATION_TIMEOUT_SECONDS`` is read once at function-
-    definition time as a default keyword-argument value (captured into
-    ``generate_vector_quicklook_with_timeout.__defaults__``). Mutating the
-    module attribute after import does NOT change ``__defaults__`` — the
-    function continues to use its captured 10s default. So the prior
-    ``monkeypatch.setattr(quicklook_module, "_GENERATION_TIMEOUT_SECONDS",
-    0.001)`` was a literal no-op and the tests silently exercised the
-    happy path instead of the cancellation/recovery path they claim to
-    pin.
+    ``_GENERATION_TIMEOUT_SECONDS`` is captured as the wrapper's default
+    ``timeout`` when the function is defined, so patching the module constant
+    changes nothing and the tests would silently exercise the happy path.
+    Replacing the wrapper itself reaches every call site, including the
+    import inside ``_draw_quicklook``.
 
-    Replace the wrapper itself with a closure that forwards everything to
-    the real wrapper while pinning ``timeout`` to the tiny value. This
-    way every call site that does ``await
-    generate_vector_quicklook_with_timeout(...)`` — including the
-    ``from ... import ...`` re-export inside ``_generate_quicklook`` —
-    routes through the override and the cancellation path is actually
-    exercised.
-
-    Verify by temporarily commenting out the iter-2 rollback recovery at
-    ``tasks_common.py`` (the ``await session.rollback()`` between upload
-    and URI write) and re-running the three tests that call this helper:
-    at least ``test_generate_quicklook_url_persists_after_geom_timeout``
-    must FAIL. If it still passes, the test setup is not exercising the
-    recovery path.
+    Check it once by commenting out the draw's ``await session.rollback()``
+    before the upload in ``tasks_common.py``: at least
+    ``test_generate_quicklook_url_persists_after_geom_timeout`` must fail.
     """
     real_wrapper = quicklook_module.generate_vector_quicklook_with_timeout
 
@@ -403,25 +352,13 @@ async def test_generate_quicklook_timeout_poisons_outer_session_pre_fix(
 async def test_generate_quicklook_completes_on_multipolygon_shape(
     test_db_session, monkeypatch
 ):
-    """100-multipolygon shape regression UNDER a forced timeout.
+    """100 multipolygons under a forced timeout still get a quicklook URI.
 
-    Pins INGEST-01 iter-2: even when ``asyncio.wait_for`` cancels the
-    geom query mid-flight (poisoning the asyncpg cursor on the fresh
-    quicklook session), the post-upload ``session.rollback()`` recovery
-    inside ``_generate_quicklook`` clears the cursor state and the
-    subsequent URI write commits cleanly.
-
-    Pre-iter-2 (rollback was inside the commit-except branch only),
-    this test would have left ``dataset.quicklook_256_uri`` as NULL —
-    blank canvas was uploaded to storage but ``ql_session.commit()``
-    in ``_generate_quicklook`` raised the "Can't reconnect until
-    invalid transaction is rolled back" error
-    (sqlalchemy.org/e/20/8s2b) and the URI breadcrumb was lost. This
-    was the live verification gap on ``urban_areas_landscan_10m``.
-
-    Anchors INGEST-01 acceptance criterion (b): the dataset gets a
-    non-null ``quicklook_256_uri`` after the post-fix path runs,
-    even on the cancellation surface that originally tripped the bug.
+    The timeout cancels the geom query mid-flight and poisons the cursor of
+    the draw's session. The rollback after generation recovers it, so the
+    blank canvas is uploaded and the URI write that follows commits. Without
+    it the commit raises "Can't reconnect until invalid transaction is rolled
+    back" (sqlalchemy.org/e/20/8s2b) and the URI stays NULL.
     """
     session = test_db_session
     admin_id = await get_user_id(session, "admin")
@@ -480,29 +417,14 @@ async def test_generate_quicklook_completes_on_multipolygon_shape(
 async def test_generate_quicklook_url_persists_after_geom_timeout(
     test_db_session, monkeypatch, caplog
 ):
-    """Explicit iter-2 pin: forced ``asyncio.wait_for`` timeout on the geom
-    query MUST NOT prevent the URI from persisting AND MUST NOT log a
-    ``phase=commit`` warning.
+    """A forced timeout on the geom query still persists the URI, quietly.
 
-    Reproduces the exact live verification gap observed on
-    ``urban_areas_landscan_10m`` between iter-1 and iter-2:
-
-    - iter-1: outer-session isolation via ``_job_phase_session``
-      eliminated the ``MissingGreenlet`` (job status flipped from
-      ``failed`` to ``Success``) but ``quicklook_256_uri`` stayed NULL
-      because the post-upload ``ql_session.commit()`` in
-      ``_generate_quicklook`` raised "Can't reconnect until invalid
-      transaction is rolled back" (the asyncpg cursor on
-      ``ql_session`` was still in the poisoned state from the cancelled
-      geom query).
-
-    - iter-2: explicit ``session.rollback()`` between upload and URI
-      write clears the cursor state on the timeout path. URI commits
-      cleanly; no ``phase=commit`` warning fires.
-
-    A ``phase=commit`` warning in worker logs after this test would
-    indicate the recovery rollback was removed or moved back inside
-    the commit-except branch.
+    Outer-session isolation alone leaves ``quicklook_256_uri`` NULL: the
+    draw's commit raises "Can't reconnect until invalid transaction is rolled
+    back" on the cursor the cancelled query poisoned. The rollback after
+    generation clears it, so the URI commits and no ``phase=commit`` warning
+    fires. One would mean the rollback was removed or moved into the
+    commit's except branch.
     """
     session = test_db_session
     admin_id = await get_user_id(session, "admin")
@@ -566,23 +488,20 @@ async def test_generate_quicklook_url_persists_after_geom_timeout(
         ]
         assert generate_phase_records == [], (
             "unexpected phase=generate warning on the timeout path — "
-            "the wrapper should catch asyncio.TimeoutError and return "
-            "blank canvas bytes without raising. Logged dicts:\n"
+            "the wrapper should return a blank canvas on asyncio.TimeoutError "
+            "and the rollback after it should recover the cursor. Logged dicts:\n"
             + "\n".join(repr(r.msg) for r in caplog.records)
         )
-        # The recovery rollback and URI write have their own try/except. A
-        # `phase=recovery` warning on the clean timeout path would mean the
-        # rollback itself raised, which should not happen when the
-        # connection survives the cancellation (the typical test shape).
-        # Pinned negatively so a stray IO call ordered before the rollback
-        # surfaces here.
+        # The URI write has its own try/except. A `phase=recovery` warning on
+        # the timeout path would mean the write met the poisoned cursor the
+        # rollback after generation should already have recovered.
         recovery_phase_records = [
             r for r in caplog.records if _is_quicklook_failed(r, phase="recovery")
         ]
         assert recovery_phase_records == [], (
             "unexpected phase=recovery warning on the timeout path — "
-            "the iter-2 rollback should succeed on the in-test cancellation "
-            "shape. Logged dicts:\n" + "\n".join(repr(r.msg) for r in caplog.records)
+            "the rollback after generation should leave the URI write a clean "
+            "cursor. Logged dicts:\n" + "\n".join(repr(r.msg) for r in caplog.records)
         )
     finally:
         await _drop_test_table(session, table_name)

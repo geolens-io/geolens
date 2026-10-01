@@ -1076,8 +1076,8 @@ async def _generate_quicklook(session, dataset_id: uuid.UUID, table_name: str) -
 
     Runs after the commit that published the table, so a connection-killing
     query (OOM, timeout on complex geometry) cannot roll back the dataset.
-    Separate try/except blocks around generate+upload, rollback+URI-write,
-    and commit let operators tell which phase failed from the logs.
+    Separate try/except blocks around generate+upload, the URI write and
+    the commit let operators tell which phase failed from the logs.
 
     The caller MUST pass a FRESH session, not the one that published the
     table. The generation timeout can cancel the inner geom query mid-flight
@@ -1132,6 +1132,10 @@ async def _draw_quicklook(session, dataset_id: uuid.UUID, table_name: str) -> No
             256,
             schema=_current_tenant_schema(),
         )
+        # Ends the read before the upload, since its transaction holds the
+        # table against a later replacement's rename. Also recovers a cursor
+        # a wait_for cancel poisoned.
+        await session.rollback()
         from app.core.db.tenant_session import current_tenant_var
         from app.platform.storage.titiler_url import resolve_storage_key
 
@@ -1150,12 +1154,10 @@ async def _draw_quicklook(session, dataset_id: uuid.UUID, table_name: str) -> No
         )
         return
 
-    # The rollback recovers a cursor a wait_for cancel poisoned and is a no-op
-    # otherwise. It and the write are IO that can raise on a dead connection,
-    # and the dataset is already published, so their failure is only logged.
+    # The write is IO that can raise on a dead connection, and the dataset is
+    # already published, so its failure is only logged.
     Dataset = get_processing_port().get_dataset_orm_class()
     try:
-        await session.rollback()
         await session.execute(
             update(Dataset)
             .where(
