@@ -7,6 +7,236 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- 3D Tiles and COPC dataset pages show a map preview with the dataset's
+  extent outlined whenever the dataset has an extent, so a reader can see
+  where the data is. (#2465)
+- Presigned S3 URLs can be signed against a separate public host. The new
+  optional `S3_PUBLIC_ENDPOINT` setting names the address browsers and
+  external clients reach, so presigned uploads, STAC asset links and COG
+  download redirects work when `S3_ENDPOINT` is a container hostname or
+  private address. Unset, nothing changes. (#2489)
+- `backend/scripts/backfill_tileset_extents.py` fills in the extent of 3D
+  Tiles datasets published before box and sphere bounding volumes were read.
+  It supports `--dry-run`. (#2474)
+- A periodic reconcile deletes `originals/` archives that no dataset or
+  import job can still use, such as an archive write that landed after its
+  dataset was deleted. It only removes prefixes older than a day and does
+  nothing while the catalog holds no datasets. (#2510)
+- Registering an existing PostGIS table that has no `gid` column now adds
+  one, so the table's tiles, OGC items, rows table and feature editing work.
+  A `gid` that is not an integer, can be NULL or is not unique is refused
+  with a clear message, as are a table that other tables inherit from and a
+  partitioned table without one, and the register form explains each case
+  in all five languages. (#2535)
+
+### Changed
+
+- The extension API version is now 14. `ProcessingPort.get_catalog_vocabulary`
+  and `ProcessingPort.get_keywords_for_records` now require the caller's
+  `user` and `user_roles`, so an extension that implements either method
+  must accept the new arguments and re-pin the version. (#2522)
+- GeoParquet exports are written in bounded batches instead of being built in
+  memory. `json` and `jsonb` columns are now written as JSON text rather than
+  inferred from decoded values, so numbers keep their digits and JSON `null`
+  is the text `null`. Files have more row groups (at most 100,000 rows each),
+  columns that fall back to text write arrays as JSON, and the timeout
+  message now ends "the row source or the write is too slow". Exports that
+  used to fail on an empty JSON object or an integer past the 64-bit range
+  now succeed. (#2529)
+- Embedding width changes are serialized. `PUT /settings`, a settings reset
+  and a configuration import that change `embedding_model` or
+  `embedding_dims` now run one at a time, and a second one answers 409
+  "Another embedding configuration change is in progress" until the first
+  finishes, even when it only repeats the current model. When rebuilding
+  the vector column fails, a reset or import restores the previous width
+  and model and answers 503, and the message says which other settings in
+  the request were kept. In env-only mode these changes still answer 403.
+  (#2527)
+- Feature responses carry an opaque `table_id`. `PUT`, `PATCH` and `DELETE`
+  on `/datasets/{id}/features/{gid}` accept it as an optional query
+  parameter, and a write whose table was replaced since the editor read it
+  is refused with 409 `dataset_replaced`. A retried create whose feature is
+  gone is refused with 409 `feature_gone`, alongside the existing
+  `feature_changed`. Writes without `table_id` behave as before. (#2528)
+- `POST /datasets/{id}/features/` accepts optional `Idempotency-Key` and
+  `Idempotency-Attempt` headers, so a retried create returns the stored
+  feature instead of inserting a second one. A migration adds the table
+  that records the keys. (#2519)
+- The admin dataset list is no longer cached, so a list read right after an
+  import completes includes the new dataset. (#2461)
+- PostgreSQL 15 is now stated as the minimum version in the README and the
+  migration docs. The baseline migration and migration 0050 refuse an older
+  server up front instead of failing partway through. (#2512)
+- The `cloud-dev` Compose profile pulls its MinIO server and client images
+  from the maintained `pgsty` fork, pinned by tag and digest, because the
+  previous `quay.io` images no longer allow anonymous pulls. `.env.example`
+  now documents `S3_ADDRESSING_STYLE=path` for local MinIO. (#2490)
+- The published 401 description on optional-auth routes now matches what each
+  route accepts. Routes that take no embed token or signed tile template
+  describe plain fail-closed behavior. (#2466)
+- A public vector dataset's quicklook is revalidated by ETag with
+  `Cache-Control: public, no-cache` instead of being cached for an hour, so
+  a replaced image shows up right away. Raster quicklooks keep their hour of
+  freshness. (#2534)
+- Dependency updates: Vite 8.3.1, terra-draw 1.35, lucide-react 1.48,
+  react-i18next 17.0.15, TanStack Query, procrastinate 3.10, PyJWT 2.15,
+  Starlette, psycopg, sqlglot, boto3, azure-storage-blob, ruff, and the Node
+  Alpine image, plus routine type and lint packages and the CodeQL and
+  setup-uv actions. (#2436 to #2457)
+
+### Fixed
+
+- Resetting `embedding_dims` or importing a configuration that sets it now
+  resizes the vector column, as `PUT /settings` already did. Before, the
+  call answered 200 and left the column at the old width, and the
+  embedding backfill then refused to run because the widths disagreed.
+  Re-sending the current width repairs a column left at another one.
+  (#2527)
+- A retried feature create on the dataset map that the server refuses because
+  the first attempt landed and the feature has since changed or gone no
+  longer leaves the sketch stuck. The draft stays, tiles reload, a message
+  explains what happened, and the next Save either updates the feature or
+  creates it again. A Save from an editor opened before a reupload, or
+  before a registered table was dropped and recreated, can no longer
+  overwrite an unrelated row that reused the feature id. (#2519, #2528)
+- The dataset map stays safe while feature writes are in flight. The session
+  waits for every pending create, update and delete, Escape and the toolbar
+  are ignored during a save, and a refused automatic save keeps the sketch
+  as unsaved work instead of silently dropping it. When edit rights are
+  lost mid-edit, unsaved work stays behind a notice with a Discard button
+  instead of an invisible toolbar, and the confirmation no longer offers to
+  continue editing. (#2481, #2486, #2500)
+- Inline fields a viewer cannot edit show "Not set" when empty instead of an
+  edit prompt such as "Add a description...". (#2500)
+- The Ask AI launcher no longer covers the Save button of the pending-edits
+  bar, and the dataset header actions wrap on phone widths. (#2511, #2498)
+- Terrain no longer throws a `shaderPreludeCode` error on a cold load, because
+  it is cleared before a fetched basemap style replaces the placeholder
+  style. (#2462)
+- Uploading a GeoPackage, COPC `.laz`, `.3tz`, FlatGeobuf or Parquet file
+  that the browser gives no MIME type no longer fails with
+  `SignatureDoesNotMatch` on S3 storage. The upload signs and sends one
+  content type. (#2497)
+- Ingesting a Cloud Optimized GeoTIFF without internal overviews no longer
+  leaves a `tmp*.tif.ovr` file in the upload staging volume. (#2499)
+- 3D Tiles datasets whose root bounding volume is a georeferenced `box` or
+  `sphere` now get a spatial extent, so search no longer shows "No Extent".
+  A volume that covers the globe gets the full extent, and a JSON integer
+  too large for a float is refused as a bounding volume error instead of
+  crashing. (#2472, #2477)
+- OGC records for published rasters on S3 storage link their thumbnail and
+  overview again, through the access-checked quicklook route. (#2476)
+- `GET /datasets/` no longer answers 500 when a raster dataset stored a
+  numeric band `nodata` value. (#2471)
+- Switching the LLM provider to OpenAI-compatible with both provider keys set
+  no longer breaks every AI feature. Model defaults follow the selected
+  provider, an admin override still wins, and the AI status endpoint reports
+  the model requests actually use. (#2507)
+- With "Send Sample Values to LLM" turned off, sample values no longer reach
+  the provider through metadata drafts, SQL schema context or map chat.
+  Keyword suggestions no longer draw on private records the caller cannot
+  read. (#2522)
+- AI metadata prompts describe a dataset's extent as signed longitude and
+  latitude ranges, so models no longer read the edges as hemispheres. Chat
+  result tables show at most 12 significant digits instead of floating-point
+  noise such as `491.9000000000001`, and the cell title keeps the exact
+  value. (#2506, #2505)
+- Metadata edits and re-embeds stay in order. The re-embed job is queued after
+  the edit commits, and a stale vector no longer overwrites a record that
+  changed while it was being embedded. (#2517)
+- Reapplying a manifest now applies its title, summary, visibility and
+  status, so a manifest asking for a draft no longer leaves a record public.
+  Two commits of one upload no longer both dispatch, an accepted
+  `srid_override` applies to native GDAL formats, and objects written by a
+  failed VRT regeneration are cleaned up. (#2515)
+- A replacement of a mosaic member near the storage cap is no longer admitted
+  and then refused at publish, because the check no longer credits a COG that
+  a VRT may still read. (#2491)
+- A VRT regeneration whose commit acknowledgement was lost now always runs its
+  catalog cache purge and embedding refresh, so the regenerated VRT no
+  longer serves stale catalog results. (#2485)
+- An archive that lands after its dataset was deleted is deleted by the
+  stale-job sweep instead of staying in storage. (#2483)
+- The Azure `originals/` reconcile resumes a listing from its continuation
+  token, so orphans deeper than the first 100 pages are reached. (#2526)
+- Five map and search fixes. A malformed SVG sprite path no
+  longer hangs rendering, a failed vector search falls back to full text
+  instead of failing the request, pagination links keep `sort_desc` and
+  `spatial_predicate`, appending a layer respects the 200-layer limit, and
+  map detail and `style.json` no longer return a terrain binding whose DEM
+  the caller cannot see. (#2523)
+- Embed origin allowlist changes take effect on the next request instead of
+  after the cache expires. (#2516)
+- Streamed request bodies over the size cap are rejected with 413 before any
+  write happens. Password hashing no longer stalls other requests while it
+  runs, and a user with two roles both granted on a restricted dataset no
+  longer gets a 500. (#2514)
+- A redirect's body is no longer read in full when a document fetch, URL
+  import or reupload follows it. (#2520)
+- STAC browsing and search read provider responses with a time and size
+  limit, an ArcGIS sign-in settles within its time budget, a cancelled
+  service preview stops its `ogrinfo` process, and a STAC request holds one
+  database connection instead of three or four. Redirect bodies are also
+  dropped on connect probes. (#2513)
+- Maintenance scripts: `seed_tiles.py` writes cache entries under the key the
+  tile route reads and no longer prints the Redis password, and the
+  quicklook scripts exit with status 2 on deployments with per-tenant
+  schemas, where they cannot work. Migration 0032's downgrade locks its
+  tables before counting keys. (#2518, #2512)
+- Vector dataset quicklooks are redrawn after a file re-upload, a conversion
+  to a live service or a service refresh, instead of showing the old data.
+  (#2534)
+- Refreshing a registered PostGIS table restores its `gid`, and a refresh
+  whose recreated `gid` cannot key features fails with
+  `source_gid_unusable` instead of reporting a healthy table. The register
+  form labels discovered tables with the data schema instead of `public`,
+  and shows no row estimate for a table PostgreSQL has never analyzed
+  instead of "-1". An analyzed empty table still shows 0. (#2535)
+- FlatGeobuf exports keep features with null or empty geometry, retry
+  without the spatial index when the driver refuses it, and log export
+  failures. (#2533)
+- Date-only values show that calendar day west of UTC, data vintage is edited
+  as an ISO date and can be cleared, and short attribute tables no longer
+  clip rows below the header. (#2531)
+- Search area: the rectangle prompt describes the click-to-start,
+  click-to-finish gesture in all five languages, a box with no area is
+  ignored, the sheet stays exposed to assistive technology, and an area
+  that crosses the antimeridian is shown and sent with longitudes inside
+  180, including from the phone-width picker. Reopening the sheet draws the
+  applied area, "Use current map extent" draws its rectangle, and an
+  applied polygon reopens as itself and keeps its shape on Apply instead
+  of turning into its bounding rectangle. (#2531)
+- A polygon search area that crosses the antimeridian now matches records on
+  both sides of it. Search and facets fold the polygon back into the
+  longitude range before matching, where records past the seam never
+  matched before. (#2537)
+- The Render as buttons in the builder expose their selected state to
+  assistive technology, and the notifications region label is translated in
+  every language. (#2531)
+- Importing: completed datasets are linked on the multi-file and STAC import
+  completion screens, and virtual raster jobs get a label instead of their
+  type token. (#2531)
+- Dataset pages: the Source panel labels STAC, GeoTIFF and service types in
+  all five languages, the tile token is refetched after a publish,
+  unpublish or visibility change, a non-public dataset no longer offers an
+  unsigned vector tiles URL. (#2531)
+- A single-layer upload previews under the file's own name, a dataset that
+  is not found stops retrying its dependent queries, the dataset map
+  attribution stays clear of the basemap thumbnail on narrow maps, and 19
+  Spanish strings regain their accents. (#2532)
+- Collection Add buttons are named after their dataset, the Create dataset
+  link is hidden from users without `edit_metadata`, folder groups are kept
+  out of analysis layer pickers, and the analysis panel notes that a
+  layer's filter is ignored. (#2531)
+
+### Security
+
+- The MCP server requires PyJWT 2.15.0 or later, and the frontend lockfile
+  moves `brace-expansion` and `undici` to patched releases, clearing
+  published advisories. (#2493, #2484)
+
 ## [1.21.0] - 2026-09-28
 
 ### Added
