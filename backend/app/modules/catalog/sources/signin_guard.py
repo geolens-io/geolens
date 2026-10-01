@@ -384,22 +384,24 @@ def _settle_failure(settle: asyncio.Future) -> str | None:
 
 
 async def _drain_shielded(coro, deadline: float) -> asyncio.Future:
-    """Run *coro* under a shield until it finishes or *deadline* passes.
+    """Run *coro* as a task until it finishes or *deadline* passes.
 
     The caller is inside `except asyncio.CancelledError`, and every request
     runs under an anyio cancel scope that re-arms cancellation on every
-    await — so one shielded await per event-loop turn, until the work lands
-    or time runs out. Holds a strong reference throughout since the event
-    loop keeps only a weak one, and cancels at the deadline rather than
-    leaving the work unbounded.
+    await, so the wait restarts for whatever budget is left until the work
+    lands or time runs out. `asyncio.wait` never cancels the task it waits
+    on, and its timeout bounds the wait itself, which a bare shielded await
+    would not: that one runs until the task ends. Holds a strong reference
+    throughout since the event loop keeps only a weak one, and cancels at the
+    deadline rather than leaving the work unbounded.
     """
     task = asyncio.ensure_future(coro)
     _SETTLE_TASKS.add(task)
     task.add_done_callback(_SETTLE_TASKS.discard)
     loop = asyncio.get_running_loop()
-    while not task.done() and loop.time() < deadline:
+    while not task.done() and (remaining := deadline - loop.time()) > 0:
         with contextlib.suppress(BaseException):  # broad: the loop decides
-            await asyncio.shield(task)
+            await asyncio.wait({task}, timeout=remaining)
     if not task.done():
         task.cancel()
     return task

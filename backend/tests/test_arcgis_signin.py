@@ -2466,6 +2466,52 @@ def test_the_settle_outcome_reader_treats_pending_as_cancelled():
         loop.close()
 
 
+async def test_one_cancellation_and_a_stalled_write_still_end_within_the_budget(
+    monkeypatch,
+):
+    """A single cancellation while the write is stalled must not outlast the drain.
+
+    One cancellation lands in the wait and is absorbed; the write then stalls
+    far past the budget. The drain has to give up at the deadline and cancel
+    the write, rather than waiting on it for as long as it takes.
+    """
+    monkeypatch.setattr(signin_guard, "_SETTLE_DRAIN_SECONDS", 0.2)
+    write_cancelled = asyncio.Event()
+
+    async def _stalled_write(*_args, **_kwargs):
+        try:
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            write_cancelled.set()
+            raise
+
+    monkeypatch.setattr(signin_guard, "_write_settled_outcome", _stalled_write)
+
+    loop = asyncio.get_running_loop()
+    target = signin_guard.SignInTarget(
+        host="portal.settle-budget.test", account_key="account", user_scope="user"
+    )
+    started = loop.time()
+    settle = asyncio.create_task(
+        signin_guard._signin_settle_shielded(uuid.uuid4(), target, "cancelled")
+    )
+    try:
+        # Let the drain start waiting on the write, then cancel it once.
+        await asyncio.sleep(0.05)
+        settle.cancel()
+        await asyncio.wait({settle}, timeout=3)
+        elapsed = loop.time() - started
+
+        assert settle.done(), "settlement outlived its drain budget"
+        assert elapsed < 2.0
+        async with asyncio.timeout(1):
+            await write_cancelled.wait()
+    finally:
+        settle.cancel()
+        for leftover in list(signin_guard._SETTLE_TASKS):
+            leftover.cancel()
+
+
 async def test_both_advisory_locks_are_released_when_the_body_raises(
     client: AsyncClient,
 ):
