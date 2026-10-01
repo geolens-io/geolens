@@ -1000,6 +1000,7 @@
     "description": "在图层上运行缓冲区、质心和裁剪操作",
     "layerLabel": "图层",
     "layerPlaceholder": "选择图层",
+    "layerFilterNote": "分析会使用数据集中的所有要素，不会应用此图层的筛选条件。",
     "operationLabel": "操作",
     "opBuffer": "缓冲区",
     "opCentroid": "质心",

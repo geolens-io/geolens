@@ -1000,6 +1000,7 @@
     "description": "Führen Sie Puffer-, Zentroid- und Zuschneideoperationen auf einer Ebene aus",
     "layerLabel": "Ebene",
     "layerPlaceholder": "Ebene auswählen",
+    "layerFilterNote": "Die Analyse verwendet alle Features des Datensatzes. Der Filter dieser Ebene wird nicht angewendet.",
     "operationLabel": "Operation",
     "opBuffer": "Puffer",
     "opCentroid": "Zentroide",

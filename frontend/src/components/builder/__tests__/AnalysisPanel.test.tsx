@@ -273,6 +273,18 @@ describe('AnalysisPanel', () => {
     useAnalysisAddedStore.setState({ addedDatasetIds: [], pendingAddIds: [] });
   });
 
+  it('notes that a layer filter is not applied to analysis', () => {
+    renderPanel([{ ...datasetLayer, filter: ['>=', ['get', 'mag'], 5] } as unknown as MapLayerResponse]);
+    expect(
+      screen.getByText("Analysis uses every feature in the dataset. This layer's filter isn't applied."),
+    ).toBeInTheDocument();
+  });
+
+  it('shows no filter note for a layer without a filter', () => {
+    renderPanel([{ ...datasetLayer, filter: null } as unknown as MapLayerResponse]);
+    expect(screen.queryByText(/filter isn't applied/)).not.toBeInTheDocument();
+  });
+
   it('treats a raster-only map as having no analysable layers (#720)', () => {
     renderPanel([rasterLayer, groupLayer]);
     // Was: a fully enabled form with the raster pre-selected, whose Preview

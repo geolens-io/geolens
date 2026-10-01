@@ -1000,6 +1000,7 @@
     "description": "Exécutez des opérations de zone tampon, de centroïdes et de découpe sur une couche",
     "layerLabel": "Couche",
     "layerPlaceholder": "Sélectionner une couche",
+    "layerFilterNote": "L'analyse utilise toutes les entités du jeu de données. Le filtre de cette couche n'est pas appliqué.",
     "operationLabel": "Opération",
     "opBuffer": "Zone tampon",
     "opCentroid": "Centroïdes",
