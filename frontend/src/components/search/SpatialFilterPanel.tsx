@@ -76,6 +76,11 @@ function bboxToPolygon(bbox: string): GeoJSON.Feature<GeoJSON.Polygon> {
   };
 }
 
+function hasArea(coords: number[][]): boolean {
+  const [minX, minY, maxX, maxY] = extractBbox(coords).split(',').map(Number);
+  return maxX > minX && maxY > minY;
+}
+
 function extractBbox(coords: number[][]): string {
   let minX = Infinity;
   let minY = Infinity;
@@ -252,6 +257,12 @@ export function SpatialFilterPanel({
       td.on('finish', (id: string | number) => {
         const feature = td.getSnapshotFeature(id);
         if (!feature || feature.geometry.type !== 'Polygon') return;
+
+        // A click-click with no movement on one axis yields a line, not an area.
+        if (!hasArea(feature.geometry.coordinates[0])) {
+          td.removeFeatures([id]);
+          return;
+        }
 
         // Remove previous feature if exists
         if (drawnFeatureIdRef.current != null && drawnFeatureIdRef.current !== id) {

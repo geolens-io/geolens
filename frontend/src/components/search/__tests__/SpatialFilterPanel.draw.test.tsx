@@ -3,7 +3,12 @@ import { fireEvent, render, screen } from '@/test/test-utils';
 import { TerraDrawRectangleMode } from 'terra-draw';
 import { SpatialFilterPanel, normalizeBboxLongitudes } from '../SpatialFilterPanel';
 
-const draw = vi.hoisted(() => ({ handlers: {} as Record<string, (id: string) => void> }));
+const ACROSS_SEAM = [[144.408, 72.18], [198.548, 72.18], [198.548, 81.41], [144.408, 81.41], [144.408, 72.18]];
+const draw = vi.hoisted(() => ({
+  handlers: {} as Record<string, (id: string) => void>,
+  ring: [] as number[][],
+  removeFeatures: undefined as unknown as ReturnType<typeof vi.fn>,
+}));
 
 vi.mock('@vis.gl/react-maplibre', () => ({
   Map: ({ onLoad }: { onLoad?: (e: { target: unknown }) => void }) => {
@@ -24,12 +29,9 @@ vi.mock('terra-draw', () => ({
       draw.handlers[event] = handler;
     }),
     addFeatures: vi.fn(() => []),
-    removeFeatures: vi.fn(),
+    removeFeatures: (draw.removeFeatures = vi.fn()),
     getSnapshotFeature: vi.fn(() => ({
-      geometry: {
-        type: 'Polygon',
-        coordinates: [[[144.408, 72.18], [198.548, 72.18], [198.548, 81.41], [144.408, 81.41], [144.408, 72.18]]],
-      },
+      geometry: { type: 'Polygon', coordinates: [draw.ring] },
     })),
     };
   }),
@@ -41,6 +43,10 @@ vi.mock('@/components/theme-provider', () => ({ useTheme: () => ({ resolvedTheme
 vi.mock('@/hooks/use-settings', () => ({ useBasemaps: () => ({ data: [] }) }));
 
 describe('SpatialFilterPanel drawing', () => {
+  beforeEach(() => {
+    draw.ring = ACROSS_SEAM;
+  });
+
   it('keeps the default click-then-click rectangle so dragging still pans, and says so', () => {
     render(<SpatialFilterPanel open onClose={vi.fn()} onApply={vi.fn()} />);
     const options = vi.mocked(TerraDrawRectangleMode).mock.calls[0][0] as { drawInteraction?: string };
@@ -54,6 +60,17 @@ describe('SpatialFilterPanel drawing', () => {
     act(() => draw.handlers.finish('feature-1'));
     fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
     expect(onApply).toHaveBeenCalledWith('144.408,72.18,-161.452,81.41', expect.any(String), undefined);
+  });
+});
+
+describe('SpatialFilterPanel zero-area boxes', () => {
+  it('discards a rectangle with no height and keeps Apply disabled', () => {
+    draw.ring = [[-47.37, 20], [41.06, 20], [41.06, 20], [-47.37, 20], [-47.37, 20]];
+    render(<SpatialFilterPanel open onClose={vi.fn()} onApply={vi.fn()} />);
+    act(() => draw.handlers.finish('flat'));
+    expect(draw.removeFeatures).toHaveBeenCalledWith(['flat']);
+    expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled();
+    expect(screen.queryByText(/Bbox:/)).not.toBeInTheDocument();
   });
 });
 
