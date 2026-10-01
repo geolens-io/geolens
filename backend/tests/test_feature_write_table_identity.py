@@ -99,6 +99,18 @@ def _write(
 _APPLIED = {"put": 200, "patch": 200, "delete": 204}
 
 
+def _keyed_create(client: AsyncClient, dataset, headers: dict, key: str, attempt: int):
+    return client.post(
+        f"/datasets/{dataset.id}/features/",
+        json={"geometry": PARIS, "properties": {"name": f"attempt {attempt}"}},
+        headers={
+            **headers,
+            "Idempotency-Key": key,
+            "Idempotency-Attempt": str(attempt),
+        },
+    )
+
+
 async def _stage_replacement(session, dataset, gid: int, how: str) -> None:
     """Put a new table under the dataset's name, holding ``gid`` for another row.
 
@@ -169,9 +181,10 @@ async def test_a_write_read_before_the_table_was_replaced_is_refused(
     assert response.status_code == 409, response.text
     detail = response.json()["detail"]
     assert detail["code"] == "dataset_replaced"
-    # The version to reload tiles at, which this refusal did not move.
-    assert detail["tile_cache_version"] == tile_version
-    assert await _tile_cache_version(test_db_session, dataset) == tile_version
+    # A new version, so tiles cached from the old table are not served at it.
+    assert detail["tile_cache_version"] > tile_version
+    stored = await _tile_cache_version(test_db_session, dataset)
+    assert stored == detail["tile_cache_version"]
     assert await _rows(test_db_session, dataset) == [(gid, "unrelated", 9.0, 9.0)]
 
 
@@ -227,25 +240,56 @@ async def test_a_refused_retry_returns_the_table_id_to_write_with(
     """The editor's next save updates the feature in the 409 with its table_id."""
     sketch = uuid.uuid4().hex
 
-    def create(attempt: int):
-        return client.post(
-            f"/datasets/{dataset.id}/features/",
-            json={"geometry": PARIS, "properties": {"name": f"attempt {attempt}"}},
-            headers={
-                **admin_auth_header,
-                "Idempotency-Key": sketch,
-                "Idempotency-Attempt": str(attempt),
-            },
-        )
-
-    gid = (await create(1)).json()["id"]
+    gid = (await _keyed_create(client, dataset, admin_auth_header, sketch, 1)).json()[
+        "id"
+    ]
     await _write("patch", client, dataset, admin_auth_header, gid, None)
-    refused = await create(2)
+    refused = await _keyed_create(client, dataset, admin_auth_header, sketch, 2)
     read = await _read(client, dataset, admin_auth_header, gid)
 
     assert refused.status_code == 409, refused.text
     assert refused.json()["detail"]["code"] == "feature_changed"
     assert refused.json()["detail"]["feature"]["table_id"] == read["table_id"]
+
+
+@pytest.mark.parametrize("how", ["reupload", "overwrite"])
+async def test_a_repeat_finding_the_table_replaced_rolls_the_tile_version(
+    client: AsyncClient, admin_auth_header, dataset, test_db_session, how
+):
+    sketch = uuid.uuid4().hex
+    created = await _keyed_create(client, dataset, admin_auth_header, sketch, 1)
+    gid = created.json()["id"]
+    await _stage_replacement(test_db_session, dataset, gid, how)
+    await test_db_session.commit()
+    tile_version = await _tile_cache_version(test_db_session, dataset)
+
+    repeat = await _keyed_create(client, dataset, admin_auth_header, sketch, 2)
+
+    assert repeat.status_code == 409, repeat.text
+    detail = repeat.json()["detail"]
+    assert detail["code"] == "feature_gone"
+    assert detail["tile_cache_version"] > tile_version
+    stored = await _tile_cache_version(test_db_session, dataset)
+    assert stored == detail["tile_cache_version"]
+    assert await _rows(test_db_session, dataset) == [(gid, "unrelated", 9.0, 9.0)]
+
+
+async def test_a_repeat_whose_feature_was_deleted_keeps_the_tile_version(
+    client: AsyncClient, admin_auth_header, dataset, test_db_session
+):
+    sketch = uuid.uuid4().hex
+    created = await _keyed_create(client, dataset, admin_auth_header, sketch, 1)
+    await _write(
+        "delete", client, dataset, admin_auth_header, created.json()["id"], None
+    )
+    tile_version = await _tile_cache_version(test_db_session, dataset)
+
+    repeat = await _keyed_create(client, dataset, admin_auth_header, sketch, 2)
+
+    assert repeat.status_code == 409, repeat.text
+    assert repeat.json()["detail"]["code"] == "feature_gone"
+    assert "tile_cache_version" not in repeat.json()["detail"]
+    assert await _tile_cache_version(test_db_session, dataset) == tile_version
 
 
 async def _await_lock_wait_query() -> str:
@@ -294,7 +338,10 @@ async def test_a_replacement_committing_while_the_write_waits_is_seen(
     assert dataset.table_name in waiting_on
     assert response.status_code == 409, response.text
     assert response.json()["detail"]["code"] == "dataset_replaced"
-    assert response.json()["detail"]["tile_cache_version"] == tile_version + 1
+    # Past the swap's own version, and the one now stored.
+    refused_version = response.json()["detail"]["tile_cache_version"]
+    assert refused_version > tile_version + 1
+    assert await _tile_cache_version(test_db_session, dataset) == refused_version
     assert await _rows(test_db_session, dataset) == [(gid, "unrelated", 9.0, 9.0)]
 
 

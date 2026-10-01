@@ -209,17 +209,17 @@ def _created_feature_response(
     )
 
 
-def _feature_gone() -> HTTPException:
-    return HTTPException(
-        status_code=status.HTTP_409_CONFLICT,
-        detail={
-            "code": "feature_gone",
-            "message": (
-                "The feature created with this Idempotency-Key is gone. "
-                "Use a new key to create another."
-            ),
-        },
-    )
+def _feature_gone(tile_version: int | None = None) -> HTTPException:
+    detail = {
+        "code": "feature_gone",
+        "message": (
+            "The feature created with this Idempotency-Key is gone. "
+            "Use a new key to create another."
+        ),
+    }
+    if tile_version is not None:
+        detail["tile_cache_version"] = tile_version
+    return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
 
 
 def _feature_changed(
@@ -260,12 +260,23 @@ def _dataset_replaced(tile_version: int | None) -> HTTPException:
     )
 
 
+async def _roll_tile_generation(db: AsyncSession, dataset) -> int | None:
+    """Commit a new tile cache version for a dataset found with a replaced table.
+
+    An overwrite made outside GeoLens moves no version, so tiles cached from
+    the old table would go on being served. Nothing else is written.
+    """
+    await _lock_catalog_rows_guarded(db, dataset)
+    tile_version = await bump_tile_cache_version_on(db, dataset)
+    await db.commit()
+    return tile_version
+
+
 async def _hold_table(db: AsyncSession, dataset, table_id: str | None) -> int | None:
     """Hold the dataset's table for this write, refusing a stale ``table_id``."""
     table_oid = await held_table_oid(db, dataset.table_name)
     if table_id is not None and table_id != str(table_oid):
-        await db.refresh(dataset, ["tile_cache_version"])
-        raise _dataset_replaced(dataset.tile_cache_version)
+        raise _dataset_replaced(await _roll_tile_generation(db, dataset))
     return table_oid
 
 
@@ -305,9 +316,9 @@ async def _settle_repeat(
     taken, the order every other feature write uses.
     """
     row = await get_feature_by_id(db, dataset.table_name, keyed.gid)
-    if row is None or keyed.table_oid != await current_table_oid(
-        db, dataset.table_name
-    ):
+    if keyed.table_oid != await current_table_oid(db, dataset.table_name):
+        raise _feature_gone(await _roll_tile_generation(db, dataset))
+    if row is None:
         raise _feature_gone()
     if attempt <= keyed.attempt:
         return _Repeat(row, None, False, keyed.id, attempt, None)
