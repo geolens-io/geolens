@@ -1496,6 +1496,10 @@ class TestBulkRevokeEmbedTokens:
 # ---------------------------------------------------------------------------
 
 
+_KEPT_ORIGIN = "https://kept.example.com"
+_REMOVED_ORIGIN = "https://removed.example.com"
+
+
 class TestUpdateEmbedToken:
     """PATCH endpoint for updating embed token allowed_origins."""
 
@@ -1712,6 +1716,140 @@ class TestUpdateEmbedToken:
             assert tile_resp_new.status_code in (200, 204)
         finally:
             await _cleanup_data_table(test_db_session, table_name)
+
+    async def _token_with_two_origins(
+        self, client, admin_auth_header, test_db_session, cleanup_data_tables
+    ) -> tuple[uuid.UUID, str, str, str]:
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
+        table_name = cleanup_data_tables(f"embed_tighten_{uuid.uuid4().hex[:8]}")
+        dataset = await _create_private_dataset(
+            test_db_session, created_by=user_id, table_name=table_name
+        )
+        map_obj, _ = await _create_map_with_layer(
+            test_db_session, client, admin_auth_header, dataset, created_by=user_id
+        )
+        await _create_data_table(test_db_session, table_name)
+        create_resp = await client.post(
+            f"/maps/{map_obj.id}/embed-tokens/",
+            json={"allowed_origins": [_KEPT_ORIGIN, _REMOVED_ORIGIN]},
+            headers=admin_auth_header,
+        )
+        assert create_resp.status_code == 201, create_resp.text
+        body = create_resp.json()
+        return map_obj.id, body["id"], body["raw_token"], table_name
+
+    async def test_tightening_outlives_a_request_that_recaches_the_old_policy(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        cleanup_data_tables,
+        monkeypatch,
+    ):
+        """A tile request that lands between the PATCH's cache eviction and its
+        commit reads the still-committed old allowlist and caches it again.
+        The removed origin must still be refused once the PATCH commits."""
+        from app.modules.embed_tokens import router as embed_router
+
+        map_id, token_id, raw_token, table_name = await self._token_with_two_origins(
+            client, admin_auth_header, test_db_session, cleanup_data_tables
+        )
+        tile_url = f"/tiles/data.{table_name}/0/0/0.pbf"
+        token_key = tenant_cache_key(
+            f"embed_token:{hashlib.sha256(raw_token.encode()).hexdigest()}"
+        )
+
+        updated = asyncio.Event()
+        resume = asyncio.Event()
+        update_and_evict = embed_router.update_embed_token
+
+        async def update_then_wait(*args, **kwargs):
+            token = await update_and_evict(*args, **kwargs)
+            updated.set()
+            await resume.wait()
+            return token
+
+        monkeypatch.setattr(embed_router, "update_embed_token", update_then_wait)
+
+        patch_task = asyncio.ensure_future(
+            client.patch(
+                f"/maps/{map_id}/embed-tokens/{token_id}/",
+                json={"allowed_origins": [_KEPT_ORIGIN]},
+                headers=admin_auth_header,
+            )
+        )
+        try:
+            await asyncio.wait_for(updated.wait(), timeout=30)
+
+            racing = await client.get(
+                tile_url,
+                headers={"X-Embed-Token": raw_token, "Origin": _REMOVED_ORIGIN},
+            )
+            assert racing.status_code in (200, 204), racing.text
+            recached = await get_cache().get(token_key)
+            assert recached is not None and recached["is_valid"] is True
+            assert _REMOVED_ORIGIN in recached["allowed_origins"]
+        finally:
+            resume.set()
+            patch_resp = await patch_task
+        assert patch_resp.status_code == 200, patch_resp.text
+
+        after = await client.get(
+            tile_url, headers={"X-Embed-Token": raw_token, "Origin": _REMOVED_ORIGIN}
+        )
+        assert after.status_code == 403, after.text
+        kept = await client.get(
+            tile_url, headers={"X-Embed-Token": raw_token, "Origin": _KEPT_ORIGIN}
+        )
+        assert kept.status_code in (200, 204), kept.text
+        await _drain_embed_token_usage_bump_tasks()
+
+    async def test_tightening_holds_when_the_cache_eviction_fails(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        cleanup_data_tables,
+        monkeypatch,
+    ):
+        """The PATCH logs and ignores a failed eviction, so the entry cached
+        under the old allowlist is still in the store when it commits."""
+        map_id, token_id, raw_token, table_name = await self._token_with_two_origins(
+            client, admin_auth_header, test_db_session, cleanup_data_tables
+        )
+        tile_url = f"/tiles/data.{table_name}/0/0/0.pbf"
+        token_key = tenant_cache_key(
+            f"embed_token:{hashlib.sha256(raw_token.encode()).hexdigest()}"
+        )
+
+        warm = await client.get(
+            tile_url, headers={"X-Embed-Token": raw_token, "Origin": _REMOVED_ORIGIN}
+        )
+        assert warm.status_code in (200, 204), warm.text
+
+        cache = get_cache()
+        working_delete = cache.delete
+
+        async def delete_failing_for_token(key, *args, **kwargs):
+            if key == token_key:
+                raise ConnectionError("cache unavailable")
+            return await working_delete(key, *args, **kwargs)
+
+        with monkeypatch.context() as m:
+            m.setattr(cache, "delete", delete_failing_for_token)
+            patch_resp = await client.patch(
+                f"/maps/{map_id}/embed-tokens/{token_id}/",
+                json={"allowed_origins": [_KEPT_ORIGIN]},
+                headers=admin_auth_header,
+            )
+        assert patch_resp.status_code == 200, patch_resp.text
+        assert _REMOVED_ORIGIN in (await cache.get(token_key))["allowed_origins"]
+
+        after = await client.get(
+            tile_url, headers={"X-Embed-Token": raw_token, "Origin": _REMOVED_ORIGIN}
+        )
+        assert after.status_code == 403, after.text
+        await _drain_embed_token_usage_bump_tasks()
 
 
 # ---------------------------------------------------------------------------

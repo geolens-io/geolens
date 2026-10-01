@@ -628,7 +628,11 @@ async def update_embed_token(
     map_id: uuid.UUID,
     allowed_origins: list[str] | None,
 ) -> EmbedToken | None:
-    """Update allowed_origins on an embed token. Invalidates cache."""
+    """Update allowed_origins on an embed token.
+
+    Advances the revocation generation with the update, so after commit no
+    worker trusts a validation entry cached under the old policy.
+    """
     if not is_enterprise() and bool(allowed_origins):
         raise ValueError(ADVANCED_SHARING_ERROR)
 
@@ -638,6 +642,7 @@ async def update_embed_token(
 
     token.allowed_origins = allowed_origins or None
     await db.flush()
+    await bump_revocation_generation(db)
 
     try:
         cache = get_cache()
