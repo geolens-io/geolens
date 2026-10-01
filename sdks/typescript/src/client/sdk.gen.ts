@@ -2422,6 +2422,10 @@ export const deleteSingleFeatureDatasetsDatasetIdFeaturesGidDelete = <ThrowOnErr
  * Get Single Feature
  *
  * Get a single GeoJSON feature by gid.
+ *
+ * `table_id` identifies the data table the feature was read from. Send it
+ * with a later PUT, PATCH or DELETE of the feature so that write is refused
+ * if the dataset's data has been replaced in between.
  */
 export const getSingleFeatureDatasetsDatasetIdFeaturesGidGet = <ThrowOnError extends boolean = false>(options: Options<GetSingleFeatureDatasetsDatasetIdFeaturesGidGetData, ThrowOnError>): RequestResult<GetSingleFeatureDatasetsDatasetIdFeaturesGidGetResponses, GetSingleFeatureDatasetsDatasetIdFeaturesGidGetErrors, ThrowOnError> => (options.client ?? client).get<GetSingleFeatureDatasetsDatasetIdFeaturesGidGetResponses, GetSingleFeatureDatasetsDatasetIdFeaturesGidGetErrors, ThrowOnError>({
     security: [

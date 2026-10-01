@@ -2283,6 +2283,10 @@ export interface paths {
         /**
          * Get Single Feature
          * @description Get a single GeoJSON feature by gid.
+         *
+         *     `table_id` identifies the data table the feature was read from. Send it
+         *     with a later PUT, PATCH or DELETE of the feature so that write is refused
+         *     if the dataset's data has been replaced in between.
          */
         get: operations["get_single_feature_datasets__dataset_id__features__gid__get"];
         /**
@@ -25525,6 +25529,11 @@ export interface operations {
                             [key: string]: unknown;
                         };
                         /**
+                         * Table Id
+                         * @description Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if the table was replaced since.
+                         */
+                        table_id?: string | null;
+                        /**
                          * Tile Cache Version
                          * @description The dataset's tile_cache_version after this write committed. Send it as the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is forced to re-read the dataset instead of serving that worker's own cached snapshot.
                          */
@@ -25675,6 +25684,11 @@ export interface operations {
                         properties: {
                             [key: string]: unknown;
                         };
+                        /**
+                         * Table Id
+                         * @description Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if the table was replaced since.
+                         */
+                        table_id?: string | null;
                     };
                     "application/json": unknown;
                 };
@@ -25757,7 +25771,10 @@ export interface operations {
     };
     replace_single_feature_datasets__dataset_id__features__gid__put: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The `table_id` the feature was read with. If the dataset's data has been replaced since, the request is refused with 409 and code `dataset_replaced`, and nothing is written. */
+                table_id?: string;
+            };
             header?: never;
             path: {
                 dataset_id: string;
@@ -25816,6 +25833,11 @@ export interface operations {
                         properties: {
                             [key: string]: unknown;
                         };
+                        /**
+                         * Table Id
+                         * @description Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if the table was replaced since.
+                         */
+                        table_id?: string | null;
                         /**
                          * Tile Cache Version
                          * @description The dataset's tile_cache_version after this write committed. Send it as the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is forced to re-read the dataset instead of serving that worker's own cached snapshot.
@@ -25912,7 +25934,10 @@ export interface operations {
     };
     delete_single_feature_datasets__dataset_id__features__gid__delete: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The `table_id` the feature was read with. If the dataset's data has been replaced since, the request is refused with 409 and code `dataset_replaced`, and nothing is written. */
+                table_id?: string;
+            };
             header?: never;
             path: {
                 dataset_id: string;
@@ -26018,7 +26043,10 @@ export interface operations {
     };
     patch_single_feature_datasets__dataset_id__features__gid__patch: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The `table_id` the feature was read with. If the dataset's data has been replaced since, the request is refused with 409 and code `dataset_replaced`, and nothing is written. */
+                table_id?: string;
+            };
             header?: never;
             path: {
                 dataset_id: string;
@@ -26077,6 +26105,11 @@ export interface operations {
                         properties: {
                             [key: string]: unknown;
                         };
+                        /**
+                         * Table Id
+                         * @description Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if the table was replaced since.
+                         */
+                        table_id?: string | null;
                         /**
                          * Tile Cache Version
                          * @description The dataset's tile_cache_version after this write committed. Send it as the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is forced to re-read the dataset instead of serving that worker's own cached snapshot.

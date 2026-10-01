@@ -116,6 +116,10 @@ def sync_detailed(
 
      Get a single GeoJSON feature by gid.
 
+    `table_id` identifies the data table the feature was read from. Send it
+    with a later PUT, PATCH or DELETE of the feature so that write is refused
+    if the dataset's data has been replaced in between.
+
     Args:
         dataset_id (UUID):
         gid (int):
@@ -152,6 +156,10 @@ def sync(
 
      Get a single GeoJSON feature by gid.
 
+    `table_id` identifies the data table the feature was read from. Send it
+    with a later PUT, PATCH or DELETE of the feature so that write is refused
+    if the dataset's data has been replaced in between.
+
     Args:
         dataset_id (UUID):
         gid (int):
@@ -182,6 +190,10 @@ async def asyncio_detailed(
     """Get Single Feature
 
      Get a single GeoJSON feature by gid.
+
+    `table_id` identifies the data table the feature was read from. Send it
+    with a later PUT, PATCH or DELETE of the feature so that write is refused
+    if the dataset's data has been replaced in between.
 
     Args:
         dataset_id (UUID):
@@ -216,6 +228,10 @@ async def asyncio(
     """Get Single Feature
 
      Get a single GeoJSON feature by gid.
+
+    `table_id` identifies the data table the feature was read from. Send it
+    with a later PUT, PATCH or DELETE of the feature so that write is refused
+    if the dataset's data has been replaced in between.
 
     Args:
         dataset_id (UUID):

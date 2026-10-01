@@ -18929,6 +18929,12 @@ export type CreateFeatureDatasetsDatasetIdFeaturesPostResponses = {
             [key: string]: unknown;
         };
         /**
+         * Table Id
+         *
+         * Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if the table was replaced since.
+         */
+        table_id?: string | null;
+        /**
          * Tile Cache Version
          *
          * The dataset's tile_cache_version after this write committed. Send it as the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is forced to re-read the dataset instead of serving that worker's own cached snapshot.
@@ -18951,7 +18957,14 @@ export type DeleteSingleFeatureDatasetsDatasetIdFeaturesGidDeleteData = {
          */
         gid: number;
     };
-    query?: never;
+    query?: {
+        /**
+         * Table Id
+         *
+         * The `table_id` the feature was read with. If the dataset's data has been replaced since, the request is refused with 409 and code `dataset_replaced`, and nothing is written.
+         */
+        table_id?: string;
+    };
     url: '/datasets/{dataset_id}/features/{gid}';
 };
 
@@ -19062,7 +19075,7 @@ export type GetSingleFeatureDatasetsDatasetIdFeaturesGidGetResponses = {
     /**
      * GeoJSONFeature
      *
-     * A single GeoJSON Feature.
+     * A GeoJSON Feature, plus the id of the table it was read from.
      */
     200: {
         /**
@@ -19110,6 +19123,12 @@ export type GetSingleFeatureDatasetsDatasetIdFeaturesGidGetResponses = {
         properties: {
             [key: string]: unknown;
         };
+        /**
+         * Table Id
+         *
+         * Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if the table was replaced since.
+         */
+        table_id?: string | null;
     };
 };
 
@@ -19127,7 +19146,14 @@ export type PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchData = {
          */
         gid: number;
     };
-    query?: never;
+    query?: {
+        /**
+         * Table Id
+         *
+         * The `table_id` the feature was read with. If the dataset's data has been replaced since, the request is refused with 409 and code `dataset_replaced`, and nothing is written.
+         */
+        table_id?: string;
+    };
     url: '/datasets/{dataset_id}/features/{gid}';
 };
 
@@ -19225,6 +19251,12 @@ export type PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchResponses = {
             [key: string]: unknown;
         };
         /**
+         * Table Id
+         *
+         * Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if the table was replaced since.
+         */
+        table_id?: string | null;
+        /**
          * Tile Cache Version
          *
          * The dataset's tile_cache_version after this write committed. Send it as the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is forced to re-read the dataset instead of serving that worker's own cached snapshot.
@@ -19247,7 +19279,14 @@ export type ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutData = {
          */
         gid: number;
     };
-    query?: never;
+    query?: {
+        /**
+         * Table Id
+         *
+         * The `table_id` the feature was read with. If the dataset's data has been replaced since, the request is refused with 409 and code `dataset_replaced`, and nothing is written.
+         */
+        table_id?: string;
+    };
     url: '/datasets/{dataset_id}/features/{gid}';
 };
 
@@ -19344,6 +19383,12 @@ export type ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutResponses = {
         properties: {
             [key: string]: unknown;
         };
+        /**
+         * Table Id
+         *
+         * Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if the table was replaced since.
+         */
+        table_id?: string | null;
         /**
          * Tile Cache Version
          *
