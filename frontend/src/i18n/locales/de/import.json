@@ -332,7 +332,7 @@
     "internalFailure": "Die Registrierung ist aus einem Grund fehlgeschlagen, den der Server nicht sicher melden konnte. Bitten Sie einen Betreiber, das Server-Protokoll zu prüfen.",
     "refusal": {
       "source_srid_undeclared": "Die geom-Spalte deklariert keine SRID, daher kann GeoLens nicht erkennen, wo ihre Koordinaten liegen. Legen Sie die SRID fest, zum Beispiel mit UpdateGeometrySRID, und registrieren Sie die Tabelle dann.",
-      "source_gid_unusable": "GeoLens identifiziert Features über eine Spalte namens gid, und die gid dieser Tabelle ist keine eindeutige Ganzzahl mit NOT NULL, wie etwa ein Primärschlüssel. Korrigieren Sie die Spalte oder benennen Sie sie um, damit GeoLens eine eigene hinzufügen kann, und registrieren Sie die Tabelle dann."
+      "source_gid_unusable": "GeoLens identifiziert Features über eine Spalte namens gid: eine eindeutige Ganzzahl mit NOT NULL, etwa ein Primärschlüssel, in einer Tabelle, von der keine andere Tabelle erbt. Diese Tabelle erfüllt das nicht. Korrigieren Sie die Spalte gid oder benennen Sie sie um, damit GeoLens eine eigene hinzufügen kann, und registrieren Sie die Tabelle dann."
     },
     "unknownError": "Unbekannter Fehler",
     "searchPlaceholder": "Tabellen suchen…",

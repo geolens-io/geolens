@@ -34,14 +34,34 @@ _KEYED = {
     "gid_primary_key": "gid serial PRIMARY KEY, name text, geom geometry(Point, 4326)",
 }
 
+_INHERITED = "CREATE TABLE data.{t}_kid () INHERITS (data.{t})"
+
 _UNKEYABLE = {
-    "text": ("gid text PRIMARY KEY", "('a'), ('b')"),
-    "duplicated": ("gid integer NOT NULL", "(1), (1)"),
-    "nullable": ("gid integer UNIQUE", "(NULL), (1)"),
+    "text": (
+        "gid text PRIMARY KEY",
+        ["INSERT INTO data.{t} (gid) VALUES ('a'), ('b')"],
+    ),
+    "duplicated": (
+        "gid integer NOT NULL",
+        ["INSERT INTO data.{t} (gid) VALUES (1), (1)"],
+    ),
+    "nullable": (
+        "gid integer UNIQUE",
+        ["INSERT INTO data.{t} (gid) VALUES (NULL), (1)"],
+    ),
     "not_unique_alone": (
         "gid integer NOT NULL, part integer, UNIQUE (gid, part)",
-        "(1), (2)",
+        ["INSERT INTO data.{t} (gid) VALUES (1), (2)"],
     ),
+    "inherited_gid": (
+        "gid integer PRIMARY KEY",
+        [
+            _INHERITED,
+            "INSERT INTO data.{t} (gid) VALUES (1)",
+            "INSERT INTO data.{t}_kid (gid) VALUES (1)",
+        ],
+    ),
+    "inherited_without_gid": ("name text", [_INHERITED]),
 }
 
 
@@ -172,17 +192,16 @@ async def test_a_gid_readers_cannot_key_on_is_refused_and_flagged(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session,
-    shape: tuple[str, str],
+    shape: tuple[str, list[str]],
 ) -> None:
     """Registration answers 400 with the gid reason, and discovery gives its code."""
-    columns, values = shape
+    columns, statements = shape
     table = f"unkeyed_{uuid.uuid4().hex[:10]}"
     await test_db_session.execute(
         text(f"CREATE TABLE data.{table} ({columns}, geom geometry(Point, 4326))")
     )
-    await test_db_session.execute(
-        text(f"INSERT INTO data.{table} (gid) VALUES {values}")
-    )
+    for statement in statements:
+        await test_db_session.execute(text(statement.format(t=table)))
     await test_db_session.commit()
     before = await _columns(test_db_session, table)
     try:
@@ -220,7 +239,12 @@ async def test_a_gid_readers_cannot_key_on_is_refused_and_flagged(
 
 
 async def _register_recreated(
-    client: AsyncClient, headers: dict, session, table: str, columns: str
+    client: AsyncClient,
+    headers: dict,
+    session,
+    table: str,
+    columns: str,
+    statements: tuple[str, ...] = (),
 ) -> str:
     """Register a keyed table, then drop and recreate it with ``columns``, as ``ogr2ogr -overwrite`` does."""
     await session.execute(
@@ -247,6 +271,8 @@ async def _register_recreated(
             f"VALUES ('b', {_POINTS}), ('c', {_POINTS})"
         )
     )
+    for statement in statements:
+        await session.execute(text(statement.format(t=table)))
     await session.commit()
     return response.json()["dataset_id"]
 
@@ -310,18 +336,30 @@ async def test_a_table_recreated_without_gid_is_keyed_again_by_refresh(
         await _drop(test_db_session, table)
 
 
+_UNKEYABLE_RECREATED = {
+    "text_gid": ("gid text, name text, geom geometry(Point, 4326)", ()),
+    "inherited": (
+        "gid serial PRIMARY KEY, name text, geom geometry(Point, 4326)",
+        (_INHERITED,),
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    "shape", list(_UNKEYABLE_RECREATED.values()), ids=list(_UNKEYABLE_RECREATED)
+)
 async def test_a_table_recreated_with_an_unusable_gid_fails_refresh_with_its_code(
-    client: AsyncClient, admin_auth_header: dict, test_db_session
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    shape: tuple[str, tuple[str, ...]],
 ) -> None:
-    """A refresh of a table recreated with a text gid fails with the gid code and leaves it unaltered."""
+    """A refresh of a table recreated with an unusable gid fails with the gid code and leaves it unaltered."""
+    columns, statements = shape
     table = f"recreated_{uuid.uuid4().hex[:10]}"
     try:
         dataset_id = await _register_recreated(
-            client,
-            admin_auth_header,
-            test_db_session,
-            table,
-            "gid text, name text, geom geometry(Point, 4326)",
+            client, admin_auth_header, test_db_session, table, columns, statements
         )
         before = await _columns(test_db_session, table)
 

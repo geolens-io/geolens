@@ -435,26 +435,32 @@ async def grant_reader_access(
     # this GRANT atomically.
 
 
-# Readers page on ``gid > :after ORDER BY gid``, fetch and edit one feature by
-# ``WHERE gid = :gid`` and tile with it as the feature id, so it must name one
-# row. A view or foreign table carries no index to prove that, so only its
-# type is checked. Expects ``a``, the column's ``pg_attribute`` row.
-GID_KEYABLE_SQL = """(
-    a.atttypid IN ('int2'::regtype, 'int4'::regtype, 'int8'::regtype)
-    AND (
-        (SELECT relkind FROM pg_class WHERE oid = a.attrelid) NOT IN ('r', 'p')
-        OR (
-            a.attnotnull
-            AND NOT EXISTS (
-                SELECT 1 FROM pg_constraint nn
-                WHERE nn.conrelid = a.attrelid AND nn.contype = 'n'
-                  AND NOT nn.convalidated AND nn.conkey = ARRAY[a.attnum]
-            )
-            AND EXISTS (
-                SELECT 1 FROM pg_index i
-                WHERE i.indrelid = a.attrelid AND i.indisunique AND i.indisvalid
-                  AND i.indpred IS NULL AND i.indnkeyatts = 1
-                  AND i.indkey[0] = a.attnum
+# Readers page, fetch, edit and tile features by gid, so it must name one row
+# of everything a query on the table returns, inheriting tables' rows included.
+# Views and foreign tables have no index to check. Expects ``c``, the table's
+# pg_class row, and ``a``, its gid pg_attribute row or NULLs.
+GID_UNUSABLE_SQL = """(
+    (c.relkind = 'r' AND EXISTS (SELECT 1 FROM pg_inherits h WHERE h.inhparent = c.oid))
+    OR (
+        a.attnum IS NOT NULL
+        AND NOT (
+            a.atttypid IN ('int2'::regtype, 'int4'::regtype, 'int8'::regtype)
+            AND (
+                c.relkind NOT IN ('r', 'p')
+                OR (
+                    a.attnotnull
+                    AND NOT EXISTS (
+                        SELECT 1 FROM pg_constraint nn
+                        WHERE nn.conrelid = c.oid AND nn.contype = 'n'
+                          AND NOT nn.convalidated AND nn.conkey = ARRAY[a.attnum]
+                    )
+                    AND EXISTS (
+                        SELECT 1 FROM pg_index i
+                        WHERE i.indrelid = c.oid AND i.indisunique AND i.indisvalid
+                          AND i.indpred IS NULL AND i.indnkeyatts = 1
+                          AND i.indkey[0] = a.attnum
+                    )
+                )
             )
         )
     )
@@ -466,18 +472,26 @@ async def probe_gid(
 ) -> bool | None:
     """Whether readers can identify this table's features by its ``gid``.
 
-    None when the table has no ``gid`` column.
+    None when the table has no ``gid`` column and GeoLens can add one.
     """
-    return await session.scalar(
-        text(
-            # codeql[py/sql-injection] GID_KEYABLE_SQL is a constant; names are bound
-            f"SELECT {GID_KEYABLE_SQL} FROM pg_attribute a "
-            "WHERE a.attrelid = to_regclass("
-            "format('%I.%I', CAST(:schema AS text), CAST(:table AS text))) "
-            "AND a.attname = 'gid' AND NOT a.attisdropped"
-        ),
-        {"schema": schema, "table": table_name},
-    )
+    row = (
+        await session.execute(
+            text(
+                # codeql[py/sql-injection] GID_UNUSABLE_SQL is a constant; names are bound
+                f"SELECT a.attnum IS NOT NULL AS present, {GID_UNUSABLE_SQL} AS unusable "
+                "FROM pg_class c LEFT JOIN pg_attribute a "
+                "ON a.attrelid = c.oid AND a.attname = 'gid' AND NOT a.attisdropped "
+                "WHERE c.oid = to_regclass("
+                "format('%I.%I', CAST(:schema AS text), CAST(:table AS text)))"
+            ),
+            {"schema": schema, "table": table_name},
+        )
+    ).one_or_none()
+    if row is None:
+        return None
+    if row.unusable:
+        return False
+    return True if row.present else None
 
 
 async def add_gid_column(

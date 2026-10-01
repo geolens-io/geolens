@@ -401,7 +401,7 @@
     "internalFailure": "Registration failed for a reason the server could not report safely. Ask an operator to check the server log.",
     "refusal": {
       "source_srid_undeclared": "Its geom column declares no SRID, so GeoLens cannot tell where its coordinates are. Set the SRID, for example with UpdateGeometrySRID, then register the table.",
-      "source_gid_unusable": "GeoLens identifies features by a column named gid, and this table's gid is not an integer that is NOT NULL and unique, such as a primary key. Fix the column, or rename it so GeoLens can add its own, then register the table."
+      "source_gid_unusable": "GeoLens identifies features by a column named gid: an integer that is NOT NULL and unique, such as a primary key, in a table no other table inherits from. This table does not meet that. Fix the gid column, or rename it so GeoLens can add its own, then register the table."
     },
     "unknownError": "Unknown error",
     "searchPlaceholder": "Search tables…",

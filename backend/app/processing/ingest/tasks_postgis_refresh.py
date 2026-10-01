@@ -576,9 +576,10 @@ class _PostgisRefresh:
                     raise PostgisRefreshError(
                         "The registered table has no gid column GeoLens can "
                         "identify features by: an integer that is NOT NULL "
-                        "and unique. The catalog entry is unchanged; fix the "
-                        "column, or rename it so GeoLens can add its own, then "
-                        "refresh again.",
+                        "and unique, such as a primary key, in a table no "
+                        "other table inherits from. The catalog entry is "
+                        "unchanged; fix the gid column, or rename it so "
+                        "GeoLens can add its own, then refresh again.",
                         error_code=UNUSABLE_GID_CODE,
                     )
                 self.measurement = await measure(

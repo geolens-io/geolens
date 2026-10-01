@@ -35,7 +35,7 @@ from app.core.db.tenant_session import defer_async_with_tenant
 from app.platform.dataset_origin import set_postgis_origin
 from app.platform.extensions import get_processing_port
 from app.processing.ingest.metadata import (
-    GID_KEYABLE_SQL,
+    GID_UNUSABLE_SQL,
     add_4326_column,
     add_gid_column,
     linearize_existing_4326,
@@ -86,10 +86,10 @@ UNDECLARED_SRID_REASON = (
 )
 
 UNUSABLE_GID_REASON = (
-    "GeoLens identifies features by a column named gid, and this table's gid "
-    "is not an integer that is NOT NULL and unique, such as a primary "
-    "key. Fix the column, or rename it so GeoLens can add its own, then "
-    "register the table."
+    "GeoLens identifies features by a column named gid: an integer that is NOT "
+    "NULL and unique, such as a primary key, in a table no other table "
+    "inherits from. This table does not meet that. Fix the gid column, or "
+    "rename it so GeoLens can add its own, then register the table."
 )
 
 
@@ -147,7 +147,7 @@ async def discover_unregistered_tables(
                 gc.type AS geometry_type,
                 gc.srid,
                 c.reltuples::bigint AS estimated_rows,
-                a.attnum IS NOT NULL AND NOT {GID_KEYABLE_SQL} AS gid_unusable
+                {GID_UNUSABLE_SQL} AS gid_unusable
             FROM information_schema.tables t
             LEFT JOIN catalog.datasets d ON d.table_name = t.table_name
                 {tenant_join_clause}

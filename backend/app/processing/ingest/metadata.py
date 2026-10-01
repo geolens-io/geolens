@@ -76,7 +76,7 @@ from app.processing.ingest.metadata_projection import (
     REPAIR_NO_GEOMETRY,  # noqa: F401
     Geom4326Repair,  # noqa: F401
     Geom4326State,  # noqa: F401
-    GID_KEYABLE_SQL,  # noqa: F401
+    GID_UNUSABLE_SQL,  # noqa: F401
     add_4326_column,  # noqa: F401
     add_gid_column,  # noqa: F401
     ensure_geom_4326_gist_index,  # noqa: F401
@@ -102,7 +102,7 @@ from app.processing.ingest.metadata_sql import (
 )
 
 __all__ = [
-    "GID_KEYABLE_SQL",
+    "GID_UNUSABLE_SQL",
     "REPAIR_APPLIED",
     "REPAIR_GENERATED",
     "REPAIR_NO_GEOMETRY",
