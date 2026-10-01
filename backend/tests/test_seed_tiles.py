@@ -1,12 +1,17 @@
 """Unit tests for seed_tiles tile math functions."""
 
 import math
+import sys
+import uuid
+from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 
 from scripts.seed_tiles import (
     bbox_to_tiles,
     lat_to_tile_y,
     lng_to_tile_x,
+    main,
     spec_bbox_to_tiles,
 )
 
@@ -161,3 +166,30 @@ class TestSpecBboxToTiles:
         crossing = list(spec_bbox_to_tiles(170, -10, -170, 10, z=6))
         world = list(bbox_to_tiles(-180, -10, 180, 10, z=6))
         assert 0 < len(crossing) < len(world) / 4
+
+
+class TestMainOutput:
+    @pytest.mark.anyio
+    async def test_does_not_print_the_redis_url(self, monkeypatch, capsys):
+        from app.core.config import settings
+
+        secret = uuid.uuid4().hex
+        url = f"redis://seeder:{secret}@cache.internal:6379/0"
+        pool = MagicMock()
+        pool.fetch = AsyncMock(return_value=[])
+        monkeypatch.setattr(settings, "redis_url", url)
+        monkeypatch.setattr(
+            "app.processing.tiles.pool.init_tile_pool", AsyncMock(return_value=pool)
+        )
+        monkeypatch.setattr("app.processing.tiles.pool.close_tile_pool", AsyncMock())
+        monkeypatch.setattr(
+            "app.platform.cache.tile_cache.TileCacheProvider", MagicMock()
+        )
+        monkeypatch.setattr(sys, "argv", ["seed_tiles.py", "--dry-run"])
+
+        await main()
+
+        out = capsys.readouterr()
+        assert "Redis cache ready" in out.out
+        assert secret not in out.out + out.err
+        assert "cache.internal" not in out.out + out.err

@@ -291,7 +291,7 @@ async def main() -> None:
     pool = await init_tile_pool()
 
     cache = TileCacheProvider(url=settings.redis_url)
-    print(f"Redis cache ready: {settings.redis_url}")
+    print("Redis cache ready.")
 
     # Query datasets
     if args.dataset:
