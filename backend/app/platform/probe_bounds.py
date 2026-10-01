@@ -71,9 +71,8 @@ async def bounded_probe_exchange(
     # Nothing may go between the marker below and the call: an inserted
     # comment there silently disarms the suppression. Prose goes above.
     # codeql[py/full-ssrf] fix(#1770): the caller validated this exact URL with validate_url_for_ssrf immediately before invoking bounded_probe_read, and the client comes from make_safe_client, whose transport re-resolves, validates and pins the IP at connect time and revalidates every redirect hop
-    async with client.stream(
-        method, url, headers=request_headers, json=json_body
-    ) as response:
+    stream = client.stream(method, url, headers=request_headers, json=json_body)
+    async with stream as response:
         response.raise_for_status()
         body = await read_bounded_body(response, MAX_DOCUMENT_BYTES)
     require_decodable(
