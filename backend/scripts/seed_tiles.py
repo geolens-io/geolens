@@ -155,9 +155,16 @@ _DATASET_QUERY = """
 
 _DATASET_QUERY_FILTERED = _DATASET_QUERY + "\n      AND d.table_name = $1"
 
-_STILL_REGISTERED = (
-    "SELECT true FROM catalog.datasets WHERE id = $1 AND table_name = $2"
+# The COALESCE defaults match what the tile route reads a null counter as.
+_STILL_CURRENT = (
+    "SELECT true FROM catalog.datasets WHERE id = $1 AND table_name = $2 "
+    "AND COALESCE(publication_version, 0) = $3 "
+    "AND COALESCE(tile_cache_version, 1) = $4"
 )
+
+
+class _DatasetChanged(Exception):
+    """The dataset left the catalog or moved to another cache generation."""
 
 
 # ---------------------------------------------------------------------------
@@ -170,7 +177,8 @@ async def _seed_dataset(
     cache,
     dataset_id,
     table_name: str,
-    cache_key: str,
+    publication_version: int,
+    tile_cache_version: int,
     columns,
     tile_columns: list[str] | None,
     cache_ttl: int,
@@ -183,6 +191,11 @@ async def _seed_dataset(
     Returns:
         (seeded_count, error_count)
     """
+    from app.processing.tiles.cache_key import tile_cache_key
+
+    cache_key = tile_cache_key(
+        table_name, dataset_id, publication_version, tile_cache_version, None
+    )
     total = len(all_tiles)
     if dry_run:
         print(f"  [dry-run] {table_name}: {total} tiles (would seed)")
@@ -196,6 +209,7 @@ async def _seed_dataset(
     # Shared mutable state via list (avoids nonlocal for compatibility)
     counter = [0]
     errors = [0]
+    changed = [False]
 
     async def seed_one(z: int, x: int, y: int) -> None:
         async with sem:
@@ -205,8 +219,17 @@ async def _seed_dataset(
                 # The tile route asks the catalog the same question before it
                 # renders; without it a dataset deleted mid-run, whose name a
                 # stranger's table now holds, would be cached under its key.
-                if not await pool.fetchval(_STILL_REGISTERED, dataset_id, table_name):
-                    raise RuntimeError("dataset is no longer registered")
+                # A moved publication or content version means the key is no
+                # longer the one the route reads, so the rest is left unseeded.
+                if changed[0] or not await pool.fetchval(
+                    _STILL_CURRENT,
+                    dataset_id,
+                    table_name,
+                    publication_version,
+                    tile_cache_version,
+                ):
+                    changed[0] = True
+                    raise _DatasetChanged
                 additional_columns, cols_key = parse_cols_param(
                     None, columns, z, tile_columns=tile_columns
                 )
@@ -235,6 +258,8 @@ async def _seed_dataset(
                         ttl=cache_ttl,
                         cols_key=cols_key,
                     )
+            except _DatasetChanged:
+                errors[0] += 1
             except Exception as exc:
                 logger.warning(
                     "seed_tile_failed",
@@ -253,6 +278,12 @@ async def _seed_dataset(
 
     tasks = [asyncio.create_task(seed_one(z, x, y)) for z, x, y in all_tiles]
     await asyncio.gather(*tasks)
+
+    if changed[0]:
+        print(
+            f"  Stopped {table_name}: the dataset changed while seeding;"
+            f" {errors[0]} tile(s) not seeded. Rerun to warm its new state."
+        )
 
     elapsed = time.monotonic() - start
     rate = counter[0] / elapsed if elapsed > 0 else 0
@@ -316,7 +347,6 @@ async def main() -> None:
 
     from app.core.config import settings
     from app.core.tenancy import is_multi_tenant
-    from app.processing.tiles.cache_key import tile_cache_key
     from app.processing.tiles.pool import close_tile_pool, init_tile_pool
     from app.platform.cache.tile_cache import TileCacheProvider
 
@@ -405,13 +435,8 @@ async def main() -> None:
             cache=cache,
             dataset_id=row["dataset_id"],
             table_name=table_name,
-            cache_key=tile_cache_key(
-                table_name,
-                row["dataset_id"],
-                row["publication_version"] or 0,
-                row["tile_cache_version"] or 1,
-                None,
-            ),
+            publication_version=row["publication_version"] or 0,
+            tile_cache_version=row["tile_cache_version"] or 1,
             columns=columns,
             tile_columns=row["tile_columns"],
             cache_ttl=cache_ttl,

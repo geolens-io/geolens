@@ -134,6 +134,23 @@ async def test_a_seeded_tile_is_not_served_after_the_publication_changes(
         await _drop_table(test_db_session, table)
 
 
+async def _seed_tiles(cache, dataset, tiles):
+    return await seed_tiles._seed_dataset(
+        pool=pool_module.get_tile_pool(),
+        cache=cache,
+        dataset_id=dataset.id,
+        table_name=dataset.table_name,
+        publication_version=0,
+        tile_cache_version=1,
+        columns=_COLUMNS,
+        tile_columns=None,
+        cache_ttl=60,
+        all_tiles=tiles,
+        concurrency=1,
+        dry_run=False,
+    )
+
+
 async def test_a_dataset_deleted_during_seeding_gets_no_cache_entry(
     test_db_session,
 ):
@@ -147,21 +164,47 @@ async def test_a_dataset_deleted_during_seeding_gets_no_cache_entry(
         )
         await test_db_session.commit()
 
-        seeded, errors = await seed_tiles._seed_dataset(
-            pool=pool_module.get_tile_pool(),
-            cache=cache,
-            dataset_id=dataset.id,
-            table_name=table,
-            cache_key=key,
-            columns=_COLUMNS,
-            tile_columns=None,
-            cache_ttl=60,
-            all_tiles=[(0, 0, 0)],
-            concurrency=1,
-            dry_run=False,
-        )
+        seeded, errors = await _seed_tiles(cache, dataset, [(0, 0, 0)])
 
         assert (seeded, errors) == (0, 1)
         assert await cache.get(key, 0, 0, 0) is None
+    finally:
+        await _drop_table(test_db_session, table)
+
+
+@pytest.mark.parametrize("column", ["tile_cache_version", "publication_version"])
+async def test_seeding_stops_when_the_dataset_changes_generation(
+    test_db_session, capsys, column
+):
+    dataset = await _public_point_dataset(test_db_session)
+    table = dataset.table_name
+    key = tile_cache_key(table, dataset.id, 0, 1, None)
+    tiles = [(1, 0, 0), (1, 1, 0), (1, 0, 1), (1, 1, 1), (0, 0, 0)]
+
+    class _ChangesTheDatasetAfterTwoWrites(InMemoryTileCacheProvider):
+        writes = 0
+
+        async def set(self, *args, **kwargs):
+            await super().set(*args, **kwargs)
+            self.writes += 1
+            if self.writes == 2:
+                await test_db_session.execute(
+                    text(
+                        f"UPDATE catalog.datasets SET {column} = {column} + 1 "
+                        "WHERE id = :id"
+                    ),
+                    {"id": dataset.id},
+                )
+                await test_db_session.commit()
+
+    cache = _ChangesTheDatasetAfterTwoWrites()
+    try:
+        seeded, errors = await _seed_tiles(cache, dataset, tiles)
+
+        assert (seeded, errors) == (2, 3)
+        assert cache.writes == 2
+        for z, x, y in tiles[2:]:
+            assert await cache.get(key, z, x, y) is None
+        assert "Stopped" in capsys.readouterr().out
     finally:
         await _drop_table(test_db_session, table)
