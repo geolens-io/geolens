@@ -913,10 +913,26 @@ async def preview_file(
         geometry_type=info["geometry_type"],
         feature_count=info["feature_count"],
         sample_rows=info["sample_rows"],
-        layer_name=layer_name if layer_name else info["layer_name"],
+        layer_name=layer_name
+        if layer_name
+        else _display_layer_name(info["layer_name"], file_path, job.source_filename),
         layers=info.get("all_layers"),
         detected_geometry_columns=detected_geom_cols,
     )
+
+
+def _display_layer_name(
+    ogr_layer_name: str, staged_path: str, source_filename: str | None
+) -> str:
+    """The layer name to show in a preview.
+
+    Single-layer formats (GeoJSON, CSV) take the OGR layer name from the
+    staged file's name, which carries a job-id prefix; the uploaded file's own
+    stem is the name the user recognises.
+    """
+    if source_filename and ogr_layer_name == Path(staged_path).stem:
+        return Path(source_filename).stem
+    return ogr_layer_name
 
 
 def _pick_commit_subclass(job: "IngestJob") -> type[BaseCommitRequest]:

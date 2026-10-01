@@ -177,3 +177,32 @@ async def test_resolve_file_path_drains_and_cleans_cancelled_download(
         await task
 
     assert list(tmp_path.iterdir()) == []
+
+
+async def test_preview_names_single_layer_after_the_uploaded_file(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    tmp_path,
+) -> None:
+    job = await _create_s3_job(test_db_session)
+    staged = tmp_path / f"{job.id}_preview.geojson"
+    staged.write_text('{"type":"FeatureCollection","features":[]}')
+    result = _preview_result() | {"layer_name": staged.stem}
+
+    with (
+        patch(
+            "app.processing.ingest.router.resolve_file_path",
+            new=AsyncMock(return_value=str(staged)),
+        ),
+        patch(
+            "app.processing.ingest.router.run_ogrinfo_preview",
+            new=AsyncMock(return_value=result),
+        ),
+    ):
+        response = await client.post(
+            f"/ingest/preview/{job.id}", headers=admin_auth_header
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["layer_name"] == "preview"
