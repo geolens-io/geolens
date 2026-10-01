@@ -8,9 +8,8 @@ import {
   QueryClient,
   QueryClientProvider,
 } from '@tanstack/react-query';
-import { Toaster } from 'sonner';
 import { ThemeProvider } from '@/components/theme-provider';
-import { useTheme } from '@/components/theme-provider';
+import { ThemedToaster } from '@/components/ThemedToaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { initializeI18n } from '@/i18n';
 import { AppErrorBoundary } from '@/components/error';
@@ -73,14 +72,6 @@ const queryClient = new QueryClient({
 // fix(#430 codex r6): evict every cached query when the signed-in identity
 // changes so one user's cached rows never render for the next (see module doc).
 wireAuthCacheReset(queryClient);
-
-function ThemedToaster() {
-  const { resolvedTheme } = useTheme();
-  // #305: richColors differentiates success/error/warning/info by
-  // hue (was a single neutral surface for all 183 call sites); closeButton
-  // makes every toast dismissable.
-  return <Toaster theme={resolvedTheme} richColors closeButton />;
-}
 
 const router = createBrowserRouter(createRoutesFromElements(appRoutes));
 

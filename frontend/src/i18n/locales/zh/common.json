@@ -17,6 +17,7 @@
   "reload": "重新加载页面",
   "noResults": "未找到结果",
   "notAvailable": "N/A",
+  "notificationsRegion": "通知",
   "none": "无",
   "yesterday": "昨天 {{time}}",
   "origin": {
