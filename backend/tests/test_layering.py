@@ -1334,7 +1334,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/core/persistent_config.py": 943,
     # Backfill batches share vector/model validation and progress/cancellation
     # semantics.
-    "backend/app/processing/embeddings/backfill.py": 933,
+    "backend/app/processing/embeddings/backfill.py": 936,
     # Reupload preview, compatibility and staged commit share an endpoint lifecycle.
     "backend/app/modules/catalog/datasets/api/router_reupload.py": 1540,
     # VRT creation and regeneration share publication, owed-object records and

@@ -21,15 +21,17 @@ async def embed_record(record_id: str) -> None:
     """
     from app.core.db import async_session
     from app.platform.extensions import get_processing_port
-    from app.processing.embeddings.service import generate_and_store_embedding
-    from app.processing.raster.models import RasterAsset
+    from app.processing.embeddings.service import (
+        content_fields,
+        generate_and_store_embedding,
+        raster_summary_of,
+    )
     from sqlalchemy import select
 
     import uuid
 
     port = get_processing_port()
     Record = port.get_record_orm_class()
-    Dataset = port.get_dataset_orm_class()
 
     async with async_session() as session:
         result = await session.execute(
@@ -46,58 +48,15 @@ async def embed_record(record_id: str) -> None:
             logger.warning("Record not found for embedding", record_id=record_id)
             return
 
-        keyword_list = (
-            [kw.keyword for kw in record.keywords] if record.keywords else None
-        )
-
-        # Build raster summary for raster_dataset records
-        raster_summary: str | None = None
-        if record.record_type == "raster_dataset":
-            ds_result = await session.execute(
-                select(Dataset).where(Dataset.record_id == record.id)
-            )
-            dataset = ds_result.scalar_one_or_none()
-            if dataset is not None:
-                ra_result = await session.execute(
-                    select(RasterAsset).where(RasterAsset.dataset_id == dataset.id)
-                )
-                ra = ra_result.scalar_one_or_none()
-                if ra is not None:
-                    size_str = (
-                        f"{ra.size_bytes / (1024 * 1024):.1f}MB"
-                        if ra.size_bytes
-                        else "unknown size"
-                    )
-                    # fix(#430): res_x may be NULL; formatting None with :.6f raised
-                    # TypeError and left the raster with no embedding.
-                    res_str = (
-                        f"{ra.res_x:.6f} resolution, " if ra.res_x is not None else ""
-                    )
-                    raster_summary = (
-                        f"GeoTIFF, {ra.band_count} band(s), {ra.dtype}, "
-                        f"{res_str}EPSG:{ra.epsg}, "
-                        f"{ra.compression} compression, {size_str}"
-                    )
+        fields = content_fields(record)
+        raster_summary = await raster_summary_of(session, record)
 
         await generate_and_store_embedding(
             session=session,
             record_id=record.id,
-            title=record.title,
-            summary=record.summary,
-            keywords=keyword_list,
-            lineage=record.lineage_summary,
             raster_summary=raster_summary,
-            localized_texts=[
-                "\n".join(
-                    part
-                    for part in (
-                        f"{translation.language}: {translation.title}",
-                        translation.summary,
-                    )
-                    if part
-                )
-                for translation in record.translations
-            ],
+            observed={**fields, "raster_summary": raster_summary},
+            **fields,
         )
 
         await session.commit()

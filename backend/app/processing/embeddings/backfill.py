@@ -22,7 +22,10 @@ from app.processing.embeddings.models import RecordEmbedding
 from app.processing.embeddings.service import (
     build_content_text,
     compute_content_hash,
+    content_fields,
     generate_embeddings_batch,
+    raster_summary_of,
+    records_still_current,
     resolve_embedding_base_url,
 )
 
@@ -213,32 +216,6 @@ def _upsert_embeddings(rows: list[dict[str, Any]]):  # type: ignore[no-untyped-d
     )
 
 
-def _content_fields(record) -> dict[str, Any]:  # type: ignore[no-untyped-def]
-    """The fields ``build_content_text`` reads, pulled off a record eagerly.
-
-    Eager, because a rollback expires every ORM instance and a later attribute
-    access raises ``MissingGreenlet``. One function for both readers so "is
-    this record empty" is asked the same way at both ends of the run.
-    """
-    return {
-        "title": record.title,
-        "summary": record.summary,
-        "keywords": [kw.keyword for kw in record.keywords] if record.keywords else [],
-        "lineage": record.lineage_summary,
-        "localized_texts": [
-            "\n".join(
-                part
-                for part in (
-                    f"{translation.language}: {translation.title}",
-                    translation.summary,
-                )
-                if part
-            )
-            for translation in record.translations
-        ],
-    }
-
-
 async def _records_still_empty(session, port, record_orm, record_ids) -> set[Any]:  # type: ignore[no-untyped-def]
     """Which of these records have no embeddable content RIGHT NOW, and hold them.
 
@@ -257,7 +234,7 @@ async def _records_still_empty(session, port, record_orm, record_ids) -> set[Any
     still_empty: set[Any] = set()
     for record_id in record_ids:
         current = await port.get_record(session, record_id)
-        if current is None or not build_content_text(**_content_fields(current)):
+        if current is None or not build_content_text(**content_fields(current)):
             still_empty.add(record_id)
     return still_empty
 
@@ -329,6 +306,26 @@ async def _replace_embeddings(
             _delete_embeddings_for(record_orm, [row["record_id"] for row in rows])
         )
     await session.execute(_upsert_embeddings(rows))
+
+
+async def _replace_current_embeddings(
+    session: AsyncSession,
+    rows: list[dict[str, Any]],
+    observed: dict[Any, dict[str, Any]],
+    *,
+    record_orm=None,  # type: ignore[no-untyped-def]
+) -> int:
+    """`_replace_embeddings` for the rows whose records are unchanged; return how many.
+
+    A record edited since the run read it keeps the vector its edit queued.
+    """
+    current = await records_still_current(
+        session, {row["record_id"]: observed[row["record_id"]] for row in rows}
+    )
+    rows = [row for row in rows if row["record_id"] in current]
+    if rows:
+        await _replace_embeddings(session, rows, record_orm=record_orm)
+    return len(rows)
 
 
 async def _snapshot_embedding_config(
@@ -433,6 +430,7 @@ async def _retry_batch_per_record(
     base_url: str | None,
     pinned_column_dims: int | None,
     traced_errors: set[str],
+    observed: dict[Any, dict[str, Any]],
     record_orm=None,  # type: ignore[no-untyped-def]
 ) -> tuple[int, int]:
     """Re-embed a failed batch one record at a time; return (created, errors).
@@ -471,7 +469,7 @@ async def _retry_batch_per_record(
             await _raise_on_retry_vector_width(
                 session, pinned, vector, pinned_column_dims, created + made
             )
-            await _replace_embeddings(
+            written = await _replace_current_embeddings(
                 session,
                 [
                     {
@@ -484,6 +482,7 @@ async def _retry_batch_per_record(
                         "content_hash": compute_content_hash(content),
                     }
                 ],
+                observed,
                 record_orm=record_orm,
             )
             # fix(#1579): the row is SENT before the post-call check so the
@@ -497,7 +496,7 @@ async def _retry_batch_per_record(
                 error=_PinDrift,
             )
             await session.commit()
-            made += 1
+            made += written
         except _PinDrift:
             # fix(#1525): drift is not a bad record; it stops the run.
             await session.rollback()
@@ -737,9 +736,15 @@ async def backfill_embeddings(
 
     # Extract all data upfront so rollback/commit won't trigger lazy loads
     # (rollback expires all ORM instances → accessing attrs causes MissingGreenlet)
-    record_data = [{"id": r.id, **_content_fields(r)} for r in records]
+    observed = {
+        r.id: {
+            **content_fields(r),
+            "raster_summary": await raster_summary_of(session, r),
+        }
+        for r in records
+    }
 
-    total = len(record_data)
+    total = len(observed)
 
     if total == 0:
         logger.info("Backfill: no records without embeddings found")
@@ -765,18 +770,12 @@ async def backfill_embeddings(
     # Build embeddable (record_id, content_text) pairs; empty content skips.
     skipped_ids: list[Any] = []
     items: list[tuple[object, str]] = []
-    for rd in record_data:
-        content_text = build_content_text(
-            title=rd["title"],
-            summary=rd["summary"],
-            keywords=rd["keywords"],
-            lineage=rd["lineage"],
-            localized_texts=rd["localized_texts"],
-        )
+    for record_id, fields in observed.items():
+        content_text = build_content_text(**fields)
         if not content_text:
-            skipped_ids.append(rd["id"])
+            skipped_ids.append(record_id)
             continue
-        items.append((rd["id"], content_text))
+        items.append((record_id, content_text))
     skipped = len(skipped_ids)
 
     logger.info("Backfill: starting", total_records=total, batch_size=_BATCH_SIZE)
@@ -837,7 +836,9 @@ async def backfill_embeddings(
                 # valid-looking hash; raising sends the batch to the retry.
                 for (record_id, content), vector in zip(batch, vectors, strict=True)
             ]
-            await _replace_embeddings(session, rows, record_orm=record_orm)
+            written = await _replace_current_embeddings(
+                session, rows, observed, record_orm=record_orm
+            )
             # fix(#1579): WRITE, then check, then commit: the write's
             # RowExclusiveLock makes an ALTER either visible or waiting.
             # fix(#1525): the last batch has no successor check; drop it here.
@@ -849,9 +850,9 @@ async def backfill_embeddings(
                 error=_PinDrift,
             )
             await session.commit()
-            # fix(#1581): count what was WRITTEN; with the strict zip this equals
-            # the batch size on success.
-            created += len(rows)
+            # Count what was WRITTEN; a record edited during the call is skipped.
+            created += written
+            skipped += len(rows) - written
         except _PinDrift:
             # fix(#1525): drift is not a batch failure; retrying per record
             # would commit the same stale vectors one at a time.
@@ -876,10 +877,12 @@ async def backfill_embeddings(
                 base_url=base_url,
                 pinned_column_dims=pinned_column_dims,
                 traced_errors=traced_errors,
+                observed=observed,
                 record_orm=record_orm,
             )
             created += made
             errors += failed
+            skipped += len(batch) - made - failed
 
         processed_so_far = min(start + _BATCH_SIZE, len(items))
         logger.info(

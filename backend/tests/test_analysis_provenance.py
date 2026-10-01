@@ -1084,10 +1084,7 @@ class TestLineageSummaryVisibility:
                 "the suggestion prompt for the record's own editor, who is "
                 "owner-or-admin on it"
             ),
-            "app/processing/embeddings/tasks.py": (
-                "embedding index text; the vector is not served back as prose"
-            ),
-            "app/processing/embeddings/backfill.py": (
+            "app/processing/embeddings/service.py": (
                 "embedding index text; the vector is not served back as prose"
             ),
         }

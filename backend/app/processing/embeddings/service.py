@@ -2,13 +2,15 @@
 
 import hashlib
 import uuid
+from typing import Any
 
 import structlog
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.core.config import settings
-from app.platform.extensions import get_embedding_provider
+from app.platform.extensions import get_embedding_provider, get_processing_port
 from app.processing.embeddings.helpers import resolve_live_embedding_config
 from app.processing.embeddings.models import RecordEmbedding
 from app.core.persistent_config import AI_ENABLED, EMBEDDING_DIMS, EMBEDDING_MODEL
@@ -320,6 +322,112 @@ def compute_content_hash(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
+def content_fields(record) -> dict[str, Any]:  # type: ignore[no-untyped-def]
+    """The fields ``build_content_text`` reads, pulled off a record eagerly.
+
+    Eager, because a rollback expires every ORM instance and a later attribute
+    access raises ``MissingGreenlet``. One function for every reader so "is
+    this record empty" and "is this record unchanged" are asked the same way.
+    """
+    return {
+        "title": record.title,
+        "summary": record.summary,
+        "keywords": [kw.keyword for kw in record.keywords] if record.keywords else [],
+        "lineage": record.lineage_summary,
+        "localized_texts": [
+            "\n".join(
+                part
+                for part in (
+                    f"{translation.language}: {translation.title}",
+                    translation.summary,
+                )
+                if part
+            )
+            for translation in record.translations
+        ],
+    }
+
+
+async def raster_summary_of(session: AsyncSession, record) -> str | None:  # type: ignore[no-untyped-def]
+    """The raster facts a raster dataset's embedded text carries, if any."""
+    from app.processing.raster.models import RasterAsset
+
+    if record.record_type != "raster_dataset":
+        return None
+    dataset_orm = get_processing_port().get_dataset_orm_class()
+    ra = (
+        await session.execute(
+            select(
+                RasterAsset.size_bytes,
+                RasterAsset.res_x,
+                RasterAsset.band_count,
+                RasterAsset.dtype,
+                RasterAsset.epsg,
+                RasterAsset.compression,
+            )
+            .join(dataset_orm, RasterAsset.dataset_id == dataset_orm.id)
+            .where(dataset_orm.record_id == record.id)
+        )
+    ).first()
+    if ra is None:
+        return None
+    size_str = (
+        f"{ra.size_bytes / (1024 * 1024):.1f}MB" if ra.size_bytes else "unknown size"
+    )
+    # res_x may be NULL, which the float format would raise on.
+    res_str = f"{ra.res_x:.6f} resolution, " if ra.res_x is not None else ""
+    return (
+        f"GeoTIFF, {ra.band_count} band(s), {ra.dtype}, "
+        f"{res_str}EPSG:{ra.epsg}, "
+        f"{ra.compression} compression, {size_str}"
+    )
+
+
+def _comparable(fields: dict[str, Any]) -> dict[str, Any]:
+    # Keywords have no load order, so two reads of the same set may differ.
+    return {**fields, "keywords": sorted(fields["keywords"])}
+
+
+async def records_still_current(
+    session: AsyncSession, observed: dict[Any, dict[str, Any]]
+) -> set[Any]:
+    """The observed records whose ``content_fields`` are unchanged.
+
+    An observed ``raster_summary`` is compared as well. The records stay
+    share-locked until the caller commits, so an edit waits for the embedding
+    write and then queues its own re-embed; raster publishes lock the record
+    row too. A deleted record is not current.
+    """
+    record_orm = get_processing_port().get_record_orm_class()
+    ids = list(observed)
+    # Lock, then read in a later statement: a locking statement that waited on
+    # an edit returns joined rows from the snapshot it started with.
+    await session.execute(
+        select(record_orm.id)
+        .where(record_orm.id.in_(ids))
+        .order_by(record_orm.id)
+        .with_for_update(read=True)
+    )
+    result = await session.execute(
+        select(record_orm)
+        .options(joinedload(record_orm.keywords), selectinload(record_orm.translations))
+        .where(record_orm.id.in_(ids))
+        # The caller's identity map may still hold these records as first read.
+        .execution_options(populate_existing=True)
+    )
+    current = {}
+    for record in result.unique().scalars().all():
+        fields = content_fields(record)
+        if "raster_summary" in observed.get(record.id, {}):
+            fields["raster_summary"] = await raster_summary_of(session, record)
+        current[record.id] = _comparable(fields)
+    return {
+        record_id
+        for record_id, fields in observed.items()
+        if current.get(record_id) == _comparable(fields)
+    }
+
+
 async def generate_and_store_embedding(
     *,
     session: AsyncSession,
@@ -330,11 +438,15 @@ async def generate_and_store_embedding(
     lineage: str | None,
     raster_summary: str | None = None,
     localized_texts: list[str] | None = None,
+    observed: dict[str, Any] | None = None,
 ) -> bool:
     """Orchestrate embedding generation and storage.
 
     Non-fatal: catches all errors and logs warnings instead of raising.
     Skips silently when AI is disabled, content is empty, or hash is unchanged.
+    ``observed`` is what the text was built from: the record's
+    ``content_fields``, plus its ``raster_summary`` when that was included.
+    When given, the vector is stored only if the record still holds them.
 
     Returns:
         True if an embedding was created/updated, False otherwise.
@@ -445,6 +557,14 @@ async def generate_and_store_embedding(
             "Embedding generation failed",
             record_id=str(record_id),
             exc_info=True,
+        )
+        return False
+
+    if observed is not None and record_id not in await records_still_current(
+        session, {record_id: observed}
+    ):
+        logger.info(
+            "Record changed while embedding, skipping", record_id=str(record_id)
         )
         return False
 

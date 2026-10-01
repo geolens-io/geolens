@@ -420,14 +420,14 @@ async def test_patch_clear_text_field_requeues_embedding(
 ):
     """fix(#458 E-04, codex review): clearing summary/lineage must re-defer the
     embedding (model_fields_set), not skip it because the value is None."""
-    from app.modules.catalog.datasets.domain import service_metadata
+    from app.platform.extensions.defaults_catalog_port import DefaultCatalogPort
 
     deferred: list = []
 
-    async def _capture(record_id, dataset_id):
+    async def _capture(self, record_id):
         deferred.append(record_id)
 
-    monkeypatch.setattr(service_metadata, "_maybe_defer_embedding", _capture)
+    monkeypatch.setattr(DefaultCatalogPort, "defer_embed_record", _capture)
 
     admin_id = await get_user_id(test_db_session, "admin")
     ds = await _create_complete_dataset(
@@ -441,3 +441,88 @@ async def test_patch_clear_text_field_requeues_embedding(
     )
     assert resp.status_code == 200, resp.text
     assert len(deferred) == 1
+
+
+@pytest.mark.anyio
+async def test_patch_queues_reembedding_only_once_the_edit_is_visible(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    monkeypatch,
+):
+    """The embedding worker reads the record on its own connection.
+
+    A job queued before the PATCH commits can run while the old summary is
+    still the committed one and embed it, so the queue call must see the new
+    text from a separate connection.
+    """
+    import app.core.db as db_module
+    from sqlalchemy import select
+
+    from app.platform.extensions.defaults_catalog_port import DefaultCatalogPort
+
+    seen_by_worker: list = []
+
+    async def _worker_view(self, record_id):
+        async with db_module.async_session() as other:
+            seen_by_worker.append(
+                await other.scalar(select(Record.summary).where(Record.id == record_id))
+            )
+
+    monkeypatch.setattr(DefaultCatalogPort, "defer_embed_record", _worker_view)
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    ds = await _create_complete_dataset(
+        test_db_session, created_by=admin_id, name="Reembed After Commit Dataset"
+    )
+
+    resp = await client.patch(
+        f"/datasets/{ds.id}",
+        json={"summary": "Rewritten summary"},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200, resp.text
+    assert seen_by_worker == ["Rewritten summary"]
+
+
+@pytest.mark.anyio
+async def test_patch_that_fails_after_the_metadata_write_queues_no_reembedding(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    monkeypatch,
+):
+    """An edit that rolls back must not leave a re-embed job behind."""
+    from fastapi import HTTPException
+    from sqlalchemy import select
+
+    import app.modules.catalog.datasets.api.router as datasets_router
+    from app.platform.extensions.defaults_catalog_port import DefaultCatalogPort
+
+    deferred: list = []
+
+    async def _capture(self, record_id):
+        deferred.append(record_id)
+
+    async def _audit_down(*args, **kwargs):
+        raise HTTPException(status_code=503, detail="audit unavailable")
+
+    monkeypatch.setattr(DefaultCatalogPort, "defer_embed_record", _capture)
+    monkeypatch.setattr(datasets_router, "audit_emit", _audit_down)
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    ds = await _create_complete_dataset(
+        test_db_session, created_by=admin_id, name="Reembed Rollback Dataset"
+    )
+
+    resp = await client.patch(
+        f"/datasets/{ds.id}",
+        json={"summary": "Never committed"},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 503, resp.text
+    assert deferred == []
+    summary = await test_db_session.scalar(
+        select(Record.summary).where(Record.id == ds.record_id)
+    )
+    assert summary == "Description for Reembed Rollback Dataset"

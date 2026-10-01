@@ -30,6 +30,7 @@ from app.modules.catalog.datasets.domain.service_lifecycle import (
 )
 from app.modules.catalog.datasets.domain.service_metadata import (
     compute_schema_diff,
+    defer_metadata_embedding,
     get_attribute,
     list_attributes,
     reset_attribute,
@@ -69,6 +70,7 @@ __all__ = [
     "create_dataset",
     "create_empty_dataset",
     "create_relationship",
+    "defer_metadata_embedding",
     "delete_dataset",
     "delete_relationship",
     "get_attribute",

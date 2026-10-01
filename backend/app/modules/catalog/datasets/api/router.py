@@ -68,6 +68,7 @@ from app.modules.catalog.datasets.domain.service import (
     DatasetTitleMismatchError,
     DependentVrtError,
     create_empty_dataset,
+    defer_metadata_embedding,
     delete_dataset,
     get_dataset,
     get_dataset_detail,
@@ -386,6 +387,7 @@ async def update_dataset_metadata(
         # lock wait is never written back over a peer's commit.
         await bump_tile_cache_version_on(db, dataset)
     await db.commit()
+    await defer_metadata_embedding(meta, dataset.record_id, dataset_id)
     await db.refresh(dataset)
     await db.refresh(dataset.record)
     await invalidate_catalog_cache()

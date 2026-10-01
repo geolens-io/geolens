@@ -143,6 +143,7 @@ async def test_admin_stats_and_force_delete_are_record_scoped(monkeypatch):
     # scoping has to hold.
     record = SimpleNamespace(
         id=uuid.uuid4(),
+        record_type="vector_dataset",
         title="Tenant Scoped Record",
         summary=None,
         keywords=[],
@@ -154,6 +155,13 @@ async def test_admin_stats_and_force_delete_are_record_scoped(monkeypatch):
         get_records_without_embeddings=AsyncMock(return_value=[record]),
     )
     monkeypatch.setattr(backfill_module, "get_processing_port", lambda: port)
+    # A mocked session cannot answer the re-read that checks the record is
+    # unchanged, and this test is about the delete's record scope.
+    monkeypatch.setattr(
+        backfill_module,
+        "records_still_current",
+        AsyncMock(side_effect=lambda _session, observed: set(observed)),
+    )
     # fix(#1511 review r3): the force path proves it can embed before it
     # deletes. This test is about the DELETE's record scoping, so give it a
     # working provider rather than letting the pre-flight abort the run.
@@ -387,6 +395,7 @@ async def test_force_backfill_deletes_only_active_tenant_embeddings(
         # untouched, which is the fleet-wide-delete hazard this test exists for.
         record_a = SimpleNamespace(
             id=uuid.UUID(surface.rec_a_id),
+            record_type="vector_dataset",
             title="Tenant A Record",
             summary=None,
             keywords=[],
@@ -398,6 +407,14 @@ async def test_force_backfill_deletes_only_active_tenant_embeddings(
             get_records_without_embeddings=AsyncMock(return_value=[record_a]),
         )
         monkeypatch.setattr(backfill_module, "get_processing_port", lambda: port)
+        # The stub above is not what the database holds, and the re-read that
+        # checks a record is unchanged share-locks it, which needs UPDATE on
+        # records. This test is about the delete's tenant scope.
+        monkeypatch.setattr(
+            backfill_module,
+            "records_still_current",
+            AsyncMock(side_effect=lambda _session, observed: set(observed)),
+        )
         # fix(#1511): the force path snapshots the active model and dimensions
         # before it deletes, and this session runs as geolens_reader, which
         # cannot read app_settings. Unpinned, the resolver returns the unknown
