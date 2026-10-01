@@ -594,13 +594,14 @@ class TestManifestApplyHelpers:
 
         client = AsyncClient(transport=MockTransport(handler))
         original_open = Path.open
+        job_id = uuid.uuid4()
         open_started = threading.Event()
         release_open = threading.Event()
         opened_files = []
 
         def blocking_open(path: Path, *args, **kwargs):
             file_obj = original_open(path, *args, **kwargs)
-            if path.parent == tmp_path and path.name.startswith("manifest_"):
+            if path.parent == tmp_path and path.name.startswith(f"{job_id}_"):
                 opened_files.append(file_obj)
                 open_started.set()
                 release_open.wait(timeout=5)
@@ -618,7 +619,6 @@ class TestManifestApplyHelpers:
             patch.object(Path, "open", new=blocking_open),
         ):
             prepared = await classify_manifest_source(source)
-            job_id = uuid.uuid4()
             task = asyncio.create_task(
                 _download_http_source(
                     prepared, job_id=job_id, max_size_bytes=100 * 1024 * 1024
