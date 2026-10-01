@@ -385,7 +385,7 @@
     "moreColumns_one": "+{{count}} columna más",
     "moreColumns_other": "+{{count}} columnas más",
     "noSampleData": "No hay datos de muestra disponibles",
-    "geometryDetected": "Columnas de geometria detectadas",
+    "geometryDetected": "Columnas de geometría detectadas",
     "nonSpatial": "Tabla no espacial"
   },
   "metadata": {
@@ -413,10 +413,10 @@
     "resamplingHelp": "Método para generación de vistas generales. Auto selecciona según el tipo de datos.",
     "nodataLabel": "Valor NoData",
     "nodataHelp": "Sobrescribir o asignar un valor NoData para este ráster.",
-    "geometryColumns": "Columnas de geometria",
+    "geometryColumns": "Columnas de geometría",
     "geometryMode": "Modo",
-    "autoDetected": "Deteccion automatica",
-    "manualOverride": "Anulacion manual",
+    "autoDetected": "Detección automática",
+    "manualOverride": "Anulación manual",
     "nonSpatial": "Importar como no espacial",
     "embeddedGeometry": "Usando geometría integrada",
     "embeddedGeometryHelp": "Esta fuente ya incluye geometría nativa, por lo que GeoLens la conservará durante la importación.",
