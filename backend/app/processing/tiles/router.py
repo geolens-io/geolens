@@ -62,6 +62,10 @@ from app.core.db.tenant_schema import tenant_data_schema
 from app.core.db.tenant_session import current_tenant_var
 from app.core.tenancy import is_multi_tenant
 from app.processing.tiles.admission import tile_render_slot
+from app.processing.tiles.cache_key import (
+    generation_table_key as _generation_table_key,
+    tile_cache_key,
+)
 from app.processing.tiles.pool import (
     TILE_POOL_ACQUIRE_TIMEOUT_SECONDS,
     get_tile_pool,
@@ -2103,36 +2107,6 @@ def _ensure_clusterable_dataset(meta: _DatasetMeta) -> None:
         )
 
 
-def _generation_table_key(
-    table_name: str,
-    dataset_id: uuid.UUID,
-    publication_version: int,
-    tile_cache_version: int,
-) -> str:
-    """Table segment, the generation that makes a reused name safe, and the
-    versions that make a superseded entry unreachable.
-
-    A cache key of the table name alone would let the next dataset to draw
-    ``roads`` read the previous one's cached bytes under its own visibility.
-    Keying on the dataset id (a UUID, never reissued) makes that read
-    impossible rather than merely short-lived, without relying on freed
-    names being retired.
-
-    The publication version rolls on a status or visibility transition, so
-    bytes cached while the dataset was public and published stop being
-    reachable then rather than serving out the TTL. The content version does
-    the same for a table swap, which runs in the worker and cannot purge an
-    in-memory cache in this process.
-
-    Position is load-bearing: every segment goes AFTER the table name so the
-    ``tile:{table}:*`` patterns in ``invalidate_table`` still match every
-    key for a table, whichever dataset wrote it.
-    """
-    return (
-        f"{table_name}:ds{dataset_id.hex}:p{publication_version}:v{tile_cache_version}"
-    )
-
-
 def _cluster_cache_table_key(
     table_name: str,
     *,
@@ -2537,17 +2511,13 @@ async def tile_endpoint(
 
     cache_ttl = meta.tile_cache_ttl or settings.tile_cache_ttl
 
-    # Prefix the tile cache key with the tenant id in multi_tenant so two
-    # tenants sharing a table_name never share a cached tile binary.
-    # single_tenant: no prefix, byte-identical to pre-1209.
     _tile_tid = _require_tile_tenant_context()
-    _tile_generation_key = _generation_table_key(
-        table_name, meta.dataset_id, meta.publication_version, meta.tile_cache_version
-    )
-    _tile_cache_key = (
-        f"{_tile_tid}:{_tile_generation_key}"
-        if _tile_tid is not None
-        else _tile_generation_key
+    _tile_cache_key = tile_cache_key(
+        table_name,
+        meta.dataset_id,
+        meta.publication_version,
+        meta.tile_cache_version,
+        _tile_tid,
     )
     _tile_serving_limiter, _tile_cache_control = _get_tile_serving_controls(
         str(_tile_tid or "anon")

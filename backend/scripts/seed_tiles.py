@@ -139,9 +139,13 @@ def spec_bbox_to_tiles(
 
 _DATASET_QUERY = """
     SELECT
+        d.id AS dataset_id,
         d.table_name,
         d.column_info,
         d.tile_cache_ttl,
+        d.tile_columns,
+        d.publication_version,
+        d.tile_cache_version,
         ST_AsBinary(r.spatial_extent) AS extent_wkb
     FROM catalog.datasets d
     JOIN catalog.records r ON d.record_id = r.id
@@ -161,7 +165,9 @@ async def _seed_dataset(
     pool,
     cache,
     table_name: str,
+    cache_key: str,
     columns,
+    tile_columns: list[str] | None,
     cache_ttl: int,
     all_tiles,
     concurrency: int,
@@ -189,14 +195,36 @@ async def _seed_dataset(
     async def seed_one(z: int, x: int, y: int) -> None:
         async with sem:
             try:
-                from app.processing.tiles.service import get_tile
+                from app.processing.tiles.service import get_tile, parse_cols_param
 
-                tile_data = await get_tile(pool, table_name, z, x, y, columns)
+                additional_columns, cols_key = parse_cols_param(
+                    None, columns, z, tile_columns=tile_columns
+                )
+                tile_data = await get_tile(
+                    pool,
+                    table_name,
+                    z,
+                    x,
+                    y,
+                    columns,
+                    tile_columns=tile_columns,
+                    additional_columns=additional_columns,
+                )
                 if tile_data is None:
-                    await cache.set(table_name, z, x, y, b"", ttl=cache_ttl)
+                    await cache.set(
+                        cache_key, z, x, y, b"", ttl=cache_ttl, cols_key=cols_key
+                    )
                 else:
-                    compressed = gzip.compress(tile_data, compresslevel=6)
-                    await cache.set(table_name, z, x, y, compressed, ttl=cache_ttl)
+                    compressed = gzip.compress(tile_data, compresslevel=6, mtime=0)
+                    await cache.set(
+                        cache_key,
+                        z,
+                        x,
+                        y,
+                        compressed,
+                        ttl=cache_ttl,
+                        cols_key=cols_key,
+                    )
             except Exception as exc:
                 logger.warning(
                     "seed_tile_failed",
@@ -277,8 +305,19 @@ async def main() -> None:
     args = parser.parse_args()
 
     from app.core.config import settings
+    from app.core.tenancy import is_multi_tenant
+    from app.processing.tiles.cache_key import tile_cache_key
     from app.processing.tiles.pool import close_tile_pool, init_tile_pool
     from app.platform.cache.tile_cache import TileCacheProvider
+
+    if is_multi_tenant():
+        print(
+            "ERROR: multi-tenant mode is not supported. Tiles would be rendered "
+            "from the shared data schema and cached without a tenant prefix, "
+            "under keys no tenant's request reads.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
 
     if not settings.redis_url:
         print(
@@ -355,7 +394,15 @@ async def main() -> None:
             pool=pool,
             cache=cache,
             table_name=table_name,
+            cache_key=tile_cache_key(
+                table_name,
+                row["dataset_id"],
+                row["publication_version"] or 0,
+                row["tile_cache_version"] or 1,
+                None,
+            ),
             columns=columns,
+            tile_columns=row["tile_columns"],
             cache_ttl=cache_ttl,
             all_tiles=all_tiles,
             concurrency=args.concurrency,
