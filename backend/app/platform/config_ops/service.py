@@ -1072,60 +1072,66 @@ async def import_config(
         rebuild_column_or_restore,
     )
 
-    # Database-enforced write fence covering state recompute, confirmation
-    # check, and apply — otherwise a concurrent transaction could commit
-    # after the state read against an already-stale token.
-    await acquire_config_import_lock(db)
-    plan = await preflight_import(
-        db,
-        data,
-        mode,
-        lock_dependent_accounts=mode == "overwrite",
+    # Taken before the settings fence and any write, so no request waits for
+    # the lock's connection while holding locks another write may wait on.
+    # The plan needs the fence, so the payload decides whether to lock.
+    raw_settings = data.get("settings")
+    names_embedding = isinstance(raw_settings, dict) and (
+        EMBEDDING_DIMS.key in raw_settings or EMBEDDING_MODEL.key in raw_settings
     )
-    if mode == "overwrite":
-        _verify_preview_token(preview_token, plan, mode)
-
-    settings_no_change = len(plan.validated_settings) - len(plan.settings_to_apply)
-    settings_skipped = (
-        len(plan.skipped_unknown) + len(plan.skipped_restricted) + settings_no_change
-    )
-    settings_applied = len(plan.settings_to_apply)
-
-    # fix(#430): with commit=False, set()/reset() DEFER their side effects
-    # (cache invalidation, _on_change hooks, rate-limit warm) — running them
-    # pre-commit flipped process-local state a rollback wouldn't restore.
-    # Apply side effects only after the terminal commit succeeds.
-    deferred_side_effects: list = []
-
-    # One pass in registry order, so the provider reaches its final value before
-    # a model setting that resolves against it is written or reset. Audits
-    # record the values from before the import.
-    resets = [
-        cfg
-        for cfg in _registry
-        if mode == "overwrite"
-        and cfg.key not in plan.validated_settings
-        and (plan.caller_is_enterprise or cfg.tab not in ENTERPRISE_ONLY_TABS)
-    ]
-    touched = [
-        cfg for cfg in _registry if cfg.key in plan.settings_to_apply or cfg in resets
-    ]
-    before = {cfg.key: await cfg.get(db) for cfg in touched}
-    # An import that names the width reconciles the column even when the
-    # setting already holds it; the rebuild compares against the live column.
-    carries_dims = (
-        EMBEDDING_DIMS.key in plan.validated_settings or EMBEDDING_DIMS in resets
-    )
-    # Naming the model locks even when it is unchanged, so a concurrent failed
-    # rebuild cannot revert a model this import has just acknowledged.
-    carries_model = (
-        EMBEDDING_MODEL.key in plan.validated_settings or EMBEDDING_MODEL in resets
-    )
-    # Taken before the first write, so an import refused here has handed no
-    # audit sink an event. The settings fence keeps other writers off the
-    # pair read below; this lock refuses an embedding change still in flight.
     try:
-        async with embedding_change_lock(carries_dims or carries_model):
+        async with embedding_change_lock(mode == "overwrite" or names_embedding):
+            # Database-enforced write fence covering state recompute, confirmation
+            # check, and apply — otherwise a concurrent transaction could commit
+            # after the state read against an already-stale token.
+            await acquire_config_import_lock(db)
+            plan = await preflight_import(
+                db,
+                data,
+                mode,
+                lock_dependent_accounts=mode == "overwrite",
+            )
+            if mode == "overwrite":
+                _verify_preview_token(preview_token, plan, mode)
+
+            settings_no_change = len(plan.validated_settings) - len(
+                plan.settings_to_apply
+            )
+            settings_skipped = (
+                len(plan.skipped_unknown)
+                + len(plan.skipped_restricted)
+                + settings_no_change
+            )
+            settings_applied = len(plan.settings_to_apply)
+
+            # set()/reset() with commit=False defer their side effects (cache
+            # invalidation, _on_change hooks, rate-limit warm): run before the
+            # commit, they flip process-local state a rollback wouldn't restore.
+            deferred_side_effects: list = []
+
+            # One pass in registry order, so the provider reaches its final value
+            # before a model setting that resolves against it is written or reset.
+            # Audits record the values from before the import.
+            resets = [
+                cfg
+                for cfg in _registry
+                if mode == "overwrite"
+                and cfg.key not in plan.validated_settings
+                and (plan.caller_is_enterprise or cfg.tab not in ENTERPRISE_ONLY_TABS)
+            ]
+            touched = [
+                cfg
+                for cfg in _registry
+                if cfg.key in plan.settings_to_apply or cfg in resets
+            ]
+            before = {cfg.key: await cfg.get(db) for cfg in touched}
+            # An import that names the width reconciles the column even when the
+            # setting already holds it; the rebuild compares against the live
+            # column.
+            carries_dims = (
+                EMBEDDING_DIMS.key in plan.validated_settings
+                or EMBEDDING_DIMS in resets
+            )
             embedding_before = new_dims = None
             if carries_dims:
                 embedding_before = await read_committed_embedding_pair(

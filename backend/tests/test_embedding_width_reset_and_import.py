@@ -785,3 +785,76 @@ async def test_a_rebuild_that_aborts_the_transaction_still_restores_the_pair(
         EMBEDDING_MODEL.key: {"v": _OLD_MODEL},
     }
     assert await _column_dims(test_db_session) == width
+
+
+@pytest.mark.anyio
+async def test_an_import_holds_the_embedding_lock_before_the_settings_fence(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    monkeypatch,
+    restore_embedding_settings,
+):
+    """An import that needs the embedding lock takes it before the settings fence."""
+    from app.platform.config_ops import service as config_ops_service
+    from app.processing.embeddings.service import (
+        _CHANGE_LOCK_SQL,
+        embedding_change_lock,
+    )
+    from tests.alembic_helpers import fresh_query
+
+    width = await _start_consistent(test_db_session)
+    real_fence = config_ops_service.acquire_config_import_lock
+    lock_held_at_fence: list[bool] = []
+
+    # An autocommit try-lock is released as soon as it returns, so probing
+    # never takes the lock away from the import.
+    async def _probe_at_the_fence(db):
+        ((free,),) = await fresh_query(_CHANGE_LOCK_SQL)
+        lock_held_at_fence.append(not free)
+        await real_fence(db)
+
+    monkeypatch.setattr(
+        config_ops_service, "acquire_config_import_lock", _probe_at_the_fence
+    )
+    payload = {"settings": {"embedding_dims": width}}
+
+    async with embedding_change_lock():
+        refused = await client.post(
+            "/config-ops/import/?mode=merge", json=payload, headers=admin_auth_header
+        )
+    assert refused.status_code == 409, refused.text
+    assert lock_held_at_fence == []
+
+    applied = await client.post(
+        "/config-ops/import/?mode=merge", json=payload, headers=admin_auth_header
+    )
+    assert applied.status_code == 200, applied.text
+    assert lock_held_at_fence == [True]
+
+
+@pytest.mark.anyio
+async def test_a_reset_holds_the_embedding_lock_before_locking_providers(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    monkeypatch,
+):
+    """A reset refused by the embedding lock never row-locks the OAuth providers."""
+    from app.core.persistent_config import PASSWORD_LOGIN_ENABLED
+    from app.modules.auth.oauth import service as oauth_service
+    from app.processing.embeddings.service import embedding_change_lock
+
+    # The provider guard only runs when password login resets to disabled.
+    monkeypatch.setattr(PASSWORD_LOGIN_ENABLED, "_env_default_static", False)
+    provider_locks = AsyncMock(return_value=[uuid.uuid4()])
+    monkeypatch.setattr(oauth_service, "lock_enabled_providers", provider_locks)
+
+    async with embedding_change_lock():
+        resp = await client.post(
+            "/settings/reset/",
+            json={"keys": ["password_login_enabled", "embedding_dims"]},
+            headers=admin_auth_header,
+        )
+
+    assert resp.status_code == 409, resp.text
+    provider_locks.assert_not_awaited()

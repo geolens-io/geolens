@@ -593,27 +593,29 @@ async def reset_settings(
     # against it.
     configs_to_reset.sort(key=_registry.index)
 
-    # Reset is another way to change the effective password-login value and
-    # must enforce the same final-state lockout invariant as PUT/import. Hold
-    # the provider locks through the settings transaction so a concurrent IdP
-    # disable/delete cannot race this check.
-    if (
-        PASSWORD_LOGIN_ENABLED in configs_to_reset
-        and PASSWORD_LOGIN_ENABLED.env_default is False
-    ):
-        locked_provider_ids = await oauth_service.lock_enabled_providers(db)
-        if len(locked_provider_ids) == 0:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=(
-                    "Cannot reset password login to disabled while no SSO provider "
-                    "is enabled — enable an OAuth provider first"
-                ),
-            )
-
+    # Taken before the provider row locks below, so this request never waits
+    # for the lock's connection while holding locks another write may wait on.
     async with _embedding_change(
         EMBEDDING_DIMS in configs_to_reset or EMBEDDING_MODEL in configs_to_reset
     ):
+        # Reset is another way to change the effective password-login value and
+        # must enforce the same final-state lockout invariant as PUT/import. Hold
+        # the provider locks through the settings transaction so a concurrent IdP
+        # disable/delete cannot race this check.
+        if (
+            PASSWORD_LOGIN_ENABLED in configs_to_reset
+            and PASSWORD_LOGIN_ENABLED.env_default is False
+        ):
+            locked_provider_ids = await oauth_service.lock_enabled_providers(db)
+            if len(locked_provider_ids) == 0:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=(
+                        "Cannot reset password login to disabled while no SSO provider "
+                        "is enabled — enable an OAuth provider first"
+                    ),
+                )
+
         embedding_before = None
         if EMBEDDING_DIMS in configs_to_reset:
             from app.processing.embeddings.service import read_committed_embedding_pair
