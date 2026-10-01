@@ -1958,6 +1958,28 @@ async def test_log_level_config_subclass_validates_str(client: AsyncClient):
 
 
 @pytest.mark.anyio
+async def test_the_settings_list_resolves_models_against_its_own_provider_read(
+    client: AsyncClient, admin_auth_header: dict, _both_ai_keys
+):
+    """A provider switch committed after the list's bulk read can't pair the
+    listed provider with the other provider's model."""
+    from app.core.persistent_config import LLM_PROVIDER
+
+    await client.put(
+        "/settings/",
+        json={"settings": {"llm_provider": "openai_compatible"}},
+        headers=admin_auth_header,
+    )
+    with patch.object(LLM_PROVIDER, "get", return_value="anthropic"):
+        listing = await client.get("/settings/all/", headers=admin_auth_header)
+    ai = {item["key"]: item["value"] for item in listing.json()["tabs"]["ai"]}
+    assert (ai["llm_provider"], ai["llm_model"]) == (
+        "openai_compatible",
+        "openai-chat-env",
+    )
+
+
+@pytest.mark.anyio
 async def test_get_all_registry_values_resolves_unset_models(
     client: AsyncClient, admin_auth_header: dict, _both_ai_keys
 ):

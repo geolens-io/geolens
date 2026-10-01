@@ -23,6 +23,9 @@ from app.core.persistent_config import (
     EMBEDDING_DIMS,
     EMBEDDING_MODEL,
     ENTERPRISE_ONLY_TABS,
+    LLM_MODEL,
+    LLM_MODEL_LIGHT,
+    LLM_PROVIDER,
     PASSWORD_LOGIN_ENABLED,
     _registry,
     apply_side_effects_batch,
@@ -298,6 +301,12 @@ async def get_all_settings(
         )
     db_settings = {k: v for k, v in db_settings.items() if not is_unset_model(k, v)}
     db_keys = set(db_settings.keys())
+    # Model defaults follow the provider from this same read.
+    provider = (
+        LLM_PROVIDER.env_default
+        if env_only
+        else str(db_settings.get(LLM_PROVIDER.key, LLM_PROVIDER.env_default))
+    )
 
     tabs: dict[str, list[SettingItem]] = {}
     for cfg in _registry:
@@ -314,6 +323,8 @@ async def get_all_settings(
             # Resolving from db_settings here would surface stale overrides
             # that are NOT in effect; show the effective env_default instead.
             value = db_settings[cfg.key]
+        elif cfg in (LLM_MODEL, LLM_MODEL_LIGHT):
+            value = await cfg.default_for(db, provider)
         else:
             value = await cfg.resolved_default(db)
 
