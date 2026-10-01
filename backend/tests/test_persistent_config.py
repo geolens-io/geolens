@@ -1483,6 +1483,36 @@ async def test_blank_model_import_plans_and_applies_a_reset(
 
 
 @pytest.mark.anyio
+async def test_an_overlay_under_a_built_in_name_chats_with_the_reported_model(
+    client: AsyncClient, admin_auth_header: dict, _both_ai_keys
+):
+    """Chat, the settings default and SQL agree on the community model for a
+    replaced built-in provider."""
+    from app.api.main import app
+    from app.core.dependencies import get_db
+    from app.core.persistent_config import LLM_MODEL, LLM_PROVIDER
+    from app.processing.ai.llm_loop import resolve_provider
+
+    class _Overlay:
+        async def resolve_runtime_config(self, _db):
+            return {"base_url": None, "default_model": "overlay-deployment"}
+
+    await client.put(
+        "/settings/",
+        json={"settings": {"llm_provider": "anthropic"}},
+        headers=admin_auth_header,
+    )
+    with patch("app.platform.extensions.get_ai_provider", return_value=_Overlay()):
+        async for db in app.dependency_overrides[get_db]():
+            _, chat_model, _ = await resolve_provider(db)
+            assert chat_model == await LLM_MODEL.resolved_default(db)
+            assert chat_model == await LLM_MODEL.for_provider(
+                db, await LLM_PROVIDER.get(db)
+            )
+            assert chat_model == "anthropic-chat-env"
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("provider", "expected"),
     [("anthropic", "anthropic-chat-env"), ("openai_compatible", "openai-chat-env")],
