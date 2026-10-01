@@ -260,3 +260,37 @@ async def test_a_full_save_and_an_append_at_the_boundary_admit_exactly_one(
     assert writer_resp.status_code == 200
     assert append_resp.status_code == 422
     assert await _layer_count(test_db_session, map_id) == _MAX_LAYERS_PER_MAP
+
+
+@pytest.mark.anyio
+async def test_a_layer_delete_records_its_history_while_a_layer_writer_holds_the_map(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """A delete holds its layer rows while it writes history against the map.
+
+    A save holding the map while it waits on those rows would deadlock with a
+    delete that, in turn, waited on the map for its history insert.
+    """
+    from app.modules.catalog.maps.service_layers import lock_map_layers
+
+    map_id, _dataset_id = await _map_with_layers(
+        client, admin_auth_header, test_db_session, 2
+    )
+    layer_id = (
+        await test_db_session.execute(
+            select(MapLayer.id).where(MapLayer.map_id == uuid.UUID(map_id)).limit(1)
+        )
+    ).scalar_one()
+
+    await lock_map_layers(test_db_session, uuid.UUID(map_id))
+    delete = asyncio.create_task(
+        client.delete(f"/maps/{map_id}/layers/{layer_id}", headers=admin_auth_header)
+    )
+    try:
+        done, _ = await asyncio.wait({delete}, timeout=10)
+    finally:
+        await test_db_session.rollback()
+    resp = await delete
+
+    assert done, "the delete waited on the layer writer's map lock"
+    assert resp.status_code == 204

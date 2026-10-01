@@ -60,14 +60,18 @@ async def lock_map_layers(session: AsyncSession, map_id: uuid.UUID) -> None:
     Take it before reading the layers a write will count or reconcile, and hold
     it through the caller's commit: a writer that counted first would otherwise
     insert on a stale count after another admitted its layer. Only the wait for
-    this lock is bounded; a wait that outlasts the bound answers 409.
+    this lock is bounded; a wait that outlasts the bound answers 409. The lock
+    leaves the map's key shareable, so a layer delete holding its rows can still
+    insert the history event that references the map.
     """
     await session.execute(
         text("SELECT set_config('lock_timeout', :timeout, true)"),
         {"timeout": _LAYER_LOCK_TIMEOUT},
     )
     try:
-        await session.execute(select(Map.id).where(Map.id == map_id).with_for_update())
+        await session.execute(
+            select(Map.id).where(Map.id == map_id).with_for_update(key_share=True)
+        )
     except DBAPIError as exc:
         if not is_lock_conflict(exc):
             raise
