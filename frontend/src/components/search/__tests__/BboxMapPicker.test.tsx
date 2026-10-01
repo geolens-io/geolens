@@ -44,6 +44,6 @@ describe('BboxMapPicker — region label (#828)', () => {
 
   it('shows the localized draw instruction', () => {
     render(<BboxMapPicker onBboxSelected={vi.fn()} />);
-    expect(screen.getByText('Click and drag to draw a bounding box')).toBeInTheDocument();
+    expect(screen.getByText('Click to start the box, then click again to finish it')).toBeInTheDocument();
   });
 });

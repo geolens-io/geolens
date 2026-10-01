@@ -161,7 +161,7 @@
   "bbox": {
     "mapAriaLabel": "Mapa del cuadro delimitador",
     "noExtent": "Sin extensión",
-    "instruction": "Haz clic y arrastra para dibujar un cuadro delimitador",
+    "instruction": "Haz clic para iniciar el cuadro y vuelve a hacer clic para terminarlo",
     "loading": "Cargando mapa..."
   },
   "typeahead": {
@@ -210,7 +210,7 @@
     "close": "Cerrar",
     "rectangle": "Rectángulo",
     "polygon": "Polígono",
-    "rectangleInstruction": "Haz clic y arrastra para dibujar un cuadro delimitador",
+    "rectangleInstruction": "Haz clic para iniciar el cuadro y vuelve a hacer clic para terminarlo",
     "polygonInstruction": "Haz clic para añadir puntos, doble clic para finalizar",
     "predicate": "Modo:",
     "intersects": "Interseca",

@@ -165,7 +165,7 @@
     "close": "Close",
     "rectangle": "Rectangle",
     "polygon": "Polygon",
-    "rectangleInstruction": "Click and drag to draw a bounding box",
+    "rectangleInstruction": "Click to start the box, then click again to finish it",
     "polygonInstruction": "Click to add points, double-click to finish",
     "predicate": "Mode:",
     "intersects": "Intersects",
@@ -178,7 +178,7 @@
   "bbox": {
     "mapAriaLabel": "Bounding box map",
     "noExtent": "No extent",
-    "instruction": "Click and drag to draw a bounding box",
+    "instruction": "Click to start the box, then click again to finish it",
     "loading": "Loading map..."
   },
   "clearSearch": "Clear search",

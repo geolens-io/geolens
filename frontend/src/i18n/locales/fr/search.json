@@ -161,7 +161,7 @@
   "bbox": {
     "mapAriaLabel": "Carte du cadre de sélection",
     "noExtent": "Pas d'étendue",
-    "instruction": "Cliquez et faites glisser pour dessiner un cadre de sélection",
+    "instruction": "Cliquez pour commencer la boîte, puis cliquez à nouveau pour la terminer",
     "loading": "Chargement de la carte..."
   },
   "typeahead": {
@@ -210,7 +210,7 @@
     "close": "Fermer",
     "rectangle": "Rectangle",
     "polygon": "Polygone",
-    "rectangleInstruction": "Cliquez et faites glisser pour dessiner une boîte englobante",
+    "rectangleInstruction": "Cliquez pour commencer la boîte, puis cliquez à nouveau pour la terminer",
     "polygonInstruction": "Cliquez pour ajouter des points, double-cliquez pour terminer",
     "predicate": "Mode :",
     "intersects": "Intersecte",

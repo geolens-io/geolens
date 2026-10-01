@@ -86,7 +86,7 @@ describe('SpatialFilterPanel — region and control labels (#828)', () => {
 
   it('shows the rectangle draw instruction before an area is drawn', () => {
     renderPanel();
-    expect(screen.getByText('Click and drag to draw a bounding box')).toBeInTheDocument();
+    expect(screen.getByText('Click to start the box, then click again to finish it')).toBeInTheDocument();
   });
 
   it('every button and toggle in the panel has a non-empty accessible name', () => {

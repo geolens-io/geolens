@@ -241,7 +241,7 @@ export function SpatialFilterPanel({
       const td = new TerraDraw({
         adapter: new TerraDrawMapLibreGLAdapter({ map }),
         modes: [
-          new TerraDrawRectangleMode({ styles: modeStyles, drawInteraction: 'click-move-or-drag' }),
+          new TerraDrawRectangleMode({ styles: modeStyles }),
           new TerraDrawPolygonMode({ styles: modeStyles }),
         ],
       });
@@ -382,7 +382,7 @@ export function SpatialFilterPanel({
               <p className="mt-2 text-xs text-muted-foreground">
                 {drawMode === 'rectangle'
                   ? t('spatial.rectangleInstruction', {
-                      defaultValue: 'Click and drag to draw a bounding box',
+                      defaultValue: 'Click to start the box, then click again to finish it',
                     })
                   : t('spatial.polygonInstruction', {
                       defaultValue: 'Click to add points, double-click to finish',

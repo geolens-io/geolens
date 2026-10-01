@@ -41,11 +41,11 @@ vi.mock('@/components/theme-provider', () => ({ useTheme: () => ({ resolvedTheme
 vi.mock('@/hooks/use-settings', () => ({ useBasemaps: () => ({ data: [] }) }));
 
 describe('SpatialFilterPanel drawing', () => {
-  it('lets the rectangle be drawn by click-move or by dragging', () => {
+  it('keeps the default click-then-click rectangle so dragging still pans, and says so', () => {
     render(<SpatialFilterPanel open onClose={vi.fn()} onApply={vi.fn()} />);
-    expect(TerraDrawRectangleMode).toHaveBeenCalledWith(
-      expect.objectContaining({ drawInteraction: 'click-move-or-drag' }),
-    );
+    const options = vi.mocked(TerraDrawRectangleMode).mock.calls[0][0] as { drawInteraction?: string };
+    expect(options.drawInteraction ?? 'click-move').toBe('click-move');
+    expect(screen.getByText('Click to start the box, then click again to finish it')).toBeInTheDocument();
   });
 
   it('applies a box drawn across the antimeridian with longitudes inside +/-180', () => {
