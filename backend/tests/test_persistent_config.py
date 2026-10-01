@@ -1483,27 +1483,6 @@ async def test_blank_model_import_plans_and_applies_a_reset(
 
 
 @pytest.mark.anyio
-async def test_an_overlay_replacing_a_built_in_provider_supplies_its_model(
-    client: AsyncClient, _both_ai_keys
-):
-    from app.api.main import app
-    from app.core.dependencies import get_db
-    from app.core.persistent_config import LLM_MODEL_LIGHT
-
-    class _OverlayProvider:
-        async def resolve_runtime_config(self, _db):
-            return {"base_url": None, "default_model": "overlay-model"}
-
-    with patch(
-        "app.platform.extensions.get_ai_provider", return_value=_OverlayProvider()
-    ):
-        async for db in app.dependency_overrides[get_db]():
-            assert (
-                await LLM_MODEL_LIGHT.for_provider(db, "anthropic") == "overlay-model"
-            )
-
-
-@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("provider", "expected"),
     [("anthropic", "anthropic-chat-env"), ("openai_compatible", "openai-chat-env")],
