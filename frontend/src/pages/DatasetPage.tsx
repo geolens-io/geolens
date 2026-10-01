@@ -6,6 +6,7 @@ import { AlertTriangle, ArrowLeft, Download, Trash2, Upload, Globe, GlobeLock, L
 import { toast } from 'sonner';
 import { PageShell } from '@/components/layout/PageShell';
 import { ErrorState } from '@/components/layout/ErrorState';
+import { ApiError } from '@/api/client';
 import { useDataset, useUpdateDataset, useSetTargetStatus, useValidation, useDatasetRefreshWatch } from '@/components/dataset/hooks/use-dataset';
 import { useDatasetJobStatus } from '@/components/import/hooks/use-ingest';
 import { IngestWarningsBanner } from '@/components/import/IngestWarningsBanner';
@@ -182,14 +183,17 @@ export function DatasetPage() {
       return data?.raster?.status === 'regenerating' ? 5_000 : false;
     },
   });
+  // A missing dataset has no job, validation or refresh runs to ask about.
+  const notFound = error instanceof ApiError && error.status === 404;
+  const relatedId = notFound ? undefined : id;
   // fix(#1285 codex round 4): mounted at the page level, not inside the
   // Source tab, so a dispatched refresh's tracking survives a tab switch —
   // the "sources" TabsContent unmounts on Radix Tabs when it isn't active.
-  const refreshWatch = useDatasetRefreshWatch(id ?? '');
+  const refreshWatch = useDatasetRefreshWatch(relatedId ?? '');
   const [activeDialog, setActiveDialog] = useState<'delete' | 'reupload' | 'vrt' | 'unpublish' | null>(null);
   const setTargetStatus = useSetTargetStatus();
   const token = useAuthStore((s) => s.token);
-  const { data: validationData } = useValidation(token ? id : undefined);
+  const { data: validationData } = useValidation(token ? relatedId : undefined);
   const { data: featureFlags } = useFeatureFlags();
   const [activeTab, setActiveTab] = useState(getInitialTab);
   const navigate = useNavigate();
@@ -269,7 +273,7 @@ export function DatasetPage() {
   // temporal_parse_errors).
   // 404 is a normal case — the dataset was registered from an existing table
   // or created via a non-ingest path.
-  const { data: datasetJob } = useDatasetJobStatus(id ?? null);
+  const { data: datasetJob } = useDatasetJobStatus(relatedId ?? null);
 
   const handleTabChange = useCallback(
     (value: string) => {
@@ -366,7 +370,7 @@ export function DatasetPage() {
         <ErrorState
           title={t('page.errorTitle')}
           message={error instanceof Error ? error.message : t('page.errorMessage')}
-          onRetry={() => refetch()}
+          onRetry={notFound ? undefined : () => refetch()}
           action={
             <Link
               to="/"
