@@ -1713,6 +1713,37 @@ describe('DatasetMap new feature saved without an attribute form', () => {
     expect(setUnsaved).toHaveBeenLastCalledWith(false);
   });
 
+  it('sends one idempotency key with rising attempt numbers for a sketch, and a new key for the next', async () => {
+    const settle = pendingCreate('reject');
+    render(renderMap());
+    finishSketch();
+    await settle();
+
+    const dialog = within(screen.getByRole('dialog'));
+    createFeatureMutateAsync.mockRejectedValueOnce(new Error('timed out'));
+    await act(async () => {
+      fireEvent.click(dialog.getByRole('button', { name: 'Skip' }));
+    });
+    createFeatureMutateAsync.mockResolvedValueOnce({});
+    await act(async () => {
+      fireEvent.click(dialog.getByRole('button', { name: 'Save' }));
+    });
+    expect(createFeatureMutateAsync).toHaveBeenCalledTimes(3);
+
+    createFeatureMutateAsync.mockResolvedValueOnce({});
+    finishSketch();
+    expect(createFeatureMutateAsync).toHaveBeenCalledTimes(4);
+
+    const keys = createFeatureMutateAsync.mock.calls.map(([vars]) => vars.idempotencyKey);
+    const attempts = createFeatureMutateAsync.mock.calls.map(([vars]) => vars.attempt);
+    expect(keys[0]).toEqual(expect.any(String));
+    expect(keys[0]).not.toBe('');
+    expect(keys[1]).toBe(keys[0]);
+    expect(keys[2]).toBe(keys[0]);
+    expect(keys[3]).not.toBe(keys[0]);
+    expect(attempts).toEqual([1, 2, 3, 1]);
+  });
+
   it('starts one create when a second sketch finishes before the map re-renders, and keeps the first after a refusal', async () => {
     const info = vi.spyOn(toast, 'info').mockImplementation(() => 'toast-id');
     const settle = pendingCreate('reject');

@@ -131,9 +131,35 @@ describe('useCreateFeature', () => {
       datasetId: 'ds-1',
       geometry: { type: 'Point', coordinates: [0, 0] },
       properties: {},
+      idempotencyKey: 'sketch-1',
+      attempt: 2,
     });
 
-    expect(mockCreateFeature).toHaveBeenCalledWith('ds-1', { type: 'Point', coordinates: [0, 0] }, {});
+    expect(mockCreateFeature).toHaveBeenCalledWith(
+      'ds-1',
+      { type: 'Point', coordinates: [0, 0] },
+      {},
+      'sketch-1',
+      2,
+    );
+  });
+
+  it('sends no key when the caller has none', async () => {
+    mockCreateFeature.mockResolvedValueOnce({} as never);
+
+    const { result } = renderHook(() => useCreateFeature());
+    await result.current.mutateAsync({
+      datasetId: 'ds-1',
+      geometry: { type: 'Point', coordinates: [0, 0] },
+    });
+
+    expect(mockCreateFeature).toHaveBeenCalledWith(
+      'ds-1',
+      { type: 'Point', coordinates: [0, 0] },
+      undefined,
+      undefined,
+      undefined,
+    );
   });
 
   it('returns error state on failure', async () => {

@@ -36966,7 +36966,7 @@
         ]
       },
       "post": {
-        "description": "Insert a new GeoJSON feature into a dataset.",
+        "description": "Insert a new GeoJSON feature into a dataset.\n\nSend the same `Idempotency-Key` on every attempt to create one feature, and\n`Idempotency-Attempt` numbering the attempts 1, 2, 3 and so on. A repeat\nfrom the same user on the same dataset never inserts a second feature. It\nanswers with the feature as stored, with the same 201 status and body\nshape. If its attempt number is higher than any applied so far, it first\napplies its geometry and the properties it names to that feature, with the\nvalidation a create gets, unless anyone else has written the feature since\nthe last attempt was applied: then it is refused with 409, the stored\nfeature in `detail.feature`, and nothing is overwritten. If it is equal or\nlower, the stored feature comes back unchanged, so a request that arrives\nlate cannot undo a later one. Two requests with one key never both insert. A key is honored for 24 hours. If\nthe feature it created has been deleted since, or the dataset's data has\nbeen replaced by a reupload or an overwrite, the repeat is refused with 409\nrather than creating another. Without the key every request inserts, and\nan attempt number sent without one is ignored.",
         "operationId": "create_feature_datasets__dataset_id__features__post",
         "parameters": [
           {
@@ -36977,6 +36977,33 @@
               "format": "uuid",
               "title": "Dataset Id",
               "type": "string"
+            }
+          },
+          {
+            "description": "Optional key that makes a retried create safe. Letters, digits and `._:-`, up to 128 characters.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "description": "Optional key that makes a retried create safe. Letters, digits and `._:-`, up to 128 characters.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._:-]+$",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Attempt number sent with `Idempotency-Key`, counting up by one each time the body is sent again. Counts as 1 when omitted.",
+            "in": "header",
+            "name": "Idempotency-Attempt",
+            "required": false,
+            "schema": {
+              "description": "Attempt number sent with `Idempotency-Key`, counting up by one each time the body is sent again. Counts as 1 when omitted.",
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Idempotency-Attempt",
+              "type": "integer"
             }
           }
         ],

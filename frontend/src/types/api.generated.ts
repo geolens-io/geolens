@@ -2249,6 +2249,22 @@ export interface paths {
         /**
          * Create Feature
          * @description Insert a new GeoJSON feature into a dataset.
+         *
+         *     Send the same `Idempotency-Key` on every attempt to create one feature, and
+         *     `Idempotency-Attempt` numbering the attempts 1, 2, 3 and so on. A repeat
+         *     from the same user on the same dataset never inserts a second feature. It
+         *     answers with the feature as stored, with the same 201 status and body
+         *     shape. If its attempt number is higher than any applied so far, it first
+         *     applies its geometry and the properties it names to that feature, with the
+         *     validation a create gets, unless anyone else has written the feature since
+         *     the last attempt was applied: then it is refused with 409, the stored
+         *     feature in `detail.feature`, and nothing is overwritten. If it is equal or
+         *     lower, the stored feature comes back unchanged, so a request that arrives
+         *     late cannot undo a later one. Two requests with one key never both insert. A key is honored for 24 hours. If
+         *     the feature it created has been deleted since, or the dataset's data has
+         *     been replaced by a reupload or an overwrite, the repeat is refused with 409
+         *     rather than creating another. Without the key every request inserts, and
+         *     an attempt number sent without one is ignored.
          */
         post: operations["create_feature_datasets__dataset_id__features__post"];
         delete?: never;
@@ -25446,7 +25462,12 @@ export interface operations {
     create_feature_datasets__dataset_id__features__post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional key that makes a retried create safe. Letters, digits and `._:-`, up to 128 characters. */
+                "Idempotency-Key"?: string;
+                /** @description Attempt number sent with `Idempotency-Key`, counting up by one each time the body is sent again. Counts as 1 when omitted. */
+                "Idempotency-Attempt"?: number;
+            };
             path: {
                 dataset_id: string;
             };
