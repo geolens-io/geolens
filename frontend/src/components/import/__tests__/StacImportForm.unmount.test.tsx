@@ -225,6 +225,21 @@ describe('StacImportForm unmount survival', () => {
     expect(peekStacImport()).toBeNull();
   });
 
+  test('each created dataset links to its page on the completion screen', async () => {
+    mockImportStacItems.mockResolvedValue({
+      created: 1,
+      skipped: 0,
+      errors: 0,
+      results: [{ item_id: 'flow-item-1', dataset_id: 'ds-1', status: 'created', error: null }],
+    });
+
+    const { user } = await driveToConfirmStep();
+    await user.click(screen.getByRole('button', { name: /stac\.confirm\.confirmImport/i }));
+    await waitFor(() => expect(screen.getByText('stac.importComplete')).toBeInTheDocument());
+
+    expect(screen.getByRole('link', { name: 'bulk.openDataset' })).toHaveAttribute('href', '/datasets/ds-1');
+  });
+
   // fix(codex #1763 r3): the session used to restore only `importResult` on
   // adoption, so "Back to Results" (which sets `step` back to 'items')
   // rendered nothing — that branch guards on `selectedCollection` and
