@@ -2610,7 +2610,7 @@ Its lifetime is therefore tied to the dataset, not to a job:
 | --- | --- |
 | The dataset is replaced again with a lossy conversion | The new original is kept alongside it. Every upload with distinct content persists, whatever it is called; re-uploading a byte-identical file rewrites the same object rather than adding a second copy. |
 | The dataset is replaced with a **lossless** conversion | Nothing new is kept. Earlier originals stay — they are still the only copy of what those uploads contained. |
-| The dataset is **deleted** | Removed with it. Deleting a raster dataset clears the whole `originals/<dataset-id>/` prefix. |
+| The dataset is **deleted** | Removed with it. Deleting a raster dataset clears the whole `originals/<dataset-id>/` prefix, and the periodic sweep deletes one a late archive write left behind. |
 | The `ingest_jobs` retention window passes | Nothing. This copy is not a job artifact. |
 
 **It counts against the owner's storage quota.** Every kept original gets its
@@ -2649,6 +2649,12 @@ The practical consequences:
 - Those originals are safe to delete yourself if you accept losing the only
   faithful copy. Nothing in GeoLens reads them; they exist so the choice stays
   yours.
+- The sweep treats an `originals/<uuid>/` prefix with no dataset in this
+  database as left over once its newest object is a day old, and deletes it
+  unless a job can still write it. Don't point two installs at one bucket or
+  storage directory, and expect a database restore to an earlier point to lose
+  the originals of the datasets it discarded. On a versioned bucket those leave
+  a delete marker the restore steps above can undo.
 - If you want the smaller footprint and do not need the original, ingest with a
   lossless compression and no CRS override, and accept the larger COG.
 

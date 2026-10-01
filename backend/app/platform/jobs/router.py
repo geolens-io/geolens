@@ -43,6 +43,7 @@ from app.platform.jobs.schemas import (
     ReservedRenameWarning,
     StaleCleanupResponse,
 )
+from app.platform.jobs.originals_reconcile import reconcile_orphaned_originals
 from app.platform.jobs.staging_reconcile import reconcile_orphaned_staging_objects
 from app.platform.jobs.sweep import (
     JOB_TIMEOUT_SECONDS,  # noqa: F401 -- re-exported, see __all__
@@ -213,6 +214,7 @@ async def cleanup_stale_jobs(
             # sweeper runs; the fleet helper (multi-tenant) already
             # reconciles per tenant.
             await reconcile_orphaned_staging_objects(db)
+            await reconcile_orphaned_originals(db)
             from app.processing.ingest.publish_followups import (
                 run_owed_publish_followups,
             )
