@@ -19,6 +19,7 @@ from app.processing.ingest.tasks_postgis_refresh import (
     PostgisRefreshError,
     refresh_postgis,
 )
+from app.processing.ingest import metadata as ingest_metadata
 
 pytestmark = [
     pytest.mark.anyio,
@@ -371,5 +372,33 @@ async def test_a_table_recreated_with_an_unusable_gid_fails_refresh_with_its_cod
 
         assert (run.status, run.error_code) == ("failed", UNUSABLE_GID_CODE)
         assert await _columns(test_db_session, table) == before
+    finally:
+        await _drop(test_db_session, table)
+
+
+async def test_a_gid_the_repair_could_not_add_fails_refresh_as_retryable(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+) -> None:
+    """A refresh whose repair could not add a missing gid fails with the generic code, not the gid refusal."""
+    table = f"recreated_{uuid.uuid4().hex[:10]}"
+    try:
+        dataset_id = await _register_recreated(
+            client,
+            admin_auth_header,
+            test_db_session,
+            table,
+            "ogc_fid serial PRIMARY KEY, name text, geom geometry(Point, 4326)",
+        )
+
+        with patch.object(
+            ingest_metadata,
+            "add_gid_column",
+            AsyncMock(
+                side_effect=RuntimeError("canceling statement due to lock timeout")
+            ),
+        ):
+            run = await _refresh(client, admin_auth_header, test_db_session, dataset_id)
+
+        assert (run.status, run.error_code) == ("failed", "postgis_refresh_failed")
     finally:
         await _drop(test_db_session, table)

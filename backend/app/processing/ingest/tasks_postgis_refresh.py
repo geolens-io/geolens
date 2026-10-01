@@ -572,7 +572,18 @@ class _PostgisRefresh:
                         "column an SRID, then refresh again.",
                         error_code=UNDECLARED_SRID_CODE,
                     )
-                if not await probe_gid(session, table_name, schema=schema):
+                gid_keyable = await probe_gid(session, table_name, schema=schema)
+                if gid_keyable is None:
+                    # The repair adds a missing gid, so it did not finish.
+                    raise PostgisRefreshError(
+                        "The registered table has no gid column, and GeoLens "
+                        "could not add one during this refresh. The catalog "
+                        "entry is unchanged; refresh again, and if it keeps "
+                        "failing, check that the GeoLens database role can "
+                        "alter the table.",
+                        error_code=_ERROR_CODE_GENERIC,
+                    )
+                if gid_keyable is False:
                     raise PostgisRefreshError(
                         "The registered table has no gid column GeoLens can "
                         "identify features by: an integer that is NOT NULL "
