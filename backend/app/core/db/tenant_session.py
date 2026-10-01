@@ -85,6 +85,10 @@ _SCHEMA_BIND_NAMES = frozenset(
         "target_schema",
     }
 )
+# Row locks need UPDATE privilege, which only the tenant writer holds.
+_LOCKING_CLAUSE_RE = re.compile(
+    r"\bFOR\s+(?:NO\s+KEY\s+UPDATE|UPDATE|KEY\s+SHARE|SHARE)\b", re.IGNORECASE
+)
 _LEGACY_DATA_SCHEMA_RE = re.compile(
     r'(?<![a-z0-9_])(?:"data"|data)\s*\.', re.IGNORECASE
 )
@@ -198,7 +202,7 @@ def _statement_requires_writer(statement: str) -> bool:
     tokens = [token.upper() for token in re.findall(r"[a-zA-Z_]+", executable_sql)]
     if not tokens:
         return False
-    if tokens[0] in _WRITE_SQL_TOKENS:
+    if tokens[0] in _WRITE_SQL_TOKENS or _LOCKING_CLAUSE_RE.search(executable_sql):
         return True
     if tokens[0] in {"WITH", "EXPLAIN"}:
         return any(token in _WRITE_SQL_TOKENS for token in tokens[1:])

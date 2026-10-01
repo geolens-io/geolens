@@ -82,6 +82,9 @@ def test_role_reset_closes_sibling_cursor_when_reset_fails(monkeypatch):
         f'ALTER TABLE "{_SCHEMA_A}"."roads" ADD COLUMN name text',
         f'WITH changed AS (DELETE FROM "{_SCHEMA_A}"."roads" RETURNING gid) '
         "SELECT gid FROM changed",
+        f'SELECT xmin FROM "{_SCHEMA_A}"."roads" WHERE gid = 1 FOR UPDATE',
+        f'SELECT gid FROM "{_SCHEMA_A}"."roads" FOR NO KEY UPDATE',
+        f'SELECT gid FROM "{_SCHEMA_A}"."roads" for key share',
     ],
 )
 def test_mutating_sql_uses_tenant_writer(monkeypatch, statement):
@@ -128,6 +131,7 @@ def test_catalog_payload_tenant_shaped_string_does_not_trigger_binding(monkeypat
         f'SELECT \'UPDATE {_SCHEMA_B}.roads\' FROM "{_SCHEMA_A}"."roads"',
         f'-- UPDATE "{_SCHEMA_B}"."roads"\nSELECT * FROM "{_SCHEMA_A}"."roads"',
         f'/* UPDATE "{_SCHEMA_B}"."roads" */ SELECT * FROM "{_SCHEMA_A}"."roads"',
+        f'SELECT \'FOR UPDATE\' FROM "{_SCHEMA_A}"."roads" -- FOR SHARE',
     ],
 )
 def test_update_in_literal_or_comment_remains_reader_only(monkeypatch, statement):

@@ -17,6 +17,8 @@ from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.db.tenant_schema import tenant_data_schema
+from app.core.db.tenant_session import current_tenant_var
 from app.modules.catalog.features.models import FeatureCreateKey
 from app.platform.extensions import get_catalog_port
 
@@ -63,8 +65,11 @@ async def current_table_oid(db: AsyncSession, table_name: str) -> int | None:
     of it), so a swap or overwrite cannot commit between that access and this.
     """
     return await db.scalar(
-        text("SELECT to_regclass(:name)::oid"),
-        {"name": get_catalog_port().quote_table(table_name)},
+        text(
+            "SELECT to_regclass(format('%I.%I', "
+            "CAST(:schema AS text), CAST(:table AS text)))::oid"
+        ),
+        {"schema": tenant_data_schema(current_tenant_var.get()), "table": table_name},
     )
 
 

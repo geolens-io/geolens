@@ -1020,3 +1020,45 @@ def test_the_credentialed_cors_policy_allows_the_key_headers():
     allowed = response.headers["Access-Control-Allow-Headers"]
     assert "Idempotency-Key" in allowed
     assert "Idempotency-Attempt" in allowed
+
+
+async def test_the_table_lookups_bind_a_tenant_role_holding_their_privilege(
+    monkeypatch,
+):
+    """Multi-tenant: the runtime login has no data-schema privilege of its own."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock
+
+    from app.core.db.tenant_session import (
+        _before_tenant_cursor_execute,
+        current_tenant_var,
+    )
+    from app.modules.catalog.features.idempotency import (
+        current_row_xmin,
+        current_table_oid,
+    )
+
+    tenant = "00000000-0000-0000-0000-000000000001"
+    monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: True)
+    db = MagicMock()
+    db.scalar = AsyncMock(return_value=None)
+    roles = []
+    token = current_tenant_var.set(tenant)
+    try:
+        await current_table_oid(db, "roads")
+        await current_row_xmin(db, "roads", 1, lock=True)
+        for call in db.scalar.await_args_list:
+            statement, params = call.args
+            cursor = MagicMock()
+            _before_tenant_cursor_execute(
+                object(), cursor, str(statement), params, SimpleNamespace(), False
+            )
+            roles += [c.args[0] for c in cursor.execute.call_args_list]
+    finally:
+        current_tenant_var.reset(token)
+
+    suffix = tenant.replace("-", "_")
+    assert roles == [
+        f'SET LOCAL ROLE "geolens_reader_t_{suffix}"',
+        f'SET LOCAL ROLE "geolens_writer_t_{suffix}"',
+    ]
