@@ -30,6 +30,7 @@ logger = structlog.stdlib.get_logger(__name__)
 
 __all__ = [
     "compute_schema_diff",
+    "defer_metadata_embedding",
     "get_attribute",
     "list_attributes",
     "reset_attribute",
@@ -304,13 +305,16 @@ async def _apply_is_dem(
     return True
 
 
-async def _maybe_defer_embedding(record_id: uuid.UUID, dataset_id: uuid.UUID) -> None:
-    """Best-effort defer of embedding regeneration. Failures are logged, not raised."""
+async def defer_metadata_embedding(
+    meta: "DatasetMeta", record_id: uuid.UUID, dataset_id: uuid.UUID
+) -> None:
+    """Queue re-embedding once an edit to embedded text has committed; best-effort."""
+    # model_fields_set, not is-not-None: an explicit clear must also re-embed.
+    if not {"title", "summary", "lineage_summary"} & meta.model_fields_set:
+        return
     try:
         await get_catalog_port().defer_embed_record(record_id)
-    except (
-        Exception
-    ):  # broad: defer is non-fatal; embedding will catch up on next edit or backfill
+    except Exception:  # broad: non-fatal; the next edit or a backfill catches up
         # Traceback logged so operators can notice a consistent failure
         # (e.g. broker down) instead of silently dropping edits from the index.
         logger.warning(
@@ -408,11 +412,6 @@ async def update_user_metadata(
         record.updated_by = actor_id
 
     await session.flush()
-
-    # model_fields_set, not is-not-None: an explicit clear must also re-embed.
-    if {"title", "summary", "lineage_summary"} & meta.model_fields_set:
-        await _maybe_defer_embedding(record.id, dataset.id)
-
     return dataset
 
 
