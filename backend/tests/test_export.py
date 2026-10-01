@@ -20,6 +20,7 @@ from app.modules.catalog.datasets.domain.models import Dataset
 from app.processing.export.ogr import FORMAT_MAP
 
 from tests.factories import create_dataset, get_user_id
+from tests.test_features_crud import _create_test_table_and_dataset
 
 
 # ---------------------------------------------------------------------------
@@ -91,6 +92,7 @@ def mock_export_service(monkeypatch):
         pmtiles_maxzoom=None,
         column_info=None,
         deadline=None,
+        spatial_index=True,
     ):
         # Replicate the real format validation
         if format_key not in FORMAT_MAP:
@@ -528,7 +530,10 @@ class TestExportFormats:
     ):
         """Request with format=fgb returns 200 with the FlatGeobuf Content-Type."""
         admin_id = await get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(test_db_session, created_by=admin_id, name="FgbDS")
+        # The router probes the table for null geometries, so it must exist.
+        ds = await _create_test_table_and_dataset(
+            test_db_session, created_by=admin_id, geometry_type="MultiPoint"
+        )
         resp = await client.get(
             f"/datasets/{ds.id}/export",
             params={"format": "fgb"},

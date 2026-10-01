@@ -387,6 +387,7 @@ class TestNonSpatialBboxIsDropped:
             pmtiles_maxzoom=None,
             column_info=None,
             deadline=None,
+            spatial_index=True,
         ):
             seen["bbox"] = bbox
             path = tmp_path / f"{uuid.uuid4().hex}.out"

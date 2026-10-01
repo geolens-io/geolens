@@ -57,6 +57,7 @@ def mock_export_service(monkeypatch):
         pmtiles_maxzoom=None,
         column_info=None,
         deadline=None,
+        spatial_index=True,
     ):
         if format_key not in FORMAT_MAP:
             raise ValueError(f"Unsupported export format: {format_key}")

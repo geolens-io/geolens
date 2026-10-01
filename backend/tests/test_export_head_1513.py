@@ -66,6 +66,7 @@ def mock_export_service(monkeypatch):
         pmtiles_maxzoom=None,
         column_info=None,
         deadline=None,
+        spatial_index=True,
     ):
         calls.append(format_key)
         # Derive names through the same helper the route uses for HEAD, so a
