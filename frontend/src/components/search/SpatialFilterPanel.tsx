@@ -45,6 +45,8 @@ interface SpatialFilterPanelProps {
   onClose: () => void;
   onApply: (bbox: string, predicate: string, geometry?: GeoJSON.Geometry) => void;
   initialBbox?: string;
+  /** The applied polygon as GeoJSON text; it takes precedence over the bbox. */
+  initialGeometry?: string;
   initialPredicate?: string;
 }
 
@@ -96,6 +98,23 @@ function addRectangle(td: TerraDraw, bbox: string): Array<string | number> {
   return results.every((r) => r.valid) ? ids : [];
 }
 
+function parsePolygon(text: string | undefined): GeoJSON.Polygon | null {
+  if (!text) return null;
+  try {
+    const geometry = JSON.parse(text) as GeoJSON.Geometry;
+    return geometry.type === 'Polygon' ? geometry : null;
+  } catch {
+    return null;
+  }
+}
+
+function addPolygon(td: TerraDraw, polygon: GeoJSON.Polygon): Array<string | number> {
+  const id = randomId();
+  const feature = { type: 'Feature', id, properties: { mode: 'polygon' }, geometry: polygon };
+  const [result] = td.addFeatures([feature as unknown as GeoJSONStoreFeatures]);
+  return result?.valid ? [id] : [];
+}
+
 function fitToBbox(map: MaplibreMap | null, bbox: string) {
   const [minX, minY, maxX, maxY] = bbox.split(',').map(Number);
   map?.fitBounds([[minX, minY], [maxX < minX ? maxX + 360 : maxX, maxY]], { padding: 40, duration: 0 });
@@ -125,6 +144,7 @@ export function SpatialFilterPanel({
   onClose,
   onApply,
   initialBbox,
+  initialGeometry,
   initialPredicate,
 }: SpatialFilterPanelProps) {
   const { t } = useTranslation('search');
@@ -142,6 +162,10 @@ export function SpatialFilterPanel({
   // The far half of a rectangle drawn across the seam.
   const extraDrawnIdsRef = useRef<Array<string | number>>([]);
   const mapRef = useRef<MaplibreMap | null>(null);
+  // The applied polygon until the user draws or clears another area. Terra Draw
+  // can refuse to re-add a polygon it finished (longitudes past 180), and
+  // applying again must not turn that polygon into its bounding box.
+  const restoredPolygonRef = useRef<GeoJSON.Polygon | null>(null);
 
   const basemapStyle = useMemo(() => {
     const themeBasemap = getThemeBasemap(basemaps ?? [], resolvedTheme);
@@ -150,6 +174,28 @@ export function SpatialFilterPanel({
       resolvedTheme === 'dark' ? FALLBACK_BASEMAP_STYLE_URL_DARK : FALLBACK_BASEMAP_STYLE_URL,
     );
   }, [basemaps, resolvedTheme]);
+
+  const storedPolygon = useMemo(() => parsePolygon(initialGeometry), [initialGeometry]);
+
+  // Draws the applied area (a polygon wins over its bounding box) and selects
+  // the matching draw mode.
+  const restoreStoredArea = useCallback(
+    (td: TerraDraw, map: MaplibreMap | null) => {
+      if (!initialBbox) return;
+      const ids = storedPolygon ? addPolygon(td, storedPolygon) : addRectangle(td, initialBbox);
+      drawnFeatureIdRef.current = ids[0] ?? null;
+      extraDrawnIdsRef.current = ids.slice(1);
+      restoredPolygonRef.current = storedPolygon;
+      // The stored bbox is the active filter whether or not it could be drawn.
+      setPendingBbox(initialBbox);
+      if (storedPolygon) {
+        setDrawMode('polygon');
+        td.setMode('polygon');
+      }
+      fitToBbox(map, initialBbox);
+    },
+    [initialBbox, storedPolygon],
+  );
 
   // Restore drawn feature when panel reopens
   useEffect(() => {
@@ -177,17 +223,12 @@ export function SpatialFilterPanel({
     // Restore from initialBbox if no drawn feature
     if (initialBbox && !drawnFeatureIdRef.current) {
       try {
-        const ids = addRectangle(td, initialBbox);
-        drawnFeatureIdRef.current = ids[0] ?? null;
-        extraDrawnIdsRef.current = ids.slice(1);
-        // The stored bbox is the active filter whether or not it could be drawn.
-        setPendingBbox(initialBbox);
-        fitToBbox(mapRef.current, initialBbox);
+        restoreStoredArea(td, mapRef.current);
       } catch {
         // Ignore restore errors
       }
     }
-  }, [open, initialBbox]);
+  }, [open, initialBbox, restoreStoredArea]);
 
   const handleModeChange = useCallback(
     (value: string) => {
@@ -209,6 +250,7 @@ export function SpatialFilterPanel({
         drawnFeatureIdRef.current = null;
         setPendingBbox('');
       }
+      restoredPolygonRef.current = null;
 
       td.setMode(newMode);
     },
@@ -228,6 +270,7 @@ export function SpatialFilterPanel({
       }
       drawnFeatureIdRef.current = null;
     }
+    restoredPolygonRef.current = null;
     setPendingBbox('');
     setPredicate('intersects');
   }, []);
@@ -244,6 +287,7 @@ export function SpatialFilterPanel({
         }
       }
     }
+    if (!geom && drawMode === 'polygon') geom = restoredPolygonRef.current ?? undefined;
     onApply(normalizeBboxLongitudes(pendingBbox), predicate, geom);
     onClose();
   }, [pendingBbox, predicate, drawMode, onApply, onClose]);
@@ -281,6 +325,8 @@ export function SpatialFilterPanel({
           return;
         }
 
+        restoredPolygonRef.current = null;
+
         // Remove previous feature if exists
         if (drawnFeatureIdRef.current != null && drawnFeatureIdRef.current !== id) {
           try {
@@ -301,17 +347,13 @@ export function SpatialFilterPanel({
       // Restore initial bbox after Terra Draw is ready
       if (initialBbox) {
         try {
-          const ids = addRectangle(td, initialBbox);
-          drawnFeatureIdRef.current = ids[0] ?? null;
-          extraDrawnIdsRef.current = ids.slice(1);
-          setPendingBbox(initialBbox);
-          fitToBbox(map, initialBbox);
+          restoreStoredArea(td, map);
         } catch {
           // Ignore restore errors
         }
       }
     },
-    [initialBbox],
+    [initialBbox, restoreStoredArea],
   );
 
   // Cleanup on unmount
@@ -451,6 +493,7 @@ export function SpatialFilterPanel({
                   `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`,
                 );
                 const td = drawRef.current;
+                restoredPolygonRef.current = null;
                 if (td && drawnFeatureIdRef.current != null) {
                   try {
                     td.removeFeatures([drawnFeatureIdRef.current, ...extraDrawnIdsRef.current]);

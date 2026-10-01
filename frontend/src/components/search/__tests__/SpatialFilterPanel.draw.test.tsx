@@ -12,6 +12,7 @@ const draw = vi.hoisted(() => ({
   addFeatures: undefined as unknown as ReturnType<typeof vi.fn>,
   addResult: [{ id: 'restored', valid: true }] as Array<{ id?: string; valid: boolean }>,
   fitBounds: vi.fn(),
+  setMode: vi.fn(),
 }));
 
 vi.mock('@vis.gl/react-maplibre', () => ({
@@ -33,7 +34,7 @@ vi.mock('terra-draw', () => ({
     return {
     start: vi.fn(),
     stop: vi.fn(),
-    setMode: vi.fn(),
+    setMode: draw.setMode,
     on: vi.fn((event: string, handler: (id: string) => void) => {
       draw.handlers[event] = handler;
     }),
@@ -56,6 +57,7 @@ describe('SpatialFilterPanel drawing', () => {
     draw.ring = ACROSS_SEAM;
     draw.addResult = [{ id: 'restored', valid: true }];
     draw.fitBounds.mockClear();
+    draw.setMode.mockClear();
   });
 
   it('keeps the default click-then-click rectangle so dragging still pans, and says so', () => {
@@ -121,6 +123,46 @@ describe('bboxToRings', () => {
   it('rounds coordinates to nine decimals', () => {
     const [ring] = bboxToRings('-47.37000000000001,20.1234567891234,41.06,30');
     expect(ring[0]).toEqual([-47.37, 20.123456789]);
+  });
+});
+
+describe('SpatialFilterPanel restoring an applied polygon', () => {
+  const TRIANGLE = {
+    type: 'Polygon',
+    coordinates: [[[0, 0], [10, 0], [5, 8], [0, 0]]],
+  };
+
+  it('restores the polygon and its mode instead of its bounding rectangle', () => {
+    render(
+      <SpatialFilterPanel
+        open
+        onClose={vi.fn()}
+        onApply={vi.fn()}
+        initialBbox="0,0,10,8"
+        initialGeometry={JSON.stringify(TRIANGLE)}
+      />,
+    );
+    const [[feature]] = draw.addFeatures.mock.calls[0] as [[{ properties: { mode: string }; geometry: unknown }]];
+    expect(feature.properties.mode).toBe('polygon');
+    expect(feature.geometry).toEqual(TRIANGLE);
+    expect(draw.setMode).toHaveBeenCalledWith('polygon');
+    expect(screen.getByText('1 polygon selected')).toBeInTheDocument();
+  });
+
+  it('keeps the applied polygon when Terra Draw refuses to redraw it', () => {
+    draw.addResult = [{ valid: false }];
+    const onApply = vi.fn();
+    render(
+      <SpatialFilterPanel
+        open
+        onClose={vi.fn()}
+        onApply={onApply}
+        initialBbox="0,0,10,8"
+        initialGeometry={JSON.stringify(TRIANGLE)}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    expect(onApply).toHaveBeenCalledWith('0,0,10,8', expect.any(String), TRIANGLE);
   });
 });
 

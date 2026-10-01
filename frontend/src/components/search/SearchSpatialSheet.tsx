@@ -11,6 +11,7 @@ export function SearchSpatialSheet() {
   const spatialPanelOpen = useSearchStore((s) => s.spatialPanelOpen);
   const setSpatialPanelOpen = useSearchStore((s) => s.setSpatialPanelOpen);
   const bbox = useSearchStore((s) => s.bbox);
+  const geometry = useSearchStore((s) => s.geometry);
 
   return (
     <Suspense fallback={null}>
@@ -26,6 +27,7 @@ export function SearchSpatialSheet() {
             setSpatialPanelOpen(false);
           }}
           initialBbox={bbox}
+          initialGeometry={geometry}
           initialPredicate={useSearchStore.getState().spatial_predicate}
         />
       ) : null}
