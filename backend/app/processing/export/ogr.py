@@ -298,6 +298,9 @@ def _harden_csv_formulas(
     os.replace(hardened_path, output_path)
 
 
+_FGB_NULL_GEOMETRY_REFUSAL = "NULL geometry not supported with spatial index"
+
+
 async def run_ogr2ogr_export(
     table_name: str,
     output_path: str,
@@ -311,6 +314,7 @@ async def run_ogr2ogr_export(
     pmtiles_maxzoom: int | None = None,
     deadline: float | None = None,
     numeric_columns: frozenset[str] = frozenset(),
+    spatial_index: bool = True,
 ) -> None:
     """Run ogr2ogr to export a PostGIS table to a file.
 
@@ -329,6 +333,9 @@ async def run_ogr2ogr_export(
             outside a request (see ``export_subprocess_timeout_seconds``).
         numeric_columns: Numeric-type columns; CSV only, decides which
             cells keep a leading sign unescaped.
+        spatial_index: FlatGeobuf only. GDAL refuses null or empty geometries
+            while writing the packed index; on that refusal the export reruns
+            once with False so those rows are kept.
 
     Raises:
         ExportError: If ogr2ogr exits with non-zero code.
@@ -377,6 +384,9 @@ async def run_ogr2ogr_export(
     if format_key == "csv":
         cmd.extend(["-lco", "GEOMETRY=AS_WKT"])
 
+    if format_key == "fgb" and not spatial_index:
+        cmd.extend(["-lco", "SPATIAL_INDEX=NO"])
+
     if format_key == "pmtiles":
         # Driver defaults MAXZOOM to 5; every column and the default layer
         # name pass through. No computed cap falls back to world-extent,
@@ -423,6 +433,28 @@ async def run_ogr2ogr_export(
         )
     except IngestionError as exc:
         raise ExportError(str(exc)) from exc
+
+    if (
+        proc.returncode != 0
+        and format_key == "fgb"
+        and spatial_index
+        and _FGB_NULL_GEOMETRY_REFUSAL in stderr.decode()
+    ):
+        with contextlib.suppress(OSError):
+            os.unlink(output_path)
+        await run_ogr2ogr_export(
+            table_name,
+            output_path,
+            driver,
+            schema=schema,
+            target_srs=target_srs,
+            bbox=bbox,
+            where=where,
+            format_key=format_key,
+            deadline=deadline,
+            spatial_index=False,
+        )
+        return
 
     if proc.returncode != 0:
         raise ExportError(

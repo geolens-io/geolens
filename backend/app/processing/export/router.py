@@ -8,11 +8,13 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import FileResponse
+import structlog
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.background import BackgroundTask
 
 from app.modules.audit.service import AuditEvent, audit_emit
+from app.core.failure_reason import redact_failure_reason
 from app.core.identity import Identity
 from app.core.record_types import capabilities
 from app.modules.auth.dependencies import get_optional_user
@@ -53,6 +55,8 @@ from app.standards.ogc.errors import (
     PAYLOAD_TOO_LARGE_RESPONSE,
     PRECONDITION_FAILED_RESPONSE,
 )
+
+logger = structlog.stdlib.get_logger(__name__)
 
 router = APIRouter(
     prefix="/datasets",
@@ -696,7 +700,13 @@ async def export_dataset_endpoint(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         )
-    except ExportError:
+    except ExportError as exc:
+        logger.warning(
+            "export_failed",
+            dataset_id=str(dataset_id),
+            format=format.value,
+            reason=redact_failure_reason(str(exc)),
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Export failed",
