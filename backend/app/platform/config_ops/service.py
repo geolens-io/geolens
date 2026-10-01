@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.platform.config_ops.exceptions import (
     ConfigApplyError,
+    ConfigBusyError,
     ConfigLockedError,
     ConfigPreviewError,
     ConfigValidationError,
@@ -1065,6 +1066,8 @@ async def import_config(
     )  # LAZY — preserved per D-17
     from app.processing.embeddings.service import (
         EmbeddingColumnRebuildError,
+        EmbeddingChangeBusyError,
+        embedding_change_lock,
         read_committed_embedding_pair,
         rebuild_column_or_restore,
     )
@@ -1108,11 +1111,27 @@ async def import_config(
         cfg for cfg in _registry if cfg.key in plan.settings_to_apply or cfg in resets
     ]
     before = {cfg.key: await cfg.get(db) for cfg in touched}
-    embedding_before = None
-    if EMBEDDING_DIMS in touched:
+    embedding_before = new_dims = None
+    changes_width = changes_model = False
+    if EMBEDDING_DIMS in touched or EMBEDDING_MODEL in touched:
         embedding_before = await read_committed_embedding_pair(
             db, with_model=EMBEDDING_MODEL in touched
         )
+        new_dims = plan.settings_to_apply.get(
+            EMBEDDING_DIMS.key,
+            EMBEDDING_DIMS.env_default
+            if EMBEDDING_DIMS in resets
+            else embedding_before.dims,
+        )
+        new_model = plan.settings_to_apply.get(
+            EMBEDDING_MODEL.key,
+            EMBEDDING_MODEL.env_default
+            if EMBEDDING_MODEL in resets
+            else embedding_before.model,
+        )
+        # The rebuild deletes every vector, so only a change in width runs it.
+        changes_width = new_dims != embedding_before.dims
+        changes_model = new_model != embedding_before.model
     for cfg in touched:
         if cfg.key in plan.settings_to_apply:
             value = plan.settings_to_apply[cfg.key]
@@ -1171,29 +1190,29 @@ async def import_config(
         ),
     )
 
-    # Single commit for config changes and all associated audit rows.
-    await db.commit()
+    # The settings fence already keeps other writers off the pair read above,
+    # so the change lock only has to cover the commit through the rebuild.
+    try:
+        async with embedding_change_lock(changes_width or changes_model):
+            # Single commit for config changes and all associated audit rows.
+            await db.commit()
 
-    # fix(#1543): one eviction for the whole import — a per-key loop here held
-    # the widest mismatch window of the three batch call sites.
-    await apply_side_effects_batch(deferred_side_effects)
+            # One eviction for the whole import; a per-key loop here held the
+            # widest mismatch window of the three batch call sites.
+            await apply_side_effects_batch(deferred_side_effects)
 
-    # The rebuild deletes every vector, so only a change in width runs it.
-    published = {cfg.key: value for cfg, value in deferred_side_effects}
-    new_dims = published.get(EMBEDDING_DIMS.key)
-    if embedding_before is not None and new_dims != embedding_before.dims:
-        try:
-            await rebuild_column_or_restore(
-                db,
-                new_dims,
-                embedding_before,
-                user_id=user_id,
-                ip_address=ip_address,
-            )
-        except EmbeddingColumnRebuildError as exc:
-            raise ConfigApplyError(
-                f"{exc} The rest of the import was applied."
-            ) from exc
+            if changes_width:
+                await rebuild_column_or_restore(
+                    db,
+                    new_dims,
+                    embedding_before,
+                    user_id=user_id,
+                    ip_address=ip_address,
+                )
+    except EmbeddingChangeBusyError as exc:
+        raise ConfigBusyError(str(exc)) from exc
+    except EmbeddingColumnRebuildError as exc:
+        raise ConfigApplyError(f"{exc} The rest of the import was applied.") from exc
 
     logger.info(
         "config_imported",

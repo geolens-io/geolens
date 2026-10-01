@@ -13,6 +13,7 @@ from app.core.identity import Identity
 from app.modules.auth.dependencies import require_mode_permission
 from app.platform.config_ops.exceptions import (
     ConfigApplyError,
+    ConfigBusyError,
     ConfigLockedError,
     ConfigPreviewError,
     ConfigValidationError,
@@ -146,6 +147,11 @@ async def import_configuration(
             detail=str(e),
         )
     except ConfigPreviewError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
+    except ConfigBusyError as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(e),

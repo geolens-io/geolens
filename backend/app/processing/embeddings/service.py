@@ -2,6 +2,8 @@
 
 import hashlib
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
 
@@ -301,6 +303,41 @@ class EmbeddingColumnRebuildError(RuntimeError):
     """The column rebuild failed and the embedding settings were put back."""
 
 
+class EmbeddingChangeBusyError(RuntimeError):
+    """Another embedding model or width change still holds the lock."""
+
+
+_CHANGE_LOCK_SQL = (
+    "SELECT pg_try_advisory_xact_lock(hashtextextended('geolens:embedding_change', 0))"
+)
+
+
+@asynccontextmanager
+async def embedding_change_lock(needed: bool = True) -> AsyncIterator[None]:
+    """Run one embedding model or width change at a time, from reading the old
+    pair to the rebuild or restore. Does nothing unless ``needed``.
+
+    The lock sits on its own session because the change commits between those
+    steps. A second change is refused with EmbeddingChangeBusyError rather than
+    queued, so a waiting request never holds a pooled connection.
+    """
+    if not needed:
+        yield
+        return
+    from sqlalchemy import text as sa_text
+
+    from app.core.db import async_session  # late-bound so a test engine applies
+
+    async with async_session() as lock_session:
+        locked = await lock_session.execute(sa_text(_CHANGE_LOCK_SQL))
+        if not locked.scalar():
+            raise EmbeddingChangeBusyError(
+                "Another embedding configuration change is in progress. "
+                "Retry once it finishes."
+            )
+        yield
+
+
 @dataclass(frozen=True)
 class CommittedEmbeddingPair:
     """The embedding settings a failed column rebuild puts back.
@@ -332,8 +369,10 @@ async def rebuild_column_or_restore(
 ) -> None:
     """Rebuild the column to the width a settings batch just committed.
 
-    On failure, restores ``previous`` and raises EmbeddingColumnRebuildError,
-    so published settings never name a width the column does not have.
+    Callers hold ``embedding_change_lock`` from before they read
+    ``previous``. On failure, restores ``previous`` and raises
+    EmbeddingColumnRebuildError, so published settings never name a width the
+    column does not have.
     """
     try:
         await rebuild_embedding_column(db, new_dims)

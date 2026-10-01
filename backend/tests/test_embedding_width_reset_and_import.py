@@ -7,6 +7,7 @@ Requirements:
 
 from unittest.mock import AsyncMock
 
+import anyio
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
@@ -23,7 +24,7 @@ _REBUILD = "app.processing.embeddings.service.rebuild_embedding_column"
 
 
 def _width_other_than(*widths: int) -> int:
-    return next(width for width in (512, 768, 384) if width not in widths)
+    return next(width for width in (512, 768, 384, 256) if width not in widths)
 
 
 async def _publish_width(client, headers, session, width: int) -> None:
@@ -266,3 +267,115 @@ async def test_an_import_that_keeps_the_width_does_not_rebuild(
     )
     assert pinned == {"v": EMBEDDING_DIMS.env_default}
     rebuild.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Overlapping width changes
+# ---------------------------------------------------------------------------
+
+
+def _hold_first_rebuild(monkeypatch):
+    """Hold the first column rebuild until released."""
+    from app.processing.embeddings import service
+
+    original = service.rebuild_embedding_column
+    held, release = anyio.Event(), anyio.Event()
+    calls: list[int] = []
+
+    async def _held(db, new_dims):
+        calls.append(new_dims)
+        if len(calls) == 1:
+            held.set()
+            await release.wait()
+        return await original(db, new_dims)
+
+    monkeypatch.setattr(service, "rebuild_embedding_column", _held)
+    return held, release
+
+
+async def _change_embedding(client, headers, how: str, width: int):
+    """Change the embedding settings through PUT, reset or a merge import.
+
+    The ``-model`` variants change the model alone: an import that keeps
+    ``width`` and a reset of the model.
+    """
+    if how == "put":
+        return await client.put(
+            "/settings/", json={"settings": {"embedding_dims": width}}, headers=headers
+        )
+    if how.startswith("reset"):
+        key = "embedding_model" if how == "reset-model" else "embedding_dims"
+        return await client.post(
+            "/settings/reset/", json={"keys": [key]}, headers=headers
+        )
+    settings = {"embedding_dims": width}
+    if how == "import-model":
+        settings["embedding_model"] = _NEW_MODEL
+    return await client.post(
+        "/config-ops/import/?mode=merge",
+        json={"settings": settings},
+        headers=headers,
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("running", "second"),
+    [
+        ("put", "import"),
+        ("reset", "import"),
+        ("import", "import"),
+        ("import", "put"),
+        ("import", "reset"),
+        ("reset", "import-model"),
+        ("import", "reset-model"),
+    ],
+)
+async def test_an_embedding_change_is_refused_while_another_is_running(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    monkeypatch,
+    restore_embedding_settings,
+    running: str,
+    second: str,
+):
+    """A second model or width change answers 409 until the first has rebuilt the column."""
+    default = EMBEDDING_DIMS.env_default
+    await EMBEDDING_MODEL.set(test_db_session, _OLD_MODEL)
+    if running == "reset":
+        await _publish_width(
+            client, admin_auth_header, test_db_session, _width_other_than(default)
+        )
+        target = default
+    else:
+        target = _width_other_than(await _column_dims(test_db_session), default)
+    other = _width_other_than(await _column_dims(test_db_session), target, default)
+    if second == "import-model":
+        other = target
+    held, release = _hold_first_rebuild(monkeypatch)
+    responses = {}
+
+    async def _first():
+        responses["first"] = await _change_embedding(
+            client, admin_auth_header, running, target
+        )
+
+    with anyio.fail_after(60):
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(_first)
+            await held.wait()
+            responses["second"] = await _change_embedding(
+                client, admin_auth_header, second, other
+            )
+            release.set()
+
+    assert responses["first"].status_code == 200, responses["first"].text
+    assert responses["second"].status_code == 409, responses["second"].text
+    assert await EMBEDDING_DIMS.get_uncached(test_db_session) == target
+    assert await _column_dims(test_db_session) == target
+
+    retried = await _change_embedding(client, admin_auth_header, second, other)
+    assert retried.status_code == 200, retried.text
+    committed = await EMBEDDING_DIMS.get_uncached(test_db_session)
+    assert await _column_dims(test_db_session) == committed
