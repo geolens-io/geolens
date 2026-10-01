@@ -211,7 +211,7 @@ Für jedes Beispiel gibt es eine vollständige Anleitung in der [Dokumentation](
 
 ## Schnellstart
 
-**Voraussetzungen:** Docker Engine 24+ und Docker Compose v2. Der enthaltene Stack liefert PostgreSQL 18. Für eine extern verwaltete Datenbank ist **PostgreSQL 13+** (für `gen_random_uuid()`) mit **pgvector 0.5+** (für HNSW-Indizes der semantischen Suche) sowie PostGIS, pg_trgm und unaccent erforderlich. API und Worker laufen in Containern (Python 3.14 enthalten, kein Python auf dem Host nötig). Die optionale CLI läuft auf dem Host und benötigt Python 3.11+; Python-SDK und Seed-Skripte benötigen Python 3.10+.
+**Voraussetzungen:** Docker Engine 24+ und Docker Compose v2. Der enthaltene Stack liefert PostgreSQL 18. Für eine extern verwaltete Datenbank ist **PostgreSQL 15+** (für eindeutige `NULLS NOT DISTINCT`-Indizes) mit **pgvector 0.5+** (für HNSW-Indizes der semantischen Suche) sowie PostGIS, pg_trgm und unaccent erforderlich. API und Worker laufen in Containern (Python 3.14 enthalten, kein Python auf dem Host nötig). Die optionale CLI läuft auf dem Host und benötigt Python 3.11+; Python-SDK und Seed-Skripte benötigen Python 3.10+.
 
 Die Einzeileninstallation lädt vorgefertigte, versionsgebundene Images und startet den Stack:
 
@@ -335,7 +335,7 @@ flowchart TB
 | Rasterkacheln | Titiler (COG-Kachelserver) |
 | Objektspeicher | MinIO (S3-kompatibel, lokale Entwicklung) oder beliebiger S3-Anbieter |
 | Cache | Valkey (Kachel- und Abfragecache) |
-| Datenbank | PostgreSQL 18 + PostGIS 3.6 + pgvector + pg_trgm (Minimum: PostgreSQL 13, pgvector 0.5) |
+| Datenbank | PostgreSQL 18 + PostGIS 3.6 + pgvector + pg_trgm (Minimum: PostgreSQL 15, pgvector 0.5) |
 | Reverse Proxy | Nginx (Produktion) / Vite-Entwicklungsproxy (Entwicklung) |
 
 ## Konfiguration

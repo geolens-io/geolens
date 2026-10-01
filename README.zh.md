@@ -213,7 +213,7 @@ PostGIS 和 pgvector 共享同一个数据库，因此启用语义搜索后，�
 
 **前置条件：** Docker Engine 24+ 和 Docker Compose v2。自带的服务栈内置
 PostgreSQL 18。如果您将 GeoLens 指向外部管理的数据库，它必须是
-**PostgreSQL 13+**（为了 `gen_random_uuid()`）并带 **pgvector 0.5+**
+**PostgreSQL 15+**（为了 `NULLS NOT DISTINCT` 唯一索引）并带 **pgvector 0.5+**
 （为了 HNSW 语义搜索索引），另需 PostGIS、pg_trgm 和 unaccent。API 和
 worker 运行在容器中（内置 Python 3.14，无需宿主机 Python）。可选的 CLI
 运行在宿主机上，需要 Python 3.11+；Python SDK 和种子脚本需要
@@ -375,7 +375,7 @@ flowchart TB
 | 栅格瓦片 | Titiler（COG 瓦片服务） |
 | 对象存储 | MinIO（S3 兼容，本地开发）或任意 S3 提供方 |
 | 缓存 | Valkey（瓦片与查询缓存） |
-| 数据库 | PostgreSQL 18 + PostGIS 3.6 + pgvector + pg_trgm（最低要求：PostgreSQL 13、pgvector 0.5） |
+| 数据库 | PostgreSQL 18 + PostGIS 3.6 + pgvector + pg_trgm（最低要求：PostgreSQL 15、pgvector 0.5） |
 | 反向代理 | Nginx（生产）/ Vite 开发代理（开发） |
 
 ## 配置
