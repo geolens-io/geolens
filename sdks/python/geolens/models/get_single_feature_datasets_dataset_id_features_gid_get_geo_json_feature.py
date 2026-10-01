@@ -28,7 +28,7 @@ T = TypeVar("T", bound="GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFe
 
 @_attrs_define
 class GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeature:
-    """A single GeoJSON Feature.
+    """A GeoJSON Feature, plus the id of the table it was read from.
 
     Attributes:
         id (int):
@@ -36,6 +36,10 @@ class GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeature:
         type_ (Literal['Feature'] | Unset):  Default: 'Feature'.
         geometry (GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureGeoJSONGeometry |
             GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureGeoJSONGeometryCollection | None | Unset):
+        table_id (None | str | Unset): Opaque id of the data table this feature was read from or written to. A reupload
+            or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it
+            back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if
+            the table was replaced since.
     """
 
     id: int
@@ -47,6 +51,7 @@ class GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeature:
         | None
         | Unset
     ) = UNSET
+    table_id: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -79,6 +84,12 @@ class GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeature:
         else:
             geometry = self.geometry
 
+        table_id: None | str | Unset
+        if isinstance(self.table_id, Unset):
+            table_id = UNSET
+        else:
+            table_id = self.table_id
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -91,6 +102,8 @@ class GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeature:
             field_dict["type"] = type_
         if geometry is not UNSET:
             field_dict["geometry"] = geometry
+        if table_id is not UNSET:
+            field_dict["table_id"] = table_id
 
         return field_dict
 
@@ -159,11 +172,21 @@ class GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeature:
 
         geometry = _parse_geometry(d.pop("geometry", UNSET))
 
+        def _parse_table_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        table_id = _parse_table_id(d.pop("table_id", UNSET))
+
         get_single_feature_datasets_dataset_id_features_gid_get_geo_json_feature = cls(
             id=id,
             properties=properties,
             type_=type_,
             geometry=geometry,
+            table_id=table_id,
         )
 
         get_single_feature_datasets_dataset_id_features_gid_get_geo_json_feature.additional_properties = d

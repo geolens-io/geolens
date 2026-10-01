@@ -37123,6 +37123,18 @@
                       "additionalProperties": true,
                       "title": "Properties"
                     },
+                    "table_id": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if the table was replaced since.",
+                      "title": "Table Id"
+                    },
                     "tile_cache_version": {
                       "anyOf": [
                         {
@@ -37290,6 +37302,19 @@
               "title": "Gid",
               "type": "integer"
             }
+          },
+          {
+            "description": "The `table_id` the feature was read with. If the dataset's data has been replaced since, the request is refused with 409 and code `dataset_replaced`, and nothing is written.",
+            "in": "query",
+            "name": "table_id",
+            "required": false,
+            "schema": {
+              "description": "The `table_id` the feature was read with. If the dataset's data has been replaced since, the request is refused with 409 and code `dataset_replaced`, and nothing is written.",
+              "maxLength": 20,
+              "minLength": 1,
+              "title": "Table Id",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -37421,7 +37446,7 @@
         ]
       },
       "get": {
-        "description": "Get a single GeoJSON feature by gid.",
+        "description": "Get a single GeoJSON feature by gid.\n\n`table_id` identifies the data table the feature was read from. Send it\nwith a later PUT, PATCH or DELETE of the feature so that write is refused\nif the dataset's data has been replaced in between.",
         "operationId": "get_single_feature_datasets__dataset_id__features__gid__get",
         "parameters": [
           {
@@ -37449,7 +37474,7 @@
             "content": {
               "application/geo+json": {
                 "schema": {
-                  "description": "A single GeoJSON Feature.",
+                  "description": "A GeoJSON Feature, plus the id of the table it was read from.",
                   "properties": {
                     "type": {
                       "const": "Feature",
@@ -37549,6 +37574,18 @@
                       "type": "object",
                       "additionalProperties": true,
                       "title": "Properties"
+                    },
+                    "table_id": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if the table was replaced since.",
+                      "title": "Table Id"
                     }
                   },
                   "required": [
@@ -37693,6 +37730,19 @@
               "title": "Gid",
               "type": "integer"
             }
+          },
+          {
+            "description": "The `table_id` the feature was read with. If the dataset's data has been replaced since, the request is refused with 409 and code `dataset_replaced`, and nothing is written.",
+            "in": "query",
+            "name": "table_id",
+            "required": false,
+            "schema": {
+              "description": "The `table_id` the feature was read with. If the dataset's data has been replaced since, the request is refused with 409 and code `dataset_replaced`, and nothing is written.",
+              "maxLength": 20,
+              "minLength": 1,
+              "title": "Table Id",
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -37810,6 +37860,18 @@
                       "type": "object",
                       "additionalProperties": true,
                       "title": "Properties"
+                    },
+                    "table_id": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if the table was replaced since.",
+                      "title": "Table Id"
                     },
                     "tile_cache_version": {
                       "anyOf": [
@@ -37976,6 +38038,19 @@
               "title": "Gid",
               "type": "integer"
             }
+          },
+          {
+            "description": "The `table_id` the feature was read with. If the dataset's data has been replaced since, the request is refused with 409 and code `dataset_replaced`, and nothing is written.",
+            "in": "query",
+            "name": "table_id",
+            "required": false,
+            "schema": {
+              "description": "The `table_id` the feature was read with. If the dataset's data has been replaced since, the request is refused with 409 and code `dataset_replaced`, and nothing is written.",
+              "maxLength": 20,
+              "minLength": 1,
+              "title": "Table Id",
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -38093,6 +38168,18 @@
                       "type": "object",
                       "additionalProperties": true,
                       "title": "Properties"
+                    },
+                    "table_id": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if the table was replaced since.",
+                      "title": "Table Id"
                     },
                     "tile_cache_version": {
                       "anyOf": [

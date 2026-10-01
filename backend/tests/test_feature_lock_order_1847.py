@@ -3462,7 +3462,7 @@ class TestNoCatalogModuleWritesAnAbsoluteTileVersion:
             rel = site.rsplit(":", 1)[0]
             by_file[rel] = by_file.get(rel, 0) + 1
         assert by_file == {
-            "features/router.py": 5,
+            "features/router.py": 6,
             "layers/router.py": 4,
             "datasets/api/router.py": 1,
         }, by_file

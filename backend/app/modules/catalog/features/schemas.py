@@ -196,8 +196,25 @@ TILE_CACHE_VERSION_DESCRIPTION = (
 # callers) carries the same value on this response header instead.
 TILE_CACHE_VERSION_HEADER = "X-GeoLens-Tile-Cache-Version"
 
+TABLE_ID_DESCRIPTION = (
+    "Opaque id of the data table this feature was read from or written to. "
+    "A reupload or an overwrite of the dataset's data replaces the table, and "
+    "the replacement can reuse feature ids. Send it back as the `table_id` "
+    "query parameter of a PUT, PATCH or DELETE of this feature to have the "
+    "write refused if the table was replaced since."
+)
 
-class GeoJSONFeatureWrite(GeoJSONFeature):
+
+class GeoJSONFeatureRead(GeoJSONFeature):
+    """A GeoJSON Feature, plus the id of the table it was read from."""
+
+    # Same title as the base, so generated SDK model names stay as they were.
+    model_config = ConfigDict(title="GeoJSONFeature")
+
+    table_id: str | None = Field(default=None, description=TABLE_ID_DESCRIPTION)
+
+
+class GeoJSONFeatureWrite(GeoJSONFeatureRead):
     """A written GeoJSON Feature, plus the dataset's committed tile version."""
 
     # The inlined response schema's own "title" is what the SDK generators

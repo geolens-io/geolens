@@ -36,6 +36,10 @@ class CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature:
         type_ (Literal['Feature'] | Unset):  Default: 'Feature'.
         geometry (CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometry |
             CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometryCollection | None | Unset):
+        table_id (None | str | Unset): Opaque id of the data table this feature was read from or written to. A reupload
+            or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it
+            back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if
+            the table was replaced since.
         tile_cache_version (int | None | Unset): The dataset's tile_cache_version after this write committed. Send it as
             the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is
             forced to re-read the dataset instead of serving that worker's own cached snapshot.
@@ -50,6 +54,7 @@ class CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature:
         | None
         | Unset
     ) = UNSET
+    table_id: None | str | Unset = UNSET
     tile_cache_version: int | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -83,6 +88,12 @@ class CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature:
         else:
             geometry = self.geometry
 
+        table_id: None | str | Unset
+        if isinstance(self.table_id, Unset):
+            table_id = UNSET
+        else:
+            table_id = self.table_id
+
         tile_cache_version: int | None | Unset
         if isinstance(self.tile_cache_version, Unset):
             tile_cache_version = UNSET
@@ -101,6 +112,8 @@ class CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature:
             field_dict["type"] = type_
         if geometry is not UNSET:
             field_dict["geometry"] = geometry
+        if table_id is not UNSET:
+            field_dict["table_id"] = table_id
         if tile_cache_version is not UNSET:
             field_dict["tile_cache_version"] = tile_cache_version
 
@@ -171,6 +184,15 @@ class CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature:
 
         geometry = _parse_geometry(d.pop("geometry", UNSET))
 
+        def _parse_table_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        table_id = _parse_table_id(d.pop("table_id", UNSET))
+
         def _parse_tile_cache_version(data: object) -> int | None | Unset:
             if data is None:
                 return data
@@ -187,6 +209,7 @@ class CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature:
             properties=properties,
             type_=type_,
             geometry=geometry,
+            table_id=table_id,
             tile_cache_version=tile_cache_version,
         )
 

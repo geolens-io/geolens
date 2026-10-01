@@ -73,6 +73,17 @@ async def current_table_oid(db: AsyncSession, table_name: str) -> int | None:
     )
 
 
+async def held_table_oid(db: AsyncSession, table_name: str) -> int | None:
+    """The oid of the physical table behind a dataset, taking hold of it first.
+
+    The read's lock lasts until the transaction ends, so no swap or overwrite
+    can replace the table between this and a later write in the transaction.
+    """
+    quoted = get_catalog_port().quote_table(table_name)
+    await db.execute(text(f"SELECT FROM {quoted} LIMIT 0"))
+    return await current_table_oid(db, table_name)
+
+
 async def current_row_xmin(
     db: AsyncSession, table_name: str, gid: int, *, lock: bool = False
 ) -> int | None:

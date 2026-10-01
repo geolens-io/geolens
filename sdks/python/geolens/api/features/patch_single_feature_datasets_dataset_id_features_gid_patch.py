@@ -5,7 +5,7 @@ from urllib.parse import quote
 import httpx
 
 from ...client import AuthenticatedClient, Client
-from ...types import Response
+from ...types import Response, UNSET
 from ... import errors
 
 from ...models.feature_update import FeatureUpdate
@@ -13,6 +13,7 @@ from ...models.patch_single_feature_datasets_dataset_id_features_gid_patch_geo_j
     PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeature,
 )
 from ...models.problem_detail import ProblemDetail
+from ...types import Unset
 from uuid import UUID
 
 
@@ -21,8 +22,15 @@ def _get_kwargs(
     gid: int,
     *,
     body: FeatureUpdate,
+    table_id: str | Unset = UNSET,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
+
+    params: dict[str, Any] = {}
+
+    params["table_id"] = table_id
+
+    params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
     _kwargs: dict[str, Any] = {
         "method": "patch",
@@ -30,6 +38,7 @@ def _get_kwargs(
             dataset_id=quote(str(dataset_id), safe=""),
             gid=quote(str(gid), safe=""),
         ),
+        "params": params,
     }
 
     _kwargs["json"] = body.to_dict()
@@ -126,6 +135,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
     body: FeatureUpdate,
+    table_id: str | Unset = UNSET,
 ) -> Response[
     PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeature | ProblemDetail
 ]:
@@ -136,6 +146,9 @@ def sync_detailed(
     Args:
         dataset_id (UUID):
         gid (int):
+        table_id (str | Unset): The `table_id` the feature was read with. If the dataset's data
+            has been replaced since, the request is refused with 409 and code `dataset_replaced`, and
+            nothing is written.
         body (FeatureUpdate): Partial feature update (PATCH semantics).
 
     Raises:
@@ -150,6 +163,7 @@ def sync_detailed(
         dataset_id=dataset_id,
         gid=gid,
         body=body,
+        table_id=table_id,
     )
 
     response = client.get_httpx_client().request(
@@ -165,6 +179,7 @@ def sync(
     *,
     client: AuthenticatedClient,
     body: FeatureUpdate,
+    table_id: str | Unset = UNSET,
 ) -> (
     PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeature
     | ProblemDetail
@@ -177,6 +192,9 @@ def sync(
     Args:
         dataset_id (UUID):
         gid (int):
+        table_id (str | Unset): The `table_id` the feature was read with. If the dataset's data
+            has been replaced since, the request is refused with 409 and code `dataset_replaced`, and
+            nothing is written.
         body (FeatureUpdate): Partial feature update (PATCH semantics).
 
     Raises:
@@ -192,6 +210,7 @@ def sync(
         gid=gid,
         client=client,
         body=body,
+        table_id=table_id,
     ).parsed
 
 
@@ -201,6 +220,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
     body: FeatureUpdate,
+    table_id: str | Unset = UNSET,
 ) -> Response[
     PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeature | ProblemDetail
 ]:
@@ -211,6 +231,9 @@ async def asyncio_detailed(
     Args:
         dataset_id (UUID):
         gid (int):
+        table_id (str | Unset): The `table_id` the feature was read with. If the dataset's data
+            has been replaced since, the request is refused with 409 and code `dataset_replaced`, and
+            nothing is written.
         body (FeatureUpdate): Partial feature update (PATCH semantics).
 
     Raises:
@@ -225,6 +248,7 @@ async def asyncio_detailed(
         dataset_id=dataset_id,
         gid=gid,
         body=body,
+        table_id=table_id,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -238,6 +262,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
     body: FeatureUpdate,
+    table_id: str | Unset = UNSET,
 ) -> (
     PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeature
     | ProblemDetail
@@ -250,6 +275,9 @@ async def asyncio(
     Args:
         dataset_id (UUID):
         gid (int):
+        table_id (str | Unset): The `table_id` the feature was read with. If the dataset's data
+            has been replaced since, the request is refused with 409 and code `dataset_replaced`, and
+            nothing is written.
         body (FeatureUpdate): Partial feature update (PATCH semantics).
 
     Raises:
@@ -266,5 +294,6 @@ async def asyncio(
             gid=gid,
             client=client,
             body=body,
+            table_id=table_id,
         )
     ).parsed
