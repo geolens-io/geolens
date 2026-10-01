@@ -28,6 +28,7 @@ import {
   FALLBACK_BASEMAP_STYLE_URL_DARK,
 } from '@/lib/basemap-utils';
 import { MAP_COLORS } from '@/lib/map-colors';
+import { randomId } from '@/lib/random-id';
 import 'maplibre-gl/dist/maplibre-gl.css';
 // feat(#846): wires maplibre v6's worker URL. Side-effect import, kept out of
 // main.tsx so map-vendor stays out of the eager entry graph (fix(#1624)).
@@ -56,24 +57,47 @@ function toStoreFeature(feature: GeoJSON.Feature<GeoJSON.Polygon>): GeoJSONStore
   return feature as unknown as GeoJSONStoreFeatures;
 }
 
-function bboxToPolygon(bbox: string): GeoJSON.Feature<GeoJSON.Polygon> {
+// Terra Draw rejects longitudes outside +/-180 and more than nine decimals.
+const roundCoord = (n: number) => Math.round(n * 1e9) / 1e9;
+
+function rectangleRing(west: number, south: number, east: number, north: number): number[][] {
+  const [w, s, e, n] = [west, south, east, north].map(roundCoord);
+  return [[w, s], [e, s], [e, n], [w, n], [w, s]];
+}
+
+/**
+ * The rings that draw a bbox. A normalized box that crosses the seam has
+ * west > east and cannot be one polygon within +/-180, so it is drawn as the
+ * two halves either side of the seam.
+ */
+export function bboxToRings(bbox: string): number[][][] {
   const [minX, minY, maxX, maxY] = bbox.split(',').map(Number);
-  return {
+  if (maxX >= minX) return [rectangleRing(minX, minY, maxX, maxY)];
+  return [rectangleRing(minX, minY, 180, maxY), rectangleRing(-180, minY, maxX, maxY)];
+}
+
+function ringFeature(ring: number[][], id: string): GeoJSONStoreFeatures {
+  return toStoreFeature({
     type: 'Feature',
-    properties: {},
-    geometry: {
-      type: 'Polygon',
-      coordinates: [
-        [
-          [minX, minY],
-          [maxX, minY],
-          [maxX, maxY],
-          [minX, maxY],
-          [minX, minY],
-        ],
-      ],
-    },
-  };
+    id,
+    properties: { mode: 'rectangle' },
+    geometry: { type: 'Polygon', coordinates: [ring] },
+  } as GeoJSON.Feature<GeoJSON.Polygon>);
+}
+
+/**
+ * Draws a bbox as rectangle(s); returns the drawn ids (empty when Terra Draw
+ * rejects it, which needs a registered mode and an id).
+ */
+function addRectangle(td: TerraDraw, bbox: string): Array<string | number> {
+  const ids = bboxToRings(bbox).map(() => randomId());
+  const results = td.addFeatures(bboxToRings(bbox).map((ring, i) => ringFeature(ring, ids[i])));
+  return results.every((r) => r.valid) ? ids : [];
+}
+
+function fitToBbox(map: MaplibreMap | null, bbox: string) {
+  const [minX, minY, maxX, maxY] = bbox.split(',').map(Number);
+  map?.fitBounds([[minX, minY], [maxX < minX ? maxX + 360 : maxX, maxY]], { padding: 40, duration: 0 });
 }
 
 function hasArea(coords: number[][]): boolean {
@@ -129,6 +153,8 @@ export function SpatialFilterPanel({
 
   const drawRef = useRef<TerraDraw | null>(null);
   const drawnFeatureIdRef = useRef<string | number | null>(null);
+  // The far half of a rectangle drawn across the seam.
+  const extraDrawnIdsRef = useRef<Array<string | number>>([]);
   const mapRef = useRef<MaplibreMap | null>(null);
 
   const basemapStyle = useMemo(() => {
@@ -151,8 +177,11 @@ export function SpatialFilterPanel({
       // Feature should still be in Terra Draw's store
       const feature = td.getSnapshotFeature(drawnFeatureIdRef.current);
       if (feature) {
-        const coords = (feature.geometry as GeoJSON.Polygon).coordinates[0];
-        setPendingBbox(extractBbox(coords));
+        // A seam box is drawn as two halves; the first alone is not the area.
+        if (extraDrawnIdsRef.current.length === 0) {
+          const coords = (feature.geometry as GeoJSON.Polygon).coordinates[0];
+          setPendingBbox(extractBbox(coords));
+        }
         return;
       }
       // Feature was lost, clear ref
@@ -162,12 +191,12 @@ export function SpatialFilterPanel({
     // Restore from initialBbox if no drawn feature
     if (initialBbox && !drawnFeatureIdRef.current) {
       try {
-        const poly = toStoreFeature(bboxToPolygon(initialBbox));
-        const results = td.addFeatures([poly]);
-        if (results.length > 0 && results[0].id != null) {
-          drawnFeatureIdRef.current = results[0].id;
-          setPendingBbox(initialBbox);
-        }
+        const ids = addRectangle(td, initialBbox);
+        drawnFeatureIdRef.current = ids[0] ?? null;
+        extraDrawnIdsRef.current = ids.slice(1);
+        // The stored bbox is the active filter whether or not it could be drawn.
+        setPendingBbox(initialBbox);
+        fitToBbox(mapRef.current, initialBbox);
       } catch {
         // Ignore restore errors
       }
@@ -186,7 +215,8 @@ export function SpatialFilterPanel({
       // Clear existing drawn feature
       if (drawnFeatureIdRef.current != null) {
         try {
-          td.removeFeatures([drawnFeatureIdRef.current]);
+          td.removeFeatures([drawnFeatureIdRef.current, ...extraDrawnIdsRef.current]);
+          extraDrawnIdsRef.current = [];
         } catch {
           // Already removed
         }
@@ -205,7 +235,8 @@ export function SpatialFilterPanel({
 
     if (drawnFeatureIdRef.current != null) {
       try {
-        td.removeFeatures([drawnFeatureIdRef.current]);
+        td.removeFeatures([drawnFeatureIdRef.current, ...extraDrawnIdsRef.current]);
+        extraDrawnIdsRef.current = [];
       } catch {
         // Already removed
       }
@@ -267,7 +298,8 @@ export function SpatialFilterPanel({
         // Remove previous feature if exists
         if (drawnFeatureIdRef.current != null && drawnFeatureIdRef.current !== id) {
           try {
-            td.removeFeatures([drawnFeatureIdRef.current]);
+            td.removeFeatures([drawnFeatureIdRef.current, ...extraDrawnIdsRef.current]);
+            extraDrawnIdsRef.current = [];
           } catch {
             // Already removed
           }
@@ -283,12 +315,11 @@ export function SpatialFilterPanel({
       // Restore initial bbox after Terra Draw is ready
       if (initialBbox) {
         try {
-          const poly = toStoreFeature(bboxToPolygon(initialBbox));
-          const results = td.addFeatures([poly]);
-          if (results.length > 0 && results[0].id != null) {
-            drawnFeatureIdRef.current = results[0].id;
-            setPendingBbox(initialBbox);
-          }
+          const ids = addRectangle(td, initialBbox);
+          drawnFeatureIdRef.current = ids[0] ?? null;
+          extraDrawnIdsRef.current = ids.slice(1);
+          setPendingBbox(initialBbox);
+          fitToBbox(map, initialBbox);
         } catch {
           // Ignore restore errors
         }
@@ -430,21 +461,23 @@ export function SpatialFilterPanel({
                 const map = mapRef.current;
                 if (!map) return;
                 const bounds = map.getBounds();
-                const bboxStr = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`;
+                const bboxStr = normalizeBboxLongitudes(
+                  `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`,
+                );
                 const td = drawRef.current;
                 if (td && drawnFeatureIdRef.current != null) {
                   try {
-                    td.removeFeatures([drawnFeatureIdRef.current]);
+                    td.removeFeatures([drawnFeatureIdRef.current, ...extraDrawnIdsRef.current]);
+                    extraDrawnIdsRef.current = [];
                   } catch {
                     // Already removed
                   }
                   drawnFeatureIdRef.current = null;
                 }
                 if (td) {
-                  const poly = toStoreFeature(bboxToPolygon(bboxStr));
-                  const results = td.addFeatures([poly]);
-                  if (results.length > 0 && results[0].id != null)
-                    drawnFeatureIdRef.current = results[0].id;
+                  const ids = addRectangle(td, bboxStr);
+                  drawnFeatureIdRef.current = ids[0] ?? null;
+                  extraDrawnIdsRef.current = ids.slice(1);
                 }
                 setPendingBbox(bboxStr);
                 setDrawMode('rectangle');
