@@ -214,25 +214,6 @@ async def _count_selected_features(
     return result.scalar_one()
 
 
-async def _has_null_or_empty_geometry(
-    db: AsyncSession, *, table_name: str, schema: str
-) -> bool:
-    """Whether any row's geometry is NULL or empty.
-
-    GDAL treats an empty geometry as null, and its FlatGeobuf writer refuses
-    both while building the spatial index. Table-wide on purpose: a bbox or
-    attribute filter only narrows the rows, so a conservative answer just
-    skips the index.
-    """
-    result = await db.execute(
-        text(
-            f"SELECT EXISTS (SELECT 1 FROM {_qtable(table_name, schema=schema)} "
-            "WHERE geom IS NULL OR ST_IsEmpty(geom))"
-        )
-    )
-    return bool(result.scalar_one())
-
-
 def _head_export_response(dataset_title: str, format_key: str) -> Response:
     """fix(#1513): the HEAD half of the export route.
 
@@ -635,11 +616,6 @@ async def export_dataset_endpoint(
     dataset_columns = dataset.column_info
     dataset_has_geometry = dataset.geometry_type is not None
     dataset_extent = dataset.record.spatial_extent
-    fgb_spatial_index = True
-    if format == ExportFormat.fgb and dataset_has_geometry:
-        fgb_spatial_index = not await _has_null_or_empty_geometry(
-            db, table_name=dataset_table, schema=data_schema
-        )
     del dataset
     await db.rollback()
 
@@ -718,7 +694,6 @@ async def export_dataset_endpoint(
                 column_info=dataset_columns,
                 pmtiles_maxzoom=pmtiles_maxzoom,
                 deadline=request_deadline,
-                spatial_index=fgb_spatial_index,
             )
     except ValueError as e:
         raise HTTPException(

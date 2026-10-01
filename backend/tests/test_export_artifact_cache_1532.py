@@ -92,7 +92,6 @@ class Conversions:
         pmtiles_maxzoom=None,
         column_info=None,
         deadline=None,
-        spatial_index=True,
     ):
         self.count += 1
         fmt = FORMAT_MAP[format_key]

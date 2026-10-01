@@ -5,6 +5,7 @@ the packed spatial index, so the export must drop the index for such tables
 and keep it otherwise. These tests run the real ogr2ogr against a real table.
 """
 
+import asyncio
 import struct
 import subprocess
 
@@ -29,6 +30,22 @@ async def _fgb_dataset(session, rows: list[str]):
         )
     await session.commit()
     return ds
+
+
+@pytest.fixture
+def ogr_spawns(monkeypatch):
+    """Argv of every ogr2ogr the export spawns, while still running it."""
+    from app.processing.export import ogr as export_ogr
+
+    real = asyncio.create_subprocess_exec
+    spawned: list[tuple[str, ...]] = []
+
+    async def _spy(*args, **kwargs):
+        spawned.append(args)
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(export_ogr.asyncio, "create_subprocess_exec", _spy)
+    return spawned
 
 
 async def _export(client, headers, ds, tmp_path):
@@ -65,7 +82,7 @@ def _index_node_size(path) -> int:
 
 @pytest.mark.anyio
 async def test_empty_and_null_geometries_export_all_rows_without_index(
-    client: AsyncClient, admin_auth_header: dict, test_db_session, tmp_path
+    client: AsyncClient, admin_auth_header: dict, test_db_session, tmp_path, ogr_spawns
 ):
     ds = await _fgb_dataset(
         test_db_session,
@@ -79,11 +96,13 @@ async def test_empty_and_null_geometries_export_all_rows_without_index(
     assert resp.status_code == 200, resp.text
     assert _feature_count(path) == 3
     assert _index_node_size(path) == 0
+    assert len(ogr_spawns) == 2
+    assert "SPATIAL_INDEX=NO" in ogr_spawns[1]
 
 
 @pytest.mark.anyio
 async def test_table_without_null_geometries_keeps_spatial_index(
-    client: AsyncClient, admin_auth_header: dict, test_db_session, tmp_path
+    client: AsyncClient, admin_auth_header: dict, test_db_session, tmp_path, ogr_spawns
 ):
     ds = await _fgb_dataset(
         test_db_session, ["ST_GeomFromText('MULTIPOINT(1 1)', 4326)"]
@@ -92,3 +111,17 @@ async def test_table_without_null_geometries_keeps_spatial_index(
     assert resp.status_code == 200, resp.text
     assert _feature_count(path) == 1
     assert _index_node_size(path) == 16
+    assert len(ogr_spawns) == 1
+    assert not any("SPATIAL_INDEX=NO" in a for a in ogr_spawns[0])
+
+
+@pytest.mark.anyio
+async def test_cold_head_does_no_conversion(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, ogr_spawns
+):
+    ds = await _fgb_dataset(test_db_session, ["'SRID=4326;MULTIPOINT EMPTY'"])
+    resp = await client.head(
+        f"/datasets/{ds.id}/export", params={"format": "fgb"}, headers=admin_auth_header
+    )
+    assert resp.status_code == 200
+    assert ogr_spawns == []

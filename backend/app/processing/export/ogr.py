@@ -298,6 +298,9 @@ def _harden_csv_formulas(
     os.replace(hardened_path, output_path)
 
 
+_FGB_NULL_GEOMETRY_REFUSAL = "NULL geometry not supported with spatial index"
+
+
 async def run_ogr2ogr_export(
     table_name: str,
     output_path: str,
@@ -330,9 +333,9 @@ async def run_ogr2ogr_export(
             outside a request (see ``export_subprocess_timeout_seconds``).
         numeric_columns: Numeric-type columns; CSV only, decides which
             cells keep a leading sign unescaped.
-        spatial_index: FlatGeobuf only. GDAL refuses null or empty
-            geometries while writing the packed index, so a table holding
-            any must pass False to keep those rows.
+        spatial_index: FlatGeobuf only. GDAL refuses null or empty geometries
+            while writing the packed index; on that refusal the export reruns
+            once with False so those rows are kept.
 
     Raises:
         ExportError: If ogr2ogr exits with non-zero code.
@@ -430,6 +433,28 @@ async def run_ogr2ogr_export(
         )
     except IngestionError as exc:
         raise ExportError(str(exc)) from exc
+
+    if (
+        proc.returncode != 0
+        and format_key == "fgb"
+        and spatial_index
+        and _FGB_NULL_GEOMETRY_REFUSAL in stderr.decode()
+    ):
+        with contextlib.suppress(OSError):
+            os.unlink(output_path)
+        await run_ogr2ogr_export(
+            table_name,
+            output_path,
+            driver,
+            schema=schema,
+            target_srs=target_srs,
+            bbox=bbox,
+            where=where,
+            format_key=format_key,
+            deadline=deadline,
+            spatial_index=False,
+        )
+        return
 
     if proc.returncode != 0:
         raise ExportError(
