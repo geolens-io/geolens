@@ -386,7 +386,7 @@ export function SpatialFilterPanel({
             {pendingBbox ? (
               <p className="mt-2 text-xs text-muted-foreground">
                 {drawMode === 'rectangle'
-                  ? `Bbox: ${pendingBbox.split(',').map((n) => Number(n).toFixed(2)).join(', ')}`
+                  ? `Bbox: ${normalizeBboxLongitudes(pendingBbox).split(',').map((n) => Number(n).toFixed(2)).join(', ')}`
                   : t('spatial.polygonSelected', { count: 1 })}
               </p>
             ) : (

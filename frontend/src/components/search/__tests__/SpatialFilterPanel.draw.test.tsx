@@ -63,6 +63,15 @@ describe('SpatialFilterPanel drawing', () => {
   });
 });
 
+describe('SpatialFilterPanel bbox label', () => {
+  it('shows longitudes inside +/-180 for a box drawn across the antimeridian', () => {
+    draw.ring = ACROSS_SEAM;
+    render(<SpatialFilterPanel open onClose={vi.fn()} onApply={vi.fn()} />);
+    act(() => draw.handlers.finish('seam'));
+    expect(screen.getByText('Bbox: 144.41, 72.18, -161.45, 81.41')).toBeInTheDocument();
+  });
+});
+
 describe('SpatialFilterPanel zero-area boxes', () => {
   it('discards a rectangle with no height and keeps Apply disabled', () => {
     draw.ring = [[-47.37, 20], [41.06, 20], [41.06, 20], [-47.37, 20], [-47.37, 20]];
