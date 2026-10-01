@@ -11,7 +11,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import and_, exists, func, literal_column, or_, select
 from sqlalchemy.orm import aliased
 
-from app.core.geo import make_bbox_filter
+from app.core.geo import make_bbox_filter, wrap_geometry_longitudes
 from app.core.text import escape_ilike
 from app.modules.catalog.collections.models import CollectionDataset
 from app.modules.catalog.datasets.domain.models import (
@@ -251,7 +251,9 @@ def _apply_common_filters(stmt, filters: SearchFilters, *, skip_text: bool = Fal
         text_clause, _parts = _build_text_filter(filters.q)
         stmt = stmt.where(text_clause)
     if filters.geometry_geojson:
-        geom = func.ST_SetSRID(func.ST_GeomFromGeoJSON(filters.geometry_geojson), 4326)
+        geom = wrap_geometry_longitudes(
+            func.ST_SetSRID(func.ST_GeomFromGeoJSON(filters.geometry_geojson), 4326)
+        )
         spatial_fn = (
             func.ST_Within
             if filters.spatial_predicate == "within"

@@ -444,6 +444,25 @@ def make_bbox_filter(
         return and_(geom_col.op("&&")(envelope), spatial_fn(geom_col, envelope))
 
 
+def wrap_geometry_longitudes(geom: ColumnElement) -> ColumnElement:
+    """Fold a 4326 geometry drawn on a wrapped web map into ``[-180, 180]``.
+
+    Returns ``geom`` itself when every longitude is already in range.
+    Otherwise moves it by whole turns so its centre lies in ``[-180, 180)``,
+    splits it at ±180, shifts the outer pieces one turn back into range and
+    returns the union of the highest-dimension pieces.
+    """
+    xmin, xmax = func.ST_XMin(geom), func.ST_XMax(geom)
+    turns = func.floor((xmin + xmax + 360.0) / 720.0)
+    # The union raises on overlapping invalid pieces; drawn input can self-intersect.
+    centred = func.ST_MakeValid(func.ST_Translate(geom, turns * -360.0, 0))
+    folded = func.ST_WrapX(func.ST_WrapX(centred, -180, 360), 180, -360)
+    return case(
+        (and_(xmin >= -180, xmax <= 180), geom),
+        else_=func.ST_UnaryUnion(func.ST_CollectionExtract(folded)),
+    )
+
+
 @lru_cache(maxsize=512)
 def _proj_knows_epsg(srid: int) -> bool:
     """True when PROJ, GDAL's registry, has this EPSG code.
