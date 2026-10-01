@@ -28,8 +28,10 @@ from app.modules.catalog.maps.service_history import (
 from app.modules.catalog.maps.service_layers import (
     add_layer,
     bulk_check_dataset_access,
+    lock_map_layers,
     remove_layer,
     remove_layers_bulk,
+    terrain_dataset_ids_visible_to,
 )
 from app.modules.catalog.maps.service_public import (
     _validate_share_token,
@@ -81,6 +83,7 @@ __all__ = [
     "apply_layer_diff",
     "remove_layer",
     "remove_layers_bulk",
+    "lock_map_layers",
     "validate_public_visibility",
     "find_maps_broken_by_dataset_visibility",
     "create_share_token",
@@ -94,6 +97,7 @@ __all__ = [
     "_fetch_layer_rows_ordered",
     "_resolve_save_response_metadata",
     "filter_layer_rows_by_dataset_visibility",
+    "terrain_dataset_ids_visible_to",
     "_apply_map_visibility_filter",
     "_infer_layer_type",
     "_validate_share_token",

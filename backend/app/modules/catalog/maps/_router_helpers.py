@@ -22,6 +22,7 @@ from app.modules.catalog.maps.schemas import (
 )
 from app.modules.catalog.maps.service import LayerRow, validate_public_visibility
 from app.modules.catalog.maps.sharing import can_read_every_map_dataset
+from app.modules.catalog.maps.style_json import project_terrain_config
 from app.platform.extensions import get_permission_extension
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -314,7 +315,18 @@ def _build_map_response(
     layers: list[MapLayerResponse],
     forked_from_name: str | None = None,
     created_by_username: str | None = None,
+    *,
+    terrain_dataset_ids: set[str] | None = None,
 ) -> MapResponse:
+    """Build the map response.
+
+    ``terrain_dataset_ids`` is for reads filtered by what the caller may see:
+    the stored terrain binding then survives only when its DEM is one of those
+    ids, so a hidden DEM's id is not echoed.
+    """
+    terrain_config = map_obj.terrain_config
+    if terrain_dataset_ids is not None:
+        terrain_config = project_terrain_config(terrain_config, terrain_dataset_ids)
     thumbnail_url = f"/maps/{map_obj.id}/thumbnail/" if map_obj.thumbnail_uri else None
     og_image_url = f"/maps/{map_obj.id}/og-image/" if map_obj.og_image_uri else None
     return MapResponse(
@@ -330,7 +342,7 @@ def _build_map_response(
         basemap_style=map_obj.basemap_style,
         show_basemap_labels=map_obj.show_basemap_labels,
         basemap_config=map_obj.basemap_config,
-        terrain_config=map_obj.terrain_config,
+        terrain_config=terrain_config,
         visibility=map_obj.visibility,
         thumbnail_url=thumbnail_url,
         og_image_url=og_image_url,

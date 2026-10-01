@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import logging
 import re
+from collections.abc import Iterable
 from typing import Any
 from urllib.parse import urlencode
 
@@ -1439,13 +1440,37 @@ def _validate_emitted_style(style: dict[str, Any]) -> None:
         style["layers"] = kept
 
 
+def project_terrain_config(
+    terrain_config: Any, visible_dataset_ids: Iterable[Any]
+) -> dict[str, Any] | None:
+    """Return the terrain binding only when its DEM is among the visible datasets.
+
+    The binding names its DEM by dataset id, so handing it to a caller who cannot
+    see that dataset discloses the id of a hidden dataset. A binding without a DEM
+    id names nothing and passes through.
+    """
+    if not isinstance(terrain_config, dict):
+        return None
+    source_id = terrain_config.get("source_dataset_id")
+    if source_id is None:
+        return terrain_config
+    if str(source_id) in {str(dataset_id) for dataset_id in visible_dataset_ids}:
+        return terrain_config
+    return None
+
+
 def build_maplibre_style(
     map_obj: Map,
     layers: list[MapLayerResponse],
     *,
     mvt_source_layer_prefix: str = "data",
+    terrain_dataset_ids: Iterable[Any] | None = None,
 ) -> dict[str, Any]:
-    """Build a complete MapLibre style document from saved map data."""
+    """Build a complete MapLibre style document from saved map data.
+
+    The terrain binding is kept only when its DEM is in ``terrain_dataset_ids``,
+    which defaults to the layers' datasets.
+    """
 
     sources: dict[str, Any] = {}
     style_layers: list[dict[str, Any]] = []
@@ -1506,7 +1531,9 @@ def build_maplibre_style(
             )
 
     terrain_block: dict[str, Any] | None = None
-    tc = map_obj.terrain_config if isinstance(map_obj.terrain_config, dict) else None
+    if terrain_dataset_ids is None:
+        terrain_dataset_ids = [layer.dataset_id for layer in layers]
+    tc = project_terrain_config(map_obj.terrain_config, terrain_dataset_ids)
     if tc and tc.get("enabled") and tc.get("source_dataset_id"):
         try:
             exaggeration = float(tc.get("exaggeration", 1.0))
@@ -1564,7 +1591,7 @@ def build_maplibre_style(
                 "basemap_config": _clean_basemap_config(
                     getattr(map_obj, "basemap_config", None), lenient=True
                 ),
-                "terrain_config": map_obj.terrain_config,
+                "terrain_config": tc,
             }
         },
         "sprite": [{"id": GEOLENS_SPRITE_ID, "url": SPRITE_URL}],

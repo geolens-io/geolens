@@ -306,3 +306,314 @@ class TestSec024TerrainConfigPrivacy:
         assert terrain is None or terrain.get("source_dataset_id") is None, (
             f"SEC-024 FAIL (fallback path): private DEM id disclosed: {terrain}"
         )
+
+
+# ---------------------------------------------------------------------------
+# One projection across map detail, style export and the shared-token read
+# ---------------------------------------------------------------------------
+
+
+async def _publish_map_with_terrain(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    session,
+    *,
+    layer_dataset_ids: list[uuid.UUID],
+    terrain_dataset_id: uuid.UUID,
+) -> tuple[uuid.UUID, str]:
+    """A public map drawing ``layer_dataset_ids`` with terrain bound to a DEM."""
+    create_resp = await client.post(
+        "/maps/",
+        json={"name": f"Terrain privacy {uuid.uuid4().hex[:6]}"},
+        headers=admin_auth_header,
+    )
+    assert create_resp.status_code == 201
+    map_id = uuid.UUID(create_resp.json()["id"])
+    for dataset_id in layer_dataset_ids:
+        layer_resp = await client.post(
+            f"/maps/{map_id}/layers",
+            json={"dataset_id": str(dataset_id)},
+            headers=admin_auth_header,
+        )
+        assert layer_resp.status_code == 201
+    visibility_resp = await client.put(
+        f"/maps/{map_id}",
+        json={"visibility": "public"},
+        headers=admin_auth_header,
+    )
+    assert visibility_resp.status_code == 200
+    await _set_map_terrain_config(
+        session,
+        map_id,
+        {
+            "enabled": True,
+            "source_dataset_id": str(terrain_dataset_id),
+            "exaggeration": 1.5,
+        },
+    )
+    share_resp = await client.post(f"/maps/{map_id}/share/", headers=admin_auth_header)
+    assert share_resp.status_code in (200, 201)
+    return map_id, share_resp.json()["token"]
+
+
+async def _read_map_three_ways(
+    client: AsyncClient, map_id: uuid.UUID, token: str, headers: dict | None = None
+) -> dict[str, tuple[dict, str]]:
+    """Terrain binding and raw body of each read that can carry it."""
+    detail = await client.get(f"/maps/{map_id}", headers=headers)
+    style = await client.get(f"/maps/{map_id}/style.json", headers=headers)
+    shared = await client.get(f"/maps/shared/{token}")
+    for resp in (detail, style, shared):
+        assert resp.status_code == 200, resp.text
+    return {
+        "detail": (detail.json()["terrain_config"], detail.text),
+        "style": (style.json()["metadata"]["geolens"]["terrain_config"], style.text),
+        "shared": (shared.json()["terrain_config"], shared.text),
+    }
+
+
+async def _make_dataset_private(session, dataset: Dataset) -> None:
+    await session.execute(
+        text(
+            "UPDATE catalog.records SET visibility = 'private'"
+            " WHERE id = cast(:record_id as uuid)"
+        ).bindparams(record_id=str(dataset.record_id))
+    )
+    await session.commit()
+
+
+class TestTerrainBindingProjectedForEveryReader:
+    async def test_hidden_dem_id_is_not_echoed_by_any_read(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        private_dem = await _create_raster_dem_dataset(
+            test_db_session, created_by=admin_id, visibility="private"
+        )
+        vector_ds = await _create_public_vector_dataset(
+            test_db_session, created_by=admin_id
+        )
+        map_id, token = await _publish_map_with_terrain(
+            client,
+            admin_auth_header,
+            test_db_session,
+            layer_dataset_ids=[vector_ds.id],
+            terrain_dataset_id=private_dem.id,
+        )
+
+        reads = await _read_map_three_ways(client, map_id, token)
+
+        for name, (terrain, body) in reads.items():
+            assert terrain is None, f"{name} returned a terrain binding: {terrain}"
+            assert str(private_dem.id) not in body, f"{name} discloses the DEM id"
+
+    async def test_dem_made_private_after_the_map_was_saved_is_hidden(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        dem = await _create_raster_dem_dataset(
+            test_db_session, created_by=admin_id, visibility="public"
+        )
+        map_id, token = await _publish_map_with_terrain(
+            client,
+            admin_auth_header,
+            test_db_session,
+            layer_dataset_ids=[dem.id],
+            terrain_dataset_id=dem.id,
+        )
+
+        before = await _read_map_three_ways(client, map_id, token)
+        # Control: a visible DEM keeps its binding on every read.
+        for name, (terrain, _body) in before.items():
+            assert terrain is not None, f"{name} lost a visible DEM's binding"
+            assert terrain["source_dataset_id"] == str(dem.id)
+
+        await _make_dataset_private(test_db_session, dem)
+
+        after = await _read_map_three_ways(client, map_id, token)
+        for name, (terrain, body) in after.items():
+            assert terrain is None, f"{name} returned a terrain binding: {terrain}"
+            assert str(dem.id) not in body, f"{name} discloses the DEM id"
+
+    async def test_caller_who_can_see_the_dem_keeps_the_full_binding(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        dem = await _create_raster_dem_dataset(
+            test_db_session, created_by=admin_id, visibility="public"
+        )
+        map_id, token = await _publish_map_with_terrain(
+            client,
+            admin_auth_header,
+            test_db_session,
+            layer_dataset_ids=[dem.id],
+            terrain_dataset_id=dem.id,
+        )
+        await _make_dataset_private(test_db_session, dem)
+
+        reads = await _read_map_three_ways(
+            client, map_id, token, headers=admin_auth_header
+        )
+
+        for name in ("detail", "style"):
+            terrain, _body = reads[name]
+            assert terrain == {
+                "enabled": True,
+                "source_dataset_id": str(dem.id),
+                "exaggeration": 1.5,
+            }, f"{name} dropped the binding for a caller who can see the DEM"
+
+
+class TestDanglingTerrainBinding:
+    """A binding whose DEM is not a layer stays readable as a missing source."""
+
+    async def _detail_and_style(self, client, map_id, token):
+        reads = await _read_map_three_ways(client, map_id, token)
+        return {name: reads[name][0] for name in ("detail", "style")}
+
+    async def test_a_visible_dem_outside_the_layers_keeps_its_binding(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        dem = await _create_raster_dem_dataset(
+            test_db_session, created_by=admin_id, visibility="public"
+        )
+        vector_ds = await _create_public_vector_dataset(
+            test_db_session, created_by=admin_id
+        )
+        map_id, token = await _publish_map_with_terrain(
+            client,
+            admin_auth_header,
+            test_db_session,
+            layer_dataset_ids=[vector_ds.id],
+            terrain_dataset_id=dem.id,
+        )
+
+        for name, terrain in (
+            await self._detail_and_style(client, map_id, token)
+        ).items():
+            assert terrain is not None, f"{name} dropped a visible DEM's binding"
+            assert terrain["source_dataset_id"] == str(dem.id)
+
+    async def test_a_deleted_dem_keeps_its_binding(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        vector_ds = await _create_public_vector_dataset(
+            test_db_session, created_by=admin_id
+        )
+        missing_dem_id = uuid.uuid4()
+        map_id, token = await _publish_map_with_terrain(
+            client,
+            admin_auth_header,
+            test_db_session,
+            layer_dataset_ids=[vector_ds.id],
+            terrain_dataset_id=missing_dem_id,
+        )
+
+        for name, terrain in (
+            await self._detail_and_style(client, map_id, token)
+        ).items():
+            assert terrain is not None, f"{name} dropped a deleted DEM's binding"
+            assert terrain["source_dataset_id"] == str(missing_dem_id)
+
+
+class TestForkedTerrainBinding:
+    async def test_a_fork_never_stores_a_dem_id_its_owner_cannot_see(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        editor_auth_header: dict,
+        test_db_session,
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        dem = await _create_raster_dem_dataset(
+            test_db_session, created_by=admin_id, visibility="public"
+        )
+        map_id, _token = await _publish_map_with_terrain(
+            client,
+            admin_auth_header,
+            test_db_session,
+            layer_dataset_ids=[dem.id],
+            terrain_dataset_id=dem.id,
+        )
+
+        visible_fork = await client.post(
+            f"/maps/{map_id}/duplicate/", headers=editor_auth_header
+        )
+        # Control: a fork that keeps the DEM layer keeps the binding.
+        assert visible_fork.status_code == 201
+        assert visible_fork.json()["terrain_config"]["source_dataset_id"] == str(dem.id)
+
+        await _make_dataset_private(test_db_session, dem)
+        hidden_fork = await client.post(
+            f"/maps/{map_id}/duplicate/", headers=editor_auth_header
+        )
+        assert hidden_fork.status_code == 201
+        fork_id = hidden_fork.json()["id"]
+        renamed = await client.put(
+            f"/maps/{fork_id}",
+            json={"name": "Renamed fork"},
+            headers=editor_auth_header,
+        )
+        reshuffled = await client.patch(
+            f"/maps/{fork_id}/layers",
+            json={"order": []},
+            headers=editor_auth_header,
+        )
+        detail = await client.get(f"/maps/{fork_id}", headers=editor_auth_header)
+
+        assert hidden_fork.json()["excluded_layer_count"] == 1
+        assert renamed.status_code == 200
+        assert reshuffled.status_code == 200
+        assert detail.status_code == 200
+        for name, resp in (
+            ("duplicate", hidden_fork),
+            ("rename", renamed),
+            ("layer patch", reshuffled),
+            ("detail", detail),
+        ):
+            assert resp.json()["terrain_config"] is None, name
+            assert str(dem.id) not in resp.text, f"{name} discloses the DEM id"
+        stored = (
+            await test_db_session.execute(
+                text(
+                    "SELECT CAST(terrain_config AS text) FROM catalog.maps"
+                    " WHERE id = cast(:id as uuid)"
+                ).bindparams(id=fork_id)
+            )
+        ).scalar_one()
+        assert stored in (None, "null")
+
+    async def test_a_fork_keeps_a_binding_its_owner_can_see_outside_the_layers(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        editor_auth_header: dict,
+        test_db_session,
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        dem = await _create_raster_dem_dataset(
+            test_db_session, created_by=admin_id, visibility="public"
+        )
+        vector_ds = await _create_public_vector_dataset(
+            test_db_session, created_by=admin_id
+        )
+        missing_dem_id = uuid.uuid4()
+        for terrain_dataset_id in (dem.id, missing_dem_id):
+            map_id, _token = await _publish_map_with_terrain(
+                client,
+                admin_auth_header,
+                test_db_session,
+                layer_dataset_ids=[vector_ds.id],
+                terrain_dataset_id=terrain_dataset_id,
+            )
+
+            fork = await client.post(
+                f"/maps/{map_id}/duplicate/", headers=editor_auth_header
+            )
+
+            assert fork.status_code == 201
+            terrain = fork.json()["terrain_config"]
+            assert terrain is not None
+            assert terrain["source_dataset_id"] == str(terrain_dataset_id)

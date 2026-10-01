@@ -442,6 +442,7 @@ def _path_points(path_data: str) -> list[list[tuple[float, float]]]:
         current.append((x, y))
 
     while index < len(tokens):
+        iteration_start = index
         if is_cmd(tokens[index]):
             cmd = tokens[index]
             index += 1
@@ -482,6 +483,8 @@ def _path_points(path_data: str) -> list[list[tuple[float, float]]]:
             current = []
         else:
             break
+        if index == iteration_start:
+            raise ValueError("path data cannot follow a close-path command")
     if current:
         paths.append(current)
     return paths

@@ -277,7 +277,7 @@ UNANCHORED_MARKER_DEBT: dict[str, int] = {
     "modules/catalog/maps/models.py": 5,
     "modules/catalog/maps/schemas.py": 6,
     "modules/catalog/maps/service_diff.py": 1,
-    "modules/catalog/maps/service_public.py": 9,
+    "modules/catalog/maps/service_public.py": 5,
     "modules/catalog/maps/style_json.py": 3,
     "modules/catalog/search/cache.py": 2,
     "modules/catalog/search/router.py": 6,

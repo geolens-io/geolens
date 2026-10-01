@@ -1,15 +1,24 @@
 """Map layer access checks and mutation helpers."""
 
 import uuid
+from collections.abc import Iterable
+from typing import Any
 
-from sqlalchemy import delete, select
+from fastapi import HTTPException, status
+from sqlalchemy import delete, func, select, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.db.sqlstate import is_lock_conflict
 from app.core.identity import Identity
-from app.modules.catalog.authorization import apply_visibility_filter
+from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
-from app.modules.catalog.maps.models import MapLayer
-from app.modules.catalog.maps.schemas import MapLayerInput, split_legacy_builder_paint
+from app.modules.catalog.maps.models import Map, MapLayer
+from app.modules.catalog.maps.schemas import (
+    _MAX_LAYERS_PER_MAP,
+    MapLayerInput,
+    split_legacy_builder_paint,
+)
 from app.modules.catalog.maps.service_shared import (
     _infer_layer_type,
     generate_default_style,
@@ -44,6 +53,98 @@ async def bulk_check_dataset_access(
     return {row[0] for row in result}
 
 
+async def terrain_dataset_ids_visible_to(
+    session: AsyncSession,
+    terrain_config: Any,
+    layer_dataset_ids: Iterable[uuid.UUID],
+    user: Identity | None,
+) -> set[str]:
+    """Dataset ids a terrain binding may name in a read by ``user``.
+
+    The visible layers count, and so does a DEM outside them that the caller can
+    see or that no longer exists, which the builder shows as a missing source.
+    Only a DEM that exists and is hidden from the caller is left out.
+    """
+    allowed = {str(dataset_id) for dataset_id in layer_dataset_ids}
+    source_id = (
+        terrain_config.get("source_dataset_id")
+        if isinstance(terrain_config, dict)
+        else None
+    )
+    if source_id is None or str(source_id) in allowed:
+        return allowed
+    try:
+        dem_id = uuid.UUID(str(source_id))
+    except ValueError:
+        return allowed | {str(source_id)}
+    user_roles = await get_user_roles(session, user) if user is not None else set()
+    visible = apply_visibility_filter(
+        select(Dataset.id)
+        .join(Record, Dataset.record_id == Record.id)
+        .where(Dataset.id == dem_id),
+        user,
+        user_roles,
+        Record,
+        DatasetGrant,
+    )
+    if (await session.execute(visible)).first() is not None or (
+        await session.execute(select(Dataset.id).where(Dataset.id == dem_id))
+    ).first() is None:
+        allowed.add(str(source_id))
+    return allowed
+
+
+_LAYER_LOCK_TIMEOUT = "2s"
+
+
+async def lock_map_layers(session: AsyncSession, map_id: uuid.UUID) -> None:
+    """Serialize the writers that change one map's layer count.
+
+    Take it before reading the layers a write will count or reconcile, and hold
+    it through the caller's commit: a writer that counted first would otherwise
+    insert on a stale count after another admitted its layer. Only the wait for
+    this lock is bounded; a wait that outlasts the bound answers 409. The lock
+    leaves the map's key shareable, so a layer delete holding its rows can still
+    insert the history event that references the map.
+    """
+    await session.execute(
+        text("SELECT set_config('lock_timeout', :timeout, true)"),
+        {"timeout": _LAYER_LOCK_TIMEOUT},
+    )
+    try:
+        await session.execute(
+            select(Map.id).where(Map.id == map_id).with_for_update(key_share=True)
+        )
+    except DBAPIError as exc:
+        if not is_lock_conflict(exc):
+            raise
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Another change to this map is in progress. Retry shortly.",
+        ) from exc
+    await session.execute(text("RESET lock_timeout"))
+
+
+async def _admit_layer(session: AsyncSession, map_id: uuid.UUID) -> None:
+    """Refuse an append past the per-map layer limit.
+
+    Maps already over the limit can still shrink: only additions come through
+    here.
+    """
+    await lock_map_layers(session, map_id)
+    layer_count = (
+        await session.execute(
+            select(func.count()).select_from(MapLayer).where(MapLayer.map_id == map_id)
+        )
+    ).scalar_one()
+    if layer_count >= _MAX_LAYERS_PER_MAP:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"A map holds at most {_MAX_LAYERS_PER_MAP} layers",
+        )
+
+
 async def add_layer(
     session: AsyncSession,
     map_id: uuid.UUID,
@@ -51,7 +152,7 @@ async def add_layer(
 ) -> MapLayer:
     """Add a layer to a map. Applies default style if paint/layout is None.
 
-    Does NOT commit.
+    Raises 422 when the map is at its layer limit. Does NOT commit.
     """
     meta = await get_dataset_meta(session, body.dataset_id)
     record_type = meta.record_type if meta else None
@@ -85,6 +186,7 @@ async def add_layer(
         style_config,
         is_dem=meta.is_dem if meta else None,
     )
+    await _admit_layer(session, map_id)
     sort_order = body.sort_order
     if "sort_order" not in body.model_fields_set:
         result = await session.execute(

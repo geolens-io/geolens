@@ -188,6 +188,12 @@ class SearchQueryParams(BaseModel):
             else None,
             "vintage_end": self.vintage_end.isoformat() if self.vintage_end else None,
             "sort_by": self.sort_by if self.sort_by != "relevance" else None,
+            "sort_desc": None
+            if self.sort_desc is None
+            else str(self.sort_desc).lower(),
+            "spatial_predicate": self.spatial_predicate
+            if self.spatial_predicate != "intersects"
+            else None,
             "datetime": self.datetime_param,
             "exclude_synthetic": "false" if not self.exclude_synthetic else None,
             "filter": self.cql2_filter,

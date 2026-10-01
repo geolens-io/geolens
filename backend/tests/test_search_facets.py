@@ -558,3 +558,42 @@ async def test_facets_scan_the_embeddings_once_per_request(
     assert len(scans) == 1, (
         f"expected one cosine scan per facets request, got {len(scans)}"
     )
+
+
+@pytest.mark.anyio
+async def test_a_failing_vector_statement_falls_back_to_full_text_results_and_facets(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    semantic_facet_datasets: dict,
+):
+    """A database error in the vector arm must not take the lexical fallback down.
+
+    A query vector whose dimension disagrees with the stored column makes the
+    similarity statement itself fail in PostgreSQL, which aborts the request's
+    transaction. The results and facets queries that follow have to run on a
+    session that was rolled back to before the vector arm.
+    """
+    wrong_dimension = [1.0, 0.0, 0.0]
+    assert len(wrong_dimension) != semantic_facet_datasets["dim"]
+    lexical_q = f"Zqfacet Alpha {semantic_facet_datasets['slug']}"
+
+    with _patched_embedding(wrong_dimension) as embed:
+        results = await client.get(
+            "/search/datasets/",
+            params={"q": lexical_q},
+            headers=admin_auth_header,
+        )
+        facets = await client.get(
+            "/search/facets/",
+            params={"q": lexical_q},
+            headers=admin_auth_header,
+        )
+
+    # Non-vacuity: the semantic path was entered, so the fallback is what ran.
+    embed.assert_awaited()
+    assert results.status_code == 200
+    assert facets.status_code == 200
+    body = results.json()
+    assert {f["properties"]["title"] for f in body["features"]} == {lexical_q}
+    assert body["numberMatched"] == 1
+    assert facets.json()["record_type"] == {"vector_dataset": 1}

@@ -357,31 +357,33 @@ async def resolve_semantic_arm(
     RecordEmbedding = get_catalog_port().record_embedding_orm_class()
     usable = RecordEmbedding.usable_by_config(model_name, config_fingerprint)
     try:
-        # fix(#448): the row gate is measured under the same predicate the
-        # ranks and counts use, so foreign-configuration rows cannot trip it.
-        emb_rows = (
-            await session.execute(
-                select(func.count())
-                .select_from(RecordEmbedding)
-                .join(Record, RecordEmbedding.record_id == Record.id)
-                .where(usable)
+        # A failed statement aborts the transaction the lexical fallback reuses.
+        async with session.begin_nested():
+            # The row gate is measured under the same predicate the ranks and
+            # counts use, so foreign-configuration rows cannot trip it.
+            emb_rows = (
+                await session.execute(
+                    select(func.count())
+                    .select_from(RecordEmbedding)
+                    .join(Record, RecordEmbedding.record_id == Record.id)
+                    .where(usable)
+                )
+            ).scalar_one()
+            exact = emb_rows <= _EXACT_SEMANTIC_COUNT_MAX_ROWS
+            window = depth if exact else max(depth, _APPROXIMATE_CANDIDATE_WINDOW)
+            await get_catalog_port().set_hnsw_recall(session)
+            distance = RecordEmbedding.embedding.cosine_distance(query_vector)
+            # Restricting to the vetted set BEFORE the top-k cut keeps a nearer
+            # private or filtered-out row from displacing a valid match.
+            vector_stmt = (
+                select(RecordEmbedding.record_id)
+                .where(usable, distance <= 0.7, RecordEmbedding.record_id.in_(vet_stmt))
+                .order_by(distance)
             )
-        ).scalar_one()
-        exact = emb_rows <= _EXACT_SEMANTIC_COUNT_MAX_ROWS
-        window = depth if exact else max(depth, _APPROXIMATE_CANDIDATE_WINDOW)
-        await get_catalog_port().set_hnsw_recall(session)
-        distance = RecordEmbedding.embedding.cosine_distance(query_vector)
-        # Restricting to the vetted set BEFORE the top-k cut keeps a nearer
-        # private or filtered-out row from displacing a valid match.
-        vector_stmt = (
-            select(RecordEmbedding.record_id)
-            .where(usable, distance <= 0.7, RecordEmbedding.record_id.in_(vet_stmt))
-            .order_by(distance)
-        )
-        # Exact: every match, bounded by the row gate. The one scan per request.
-        if not exact:
-            vector_stmt = vector_stmt.limit(window)
-        rows = (await session.execute(vector_stmt)).all()
+            # Exact: every match, bounded by the row gate. The one scan per request.
+            if not exact:
+                vector_stmt = vector_stmt.limit(window)
+            rows = (await session.execute(vector_stmt)).all()
     except Exception:  # broad: pgvector/HNSW failures are diverse; degrade to FTS rather than 500 the search
         logger.warning(
             "Vector similarity query failed, falling back to FTS", exc_info=True

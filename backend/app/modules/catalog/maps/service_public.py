@@ -28,6 +28,7 @@ from app.modules.catalog.maps.service_shared import (
     _apply_map_visibility_filter,
     _extract_dem_vertical_units,
 )
+from app.modules.catalog.maps.style_json import project_terrain_config
 from app.modules.embed_tokens.service import resolve_embed_scope_for_map
 from app.modules.embed_tokens.sharing import (
     active_embed_count_subquery,
@@ -43,29 +44,6 @@ from app.platform.extensions import (
 
 if TYPE_CHECKING:
     from fastapi import Request
-
-
-def _redact_terrain_config(
-    terrain_config: dict | None,
-    visible_dataset_ids: set[str],
-) -> dict | None:
-    """SEC-024: strip terrain_config if its DEM is not among the visible datasets.
-
-    Returns terrain_config unchanged when source_dataset_id is in
-    visible_dataset_ids; returns None otherwise, so a private DEM id can't
-    leak through the shared/public map response.
-    """
-    if terrain_config is None:
-        return None
-    source_id = terrain_config.get("source_dataset_id")
-    if source_id is None:
-        return terrain_config
-    if str(source_id) in visible_dataset_ids:
-        return terrain_config
-    # DEM is private — suppress the block so the id isn't disclosed.
-    # style_json.py:896 already guards terrain binding (no pixels leak);
-    # this closes the id disclosure in the raw JSON response.
-    return None
 
 
 async def validate_public_visibility(
@@ -518,9 +496,9 @@ async def get_shared_map(
         map_obj = await get_map(session, token_obj.map_id)
         if map_obj is None or map_obj.visibility != "public":
             return None
-        # SEC-024: no visible layers → no dataset ids are authorized.
-        # Strip terrain_config entirely (source_dataset_id would not be visible).
-        terrain_config = _redact_terrain_config(map_obj.terrain_config, set())
+        # No visible layers means no dataset id is authorized, so the terrain
+        # binding goes too.
+        terrain_config = project_terrain_config(map_obj.terrain_config, ())
         map_data = {
             "name": map_obj.name,
             "description": map_obj.description,
@@ -578,15 +556,14 @@ async def get_shared_map(
         )
         if is_non_public:
             has_non_public = True
-        # SEC-024: every layer_row already passed authorization (filter
-        # or embed scope), so this only tracks dataset ids to know when
-        # terrain_config should be stripped (DEM absent from the set).
+        # Every layer_row already passed authorization (filter or embed scope),
+        # so this only tracks dataset ids to know when the terrain binding must
+        # be stripped (DEM absent from the set).
         visible_dataset_ids.add(str(layer.dataset_id))
         layers.append(layer_dict)
 
     map_row = layer_rows[0][0]  # Map ORM object — same for every row
-    # SEC-024: strip terrain_config if its DEM dataset is not among the visible layers.
-    terrain_config = _redact_terrain_config(map_row.terrain_config, visible_dataset_ids)
+    terrain_config = project_terrain_config(map_row.terrain_config, visible_dataset_ids)
     map_data = {
         "name": map_row.name,
         "description": map_row.description,
