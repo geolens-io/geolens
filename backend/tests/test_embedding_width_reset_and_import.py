@@ -14,6 +14,7 @@ from httpx import AsyncClient
 from sqlalchemy import func, select
 
 from app.core.persistent_config import EMBEDDING_DIMS, EMBEDDING_MODEL
+from app.modules.audit.models import AuditLog
 from tests.test_settings_router import _column_dims
 from tests.test_settings_router import (
     restore_embedding_settings as restore_embedding_settings,
@@ -218,6 +219,22 @@ async def test_a_failed_rebuild_on_import_puts_the_embedding_pair_back(
     assert await EMBEDDING_DIMS.get_uncached(test_db_session) == width
     assert await EMBEDDING_MODEL.get_uncached(test_db_session) == _OLD_MODEL
     assert await _column_dims(test_db_session) == width
+    reverted = (
+        await test_db_session.execute(
+            select(AuditLog.details)
+            .where(
+                AuditLog.action == "config_import",
+                AuditLog.details.has_key("settings_reverted"),
+            )
+            .order_by(AuditLog.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one()
+    assert reverted["mode"] == mode
+    assert sorted(reverted["settings_reverted"]) == [
+        "embedding_dims",
+        "embedding_model",
+    ]
 
 
 async def _resend_width(client, headers, how: str, width: int):

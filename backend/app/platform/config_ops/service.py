@@ -1086,6 +1086,7 @@ async def import_config(
     names_embedding = isinstance(raw_settings, dict) and (
         EMBEDDING_DIMS.key in raw_settings or EMBEDDING_MODEL.key in raw_settings
     )
+    reverted_on_failure: list[str] = []
     try:
         async with embedding_change_lock(mode == "overwrite" or names_embedding, db=db):
             # Database-enforced write fence covering state recompute, confirmation
@@ -1144,6 +1145,9 @@ async def import_config(
                 embedding_before = await read_committed_embedding_pair(
                     db, with_model=EMBEDDING_MODEL in touched
                 )
+                reverted_on_failure = [EMBEDDING_DIMS.key]
+                if EMBEDDING_MODEL in touched:
+                    reverted_on_failure.append(EMBEDDING_MODEL.key)
                 new_dims = plan.validated_settings.get(
                     EMBEDDING_DIMS.key, EMBEDDING_DIMS.env_default
                 )
@@ -1225,6 +1229,18 @@ async def import_config(
     except EmbeddingChangeBusyError as exc:
         raise ConfigBusyError(str(exc)) from exc
     except EmbeddingColumnRebuildError as exc:
+        # The aggregate event above counted the settings the restore reverted.
+        await audit_emit(
+            db,
+            AuditEvent(
+                user_id=user_id,
+                action="config_import",
+                resource_type="config",
+                details={"mode": mode, "settings_reverted": reverted_on_failure},
+                ip_address=ip_address,
+            ),
+        )
+        await db.commit()
         raise ConfigApplyError(f"{exc} The rest of the import was applied.") from exc
 
     logger.info(
