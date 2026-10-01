@@ -95,7 +95,7 @@ export function useSettingsForm<K extends string>(
   }, [saveFailed]);
 
   // fix(#830): only sync untouched fields on refetch — a mid-edit query
-  // invalidation (e.g. the semantic-search toggle) must not wipe drafts.
+  // invalidation (e.g. a background refetch) must not wipe drafts.
   // A field keeps its draft while the server state for it is unchanged.
   // When the refetch reports a NEW server value OR source for a field,
   // the server wins — covering save/reset refetches where the backend

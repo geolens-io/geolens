@@ -19,7 +19,6 @@ import {
   useEmbeddingStats,
   useBackfillEmbeddings,
   useBackfillJobStatus,
-  useUpdateSemanticSearch,
 } from '@/hooks/use-admin';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAIStatusReader } from '@/hooks/use-ai-status-reader';
@@ -41,6 +40,7 @@ interface TabProps {
 const AI_FIELDS = [
   { key: 'ai_enabled', defaultValue: true },
   { key: 'ai_send_sample_values', defaultValue: true },
+  { key: 'semantic_search_enabled', defaultValue: false },
   { key: 'max_ai_tokens_per_user_per_day', defaultValue: 0 },
   { key: 'llm_provider', defaultValue: 'anthropic' },
   { key: 'llm_model', defaultValue: '' },
@@ -76,7 +76,6 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, sa
     backfillJob.data?.status === 'pending' ||
     backfillJob.data?.status === 'running' ||
     Boolean(embeddingStats?.current_run);
-  const semanticToggle = useUpdateSemanticSearch();
 
   const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, AI_FIELDS, isSaving, saveFailed);
   const [isDetecting, setIsDetecting] = useState(false);
@@ -99,13 +98,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, sa
   const embeddingModel = values.embedding_model as string;
   const embeddingBaseUrl = values.embedding_base_url as string;
   const embeddingDims = values.embedding_dims as string;
-  const semanticSearchEnabled = Boolean(
-    findSetting(settings, 'semantic_search_enabled')?.value,
-  );
-
-  const handleSemanticToggle = (checked: boolean) => {
-    semanticToggle.mutate(checked);
-  };
+  const semanticSearchEnabled = Boolean(values.semantic_search_enabled);
 
   const handleBackfill = (force = false) => {
     if (!canManageUsers) return;
@@ -316,8 +309,8 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, sa
             <Switch
               id="semantic-toggle"
               checked={semanticSearchEnabled}
-              onCheckedChange={handleSemanticToggle}
-              disabled={semanticToggle.isPending}
+              onCheckedChange={setters.semantic_search_enabled}
+              disabled={envOnly}
             />
           </div>
 

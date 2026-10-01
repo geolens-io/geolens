@@ -143,6 +143,8 @@ export function useUpdateSettings() {
       // surface through /auth/config, which mounted banners read with a
       // 5-min staleTime — refetch it so saves apply immediately
       qc.invalidateQueries({ queryKey: queryKeys.authConfig.config });
+      // The AI status card reports semantic_search_enabled and ai_enabled.
+      qc.invalidateQueries({ queryKey: queryKeys.admin.aiStatus });
       toast.success(i18n.t('settingsToasts.saved'));
     },
     onError: (err) => {

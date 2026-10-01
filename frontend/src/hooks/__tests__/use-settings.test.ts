@@ -1,13 +1,20 @@
-import { renderHook, waitFor } from '@/test/test-utils';
+import { renderHook, waitFor, act } from '@/test/test-utils';
 import { vi } from 'vitest';
+
+vi.mock('@/api/admin', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/api/admin')>();
+  return { ...actual, getAIStatus: vi.fn() };
+});
 
 vi.mock('@/api/settings', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/api/settings')>();
-  return { ...actual, getBasemaps: vi.fn(), getMapDefaults: vi.fn(), getTileConfig: vi.fn(), getConfigMode: vi.fn() };
+  return { ...actual, getBasemaps: vi.fn(), getMapDefaults: vi.fn(), getTileConfig: vi.fn(), getConfigMode: vi.fn(), updateSettings: vi.fn() };
 });
 
-import { getBasemaps, getMapDefaults, getTileConfig, getConfigMode } from '@/api/settings';
-import { useBasemaps, useMapDefaults, useTileConfig, useConfigMode } from '@/hooks/use-settings';
+import { getBasemaps, getMapDefaults, getTileConfig, getConfigMode, updateSettings } from '@/api/settings';
+import { getAIStatus } from '@/api/admin';
+import { useAIStatus } from '@/hooks/use-admin';
+import { useBasemaps, useMapDefaults, useTileConfig, useConfigMode, useUpdateSettings } from '@/hooks/use-settings';
 
 const mockGetBasemaps = vi.mocked(getBasemaps);
 const mockGetMapDefaults = vi.mocked(getMapDefaults);
@@ -90,5 +97,27 @@ describe('useConfigMode', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data).toEqual(mockData);
+  });
+});
+
+describe('useUpdateSettings', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('refetches the AI status after a save', async () => {
+    vi.mocked(getAIStatus).mockResolvedValue({ semantic_search_enabled: false } as never);
+    vi.mocked(updateSettings).mockResolvedValue({} as never);
+
+    const { result } = renderHook(() => ({
+      status: useAIStatus({ enabled: true }),
+      update: useUpdateSettings(),
+    }));
+    await waitFor(() => expect(result.current.status.isSuccess).toBe(true));
+    expect(getAIStatus).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await result.current.update.mutateAsync({ semantic_search_enabled: true });
+    });
+
+    await waitFor(() => expect(getAIStatus).toHaveBeenCalledTimes(2));
   });
 });

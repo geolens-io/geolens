@@ -7,8 +7,7 @@
     "updateUserFailed": "Error al actualizar usuario",
     "deleteUserFailed": "Error al eliminar usuario",
     "backfillFailed": "Error en el relleno de embeddings",
-    "backfillAlreadyRunning": "Ya hay un relleno de embeddings en curso — espere a que termine",
-    "semanticSearchFailed": "Error al actualizar la configuración de búsqueda semántica"
+    "backfillAlreadyRunning": "Ya hay un relleno de embeddings en curso — espere a que termine"
   },
   "roles": {
     "viewer": "Lector",

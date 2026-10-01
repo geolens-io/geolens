@@ -7,8 +7,7 @@
     "updateUserFailed": "Aktualisieren des Benutzers fehlgeschlagen",
     "deleteUserFailed": "Löschen des Benutzers fehlgeschlagen",
     "backfillFailed": "Einbettungs-Backfill fehlgeschlagen",
-    "backfillAlreadyRunning": "Ein Einbettungs-Backfill läuft bereits — warten Sie, bis er abgeschlossen ist",
-    "semanticSearchFailed": "Semantische Sucheinstellung konnte nicht aktualisiert werden"
+    "backfillAlreadyRunning": "Ein Einbettungs-Backfill läuft bereits — warten Sie, bis er abgeschlossen ist"
   },
   "roles": {
     "viewer": "Betrachter",

@@ -7,8 +7,7 @@
     "updateUserFailed": "Échec de la mise à jour de l'utilisateur",
     "deleteUserFailed": "Échec de la suppression de l'utilisateur",
     "backfillFailed": "Échec du remplissage des embeddings",
-    "backfillAlreadyRunning": "Un remplissage des embeddings est déjà en cours — attendez qu'il se termine",
-    "semanticSearchFailed": "Échec de la mise à jour du paramètre de recherche sémantique"
+    "backfillAlreadyRunning": "Un remplissage des embeddings est déjà en cours — attendez qu'il se termine"
   },
   "roles": {
     "viewer": "Lecteur",

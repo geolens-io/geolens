@@ -59,7 +59,6 @@ vi.mock('@/hooks/use-admin', async (importOriginal) => {
       isPending: false,
       variables: undefined,
     }),
-    useUpdateSemanticSearch: () => ({ mutate: vi.fn(), isPending: false }),
   };
 });
 

@@ -54,7 +54,6 @@ vi.mock('@/hooks/use-admin', async (importOriginal) => {
     ...actual,
     useEmbeddingStats: (options?: { enabled?: boolean }) => hoisted.useEmbeddingStats(options),
     useBackfillEmbeddings: () => hoisted.backfill,
-    useUpdateSemanticSearch: () => ({ mutate: vi.fn(), isPending: false }),
   };
 });
 
