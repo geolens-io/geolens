@@ -1117,53 +1117,6 @@ async def test_a_switch_after_the_provider_read_keeps_that_providers_model(
 
 
 @pytest.mark.anyio
-async def test_an_extension_provider_without_an_override_uses_its_own_model(
-    client: AsyncClient, admin_auth_header: dict
-):
-    from app.api.main import app
-    from app.core.dependencies import get_db
-    from app.core.persistent_config import LLM_MODEL, LLM_MODEL_LIGHT, LLM_PROVIDER
-    from app.processing.ai.llm_loop import resolve_provider
-
-    class _ExtensionProvider:
-        async def resolve_runtime_config(self, _db):
-            return {"base_url": None, "default_model": "extension-model"}
-
-    async def resolved() -> str:
-        with (
-            patch.object(LLM_PROVIDER, "get", return_value="extension"),
-            patch(
-                "app.platform.extensions.get_ai_provider",
-                return_value=_ExtensionProvider(),
-            ),
-        ):
-            async for db in app.dependency_overrides[get_db]():
-                _, model, _ = await resolve_provider(db)
-                return model
-        raise AssertionError("no session")
-
-    assert await resolved() == "extension-model"
-    with (
-        patch.object(LLM_PROVIDER, "get", return_value="extension"),
-        patch(
-            "app.platform.extensions.get_ai_provider",
-            return_value=_ExtensionProvider(),
-        ),
-    ):
-        async for db in app.dependency_overrides[get_db]():
-            assert await LLM_MODEL.resolved_default(db) == "extension-model"
-            assert (
-                await LLM_MODEL_LIGHT.for_provider(db, "extension") == "extension-model"
-            )
-    await client.put(
-        "/settings/",
-        json={"settings": {"llm_model": "admin-model"}},
-        headers=admin_auth_header,
-    )
-    assert await resolved() == "admin-model"
-
-
-@pytest.mark.anyio
 async def test_model_override_survives_a_provider_switch(
     client: AsyncClient, admin_auth_header: dict, _both_ai_keys
 ):
@@ -1513,108 +1466,6 @@ async def test_an_overlay_under_a_built_in_name_chats_with_the_reported_model(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize(
-    ("provider", "expected"),
-    [("anthropic", "anthropic-chat-env"), ("openai_compatible", "openai-chat-env")],
-)
-async def test_an_overlay_wrapping_a_built_in_provider_resolves_its_default(
-    client: AsyncClient, _both_ai_keys, provider, expected
-):
-    from app.api.main import app
-    from app.core.dependencies import get_db
-    from app.core.persistent_config import LLM_MODEL
-    from app.platform.extensions.defaults import (
-        DefaultAnthropicProvider,
-        DefaultOpenAICompatibleProvider,
-    )
-
-    built_in = (
-        DefaultAnthropicProvider()
-        if provider == "anthropic"
-        else DefaultOpenAICompatibleProvider()
-    )
-
-    class _Wrapper:
-        async def resolve_runtime_config(self, db):
-            return await built_in.resolve_runtime_config(db)
-
-    with patch("app.platform.extensions.get_ai_provider", return_value=_Wrapper()):
-        async for db in app.dependency_overrides[get_db]():
-            assert await LLM_MODEL.for_provider(db, provider) == expected
-
-
-@pytest.mark.anyio
-async def test_a_named_wrapper_previews_its_default_not_the_override(
-    client: AsyncClient, admin_auth_header: dict, _both_ai_keys
-):
-    """An extension that delegates to a built-in provider resolves to the
-    built-in default, not to the override a reset removes."""
-    from app.platform.extensions.defaults import DefaultAnthropicProvider
-
-    built_in = DefaultAnthropicProvider()
-
-    class _Wrapper:
-        async def resolve_runtime_config(self, db):
-            return await built_in.resolve_runtime_config(db)
-
-    await client.put(
-        "/settings/",
-        json={"settings": {"llm_model": "old-custom-model"}},
-        headers=admin_auth_header,
-    )
-    with patch("app.platform.extensions.get_ai_provider", return_value=_Wrapper()):
-        preview = await client.post(
-            "/config-ops/dry-run/?mode=merge",
-            json={"settings": {"llm_provider": "wrapped", "llm_model": ""}},
-            headers=admin_auth_header,
-        )
-    assert preview.status_code == 200, preview.text
-    changes = {c["key"]: c for c in preview.json()["settings"]["changes"]}
-    assert changes["llm_model"]["imported"] == "anthropic-chat-env"
-
-
-@pytest.mark.anyio
-async def test_an_extension_reading_the_model_setting_does_not_recurse(
-    client: AsyncClient, _both_ai_keys
-):
-    from app.api.main import app
-    from app.core.dependencies import get_db
-    from app.core.persistent_config import LLM_MODEL, LLM_PROVIDER
-
-    class _ReadsTheSetting:
-        async def resolve_runtime_config(self, db):
-            return {"base_url": None, "default_model": await LLM_MODEL.get(db)}
-
-    with (
-        patch.object(LLM_PROVIDER, "get", return_value="extension"),
-        patch(
-            "app.platform.extensions.get_ai_provider",
-            return_value=_ReadsTheSetting(),
-        ),
-    ):
-        async for db in app.dependency_overrides[get_db]():
-            assert await LLM_MODEL.for_provider(db, "extension") == "openai-chat-env"
-
-
-@pytest.mark.anyio
-async def test_an_extension_resolver_error_is_not_hidden(client: AsyncClient):
-    from app.api.main import app
-    from app.core.dependencies import get_db
-    from app.core.persistent_config import LLM_MODEL
-
-    class _Misconfigured:
-        async def resolve_runtime_config(self, _db):
-            raise ValueError("extension endpoint not configured")
-
-    with patch(
-        "app.platform.extensions.get_ai_provider", return_value=_Misconfigured()
-    ):
-        async for db in app.dependency_overrides[get_db]():
-            with pytest.raises(ValueError, match="not configured"):
-                await LLM_MODEL.default_for(db, "extension")
-
-
-@pytest.mark.anyio
 async def test_a_reset_audits_the_model_in_effect_before_it(
     client: AsyncClient, admin_auth_header: dict, _both_ai_keys
 ):
@@ -1643,35 +1494,6 @@ async def test_a_reset_audits_the_model_in_effect_before_it(
         "openai-chat-env",
         "anthropic-chat-env",
     )
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize("mode", ["merge", "overwrite"])
-async def test_an_import_previews_an_extension_providers_own_model(
-    client: AsyncClient, admin_auth_header: dict, mode
-):
-    """A blank (merge) or omitted (overwrite) model previews as the extension
-    provider's default, which is what applying it resolves to."""
-
-    class _ExtensionProvider:
-        async def resolve_runtime_config(self, _db):
-            return {"base_url": None, "default_model": "extension-model"}
-
-    payload: dict = {"settings": {"llm_provider": "extension"}}
-    if mode == "merge":
-        payload["settings"]["llm_model"] = ""
-    with patch(
-        "app.platform.extensions.get_ai_provider",
-        return_value=_ExtensionProvider(),
-    ):
-        preview = await client.post(
-            f"/config-ops/dry-run/?mode={mode}",
-            json=payload,
-            headers=admin_auth_header,
-        )
-    assert preview.status_code == 200, preview.text
-    changes = {c["key"]: c for c in preview.json()["settings"]["changes"]}
-    assert changes["llm_model"]["imported"] == "extension-model"
 
 
 @pytest.mark.anyio

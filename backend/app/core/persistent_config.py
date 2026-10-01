@@ -11,7 +11,6 @@ import logging
 import time
 import uuid
 from collections.abc import Sequence
-from contextvars import ContextVar
 from typing import Any, Generic, TypeVar, cast
 
 import structlog
@@ -638,13 +637,6 @@ def llm_model_default(provider: str, *, light: bool = False) -> str:
     return settings.openai_model
 
 
-# Set while an extension resolves its default model, so a resolver that reads
-# the model setting gets the community default instead of recursing.
-_RESOLVING_EXTENSION_DEFAULT: ContextVar[bool] = ContextVar(
-    "resolving_extension_default", default=False
-)
-
-
 class _ProviderModelConfig(PersistentConfig[str]):
     """A model setting whose default follows the selected LLM provider.
 
@@ -662,33 +654,16 @@ class _ProviderModelConfig(PersistentConfig[str]):
         )
         self.light = light
 
-    async def default_for(self, db: AsyncSession, provider: str) -> str:
+    def default_for(self, provider: str) -> str:
         """The model ``provider`` uses when no admin override is set.
 
-        The built-in provider names always take the community defaults, so an
-        overlay registered under one of them needs a model override.
+        Extension providers, and overlays under a built-in name, take the
+        community default too and need a model override to use another.
         """
-        if (
-            provider in ("anthropic", "openai_compatible")
-            or _RESOLVING_EXTENSION_DEFAULT.get()
-        ):
-            return llm_model_default(provider, light=self.light)
-        # An extension provider names its own default model.
-        from app.platform.extensions import get_ai_provider
-
-        try:
-            registered = get_ai_provider(provider)
-        except ValueError:
-            return llm_model_default(provider, light=self.light)
-        token = _RESOLVING_EXTENSION_DEFAULT.set(True)
-        try:
-            runtime = await registered.resolve_runtime_config(db)
-        finally:
-            _RESOLVING_EXTENSION_DEFAULT.reset(token)
-        return str(runtime.get("default_model") or "")
+        return llm_model_default(provider, light=self.light)
 
     async def resolved_default(self, db: AsyncSession) -> str:
-        return await self.default_for(db, await LLM_PROVIDER.get(db))
+        return self.default_for(await LLM_PROVIDER.get(db))
 
     async def override(self, db: AsyncSession) -> str:
         """The admin's model, or ``""`` when none is set."""
@@ -703,7 +678,7 @@ class _ProviderModelConfig(PersistentConfig[str]):
         """The override, or ``provider``'s default, for a caller that has
         already chosen the provider, so a concurrent switch can't pair it with
         another provider's model."""
-        return await self.override(db) or await self.default_for(db, provider)
+        return await self.override(db) or self.default_for(provider)
 
     async def set(
         self,
@@ -910,8 +885,8 @@ async def get_all_registry_values(db: AsyncSession) -> dict[str, Any]:
     # A model without an override resolves against this snapshot's provider.
     for model in (LLM_MODEL, LLM_MODEL_LIGHT):
         if not settings_dict[model.key].strip():
-            settings_dict[model.key] = await model.default_for(
-                db, settings_dict[LLM_PROVIDER.key]
+            settings_dict[model.key] = model.default_for(
+                settings_dict[LLM_PROVIDER.key]
             )
     return settings_dict
 

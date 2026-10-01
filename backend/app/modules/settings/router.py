@@ -324,7 +324,7 @@ async def get_all_settings(
             # that are NOT in effect; show the effective env_default instead.
             value = db_settings[cfg.key]
         elif cfg in (LLM_MODEL, LLM_MODEL_LIGHT):
-            value = await cfg.default_for(db, provider)
+            value = cfg.default_for(provider)
         else:
             value = await cfg.resolved_default(db)
 

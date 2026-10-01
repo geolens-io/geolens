@@ -572,8 +572,8 @@ async def _load_setting_state(
                 cfg in (LLM_MODEL, LLM_MODEL_LIGHT)
                 and LLM_PROVIDER.key in current_settings
             ):
-                current_settings[cfg.key] = await cfg.default_for(
-                    db, current_settings[LLM_PROVIDER.key]
+                current_settings[cfg.key] = cfg.default_for(
+                    current_settings[LLM_PROVIDER.key]
                 )
             else:
                 current_settings[cfg.key] = await cfg.resolved_default(db)
@@ -769,8 +769,7 @@ async def preflight_import(
         else current_settings["llm_provider"],
     )
     model_defaults = {
-        cfg.key: await cfg.default_for(db, final_provider)
-        for cfg in (LLM_MODEL, LLM_MODEL_LIGHT)
+        cfg.key: cfg.default_for(final_provider) for cfg in (LLM_MODEL, LLM_MODEL_LIGHT)
     }
     blank_model_defaults = {
         key: default
