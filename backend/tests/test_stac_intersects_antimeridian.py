@@ -150,3 +150,26 @@ async def test_in_range_intersects_is_not_wrapped(
     found = await _search(client, method, list(seam_rasters.values()), _polygon(ring))
 
     assert _names(seam_rasters, found) == expected
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("method", ["GET", "POST"])
+@pytest.mark.parametrize(
+    "member",
+    [
+        {"type": "Point", "coordinates": [12, 22]},
+        {"type": "LineString", "coordinates": [[5, 22], [12, 22]]},
+    ],
+    ids=["point", "line"],
+)
+async def test_seam_collection_keeps_its_points_and_lines(
+    client: AsyncClient, seam_rasters: dict[str, str], member: dict, method: str
+):
+    collection = {
+        "type": "GeometryCollection",
+        "geometries": [_polygon(_SEAM_WEST), member],
+    }
+
+    found = await _search(client, method, list(seam_rasters.values()), collection)
+
+    assert _names(seam_rasters, found) == {"east", "west", "straddling", "far"}

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from geoalchemy2.shape import to_shape
 from sqlalchemy import and_, case, column, func, or_, select, text
 from sqlalchemy import table as sql_table
+from sqlalchemy.dialects.postgresql import array
 from sqlalchemy.sql.elements import ColumnElement
 
 if TYPE_CHECKING:
@@ -448,18 +449,27 @@ def wrap_geometry_longitudes(geom: ColumnElement) -> ColumnElement:
     """Fold a 4326 geometry drawn on a wrapped web map into ``[-180, 180]``.
 
     Returns ``geom`` itself when every longitude is already in range.
-    Otherwise moves it by whole turns so its centre lies in ``[-180, 180)``,
-    splits it at ±180, shifts the outer pieces one turn back into range and
-    returns the union of the highest-dimension pieces.
+    Otherwise repairs its polygons, moves it by whole turns so its centre lies
+    in ``[-180, 180)``, splits it at ±180, shifts the outer pieces one turn
+    back into range and returns their union. Points and lines in the input are
+    kept; lines or points that the repair collapses out of a polygon are not.
     """
     xmin, xmax = func.ST_XMin(geom), func.ST_XMax(geom)
     turns = func.floor((xmin + xmax + 360.0) / 720.0)
     # The union raises on overlapping invalid pieces; drawn input can self-intersect.
-    centred = func.ST_MakeValid(func.ST_Translate(geom, turns * -360.0, 0))
+    polygons = func.ST_CollectionExtract(
+        func.ST_MakeValid(func.ST_CollectionExtract(geom, 3)), 3
+    )
+    lines, points = (
+        func.ST_CollectionExtract(geom, 2),
+        func.ST_CollectionExtract(geom, 1),
+    )
+    parts = func.ST_Collect(array([polygons, lines, points]))
+    centred = func.ST_Translate(parts, turns * -360.0, 0)
     folded = func.ST_WrapX(func.ST_WrapX(centred, -180, 360), 180, -360)
     return case(
         (and_(xmin >= -180, xmax <= 180), geom),
-        else_=func.ST_UnaryUnion(func.ST_CollectionExtract(folded)),
+        else_=func.ST_UnaryUnion(folded),
     )
 
 
