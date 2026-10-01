@@ -846,6 +846,10 @@ async def test_a_reset_holds_the_embedding_lock_before_locking_providers(
 
     # The provider guard only runs when password login resets to disabled.
     monkeypatch.setattr(PASSWORD_LOGIN_ENABLED, "_env_default_static", False)
+    # An enabled provider exists, so only the lock can refuse the reset.
+    monkeypatch.setattr(
+        oauth_service, "list_providers", AsyncMock(return_value=[object()])
+    )
     provider_locks = AsyncMock(return_value=[uuid.uuid4()])
     monkeypatch.setattr(oauth_service, "lock_enabled_providers", provider_locks)
 
