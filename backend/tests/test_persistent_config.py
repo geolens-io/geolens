@@ -1889,6 +1889,34 @@ async def test_import_state_resolves_a_malformed_model_row_to_the_default(
 
 
 @pytest.mark.anyio
+async def test_an_export_pairs_models_with_the_exported_provider(
+    client: AsyncClient, admin_auth_header: dict, _both_ai_keys
+):
+    from app.api.main import app
+    from app.core.dependencies import get_db
+    from app.core.persistent_config import LLM_PROVIDER
+    from app.platform.config_ops.service import export_config
+
+    await client.put(
+        "/settings/",
+        json={"settings": {"llm_provider": "openai_compatible"}},
+        headers=admin_auth_header,
+    )
+    reads = iter(["openai_compatible"])
+
+    async def switch_after_the_first_read(db):
+        return next(reads, None) or "anthropic"
+
+    with patch.object(LLM_PROVIDER, "get", switch_after_the_first_read):
+        async for db in app.dependency_overrides[get_db]():
+            exported = (await export_config(db))["settings"]
+    assert (exported["llm_provider"], exported["llm_model"]) == (
+        "openai_compatible",
+        "openai-chat-env",
+    )
+
+
+@pytest.mark.anyio
 async def test_get_all_registry_values_resolves_unset_models(
     client: AsyncClient, admin_auth_header: dict, _both_ai_keys
 ):

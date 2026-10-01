@@ -117,12 +117,22 @@ async def export_config(db: AsyncSession) -> dict:
 
     OAuth provider secrets are redacted (client_secret_encrypted omitted).
     """
-    from app.core.persistent_config import _registry
+    from app.core.persistent_config import (
+        LLM_MODEL,
+        LLM_MODEL_LIGHT,
+        LLM_PROVIDER,
+        _registry,
+    )
     from app.modules.auth.oauth import service as oauth_service
 
     settings_dict: dict[str, Any] = {}
     for cfg in _registry:
-        settings_dict[cfg.key] = await cfg.get(db)
+        if cfg in (LLM_MODEL, LLM_MODEL_LIGHT):
+            # Registry order exports the provider first; models follow it.
+            provider = settings_dict[LLM_PROVIDER.key]
+            settings_dict[cfg.key] = await cfg.for_provider(db, provider)
+        else:
+            settings_dict[cfg.key] = await cfg.get(db)
 
     providers = await oauth_service.list_providers(db, include_saml_fields=True)
     providers_list = [_provider_to_dict(p) for p in providers]
