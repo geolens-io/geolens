@@ -506,7 +506,8 @@ async def apply_manifest_publication(
     The change goes through the metadata edit path, so a visibility or status
     change keeps its workflow, shared-map and publish checks, and a refusal
     fails the replacement. A field the manifest leaves blank keeps its value,
-    and a job no manifest created changes nothing.
+    and a job no manifest created changes nothing. The caller holds the
+    catalog rows.
     """
     if not user_metadata or "manifest_key" not in user_metadata:
         return
@@ -518,6 +519,9 @@ async def apply_manifest_publication(
     if fields:
         from app.platform.extensions import get_processing_port
 
+        # The record was read before the lock, and the edit path skips a field
+        # that already looks equal, so an edit made since must be seen.
+        await session.refresh(dataset.record, attribute_names=[*fields, "published_at"])
         await get_processing_port().update_dataset_metadata(
             session, dataset.id, fields, actor_id=actor_id
         )

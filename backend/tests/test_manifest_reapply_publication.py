@@ -11,12 +11,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import Request
-from sqlalchemy import select, text
+from sqlalchemy import select, text, update
 
 from app.core.config import settings
 from app.modules.auth.models import User
-from app.modules.catalog.datasets.domain.models import Dataset
+from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.platform.jobs.models import IngestJob
+from app.processing.ingest import tasks_reupload
 from app.processing.ingest.manifest_schemas import ManifestApplyRequest
 from app.processing.ingest.manifest_service import apply_manifest
 from app.processing.ingest.manifest_sources import (
@@ -164,6 +165,39 @@ async def _run_worker(task) -> None:
         await reupload_file(**task.defer_async.await_args.kwargs)
 
 
+async def _admin(session) -> User:
+    return (
+        await session.execute(select(User).where(User.username == "admin"))
+    ).scalar_one()
+
+
+async def _publication(dataset_id: uuid.UUID, **values) -> None:
+    """Another writer's edit to the record, committed on its own session."""
+    import app.core.db as db_module
+
+    async with db_module.async_session() as other:
+        record_id = select(Dataset.record_id).where(Dataset.id == dataset_id)
+        await other.execute(
+            update(Record)
+            .where(Record.id == record_id.scalar_subquery())
+            .values(**values)
+        )
+        await other.commit()
+
+
+async def _record_state(session, dataset_id: uuid.UUID) -> tuple[str, str, str]:
+    return tuple(
+        (
+            await session.execute(
+                select(Record.title, Record.visibility, Record.record_status)
+                .join(Dataset, Dataset.record_id == Record.id)
+                .where(Dataset.id == dataset_id)
+                .execution_options(populate_existing=True)
+            )
+        ).one()
+    )
+
+
 async def test_a_reapply_moves_the_record_to_the_new_title_summary_and_draft(
     test_db_session, clean_tables
 ):
@@ -213,3 +247,37 @@ async def test_a_reapply_moves_the_record_to_the_new_title_summary_and_draft(
         again = await apply_manifest(test_db_session, update, user, _http_request())
     assert again.results[0].action == "skip"
     task.defer_async.assert_not_awaited()
+
+
+async def test_a_reapply_sees_a_publish_made_while_it_staged(
+    test_db_session, clean_tables
+):
+    """The worker reads the record before it takes the catalog rows."""
+    _stage_fixture()
+    user = await _admin(test_db_session)
+    key = "roads-raced"
+    dataset_id = await _published_by_manifest(test_db_session, user, key)
+    await _publication(dataset_id, visibility="private", record_status="draft")
+    update_request = _request(_entry(key, title="Updated roads", intent="draft"))
+
+    with _reupload_task() as task:
+        response = await apply_manifest(
+            test_db_session, update_request, user, _http_request()
+        )
+    assert response.results[0].action == "update"
+
+    real_staging = tasks_reupload._run_staging_pipeline
+
+    async def _published_meanwhile(*args, **kwargs):
+        staged = await real_staging(*args, **kwargs)
+        await _publication(dataset_id, visibility="public", record_status="published")
+        return staged
+
+    with patch.object(tasks_reupload, "_run_staging_pipeline", _published_meanwhile):
+        await _run_worker(task)
+
+    assert await _record_state(test_db_session, dataset_id) == (
+        "Updated roads",
+        "private",
+        "draft",
+    )
