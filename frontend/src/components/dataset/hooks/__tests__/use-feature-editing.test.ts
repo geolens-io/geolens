@@ -10,7 +10,6 @@ import { showAllFeaturesInTiles, useFeatureEditing } from '@/components/dataset/
 import { previewSourceId, useMapLayers } from '@/components/maps/hooks/use-map-layers';
 import { useDrawingStore } from '@/stores/drawing-store';
 import { getFeature } from '@/api/features';
-import { ApiError } from '@/api/client';
 import type { GeoJSONFeature } from '@/api/features';
 import type { Feature } from 'geojson';
 
@@ -1343,25 +1342,52 @@ describe('useFeatureEditing — create idempotency key', () => {
   });
 });
 
-// A retry the server can no longer apply comes back as a structured refusal.
+// A retry the server can no longer apply comes back as a structured 409. The
+// bodies below are the ones the create route sends, run through the real
+// apiFetch error path.
 describe('useFeatureEditing — create refused as changed or gone', () => {
   const sketch = () => ({ type: 'Point' as const, coordinates: [0, 0] });
-  const changed = () =>
-    new ApiError('changed', 409, {
+  const CHANGED_BODY = {
+    detail: {
       code: 'feature_changed',
-      message: 'changed',
-      feature: { id: 7, geometry: sketch(), properties: {}, tile_cache_version: 55 },
-    });
+      message: 'Someone else changed this feature after the last attempt was saved, so this attempt was not applied.',
+      feature: { id: 7, geometry: { type: 'Point', coordinates: [0, 0] }, properties: {}, tile_cache_version: 55 },
+    },
+  };
+  const GONE_BODY = {
+    detail: {
+      code: 'feature_gone',
+      message: 'The feature created with this Idempotency-Key is gone. Use a new key to create another.',
+    },
+  };
 
-  beforeEach(() => {
+  function respondWith(...replies: { status: number; body: unknown }[]) {
+    const fetchMock = vi.fn();
+    for (const r of replies) {
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify(r.body), { status: r.status, headers: { 'Content-Type': 'application/json' } }),
+      );
+    }
+    vi.stubGlobal('fetch', fetchMock);
+  }
+
+  beforeEach(async () => {
+    const { createFeature } = await vi.importActual<typeof import('@/api/features')>('@/api/features');
     createMutateAsync.mockReset();
-    createMutateAsync.mockResolvedValue({});
+    createMutateAsync.mockImplementation((v) =>
+      createFeature(v.datasetId, v.geometry, v.properties, v.idempotencyKey, v.attempt),
+    );
     vi.mocked(toast.error).mockClear();
     vi.mocked(toast.info).mockClear();
     vi.mocked(toast.success).mockClear();
   });
 
-  it('counts a 409 feature_changed as saved, reloads at the returned version and clears the overlay', async () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('counts a feature_changed 409 as saved, reloads at the returned version and clears the overlay', async () => {
+    respondWith({ status: 409, body: CHANGED_BODY });
     const setTiles = vi.fn();
     const overlaySetData = vi.fn();
     const map = {
@@ -1373,7 +1399,6 @@ describe('useFeatureEditing — create refused as changed or gone', () => {
       on: vi.fn(),
       off: vi.fn(),
     } as unknown as MaplibreMap;
-    createMutateAsync.mockRejectedValueOnce(changed());
     const { result } = renderEditing(map);
     let outcome: { saved: boolean; refused?: boolean } | undefined;
 
@@ -1395,10 +1420,13 @@ describe('useFeatureEditing — create refused as changed or gone', () => {
     expect(overlaySetData).toHaveBeenLastCalledWith({ type: 'FeatureCollection', features: [] });
   });
 
-  it('keeps the sketch pending on a 410 feature_gone and starts a new key at attempt 1 on the next Save', async () => {
+  it('keeps the sketch pending on a feature_gone 409 and starts a new key at attempt 1 on the next Save', async () => {
+    respondWith(
+      { status: 500, body: { detail: 'boom' } },
+      { status: 409, body: GONE_BODY },
+      { status: 201, body: { id: 9, tile_cache_version: 1 } },
+    );
     const g = sketch();
-    createMutateAsync.mockRejectedValueOnce(new Error('timed out'));
-    createMutateAsync.mockRejectedValueOnce(new ApiError('gone', 410, { code: 'feature_gone', message: 'gone' }));
     const { result } = renderEditing(makeMapWithOverlaySource(vi.fn()));
     const outcomes: { saved: boolean; refused?: boolean }[] = [];
 
@@ -1416,17 +1444,32 @@ describe('useFeatureEditing — create refused as changed or gone', () => {
     expect(outcomes[2]).toEqual({ saved: true });
   });
 
+  it('treats a 409 without a known code as an ordinary failure', async () => {
+    respondWith({ status: 409, body: { detail: 'Dataset is being replaced' } });
+    const { result } = renderEditing(makeMapWithOverlaySource(vi.fn()));
+    let outcome: { saved: boolean; refused?: boolean } | undefined;
+
+    await act(async () => {
+      outcome = await result.current.saveAndRefresh(sketch(), {});
+    });
+
+    expect(outcome).toEqual({ saved: false, refused: true });
+    expect(toast.info).not.toHaveBeenCalled();
+  });
+
   it('gives a stale identity no toast and no tile reload for either refusal', async () => {
-    for (const refusal of [changed(), new ApiError('gone', 410, { code: 'feature_gone', message: 'gone' })]) {
+    for (const body of [CHANGED_BODY, GONE_BODY]) {
       const setTiles = vi.fn();
       const { result } = renderEditing(makeMapWithVectorSource(setTiles));
-      const create = deferred<unknown>();
-      createMutateAsync.mockReturnValueOnce(create.promise);
+      const release = deferred<Response>();
+      vi.stubGlobal('fetch', vi.fn().mockReturnValueOnce(release.promise));
       const saving = result.current.saveAndRefresh(sketch(), {});
       act(() => {
         useDrawingStore.getState().bumpSessionEpoch();
       });
-      create.reject(refusal);
+      release.resolve(
+        new Response(JSON.stringify(body), { status: 409, headers: { 'Content-Type': 'application/json' } }),
+      );
       await act(async () => {
         await saving;
       });

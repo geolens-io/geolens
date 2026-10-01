@@ -207,10 +207,13 @@ def _created_feature_response(row: dict, tile_version: int | None) -> JSONRespon
 def _feature_gone() -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_409_CONFLICT,
-        detail=(
-            "The feature created with this Idempotency-Key is gone. "
-            "Use a new key to create another."
-        ),
+        detail={
+            "code": "feature_gone",
+            "message": (
+                "The feature created with this Idempotency-Key is gone. "
+                "Use a new key to create another."
+            ),
+        },
     )
 
 

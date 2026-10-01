@@ -44,12 +44,12 @@ function nextCreateAttempt(geometry: Geometry): { key: string; attempt: number }
 /** The structured refusal a keyed create gets back for a retry the server can't apply. */
 function createRefusal(err: unknown): { code: 'feature_changed' | 'feature_gone'; tileCacheVersion?: number } | null {
   if (!(err instanceof ApiError)) return null;
-  if (err.status === 410) return { code: 'feature_gone' };
+  if (err.status !== 409) return null;
   const detail = err.body as { code?: string; feature?: { tile_cache_version?: number } } | undefined;
-  if (err.status === 409 && detail?.code === 'feature_changed') {
+  if (detail?.code === 'feature_changed') {
     return { code: 'feature_changed', tileCacheVersion: detail.feature?.tile_cache_version };
   }
-  return null;
+  return detail?.code === 'feature_gone' ? { code: 'feature_gone' } : null;
 }
 
 /** Empty GeoJSON FeatureCollection for overlay reset */

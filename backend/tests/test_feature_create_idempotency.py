@@ -379,6 +379,7 @@ async def test_a_repeat_after_the_feature_was_deleted_is_refused(
     repeat = await _create(client, admin_dataset, admin_auth_header, sketch)
 
     assert repeat.status_code == 409, repeat.text
+    assert repeat.json()["detail"]["code"] == "feature_gone"
     assert await _row_count(test_db_session, admin_dataset) == 0
 
 
@@ -404,6 +405,7 @@ async def test_a_repeat_after_the_table_was_replaced_is_refused(
     repeat = await _create(client, admin_dataset, admin_auth_header, sketch, attempt=2)
 
     assert repeat.status_code == 409, repeat.text
+    assert repeat.json()["detail"]["code"] == "feature_gone"
     assert await _row_count(test_db_session, admin_dataset) == 1
     assert await _stored_name(test_db_session, admin_dataset) == "unrelated"
 
