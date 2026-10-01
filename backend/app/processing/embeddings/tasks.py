@@ -21,7 +21,10 @@ async def embed_record(record_id: str) -> None:
     """
     from app.core.db import async_session
     from app.platform.extensions import get_processing_port
-    from app.processing.embeddings.service import generate_and_store_embedding
+    from app.processing.embeddings.service import (
+        content_fields,
+        generate_and_store_embedding,
+    )
     from app.processing.raster.models import RasterAsset
     from sqlalchemy import select
 
@@ -46,9 +49,7 @@ async def embed_record(record_id: str) -> None:
             logger.warning("Record not found for embedding", record_id=record_id)
             return
 
-        keyword_list = (
-            [kw.keyword for kw in record.keywords] if record.keywords else None
-        )
+        fields = content_fields(record)
 
         # Build raster summary for raster_dataset records
         raster_summary: str | None = None
@@ -82,22 +83,9 @@ async def embed_record(record_id: str) -> None:
         await generate_and_store_embedding(
             session=session,
             record_id=record.id,
-            title=record.title,
-            summary=record.summary,
-            keywords=keyword_list,
-            lineage=record.lineage_summary,
             raster_summary=raster_summary,
-            localized_texts=[
-                "\n".join(
-                    part
-                    for part in (
-                        f"{translation.language}: {translation.title}",
-                        translation.summary,
-                    )
-                    if part
-                )
-                for translation in record.translations
-            ],
+            observed=fields,
+            **fields,
         )
 
         await session.commit()

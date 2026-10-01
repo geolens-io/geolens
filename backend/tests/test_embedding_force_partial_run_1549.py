@@ -45,6 +45,7 @@ _MODEL = "partial-run-model"
 _MODEL_AFTER = "partial-run-model-after"
 # The label on the vectors a force run is replacing.
 _MODEL_BEFORE = "partial-run-superseded-model"
+_SEED_SUMMARY = "Seeded for a partial run"
 
 
 @pytest.fixture
@@ -76,7 +77,9 @@ async def _seed(
     trigger a lazy load and raise MissingGreenlet.
     """
     user_id = await get_user_id(session, "admin")
-    dataset = await create_dataset(session, created_by=user_id, name=name)
+    dataset = await create_dataset(
+        session, created_by=user_id, name=name, description=_SEED_SUMMARY
+    )
     record_id = dataset.record_id
     session.add(
         RecordEmbedding(
@@ -91,11 +94,15 @@ async def _seed(
 
 
 def _as_record(record_id: uuid.UUID, *, title: str | None):
-    """What the run reads off a record; `title=None` makes its content empty."""
+    """What the run reads off a `_seed` record; `title=None` reads it emptied.
+
+    A titled stub must match what `_seed` wrote, or the run treats the record
+    as edited after it was read and leaves it alone.
+    """
     return SimpleNamespace(
         id=record_id,
         title=title,
-        summary=None,
+        summary=None if title is None else _SEED_SUMMARY,
         keywords=[],
         lineage_summary=None,
         translations=[],
@@ -220,7 +227,10 @@ async def test_a_force_run_that_aborts_partway_does_not_empty_the_catalog(
     second = await _seed(session, "Partial Run Second")
     _pin_run(
         monkeypatch,
-        [_as_record(first, title="First"), _as_record(second, title="Second")],
+        [
+            _as_record(first, title="Partial Run First"),
+            _as_record(second, title="Partial Run Second"),
+        ],
     )
 
     batches = {"n": 0}
@@ -323,7 +333,10 @@ async def test_a_short_provider_response_is_counted_and_retried(
     # One batch holding both, so the short answer lands inside it.
     _pin_run(
         monkeypatch,
-        [_as_record(first, title="First"), _as_record(second, title="Second")],
+        [
+            _as_record(first, title="Short Response First"),
+            _as_record(second, title="Short Response Second"),
+        ],
         batch_size=2,
     )
 
@@ -770,7 +783,10 @@ async def test_coverage_after_an_aborted_force_run_reports_what_search_can_use(
     second = await _seed(session, "Coverage Second")
     _pin_run(
         monkeypatch,
-        [_as_record(first, title="First"), _as_record(second, title="Second")],
+        [
+            _as_record(first, title="Coverage First"),
+            _as_record(second, title="Coverage Second"),
+        ],
     )
 
     # Both records start covered by NOTHING the active model can use: their
