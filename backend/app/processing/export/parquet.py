@@ -148,8 +148,8 @@ def build_geoparquet_table(
     )
 
 
-def _wider_type(current: pa.DataType, incoming: pa.DataType) -> pa.DataType:
-    """The type holding the values of both, or string when none does.
+def _common_type(current: pa.DataType, incoming: pa.DataType) -> pa.DataType | None:
+    """The type holding the values of both, or None when none does.
 
     Arrow's promotion widens null, struct and numeric types and the element of
     a list. It takes the larger precision and the larger scale of two decimals
@@ -159,7 +159,8 @@ def _wider_type(current: pa.DataType, incoming: pa.DataType) -> pa.DataType:
     if current.equals(incoming):
         return current
     if pa.types.is_list(current) and pa.types.is_list(incoming):
-        return pa.list_(_wider_type(current.value_type, incoming.value_type))
+        element = _common_type(current.value_type, incoming.value_type)
+        return None if element is None else pa.list_(element)
     if pa.types.is_decimal(current) and pa.types.is_decimal(incoming):
         scale = max(current.scale, incoming.scale)
         precision = scale + max(
@@ -167,15 +168,25 @@ def _wider_type(current: pa.DataType, incoming: pa.DataType) -> pa.DataType:
         )
         if precision <= 38:
             return pa.decimal128(precision, scale)
-        return pa.decimal256(precision, scale) if precision <= 76 else pa.string()
+        return pa.decimal256(precision, scale) if precision <= 76 else None
     try:
         unified = pa.unify_schemas(
             [pa.schema([("c", current)]), pa.schema([("c", incoming)])],
             promote_options="permissive",
         )
     except pa.ArrowTypeError:
-        return pa.string()
+        return None
     return unified.field("c").type
+
+
+def _wider_type(current: pa.DataType, incoming: pa.DataType) -> pa.DataType:
+    """The type holding the values of both, or string when none does.
+
+    A conflict inside a list, such as arrays of different depth, makes the
+    whole column string, as it does within one batch.
+    """
+    common = _common_type(current, incoming)
+    return pa.string() if common is None else common
 
 
 def _conform(table: pa.Table, schema: pa.Schema) -> pa.Table:

@@ -363,6 +363,35 @@ class TestFileSchemaStaysStable:
 
         assert written.read().column("amounts").to_pylist() == ['["1.5"]', '["NaN"]']
 
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        ("values", "batch_rows"),
+        [
+            ([[1, 2], [[3, 4]]], 1),
+            ([[[3, 4]], [1, 2]], 1),
+            ([[1, 2], [[3, 4]]], 100_000),
+        ],
+        ids=["split", "deeper-first", "one-batch"],
+    )
+    async def test_arrays_of_different_depth_are_json_text(
+        self, monkeypatch, staging, values, batch_rows
+    ):
+        """Rows of one Postgres array column can differ in dimensions. No list
+        type holds both, so the column is text however the rows are batched."""
+        monkeypatch.setattr(export_parquet_module, "_BATCH_MAX_ROWS", batch_rows)
+
+        path, _filename, _media_type = await export_parquet(
+            _FakeDb(_Cursor([(value, b"\x01") for value in values])),
+            "roads",
+            "Roads",
+            schema="data",
+            plan=_plan("tags"),
+        )
+
+        table = pq.read_table(path)
+        assert table.schema.field("tags").type == pa.string()
+        assert table.column("tags").to_pylist() == [json.dumps(v) for v in values]
+
     def test_the_geo_metadata_and_geometry_survive_a_reencode(self, tmp_path):
         out = tmp_path / "out.parquet"
         writer = _GeoParquetWriter(str(out), ["note"], "geometry")
