@@ -1,7 +1,7 @@
-import { useEffect } from 'react';
-import { render } from '@/test/test-utils';
+import { act, useEffect } from 'react';
+import { fireEvent, render, screen } from '@/test/test-utils';
 import { TerraDrawRectangleMode } from 'terra-draw';
-import { SpatialFilterPanel } from '../SpatialFilterPanel';
+import { SpatialFilterPanel, normalizeBboxLongitudes } from '../SpatialFilterPanel';
 
 const draw = vi.hoisted(() => ({ handlers: {} as Record<string, (id: string) => void> }));
 
@@ -46,5 +46,24 @@ describe('SpatialFilterPanel drawing', () => {
     expect(TerraDrawRectangleMode).toHaveBeenCalledWith(
       expect.objectContaining({ drawInteraction: 'click-move-or-drag' }),
     );
+  });
+
+  it('applies a box drawn across the antimeridian with longitudes inside +/-180', () => {
+    const onApply = vi.fn();
+    render(<SpatialFilterPanel open onClose={vi.fn()} onApply={onApply} />);
+    act(() => draw.handlers.finish('feature-1'));
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    expect(onApply).toHaveBeenCalledWith('144.408,72.18,-161.452,81.41', expect.any(String), undefined);
+  });
+});
+
+describe('normalizeBboxLongitudes', () => {
+  it.each([
+    ['-10,1,20,2', '-10,1,20,2'],
+    ['170,1,180,2', '170,1,180,2'],
+    ['-200,1,-170,2', '160,1,-170,2'],
+    ['-400,1,400,2', '-180,1,180,2'],
+  ])('%s -> %s', (input, expected) => {
+    expect(normalizeBboxLongitudes(input)).toBe(expected);
   });
 });
