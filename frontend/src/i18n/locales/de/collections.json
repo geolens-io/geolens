@@ -69,7 +69,7 @@
     "loading": "Datensätze werden geladen...",
     "errorMessage": "Datensätze konnten nicht geladen werden: {{error}}",
     "emptyTitle": "Keine Datensätze in dieser Sammlung",
-    "emptyDescription": "Datensätze können über die Verwaltungsseite zu dieser Sammlung hinzugefügt werden.",
+    "emptyDescription": "Zu dieser Sammlung hinzugefügte Datensätze erscheinen hier.",
     "filterPlaceholder": "Datensätze nach Name filtern...",
     "noMatch": "Keine Datensätze entsprechen \"{{filter}}\"",
     "featureCount_one": "{{count}} Feature",
@@ -81,6 +81,7 @@
     "searchPlaceholder": "Datensätze nach Name suchen...",
     "searchButton": "Suchen",
     "addButton": "Hinzufügen",
+    "addAria": "{{title}} zur Sammlung hinzufügen",
     "allAlreadyAdded": "Alle passenden Datensätze sind bereits in dieser Sammlung."
   },
   "badges": {
