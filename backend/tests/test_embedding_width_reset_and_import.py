@@ -515,3 +515,55 @@ async def test_pinning_the_default_model_is_refused_while_a_reset_rebuilds(
     assert await EMBEDDING_MODEL.get_uncached(test_db_session) == _OLD_MODEL
     assert await EMBEDDING_DIMS.get_uncached(test_db_session) == width
     assert await _column_dims(test_db_session) == width
+
+
+class _RecordingSink:
+    """An audit sink that keeps every event it is handed."""
+
+    def __init__(self) -> None:
+        self.events: list = []
+
+    async def emit(self, session, event) -> None:
+        self.events.append(event)
+
+
+@pytest.mark.anyio
+async def test_an_import_refused_by_the_embedding_lock_reaches_no_audit_sink(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    monkeypatch,
+    restore_embedding_settings,
+):
+    """An import refused because another embedding change holds the lock hands no sink an event."""
+    from app.platform.extensions import _extensions
+    from app.processing.embeddings.service import embedding_change_lock
+
+    width = await _start_consistent(test_db_session)
+    await EMBEDDING_MODEL.set(test_db_session, _OLD_MODEL)
+    sink = _RecordingSink()
+    monkeypatch.setitem(_extensions, "audit_sinks", [sink])
+    payload = {"settings": {"embedding_model": _NEW_MODEL, "embedding_dims": width}}
+
+    def _import_events():
+        return [
+            event
+            for event in sink.events
+            if event.resource_type in ("setting", "config")
+        ]
+
+    async with embedding_change_lock():
+        refused = await client.post(
+            "/config-ops/import/?mode=merge", json=payload, headers=admin_auth_header
+        )
+
+    assert refused.status_code == 409, refused.text
+    assert _import_events() == []
+    assert await EMBEDDING_MODEL.get_uncached(test_db_session) == _OLD_MODEL
+
+    # The sink is wired: the same import, once the lock is free, reaches it.
+    applied = await client.post(
+        "/config-ops/import/?mode=merge", json=payload, headers=admin_auth_header
+    )
+    assert applied.status_code == 200, applied.text
+    assert {event.action for event in _import_events()} == {"update", "config_import"}

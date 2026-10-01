@@ -1116,76 +1116,79 @@ async def import_config(
     carries_dims = (
         EMBEDDING_DIMS.key in plan.validated_settings or EMBEDDING_DIMS in resets
     )
-    embedding_before = new_dims = None
-    if carries_dims:
-        embedding_before = await read_committed_embedding_pair(
-            db, with_model=EMBEDDING_MODEL in touched
-        )
-        new_dims = plan.validated_settings.get(
-            EMBEDDING_DIMS.key, EMBEDDING_DIMS.env_default
-        )
-    for cfg in touched:
-        if cfg.key in plan.settings_to_apply:
-            value = plan.settings_to_apply[cfg.key]
-            await cfg.set(
-                db,
-                value,
-                user_id=user_id,
-                ip_address=ip_address,
-                commit=False,
-                old_value=before[cfg.key],
-            )
-            deferred_side_effects.append((cfg, value))
-        else:
-            await cfg.reset(
-                db,
-                user_id=user_id,
-                ip_address=ip_address,
-                commit=False,
-                old_value=before[cfg.key],
-            )
-            deferred_side_effects.append((cfg, cfg.env_default))
-
-    (
-        oauth_created,
-        oauth_updated,
-        oauth_deleted,
-        oauth_accounts_deleted,
-    ) = await _apply_oauth_providers(db, plan.providers_to_apply, mode)
-    if oauth_accounts_deleted != plan.oauth_accounts_deleted:
-        # Should be unreachable given the provider table fence plus dependent-
-        # row share locks. Fail closed rather than under-report a destructive
-        # cascade if a future write path bypasses those invariants.
-        raise ConfigPreviewError(
-            "OAuth account links changed during import; preview the configuration again."
-        )
-
-    # One aggregate import event, same transaction as the settings, per-setting
-    # audit rows, and OAuth mutations: either all of them are durable or none.
-    await audit_emit(
-        db,
-        AuditEvent(
-            user_id=user_id,
-            action="config_import",
-            resource_type="config",
-            details={
-                "mode": mode,
-                "settings_applied": settings_applied,
-                "settings_skipped_unknown": plan.skipped_unknown,
-                "settings_skipped_restricted": plan.skipped_restricted,
-                "oauth_created": oauth_created,
-                "oauth_updated": oauth_updated,
-                "oauth_deleted": oauth_deleted,
-                "oauth_accounts_deleted": oauth_accounts_deleted,
-            },
-            ip_address=ip_address,
-        ),
-    )
-
-    # The settings fence already keeps other writers off the pair read above,
-    # so the change lock only has to cover the commit through the rebuild.
+    # Taken before the first write, so an import refused here has handed no
+    # audit sink an event. The settings fence keeps other writers off the
+    # pair read below; this lock refuses an embedding change still in flight.
     try:
         async with embedding_change_lock(carries_dims or EMBEDDING_MODEL in touched):
+            embedding_before = new_dims = None
+            if carries_dims:
+                embedding_before = await read_committed_embedding_pair(
+                    db, with_model=EMBEDDING_MODEL in touched
+                )
+                new_dims = plan.validated_settings.get(
+                    EMBEDDING_DIMS.key, EMBEDDING_DIMS.env_default
+                )
+            for cfg in touched:
+                if cfg.key in plan.settings_to_apply:
+                    value = plan.settings_to_apply[cfg.key]
+                    await cfg.set(
+                        db,
+                        value,
+                        user_id=user_id,
+                        ip_address=ip_address,
+                        commit=False,
+                        old_value=before[cfg.key],
+                    )
+                    deferred_side_effects.append((cfg, value))
+                else:
+                    await cfg.reset(
+                        db,
+                        user_id=user_id,
+                        ip_address=ip_address,
+                        commit=False,
+                        old_value=before[cfg.key],
+                    )
+                    deferred_side_effects.append((cfg, cfg.env_default))
+
+            (
+                oauth_created,
+                oauth_updated,
+                oauth_deleted,
+                oauth_accounts_deleted,
+            ) = await _apply_oauth_providers(db, plan.providers_to_apply, mode)
+            if oauth_accounts_deleted != plan.oauth_accounts_deleted:
+                # Should be unreachable given the provider table fence plus
+                # dependent-row share locks. Fail closed rather than under-report
+                # a destructive cascade if a future write path bypasses those
+                # invariants.
+                raise ConfigPreviewError(
+                    "OAuth account links changed during import; preview the configuration again."
+                )
+
+            # One aggregate import event, same transaction as the settings,
+            # per-setting audit rows, and OAuth mutations: either all of them
+            # are durable or none.
+            await audit_emit(
+                db,
+                AuditEvent(
+                    user_id=user_id,
+                    action="config_import",
+                    resource_type="config",
+                    details={
+                        "mode": mode,
+                        "settings_applied": settings_applied,
+                        "settings_skipped_unknown": plan.skipped_unknown,
+                        "settings_skipped_restricted": plan.skipped_restricted,
+                        "oauth_created": oauth_created,
+                        "oauth_updated": oauth_updated,
+                        "oauth_deleted": oauth_deleted,
+                        "oauth_accounts_deleted": oauth_accounts_deleted,
+                    },
+                    ip_address=ip_address,
+                ),
+            )
+
             # Single commit for config changes and all associated audit rows.
             await db.commit()
 
