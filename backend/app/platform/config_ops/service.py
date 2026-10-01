@@ -117,12 +117,22 @@ async def export_config(db: AsyncSession) -> dict:
 
     OAuth provider secrets are redacted (client_secret_encrypted omitted).
     """
-    from app.core.persistent_config import _registry
+    from app.core.persistent_config import (
+        LLM_MODEL,
+        LLM_MODEL_LIGHT,
+        LLM_PROVIDER,
+        _registry,
+    )
     from app.modules.auth.oauth import service as oauth_service
 
     settings_dict: dict[str, Any] = {}
     for cfg in _registry:
-        settings_dict[cfg.key] = await cfg.get(db)
+        if cfg in (LLM_MODEL, LLM_MODEL_LIGHT):
+            # Registry order exports the provider first; models follow it.
+            provider = settings_dict[LLM_PROVIDER.key]
+            settings_dict[cfg.key] = await cfg.for_provider(db, provider)
+        else:
+            settings_dict[cfg.key] = await cfg.get(db)
 
     providers = await oauth_service.list_providers(db, include_saml_fields=True)
     providers_list = [_provider_to_dict(p) for p in providers]
@@ -546,16 +556,35 @@ async def _load_setting_state(
     registry: list[Any],
 ) -> tuple[dict[str, Any], set[str], set[str]]:
     """Load effective values plus source and stored-validity markers."""
-    from app.core.persistent_config import _validate_or_fallback
+    from app.core.persistent_config import (
+        LLM_MODEL,
+        LLM_MODEL_LIGHT,
+        LLM_PROVIDER,
+        _validate_or_fallback,
+        is_unset_model,
+    )
 
     result = await db.execute(select(AppSetting.key, AppSetting.value))
-    stored_settings = {key: value for key, value in result.all()}
+    stored_settings = {
+        key: value
+        for key, value in result.all()
+        if not is_unset_model(
+            key, value["v"] if isinstance(value, dict) and "v" in value else value
+        )
+    }
     overridden_keys = set(stored_settings)
     current_settings: dict[str, Any] = {}
     valid_stored_keys: set[str] = set()
+
+    async def default_of(cfg: Any) -> Any:
+        # Registry order loads the provider first; models follow this read.
+        if cfg in (LLM_MODEL, LLM_MODEL_LIGHT) and LLM_PROVIDER.key in current_settings:
+            return cfg.default_for(current_settings[LLM_PROVIDER.key])
+        return await cfg.resolved_default(db)
+
     for cfg in registry:
         if cfg.key not in stored_settings:
-            current_settings[cfg.key] = cfg.env_default
+            current_settings[cfg.key] = await default_of(cfg)
             continue
         raw_value = stored_settings[cfg.key]
         unwrapped = (
@@ -564,6 +593,8 @@ async def _load_setting_state(
             else raw_value["v"]
         )
         current_value, stored_value_is_valid = _validate_or_fallback(cfg, unwrapped)
+        if not stored_value_is_valid:
+            current_value = await default_of(cfg)
         current_settings[cfg.key] = current_value
         if stored_value_is_valid:
             valid_stored_keys.add(cfg.key)
@@ -577,11 +608,16 @@ def _build_setting_changes(
     current_settings: dict[str, Any],
     overridden_keys: set[str],
     valid_stored_keys: set[str],
+    blank_model_defaults: dict[str, str],
     *,
     caller_is_enterprise: bool,
     enterprise_only_tabs: set[str] | frozenset[str],
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Create source-aware setting diffs and the exact write subset."""
+    """Create source-aware setting diffs and the exact write subset.
+
+    ``blank_model_defaults`` maps each blank model key to the provider default
+    it resets to; writing the blank removes the override.
+    """
     settings_to_apply: dict[str, Any] = {}
     changes: list[dict[str, Any]] = []
     for key, raw_value in raw_settings.items():
@@ -611,6 +647,19 @@ def _build_setting_changes(
 
         value = validated_settings[key]
         current = current_settings[key]
+        if key in blank_model_defaults:
+            resets = key in overridden_keys
+            if resets:
+                settings_to_apply[key] = value
+            changes.append(
+                SettingChange(
+                    key=key,
+                    current=current,
+                    imported=blank_model_defaults[key],
+                    action="reset" if resets else "no_change",
+                ).model_dump()
+            )
+            continue
         pins_runtime_default = key not in overridden_keys and current == value
         repairs_invalid_override = (
             key in overridden_keys and key not in valid_stored_keys
@@ -676,7 +725,11 @@ async def preflight_import(
     from app.core.edition import is_enterprise
     from app.core.persistent_config import (
         ENTERPRISE_ONLY_TABS,
+        LLM_MODEL,
+        LLM_MODEL_LIGHT,
+        LLM_PROVIDER,
         _registry,
+        is_unset_model,
     )
     from app.core.public_urls import _is_env_only
     from app.modules.auth.oauth import service as oauth_service
@@ -718,6 +771,21 @@ async def preflight_import(
         db,
         _registry,
     )
+    # Model defaults follow the provider this import leaves in place.
+    final_provider = validated_settings.get(
+        "llm_provider",
+        LLM_PROVIDER.env_default
+        if mode == "overwrite"
+        else current_settings["llm_provider"],
+    )
+    model_defaults = {
+        cfg.key: cfg.default_for(final_provider) for cfg in (LLM_MODEL, LLM_MODEL_LIGHT)
+    }
+    blank_model_defaults = {
+        key: default
+        for key, default in model_defaults.items()
+        if is_unset_model(key, validated_settings.get(key))
+    }
     settings_to_apply, setting_changes = _build_setting_changes(
         raw_settings,
         registry_map,
@@ -725,6 +793,7 @@ async def preflight_import(
         current_settings,
         overridden_keys,
         valid_stored_keys,
+        blank_model_defaults,
         caller_is_enterprise=caller_is_enterprise,
         enterprise_only_tabs=ENTERPRISE_ONLY_TABS,
     )
@@ -735,11 +804,14 @@ async def preflight_import(
                 continue
             if not caller_is_enterprise and cfg.tab in ENTERPRISE_ONLY_TABS:
                 continue
+            imported = cfg.env_default
+            if cfg.key in model_defaults:
+                imported = model_defaults[cfg.key]
             setting_changes.append(
                 SettingChange(
                     key=cfg.key,
                     current=current_settings[cfg.key],
-                    imported=cfg.env_default,
+                    imported=imported,
                     action="reset",
                     reason="Omitted from overwrite payload; reset to runtime default.",
                 ).model_dump()
@@ -1002,7 +1074,6 @@ async def import_config(
     if mode == "overwrite":
         _verify_preview_token(preview_token, plan, mode)
 
-    registry_map = {cfg.key: cfg for cfg in _registry}
     settings_no_change = len(plan.validated_settings) - len(plan.settings_to_apply)
     settings_skipped = (
         len(plan.skipped_unknown) + len(plan.skipped_restricted) + settings_no_change
@@ -1015,19 +1086,41 @@ async def import_config(
     # Apply side effects only after the terminal commit succeeds.
     deferred_side_effects: list = []
 
-    if mode == "overwrite":
-        for cfg in _registry:
-            if cfg.key in plan.validated_settings:
-                continue
-            if not plan.caller_is_enterprise and cfg.tab in ENTERPRISE_ONLY_TABS:
-                continue
-            await cfg.reset(db, user_id=user_id, ip_address=ip_address, commit=False)
+    # One pass in registry order, so the provider reaches its final value before
+    # a model setting that resolves against it is written or reset. Audits
+    # record the values from before the import.
+    resets = [
+        cfg
+        for cfg in _registry
+        if mode == "overwrite"
+        and cfg.key not in plan.validated_settings
+        and (plan.caller_is_enterprise or cfg.tab not in ENTERPRISE_ONLY_TABS)
+    ]
+    touched = [
+        cfg for cfg in _registry if cfg.key in plan.settings_to_apply or cfg in resets
+    ]
+    before = {cfg.key: await cfg.get(db) for cfg in touched}
+    for cfg in touched:
+        if cfg.key in plan.settings_to_apply:
+            value = plan.settings_to_apply[cfg.key]
+            await cfg.set(
+                db,
+                value,
+                user_id=user_id,
+                ip_address=ip_address,
+                commit=False,
+                old_value=before[cfg.key],
+            )
+            deferred_side_effects.append((cfg, value))
+        else:
+            await cfg.reset(
+                db,
+                user_id=user_id,
+                ip_address=ip_address,
+                commit=False,
+                old_value=before[cfg.key],
+            )
             deferred_side_effects.append((cfg, cfg.env_default))
-
-    for key, value in plan.settings_to_apply.items():
-        cfg = registry_map[key]
-        await cfg.set(db, value, user_id=user_id, ip_address=ip_address, commit=False)
-        deferred_side_effects.append((cfg, value))
 
     (
         oauth_created,

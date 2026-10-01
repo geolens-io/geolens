@@ -626,6 +626,9 @@ async def test_generate_sql_expands_before_it_returns(monkeypatch):
         async def get(self, _db):
             return self._value
 
+        async def for_provider(self, _db, _provider):
+            return self._value
+
     class _FakeProvider:
         async def resolve_runtime_config(self, _db):
             return {"base_url": None}

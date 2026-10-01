@@ -23,9 +23,13 @@ from app.core.persistent_config import (
     EMBEDDING_DIMS,
     EMBEDDING_MODEL,
     ENTERPRISE_ONLY_TABS,
+    LLM_MODEL,
+    LLM_MODEL_LIGHT,
+    LLM_PROVIDER,
     PASSWORD_LOGIN_ENABLED,
     _registry,
     apply_side_effects_batch,
+    is_unset_model,
 )
 from app.platform.ratelimit import limiter
 from app.core.public_urls import (
@@ -295,7 +299,14 @@ async def get_all_settings(
         db_settings[row[0]] = (
             raw if not isinstance(raw, dict) or "v" not in raw else raw["v"]
         )
+    db_settings = {k: v for k, v in db_settings.items() if not is_unset_model(k, v)}
     db_keys = set(db_settings.keys())
+    # Model defaults follow the provider from this same read.
+    provider = (
+        LLM_PROVIDER.env_default
+        if env_only
+        else str(db_settings.get(LLM_PROVIDER.key, LLM_PROVIDER.env_default))
+    )
 
     tabs: dict[str, list[SettingItem]] = {}
     for cfg in _registry:
@@ -312,8 +323,10 @@ async def get_all_settings(
             # Resolving from db_settings here would surface stale overrides
             # that are NOT in effect; show the effective env_default instead.
             value = db_settings[cfg.key]
+        elif cfg in (LLM_MODEL, LLM_MODEL_LIGHT):
+            value = cfg.default_for(provider)
         else:
-            value = cfg.env_default
+            value = await cfg.resolved_default(db)
 
         if env_only:
             source = "env_only"
@@ -458,9 +471,19 @@ async def update_settings(
             old_model_value = await EMBEDDING_MODEL.get_uncached(db)
 
     ip = get_client_ip(request)
-    for key, value in validated_settings.items():
-        cfg = registry_map[key]
-        await cfg.set(db, value, user_id=user.id, ip_address=ip, commit=False)
+    # Registry order writes the provider before a model whose blank value
+    # resets against it; audits record the values from before the batch.
+    ordered = sorted(validated_settings, key=lambda k: _registry.index(registry_map[k]))
+    before = {key: await registry_map[key].get(db) for key in ordered}
+    for key in ordered:
+        await registry_map[key].set(
+            db,
+            validated_settings[key],
+            user_id=user.id,
+            ip_address=ip,
+            commit=False,
+            old_value=before[key],
+        )
 
     # Single commit for all setting writes
     await db.commit()
@@ -551,6 +574,9 @@ async def reset_settings(
             )
         _require_enterprise_for_key(key)
         configs_to_reset.append(cfg)
+    # Registry order resets the provider before the model settings that resolve
+    # against it.
+    configs_to_reset.sort(key=_registry.index)
 
     # Reset is another way to change the effective password-login value and
     # must enforce the same final-state lockout invariant as PUT/import. Hold
@@ -571,12 +597,14 @@ async def reset_settings(
             )
 
     ip = get_client_ip(request)
-    for cfg in configs_to_reset:
+    before = [await cfg.get(db) for cfg in configs_to_reset]
+    for cfg, old_value in zip(configs_to_reset, before):
         await cfg.reset(
             db,
             user_id=user.id,
             ip_address=ip,
             commit=False,
+            old_value=old_value,
         )
 
     # The setting deletes and their audit rows form one transaction. Runtime
