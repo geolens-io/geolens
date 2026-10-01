@@ -140,3 +140,43 @@ async def test_a_failed_dispatch_nothing_claimed_deletes_its_file(
     assert resp.status_code == 503, resp.text
     assert not staged.exists()
     assert await _status(test_db_session, job_id) == "failed"
+
+
+async def test_a_preview_written_after_a_commit_keeps_the_job_taken(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """A preview read the job before the commit and writes its layers after it."""
+    job_id, staged = await _staged_upload(test_db_session)
+    first: dict = {}
+
+    async def _committed_during_preview(*args, **kwargs) -> dict:
+        with _ingest_task(None):
+            first["commit"] = await client.post(
+                f"/ingest/commit/{job_id}", json=_BODY, headers=admin_auth_header
+            )
+        return {
+            "srid": 4326,
+            "geometry_type": "Point",
+            "layer_name": "roads",
+            "feature_count": 1,
+            "columns": [{"name": "name", "type": "String"}],
+            "sample_rows": [],
+            "all_layers": [{"name": "roads"}, {"name": "rails"}],
+        }
+
+    with patch.object(ingest_router, "run_ogrinfo_preview", _committed_during_preview):
+        preview = await client.post(
+            f"/ingest/preview/{job_id}", headers=admin_auth_header
+        )
+    assert preview.status_code == 200, preview.text
+    assert first["commit"].status_code == 202, first["commit"].text
+
+    with _ingest_task(RuntimeError("procrastinate unreachable")) as second_task:
+        second = await client.post(
+            f"/ingest/commit/{job_id}", json=_BODY, headers=admin_auth_header
+        )
+
+    assert second.status_code == 400, second.text
+    second_task.defer_async.assert_not_awaited()
+    assert staged.exists()
+    assert await _status(test_db_session, job_id) == "pending"

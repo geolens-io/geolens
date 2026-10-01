@@ -94,6 +94,7 @@ from app.processing.ingest.service import (
     discover_unregistered_tables,
     job_service_format,
     raster_stamped_metadata,
+    record_preview_layers,
     restore_fan_out_parent_pending,
     get_job_or_404,
     queue_ingest_job,
@@ -895,11 +896,7 @@ async def preview_file(
     # endpoint's layer-name validation has a non-empty set — otherwise
     # known_layer_names is empty and the 422 guard is a no-op for real uploads.
     if info.get("all_layers"):
-        job.user_metadata = {
-            **(job.user_metadata or {}),
-            "all_layers": info["all_layers"],
-        }
-        await db.commit()
+        await record_preview_layers(db, job.id, info["all_layers"])
 
     # Auto-detect geometry columns for non-spatial files (CSV/XLSX with lat/lng or WKT)
     detected_geom_cols = None
