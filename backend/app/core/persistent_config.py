@@ -876,26 +876,27 @@ async def get_all_registry_values(db: AsyncSession) -> dict[str, Any]:
         an admin/settings dump endpoint that needs an atomic snapshot
         without N round-trips.
     """
-    settings_dict: dict[str, Any] = {}
+    settings_dict: dict[str, Any] = {cfg.key: cfg.env_default for cfg in _registry}
 
-    if _is_env_only():
+    if not _is_env_only():
+        result = await db.execute(select(AppSetting))
+        all_settings = {row.key: row.value for row in result.scalars().all()}
         for cfg in _registry:
-            settings_dict[cfg.key] = cfg.env_default
-        return settings_dict
+            raw = all_settings.get(cfg.key)
+            if raw is not None:
+                # AppSetting.value is JSONB — unwrap the stored scalar wrapper
+                unwrapped = (
+                    raw if not isinstance(raw, dict) or "v" not in raw else raw["v"]
+                )
+                value, _ok = _validate_or_fallback(cfg, unwrapped)
+                settings_dict[cfg.key] = value
 
-    result = await db.execute(select(AppSetting))
-    all_settings = {row.key: row.value for row in result.scalars().all()}
-
-    for cfg in _registry:
-        raw = all_settings.get(cfg.key)
-        if raw is not None:
-            # AppSetting.value is JSONB — unwrap the stored scalar wrapper
-            unwrapped = raw if not isinstance(raw, dict) or "v" not in raw else raw["v"]
-            value, _ok = _validate_or_fallback(cfg, unwrapped)
-            settings_dict[cfg.key] = value
-        else:
-            settings_dict[cfg.key] = cfg.env_default
-
+    # A model without an override resolves against this snapshot's provider.
+    for model in (LLM_MODEL, LLM_MODEL_LIGHT):
+        if not settings_dict[model.key].strip():
+            settings_dict[model.key] = await model.default_for(
+                db, settings_dict[LLM_PROVIDER.key]
+            )
     return settings_dict
 
 

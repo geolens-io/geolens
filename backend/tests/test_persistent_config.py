@@ -1958,6 +1958,27 @@ async def test_log_level_config_subclass_validates_str(client: AsyncClient):
 
 
 @pytest.mark.anyio
+async def test_get_all_registry_values_resolves_unset_models(
+    client: AsyncClient, admin_auth_header: dict, _both_ai_keys
+):
+    from app.api.main import app
+    from app.core.dependencies import get_db
+    from app.core.persistent_config import get_all_registry_values
+
+    await client.put(
+        "/settings/",
+        json={"settings": {"llm_provider": "openai_compatible"}},
+        headers=admin_auth_header,
+    )
+    async for db in app.dependency_overrides[get_db]():
+        values = await get_all_registry_values(db)
+        assert (values["llm_model"], values["llm_model_light"]) == (
+            "openai-chat-env",
+            "openai-light-env",
+        )
+
+
+@pytest.mark.anyio
 async def test_get_all_registry_values_applies_validation(client: AsyncClient):
     """get_all_registry_values() validates each row through the registered TypeAdapter.
 
