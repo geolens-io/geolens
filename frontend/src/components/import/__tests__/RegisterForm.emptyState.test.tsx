@@ -22,10 +22,10 @@ vi.mock('@/components/import/hooks/use-ingest', () => ({
   useBulkRegister: () => mockUseBulkRegister(),
 }));
 
-// ── Stub i18n — return the key so assertions are key-based ──────────────────
+// ── Stub i18n — return the key, plus any schema, so assertions are key-based ─
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string) => key,
+    t: (key: string, options?: { schema?: string }) => (options?.schema ? `${key}:${options.schema}` : key),
     i18n: { language: 'en' },
   }),
 }));
@@ -106,6 +106,21 @@ describe('RegisterForm empty state', () => {
 });
 
 describe('RegisterForm results', () => {
+  test('the list and the selected table are labelled with the data schema', async () => {
+    mockUseDiscoverTables.mockReturnValue({
+      data: { tables: [{ table_name: 'parcels', geometry_type: 'Polygon', srid: 4326, estimated_rows: 10 }] },
+      isLoading: false,
+      error: null,
+    });
+    mockUseDatasetCountHint.mockReturnValue({ data: undefined });
+
+    render(<RegisterForm />);
+    expect(screen.getByText('register.tableCount:data')).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByText('parcels'));
+
+    expect(screen.getByText('data /')).toHaveTextContent('data / parcels');
+  });
+
   test('table statistics pair their labels and values in a description list', async () => {
     mockUseDiscoverTables.mockReturnValue({
       data: { tables: [{ table_name: 'parcels', geometry_type: 'Polygon', srid: 4326, estimated_rows: 10 }] },

@@ -22,6 +22,9 @@ import { describeFailureReason } from '@/lib/failure-reason';
 // against a value the picker cannot produce.
 type DatasetVisibilityChoice = 'private' | 'public';
 
+// The schema discovery scans for unregistered tables.
+const DISCOVERY_SCHEMA = 'data';
+
 // Discovery's refusal codes, each with a sentence under register.refusal.
 const REFUSAL_CODES = new Set(['source_srid_undeclared', 'source_gid_unusable']);
 
@@ -209,7 +212,7 @@ export function RegisterForm() {
 
         <div className="eyebrow px-3.5 py-1.5 flex items-center gap-1.5">
           <Database className="size-2.5" />
-          {t('register.tableCount', { schema: 'public', count: filtered.length })}
+          {t('register.tableCount', { schema: DISCOVERY_SCHEMA, count: filtered.length })}
         </div>
 
         <div className="max-h-80 overflow-y-auto">
@@ -280,7 +283,7 @@ function TableDetail({
   return (
     <>
       <p className="eyebrow mb-2.5">
-        public / <span className="font-medium text-foreground normal-case">{table.table_name}</span>
+        {DISCOVERY_SCHEMA} / <span className="font-medium text-foreground normal-case">{table.table_name}</span>
       </p>
       <h2 className="text-xl font-medium tracking-tight mb-1.5">{table.table_name}</h2>
       <p className="text-xs text-muted-foreground mb-5 max-w-lg">
