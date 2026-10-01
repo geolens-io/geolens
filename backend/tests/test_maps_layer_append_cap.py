@@ -14,7 +14,7 @@ from collections.abc import Awaitable, Callable
 
 import pytest
 from httpx import AsyncClient, Response
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, update
 
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.modules.catalog.maps.models import MapLayer
@@ -297,3 +297,57 @@ async def test_a_layer_delete_records_its_history_while_a_layer_writer_holds_the
 
     assert done, "the delete waited on the layer writer's map lock"
     assert resp.status_code == 204
+
+
+@pytest.mark.anyio
+async def test_a_visibility_downgrade_takes_the_map_before_the_embed_tokens(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+):
+    """A downgrade waits for a layer writer before revoking the map's tokens.
+
+    A layer writer revokes orphaned tokens while holding the map. A downgrade
+    that held the tokens while it waited to update the map would deadlock it.
+    """
+    from app.modules.catalog.maps.models import Map
+    from app.modules.catalog.maps.service_layers import lock_map_layers
+    from app.modules.embed_tokens.models import EmbedToken
+
+    monkeypatch.setattr(
+        "app.modules.catalog.maps.service_layers._LAYER_LOCK_TIMEOUT", "30s"
+    )
+    map_id, _dataset_id = await _map_with_layers(
+        client, admin_auth_header, test_db_session, 1
+    )
+    minted = await client.post(
+        f"/maps/{map_id}/embed-tokens/",
+        json={"name": "Downgrade race"},
+        headers=admin_auth_header,
+    )
+    assert minted.status_code == 201, minted.text
+    await test_db_session.execute(
+        update(Map).where(Map.id == uuid.UUID(map_id)).values(visibility="public")
+    )
+    await test_db_session.commit()
+
+    await lock_map_layers(test_db_session, uuid.UUID(map_id))
+    downgrade = asyncio.create_task(
+        client.put(
+            f"/maps/{map_id}",
+            json={"visibility": "private"},
+            headers=admin_auth_header,
+        )
+    )
+    try:
+        await _wait_for_a_blocked_writer(test_db_session)
+        await test_db_session.execute(
+            update(EmbedToken)
+            .where(EmbedToken.map_id == uuid.UUID(map_id))
+            .values(is_active=False)
+        )
+        await test_db_session.commit()
+    finally:
+        await test_db_session.rollback()
+    resp = await downgrade
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["visibility"] == "private"

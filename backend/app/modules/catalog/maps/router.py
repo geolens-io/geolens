@@ -74,6 +74,7 @@ from app.modules.catalog.maps.service import (
     list_map_history,
     list_maps,
     lock_map_for_asset_write,
+    lock_map_layers,
     map_asset_publication,
     new_map_asset_key,
     record_map_history_event,
@@ -468,6 +469,9 @@ async def update_map_endpoint(
     # Auto-revoke share tokens when visibility moves away from public
     if body.visibility is not None and body.visibility != MapVisibility.public:
         if map_obj.visibility == "public":
+            # Layer writers hold the map while they revoke tokens; taking it
+            # first keeps the two from waiting on each other.
+            await lock_map_layers(db, map_id)
             await revoke_share_token_by_map(db, map_id)
             # A public->non-public downgrade must also revoke
             # embed tokens (previously only the share token was flipped),
