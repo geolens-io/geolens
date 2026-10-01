@@ -38,6 +38,8 @@ const SOURCE_FORMAT_KEYS = {
   created: 'common:enums.sourceFormat.created',
   '3dtiles': 'common:enums.sourceFormat.tiles3d',
   copc: 'common:enums.sourceFormat.copc',
+  stac: 'common:enums.sourceFormat.stac',
+  geotiff: 'common:enums.sourceFormat.geotiff',
 } as const;
 
 const BOUNDING_VOLUME_KEYS = {
@@ -75,6 +77,8 @@ const SOURCE_FORMAT_DEFAULTS = {
   created: 'Created in GeoLens',
   '3dtiles': '3D Tiles',
   copc: 'COPC',
+  stac: 'STAC',
+  geotiff: 'GeoTIFF',
 } as const;
 
 function resolveLabel(t: Translate, key: string, defaultValue: string): string {

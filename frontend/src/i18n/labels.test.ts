@@ -1,4 +1,4 @@
-import { getGeometryTypeLabel, withCoordSuffix } from './labels';
+import { getGeometryTypeLabel, getSourceFormatLabel, withCoordSuffix } from './labels';
 
 const t = (_key: string, options?: { defaultValue?: string }) => options?.defaultValue ?? '';
 
@@ -35,5 +35,15 @@ describe('withCoordSuffix', () => {
 
   it('leaves a plain 2D geometry alone', () => {
     expect(withCoordSuffix('Polygon', false, 2)).toBe('Polygon');
+  });
+});
+
+describe('getSourceFormatLabel', () => {
+  it.each([
+    ['stac', 'STAC'],
+    ['geotiff', 'GeoTIFF'],
+    ['arcgis_featureserver', 'ArcGIS FeatureServer'],
+  ])('labels %s as %s', (value, label) => {
+    expect(getSourceFormatLabel(t, value)).toBe(label);
   });
 });

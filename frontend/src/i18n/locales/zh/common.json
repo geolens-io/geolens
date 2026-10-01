@@ -578,7 +578,9 @@
       "ogcapiFeatures": "OGC API Features",
       "created": "在 GeoLens 中创建",
       "tiles3d": "3D Tiles",
-      "copc": "COPC"
+      "copc": "COPC",
+      "stac": "STAC",
+      "geotiff": "GeoTIFF"
     },
     "boundingVolume": {
       "region": "区域",

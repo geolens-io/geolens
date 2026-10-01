@@ -583,7 +583,7 @@ describe('SourcePanel', () => {
     );
 
     expect(screen.getByText('Owned copy')).toBeInTheDocument();
-    expect(screen.getByText('arcgis_featureserver')).toBeInTheDocument();
+    expect(screen.getByText('ArcGIS FeatureServer')).toBeInTheDocument();
     expect(screen.getByText('https://origin.test/FeatureServer')).toBeInTheDocument();
     expect(
       screen.getByText(
