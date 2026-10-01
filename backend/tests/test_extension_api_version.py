@@ -107,11 +107,18 @@ class TestExtensionApiVersionConstant:
         overlay that replaces the ``catalog_port`` key without it answers
         AttributeError instead of admitting or refusing the upload.
 
+        v14 widens two ``ProcessingPort`` reads behind AI keyword suggestions.
+        ``get_catalog_vocabulary`` and ``get_keywords_for_records`` take the
+        caller's ``user`` and ``user_roles`` as required keywords, so the
+        vocabulary and similar-dataset keywords sent to the model come only from
+        records the caller may read. An overlay still implementing the old
+        signatures raises TypeError on every keyword suggestion request.
+
         Update this pin, and the note above it, whenever the constant moves.
         """
         from app.platform.extensions.version import EXTENSION_API_VERSION
 
-        assert EXTENSION_API_VERSION == 13
+        assert EXTENSION_API_VERSION == 14
 
 
 class TestCheckExtensionApiVersion:

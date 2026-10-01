@@ -20,6 +20,9 @@ from app.processing.embeddings import helpers
 from app.processing.embeddings import service as service_module
 from tests.fixtures.dummy_overlay.tenant_isolation import TenantIsolationSurface
 
+# An admin reads every record, so these reads see only the tenant boundary.
+_ADMIN_SCOPE = {"user": SimpleNamespace(id=uuid.uuid4()), "user_roles": {"admin"}}
+
 
 def _result(*, rows=(), scalar=None, first=None):
     result = MagicMock()
@@ -41,8 +44,8 @@ async def test_processing_vocabulary_queries_join_rls_visible_records():
     session.execute.return_value = _result()
     port = DefaultProcessingPort()
 
-    await port.get_catalog_vocabulary(session)
-    await port.get_keywords_for_records(session, [uuid.uuid4()])
+    await port.get_catalog_vocabulary(session, **_ADMIN_SCOPE)
+    await port.get_keywords_for_records(session, [uuid.uuid4()], **_ADMIN_SCOPE)
 
     statements = [str(call.args[0]) for call in session.execute.await_args_list]
     assert len(statements) == 2
@@ -342,9 +345,11 @@ async def test_embedding_reads_and_stats_are_tenant_local(
             record_b = uuid.UUID(surface.rec_b_id)
 
             async with ctx.tenant_session(ctx.tenant_a) as session:
-                assert await port.get_catalog_vocabulary(session) == ["tenant-a-only"]
+                assert await port.get_catalog_vocabulary(session, **_ADMIN_SCOPE) == [
+                    "tenant-a-only"
+                ]
                 assert await port.get_keywords_for_records(
-                    session, [record_a, record_b]
+                    session, [record_a, record_b], **_ADMIN_SCOPE
                 ) == ["tenant-a-only"]
                 assert await helpers.has_embeddings(session) is True
                 assert await helpers.get_nearest_record_ids(session, record_a) == []
@@ -353,9 +358,11 @@ async def test_embedding_reads_and_stats_are_tenant_local(
                 assert (stats_a.total_records, stats_a.embedded_records) == (1, 1)
 
             async with ctx.tenant_session(ctx.tenant_b) as session:
-                assert await port.get_catalog_vocabulary(session) == ["tenant-b-only"]
+                assert await port.get_catalog_vocabulary(session, **_ADMIN_SCOPE) == [
+                    "tenant-b-only"
+                ]
                 assert await port.get_keywords_for_records(
-                    session, [record_a, record_b]
+                    session, [record_a, record_b], **_ADMIN_SCOPE
                 ) == ["tenant-b-only"]
                 assert await helpers.get_nearest_record_ids(session, record_b) == []
                 stats_b = await AdminService(session).get_embedding_stats()

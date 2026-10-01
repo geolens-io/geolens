@@ -21,7 +21,8 @@ from app.processing.ai.metadata_schemas import (
 )
 from app.core.config import settings
 from app.core.geo import extent_to_bbox
-from app.platform.cache import tenant_cache_context_available, tenant_cache_key
+from app.core.identity import Identity
+from app.platform.cache import tenant_cache_key
 from app.platform.extensions import get_ai_provider
 from app.processing.embeddings.helpers import get_nearest_record_ids
 from app.core.persistent_config import (
@@ -40,12 +41,7 @@ logger = structlog.stdlib.get_logger(__name__)
 # In-memory TTL caches for metadata AI (avoids redundant DB queries when
 # a user clicks Summary, Keywords, Lineage in quick succession).
 _CACHE_TTL = 60.0  # seconds
-_NEIGHBOR_KW_TTL = 300.0  # 5 min — vector NN is heavier, embeddings change rarely
-_NEIGHBOR_KW_MAX = 100
 _dataset_context_cache: dict[str, tuple[float, str]] = {}
-_vocabulary_cache: dict[str, tuple[float, list[str]]] = {}
-_VOCABULARY_CACHE_MAX = 32
-_neighbor_kw_cache: dict[str, tuple[float, list[str]]] = {}
 
 
 def _describe_extent(bounds: tuple[float, float, float, float]) -> str:
@@ -225,54 +221,26 @@ async def _build_dataset_context(
     return result
 
 
-async def _get_catalog_vocabulary(
-    session: AsyncSession,
-    *,
-    port: "ProcessingPort",
-) -> list[str]:
-    """Return up to 200 distinct keywords from the catalog (cached 60s)."""
-    now = time.monotonic()
-    cache_key = tenant_cache_key("catalog-vocabulary")
-    cached = _vocabulary_cache.get(cache_key)
-    if cached and (now - cached[0]) < _CACHE_TTL:
-        return cached[1]
-
-    vocab = await port.get_catalog_vocabulary(session)
-    if len(_vocabulary_cache) >= _VOCABULARY_CACHE_MAX:
-        oldest_key = min(_vocabulary_cache, key=lambda key: _vocabulary_cache[key][0])
-        del _vocabulary_cache[oldest_key]
-    _vocabulary_cache[cache_key] = (now, vocab)
-    return vocab
-
-
 async def _get_related_keywords_from_embeddings(
     session: AsyncSession,
     dataset_id: str,
     limit: int = 5,
     *,
     port: "ProcessingPort",
+    user: Identity,
+    user_roles: set[str],
 ) -> list[str]:
     """Return keywords from the top-N nearest datasets by embedding similarity.
 
-    Falls back to empty list on no embedding or any error. Cached 5min by
-    dataset_id (vector NN is heavier than the dataset-context query).
+    Only neighbors ``user`` may read contribute keywords. Falls back to an
+    empty list on no embedding or any error. Not cached, because the result
+    depends on the caller's visibility.
 
     Both the dataset lookup and keyword aggregation route through the Port
     surface so processing/* carries no ``app.modules.catalog`` ORM import;
     Enterprise overlays can intercept both calls.
     """
     import uuid as _uuid
-
-    if not tenant_cache_context_available():
-        return []
-
-    # Check cache first (keyed on dataset_id; embedding model rebinds are
-    # rare and a 5min staleness window is acceptable for context enrichment).
-    now = time.monotonic()
-    cache_key = tenant_cache_key(dataset_id)
-    cached = _neighbor_kw_cache.get(cache_key)
-    if cached and (now - cached[0]) < _NEIGHBOR_KW_TTL:
-        return cached[1]
 
     try:
         dataset = await port.get_dataset(session, _uuid.UUID(dataset_id))
@@ -285,17 +253,12 @@ async def _get_related_keywords_from_embeddings(
         if not neighbor_ids:
             return []
 
-        result = await port.get_keywords_for_records(session, neighbor_ids)
+        return await port.get_keywords_for_records(
+            session, neighbor_ids, user=user, user_roles=user_roles
+        )
     except Exception:  # broad: embedding neighbor lookup is non-fatal context-builder; degrade to empty list
         logger.debug("Embedding neighbor keyword lookup failed", exc_info=True)
         return []
-
-    # Cache (LRU-style eviction)
-    if len(_neighbor_kw_cache) >= _NEIGHBOR_KW_MAX:
-        oldest_key = min(_neighbor_kw_cache, key=lambda k: _neighbor_kw_cache[k][0])
-        del _neighbor_kw_cache[oldest_key]
-    _neighbor_kw_cache[cache_key] = (now, result)
-    return result
 
 
 async def _generate_structured(
@@ -461,15 +424,20 @@ async def generate_keyword_suggestions(
     *,
     language: str | None = None,
     port: "ProcessingPort",
-    user_id: uuid.UUID | None = None,
+    user: Identity,
+    user_roles: set[str],
 ) -> KeywordSuggestionsResponse:
-    """Generate AI-suggested keywords for a dataset."""
+    """Generate AI-suggested keywords for a dataset.
+
+    The vocabulary and similar-dataset keywords added to the prompt come only
+    from records ``user`` may read.
+    """
     from app.processing.ai.chat_service import lang_name
 
     context = await _build_dataset_context(session, dataset_id, port=port)
-    vocab = await _get_catalog_vocabulary(session, port=port)
+    vocab = await port.get_catalog_vocabulary(session, user=user, user_roles=user_roles)
     related_kws = await _get_related_keywords_from_embeddings(
-        session, dataset_id, port=port
+        session, dataset_id, port=port, user=user, user_roles=user_roles
     )
 
     prompt = context
@@ -485,7 +453,7 @@ async def generate_keyword_suggestions(
     if language:
         system += f"\n\nRespond in {lang_name(language)}."
     return await _generate_structured(
-        system, prompt, KeywordSuggestionsResponse, db=session, user_id=user_id
+        system, prompt, KeywordSuggestionsResponse, db=session, user_id=user.id
     )
 
 

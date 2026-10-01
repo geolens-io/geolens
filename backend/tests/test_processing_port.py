@@ -179,10 +179,10 @@ class FakeProcessingPort:
             )
         ]
 
-    async def get_catalog_vocabulary(self, session):
+    async def get_catalog_vocabulary(self, session, *, user, user_roles):
         return ["test", "vocabulary", "keyword"]
 
-    async def get_keywords_for_records(self, session, record_ids):
+    async def get_keywords_for_records(self, session, record_ids, *, user, user_roles):
         if not record_ids:
             return []
         return ["related", "keywords"]

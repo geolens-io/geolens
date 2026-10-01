@@ -303,24 +303,26 @@ class DefaultProcessingPort:
         result = await session.execute(stmt)
         return [(row[0], row[1], row[2]) for row in result.all()]
 
-    async def get_catalog_vocabulary(self, session):  # type: ignore[no-untyped-def]
+    async def get_catalog_vocabulary(self, session, *, user, user_roles):  # type: ignore[no-untyped-def]
         from sqlalchemy import select
 
         from app.modules.catalog.datasets.domain.models import Record, RecordKeyword
 
-        # RecordKeyword is not itself tenant-scoped. Join through Record so
-        # the database's Record RLS policy constrains the vocabulary to the
-        # active tenant in hosted mode; with RLS disabled this is the same
-        # result set as the historical single-tenant query.
+        # RecordKeyword carries neither tenant nor visibility. Joining Record
+        # lets its RLS policy scope the vocabulary to the active tenant and the
+        # visibility filter scope it to records this caller may read.
         stmt = (
             select(RecordKeyword.keyword)
             .join(Record, RecordKeyword.record_id == Record.id)
             .distinct()
         )
+        stmt = self.apply_visibility_filter(
+            stmt, user, user_roles, Record, self.get_grant_orm_class()
+        )
         result = await session.execute(stmt)
         return [row[0] for row in result.all()]
 
-    async def get_keywords_for_records(self, session, record_ids):  # type: ignore[no-untyped-def]
+    async def get_keywords_for_records(self, session, record_ids, *, user, user_roles):  # type: ignore[no-untyped-def]
         from sqlalchemy import select
 
         from app.modules.catalog.datasets.domain.models import Record, RecordKeyword
@@ -333,6 +335,9 @@ class DefaultProcessingPort:
             .join(Record, RecordKeyword.record_id == Record.id)
             .where(RecordKeyword.record_id.in_(record_ids))
             .distinct()
+        )
+        stmt = self.apply_visibility_filter(
+            stmt, user, user_roles, Record, self.get_grant_orm_class()
         )
         result = await session.execute(stmt)
         return [row[0] for row in result.all()]

@@ -275,11 +275,26 @@ class ProcessingPort(Protocol):
         self, session: AsyncSession, ids: list[uuid.UUID]
     ) -> list[tuple[uuid.UUID, str, str | None]]: ...
 
-    async def get_catalog_vocabulary(self, session: AsyncSession) -> list[str]: ...
+    async def get_catalog_vocabulary(
+        self,
+        session: AsyncSession,
+        *,
+        user: Identity | None,
+        user_roles: set[str],
+    ) -> list[str]:
+        """Distinct keywords of the records ``user`` may read."""
+        ...
 
     async def get_keywords_for_records(
-        self, session: AsyncSession, record_ids: list[uuid.UUID]
-    ) -> list[str]: ...
+        self,
+        session: AsyncSession,
+        record_ids: list[uuid.UUID],
+        *,
+        user: Identity | None,
+        user_roles: set[str],
+    ) -> list[str]:
+        """Distinct keywords of those ``record_ids`` that ``user`` may read."""
+        ...
 
     async def get_record_keyword_count(
         self, session: AsyncSession, record_id: uuid.UUID

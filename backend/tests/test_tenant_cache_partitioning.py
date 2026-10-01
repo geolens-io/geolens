@@ -258,13 +258,11 @@ def test_anonymous_search_cache_key_includes_tenant(multi_tenant):
 
 
 @pytest.mark.anyio
-async def test_catalog_metadata_and_ai_vocabulary_caches_are_tenant_scoped(
+async def test_catalog_collection_metadata_cache_is_tenant_scoped(
     multi_tenant,
 ):
     search_router = importlib.import_module("app.modules.catalog.search.router")
-    metadata_service = importlib.import_module("app.processing.ai.metadata_service")
     search_router._COLLECTION_META_CACHE.clear()
-    metadata_service._vocabulary_cache.clear()
 
     class _Result:
         def __init__(self, row):
@@ -286,26 +284,19 @@ async def test_catalog_metadata_and_ai_vocabulary_caches_are_tenant_scoped(
                 )
             ),
         ]
-        port = SimpleNamespace(
-            get_catalog_vocabulary=AsyncMock(return_value=[organization])
-        )
         token = _set_tenant(tenant_id)
         try:
-            collection = await search_router._build_collection_metadata(
+            return await search_router._build_collection_metadata(
                 db, None, "https://api.example.test"
             )
-            vocabulary = await metadata_service._get_catalog_vocabulary(db, port=port)
         finally:
             current_tenant_var.reset(token)
-        return collection, vocabulary
 
-    collection_a, vocabulary_a = await build_for(TENANT_A, "Tenant A")
-    collection_b, vocabulary_b = await build_for(TENANT_B, "Tenant B")
+    collection_a = await build_for(TENANT_A, "Tenant A")
+    collection_b = await build_for(TENANT_B, "Tenant B")
 
     assert collection_a["summaries"]["source_organization"] == ["Tenant A"]
     assert collection_b["summaries"]["source_organization"] == ["Tenant B"]
-    assert vocabulary_a == ["Tenant A"]
-    assert vocabulary_b == ["Tenant B"]
 
 
 @pytest.mark.anyio
@@ -352,27 +343,6 @@ async def test_unscoped_embedding_presence_fails_closed_without_shared_cache(
     resolve_model.assert_not_awaited()
     session.execute.assert_not_awaited()
     assert helpers._has_embeddings_cache == {}
-
-
-@pytest.mark.anyio
-async def test_unscoped_embedding_neighbors_fail_closed_without_shared_cache(
-    multi_tenant,
-):
-    metadata_service = importlib.import_module("app.processing.ai.metadata_service")
-    metadata_service._neighbor_kw_cache.clear()
-    port = SimpleNamespace(get_dataset=AsyncMock())
-    session = AsyncMock()
-
-    result = await metadata_service._get_related_keywords_from_embeddings(
-        session,
-        str(uuid.uuid4()),
-        port=port,
-    )
-
-    assert result == []
-    port.get_dataset.assert_not_awaited()
-    session.execute.assert_not_awaited()
-    assert metadata_service._neighbor_kw_cache == {}
 
 
 def test_sql_schema_cache_key_is_tenant_scoped(multi_tenant):

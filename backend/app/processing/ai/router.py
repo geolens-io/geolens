@@ -865,8 +865,11 @@ async def generate_metadata_keywords(
     """Generate AI-suggested keywords for a dataset."""
     await _check_ai_available(db)
     await _authorize_metadata_dataset(db, body.dataset_id, user)
+    user_roles = await port.get_user_roles(db, user)
     return await _call_metadata_ai(
-        generate_keyword_suggestions(db, body.dataset_id, port=port, user_id=user.id),
+        generate_keyword_suggestions(
+            db, body.dataset_id, port=port, user=user, user_roles=user_roles
+        ),
         "AI metadata keyword generation",
     )
 
