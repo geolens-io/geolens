@@ -27,6 +27,19 @@ export function fileExt(fileName: string): string {
 }
 
 /**
+ * The layer name to show for an upload. A single-layer file is named after its
+ * staged copy, which carries a job-id prefix, so the uploaded file's own name
+ * reads better. Only a name derived from the file is replaced; the value sent
+ * back at commit stays the source layer name.
+ */
+export function displayLayerName(layerName: string, sourceFilename: string | null): string {
+  if (!sourceFilename) return layerName;
+  const dot = sourceFilename.lastIndexOf('.');
+  const stem = dot > 0 ? sourceFilename.slice(0, dot) : sourceFilename;
+  return layerName === stem || layerName.endsWith(`_${stem}`) ? stem : layerName;
+}
+
+/**
  * True for spreadsheet sources (multi-sheet workbooks). The multi-layer picker
  * calls the item a "Sheet" only for these; every other multi-layer container
  * (GeoPackage, zipped File Geodatabase, etc.) uses "Layer" vocabulary instead —

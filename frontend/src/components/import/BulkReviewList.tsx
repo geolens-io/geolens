@@ -11,7 +11,7 @@ import { ImportMetadataForm } from './ImportMetadataForm';
 import { TilesetFacts } from './TilesetFacts';
 import { TypeTag } from './TypeTag';
 import { StatusPill } from './StatusPill';
-import { isRasterPreview, isFilePreview, isTilesetPreview, isPointCloudPreview, fileExt, kindFromEntry, isSpreadsheetExt } from './utils';
+import { isRasterPreview, isFilePreview, isTilesetPreview, isPointCloudPreview, fileExt, kindFromEntry, isSpreadsheetExt, displayLayerName } from './utils';
 import { getBoundingVolumeLabel, getGeometryTypeLabel } from '@/i18n/labels';
 import { formatBytes, formatNumber } from '@/lib/format';
 import { useReportDialog } from '@/lib/report';
@@ -115,7 +115,7 @@ function DetectionPanel({ entry }: { entry: FileEntry }) {
                 )}
               </dd>
               <dt className="font-mono text-mini text-muted-foreground">{t('detect.labels.layer')}</dt>
-              <dd className="font-mono text-mini">{file.layer_name}</dd>
+              <dd className="font-mono text-mini">{displayLayerName(file.layer_name, file.source_filename)}</dd>
             </>
           ) : null}
         </dl>
