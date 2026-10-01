@@ -1483,6 +1483,35 @@ async def test_blank_model_import_plans_and_applies_a_reset(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("mode", ["merge", "overwrite"])
+async def test_an_import_previews_an_extension_providers_own_model(
+    client: AsyncClient, admin_auth_header: dict, mode
+):
+    """A blank (merge) or omitted (overwrite) model previews as the extension
+    provider's default, which is what applying it resolves to."""
+
+    class _ExtensionProvider:
+        async def resolve_runtime_config(self, _db):
+            return {"base_url": None, "default_model": "extension-model"}
+
+    payload: dict = {"settings": {"llm_provider": "extension"}}
+    if mode == "merge":
+        payload["settings"]["llm_model"] = ""
+    with patch(
+        "app.platform.extensions.get_ai_provider",
+        return_value=_ExtensionProvider(),
+    ):
+        preview = await client.post(
+            f"/config-ops/dry-run/?mode={mode}",
+            json=payload,
+            headers=admin_auth_header,
+        )
+    assert preview.status_code == 200, preview.text
+    changes = {c["key"]: c for c in preview.json()["settings"]["changes"]}
+    assert changes["llm_model"]["imported"] == "extension-model"
+
+
+@pytest.mark.anyio
 async def test_a_legacy_blank_model_row_reads_as_the_provider_default(
     client: AsyncClient, admin_auth_header: dict, _both_ai_keys
 ):

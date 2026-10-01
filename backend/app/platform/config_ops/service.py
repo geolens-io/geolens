@@ -705,7 +705,6 @@ async def preflight_import(
         LLM_PROVIDER,
         _registry,
         is_unset_model,
-        llm_model_default,
     )
     from app.core.public_urls import _is_env_only
     from app.modules.auth.oauth import service as oauth_service
@@ -754,10 +753,14 @@ async def preflight_import(
         if mode == "overwrite"
         else current_settings["llm_provider"],
     )
-    blank_model_defaults = {
-        cfg.key: llm_model_default(final_provider, light=cfg is LLM_MODEL_LIGHT)
+    model_defaults = {
+        cfg.key: await cfg.default_for(db, final_provider)
         for cfg in (LLM_MODEL, LLM_MODEL_LIGHT)
-        if is_unset_model(cfg.key, validated_settings.get(cfg.key))
+    }
+    blank_model_defaults = {
+        key: default
+        for key, default in model_defaults.items()
+        if is_unset_model(key, validated_settings.get(key))
     }
     settings_to_apply, setting_changes = _build_setting_changes(
         raw_settings,
@@ -778,10 +781,8 @@ async def preflight_import(
             if not caller_is_enterprise and cfg.tab in ENTERPRISE_ONLY_TABS:
                 continue
             imported = cfg.env_default
-            if cfg in (LLM_MODEL, LLM_MODEL_LIGHT):
-                imported = llm_model_default(
-                    final_provider, light=cfg is LLM_MODEL_LIGHT
-                )
+            if cfg.key in model_defaults:
+                imported = model_defaults[cfg.key]
             setting_changes.append(
                 SettingChange(
                     key=cfg.key,

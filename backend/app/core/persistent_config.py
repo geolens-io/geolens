@@ -654,7 +654,8 @@ class _ProviderModelConfig(PersistentConfig[str]):
         )
         self.light = light
 
-    async def _default_for(self, db: AsyncSession, provider: str) -> str:
+    async def default_for(self, db: AsyncSession, provider: str) -> str:
+        """The model ``provider`` uses when no admin override is set."""
         if provider in ("anthropic", "openai_compatible"):
             return llm_model_default(provider, light=self.light)
         # An extension provider names its own default model.
@@ -667,7 +668,7 @@ class _ProviderModelConfig(PersistentConfig[str]):
         return str(runtime.get("default_model") or "")
 
     async def resolved_default(self, db: AsyncSession) -> str:
-        return await self._default_for(db, await LLM_PROVIDER.get(db))
+        return await self.default_for(db, await LLM_PROVIDER.get(db))
 
     async def override(self, db: AsyncSession) -> str:
         """The admin's model, or ``""`` when none is set."""
@@ -682,7 +683,7 @@ class _ProviderModelConfig(PersistentConfig[str]):
         """The override, or ``provider``'s default, for a caller that has
         already chosen the provider, so a concurrent switch can't pair it with
         another provider's model."""
-        return await self.override(db) or await self._default_for(db, provider)
+        return await self.override(db) or await self.default_for(db, provider)
 
     async def set(
         self,
