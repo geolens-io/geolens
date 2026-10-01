@@ -370,9 +370,15 @@ class DefaultOpenAICompatibleProvider:
 
     async def resolve_runtime_config(self, db) -> dict[str, object]:  # type: ignore[no-untyped-def]
         from app.core.ai_credentials import bind_openai_credential_base_url
-        from app.core.persistent_config import LLM_MODEL, OPENAI_BASE_URL
+        from app.core.persistent_config import (
+            LLM_MODEL,
+            OPENAI_BASE_URL,
+            llm_model_default,
+        )
 
-        model = await LLM_MODEL.for_provider(db, "openai_compatible")
+        # Not for_provider(): an overlay wrapping this class would be asked
+        # for its default again.
+        model = await LLM_MODEL.override(db) or llm_model_default("openai_compatible")
         base_url = bind_openai_credential_base_url(
             await OPENAI_BASE_URL.get(db),
             purpose="chat",

@@ -1504,6 +1504,37 @@ async def test_an_overlay_replacing_a_built_in_provider_supplies_its_model(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("provider", "expected"),
+    [("anthropic", "anthropic-chat-env"), ("openai_compatible", "openai-chat-env")],
+)
+async def test_an_overlay_wrapping_a_built_in_provider_resolves_its_default(
+    client: AsyncClient, _both_ai_keys, provider, expected
+):
+    from app.api.main import app
+    from app.core.dependencies import get_db
+    from app.core.persistent_config import LLM_MODEL
+    from app.platform.extensions.defaults import (
+        DefaultAnthropicProvider,
+        DefaultOpenAICompatibleProvider,
+    )
+
+    built_in = (
+        DefaultAnthropicProvider()
+        if provider == "anthropic"
+        else DefaultOpenAICompatibleProvider()
+    )
+
+    class _Wrapper:
+        async def resolve_runtime_config(self, db):
+            return await built_in.resolve_runtime_config(db)
+
+    with patch("app.platform.extensions.get_ai_provider", return_value=_Wrapper()):
+        async for db in app.dependency_overrides[get_db]():
+            assert await LLM_MODEL.for_provider(db, provider) == expected
+
+
+@pytest.mark.anyio
 async def test_a_reset_audits_the_model_in_effect_before_it(
     client: AsyncClient, admin_auth_header: dict, _both_ai_keys
 ):

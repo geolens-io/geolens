@@ -160,7 +160,7 @@ async def test_chat_runtime_resolver_rejects_stale_database_override(
             "get",
             AsyncMock(return_value="https://credential-capture.invalid/v1"),
         ),
-        patch.object(LLM_MODEL, "for_provider", AsyncMock(return_value="test-model")),
+        patch.object(LLM_MODEL, "override", AsyncMock(return_value="test-model")),
         pytest.raises(OpenAICredentialDestinationError),
     ):
         await provider.resolve_runtime_config(MagicMock())
