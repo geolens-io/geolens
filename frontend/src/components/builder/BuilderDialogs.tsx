@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useRef } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
@@ -44,6 +44,8 @@ interface BuilderDialogsProps {
   // fix(#526 B-050): dataset id currently being added (per-row spinner).
   addingDatasetId?: string | null;
   addDataInitialQuery?: string;
+  // Fires before a pointer-down outside the dialog closes it.
+  onAddDataPointerDownOutside?: () => void;
   // Share
   showShare: boolean;
   onShowShareChange: (open: boolean) => void;
@@ -69,6 +71,7 @@ export function BuilderDialogs({
   isAdding,
   addingDatasetId,
   addDataInitialQuery,
+  onAddDataPointerDownOutside,
   showShare,
   onShowShareChange,
   hasUnsavedChanges,
@@ -80,12 +83,32 @@ export function BuilderDialogs({
   onBlockerProceed,
 }: BuilderDialogsProps) {
   const { t } = useTranslation('builder');
+  const addDataOpenerRef = useRef<HTMLElement | null>(null);
+  const addDataClosedByPointerRef = useRef(false);
 
   return (
     <>
-      {/* Add Data dialog */}
-      <Dialog open={showAddData} onOpenChange={onShowAddDataChange}>
-        <DialogContent className="sm:max-w-2xl">
+      {/* Add Data dialog. Non-modal and without an overlay so the layer editor
+          stays clickable: an outside click closes the dialog and still reaches
+          its target. */}
+      <Dialog open={showAddData} onOpenChange={onShowAddDataChange} modal={false}>
+        <DialogContent
+          className="sm:max-w-2xl"
+          onOpenAutoFocus={() => {
+            addDataOpenerRef.current = document.activeElement as HTMLElement | null;
+            addDataClosedByPointerRef.current = false;
+          }}
+          onPointerDownOutside={() => {
+            addDataClosedByPointerRef.current = true;
+            onAddDataPointerDownOutside?.();
+          }}
+          // A non-modal dialog has no trigger to hand focus back to, so Escape
+          // and the Close button return it to whatever opened the dialog.
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            if (!addDataClosedByPointerRef.current) addDataOpenerRef.current?.focus();
+          }}
+        >
           <DialogHeader>
             <DialogTitle>{t('search.title')}</DialogTitle>
             <DialogDescription>{t('search.dialogDescription')}</DialogDescription>
