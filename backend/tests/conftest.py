@@ -1851,109 +1851,112 @@ async def client(tmp_path):
     so that the lifespan seed functions and request handlers all use the same
     test engine. This prevents asyncpg pool state conflicts.
     """
-    original_upload_staging_dir = settings.upload_staging_dir
-    settings.upload_staging_dir = str(tmp_path / "staging")
-    staging_dir = tmp_path / "staging"
-    staging_dir.mkdir(parents=True, exist_ok=True)
-    original_tempdir = tempfile.tempdir
+    import app.core.db as db_module
+    import app.platform.storage.provider as storage_provider_module
+    from app.api.main import app
     from app.core.runtime.staging import redirect_tempfile_to_staging
 
-    redirect_tempfile_to_staging(staging_dir)
-
-    # Pool sizing is derived per pytest-xdist worker via _derive_test_pool_sizing().
-    # The baseline connection budget is tight:
-    #   max_connections=30 (db/postgresql.conf:11, PERF-05 / Phase 274)
-    #   API+worker services: 8 persistent idle connections to the main DB
-    #   Postgres background: 5 connections
-    #   Available for test workers: 30 − 13 = 17 connections
-    # Under -n auto (16 workers), any pool that holds idle connections will
-    # consume the entire budget, leaving no room for setup-phase engines.
-    # NullPool (xdist mode) avoids idle-connection overhead — connections are
-    # opened only during active DB operations and closed immediately when released.
-    # Sequential mode (worker_id=master) keeps the historical (5, 2) QueuePool
-    # for request handlers that need concurrent DB conns within a single test.
-    # See .planning/audits/PYTEST-XDIST-SPIKE-v1019.md for measured numbers + rationale.
-    # Engine-creation logic is extracted to _make_test_async_engine() so the
-    # NullPool-vs-QueuePool branch is directly testable (see test_conftest_pool_sizing.py).
-    test_engine = _make_test_async_engine(settings.test_database_url)
-    test_session_factory = async_sessionmaker(test_engine, expire_on_commit=False)
-
-    # Patch the database module so lifespan seed functions use our engine
-    import app.core.db as db_module
-
+    global _client_session_factory
+    original_upload_staging_dir = settings.upload_staging_dir
+    original_tempdir = tempfile.tempdir
     original_engine = db_module.engine
     original_session = db_module.async_session
-    db_module.engine = test_engine
-    db_module.async_session = test_session_factory
-
-    # fix(#909): the health service late-binds engine from app.core.db, so
-    # the db_module patch above covers it — no per-module re-point needed.
-
-    # Override the get_db dependency
-    from app.core.dependencies import get_db
-    from app.api.main import app
-
-    # Plan 1088-04 / audit Section 4.3: wrap the per-request session-factory
-    # acquisition with `_acquire_test_session_with_retry` so transient
-    # `asyncpg.TooManyConnectionsError` / `OperationalError("too many clients
-    # already")` raised inside `__aenter__` is retried with bounded backoff
-    # (0.5 + 1.0 = 1.5s budget) before failing loudly. Distinct from
-    # Plan 1088-03's setup-phase wrap of `_ensure_roles_and_admin`: this one
-    # fires per-request inside the test body (e.g., when a test issues
-    # multiple sequential `TestClient.post(...)` calls), so the budget is
-    # intentionally tighter than the setup-phase 7s window. See
-    # `.planning/audits/PYTEST-XDIST-FIXTURE-AUDIT-v1020.md` Section 4.3 +
-    # Section 5 suggestion (lines 1289-1299).
-    global _client_session_factory
-    _client_session_factory = test_session_factory
-    app.dependency_overrides[get_db] = _override_get_db
-
-    # Initialize singleton cache provider for settings reads/writes in request paths.
-    # Lifespan is not guaranteed in this ASGITransport test setup.
-    init_cache()
-    import app.platform.storage.provider as storage_provider_module
-    from app.platform.storage.local import LocalStorageProvider
-
     original_storage = storage_provider_module._storage
-    storage_provider_module._storage = LocalStorageProvider(base_dir=str(staging_dir))
-    structlog.contextvars.bind_contextvars(service="api")
+    test_engine = None
+    try:
+        settings.upload_staging_dir = str(tmp_path / "staging")
+        staging_dir = tmp_path / "staging"
+        staging_dir.mkdir(parents=True, exist_ok=True)
+        redirect_tempfile_to_staging(staging_dir)
 
-    # Disable rate limiter during tests
-    from app.platform.ratelimit import limiter
+        # Pool sizing is derived per pytest-xdist worker via _derive_test_pool_sizing().
+        # The baseline connection budget is tight:
+        #   max_connections=30 (db/postgresql.conf:11, PERF-05 / Phase 274)
+        #   API+worker services: 8 persistent idle connections to the main DB
+        #   Postgres background: 5 connections
+        #   Available for test workers: 30 − 13 = 17 connections
+        # Under -n auto (16 workers), any pool that holds idle connections will
+        # consume the entire budget, leaving no room for setup-phase engines.
+        # NullPool (xdist mode) avoids idle-connection overhead — connections are
+        # opened only during active DB operations and closed immediately when released.
+        # Sequential mode (worker_id=master) keeps the historical (5, 2) QueuePool
+        # for request handlers that need concurrent DB conns within a single test.
+        # See .planning/audits/PYTEST-XDIST-SPIKE-v1019.md for measured numbers + rationale.
+        # Engine-creation logic is extracted to _make_test_async_engine() so the
+        # NullPool-vs-QueuePool branch is directly testable (see test_conftest_pool_sizing.py).
+        test_engine = _make_test_async_engine(settings.test_database_url)
+        test_session_factory = async_sessionmaker(test_engine, expire_on_commit=False)
 
-    limiter.enabled = False
+        # Patch the database module so lifespan seed functions use our engine
+        db_module.engine = test_engine
+        db_module.async_session = test_session_factory
 
-    # Ensure roles and admin user exist before tests.
-    #
-    # Plan 1088-03 / audit Section 4.2: this is the FIRST async-session
-    # connection acquisition under the test_engine, and under -n auto
-    # it surfaced 188 of 365 residual failures as
-    # `asyncpg.TooManyConnectionsError: sorry, too many clients already`
-    # during fixture setup (see
-    # `.planning/audits/PYTEST-XDIST-REMEASURE-AFTER-1088-01.md`).
-    # Wrap with `_run_with_too_many_clients_retry` so transient
-    # connection-contention is retried with bounded backoff
-    # (1.0 + 2.0 + 4.0 = 7s) before failing loudly. The retry budget is
-    # the SAME shape as `_create_test_db_with_retry` from Plan 1088-01
-    # (audit Section 4.1) so both setup-phase contention sites use a
-    # consistent retry contract.
-    await _run_with_too_many_clients_retry(
-        lambda: _ensure_roles_and_admin(test_session_factory)
-    )
+        # fix(#909): the health service late-binds engine from app.core.db, so
+        # the db_module patch above covers it — no per-module re-point needed.
 
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        yield ac
+        # Override the get_db dependency
+        from app.core.dependencies import get_db
 
-    # Cleanup
-    app.dependency_overrides.clear()
-    _client_session_factory = None
-    db_module.engine = original_engine
-    db_module.async_session = original_session
-    storage_provider_module._storage = original_storage
-    settings.upload_staging_dir = original_upload_staging_dir
-    tempfile.tempdir = original_tempdir
-    await test_engine.dispose()
+        # Plan 1088-04 / audit Section 4.3: wrap the per-request session-factory
+        # acquisition with `_acquire_test_session_with_retry` so transient
+        # `asyncpg.TooManyConnectionsError` / `OperationalError("too many clients
+        # already")` raised inside `__aenter__` is retried with bounded backoff
+        # (0.5 + 1.0 = 1.5s budget) before failing loudly. Distinct from
+        # Plan 1088-03's setup-phase wrap of `_ensure_roles_and_admin`: this one
+        # fires per-request inside the test body (e.g., when a test issues
+        # multiple sequential `TestClient.post(...)` calls), so the budget is
+        # intentionally tighter than the setup-phase 7s window. See
+        # `.planning/audits/PYTEST-XDIST-FIXTURE-AUDIT-v1020.md` Section 4.3 +
+        # Section 5 suggestion (lines 1289-1299).
+        _client_session_factory = test_session_factory
+        app.dependency_overrides[get_db] = _override_get_db
+
+        # Initialize singleton cache provider for settings reads/writes in request paths.
+        # Lifespan is not guaranteed in this ASGITransport test setup.
+        init_cache()
+        from app.platform.storage.local import LocalStorageProvider
+
+        storage_provider_module._storage = LocalStorageProvider(
+            base_dir=str(staging_dir)
+        )
+        structlog.contextvars.bind_contextvars(service="api")
+
+        # Disable rate limiter during tests
+        from app.platform.ratelimit import limiter
+
+        limiter.enabled = False
+
+        # Ensure roles and admin user exist before tests.
+        #
+        # Plan 1088-03 / audit Section 4.2: this is the FIRST async-session
+        # connection acquisition under the test_engine, and under -n auto
+        # it surfaced 188 of 365 residual failures as
+        # `asyncpg.TooManyConnectionsError: sorry, too many clients already`
+        # during fixture setup (see
+        # `.planning/audits/PYTEST-XDIST-REMEASURE-AFTER-1088-01.md`).
+        # Wrap with `_run_with_too_many_clients_retry` so transient
+        # connection-contention is retried with bounded backoff
+        # (1.0 + 2.0 + 4.0 = 7s) before failing loudly. The retry budget is
+        # the SAME shape as `_create_test_db_with_retry` from Plan 1088-01
+        # (audit Section 4.1) so both setup-phase contention sites use a
+        # consistent retry contract.
+        await _run_with_too_many_clients_retry(
+            lambda: _ensure_roles_and_admin(test_session_factory)
+        )
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            yield ac
+    finally:
+        app.dependency_overrides.clear()
+        _client_session_factory = None
+        db_module.engine = original_engine
+        db_module.async_session = original_session
+        storage_provider_module._storage = original_storage
+        settings.upload_staging_dir = original_upload_staging_dir
+        tempfile.tempdir = original_tempdir
+        if test_engine is not None:
+            await test_engine.dispose()
 
 
 async def _ensure_roles_and_admin(session_factory: async_sessionmaker) -> None:

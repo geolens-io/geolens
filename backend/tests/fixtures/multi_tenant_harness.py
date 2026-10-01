@@ -44,7 +44,7 @@ from __future__ import annotations
 
 import importlib
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass, field
 from typing import AsyncGenerator
 
@@ -165,15 +165,15 @@ async def _seed_users(
     """Insert one user row per tenant into catalog.users (RLS must be OFF).
 
     Returns (user_a_id, user_b_id) — the inserted row UUIDs.
-    We use AUTOCOMMIT so the rows are committed before we re-enable RLS.
+    Both rows go in one transaction, committed before RLS is re-enabled, so a
+    failure leaves neither behind.
     """
     user_a_id = str(uuid.uuid4())
     user_b_id = str(uuid.uuid4())
 
     engine = create_async_engine(db_url, poolclass=NullPool)
     try:
-        async with engine.connect() as conn:
-            await conn.execution_options(isolation_level="AUTOCOMMIT")
+        async with engine.begin() as conn:
             for uid, tid, uname in [
                 (user_a_id, tenant_a, f"rls_harness_a_{suffix}"),
                 (user_b_id, tenant_b, f"rls_harness_b_{suffix}"),
@@ -302,70 +302,69 @@ async def multi_tenant_rls(monkeypatch) -> AsyncGenerator[MultiTenantContext, No
     Sequence:
       1. Set GEOLENS_TENANCY_MODE=multi_tenant + reload config so
          is_multi_tenant() returns True.
-      2. Seed two user rows (one per tenant) BEFORE enabling RLS, on an
-         AUTOCOMMIT connection so the rows are committed immediately.
+      2. Seed two user rows (one per tenant) BEFORE enabling RLS, in one
+         committed transaction.
       3. Enable + FORCE RLS on the full boundary (AUTOCOMMIT DDL).
       4. Build a session factory with the tenant GUC hook installed and
          yield a MultiTenantContext to the test body.
-      5. In try/finally teardown:
+      5. Teardown, which also covers whatever part of setup completed:
          a. Disable + un-FORCE RLS on the full boundary (AUTOCOMMIT DDL).
          b. Delete the seeded user rows (AUTOCOMMIT, after RLS is off).
          c. Restore GEOLENS_TENANCY_MODE to single_tenant + reload config.
 
-    The try/finally ensures teardown runs even when the test body raises, so
-    the shared per-worker DB is always returned to single_tenant/RLS-disabled
-    state for subsequent tests (T-1208-09).
+    Teardown runs even when setup or the test body raises, so the shared
+    per-worker DB is always returned to single_tenant/RLS-disabled state for
+    subsequent tests (T-1208-09).
 
     Mark tests that use this fixture with ``@pytest.mark.rls``.
     """
     from app.core.config import settings
     from app.core.db.tenant_session import install_tenant_session_hook
 
-    # Step 1: flip to multi_tenant.
-    monkeypatch.setenv("GEOLENS_TENANCY_MODE", "multi_tenant")
-    _reload_settings()
-
-    # Operate on the per-worker TEST database (conftest provisions catalog/data +
-    # geolens_reader + per-tenant schemas there) — NOT the main app DB, which is
-    # `postgres` on CI and lacks the test provisioning, causing "permission denied"
-    # / missing-schema failures. Mirrors the dp02 `_get_test_db_url()` pattern.
-    db_url = settings.test_database_url
-    tenant_a = str(uuid.uuid4())
-    tenant_b = str(uuid.uuid4())
-    suffix = uuid.uuid4().hex[:8]
-
-    # Step 2: seed users BEFORE enabling RLS (AUTOCOMMIT, no policy filter).
-    user_a_id, user_b_id = await _seed_users(db_url, tenant_a, tenant_b, suffix)
-
-    # Step 3: enable + FORCE RLS.
-    await _enable_rls_autocommit(db_url)
-
-    # Step 4: build a session factory with the GUC hook installed.
-    engine = create_async_engine(db_url, poolclass=NullPool)
-    install_tenant_session_hook(engine)
-    session_factory = async_sessionmaker(engine, expire_on_commit=False)
-
-    ctx = MultiTenantContext(
-        tenant_a=tenant_a,
-        tenant_b=tenant_b,
-        user_a_id=user_a_id,
-        user_b_id=user_b_id,
-        db_url=db_url,
-        _session_factory=session_factory,
-    )
-
-    try:
-        yield ctx
-    finally:
-        # Step 5a: disable RLS first (AUTOCOMMIT DDL).
-        await _disable_rls_autocommit(db_url)
-
-        # Step 5b: delete seeded rows AFTER RLS is off.
-        await _delete_seeded_users(db_url, user_a_id, user_b_id)
-
-        # Step 5c: restore single_tenant mode + reload config.
+    def restore_single_tenant() -> None:
         monkeypatch.setenv("GEOLENS_TENANCY_MODE", "single_tenant")
         _reload_settings()
 
-        # Dispose the harness engine.
-        await engine.dispose()
+    # Each undo is registered before the step it reverses, so a setup failure
+    # leaves the shared per-worker DB and tenancy mode as the test found them.
+    async with AsyncExitStack() as undo:
+        # Step 1: flip to multi_tenant.
+        undo.callback(restore_single_tenant)
+        monkeypatch.setenv("GEOLENS_TENANCY_MODE", "multi_tenant")
+        _reload_settings()
+
+        # Operate on the per-worker TEST database (conftest provisions catalog/data +
+        # geolens_reader + per-tenant schemas there) — NOT the main app DB, which is
+        # `postgres` on CI and lacks the test provisioning, causing "permission denied"
+        # / missing-schema failures. Mirrors the dp02 `_get_test_db_url()` pattern.
+        db_url = settings.test_database_url
+        tenant_a = str(uuid.uuid4())
+        tenant_b = str(uuid.uuid4())
+        suffix = uuid.uuid4().hex[:8]
+
+        # Step 2: seed users BEFORE enabling RLS (committed, no policy filter).
+        user_a_id, user_b_id = await _seed_users(db_url, tenant_a, tenant_b, suffix)
+        # Teardown deletes them AFTER RLS is off, so the DELETE is not blocked by
+        # the policy; the stack unwinds the later registration first.
+        undo.push_async_callback(_delete_seeded_users, db_url, user_a_id, user_b_id)
+
+        # Step 3: enable + FORCE RLS.
+        undo.push_async_callback(_disable_rls_autocommit, db_url)
+        await _enable_rls_autocommit(db_url)
+
+        # Step 4: build a session factory with the GUC hook installed.
+        engine = create_async_engine(db_url, poolclass=NullPool)
+        undo.push_async_callback(engine.dispose)
+        install_tenant_session_hook(engine)
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+        ctx = MultiTenantContext(
+            tenant_a=tenant_a,
+            tenant_b=tenant_b,
+            user_a_id=user_a_id,
+            user_b_id=user_b_id,
+            db_url=db_url,
+            _session_factory=session_factory,
+        )
+
+        yield ctx
