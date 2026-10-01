@@ -1869,6 +1869,16 @@ class TestServiceImportAuthRequiredMarker:
                 assert "service-token" not in str(dataset.origin_uri)
             finally:
                 async with db_module.async_session() as session:
+                    # The committed dataset carries the mocked quality score,
+                    # which no dataset listing on this database can serialize.
+                    await session.execute(
+                        text(
+                            "DELETE FROM catalog.records WHERE id IN "
+                            "(SELECT record_id FROM catalog.datasets "
+                            "WHERE table_name = :table_name)"
+                        ),
+                        {"table_name": table_name},
+                    )
                     await session.execute(
                         text(f'DROP TABLE IF EXISTS data."{table_name}" CASCADE')
                     )
