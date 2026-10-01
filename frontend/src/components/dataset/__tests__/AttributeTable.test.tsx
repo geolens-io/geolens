@@ -74,6 +74,14 @@ describe('GLUX-002: AttributeTable filter input accessible name', () => {
     const filterInput = screen.getByRole('textbox', { name: /filter/i });
     expect(filterInput).toBeInTheDocument();
   });
+
+  it('sizes the row spacer with min-height so a short table is not clipped to its header', () => {
+    render(<AttributeTable datasetId="test-ds" />);
+    const scrollBox = screen.getByRole('table').closest<HTMLElement>('.max-h-\\[60vh\\]');
+    const spacer = scrollBox?.firstElementChild as HTMLElement;
+    expect(spacer.style.minHeight).not.toBe('');
+    expect(spacer.style.height).toBe('');
+  });
 });
 
 describe('PERF-07: AttributeTable virtualization wiring', () => {

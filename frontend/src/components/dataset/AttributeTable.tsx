@@ -532,7 +532,9 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
         keeps rendered <tr>s in document flow and shifts each one back to its
         virtualized offset via `translateY(virtualRow.start - index * size)`.
         Total scrollable height is enforced by an inner spacer div wrapping
-        the <table>.
+        the <table>. The spacer sets only a min-height (the rows' total): the
+        sticky header rows are not counted in it, so a fixed height would clip
+        the rows of a short table below the scroll box's edge.
       */}
       <div
         ref={parentRef}
@@ -542,7 +544,7 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
           style={
             rows.length === 0
               ? undefined
-              : { height: `${virtualizer.getTotalSize()}px`, width: '100%' }
+              : { minHeight: `${virtualizer.getTotalSize()}px`, width: '100%' }
           }
         >
           <Table aria-label={t('attributes.tableLabel')} className="w-max">
