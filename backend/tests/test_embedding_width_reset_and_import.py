@@ -466,3 +466,52 @@ async def test_a_put_repeating_the_model_is_not_paired_with_a_new_width(
     assert await EMBEDDING_MODEL.get_uncached(test_db_session) == _OLD_MODEL
     assert await EMBEDDING_DIMS.get_uncached(test_db_session) == width
     assert await _column_dims(test_db_session) == width
+
+
+@pytest.mark.anyio
+async def test_pinning_the_default_model_is_refused_while_a_reset_rebuilds(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    monkeypatch,
+    restore_embedding_settings,
+):
+    """An import that pins the default model during a reset's rebuild answers 409."""
+    from app.processing.embeddings import service
+
+    width = _width_other_than(EMBEDDING_DIMS.env_default)
+    await _publish_width(client, admin_auth_header, test_db_session, width)
+    await EMBEDDING_MODEL.set(test_db_session, _OLD_MODEL)
+    rebuilding, release = anyio.Event(), anyio.Event()
+
+    async def _fail_once_released(_db, _new_dims):
+        rebuilding.set()
+        await release.wait()
+        raise RuntimeError("simulated DDL failure")
+
+    monkeypatch.setattr(service, "rebuild_embedding_column", _fail_once_released)
+    responses = {}
+
+    async def _reset_both():
+        responses["reset"] = await client.post(
+            "/settings/reset/",
+            json={"keys": ["embedding_model", "embedding_dims"]},
+            headers=admin_auth_header,
+        )
+
+    with anyio.fail_after(60):
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(_reset_both)
+            await rebuilding.wait()
+            responses["import"] = await client.post(
+                "/config-ops/import/?mode=merge",
+                json={"settings": {"embedding_model": EMBEDDING_MODEL.env_default}},
+                headers=admin_auth_header,
+            )
+            release.set()
+
+    assert responses["import"].status_code == 409, responses["import"].text
+    assert responses["reset"].status_code == 503, responses["reset"].text
+    assert await EMBEDDING_MODEL.get_uncached(test_db_session) == _OLD_MODEL
+    assert await EMBEDDING_DIMS.get_uncached(test_db_session) == width
+    assert await _column_dims(test_db_session) == width

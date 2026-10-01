@@ -1117,24 +1117,13 @@ async def import_config(
         EMBEDDING_DIMS.key in plan.validated_settings or EMBEDDING_DIMS in resets
     )
     embedding_before = new_dims = None
-    changes_model = False
-    if carries_dims or EMBEDDING_MODEL in touched:
+    if carries_dims:
         embedding_before = await read_committed_embedding_pair(
             db, with_model=EMBEDDING_MODEL in touched
         )
         new_dims = plan.validated_settings.get(
-            EMBEDDING_DIMS.key,
-            EMBEDDING_DIMS.env_default
-            if EMBEDDING_DIMS in resets
-            else embedding_before.dims,
+            EMBEDDING_DIMS.key, EMBEDDING_DIMS.env_default
         )
-        new_model = plan.settings_to_apply.get(
-            EMBEDDING_MODEL.key,
-            EMBEDDING_MODEL.env_default
-            if EMBEDDING_MODEL in resets
-            else embedding_before.model,
-        )
-        changes_model = new_model != embedding_before.model
     for cfg in touched:
         if cfg.key in plan.settings_to_apply:
             value = plan.settings_to_apply[cfg.key]
@@ -1196,7 +1185,7 @@ async def import_config(
     # The settings fence already keeps other writers off the pair read above,
     # so the change lock only has to cover the commit through the rebuild.
     try:
-        async with embedding_change_lock(carries_dims or changes_model):
+        async with embedding_change_lock(carries_dims or EMBEDDING_MODEL in touched):
             # Single commit for config changes and all associated audit rows.
             await db.commit()
 
