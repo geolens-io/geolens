@@ -1202,7 +1202,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/platform/extensions/defaults_ai_anthropic.py": 372,
         "backend/app/platform/extensions/defaults_catalog_port.py": 569,
         # ProcessingPort signatures remain explicit across the catalog boundary.
-        "backend/app/platform/extensions/defaults_processing_port.py": 568,
+        "backend/app/platform/extensions/defaults_processing_port.py": 578,
         "backend/app/platform/extensions/defaults_extensions.py": 433,
         "backend/app/modules/catalog/search/service_filters.py": 366,
     }
@@ -1310,10 +1310,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Owed publish follow-ups and their retry schedule, plus settling the archive
     # flags of jobs that owe no follow-up.
     "backend/app/processing/ingest/publish_followups.py": 1090,
-    # Shared ingest finalization carries verification, bounded ArcGIS requests and lifecycle context.
-    "backend/app/processing/ingest/tasks_common.py": 1731,
+    # Shared ingest finalization carries verification, manifest record fields, bounded
+    # ArcGIS requests and lifecycle context.
+    "backend/app/processing/ingest/tasks_common.py": 1756,
     # File and remote-source replacement strategies own retrieval, staging and verification.
-    "backend/app/processing/ingest/tasks_reupload.py": 1189,
+    "backend/app/processing/ingest/tasks_reupload.py": 1193,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection.
     "backend/app/modules/catalog/datasets/api/router_refresh.py": 1397,
