@@ -122,14 +122,20 @@ export function useSettingsForm<K extends string>(
       for (const f of fields) {
         const key = f.key as K;
         const mode = f.compare ?? 'strict';
+        const editedAfterSubmit =
+          submitted !== null && !isEqual(prev[key], submitted[key], mode);
+        // An edit typed during the save can land back on the old baseline;
+        // it is still newer than what the save acknowledged.
+        if (editedAfterSubmit) {
+          next[f.key] = prev[key];
+          continue;
+        }
         const touched = !isEqual(prev[key], prevBaseline[key], mode);
         if (!touched) continue;
         const serverChanged =
           !isEqual(initialValues[key], prevBaseline[key], mode) ||
           serverSources[key] !== prevSources[key];
-        const editedAfterSubmit =
-          submitted !== null && !isEqual(prev[key], submitted[key], mode);
-        if (!serverChanged || editedAfterSubmit) {
+        if (!serverChanged) {
           next[f.key] = prev[key];
         }
       }

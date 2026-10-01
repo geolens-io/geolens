@@ -153,7 +153,7 @@ describe('useSettingsForm', () => {
       expect(result.current.hasDirty).toBe(true);
 
       // Simulate a query invalidation: new array identity, 'flag' changed
-      // on the server (e.g. the semantic-search toggle), 'name' unchanged.
+      // on the server (e.g. a background refetch), 'name' unchanged.
       rerender({ s: [makeSetting('name', 'Alice'), makeSetting('flag', true)] });
 
       expect(result.current.values.name).toBe('Bob'); // draft survives
@@ -230,6 +230,22 @@ describe('useSettingsForm', () => {
       expect(result.current.values.name).toBe('Carol');
       expect(result.current.hasDirty).toBe(true);
       expect(result.current.dirty).toEqual({ name: 'Carol' });
+    });
+
+    it('keeps an edit that returns to the previous value while the save is in flight', () => {
+      const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
+      const { result, rerender } = renderWithSettings(initial);
+
+      act(() => result.current.setters.flag(true));
+      rerender({ s: initial, saving: true });
+
+      // The user flips the switch back to the value the server still holds.
+      act(() => result.current.setters.flag(false));
+
+      rerender({ s: [makeSetting('name', 'Alice'), makeSetting('flag', true)], saving: false });
+
+      expect(result.current.values.flag).toBe(false);
+      expect(result.current.dirty).toEqual({ flag: false });
     });
 
     it('keeps a post-submit edit even when an unrelated refetch races the save', () => {
