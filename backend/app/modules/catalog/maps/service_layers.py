@@ -2,14 +2,21 @@
 
 import uuid
 
-from sqlalchemy import delete, select
+from fastapi import HTTPException, status
+from sqlalchemy import delete, func, select, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.db.sqlstate import is_lock_conflict
 from app.core.identity import Identity
 from app.modules.catalog.authorization import apply_visibility_filter
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
-from app.modules.catalog.maps.models import MapLayer
-from app.modules.catalog.maps.schemas import MapLayerInput, split_legacy_builder_paint
+from app.modules.catalog.maps.models import Map, MapLayer
+from app.modules.catalog.maps.schemas import (
+    _MAX_LAYERS_PER_MAP,
+    MapLayerInput,
+    split_legacy_builder_paint,
+)
 from app.modules.catalog.maps.service_shared import (
     _infer_layer_type,
     generate_default_style,
@@ -44,6 +51,53 @@ async def bulk_check_dataset_access(
     return {row[0] for row in result}
 
 
+_LAYER_LOCK_TIMEOUT = "2s"
+
+
+async def lock_map_layers(session: AsyncSession, map_id: uuid.UUID) -> None:
+    """Serialize the writers that change one map's layer count.
+
+    Take it before reading the layers a write will count or reconcile, and hold
+    it through the caller's commit: a writer that counted first would otherwise
+    insert on a stale count after another admitted its layer. Only the wait for
+    this lock is bounded; a wait that outlasts the bound answers 409.
+    """
+    await session.execute(
+        text("SELECT set_config('lock_timeout', :timeout, true)"),
+        {"timeout": _LAYER_LOCK_TIMEOUT},
+    )
+    try:
+        await session.execute(select(Map.id).where(Map.id == map_id).with_for_update())
+    except DBAPIError as exc:
+        if not is_lock_conflict(exc):
+            raise
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Another change to this map is in progress. Retry shortly.",
+        ) from exc
+    await session.execute(text("RESET lock_timeout"))
+
+
+async def _admit_layer(session: AsyncSession, map_id: uuid.UUID) -> None:
+    """Refuse an append past the per-map layer limit.
+
+    Maps already over the limit can still shrink: only additions come through
+    here.
+    """
+    await lock_map_layers(session, map_id)
+    layer_count = (
+        await session.execute(
+            select(func.count()).select_from(MapLayer).where(MapLayer.map_id == map_id)
+        )
+    ).scalar_one()
+    if layer_count >= _MAX_LAYERS_PER_MAP:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"A map holds at most {_MAX_LAYERS_PER_MAP} layers",
+        )
+
+
 async def add_layer(
     session: AsyncSession,
     map_id: uuid.UUID,
@@ -51,7 +105,7 @@ async def add_layer(
 ) -> MapLayer:
     """Add a layer to a map. Applies default style if paint/layout is None.
 
-    Does NOT commit.
+    Raises 422 when the map is at its layer limit. Does NOT commit.
     """
     meta = await get_dataset_meta(session, body.dataset_id)
     record_type = meta.record_type if meta else None
@@ -85,6 +139,7 @@ async def add_layer(
         style_config,
         is_dem=meta.is_dem if meta else None,
     )
+    await _admit_layer(session, map_id)
     sort_order = body.sort_order
     if "sort_order" not in body.model_fields_set:
         result = await session.execute(

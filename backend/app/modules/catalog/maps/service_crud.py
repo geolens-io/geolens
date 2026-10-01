@@ -19,7 +19,10 @@ from app.modules.auth.models import User
 from app.modules.catalog.authorization import get_user_roles
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.service_diff import _replace_layers
-from app.modules.catalog.maps.service_layers import bulk_check_dataset_access
+from app.modules.catalog.maps.service_layers import (
+    bulk_check_dataset_access,
+    lock_map_layers,
+)
 from app.core.text import escape_ilike
 from app.modules.catalog.maps.style_json import project_terrain_config
 from app.modules.catalog.maps.service_shared import (
@@ -498,6 +501,8 @@ async def update_map(
     ``(Map, layer_rows, forked_from_name, owner_username)``. Built from
     in-session ORM state so callers don't need a post-save re-fetch.
     """
+    if layers is not None:
+        await lock_map_layers(session, map_id)
     result = await session.execute(select(Map).where(Map.id == map_id))
     map_obj = result.scalar_one_or_none()
     if map_obj is None:

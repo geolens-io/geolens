@@ -19,7 +19,10 @@ from app.modules.catalog.maps.schemas import (
     _MAX_LAYERS_PER_MAP,
     split_legacy_builder_paint,
 )
-from app.modules.catalog.maps.service_layers import bulk_check_dataset_access
+from app.modules.catalog.maps.service_layers import (
+    bulk_check_dataset_access,
+    lock_map_layers,
+)
 from app.modules.catalog.maps.service_shared import (
     LayerRow,
     _fetch_layer_rows_ordered,
@@ -104,6 +107,7 @@ async def apply_layer_diff(
     user_roles: set[str],
 ) -> tuple[Map, list[LayerRow], str | None, str | None]:
     """Apply an incremental layer diff. Flushes but does NOT commit."""
+    await lock_map_layers(session, map_id)
     result = await session.execute(select(Map).where(Map.id == map_id))
     map_obj = result.scalar_one_or_none()
     if map_obj is None:
