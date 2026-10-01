@@ -71,6 +71,17 @@ _UNKEYABLE = {
         "CREATE TABLE data.{t}_a PARTITION OF data.{t} FOR VALUES IN ('a')",
         "INSERT INTO data.{t} (name) VALUES ('a')",
     ],
+    "partition_without_gid": [
+        "CREATE TABLE data.{t}_parent (name text, geom geometry(Point, 4326)) "
+        "PARTITION BY LIST (name)",
+        "CREATE TABLE data.{t} PARTITION OF data.{t}_parent FOR VALUES IN ('a')",
+        "INSERT INTO data.{t} (name) VALUES ('a')",
+    ],
+    "typed_without_gid": [
+        "CREATE TYPE data.{t}_type AS (name text, geom geometry(Point, 4326))",
+        "CREATE TABLE data.{t} OF data.{t}_type",
+        "INSERT INTO data.{t} (name) VALUES ('a')",
+    ],
 }
 
 
@@ -93,7 +104,10 @@ async def _discovered(client: AsyncClient, headers: dict, table: str) -> dict:
 
 async def _drop(session, table: str) -> None:
     await session.rollback()
-    await session.execute(text(f"DROP TABLE IF EXISTS data.{table} CASCADE"))
+    await session.execute(
+        text(f"DROP TABLE IF EXISTS data.{table}, data.{table}_parent CASCADE")
+    )
+    await session.execute(text(f"DROP TYPE IF EXISTS data.{table}_type CASCADE"))
     await session.commit()
 
 
