@@ -14,6 +14,7 @@ titiler_url.resolve_open_path (STOR-02); this class stores keys verbatim.
 from __future__ import annotations
 
 import asyncio
+from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncIterator, BinaryIO
@@ -23,6 +24,10 @@ from azure.storage.blob import BlobServiceClient
 
 from app.core.async_io import run_in_thread_draining
 from app.platform.storage.provider import StoredObject
+
+
+# Resume points remembered per provider; a pass walks at most a few hundred pages.
+_MAX_RESUME_TOKENS = 512
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -50,6 +55,11 @@ class AzureBlobStorageProvider:
         credential: str | None = None,
     ) -> None:
         self.container = container
+        # (prefix, last blob name of a page) -> the name the page starts after and
+        # the continuation tokens that fetch that page and the one after it.
+        self._resume_tokens: OrderedDict[
+            tuple[str, str], tuple[str, str | None, str | None]
+        ] = OrderedDict()
         if connection_string:
             self._client = BlobServiceClient.from_connection_string(connection_string)
         else:
@@ -261,25 +271,34 @@ class AzureBlobStorageProvider:
         """Yield blob pages under a prefix, each entry with its last-modified.
 
         ``by_page()`` (fix(#1249)) so a consumer that stops early stops the
-        service round trips with it. ``start_after`` is filtered client-side:
-        Azure's flat listing takes a name prefix, not a start marker, and its
-        continuation tokens can't be reconstructed as a key by a later pass.
-        Listings are name-ordered, so this yields the same sequence as S3's
-        ``StartAfter``; only the skipped pages still cross the wire.
+        service round trips with it. Azure's flat listing takes a name prefix,
+        not a start marker, so ``start_after`` resumes from the continuation
+        token of the remembered page that contains it and is filtered
+        client-side within that page, which skips the earlier pages without
+        fetching them. A cursor past every remembered page is filtered
+        client-side from the start, and the pages before it are fetched and
+        yielded empty. Listings are name-ordered, so both yield the same
+        sequence as S3's ``StartAfter``.
         """
         container_client = self._client.get_container_client(self.container)
-        pages = container_client.list_blobs(name_starts_with=prefix).by_page()
+        token, lower = self._resume_point(prefix, start_after)
+        pages = container_client.list_blobs(name_starts_with=prefix).by_page(
+            continuation_token=token
+        )
 
-        def _next_page() -> list | None:
+        def _next_page() -> tuple[list, str | None, str | None] | None:
+            started_at = pages.continuation_token
             try:
-                return list(next(pages))
+                blobs = list(next(pages))
             except StopIteration:
                 return None
+            return blobs, started_at, pages.continuation_token
 
         while True:
-            blobs = await asyncio.to_thread(_next_page)
-            if blobs is None:
+            fetched = await asyncio.to_thread(_next_page)
+            if fetched is None:
                 return
+            blobs, started_at, next_token = fetched
             page: list[StoredObject] = []
             for blob in blobs:
                 if start_after is not None and blob.name <= start_after:
@@ -295,7 +314,48 @@ class AzureBlobStorageProvider:
                         last_modified=_as_utc(last_modified),
                     )
                 )
+            # A one-page listing has nothing to resume, and would evict the
+            # pages of the long scan.
+            if blobs and (started_at or next_token):
+                self._remember_page(
+                    prefix, lower, blobs[-1].name, started_at, next_token
+                )
+            if blobs:
+                lower = blobs[-1].name
             yield page
+
+    def _resume_point(
+        self, prefix: str, start_after: str | None
+    ) -> tuple[str | None, str]:
+        """The token to resume after ``start_after`` and the name it starts after.
+
+        Only a remembered page whose span holds the cursor qualifies, so no
+        blob between the cursor and the resumed page is skipped.
+        """
+        if start_after is None:
+            return None, ""
+        for (page_prefix, last_name), (lower, started_at, next_token) in sorted(
+            self._resume_tokens.items(), key=lambda item: item[0][1]
+        ):
+            if page_prefix != prefix or not lower <= start_after <= last_name:
+                continue
+            if last_name == start_after and next_token:
+                return next_token, last_name
+            return started_at, lower
+        return None, ""
+
+    def _remember_page(
+        self,
+        prefix: str,
+        lower: str,
+        last_name: str,
+        started_at: str | None,
+        next_token: str | None,
+    ) -> None:
+        self._resume_tokens[(prefix, last_name)] = (lower, started_at, next_token)
+        self._resume_tokens.move_to_end((prefix, last_name))
+        while len(self._resume_tokens) > _MAX_RESUME_TOKENS:
+            self._resume_tokens.popitem(last=False)
 
     async def health_check(self) -> None:
         """Verify the Azure container is reachable via get_container_properties."""

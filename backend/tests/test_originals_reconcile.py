@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import boto3
@@ -609,3 +610,184 @@ class TestRealProviders:
 
             assert await storage.list(f"{ORIGINALS_PREFIX}{orphan}/") == []
             assert await storage.list(f"{ORIGINALS_PREFIX}{_a_dataset_exists}/") != []
+
+
+class _FakeAzureContainer:
+    """A container client whose listing pages and continuation tokens work like the SDK's."""
+
+    def __init__(self, blobs: dict[str, datetime], page_size: int) -> None:
+        self.blobs = blobs
+        self.page_size = page_size
+        self.pages_fetched = 0
+
+    def get_container_client(self, _container: str):
+        return self
+
+    def list_blobs(self, name_starts_with: str):
+        names = sorted(name for name in self.blobs if name.startswith(name_starts_with))
+        return _FakeAzureListing(self, names)
+
+
+class _FakeAzureListing:
+    def __init__(self, container: _FakeAzureContainer, names: list[str]) -> None:
+        self.container = container
+        self.names = names
+
+    def by_page(self, continuation_token: str | None = None):
+        return _FakeAzurePages(self.container, self.names, continuation_token)
+
+
+class _FakeAzurePages:
+    def __init__(self, container, names, token: str | None) -> None:
+        self.container = container
+        self.names = names
+        self.offset = int(token) if token else 0
+        self.continuation_token: str | None = None
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self.offset >= len(self.names):
+            raise StopIteration
+        size = self.container.page_size
+        chunk = self.names[self.offset : self.offset + size]
+        self.offset += size
+        self.container.pages_fetched += 1
+        self.continuation_token = (
+            str(self.offset) if self.offset < len(self.names) else None
+        )
+        return iter(
+            SimpleNamespace(name=name, last_modified=self.container.blobs[name])
+            for name in chunk
+        )
+
+
+def _azure_provider(blobs: dict[str, datetime], page_size: int):
+    from app.platform.storage.azure import AzureBlobStorageProvider
+
+    provider = AzureBlobStorageProvider(
+        "originals", connection_string="UseDevelopmentStorage=true"
+    )
+    container = _FakeAzureContainer(blobs, page_size)
+    provider._client = container
+    return provider, container
+
+
+class TestAzureResume:
+    async def test_an_orphan_past_the_page_budget_is_reached_within_a_few_passes(
+        self, test_db_session: AsyncSession
+    ) -> None:
+        ids = sorted(uuid.uuid4() for _ in range(2 * (module._MAX_PAGES_PER_PASS + 10)))
+        orphan = ids.pop()
+        blobs = {_key(dataset_id): YOUNG for dataset_id in ids}
+        blobs[_key(orphan)] = OLD
+        storage, _ = _azure_provider(blobs, page_size=2)
+        deleted: list[str] = []
+
+        async def delete(key: str) -> None:
+            deleted.append(key)
+            blobs.pop(key, None)
+
+        storage.delete = delete  # type: ignore[method-assign]
+
+        for _ in range(3):
+            await _run(test_db_session, storage)
+
+        assert deleted == [_key(orphan)]
+
+    async def test_a_resumed_listing_yields_what_a_server_side_cursor_would(
+        self,
+    ) -> None:
+        blobs = {f"originals/{index:03d}": OLD for index in range(23)}
+        storage, container = _azure_provider(blobs, page_size=5)
+        first_pages = []
+        async for page in storage.iter_object_pages("originals/"):
+            first_pages.append(page)
+        cursor = first_pages[1][-1].key
+        container.pages_fetched = 0
+
+        resumed = [
+            page.key
+            async for batch in storage.iter_object_pages(
+                "originals/", start_after=cursor
+            )
+            for page in batch
+        ]
+
+        assert resumed == sorted(key for key in blobs if key > cursor)
+        assert container.pages_fetched == 3
+
+    async def test_a_cursor_inside_a_page_resumes_from_that_page(self) -> None:
+        blobs = {f"originals/{index:03d}": OLD for index in range(23)}
+        storage, container = _azure_provider(blobs, page_size=5)
+        async for _ in storage.iter_object_pages("originals/"):
+            pass
+        container.pages_fetched = 0
+        cursor = "originals/012"
+
+        resumed = [
+            entry.key
+            async for batch in storage.iter_object_pages(
+                "originals/", start_after=cursor
+            )
+            for entry in batch
+        ]
+
+        assert resumed == sorted(key for key in blobs if key > cursor)
+        assert container.pages_fetched == 3
+
+    async def test_a_cursor_in_an_evicted_gap_loses_no_blob(self, monkeypatch) -> None:
+        import app.platform.storage.azure as azure_module
+
+        monkeypatch.setattr(azure_module, "_MAX_RESUME_TOKENS", 2)
+        blobs = {f"originals/{index:03d}": OLD for index in range(30)}
+        storage, _ = _azure_provider(blobs, page_size=5)
+        async for _ in storage.iter_object_pages("originals/"):
+            pass
+        cursor = "originals/001"
+
+        resumed = [
+            entry.key
+            async for batch in storage.iter_object_pages(
+                "originals/", start_after=cursor
+            )
+            for entry in batch
+        ]
+
+        assert resumed == sorted(key for key in blobs if key > cursor)
+
+    async def test_single_page_listings_do_not_evict_a_long_scans_pages(self) -> None:
+        blobs = {f"originals/{index:03d}": OLD for index in range(23)}
+        blobs.update({f"other/{index:04d}": OLD for index in range(600)})
+        storage, container = _azure_provider(blobs, page_size=5)
+        async for _ in storage.iter_object_pages("originals/"):
+            pass
+        for index in range(600):
+            async for _ in storage.iter_object_pages(f"other/{index:04d}"):
+                pass
+        container.pages_fetched = 0
+
+        async for _ in storage.iter_object_pages(
+            "originals/", start_after="originals/014"
+        ):
+            pass
+
+        assert container.pages_fetched == 2
+
+    async def test_a_cursor_no_remembered_page_contains_is_filtered_client_side(
+        self,
+    ) -> None:
+        blobs = {f"originals/{index:03d}": OLD for index in range(10)}
+        storage, container = _azure_provider(blobs, page_size=5)
+        cursor = "originals/002"
+
+        resumed = [
+            entry.key
+            async for batch in storage.iter_object_pages(
+                "originals/", start_after=cursor
+            )
+            for entry in batch
+        ]
+
+        assert resumed == sorted(key for key in blobs if key > cursor)

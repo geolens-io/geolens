@@ -47,8 +47,8 @@ ORIGINALS_ORPHAN_MIN_AGE = timedelta(days=1)
 
 _MAX_DELETES_PER_PASS = 200
 _MAX_OBJECTS_SCANNED_PER_PASS = 20_000
-# Azure filters the resume cursor client-side, so the pages before it are
-# fetched too; a prefix deeper than this many pages is not reached.
+# A provider that filters the resume cursor client-side still fetches the pages
+# before it, and those count here.
 _MAX_PAGES_PER_PASS = 100
 # A prefix holds a handful of originals; one past this is not one of ours.
 _MAX_OBJECTS_PER_PREFIX = 1_000
