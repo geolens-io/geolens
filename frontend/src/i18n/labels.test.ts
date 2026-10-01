@@ -1,4 +1,4 @@
-import { getGeometryTypeLabel, getSourceFormatLabel, withCoordSuffix } from './labels';
+import { getGeometryTypeLabel, getServiceTypeLabel, getSourceFormatLabel, withCoordSuffix } from './labels';
 
 const t = (_key: string, options?: { defaultValue?: string }) => options?.defaultValue ?? '';
 
@@ -45,5 +45,16 @@ describe('getSourceFormatLabel', () => {
     ['arcgis_featureserver', 'ArcGIS FeatureServer'],
   ])('labels %s as %s', (value, label) => {
     expect(getSourceFormatLabel(t, value)).toBe(label);
+  });
+});
+
+describe('getServiceTypeLabel', () => {
+  it('relabels a service token', () => {
+    expect(getServiceTypeLabel(t, 'arcgis_featureserver')).toBe('ArcGIS FeatureServer');
+  });
+
+  it("keeps a probe's own text, which is already readable", () => {
+    expect(getServiceTypeLabel(t, 'WFS 2.0.0')).toBe('WFS 2.0.0');
+    expect(getServiceTypeLabel(t, 'OGC API Features')).toBe('OGC API Features');
   });
 });

@@ -243,6 +243,14 @@ export function getIngestSourceLabel(t: Translate, sourceFilename: string): stri
   return resolveLabel(t, INGEST_SOURCE_KEYS[token], INGEST_SOURCE_DEFAULTS[token]);
 }
 
+/** A service type is a token (`arcgis_featureserver`) or a probe's own text (`WFS 2.0.0`); only a token is relabelled. */
+export function getServiceTypeLabel(t: Translate, serviceType: string): string {
+  const normalized = normalizeEnumValue(serviceType);
+  return Object.prototype.hasOwnProperty.call(SOURCE_FORMAT_KEYS, normalized)
+    ? getSourceFormatLabel(t, normalized)
+    : serviceType;
+}
+
 export function getSearchSortLabel(
   t: Translate,
   sortBy: string | null | undefined,
