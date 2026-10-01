@@ -43,11 +43,15 @@ export function useCreateFeature() {
       datasetId,
       geometry,
       properties,
+      idempotencyKey,
+      attempt,
     }: {
       datasetId: string;
       geometry: Geometry;
       properties?: Record<string, unknown>;
-    }) => createFeature(datasetId, geometry, properties),
+      idempotencyKey?: string;
+      attempt?: number;
+    }) => createFeature(datasetId, geometry, properties, idempotencyKey, attempt),
     onSuccess: (_data, variables) => {
       invalidateFeatureCaches(qc, variables.datasetId);
     },

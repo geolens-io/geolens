@@ -1269,6 +1269,79 @@ describe("useFeatureEditing on the dataset preview's layers", () => {
   });
 });
 
+// A create whose response is lost may have committed, so every attempt to save
+// one sketch sends the same key with a higher attempt number, and the server
+// orders and applies the bodies. The client never writes on top of the create.
+describe('useFeatureEditing — create idempotency key', () => {
+  beforeEach(() => {
+    createMutateAsync.mockReset();
+    createMutateAsync.mockResolvedValue({});
+    updateMutateAsync.mockReset();
+    updateMutateAsync.mockResolvedValue({});
+  });
+
+  function sent(): { key: string; attempt: number; properties: unknown }[] {
+    return createMutateAsync.mock.calls.map(([vars]) => ({
+      key: vars.idempotencyKey,
+      attempt: vars.attempt,
+      properties: vars.properties,
+    }));
+  }
+
+  it('sends one key with a higher attempt number and the current body on each attempt', async () => {
+    const sketch = { type: 'Point' as const, coordinates: [0, 0] };
+    createMutateAsync.mockRejectedValueOnce(new Error('timed out'));
+    createMutateAsync.mockRejectedValueOnce(new Error('timed out'));
+    const { result } = renderEditing(makeMapWithOverlaySource(vi.fn()));
+
+    for (const properties of [{}, { name: 'pin' }, { name: 'edited' }]) {
+      await act(async () => {
+        await result.current.saveAndRefresh(sketch, properties);
+      });
+    }
+
+    const attempts = sent();
+    expect(attempts[0].key).toEqual(expect.any(String));
+    expect(attempts[0].key).not.toBe('');
+    expect(attempts.map((a) => a.key)).toEqual([attempts[0].key, attempts[0].key, attempts[0].key]);
+    expect(attempts.map((a) => a.attempt)).toEqual([1, 2, 3]);
+    expect(attempts.map((a) => a.properties)).toEqual([{}, { name: 'pin' }, { name: 'edited' }]);
+  });
+
+  it('sends a different key, starting again at attempt 1, for a new sketch', async () => {
+    const { result } = renderEditing(makeMapWithOverlaySource(vi.fn()));
+
+    await act(async () => {
+      await result.current.saveAndRefresh({ type: 'Point', coordinates: [0, 0] }, {});
+    });
+    await act(async () => {
+      await result.current.saveAndRefresh({ type: 'Point', coordinates: [0, 0] }, {});
+    });
+
+    const [first, second] = sent();
+    expect(first.key).not.toBe(second.key);
+    expect([first.attempt, second.attempt]).toEqual([1, 1]);
+  });
+
+  it('never writes on top of a create, however the retry came back', async () => {
+    const sketch = { type: 'Point' as const, coordinates: [0, 0] };
+    createMutateAsync.mockRejectedValueOnce(new Error('timed out'));
+    createMutateAsync.mockResolvedValueOnce({ id: 7, properties: { name: 'first attempt' } });
+    const { result } = renderEditing(makeMapWithVectorSource(vi.fn()));
+    let outcome: { saved: boolean; refused?: boolean } | undefined;
+
+    await act(async () => {
+      await result.current.saveAndRefresh(sketch, { name: 'first attempt' });
+    });
+    await act(async () => {
+      outcome = await result.current.saveAndRefresh(sketch, { name: 'edited' });
+    });
+
+    expect(updateMutateAsync).not.toHaveBeenCalled();
+    expect(outcome).toEqual({ saved: true });
+  });
+});
+
 // The tile routes only recognise `_v` as a stored tile_cache_version or a
 // record updated_at timestamp, so the post-edit reload must send the value
 // the mutation response returns rather than a client timestamp (#2310).

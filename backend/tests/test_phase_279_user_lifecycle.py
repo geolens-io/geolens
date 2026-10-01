@@ -70,6 +70,9 @@ def test_user_fk_delete_behavior_locked():
         # Email-verification tokens (Phase 1231 migration 0009) are short-lived
         # per-user credentials; they are meaningless once the user is deleted.
         "email_verification_tokens.user_id",
+        # Feature-create retry keys are per-user request state that matches a
+        # retry to its first attempt; nothing can retry once the user is gone.
+        "feature_create_keys.user_id",
     }
 
     bad_fks: list[str] = []

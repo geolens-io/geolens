@@ -22,6 +22,7 @@ import app.platform.jobs.models  # noqa: F401
 import app.platform.refresh.models  # noqa: F401
 import app.modules.catalog.collections.models  # noqa: F401
 import app.modules.catalog.maps.models  # noqa: F401
+import app.modules.catalog.features.models  # noqa: F401
 import app.processing.raster.models  # noqa: F401
 import app.modules.catalog.search.saved  # noqa: F401
 import app.core.db.models  # noqa: F401

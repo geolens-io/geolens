@@ -2359,6 +2359,22 @@ export const listFeaturesDatasetsDatasetIdFeaturesGet = <ThrowOnError extends bo
  * Create Feature
  *
  * Insert a new GeoJSON feature into a dataset.
+ *
+ * Send the same `Idempotency-Key` on every attempt to create one feature, and
+ * `Idempotency-Attempt` numbering the attempts 1, 2, 3 and so on. A repeat
+ * from the same user on the same dataset never inserts a second feature. It
+ * answers with the feature as stored, with the same 201 status and body
+ * shape. If its attempt number is higher than any applied so far, it first
+ * applies its geometry and the properties it names to that feature, with the
+ * validation a create gets, unless anyone else has written the feature since
+ * the last attempt was applied: then it is refused with 409, the stored
+ * feature in `detail.feature`, and nothing is overwritten. If it is equal or
+ * lower, the stored feature comes back unchanged, so a request that arrives
+ * late cannot undo a later one. Two requests with one key never both insert. A key is honored for 24 hours. If
+ * the feature it created has been deleted since, or the dataset's data has
+ * been replaced by a reupload or an overwrite, the repeat is refused with 409
+ * rather than creating another. Without the key every request inserts, and
+ * an attempt number sent without one is ignored.
  */
 export const createFeatureDatasetsDatasetIdFeaturesPost = <ThrowOnError extends boolean = false>(options: Options<CreateFeatureDatasetsDatasetIdFeaturesPostData, ThrowOnError>): RequestResult<CreateFeatureDatasetsDatasetIdFeaturesPostResponses, CreateFeatureDatasetsDatasetIdFeaturesPostErrors, ThrowOnError> => (options.client ?? client).post<CreateFeatureDatasetsDatasetIdFeaturesPostResponses, CreateFeatureDatasetsDatasetIdFeaturesPostErrors, ThrowOnError>({
     security: [

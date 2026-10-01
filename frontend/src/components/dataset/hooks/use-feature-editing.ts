@@ -14,6 +14,7 @@ import { getModeName, extractSingleGeometry, isMultiPartGeometry } from '@/compo
 import { buildSignedTileUrl } from '@/lib/tile-utils';
 import { formatMutationError } from '@/lib/error-map';
 import { getEnvConfig } from '@/lib/env';
+import { randomId } from '@/lib/random-id';
 import {
   PREVIEW_FEATURE_LAYER_IDS,
   PREVIEW_LAYER_IDS,
@@ -21,6 +22,23 @@ import {
 } from '@/components/maps/hooks/use-map-layers';
 import type { Map as MaplibreMap, GeoJSONSource, Point, VectorTileSource } from 'maplibre-gl';
 import type { Feature, Geometry } from 'geojson';
+
+/**
+ * One idempotency key per sketch, keyed on the geometry object the dataset map
+ * holds until a create succeeds. Every attempt to save that sketch (automatic
+ * save, Save, Skip) sends the same key and the next attempt number, so a create
+ * that committed before its response was lost is not inserted twice, and the
+ * server applies the body of the highest attempt it receives. A new sketch is
+ * a new object and starts again at attempt 1.
+ */
+const createAttempts = new WeakMap<Geometry, { key: string; count: number }>();
+
+function nextCreateAttempt(geometry: Geometry): { key: string; attempt: number } {
+  const entry = createAttempts.get(geometry) ?? { key: randomId(), count: 0 };
+  entry.count += 1;
+  createAttempts.set(geometry, entry);
+  return { key: entry.key, attempt: entry.count };
+}
 
 /** Empty GeoJSON FeatureCollection for overlay reset */
 const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
@@ -262,10 +280,13 @@ export function useFeatureEditing({
 
       beginWrite(epoch);
       try {
+        const { key, attempt } = nextCreateAttempt(geometry);
         const created = await createFeature.mutateAsync({
           datasetId,
           geometry: geometry as Geometry,
           properties,
+          idempotencyKey: key,
+          attempt,
         });
         // fix(#1761 review round 4): if the identity changed while this
         // request was in flight, the identity-change cleanup already

@@ -18811,6 +18811,20 @@ export type ListFeaturesDatasetsDatasetIdFeaturesGetResponse = ListFeaturesDatas
 
 export type CreateFeatureDatasetsDatasetIdFeaturesPostData = {
     body: FeatureCreate;
+    headers?: {
+        /**
+         * Idempotency-Key
+         *
+         * Optional key that makes a retried create safe. Letters, digits and `._:-`, up to 128 characters.
+         */
+        'Idempotency-Key'?: string;
+        /**
+         * Idempotency-Attempt
+         *
+         * Attempt number sent with `Idempotency-Key`, counting up by one each time the body is sent again. Counts as 1 when omitted.
+         */
+        'Idempotency-Attempt'?: number;
+    };
     path: {
         /**
          * Dataset Id

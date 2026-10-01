@@ -31,13 +31,27 @@ export interface FeatureDeleteResult {
   tile_cache_version?: number | null;
 }
 
+/**
+ * Create a feature. Send the same `idempotencyKey` on every attempt to create
+ * one feature, with an `attempt` number that grows by one each time the body
+ * is sent again: a retry after a lost response then updates the feature that
+ * was created, with the newest body, instead of inserting another.
+ */
 export async function createFeature(
   datasetId: string,
   geometry: Geometry,
   properties?: Record<string, unknown>,
+  idempotencyKey?: string,
+  attempt?: number,
 ): Promise<GeoJSONFeatureWrite> {
+  const headers: Record<string, string> = {};
+  if (idempotencyKey) {
+    headers['Idempotency-Key'] = idempotencyKey;
+    if (attempt !== undefined) headers['Idempotency-Attempt'] = String(attempt);
+  }
   return apiFetch<GeoJSONFeatureWrite>(`/datasets/${datasetId}/features/`, {
     method: 'POST',
+    headers: Object.keys(headers).length > 0 ? headers : undefined,
     body: JSON.stringify({ geometry, properties: properties ?? {} }),
   });
 }

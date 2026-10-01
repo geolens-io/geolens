@@ -149,6 +149,33 @@ async def lock_catalog_rows(
         await _raise_rolled_back_conflict(session, exc)
 
 
+async def lock_request_key(
+    session: AsyncSession,
+    *,
+    scope: str,
+    lock_timeout: str | None = _USE_REQUEST_DEFAULT,
+) -> None:
+    """Serialise transactions on one named key until this one ends.
+
+    A transaction-scoped advisory lock on the hash of ``scope``. Take it before
+    any data-table or catalog lock, so waiting here holds neither and cannot be
+    one side of a cycle. Same timeout and exception contract as
+    :func:`lock_catalog_rows`; two scopes that hash alike only wait on each
+    other needlessly.
+    """
+    await _install_lock_timeout(session, lock_timeout)
+    try:
+        with session.no_autoflush:
+            await session.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:scope, 0))"),
+                {"scope": scope},
+            )
+    except DBAPIError as exc:
+        if not is_lock_conflict(exc):
+            raise
+        await _raise_rolled_back_conflict(session, exc)
+
+
 async def lock_ingest_jobs(
     session: AsyncSession,
     *,
