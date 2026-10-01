@@ -37,6 +37,7 @@ def storage(tmp_path, monkeypatch) -> LocalStorageProvider:
         "app.platform.storage.get_storage",
         "app.processing.ingest.tasks_common.get_storage",
         "app.processing.ingest.tasks_staging.get_storage",
+        "app.modules.catalog.datasets.api.router.get_storage",
     ):
         monkeypatch.setattr(target, lambda: provider, raising=True)
     return provider
@@ -124,7 +125,11 @@ async def _render(table: str) -> bytes:
 
 
 async def _published_one_point_dataset(
-    session: AsyncSession, storage: LocalStorageProvider, tables: list
+    session: AsyncSession,
+    storage: LocalStorageProvider,
+    tables: list,
+    *,
+    visibility: str = "private",
 ) -> tuple[Dataset, uuid.UUID, bytes]:
     """A one-point dataset whose first ingest drew its quicklook."""
     import app.core.db as db_module
@@ -135,7 +140,7 @@ async def _published_one_point_dataset(
         session,
         created_by=admin_id,
         table_name=table,
-        visibility="private",
+        visibility=visibility,
         record_type="vector_dataset",
         geometry_type="Point",
         feature_count=1,
@@ -460,3 +465,34 @@ async def test_a_draw_overtaken_while_its_waiter_gave_up_draws_the_newer_table(
     _uri, stored = await _stored_quicklook(storage, dataset.id)
     assert stored != before, "the slow draw of the replaced data was kept"
     assert stored == await _render(dataset.table_name)
+
+
+async def test_a_redraw_gives_the_public_quicklook_a_new_etag(
+    client, test_db_session, storage, tables
+) -> None:
+    """A browser revalidating the replaced image gets the redrawn one."""
+    dataset, _admin_id, before = await _published_one_point_dataset(
+        test_db_session, storage, tables, visibility="public"
+    )
+    url = f"/datasets/{dataset.id}/quicklook"
+    first = await client.get(url)
+    assert first.status_code == 200
+    assert first.content == before
+    held = first.headers["etag"]
+
+    await test_db_session.execute(text(f'DELETE FROM "data"."{dataset.table_name}"'))
+    await test_db_session.execute(
+        text(
+            f'INSERT INTO "data"."{dataset.table_name}" (name, geom, geom_4326) '
+            "SELECT name, geom, geom FROM (VALUES "
+            f"{_points_sql(_SPREAD)}) AS v(name, geom)"
+        )
+    )
+    await test_db_session.commit()
+    await _draw(dataset)
+
+    revalidated = await client.get(url, headers={"If-None-Match": held})
+    assert revalidated.status_code == 200
+    assert revalidated.content == await _render(dataset.table_name)
+    assert revalidated.content != before
+    assert revalidated.headers["etag"] not in (None, held)
