@@ -447,59 +447,65 @@ async def update_settings(
 
         validated_settings[key] = _canonicalize_setting_value(key, value, cfg)
 
-    # fix(#1529): publish embedding_model and its detected width ATOMICALLY —
-    # the probe runs HERE, before the provider row locks and the batch commit,
-    # so its result joins the same batch and a reader never sees the new model
-    # beside the old dimension count (or a failed probe leaves both untouched).
-    #
-    # Folding the width into validated_settings puts auto-detect on the SAME
-    # commit-and-rebuild path as an explicit embedding_dims, avoiding a
-    # detected width persisting while the vector column keeps the old one.
-    #
-    # Probed ahead of the SSO guard (which row-locks OAuth providers) so a
-    # provider network call doesn't serialize unrelated provider mutations
-    # behind those locks. The whole validated batch is handed to the probe,
-    # not just the model, since a PUT can change the endpoint too (see
-    # _probe_base_url).
-    if (
+    # A model the request repeats skips the probe below, so the model check
+    # has to sit under the lock too; otherwise a concurrent change could pair
+    # the repeated model with another model's width.
+    async with _embedding_change(
         "embedding_model" in validated_settings
-        and "embedding_dims" not in validated_settings
-        # In ENV_ONLY_CONFIG mode every cfg.set() below raises 403, so probing
-        # would only burn a provider call on a request that cannot land.
-        and not _is_env_only()
+        or "embedding_dims" in validated_settings
     ):
-        requested_model = str(validated_settings["embedding_model"])
-        # Uncached on purpose: a stale cache entry naming the requested model
-        # would skip the probe and publish that model with an unrelated width.
-        if requested_model != await EMBEDDING_MODEL.get_uncached(db):
-            validated_settings["embedding_dims"] = _canonicalize_setting_value(
-                "embedding_dims",
-                await _detect_dims_for_requested_model(
-                    db, requested_model, validated_settings
-                ),
-                registry_map["embedding_dims"],
-            )
+        # Publish embedding_model and its detected width atomically: the probe
+        # runs before the provider row locks and the batch commit, so its result
+        # joins the same batch and a reader never sees the new model beside the
+        # old dimension count (or a failed probe leaves both untouched).
+        #
+        # Folding the width into validated_settings puts auto-detect on the SAME
+        # commit-and-rebuild path as an explicit embedding_dims, avoiding a
+        # detected width persisting while the vector column keeps the old one.
+        #
+        # Probed ahead of the SSO guard (which row-locks OAuth providers) so a
+        # provider network call doesn't serialize unrelated provider mutations
+        # behind those locks. The whole validated batch is handed to the probe,
+        # not just the model, since a PUT can change the endpoint too (see
+        # _probe_base_url).
+        if (
+            "embedding_model" in validated_settings
+            and "embedding_dims" not in validated_settings
+            # In ENV_ONLY_CONFIG mode every cfg.set() below raises 403, so probing
+            # would only burn a provider call on a request that cannot land.
+            and not _is_env_only()
+        ):
+            requested_model = str(validated_settings["embedding_model"])
+            # Uncached on purpose: a stale cache entry naming the requested model
+            # would skip the probe and publish that model with an unrelated width.
+            if requested_model != await EMBEDDING_MODEL.get_uncached(db):
+                validated_settings["embedding_dims"] = _canonicalize_setting_value(
+                    "embedding_dims",
+                    await _detect_dims_for_requested_model(
+                        db, requested_model, validated_settings
+                    ),
+                    registry_map["embedding_dims"],
+                )
 
-    # SSO-04: lockout guard — refuse to disable password login when zero
-    # enabled OAuth providers exist. Runs AFTER Pass-1 validation but BEFORE
-    # the apply loop so nothing persists on rejection.
-    #
-    # Row-locks the enabled providers (FOR UPDATE) so a concurrent
-    # provider-disable/delete is serialized against this check — the two can
-    # no longer both pass and together remove the last provider. See
-    # oauth_service.lock_enabled_providers.
-    if validated_settings.get("password_login_enabled") is False:
-        locked_provider_ids = await oauth_service.lock_enabled_providers(db)
-        if len(locked_provider_ids) == 0:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=(
-                    "Cannot disable password login while no SSO provider is enabled "
-                    "— enable an OAuth provider first"
-                ),
-            )
+        # Lockout guard: refuse to disable password login when zero
+        # enabled OAuth providers exist. Runs AFTER Pass-1 validation but BEFORE
+        # the apply loop so nothing persists on rejection.
+        #
+        # Row-locks the enabled providers (FOR UPDATE) so a concurrent
+        # provider-disable/delete is serialized against this check — the two can
+        # no longer both pass and together remove the last provider. See
+        # oauth_service.lock_enabled_providers.
+        if validated_settings.get("password_login_enabled") is False:
+            locked_provider_ids = await oauth_service.lock_enabled_providers(db)
+            if len(locked_provider_ids) == 0:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=(
+                        "Cannot disable password login while no SSO provider is enabled "
+                        "— enable an OAuth provider first"
+                    ),
+                )
 
-    async with _embedding_change("embedding_dims" in validated_settings):
         # The rollback source for the column rebuild below. A request that
         # publishes both halves rolls back both, or a failed rebuild would leave
         # the new model beside the old width.

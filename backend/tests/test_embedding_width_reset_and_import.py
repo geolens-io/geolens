@@ -36,6 +36,14 @@ async def _publish_width(client, headers, session, width: int) -> None:
     assert await _column_dims(session) == width
 
 
+async def _start_consistent(session) -> int:
+    """Leave settings and storage agreeing on one width, and return it."""
+    width = await _column_dims(session)
+    assert width is not None and width > 0
+    await EMBEDDING_DIMS.set(session, width)
+    return width
+
+
 async def _stored_overrides(session) -> dict:
     """Every registry key that has a database override, as an import payload."""
     from app.core.db.models import AppSetting
@@ -379,3 +387,57 @@ async def test_an_embedding_change_is_refused_while_another_is_running(
     assert retried.status_code == 200, retried.text
     committed = await EMBEDDING_DIMS.get_uncached(test_db_session)
     assert await _column_dims(test_db_session) == committed
+
+
+@pytest.mark.anyio
+async def test_a_put_repeating_the_model_is_not_paired_with_a_new_width(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    monkeypatch,
+    restore_embedding_settings,
+):
+    """A pair change made while a PUT repeats the current model answers 409."""
+    from app.core.persistent_config import PersistentConfig
+
+    width = await _start_consistent(test_db_session)
+    await EMBEDDING_MODEL.set(test_db_session, _OLD_MODEL)
+    real_get_uncached = PersistentConfig.get_uncached
+    checked, release = anyio.Event(), anyio.Event()
+
+    # Holds the repeating PUT just after it compares the model.
+    async def _hold_after_the_model_check(self, db):
+        value = await real_get_uncached(self, db)
+        if self is EMBEDDING_MODEL and not checked.is_set():
+            checked.set()
+            await release.wait()
+        return value
+
+    monkeypatch.setattr(PersistentConfig, "get_uncached", _hold_after_the_model_check)
+    new_pair = {
+        "embedding_model": _NEW_MODEL,
+        "embedding_dims": _width_other_than(width),
+    }
+    responses = {}
+
+    async def _repeat_the_model():
+        responses["repeat"] = await client.put(
+            "/settings/",
+            json={"settings": {"embedding_model": _OLD_MODEL}},
+            headers=admin_auth_header,
+        )
+
+    with anyio.fail_after(60):
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(_repeat_the_model)
+            await checked.wait()
+            responses["pair"] = await client.put(
+                "/settings/", json={"settings": new_pair}, headers=admin_auth_header
+            )
+            release.set()
+
+    assert responses["repeat"].status_code == 200, responses["repeat"].text
+    assert responses["pair"].status_code == 409, responses["pair"].text
+    assert await EMBEDDING_MODEL.get_uncached(test_db_session) == _OLD_MODEL
+    assert await EMBEDDING_DIMS.get_uncached(test_db_session) == width
+    assert await _column_dims(test_db_session) == width
