@@ -14,8 +14,9 @@ import json
 import os
 import shutil
 import sys
+import threading
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from typing import NamedTuple
 
 import pyarrow as pa
@@ -206,17 +207,21 @@ def _conform(table: pa.Table, schema: pa.Schema) -> pa.Table:
     return pa.table(columns, schema=schema)
 
 
+class _ExportStopped(Exception):
+    """Raised in the writer thread when the export was cancelled or timed out."""
+
+
 class _GeoParquetWriter:
     """Appends batches to one GeoParquet file under a single file schema.
 
-    Each batch infers its own Arrow types, as the whole selection once did, so
-    a column that is all NULL in an early batch, or whose later decimals have
-    more digits, does not fit the schema the first batch fixed. The file is
-    re-encoded under the wider schema when that happens; a column whose type
-    holds steady never pays for it.
+    Each batch infers its own Arrow types, so a column that is all NULL in an
+    early batch, or whose later decimals have more digits, does not fit the
+    schema the first batch fixed. Such a batch starts a new segment file under
+    the wider schema, and ``close`` copies the segments into the output file
+    in one pass. A selection whose types hold steady is one segment, renamed.
 
-    Blocking; call ``write`` and ``close`` via run_in_thread_draining so they
-    don't stall the event loop.
+    Blocking; call ``write`` and ``close`` via _run_in_thread so they don't
+    stall the event loop and stop between row groups when cancelled.
     """
 
     def __init__(self, output_path: str, attr_names: list[str], geom_col: str) -> None:
@@ -224,11 +229,16 @@ class _GeoParquetWriter:
         self._attr_names = attr_names
         self._geom_col = geom_col
         self._writer: pq.ParquetWriter | None = None
+        self._segments: list[str] = []
+        self._stopping = threading.Event()
+
+    def stop(self) -> None:
+        self._stopping.set()
 
     def write(self, geom: list[bytes | None], cols: dict[str, list]) -> None:
         table = build_geoparquet_table(geom, cols, self._attr_names, self._geom_col)
         if self._writer is None:
-            self._writer = pq.ParquetWriter(self._path, table.schema)
+            self._start_segment(table.schema)
         target = pa.schema(
             [
                 field.with_type(_wider_type(field.type, incoming.type))
@@ -237,35 +247,40 @@ class _GeoParquetWriter:
             metadata=self._writer.schema.metadata,
         )
         if not target.equals(self._writer.schema):
-            self._writer = self._reencode(self._writer, target)
+            self._writer.close()
+            self._start_segment(target)
         self._writer.write_table(_conform(table, target))
 
-    def _reencode(
-        self, writer: pq.ParquetWriter, schema: pa.Schema
-    ) -> pq.ParquetWriter:
-        """Rewrite the rows written so far under ``schema``, one row group at a time."""
-        writer.close()
-        written = self._path + ".prev"
-        os.replace(self._path, written)
-        widened = pq.ParquetWriter(self._path, schema)
-        with pq.ParquetFile(written) as source:
-            for i in range(source.num_row_groups):
-                widened.write_table(_conform(source.read_row_group(i), schema))
-        os.remove(written)
-        return widened
+    def _start_segment(self, schema: pa.Schema) -> None:
+        path = f"{self._path}.{len(self._segments)}.part"
+        self._segments.append(path)
+        self._writer = pq.ParquetWriter(path, schema)
 
     def close(self) -> None:
-        if self._writer is not None:
-            self._writer.close()
+        if self._writer is None:
+            # An empty selection still yields a valid file carrying the geo metadata.
+            empty = build_geoparquet_table(
+                [],
+                {name: [] for name in self._attr_names},
+                self._attr_names,
+                self._geom_col,
+            )
+            pq.write_table(empty, self._path)
             return
-        # An empty selection still yields a valid file carrying the geo metadata.
-        empty = build_geoparquet_table(
-            [],
-            {name: [] for name in self._attr_names},
-            self._attr_names,
-            self._geom_col,
-        )
-        pq.write_table(empty, self._path)
+        self._writer.close()
+        schema = self._writer.schema
+        if len(self._segments) == 1:
+            os.replace(self._segments[0], self._path)
+            return
+        # The last segment's schema holds every earlier one.
+        with pq.ParquetWriter(self._path, schema) as output:
+            for segment in self._segments:
+                with pq.ParquetFile(segment) as source:
+                    for i in range(source.num_row_groups):
+                        if self._stopping.is_set():
+                            raise _ExportStopped
+                        output.write_table(_conform(source.read_row_group(i), schema))
+                os.remove(segment)
 
     def abort(self) -> None:
         """Release the file handle of an export that is being discarded."""
@@ -424,6 +439,30 @@ async def _stream_batches(
         yield geom, cols
 
 
+async def _run_in_thread(
+    sink: _GeoParquetWriter, fn: Callable[..., None], *args
+) -> None:
+    """``run_in_thread_draining``, but a cancellation first tells ``sink`` to stop.
+
+    The sink checks between row groups, so draining it after a timeout or a
+    cancellation waits for one more row group rather than a whole pass.
+    """
+    drained = asyncio.ensure_future(run_in_thread_draining(fn, *args))
+    try:
+        await asyncio.wait({drained})
+    except asyncio.CancelledError:
+        sink.stop()
+        while not drained.done():
+            try:
+                await asyncio.wait({drained})
+            except asyncio.CancelledError:
+                pass
+        if not drained.cancelled():
+            drained.exception()  # retrieved; the cancellation is what propagates
+        raise
+    drained.result()
+
+
 async def _write_batches(
     sink: _GeoParquetWriter,
     db: AsyncSession,
@@ -432,20 +471,21 @@ async def _write_batches(
     attr_names: list[str],
     geom_idx: int,
 ) -> None:
-    """Append each batch of the row stream to ``sink``.
+    """Append each batch of the row stream to ``sink``, then close it.
 
     Split out of ``export_parquet`` so ``asyncio.wait_for`` there bounds
-    exactly this, the row source and its encoding, rather than the query
-    construction and file setup around it.
+    exactly this, the row source, its encoding and the final copy of the
+    segments, rather than the query construction and file setup around it.
     """
     async for geom, cols in _stream_batches(db, sql, params, attr_names, geom_idx):
         # CPU-bound Arrow encode+write can block the loop for a large batch;
         # threaded and drained (mirrors export/service.py's shapefile zip) so a
         # disconnect can't rmtree temp_dir mid-write.
-        await run_in_thread_draining(sink.write, geom, cols)
+        await _run_in_thread(sink, sink.write, geom, cols)
         # The generator starts the next batch only after this loop resumes, so
         # drop ours first or two batches are live at once.
         del geom, cols
+    await _run_in_thread(sink, sink.close)
 
 
 async def export_parquet(
@@ -514,7 +554,6 @@ async def export_parquet(
                 f"GeoParquet export timed out after {int(row_stream_timeout)}s "
                 "— the row source or the write is too slow"
             )
-        await run_in_thread_draining(sink.close)
     except BaseException:
         sink.abort()
         shutil.rmtree(temp_dir, ignore_errors=True)

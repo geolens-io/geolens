@@ -217,6 +217,48 @@ class TestExportStreams:
         assert os.listdir(staging / "exports") == []
 
     @pytest.mark.anyio
+    async def test_a_timeout_while_copying_segments_stops_and_cleans_up(
+        self, monkeypatch, staging
+    ):
+        """The final copy runs within the export's time budget and checks it
+        between row groups, so it doesn't finish every group first."""
+        monkeypatch.setattr(export_parquet_module, "_BATCH_MAX_ROWS", 1)
+        monkeypatch.setattr(
+            export_parquet_module,
+            "export_subprocess_timeout_seconds",
+            lambda deadline: 1.0,
+        )
+        reads: list[int] = []
+        real_read_row_group = pq.ParquetFile.read_row_group
+
+        def _slow_read_row_group(self, i, *args, **kwargs):
+            reads.append(i)
+            time.sleep(0.5)
+            return real_read_row_group(self, i, *args, **kwargs)
+
+        monkeypatch.setattr(pq.ParquetFile, "read_row_group", _slow_read_row_group)
+        names = [f"c{i}" for i in range(10)]
+        # Each row gives one more column its first value, so each starts a segment.
+        rows = [
+            tuple(k if j == k else None for j in range(10)) + (b"\x01",)
+            for k in range(10)
+        ]
+        started = time.monotonic()
+
+        with pytest.raises(export_parquet_module.ExportError, match="timed out"):
+            await export_parquet(
+                _FakeDb(_Cursor(rows)),
+                "roads",
+                "Roads",
+                schema="data",
+                plan=_plan(*names),
+            )
+
+        assert 0 < len(reads) < 10
+        assert time.monotonic() - started < 4
+        assert os.listdir(staging / "exports") == []
+
+    @pytest.mark.anyio
     async def test_an_empty_selection_is_a_valid_empty_geoparquet(self, staging):
         path, _filename, _media_type = await export_parquet(
             _FakeDb(_Cursor([])),
@@ -241,14 +283,24 @@ def _write_batches(path, attr_names, batches):
     return pq.ParquetFile(str(path))
 
 
+def _count_row_group_writes(monkeypatch) -> list[int]:
+    """Record the row count of every table any ParquetWriter appends."""
+    writes: list[int] = []
+    real_write_table = pq.ParquetWriter.write_table
+
+    def _spy(self, table, *args, **kwargs):
+        writes.append(table.num_rows)
+        return real_write_table(self, table, *args, **kwargs)
+
+    monkeypatch.setattr(pq.ParquetWriter, "write_table", _spy)
+    return writes
+
+
 class TestFileSchemaStaysStable:
     def test_steady_columns_are_appended_without_reencoding(
         self, monkeypatch, tmp_path
     ):
-        def _no_reencode(self, writer, schema):
-            raise AssertionError("a column whose type held steady was re-encoded")
-
-        monkeypatch.setattr(_GeoParquetWriter, "_reencode", _no_reencode)
+        writes = _count_row_group_writes(monkeypatch)
 
         written = _write_batches(
             tmp_path / "out.parquet",
@@ -259,8 +311,36 @@ class TestFileSchemaStaysStable:
             ],
         )
 
+        assert writes == [2, 1], "rows were written more than once"
         assert written.metadata.num_row_groups == 2
         assert written.read().column("pop").to_pylist() == [1, 2, 3]
+
+    def test_columns_that_fill_in_batch_by_batch_are_copied_once(
+        self, monkeypatch, tmp_path
+    ):
+        """Each batch gives one more sparse column its first value, widening the
+        schema. Rewriting every earlier row at each widening is quadratic in
+        the batches; writing segments and copying them once at close is not."""
+        names = [f"c{i}" for i in range(50)]
+        writes = _count_row_group_writes(monkeypatch)
+
+        written = _write_batches(
+            tmp_path / "out.parquet",
+            names,
+            [
+                {name: [k if j == k else None] for j, name in enumerate(names)}
+                for k in range(50)
+            ],
+        )
+
+        assert len(writes) <= 2 * 50
+        table = written.read()
+        for k, name in enumerate(names):
+            assert table.schema.field(name).type == pa.int64()
+            assert table.column(name).to_pylist() == [
+                k if row == k else None for row in range(50)
+            ]
+        assert sorted(os.listdir(tmp_path)) == ["out.parquet"]
 
     def test_a_column_null_in_early_batches_takes_its_later_type(self, tmp_path):
         written = _write_batches(
