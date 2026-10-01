@@ -46,6 +46,9 @@ to storage, then sets quicklook_256_uri to the new key.
 Only vector datasets (record_type = 'vector_dataset') are swept.  Raster and
 VRT records always report has_quicklook=False from service_records.py regardless
 of the URI column, so they are excluded from this fix.
+
+Multi-tenant mode is refused: the sweep has no tenant context and probes storage
+keys without the tenant prefix.
 """
 
 import asyncio
@@ -141,7 +144,18 @@ async def reconcile(
 
 async def main() -> None:
     from app.core.config import settings
+    from app.core.tenancy import is_multi_tenant
     from app.platform.storage import init_storage
+
+    if is_multi_tenant():
+        print(
+            "ERROR: multi-tenant mode is not supported. The sweep reads catalog "
+            "rows without a tenant context and probes storage keys without the "
+            "tenant prefix, so healthy thumbnails would look missing and their "
+            "pointers would be cleared.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
 
     dry_run = "--dry-run" in sys.argv
     if dry_run:
