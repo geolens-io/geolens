@@ -28,6 +28,7 @@ import {
   FALLBACK_BASEMAP_STYLE_URL_DARK,
 } from '@/lib/basemap-utils';
 import { MAP_COLORS } from '@/lib/map-colors';
+import { normalizeBboxLongitudes } from '@/lib/bbox';
 import { randomId } from '@/lib/random-id';
 import 'maplibre-gl/dist/maplibre-gl.css';
 // feat(#846): wires maplibre v6's worker URL. Side-effect import, kept out of
@@ -117,21 +118,6 @@ function extractBbox(coords: number[][]): string {
     if (lat > maxY) maxY = lat;
   }
   return `${minX},${minY},${maxX},${maxY}`;
-}
-
-/**
- * The map wraps around, so a box drawn across the antimeridian carries
- * longitudes beyond +/-180. The search API reads west > east as a crossing box.
- */
-export function normalizeBboxLongitudes(bbox: string): string {
-  const [minX, minY, maxX, maxY] = bbox.split(',').map(Number);
-  if (maxX - minX >= 360) return `-180,${minY},180,${maxY}`;
-  const wrap = (lng: number) =>
-    lng >= -180 && lng <= 180 ? lng : ((((lng + 180) % 360) + 360) % 360) - 180;
-  const west = wrap(minX);
-  // A box whose east edge is the seam itself ends at +180, not -180.
-  const east = wrap(maxX) === -180 && maxX > minX ? 180 : wrap(maxX);
-  return `${west},${minY},${east},${maxY}`;
 }
 
 export function SpatialFilterPanel({

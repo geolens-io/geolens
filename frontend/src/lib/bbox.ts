@@ -88,3 +88,20 @@ export function toFitBounds(bbox: Bbox): [[number, number], [number, number]] {
     [crossesAntimeridian(bbox) ? east + 360 : east, north],
   ];
 }
+
+/**
+ * The map wraps around, so a box drawn across the antimeridian carries
+ * longitudes beyond +/-180. The search API reads west > east as a crossing box.
+ */
+export function normalizeBboxLongitudes(bbox: string): string {
+  const [minX, minY, maxX, maxY] = bbox.split(',').map(Number);
+  if (maxX - minX >= 360) return `-180,${minY},180,${maxY}`;
+  const wrap = (lng: number) =>
+    lng >= -180 && lng <= 180
+      ? lng
+      : Math.round(((((lng + 180) % 360) + 360) % 360 - 180) * 1e9) / 1e9;
+  const west = wrap(minX);
+  // A box whose east edge is the seam itself ends at +180, not -180.
+  const east = wrap(maxX) === -180 && maxX > minX ? 180 : wrap(maxX);
+  return `${west},${minY},${east},${maxY}`;
+}

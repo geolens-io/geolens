@@ -1,7 +1,8 @@
 import { act, useEffect } from 'react';
 import { fireEvent, render, screen } from '@/test/test-utils';
 import { TerraDrawRectangleMode } from 'terra-draw';
-import { SpatialFilterPanel, bboxToRings, normalizeBboxLongitudes } from '../SpatialFilterPanel';
+import { SpatialFilterPanel, bboxToRings } from '../SpatialFilterPanel';
+import { normalizeBboxLongitudes } from '@/lib/bbox';
 
 const ACROSS_SEAM = [[144.408, 72.18], [198.548, 72.18], [198.548, 81.41], [144.408, 81.41], [144.408, 72.18]];
 const draw = vi.hoisted(() => ({
