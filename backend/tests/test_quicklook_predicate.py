@@ -14,12 +14,15 @@ Plus five new cases (raster_dataset / vrt_dataset, via RasterAsset.quicklook_256
 7. has_quicklook=True for vrt_dataset when RasterAsset.quicklook_256_uri is set.
 8. has_quicklook=False for vrt_dataset when RasterAsset.quicklook_256_uri is None.
 9. OGC response properties do NOT leak quicklook_256_uri as a public field.
+
+Plus reconcile() leaving a URI that a writer replaced during the storage probe.
 """
 
 import uuid
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import text
 
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.search.service_records import dataset_to_ogc_record
@@ -222,6 +225,53 @@ async def test_reconcile_preserves_present_uri(
 
     result = dataset_to_ogc_record(dataset, "http://test")
     assert result["properties"]["has_quicklook"] is True
+
+
+# ---------------------------------------------------------------------------
+# reconcile() keeps a pointer a writer replaced during the storage probe
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_reconcile_keeps_uri_published_during_probe(
+    client: AsyncClient, test_db_session, monkeypatch
+):
+    """A thumbnail published after the existence probe is not cleared."""
+    from scripts.reconcile_quicklook_uris import reconcile
+
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    probed_uri = f"vectors/{uuid.uuid4()}/quicklook_256.png"
+    published_uri = f"vectors/{uuid.uuid4()}/quicklook_256.png"
+    dataset = await _create_quicklook_dataset(
+        session, created_by=admin_id, quicklook_256_uri=probed_uri
+    )
+
+    class _PublishingStorage:
+        async def exists(self, key: str) -> bool:
+            if key != probed_uri:
+                return True
+            await session.execute(
+                text(
+                    "UPDATE catalog.datasets SET quicklook_256_uri = :uri "
+                    "WHERE id = :id"
+                ),
+                {"uri": published_uri, "id": dataset.id},
+            )
+            return False
+
+    monkeypatch.setattr(
+        "app.platform.storage.get_storage", lambda: _PublishingStorage()
+    )
+
+    cleared, _kept = await reconcile(session)
+
+    assert cleared == 0
+    current = await session.scalar(
+        text("SELECT quicklook_256_uri FROM catalog.datasets WHERE id = :id"),
+        {"id": dataset.id},
+    )
+    assert current == published_uri
 
 
 # ---------------------------------------------------------------------------

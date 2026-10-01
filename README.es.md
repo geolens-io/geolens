@@ -211,7 +211,7 @@ Cada ejemplo anterior tiene una guía completa en la [documentación](https://do
 
 ## Inicio rápido
 
-**Requisitos previos:** Docker Engine 24+ y Docker Compose v2. El entorno incluido incorpora PostgreSQL 18. Si conectas GeoLens a una base de datos administrada externamente, debe ser **PostgreSQL 13+** (para `gen_random_uuid()`) con **pgvector 0.5+** (para índices HNSW de búsqueda semántica), además de PostGIS, pg_trgm y unaccent. La API y el worker se ejecutan en contenedores (se incluye Python 3.14; no hace falta Python en el host). La CLI opcional se ejecuta en el host y requiere Python 3.11+; el SDK de Python y los scripts de datos iniciales requieren Python 3.10+.
+**Requisitos previos:** Docker Engine 24+ y Docker Compose v2. El entorno incluido incorpora PostgreSQL 18. Si conectas GeoLens a una base de datos administrada externamente, debe ser **PostgreSQL 15+** (para los índices únicos `NULLS NOT DISTINCT`) con **pgvector 0.5+** (para índices HNSW de búsqueda semántica), además de PostGIS, pg_trgm y unaccent. La API y el worker se ejecutan en contenedores (se incluye Python 3.14; no hace falta Python en el host). La CLI opcional se ejecuta en el host y requiere Python 3.11+; el SDK de Python y los scripts de datos iniciales requieren Python 3.10+.
 
 La instalación en una línea descarga las imágenes precompiladas y fijadas a una versión e inicia el entorno:
 
@@ -335,7 +335,7 @@ flowchart TB
 | Teselas ráster | Titiler (servidor de teselas COG) |
 | Almacenamiento de objetos | MinIO (compatible con S3, desarrollo local) o cualquier proveedor S3 |
 | Caché | Valkey (caché de teselas y consultas) |
-| Base de datos | PostgreSQL 18 + PostGIS 3.6 + pgvector + pg_trgm (mínimo: PostgreSQL 13, pgvector 0.5) |
+| Base de datos | PostgreSQL 18 + PostGIS 3.6 + pgvector + pg_trgm (mínimo: PostgreSQL 15, pgvector 0.5) |
 | Proxy inverso | Nginx (producción) / proxy de desarrollo Vite (desarrollo) |
 
 ## Configuración

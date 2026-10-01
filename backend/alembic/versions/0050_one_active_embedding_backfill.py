@@ -51,6 +51,16 @@ _INDEX_NAME = "uq_ingest_jobs_active_embedding_backfill"
 
 
 def upgrade() -> None:
+    # An install upgraded past 0001 on PostgreSQL 13 or 14 never ran the
+    # baseline's version check, and NULLS NOT DISTINCT below needs 15.
+    op.execute(
+        "DO $$ BEGIN "
+        "IF current_setting('server_version_num')::int < 150000 THEN "
+        "RAISE EXCEPTION 'GeoLens requires PostgreSQL 15+ "
+        "(NULLS NOT DISTINCT unique indexes)'; "
+        "END IF; END $$"
+    )
+
     # CONCURRENTLY is deliberately not used: it cannot run inside a
     # transaction, and every other index in this chain is built the plain way.
     # The predicate matches at most a handful of rows on any real instance —

@@ -6,6 +6,8 @@ Usage:
 
 Without --force: only generates for datasets missing quicklooks.
 With --force: regenerates all vector quicklooks (e.g., after renderer changes).
+
+Multi-tenant mode is refused: there is no tenant context or tenant storage prefix.
 """
 
 import asyncio
@@ -19,8 +21,18 @@ from sqlalchemy.orm import sessionmaker
 
 async def main() -> None:
     from app.core.config import settings
+    from app.core.tenancy import is_multi_tenant
     from app.platform.storage import get_storage, init_storage
     from app.processing.vector.quicklook import generate_vector_quicklook_with_timeout
+
+    if is_multi_tenant():
+        print(
+            "ERROR: multi-tenant mode is not supported. Thumbnails would be "
+            "generated without a tenant context and written outside each "
+            "tenant's storage prefix.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
 
     force = "--force" in sys.argv
     init_storage()

@@ -211,7 +211,7 @@ Chaque exemple ci-dessus dispose d’un guide complet dans la [documentation](ht
 
 ## Démarrage rapide
 
-**Prérequis :** Docker Engine 24+ et Docker Compose v2. La pile incluse fournit PostgreSQL 18. Si GeoLens utilise une base gérée en externe, celle-ci doit être **PostgreSQL 13+** (pour `gen_random_uuid()`) avec **pgvector 0.5+** (pour les index HNSW de recherche sémantique), ainsi que PostGIS, pg_trgm et unaccent. L’API et le worker s’exécutent en conteneurs (Python 3.14 inclus, aucun Python hôte nécessaire). La CLI facultative s’exécute sur l’hôte et nécessite Python 3.11+ ; le SDK Python et les scripts d’initialisation nécessitent Python 3.10+.
+**Prérequis :** Docker Engine 24+ et Docker Compose v2. La pile incluse fournit PostgreSQL 18. Si GeoLens utilise une base gérée en externe, celle-ci doit être **PostgreSQL 15+** (pour les index uniques `NULLS NOT DISTINCT`) avec **pgvector 0.5+** (pour les index HNSW de recherche sémantique), ainsi que PostGIS, pg_trgm et unaccent. L’API et le worker s’exécutent en conteneurs (Python 3.14 inclus, aucun Python hôte nécessaire). La CLI facultative s’exécute sur l’hôte et nécessite Python 3.11+ ; le SDK Python et les scripts d’initialisation nécessitent Python 3.10+.
 
 L’installation en une ligne télécharge les images précompilées épinglées à une version et démarre la pile :
 
@@ -335,7 +335,7 @@ flowchart TB
 | Tuiles raster | Titiler (serveur de tuiles COG) |
 | Stockage objet | MinIO (compatible S3, développement local) ou tout fournisseur S3 |
 | Cache | Valkey (cache de tuiles et de requêtes) |
-| Base de données | PostgreSQL 18 + PostGIS 3.6 + pgvector + pg_trgm (minimum : PostgreSQL 13, pgvector 0.5) |
+| Base de données | PostgreSQL 18 + PostGIS 3.6 + pgvector + pg_trgm (minimum : PostgreSQL 15, pgvector 0.5) |
 | Proxy inverse | Nginx (production) / proxy de développement Vite (développement) |
 
 ## Configuration

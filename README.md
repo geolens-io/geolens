@@ -227,9 +227,9 @@ Each example above has a full guide in the [docs](https://docs.getgeolens.com/gu
 
 **Prerequisites:** Docker Engine 24+ and Docker Compose v2. The bundled stack
 ships PostgreSQL 18. If you point GeoLens at an externally managed database, it
-must be **PostgreSQL 13+** (for `gen_random_uuid()`) with **pgvector 0.5+** (for
-HNSW semantic-search indexes), plus PostGIS, pg_trgm, and unaccent. The API and
-worker run in containers (Python 3.14 bundled, no host Python needed). The
+must be **PostgreSQL 15+** (for `NULLS NOT DISTINCT` unique indexes) with
+**pgvector 0.5+** (for HNSW semantic-search indexes), plus PostGIS, pg_trgm, and
+unaccent. The API and worker run in containers (Python 3.14 bundled, no host Python needed). The
 optional CLI runs on your host and requires Python 3.11+; the Python SDK and
 seed scripts require Python 3.10+.
 
@@ -387,7 +387,7 @@ flowchart TB
 | Raster Tiles | Titiler (COG tile server) |
 | Object Storage | MinIO (S3-compatible, local dev) or any S3 provider |
 | Cache | Valkey (tile and query cache) |
-| Database | PostgreSQL 18 + PostGIS 3.6 + pgvector + pg_trgm (minimum: PostgreSQL 13, pgvector 0.5) |
+| Database | PostgreSQL 18 + PostGIS 3.6 + pgvector + pg_trgm (minimum: PostgreSQL 15, pgvector 0.5) |
 | Reverse Proxy | Nginx (production) / Vite dev proxy (development) |
 
 ## Configuration

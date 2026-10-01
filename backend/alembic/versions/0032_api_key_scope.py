@@ -52,6 +52,11 @@ def downgrade() -> None:
     # it is not something to do silently. An operator who genuinely wants the
     # old schema deactivates or deletes the restricted keys first.
     bind = op.get_bind()
+    # A SELECT does not block a key insert, so a read_only key could commit
+    # between the count and the drop and lose its restriction unseen. Lock
+    # first, users before api_keys: the order key creation takes them in, and
+    # the order 0029's downgrade takes next in this same transaction.
+    op.execute("LOCK TABLE catalog.users, catalog.api_keys IN ACCESS EXCLUSIVE MODE")
     # fix(#875 codex r1): counts only ACTIVE restricted keys, so the
     # remediation the message advertises actually clears the block. Counting
     # every row made deactivation a no-op and left rollback impossible short

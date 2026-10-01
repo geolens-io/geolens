@@ -115,9 +115,9 @@ and copy the expression verbatim from the diff error message, or read
 
 ## Minimum versions
 
-A fresh `alembic upgrade head` requires **PostgreSQL 13+** (`gen_random_uuid()`
-is used as a column default; migration `0001` RAISEs a clear error on older
-servers) and **pgvector 0.5+** (HNSW index in migration `0012`). Required
+A fresh `alembic upgrade head` requires **PostgreSQL 15+** (migration `0050`
+creates a `NULLS NOT DISTINCT` unique index; migration `0001` RAISEs a clear
+error on older servers) and **pgvector 0.5+** (HNSW index in migration `0012`). Required
 extensions (`postgis`, `pg_trgm`, `vector`, `unaccent`) are provisioned
 out-of-band by `scripts/init-db.sh`; `0001` verifies their presence and RAISEs
 if any is missing.

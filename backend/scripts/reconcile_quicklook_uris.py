@@ -46,6 +46,9 @@ to storage, then sets quicklook_256_uri to the new key.
 Only vector datasets (record_type = 'vector_dataset') are swept.  Raster and
 VRT records always report has_quicklook=False from service_records.py regardless
 of the URI column, so they are excluded from this fix.
+
+Multi-tenant mode is refused: the sweep has no tenant context and probes storage
+keys without the tenant prefix.
 """
 
 import asyncio
@@ -64,9 +67,11 @@ async def reconcile(
     """Sweep vector datasets with non-null quicklook_256_uri and clear stale ones.
 
     For each row, calls ``storage.exists(uri)`` once.  On miss, clears the URI
-    (unless dry_run=True).  On hit, leaves it untouched.  Storage errors are
-    logged but do NOT clear the URI — leaving the URI in place is the safer
-    disposition when storage reachability is uncertain.
+    (unless dry_run=True) only if the row still holds the URI that was probed;
+    a pointer a writer replaced during the probe is left in place.  On hit,
+    leaves it untouched.  Storage errors are logged but do NOT clear the URI —
+    leaving the URI in place is the safer disposition when storage
+    reachability is uncertain.
 
     Returns:
         (cleared, kept) — counts of rows whose URI was cleared vs. left intact.
@@ -112,16 +117,23 @@ async def reconcile(
             print(f"  [{i}/{len(rows)}] STALE {dataset_id} -> {uri}")
             if not dry_run:
                 try:
-                    await db.execute(
+                    cleared_row = await db.execute(
                         text(
-                            "UPDATE catalog.datasets SET quicklook_256_uri = NULL WHERE id = :id"
+                            "UPDATE catalog.datasets SET quicklook_256_uri = NULL "
+                            "WHERE id = :id AND quicklook_256_uri = :uri"
                         ),
-                        {"id": dataset_id},
+                        {"id": dataset_id, "uri": uri},
                     )
                     await db.commit()
                 except Exception as e:
                     print(f"  [{i}/{len(rows)}] FAIL  {dataset_id} (commit error): {e}")
                     await db.rollback()
+                    continue
+                if cleared_row.rowcount == 0:
+                    print(
+                        f"  [{i}/{len(rows)}] SKIP  {dataset_id} (changed since probe)"
+                    )
+                    kept += 1
                     continue
             cleared += 1
 
@@ -132,7 +144,18 @@ async def reconcile(
 
 async def main() -> None:
     from app.core.config import settings
+    from app.core.tenancy import is_multi_tenant
     from app.platform.storage import init_storage
+
+    if is_multi_tenant():
+        print(
+            "ERROR: multi-tenant mode is not supported. The sweep reads catalog "
+            "rows without a tenant context and probes storage keys without the "
+            "tenant prefix, so healthy thumbnails would look missing and their "
+            "pointers would be cleared.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
 
     dry_run = "--dry-run" in sys.argv
     if dry_run:
