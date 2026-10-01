@@ -7,7 +7,6 @@ see public + their owned private + any restricted records granted to their roles
 
 from __future__ import annotations
 
-import asyncio
 import json
 import re
 import uuid
@@ -29,7 +28,6 @@ from app.modules.catalog.collections.models import Collection, CollectionDataset
 from app.core.config import settings
 from app.core.identity import Identity
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
-import app.core.db as _db_module
 from app.modules.auth.dependencies import (
     get_optional_user,
     get_optional_user_no_security_schema,
@@ -881,7 +879,9 @@ async def get_collection(
                 detail="Collection not found",
             )
 
-    # Three independent metadata queries -- run concurrently with separate sessions.
+    # Run the three metadata queries one after another on the caller's session
+    # (see get_collections): a session of their own each would hold extra pool
+    # connections on top of the one this request already holds.
 
     async def _fetch_extent() -> tuple | None:
         extent_stmt = (
@@ -904,8 +904,7 @@ async def get_collection(
         extent_stmt = apply_visibility_filter(
             extent_stmt, user, user_roles, Record, DatasetGrant
         )
-        async with _db_module.async_session() as s:
-            return (await s.execute(extent_stmt)).one_or_none()
+        return (await db.execute(extent_stmt)).one_or_none()
 
     async def _fetch_kw() -> list[str] | None:
         kw_stmt = (
@@ -924,10 +923,9 @@ async def get_collection(
         kw_stmt = apply_visibility_filter(
             kw_stmt, user, user_roles, Record, DatasetGrant
         )
-        async with _db_module.async_session() as s:
-            rows = await s.execute(kw_stmt)
-            result = sorted([r[0] for r in rows.all() if r[0]])
-            return result or None
+        rows = await db.execute(kw_stmt)
+        result = sorted([r[0] for r in rows.all() if r[0]])
+        return result or None
 
     async def _fetch_projection() -> dict | None:
         RasterAsset = get_catalog_port().raster_asset_orm_class()
@@ -949,14 +947,13 @@ async def get_collection(
         projection_stmt = apply_visibility_filter(
             projection_stmt, user, user_roles, Record, DatasetGrant
         )
-        async with _db_module.async_session() as s:
-            rows = await s.execute(projection_stmt)
-            codes = sorted([r[0] for r in rows.all() if r[0]])
-            return {"proj:code": [f"EPSG:{code}" for code in codes]} if codes else None
+        rows = await db.execute(projection_stmt)
+        codes = sorted([r[0] for r in rows.all() if r[0]])
+        return {"proj:code": [f"EPSG:{code}" for code in codes]} if codes else None
 
-    ext_row, coll_keywords, summaries = await asyncio.gather(
-        _fetch_extent(), _fetch_kw(), _fetch_projection()
-    )
+    ext_row = await _fetch_extent()
+    coll_keywords = await _fetch_kw()
+    summaries = await _fetch_projection()
     spatial_extent, temporal_extent, license = _parse_extent_row(ext_row)
 
     return ogc_collection_to_stac_collection(
@@ -1050,36 +1047,28 @@ async def get_collection_items(
     result = await db.execute(stmt)
     datasets = result.unique().scalars().all()
 
-    # Bulk-fetch assets, raster metadata, and spatial-extent GeoJSON concurrently.
+    # Bulk-fetch assets, raster metadata, and spatial-extent GeoJSON on the
+    # caller's session, one after another (see get_collections).
     # Bulk ST_AsGeoJSON in PostGIS is faster than per-dataset Python-side
     # to_shape() WKB deserialization in dataset_to_ogc_record.
     ds_ids = [d.id for d in datasets]
 
-    async def _assets():
-        async with _db_module.async_session() as s:
-            return await _fetch_dataset_asset_rows(s, ds_ids)
-
-    async def _raster():
-        async with _db_module.async_session() as s:
-            return await _fetch_raster_meta(s, ds_ids)
-
     async def _extents() -> dict[str, str | None]:
         if not ds_ids:
             return {}
-        async with _db_module.async_session() as s:
-            stmt = (
-                select(
-                    Dataset.id,
-                    func.ST_AsGeoJSON(Record.spatial_extent, 6).label("geojson"),
-                )
-                .join(Record, Dataset.record_id == Record.id)
-                .where(Dataset.id.in_(ds_ids))
+        stmt = (
+            select(
+                Dataset.id,
+                func.ST_AsGeoJSON(Record.spatial_extent, 6).label("geojson"),
             )
-            return {str(row.id): row.geojson for row in (await s.execute(stmt)).all()}
+            .join(Record, Dataset.record_id == Record.id)
+            .where(Dataset.id.in_(ds_ids))
+        )
+        return {str(row.id): row.geojson for row in (await db.execute(stmt)).all()}
 
-    asset_rows_map, raster_meta_map, extent_geojson_map = await asyncio.gather(
-        _assets(), _raster(), _extents()
-    )
+    asset_rows_map = await _fetch_dataset_asset_rows(db, ds_ids)
+    raster_meta_map = await _fetch_raster_meta(db, ds_ids)
+    extent_geojson_map = await _extents()
 
     # Lineage visibility for the whole page in one query
     # instead of one visible_lineage_summary round trip per item.
@@ -1174,15 +1163,8 @@ async def _build_item_response(
 ) -> JSONResponse:
     """Fetch assets/raster metadata, convert to STAC Item, return as geo+json."""
 
-    async def _assets():
-        async with _db_module.async_session() as s:
-            return await _fetch_dataset_asset_rows(s, [dataset.id])
-
-    async def _raster():
-        async with _db_module.async_session() as s:
-            return await _fetch_raster_meta(s, [dataset.id])
-
-    asset_rows, raster_meta = await asyncio.gather(_assets(), _raster())
+    asset_rows = await _fetch_dataset_asset_rows(db, [dataset.id])
+    raster_meta = await _fetch_raster_meta(db, [dataset.id])
 
     # Intentional validation boundary: serializer output must satisfy the
     # published STAC response contract before it reaches the wire.
@@ -1526,14 +1508,6 @@ async def _execute_search(
 
     ds_ids = [d.id for d in datasets]
 
-    async def _assets():
-        async with _db_module.async_session() as s:
-            return await _fetch_dataset_asset_rows(s, ds_ids)
-
-    async def _raster():
-        async with _db_module.async_session() as s:
-            return await _fetch_raster_meta(s, ds_ids)
-
     async def _coll_membership() -> dict[str, str]:
         if not ds_ids:
             return {}
@@ -1566,16 +1540,15 @@ async def _execute_search(
             CollectionDataset.added_at.asc(),
             CollectionDataset.collection_id.asc(),
         )
-        async with _db_module.async_session() as s:
-            cd_result = await s.execute(cd_stmt)
-            memberships: dict[str, str] = {}
-            for row in cd_result.all():
-                memberships.setdefault(str(row.dataset_id), str(row.collection_id))
-            return memberships
+        cd_result = await db.execute(cd_stmt)
+        memberships: dict[str, str] = {}
+        for row in cd_result.all():
+            memberships.setdefault(str(row.dataset_id), str(row.collection_id))
+        return memberships
 
-    asset_rows_map, raster_meta_map, collection_id_map = await asyncio.gather(
-        _assets(), _raster(), _coll_membership()
-    )
+    asset_rows_map = await _fetch_dataset_asset_rows(db, ds_ids)
+    raster_meta_map = await _fetch_raster_meta(db, ds_ids)
+    collection_id_map = await _coll_membership()
 
     # Lineage visibility for the whole page in one query
     # instead of one visible_lineage_summary round trip per item.
