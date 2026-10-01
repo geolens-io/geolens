@@ -1111,13 +1111,18 @@ async def import_config(
         cfg for cfg in _registry if cfg.key in plan.settings_to_apply or cfg in resets
     ]
     before = {cfg.key: await cfg.get(db) for cfg in touched}
+    # An import that names the width reconciles the column even when the
+    # setting already holds it; the rebuild compares against the live column.
+    carries_dims = (
+        EMBEDDING_DIMS.key in plan.validated_settings or EMBEDDING_DIMS in resets
+    )
     embedding_before = new_dims = None
-    changes_width = changes_model = False
-    if EMBEDDING_DIMS in touched or EMBEDDING_MODEL in touched:
+    changes_model = False
+    if carries_dims or EMBEDDING_MODEL in touched:
         embedding_before = await read_committed_embedding_pair(
             db, with_model=EMBEDDING_MODEL in touched
         )
-        new_dims = plan.settings_to_apply.get(
+        new_dims = plan.validated_settings.get(
             EMBEDDING_DIMS.key,
             EMBEDDING_DIMS.env_default
             if EMBEDDING_DIMS in resets
@@ -1129,8 +1134,6 @@ async def import_config(
             if EMBEDDING_MODEL in resets
             else embedding_before.model,
         )
-        # The rebuild deletes every vector, so only a change in width runs it.
-        changes_width = new_dims != embedding_before.dims
         changes_model = new_model != embedding_before.model
     for cfg in touched:
         if cfg.key in plan.settings_to_apply:
@@ -1193,7 +1196,7 @@ async def import_config(
     # The settings fence already keeps other writers off the pair read above,
     # so the change lock only has to cover the commit through the rebuild.
     try:
-        async with embedding_change_lock(changes_width or changes_model):
+        async with embedding_change_lock(carries_dims or changes_model):
             # Single commit for config changes and all associated audit rows.
             await db.commit()
 
@@ -1201,7 +1204,7 @@ async def import_config(
             # widest mismatch window of the three batch call sites.
             await apply_side_effects_batch(deferred_side_effects)
 
-            if changes_width:
+            if carries_dims:
                 await rebuild_column_or_restore(
                     db,
                     new_dims,

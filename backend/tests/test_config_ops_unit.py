@@ -3,6 +3,7 @@
 import hashlib
 import json
 import uuid
+from contextlib import nullcontext
 from dataclasses import replace
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -527,6 +528,16 @@ async def test_import_result_and_audit_report_exact_account_link_deletions():
             AsyncMock(),
         ),
         patch("app.modules.audit.service.audit_emit", AsyncMock()) as audit_emit,
+        # The overwrite resets embedding_dims, so it reconciles the column; the
+        # live column already matches.
+        patch(
+            "app.processing.embeddings.service.embedding_change_lock",
+            lambda _needed: nullcontext(),
+        ),
+        patch(
+            "app.processing.embeddings.service.rebuild_embedding_column",
+            AsyncMock(return_value=False),
+        ),
     ):
         result = await import_config(
             db,

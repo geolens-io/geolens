@@ -1,16 +1,17 @@
-"""Settings reset and config import resize the vector column whenever they change the embedding width.
+"""Settings reset and config import rebuild the vector column to the embedding width they carry.
 
 Requirements:
   - Docker database must be running (docker compose up db)
   - Alembic migrations must be applied
 """
 
+import uuid
 from unittest.mock import AsyncMock
 
 import anyio
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.core.persistent_config import EMBEDDING_DIMS, EMBEDDING_MODEL
 from tests.test_settings_router import _column_dims
@@ -162,27 +163,6 @@ async def test_a_failed_rebuild_on_reset_puts_the_embedding_pair_back(
 
 
 @pytest.mark.anyio
-async def test_a_reset_that_keeps_the_width_does_not_rebuild(
-    client: AsyncClient,
-    admin_auth_header: dict,
-    test_db_session,
-    monkeypatch,
-    restore_embedding_settings,
-):
-    """Resetting a width that already equals the default leaves storage alone."""
-    await EMBEDDING_DIMS.set(test_db_session, EMBEDDING_DIMS.env_default)
-    rebuild = AsyncMock(return_value=True)
-    monkeypatch.setattr(_REBUILD, rebuild)
-
-    resp = await client.post(
-        "/settings/reset/", json={"keys": ["embedding_dims"]}, headers=admin_auth_header
-    )
-
-    assert resp.status_code == 200, resp.text
-    rebuild.assert_not_awaited()
-
-
-@pytest.mark.anyio
 @pytest.mark.parametrize("mode", ["merge", "overwrite"])
 async def test_an_import_that_changes_the_width_resizes_the_column(
     client: AsyncClient,
@@ -240,41 +220,86 @@ async def test_a_failed_rebuild_on_import_puts_the_embedding_pair_back(
     assert await _column_dims(test_db_session) == width
 
 
+async def _resend_width(client, headers, how: str, width: int):
+    """Send ``width`` again through a reset (to the default) or a merge import."""
+    if how == "reset":
+        return await client.post(
+            "/settings/reset/", json={"keys": ["embedding_dims"]}, headers=headers
+        )
+    return await client.post(
+        "/config-ops/import/?mode=merge",
+        json={"settings": {"embedding_dims": width}},
+        headers=headers,
+    )
+
+
 @pytest.mark.anyio
-async def test_an_import_that_keeps_the_width_does_not_rebuild(
+@pytest.mark.parametrize("how", ["reset", "import"])
+async def test_resending_the_width_repairs_a_column_left_at_another(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session,
-    monkeypatch,
     restore_embedding_settings,
+    how: str,
 ):
-    """A model change, or pinning the width already in effect, leaves storage alone."""
-    from app.core.db.models import AppSetting
+    """Re-sending the published width rebuilds a column a crash left at another width."""
+    from app.processing.embeddings.service import rebuild_embedding_column
 
-    # No override, so the import writes the default width as one.
-    await EMBEDDING_DIMS.reset(test_db_session)
-    await EMBEDDING_MODEL.set(test_db_session, _OLD_MODEL)
-    rebuild = AsyncMock(return_value=True)
-    monkeypatch.setattr(_REBUILD, rebuild)
+    width = EMBEDDING_DIMS.env_default
+    await EMBEDDING_DIMS.set(test_db_session, width)
+    stale = _width_other_than(width)
+    await rebuild_embedding_column(test_db_session, stale)
+    assert await _column_dims(test_db_session) == stale
 
-    resp = await client.post(
-        "/config-ops/import/?mode=merge",
-        json={
-            "settings": {
-                "embedding_model": _NEW_MODEL,
-                "embedding_dims": EMBEDDING_DIMS.env_default,
-            }
-        },
-        headers=admin_auth_header,
-    )
+    resp = await _resend_width(client, admin_auth_header, how, width)
 
     assert resp.status_code == 200, resp.text
-    assert await EMBEDDING_MODEL.get_uncached(test_db_session) == _NEW_MODEL
-    pinned = await test_db_session.scalar(
-        select(AppSetting.value).where(AppSetting.key == EMBEDDING_DIMS.key)
+    assert await EMBEDDING_DIMS.get_uncached(test_db_session) == width
+    assert await _column_dims(test_db_session) == width
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("how", ["reset", "import"])
+async def test_resending_the_width_keeps_the_vectors_of_a_matching_column(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    restore_embedding_settings,
+    how: str,
+):
+    """Re-sending the width the column already has deletes no vectors."""
+    from app.processing.embeddings.models import RecordEmbedding
+    from app.processing.embeddings.service import rebuild_embedding_column
+    from tests.factories import create_dataset, get_user_id
+
+    width = EMBEDDING_DIMS.env_default
+    await EMBEDDING_DIMS.set(test_db_session, width)
+    await rebuild_embedding_column(test_db_session, width)
+    dataset = await create_dataset(
+        test_db_session,
+        created_by=await get_user_id(test_db_session, "admin"),
+        name="width resend keeps vectors",
     )
-    assert pinned == {"v": EMBEDDING_DIMS.env_default}
-    rebuild.assert_not_awaited()
+    record_id = dataset.record_id
+    test_db_session.add(
+        RecordEmbedding(
+            record_id=record_id,
+            embedding=[1.0] + [0.0] * (width - 1),
+            model_name=_OLD_MODEL,
+            content_hash=uuid.uuid4().hex,
+        )
+    )
+    await test_db_session.commit()
+
+    resp = await _resend_width(client, admin_auth_header, how, width)
+
+    assert resp.status_code == 200, resp.text
+    kept = await test_db_session.scalar(
+        select(func.count())
+        .select_from(RecordEmbedding)
+        .where(RecordEmbedding.record_id == record_id)
+    )
+    assert kept == 1
 
 
 # ---------------------------------------------------------------------------

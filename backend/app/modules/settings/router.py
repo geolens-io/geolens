@@ -641,11 +641,15 @@ async def reset_settings(
             [(cfg, cfg.env_default) for cfg in configs_to_reset]
         )
 
-        # The rebuild deletes every vector, so only a change in width runs it.
-        default_dims = EMBEDDING_DIMS.env_default
-        if embedding_before is not None and default_dims != embedding_before.dims:
+        # The rebuild compares against the live column, so resetting a width
+        # that is already in effect only repairs a column left at another one.
+        if embedding_before is not None:
             await _rebuild_column_or_503(
-                db, default_dims, embedding_before, user_id=user.id, ip_address=ip
+                db,
+                EMBEDDING_DIMS.env_default,
+                embedding_before,
+                user_id=user.id,
+                ip_address=ip,
             )
 
     # Phase 279 (L-01): intentional second SELECT — cfg.reset() writes
