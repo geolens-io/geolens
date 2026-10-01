@@ -33,10 +33,15 @@ and releases use semantic versioning.
 
 ### Changed
 
-- The extension API version is now 14. `ProcessingPort.get_catalog_vocabulary`
-  and `ProcessingPort.get_keywords_for_records` now require the caller's
-  `user` and `user_roles`, so an extension that implements either method
-  must accept the new arguments and re-pin the version. (#2522)
+- The extension API version is now 14, up from 12. Version 13 adds a required
+  `CatalogPort.cog_may_be_read` method, which the replacement quota check
+  asks whether a VRT may still read a mosaic member's COG. An extension
+  that replaces the `catalog_port` slot without it fails every reupload
+  request. (#2491) Version 14 makes `ProcessingPort.get_catalog_vocabulary`
+  and `ProcessingPort.get_keywords_for_records` require the caller's `user`
+  and `user_roles`, so an extension that implements either method must
+  accept the new arguments. An extension upgrading from 12 needs both
+  changes before it re-pins to 14. (#2522)
 - GeoParquet exports are written in bounded batches instead of being built in
   memory. `json` and `jsonb` columns are now written as JSON text rather than
   inferred from decoded values, so numbers keep their digits and JSON `null`
