@@ -302,7 +302,7 @@ async def _rebuild_column_or_503(
 
 
 @asynccontextmanager
-async def _embedding_change(needed: bool) -> AsyncIterator[None]:
+async def _embedding_change(db: AsyncSession, needed: bool) -> AsyncIterator[None]:
     """Hold the embedding change lock when ``needed``; a change already running is a 409."""
     from app.processing.embeddings.service import (
         EmbeddingChangeBusyError,
@@ -310,7 +310,7 @@ async def _embedding_change(needed: bool) -> AsyncIterator[None]:
     )
 
     try:
-        async with embedding_change_lock(needed):
+        async with embedding_change_lock(needed, db=db):
             yield
     except EmbeddingChangeBusyError as exc:
         raise HTTPException(
@@ -451,8 +451,9 @@ async def update_settings(
     # has to sit under the lock too; otherwise a concurrent change could pair
     # the repeated model with another model's width.
     async with _embedding_change(
+        db,
         "embedding_model" in validated_settings
-        or "embedding_dims" in validated_settings
+        or "embedding_dims" in validated_settings,
     ):
         # Publish embedding_model and its detected width atomically: the probe
         # runs before the provider row locks and the batch commit, so its result
@@ -596,7 +597,7 @@ async def reset_settings(
     # Taken before the provider row locks below, so this request never waits
     # for the lock's connection while holding locks another write may wait on.
     async with _embedding_change(
-        EMBEDDING_DIMS in configs_to_reset or EMBEDDING_MODEL in configs_to_reset
+        db, EMBEDDING_DIMS in configs_to_reset or EMBEDDING_MODEL in configs_to_reset
     ):
         # Reset is another way to change the effective password-login value and
         # must enforce the same final-state lockout invariant as PUT/import. Hold

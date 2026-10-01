@@ -533,7 +533,7 @@ async def test_import_result_and_audit_report_exact_account_link_deletions():
         # live column already matches.
         patch(
             "app.processing.embeddings.service.embedding_change_lock",
-            lambda _needed: nullcontext(),
+            lambda _needed, **_kwargs: nullcontext(),
         ),
         patch(
             "app.processing.embeddings.service.read_committed_embedding_pair",

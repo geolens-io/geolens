@@ -313,19 +313,25 @@ _CHANGE_LOCK_SQL = (
 
 
 @asynccontextmanager
-async def embedding_change_lock(needed: bool = True) -> AsyncIterator[None]:
+async def embedding_change_lock(
+    needed: bool = True, *, db: AsyncSession | None = None
+) -> AsyncIterator[None]:
     """Run one embedding model or width change at a time, from reading the old
     pair to the rebuild or restore. Does nothing unless ``needed``.
 
     The lock holds a connection of its own, outside the request pool: the
     change commits between those steps, and a burst of requests as large as
     the pool would otherwise each wait at checkout for a connection the others
-    hold. A second change is refused with EmbeddingChangeBusyError rather
-    than queued.
+    hold. ``db``, the request's session, has its read-only transaction ended
+    first, so under transaction pooling a request trying the lock holds no
+    other server connection. A second change is refused with
+    EmbeddingChangeBusyError rather than queued.
     """
     if not needed:
         yield
         return
+    if db is not None:
+        await db.commit()
     from sqlalchemy import text as sa_text
     from sqlalchemy.ext.asyncio import create_async_engine
     from sqlalchemy.pool import NullPool

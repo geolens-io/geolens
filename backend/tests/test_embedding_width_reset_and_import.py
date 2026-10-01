@@ -858,3 +858,63 @@ async def test_a_reset_holds_the_embedding_lock_before_locking_providers(
 
     assert resp.status_code == 409, resp.text
     provider_locks.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("how", ["put", "reset", "import"])
+async def test_the_request_holds_no_transaction_while_it_tries_the_lock(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    monkeypatch,
+    restore_embedding_settings,
+    how: str,
+):
+    """The request ends its read-only transaction, with nothing written, before it takes the lock."""
+    from contextlib import asynccontextmanager
+
+    from sqlalchemy import text
+
+    from app.processing.embeddings import service
+
+    width = await _start_consistent(test_db_session)
+    real_lock = service.embedding_change_lock
+    observed: list[dict] = []
+
+    @asynccontextmanager
+    async def _observe(needed=True, *, db=None):
+        before = None
+        if needed and db is not None:
+            assigned = await db.scalar(text("SELECT pg_current_xact_id_if_assigned()"))
+            before = {
+                "pending": bool(db.new or db.dirty or db.deleted),
+                "wrote": assigned is not None,
+            }
+        async with real_lock(needed, db=db):
+            if before is not None:
+                observed.append({**before, "in_transaction": db.in_transaction()})
+            yield
+
+    monkeypatch.setattr(service, "embedding_change_lock", _observe)
+
+    if how == "put":
+        resp = await client.put(
+            "/settings/",
+            json={"settings": {"embedding_dims": width}},
+            headers=admin_auth_header,
+        )
+    elif how == "reset":
+        resp = await client.post(
+            "/settings/reset/",
+            json={"keys": ["embedding_dims"]},
+            headers=admin_auth_header,
+        )
+    else:
+        resp = await client.post(
+            "/config-ops/import/?mode=merge",
+            json={"settings": {"embedding_dims": width}},
+            headers=admin_auth_header,
+        )
+
+    assert resp.status_code == 200, resp.text
+    assert observed == [{"pending": False, "wrote": False, "in_transaction": False}]

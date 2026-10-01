@@ -1080,7 +1080,7 @@ async def import_config(
         EMBEDDING_DIMS.key in raw_settings or EMBEDDING_MODEL.key in raw_settings
     )
     try:
-        async with embedding_change_lock(mode == "overwrite" or names_embedding):
+        async with embedding_change_lock(mode == "overwrite" or names_embedding, db=db):
             # Database-enforced write fence covering state recompute, confirmation
             # check, and apply — otherwise a concurrent transaction could commit
             # after the state read against an already-stale token.
