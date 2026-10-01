@@ -1195,7 +1195,10 @@ export const DatasetMap = memo(function DatasetMap({
 
   return (
     <div
-      className="relative h-full"
+      // The basemap thumbnail owns the bottom-left corner (12px inset + 64px
+      // image + borders), so the attribution control stops short of it
+      // instead of expanding across it on a phone-width map.
+      className="relative h-full [&_.maplibregl-ctrl-bottom-right]:max-w-[calc(100%-5.5rem)]"
       role="region"
       aria-label={t('map.ariaLabel', { defaultValue: 'Dataset map' })}
       data-map-interactive={isDrawing ? 'true' : 'false'}

@@ -273,6 +273,21 @@ describe('DatasetMap interaction state', () => {
     expect(screen.getByTitle('Zoom to dataset extent')).toBeInTheDocument();
   });
 
+  it('keeps the attribution control clear of the basemap thumbnail corner', () => {
+    render(
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName="example_table"
+        geometryType="Polygon"
+        datasetId="dataset-1"
+      />,
+    );
+
+    expect(screen.getByTestId('dataset-map-shell').className).toContain(
+      '[&_.maplibregl-ctrl-bottom-right]:max-w-[calc(100%-5.5rem)]',
+    );
+  });
+
   it('enables interaction and editing controls once edit mode is active', () => {
     drawingState.isDrawing = true;
     drawingState.activeMode = 'select';
