@@ -59,7 +59,7 @@ function CreateMenu() {
   const [mapOpen, setMapOpen] = useState(false);
   const [vrtOpen, setVrtOpen] = useState(false);
 
-  const canCreateDataset = featureFlags?.enable_dataset_editing ?? false;
+  const canCreateDataset = (featureFlags?.enable_dataset_editing ?? false) && can('edit_metadata');
   const canImport = can('upload');
   const canCreateCollection = can('edit_metadata');
   const canCreateMap = can('edit_metadata');
@@ -306,7 +306,7 @@ function MobileNav() {
               </NavLink>
             )}
             {user && (() => {
-              const canCreateDataset = featureFlags?.enable_dataset_editing ?? false;
+              const canCreateDataset = (featureFlags?.enable_dataset_editing ?? false) && can('edit_metadata');
               const canImport = can('upload');
               const canCreateCollection = can('edit_metadata');
               const canCreateMap = can('edit_metadata');
