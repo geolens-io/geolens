@@ -2105,6 +2105,19 @@ jobs:
           NPM_CONFIG_LOGLEVEL: http
         run: npm ci
 
+      - name: Resolve Playwright version
+        id: playwright-version
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Playwright browsers and apt packages
+        id: playwright-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/playwright-apt-archives/*.deb
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+
       - name: Install Playwright Browsers
         timeout-minutes: 13
         run: |
@@ -2143,6 +2156,11 @@ jobs:
           # (13-minute) step cap.
           echo 'Acquire::http::Timeout "30"; Acquire::https::Timeout "30"; Acquire::Retries "3";' \
             | sudo tee /etc/apt/apt.conf.d/99-ci-fetch-timeouts >/dev/null
+          # Keep downloaded .debs in a cacheable directory: the slow part of
+          # this step is fetching them from the runner's apt mirror.
+          mkdir -p "$HOME/playwright-apt-archives"
+          echo "Dir::Cache::archives \"$HOME/playwright-apt-archives\";" \
+            | sudo tee /etc/apt/apt.conf.d/99-ci-apt-archives >/dev/null
           for i in 1 2 3; do
             timeout -k 10 180 npx playwright install --with-deps chromium && break
             echo "playwright install attempt $i failed"
@@ -2159,6 +2177,15 @@ jobs:
             sudo timeout -k 10 30 dpkg --configure -a || true
             sleep 10
           done
+
+      - name: Save Playwright browsers and apt packages
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/playwright-apt-archives/*.deb
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
 
       - name: Run E2E tests
         run: npx playwright test
@@ -2290,6 +2317,19 @@ jobs:
           NPM_CONFIG_LOGLEVEL: http
         run: npm ci
 
+      - name: Resolve Playwright version
+        id: playwright-version
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Playwright browsers and apt packages
+        id: playwright-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/playwright-apt-archives/*.deb
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+
       - name: Install Playwright Browsers
         timeout-minutes: 13
         run: |
@@ -2328,6 +2368,11 @@ jobs:
           # (13-minute) step cap.
           echo 'Acquire::http::Timeout "30"; Acquire::https::Timeout "30"; Acquire::Retries "3";' \
             | sudo tee /etc/apt/apt.conf.d/99-ci-fetch-timeouts >/dev/null
+          # Keep downloaded .debs in a cacheable directory: the slow part of
+          # this step is fetching them from the runner's apt mirror.
+          mkdir -p "$HOME/playwright-apt-archives"
+          echo "Dir::Cache::archives \"$HOME/playwright-apt-archives\";" \
+            | sudo tee /etc/apt/apt.conf.d/99-ci-apt-archives >/dev/null
           for i in 1 2 3; do
             timeout -k 10 180 npx playwright install --with-deps chromium && break
             echo "playwright install attempt $i failed"
@@ -2344,6 +2389,15 @@ jobs:
             sudo timeout -k 10 30 dpkg --configure -a || true
             sleep 10
           done
+
+      - name: Save Playwright browsers and apt packages
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/playwright-apt-archives/*.deb
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
 
       - name: Run core E2E smoke suite
         run: npm run e2e:smoke:core
@@ -2579,6 +2633,19 @@ jobs:
           NPM_CONFIG_LOGLEVEL: http
         run: npm ci
 
+      - name: Resolve Playwright version
+        id: playwright-version
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Playwright browsers and apt packages
+        id: playwright-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/playwright-apt-archives/*.deb
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+
       - name: Install Playwright Browsers
         timeout-minutes: 13
         run: |
@@ -2617,6 +2684,11 @@ jobs:
           # (13-minute) step cap.
           echo 'Acquire::http::Timeout "30"; Acquire::https::Timeout "30"; Acquire::Retries "3";' \
             | sudo tee /etc/apt/apt.conf.d/99-ci-fetch-timeouts >/dev/null
+          # Keep downloaded .debs in a cacheable directory: the slow part of
+          # this step is fetching them from the runner's apt mirror.
+          mkdir -p "$HOME/playwright-apt-archives"
+          echo "Dir::Cache::archives \"$HOME/playwright-apt-archives\";" \
+            | sudo tee /etc/apt/apt.conf.d/99-ci-apt-archives >/dev/null
           for i in 1 2 3; do
             timeout -k 10 180 npx playwright install --with-deps chromium && break
             echo "playwright install attempt $i failed"
@@ -2661,6 +2733,15 @@ jobs:
       # run and leaves several minutes of this job's 15-minute cap for the
       # steps before and after (checkout/env/compose-up/npm-ci/browser-
       # install ran in 2m45s-4m29s across the two measured passing runs).
+      - name: Save Playwright browsers and apt packages
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/playwright-apt-archives/*.deb
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+
       - name: Run accessibility tests
         run: >-
           npx playwright test e2e/accessibility.spec.ts e2e/keyboard-nav.spec.ts
