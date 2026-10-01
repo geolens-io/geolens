@@ -3,6 +3,7 @@
 import asyncio
 from contextlib import contextmanager
 from io import BytesIO
+import signal
 import struct
 import threading
 import uuid
@@ -337,6 +338,31 @@ def _render_alpha(d: str, fill: str = "#2563eb") -> bytes:
     return _render_icon(_svg_path(d, fill), "image/svg+xml", "golden").tobytes()
 
 
+class _DeadlineExceeded(Exception):
+    """Not a ``TimeoutError``: that is an ``OSError``, which the icon renderer
+    catches and would turn a hang into a quiet placeholder."""
+
+
+@contextmanager
+def _deadline(seconds: float = 5):
+    """Fail the test instead of hanging on code that never returns.
+
+    A parser stuck in a pure-Python loop cannot be cancelled from another
+    thread, so the interval timer interrupts the main thread itself.
+    """
+
+    def _expired(_signum, _frame):
+        raise _DeadlineExceeded(f"still running after {seconds}s")
+
+    previous = signal.signal(signal.SIGALRM, _expired)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+
+
 def test_path_points_collapses_bezier_to_endpoints():
     # builder-audit #338 STYLE-05: cubic (C) + quadratic (Q) commands keep only the
     # final endpoint of each curve. Z closes the subpath back to the start.
@@ -359,6 +385,78 @@ def test_path_points_relative_curve_collapses_to_endpoint():
     assert _path_points("m2 2 c 2 6 6 6 8 0 z") == [
         [(2.0, 2.0), (10.0, 2.0), (2.0, 2.0)],
     ]
+
+
+@pytest.mark.parametrize(
+    "d",
+    ["M0 0Z1", "M0 0 L4 0 L4 4 z 1 2", "Z1", "M0 0 Z Z 5", "M0 0 Z, 3"],
+)
+def test_path_points_rejects_numbers_after_close_path(d):
+    with _deadline(), pytest.raises(ValueError, match="close-path"):
+        _path_points(d)
+
+
+@pytest.mark.parametrize(
+    "d", ["M0", "M0 0 L1", "M0 0 H", "M0 0 C1 2 3 4 5", "M0 0 L1 Z"]
+)
+def test_path_points_rejects_missing_operands(d):
+    with _deadline(), pytest.raises((ValueError, IndexError)):
+        _path_points(d)
+
+
+def test_path_points_accepts_repeated_close_path():
+    with _deadline():
+        assert _path_points("M0 0 L4 0 L4 4 Z Z z") == [
+            [(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 0.0)],
+        ]
+
+
+@pytest.mark.parametrize("d", ["M0 0Z1", "M0 0 L4 0 L4 4 Z 1 2", "M0 0 L1"])
+def test_render_icon_degrades_a_malformed_uploaded_path_to_placeholder(d):
+    _, media_type, stored = validate_icon_upload(
+        "loop.svg", "image/svg+xml", _svg_path(d)
+    )
+
+    with _deadline():
+        rendered = _render_icon(stored, media_type, "loop")
+
+    assert rendered.tobytes() == _placeholder_icon("loop").tobytes()
+
+
+@pytest.mark.anyio
+async def test_sprite_png_renders_placeholder_for_an_uploaded_malformed_path(
+    monkeypatch,
+):
+    storage = FakeStorage()
+    monkeypatch.setattr("app.modules.catalog.maps.sprites.get_storage", lambda: storage)
+
+    async def _inline(fn, *args):
+        # A render that never returned would spin a worker thread nothing can
+        # interrupt, so run it where the deadline can.
+        return fn(*args)
+
+    monkeypatch.setattr(sprites, "run_in_thread_draining", _inline)
+    session = FakeSession()
+    asset = await create_icon_asset(
+        session,
+        filename="loop.svg",
+        content_type="image/svg+xml",
+        content=_svg_path("M0 0Z1"),
+        created_by=uuid.uuid4(),
+    )
+
+    with _deadline():
+        png = await build_sprite_png(session)
+    index = await build_sprite_index(session)
+
+    x = index[asset.slug]["x"]
+    cell = (
+        Image.open(BytesIO(png))
+        .convert("RGBA")
+        .crop((x, 0, x + SPRITE_CELL_SIZE, SPRITE_CELL_SIZE))
+    )
+    assert cell.tobytes() == _placeholder_icon(asset.slug).tobytes()
+    assert not sprites._sprite_cache_lock.locked()
 
 
 def test_render_icon_bezier_matches_straight_line_approximation():
