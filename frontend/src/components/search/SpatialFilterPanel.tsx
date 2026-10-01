@@ -248,8 +248,9 @@ export function SpatialFilterPanel({
           // Already removed
         }
         drawnFeatureIdRef.current = null;
-        setPendingBbox('');
       }
+      // A restored area Terra Draw refused has no feature id but is still pending.
+      setPendingBbox('');
       restoredPolygonRef.current = null;
 
       td.setMode(newMode);

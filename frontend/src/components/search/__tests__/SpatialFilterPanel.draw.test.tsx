@@ -149,6 +149,21 @@ describe('SpatialFilterPanel restoring an applied polygon', () => {
     expect(screen.getByText('1 polygon selected')).toBeInTheDocument();
   });
 
+  it('clears a restored area Terra Draw refused when the draw mode changes', () => {
+    draw.addResult = [{ valid: false }];
+    render(
+      <SpatialFilterPanel
+        open
+        onClose={vi.fn()}
+        onApply={vi.fn()}
+        initialBbox="0,0,10,8"
+        initialGeometry={JSON.stringify(TRIANGLE)}
+      />,
+    );
+    fireEvent.click(screen.getByRole('radio', { name: 'Rectangle' }));
+    expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled();
+  });
+
   it('keeps the applied polygon when Terra Draw refuses to redraw it', () => {
     draw.addResult = [{ valid: false }];
     const onApply = vi.fn();
