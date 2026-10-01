@@ -7,6 +7,7 @@ from pwdlib import PasswordHash
 from pwdlib.exceptions import UnknownHashError
 from pwdlib.hashers.bcrypt import BcryptHasher
 
+from app.core.async_io import run_in_thread_draining
 from app.modules.auth.models import User
 from app.modules.auth.password_policy import BCRYPT_MAX_PASSWORD_BYTES
 from app.modules.auth.providers import AuthenticatedIdentity, AuthenticationError
@@ -42,6 +43,16 @@ def verify_password(plain: str, hashed: str) -> bool:
     if len(plain.encode("utf-8")) > BCRYPT_MAX_PASSWORD_BYTES:
         return False
     return password_hash.verify(plain, hashed)
+
+
+async def hash_password_async(password: str) -> str:
+    """``hash_password`` in a worker thread; bcrypt would stall the event loop."""
+    return await run_in_thread_draining(hash_password, password)
+
+
+async def verify_password_async(plain: str, hashed: str) -> bool:
+    """``verify_password`` in a worker thread; bcrypt would stall the event loop."""
+    return await run_in_thread_draining(verify_password, plain, hashed)
 
 
 class LocalAuthProvider:
@@ -92,7 +103,7 @@ class LocalAuthProvider:
 
         if user is None:
             # Timing-attack prevention: still verify against a dummy hash
-            verify_password(password, DUMMY_HASH)
+            await verify_password_async(password, DUMMY_HASH)
             raise AuthenticationError("Invalid credentials")
 
         if user.password_hash is None:
@@ -101,11 +112,11 @@ class LocalAuthProvider:
             # string, raising uncaught UnknownHashError (500, and skipping
             # the login.failure audit). Still verify against the dummy hash
             # for timing-attack parity, then always fail.
-            verify_password(password, DUMMY_HASH)
+            await verify_password_async(password, DUMMY_HASH)
             raise AuthenticationError("Invalid credentials")
 
         try:
-            valid = verify_password(password, user.password_hash)
+            valid = await verify_password_async(password, user.password_hash)
         except UnknownHashError:
             # Defense in depth: any other unparseable/corrupted stored hash
             # is a login failure, not a 500.

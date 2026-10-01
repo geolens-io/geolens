@@ -16,7 +16,7 @@ from app.modules.admin.schemas import (
 )
 from app.modules.auth.models import ApiKey, Role, User, UserRole
 from app.modules.auth.oauth.models import OAuthAccount, OAuthProvider
-from app.modules.auth.providers.local import hash_password
+from app.modules.auth.providers.local import hash_password_async
 from app.modules.auth.service import AuthService
 from app.core.text import escape_ilike
 
@@ -252,7 +252,7 @@ class AdminService:
 
         user = User(
             username=username,
-            password_hash=hash_password(password),
+            password_hash=await hash_password_async(password),
             email=email,
             status="active",
             is_active=True,
@@ -312,7 +312,7 @@ class AdminService:
                 "-- this account signs in through an identity provider"
             )
 
-        user.password_hash = hash_password(password)
+        user.password_hash = await hash_password_async(password)
         await AuthService(self.db).revoke_all_tokens(
             user_id, commit=False, bump_key_epoch=True
         )
@@ -567,7 +567,7 @@ class AdminService:
             )
         saml_account, provider_slug = link_row
 
-        user.password_hash = hash_password(password)
+        user.password_hash = await hash_password_async(password)
 
         # chk_users_auth_provider admits 'local'.
         user.auth_provider = "local"
