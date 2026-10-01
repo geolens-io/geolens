@@ -565,18 +565,16 @@ async def _load_setting_state(
     overridden_keys = set(stored_settings)
     current_settings: dict[str, Any] = {}
     valid_stored_keys: set[str] = set()
+
+    async def default_of(cfg: Any) -> Any:
+        # Registry order loads the provider first; models follow this read.
+        if cfg in (LLM_MODEL, LLM_MODEL_LIGHT) and LLM_PROVIDER.key in current_settings:
+            return cfg.default_for(current_settings[LLM_PROVIDER.key])
+        return await cfg.resolved_default(db)
+
     for cfg in registry:
         if cfg.key not in stored_settings:
-            # Registry order loads the provider first; models follow this read.
-            if (
-                cfg in (LLM_MODEL, LLM_MODEL_LIGHT)
-                and LLM_PROVIDER.key in current_settings
-            ):
-                current_settings[cfg.key] = cfg.default_for(
-                    current_settings[LLM_PROVIDER.key]
-                )
-            else:
-                current_settings[cfg.key] = await cfg.resolved_default(db)
+            current_settings[cfg.key] = await default_of(cfg)
             continue
         raw_value = stored_settings[cfg.key]
         unwrapped = (
@@ -585,6 +583,8 @@ async def _load_setting_state(
             else raw_value["v"]
         )
         current_value, stored_value_is_valid = _validate_or_fallback(cfg, unwrapped)
+        if not stored_value_is_valid:
+            current_value = await default_of(cfg)
         current_settings[cfg.key] = current_value
         if stored_value_is_valid:
             valid_stored_keys.add(cfg.key)
