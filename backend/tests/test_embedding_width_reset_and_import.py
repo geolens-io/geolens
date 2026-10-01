@@ -989,3 +989,80 @@ async def test_a_failed_rebuild_in_a_mixed_batch_names_the_settings_it_kept(
         assert await EMBEDDING_DIMS.get_uncached(test_db_session) == width
     finally:
         await banner.reset(test_db_session)
+
+
+_BUSY = "Another embedding configuration change is in progress"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("method", "path", "body", "status"),
+    [
+        ("put", "/settings/", {"settings": {"embedding_dims": 0}}, 422),
+        (
+            "post",
+            "/config-ops/import/?mode=merge",
+            {"settings": {"embedding_dims": 0}},
+            422,
+        ),
+        (
+            "post",
+            "/config-ops/import/?mode=overwrite",
+            {"settings": {"embedding_dims": 0}},
+            422,
+        ),
+        (
+            "post",
+            "/config-ops/import/?mode=overwrite",
+            {"settings": {"embedding_dims": 512}},
+            409,
+        ),
+        (
+            "put",
+            "/settings/",
+            {"settings": {"password_login_enabled": False, "embedding_dims": 512}},
+            422,
+        ),
+        (
+            "post",
+            "/settings/reset/",
+            {"keys": ["password_login_enabled", "embedding_dims"]},
+            422,
+        ),
+    ],
+    ids=[
+        "put-invalid-width",
+        "merge-import-invalid-width",
+        "overwrite-import-invalid-width",
+        "overwrite-import-without-preview",
+        "put-lockout",
+        "reset-lockout",
+    ],
+)
+async def test_input_that_cannot_succeed_gets_its_own_answer_while_the_lock_is_held(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    monkeypatch,
+    method: str,
+    path: str,
+    body: dict,
+    status: int,
+):
+    """Invalid input answers with its own status, not the lock's 409, under contention."""
+    from app.core.persistent_config import PASSWORD_LOGIN_ENABLED
+    from app.modules.auth.oauth import service as oauth_service
+    from app.processing.embeddings.service import embedding_change_lock
+
+    if "password_login_enabled" in str(body):
+        # No enabled provider, and a reset of password login that would disable it.
+        monkeypatch.setattr(oauth_service, "list_providers", AsyncMock(return_value=[]))
+        monkeypatch.setattr(
+            oauth_service, "lock_enabled_providers", AsyncMock(return_value=[])
+        )
+        monkeypatch.setattr(PASSWORD_LOGIN_ENABLED, "_env_default_static", False)
+
+    async with embedding_change_lock():
+        resp = await getattr(client, method)(path, json=body, headers=admin_auth_header)
+
+    assert resp.status_code == status, resp.text
+    assert _BUSY not in resp.text

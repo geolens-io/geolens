@@ -307,6 +307,34 @@ async def _rebuild_column_or_503(
         raise HTTPException(status_code=503, detail=detail) from exc
 
 
+_PUT_LOCKOUT_DETAIL = (
+    "Cannot disable password login while no SSO provider is enabled "
+    "— enable an OAuth provider first"
+)
+_RESET_LOCKOUT_DETAIL = (
+    "Cannot reset password login to disabled while no SSO provider "
+    "is enabled — enable an OAuth provider first"
+)
+
+
+async def _refuse_password_lockout(
+    db: AsyncSession, detail: str, *, lock_rows: bool
+) -> None:
+    """422 when no OAuth provider is enabled.
+
+    ``lock_rows`` row-locks the enabled providers (FOR UPDATE) for the rest of
+    the transaction; without it this is a read-only early answer.
+    """
+    if lock_rows:
+        enabled = await oauth_service.lock_enabled_providers(db)
+    else:
+        enabled = await oauth_service.list_providers(db, enabled_only=True)
+    if not enabled:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=detail
+        )
+
+
 @asynccontextmanager
 async def _embedding_change(db: AsyncSession, needed: bool) -> AsyncIterator[None]:
     """Hold the embedding change lock when ``needed``; a change already running is a 409.
@@ -462,6 +490,12 @@ async def update_settings(
 
         validated_settings[key] = _canonicalize_setting_value(key, value, cfg)
 
+    # Answered read-only before the lock as well, so the lockout 422 never
+    # depends on lock contention; the row-locked check below is authoritative.
+    disables_password_login = validated_settings.get("password_login_enabled") is False
+    if disables_password_login:
+        await _refuse_password_lockout(db, _PUT_LOCKOUT_DETAIL, lock_rows=False)
+
     # A model the request repeats skips the probe below, so the model check
     # has to sit under the lock too; otherwise a concurrent change could pair
     # the repeated model with another model's width.
@@ -511,16 +545,8 @@ async def update_settings(
         # provider-disable/delete is serialized against this check — the two can
         # no longer both pass and together remove the last provider. See
         # oauth_service.lock_enabled_providers.
-        if validated_settings.get("password_login_enabled") is False:
-            locked_provider_ids = await oauth_service.lock_enabled_providers(db)
-            if len(locked_provider_ids) == 0:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail=(
-                        "Cannot disable password login while no SSO provider is enabled "
-                        "— enable an OAuth provider first"
-                    ),
-                )
+        if disables_password_login:
+            await _refuse_password_lockout(db, _PUT_LOCKOUT_DETAIL, lock_rows=True)
 
         # The rollback source for the column rebuild below. A request that
         # publishes both halves rolls back both, or a failed rebuild would leave
@@ -614,6 +640,15 @@ async def reset_settings(
     # against it.
     configs_to_reset.sort(key=_registry.index)
 
+    # Answered read-only before the lock as well, so the lockout 422 never
+    # depends on lock contention; the row-locked check below is authoritative.
+    disables_password_login = (
+        PASSWORD_LOGIN_ENABLED in configs_to_reset
+        and PASSWORD_LOGIN_ENABLED.env_default is False
+    )
+    if disables_password_login:
+        await _refuse_password_lockout(db, _RESET_LOCKOUT_DETAIL, lock_rows=False)
+
     # Taken before the provider row locks below, so this request never waits
     # for the lock's connection while holding locks another write may wait on.
     async with _embedding_change(
@@ -623,19 +658,8 @@ async def reset_settings(
         # must enforce the same final-state lockout invariant as PUT/import. Hold
         # the provider locks through the settings transaction so a concurrent IdP
         # disable/delete cannot race this check.
-        if (
-            PASSWORD_LOGIN_ENABLED in configs_to_reset
-            and PASSWORD_LOGIN_ENABLED.env_default is False
-        ):
-            locked_provider_ids = await oauth_service.lock_enabled_providers(db)
-            if len(locked_provider_ids) == 0:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail=(
-                        "Cannot reset password login to disabled while no SSO provider "
-                        "is enabled — enable an OAuth provider first"
-                    ),
-                )
+        if disables_password_login:
+            await _refuse_password_lockout(db, _RESET_LOCKOUT_DETAIL, lock_rows=True)
 
         embedding_before = None
         if EMBEDDING_DIMS in configs_to_reset:

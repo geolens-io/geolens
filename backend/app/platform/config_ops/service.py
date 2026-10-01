@@ -1064,7 +1064,6 @@ async def import_config(
         AuditEvent,
         audit_emit,
     )  # LAZY — preserved per D-17
-    from app.core.public_urls import _is_env_only
     from app.processing.embeddings.service import (
         EmbeddingColumnRebuildError,
         EmbeddingChangeBusyError,
@@ -1073,9 +1072,12 @@ async def import_config(
         rebuild_column_or_restore,
     )
 
-    # Refused before the lock, so contention cannot turn the 403 into a 409.
-    if _is_env_only():
-        raise ConfigLockedError("Configuration locked to environment variables")
+    # Invalid input, env-only mode and a stale preview get their own answer
+    # whatever the lock state: the read-only preflight runs before the lock,
+    # and again under the fence below, where its plan is the one applied.
+    early_plan = await preflight_import(db, data, mode)
+    if mode == "overwrite":
+        _verify_preview_token(preview_token, early_plan, mode)
 
     # Taken before the settings fence and any write, so no request waits for
     # the lock's connection while holding locks another write may wait on.
