@@ -29,6 +29,7 @@ from app.core.persistent_config import (
     LLM_PROVIDER,
     llm_model_default,
 )
+from app.processing.ai.service import _should_send_sample_values
 from app.processing.ai.token_usage import record_token_usage
 
 if TYPE_CHECKING:
@@ -72,9 +73,10 @@ async def _build_dataset_context(
     """Load dataset with relationships and build a context string for prompts."""
     import uuid as _uuid
 
+    send_samples = await _should_send_sample_values(session)
     # Check TTL cache
     now = time.monotonic()
-    cache_key = tenant_cache_key(dataset_id)
+    cache_key = tenant_cache_key(f"{dataset_id}:samples={send_samples}")
     cached = _dataset_context_cache.get(cache_key)
     if cached and (now - cached[0]) < _CACHE_TTL:
         return cached[1]
@@ -171,7 +173,7 @@ async def _build_dataset_context(
                 parts.append("Column statistics:\n" + "\n".join(lines))
 
     # Sample values (truncated at value level to avoid mid-JSON cuts)
-    if dataset.sample_values:
+    if send_samples and dataset.sample_values:
         truncated_samples = {}
         for col, vals in list(dataset.sample_values.items())[:10]:
             truncated_samples[col] = vals[:5] if isinstance(vals, list) else vals

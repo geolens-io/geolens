@@ -285,6 +285,7 @@ async def _validate_chat_layers(
     - Verifies the map exists and the current user can VIEW it (404 otherwise).
     - Resolves each layer's dataset_table_name from the DB by dataset_id.
     - Rejects layers whose datasets the user cannot access.
+    - Drops client-supplied sample values when sending them to the LLM is off.
 
     **Access model:** chat is read-only w.r.t. map state (edits apply
     client-side, persist only at Save, which is owner-gated), so it's
@@ -347,6 +348,7 @@ async def _validate_chat_layers(
     dataset_meta: dict[str, dict] = {
         str(row[0]): {"table_name": row[1], "geometry_type": row[2]} for row in rows
     }
+    send_samples = await _should_send_sample_values(db)
 
     validated: list[ChatMapLayer] = []
     for layer in layers:
@@ -367,6 +369,8 @@ async def _validate_chat_layers(
         layer.dataset_table_name = ds["table_name"]
         if ds["geometry_type"]:
             layer.geometry_type = ds["geometry_type"]
+        if not send_samples:
+            layer.sample_values = None
         validated.append(layer)
 
     return validated, basemap_style, can_edit
