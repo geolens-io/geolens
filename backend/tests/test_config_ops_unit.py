@@ -488,6 +488,7 @@ async def test_overwrite_saml_uses_certificate_not_oauth_client_secret(
 async def test_import_result_and_audit_report_exact_account_link_deletions():
     """The exact cascade count reaches both the response and aggregate audit."""
     from app.platform.config_ops.service import ConfigImportPlan, import_config
+    from app.processing.embeddings.service import CommittedEmbeddingPair
 
     plan = ConfigImportPlan(
         validated_settings={},
@@ -533,6 +534,17 @@ async def test_import_result_and_audit_report_exact_account_link_deletions():
         patch(
             "app.processing.embeddings.service.embedding_change_lock",
             lambda _needed: nullcontext(),
+        ),
+        patch(
+            "app.processing.embeddings.service.read_committed_embedding_pair",
+            AsyncMock(
+                return_value=CommittedEmbeddingPair(
+                    dims=1536,
+                    model="text-embedding-3-small",
+                    dims_overridden=False,
+                    model_overridden=False,
+                )
+            ),
         ),
         patch(
             "app.processing.embeddings.service.rebuild_embedding_column",
