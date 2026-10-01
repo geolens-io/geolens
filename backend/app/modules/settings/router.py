@@ -286,8 +286,13 @@ async def _rebuild_column_or_503(
     *,
     user_id: uuid.UUID,
     ip_address: str | None,
+    others_kept: str | None = None,
 ) -> None:
-    """Resize the vector column to a committed width; a failed rebuild is a 503."""
+    """Resize the vector column to a committed width; a failed rebuild is a 503.
+
+    ``others_kept`` is appended to the 503 detail when the request also
+    changed settings that stay committed after the embedding pair is restored.
+    """
     from app.processing.embeddings.service import (
         EmbeddingColumnRebuildError,
         rebuild_column_or_restore,
@@ -298,12 +303,22 @@ async def _rebuild_column_or_503(
             db, new_dims, previous, user_id=user_id, ip_address=ip_address
         )
     except EmbeddingColumnRebuildError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        detail = f"{exc} {others_kept}" if others_kept else str(exc)
+        raise HTTPException(status_code=503, detail=detail) from exc
 
 
 @asynccontextmanager
 async def _embedding_change(db: AsyncSession, needed: bool) -> AsyncIterator[None]:
-    """Hold the embedding change lock when ``needed``; a change already running is a 409."""
+    """Hold the embedding change lock when ``needed``; a change already running is a 409.
+
+    In env-only mode the write is refused with the 403 PersistentConfig.set()
+    gives, before lock contention could turn it into a 409.
+    """
+    if needed and _is_env_only():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Configuration locked to environment variables",
+        )
     from app.processing.embeddings.service import (
         EmbeddingChangeBusyError,
         embedding_change_lock,
@@ -555,6 +570,11 @@ async def update_settings(
                 embedding_before,
                 user_id=user.id,
                 ip_address=ip,
+                others_kept=(
+                    "The other settings in the request were saved."
+                    if set(validated_settings) - {"embedding_dims", "embedding_model"}
+                    else None
+                ),
             )
 
     # Phase 279 (L-01): second get_all_settings() call is INTENTIONAL — this
@@ -653,6 +673,11 @@ async def reset_settings(
                 embedding_before,
                 user_id=user.id,
                 ip_address=ip,
+                others_kept=(
+                    "The other settings in the request were reset."
+                    if set(configs_to_reset) - {EMBEDDING_DIMS, EMBEDDING_MODEL}
+                    else None
+                ),
             )
 
     # Phase 279 (L-01): intentional second SELECT — cfg.reset() writes

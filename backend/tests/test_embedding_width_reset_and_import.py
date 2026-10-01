@@ -918,3 +918,74 @@ async def test_the_request_holds_no_transaction_while_it_tries_the_lock(
 
     assert resp.status_code == 200, resp.text
     assert observed == [{"pending": False, "wrote": False, "in_transaction": False}]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("how", ["put", "reset", "import"])
+async def test_env_only_mode_answers_403_even_while_the_lock_is_held(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    how: str,
+):
+    """With configuration locked to the environment, an embedding change is a 403, not a 409."""
+    from unittest.mock import patch
+
+    from app.core.config import settings
+    from app.processing.embeddings.service import embedding_change_lock
+
+    async with embedding_change_lock():
+        with patch.object(settings, "env_only_config", True):
+            resp = await _change_embedding(client, admin_auth_header, how, 512)
+
+    assert resp.status_code == 403, resp.text
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("how", ["put", "reset"])
+async def test_a_failed_rebuild_in_a_mixed_batch_names_the_settings_it_kept(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    monkeypatch,
+    restore_embedding_settings,
+    how: str,
+):
+    """A 503 for a batch with other keys says those keys stayed changed, and they did."""
+    from app.core.persistent_config import _registry
+
+    banner = next(cfg for cfg in _registry if cfg.key == "banner_text")
+    width = _width_other_than(EMBEDDING_DIMS.env_default)
+    await _publish_width(client, admin_auth_header, test_db_session, width)
+    await banner.set(test_db_session, "embedding width banner")
+    monkeypatch.setattr(
+        _REBUILD, AsyncMock(side_effect=RuntimeError("simulated DDL failure"))
+    )
+    try:
+        if how == "put":
+            kept, phrase = "embedding width banner, saved", "were saved"
+            resp = await client.put(
+                "/settings/",
+                json={
+                    "settings": {
+                        "banner_text": kept,
+                        "embedding_dims": _width_other_than(
+                            width, EMBEDDING_DIMS.env_default
+                        ),
+                    }
+                },
+                headers=admin_auth_header,
+            )
+        else:
+            kept, phrase = banner.env_default, "were reset"
+            resp = await client.post(
+                "/settings/reset/",
+                json={"keys": ["banner_text", "embedding_dims"]},
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 503, resp.text
+        assert f"The other settings in the request {phrase}." in resp.json()["detail"]
+        assert await banner.get_uncached(test_db_session) == kept
+        assert await EMBEDDING_DIMS.get_uncached(test_db_session) == width
+    finally:
+        await banner.reset(test_db_session)

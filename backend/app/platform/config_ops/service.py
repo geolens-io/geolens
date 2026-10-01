@@ -1064,6 +1064,7 @@ async def import_config(
         AuditEvent,
         audit_emit,
     )  # LAZY — preserved per D-17
+    from app.core.public_urls import _is_env_only
     from app.processing.embeddings.service import (
         EmbeddingColumnRebuildError,
         EmbeddingChangeBusyError,
@@ -1071,6 +1072,10 @@ async def import_config(
         read_committed_embedding_pair,
         rebuild_column_or_restore,
     )
+
+    # Refused before the lock, so contention cannot turn the 403 into a 409.
+    if _is_env_only():
+        raise ConfigLockedError("Configuration locked to environment variables")
 
     # Taken before the settings fence and any write, so no request waits for
     # the lock's connection while holding locks another write may wait on.
