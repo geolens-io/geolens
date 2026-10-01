@@ -1,6 +1,7 @@
 """Remote service layer preview via ogrinfo."""
 
 import asyncio
+import contextlib
 import json
 import os
 import time
@@ -10,6 +11,7 @@ from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 import structlog
 from fastapi import HTTPException, status
 
+from app.core.async_io import await_draining
 from app.core.runtime.staging import GDAL_HEADER_FILE_REDIRECT_ENV, gdal_header_dir
 from app.core.service_tokens import (
     ServiceCredential,
@@ -36,6 +38,7 @@ from app.platform.service_endpoints import (
 )
 
 _SUBPROCESS_FLOOR_SECONDS = 1.0
+_REAP_WAIT_SECONDS = 5.0
 _HTTP_TIMEOUT_SECONDS = 60
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -138,6 +141,18 @@ def _remove_quietly(path: str | None) -> None:
         os.unlink(path)
     except OSError:
         pass
+
+
+async def _kill_and_reap(proc: asyncio.subprocess.Process) -> None:
+    """Kill the child and wait for it to exit, through repeated cancellations.
+
+    The wait is bounded so a child stuck in uninterruptible I/O cannot hold
+    a cancelled request open.
+    """
+    with contextlib.suppress(ProcessLookupError):
+        proc.kill()
+    with contextlib.suppress(asyncio.TimeoutError, ProcessLookupError):
+        await await_draining(asyncio.wait_for(proc.wait(), timeout=_REAP_WAIT_SECONDS))
 
 
 def _required_pair(pair: tuple[str, str] | None) -> tuple[str, str]:
@@ -426,8 +441,6 @@ async def run_service_preview(
                     proc.communicate(), timeout=timeout
                 )
             except asyncio.TimeoutError as exc:
-                proc.kill()
-                await proc.wait()
                 logger.warning(
                     "ogrinfo timed out for service preview",
                     gdal_source=redact_url_credentials(gdal_source),
@@ -440,6 +453,12 @@ async def run_service_preview(
                 raise IngestionError(
                     f"ogrinfo timed out after {timeout:.0f}s for service preview"
                 ) from exc
+            finally:
+                # Any exit that leaves the child running (a timeout, or a
+                # cancellation, which `wait_for` re-raises without touching
+                # it) must stop it before the proxy closes and its inputs go.
+                if proc.returncode is None:
+                    await _kill_and_reap(proc)
     finally:
         # Both are removed on every exit, success or not: one holds a
         # credential and the other holds data read with it.

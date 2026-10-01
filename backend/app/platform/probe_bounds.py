@@ -26,14 +26,16 @@ from app.platform.service_endpoints import (
 )
 
 
-async def bounded_probe_read(
+async def bounded_probe_exchange(
     client: httpx.AsyncClient,
+    method: str,
     url: str,
     *,
     headers: dict[str, str],
     accept: str,
-) -> tuple[bytes, httpx.Headers]:
-    """A probe's own read of a URL its caller already SSRF-validated.
+    json_body: object | None = None,
+) -> tuple[bytes, httpx.Response]:
+    """A probe's own request to a URL its caller already SSRF-validated.
 
     Bounded exactly as `fetch_document` bounds the door's reads: the same
     `MAX_DOCUMENT_BYTES` on the wire (`read_bounded_body`, streamed via
@@ -44,6 +46,22 @@ async def bounded_probe_read(
     `httpx.HTTPStatusError` `raise_for_status()` raises for a non-2xx
     response; every caller catches both in one except clause, since both mean
     the same thing to a probe: not this service, degrade to `None`.
+
+    The byte and token bounds do not limit how long the read takes, so a
+    caller that needs a deadline wraps the call in one.
+
+    Redirects are followed here, not by httpx: with `follow_redirects` on,
+    httpx reads each redirect response's body in full, decoded, before the
+    caps above can see it. Each redirect response is closed unread instead,
+    and the next hop is the request httpx built for it, so the client's
+    response hook still validates every hop and httpx still drops
+    `Authorization` across origins. The hop limit is the client's own
+    `max_redirects`.
+
+    Returns the body and the closed response, whose `url` is the address the
+    body came from after any redirect, whose `history` holds the closed
+    redirect responses, and whose `headers` are the final response's.
+    `json_body` is sent as a JSON request body.
 
     Does NOT itself call `validate_url_for_ssrf`, unlike `fetch_document`.
     `fetch_document` re-validates because its caller follows a CHAIN of
@@ -59,17 +77,48 @@ async def bounded_probe_read(
     drop out of that walk's count.
     """
     request_headers = {**headers, "Accept": accept, "Accept-Encoding": "identity"}
-    # Nothing may go between the marker below and the call: an inserted
-    # comment there silently disarms the suppression. Prose goes above.
-    # codeql[py/full-ssrf] fix(#1770): the caller validated this exact URL with validate_url_for_ssrf immediately before invoking bounded_probe_read, and the client comes from make_safe_client, whose transport re-resolves, validates and pins the IP at connect time and revalidates every redirect hop
-    async with client.stream("GET", url, headers=request_headers) as response:
-        response.raise_for_status()
-        body = await read_bounded_body(response, MAX_DOCUMENT_BYTES)
-        response_headers = response.headers
+    # A marker covers only the one-line call directly below it, so a comment
+    # or a wrapped argument list in between leaves the call unsuppressed.
+    # codeql[py/full-ssrf] the caller validated this exact URL with validate_url_for_ssrf immediately before invoking bounded_probe_exchange, and the client comes from make_safe_client, whose transport re-resolves, validates and pins the IP at connect time and whose response hook revalidates every redirect hop
+    request = client.build_request(method, url, headers=request_headers, json=json_body)
+    redirects: list[httpx.Response] = []
+    while True:
+        # codeql[py/full-ssrf] the request built and validated above, or the next hop the client built for a redirect it already revalidated
+        response = await client.send(request, stream=True, follow_redirects=False)
+        try:
+            if response.next_request is None:
+                response.history = redirects
+                response.raise_for_status()
+                body = await read_bounded_body(response, MAX_DOCUMENT_BYTES)
+                break
+            redirects.append(response)
+            if len(redirects) > client.max_redirects:
+                raise httpx.TooManyRedirects(
+                    "Exceeded maximum allowed redirects.",
+                    request=response.next_request,
+                )
+            request = response.next_request
+        finally:
+            await response.aclose()
     require_decodable(
         body,
         accept=accept,
         token_budget=MAX_DOCUMENT_TOKENS,
         element_budget=MAX_DOCUMENT_ELEMENTS,
     )
-    return body, response_headers
+    return body, response
+
+
+async def bounded_probe_read(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    headers: dict[str, str],
+    accept: str,
+) -> tuple[bytes, httpx.Headers]:
+    """A GET through `bounded_probe_exchange`, for callers that want the body
+    and the response headers and nothing else."""
+    body, response = await bounded_probe_exchange(
+        client, "GET", url, headers=headers, accept=accept
+    )
+    return body, response.headers

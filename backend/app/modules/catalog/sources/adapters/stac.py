@@ -27,7 +27,7 @@ from app.core.url_redaction import (
     redact_exception_text,
 )
 from app.platform.security import make_safe_client, same_origin
-from app.platform.probe_bounds import bounded_probe_read
+from app.platform.probe_bounds import bounded_probe_exchange, bounded_probe_read
 from app.platform.service_endpoints import (
     DEFAULT_CHECK_TIMEOUT,
     OGC_JSON_ACCEPT,
@@ -38,6 +38,8 @@ logger = structlog.stdlib.get_logger(__name__)
 
 # Maximum items to return per search request
 MAX_SEARCH_ITEMS = 100
+# Maximum collections to return from one listing
+MAX_COLLECTIONS = 1000
 # Connection timeout for STAC API requests
 STAC_TIMEOUT = 30.0
 
@@ -303,7 +305,7 @@ async def list_stac_collections(
     """
     collections_url = url.rstrip("/") + "/collections"
 
-    headers = {"Accept": "application/json"}
+    headers: dict[str, str] = {}
     pair: tuple[str, str] | None = None
     if credential is not None:
         pair = build_credential_header(
@@ -311,12 +313,21 @@ async def list_stac_collections(
         )
         if pair is not None:
             headers[pair[0]] = pair[1]
-    async with _make_client(None if pair is None else pair[0]) as client:
-        resp = await client.get(collections_url, headers=headers)
-        resp.raise_for_status()
-        data = resp.json()
+    async with asyncio.timeout(DEFAULT_CHECK_TIMEOUT):
+        async with _make_client(None if pair is None else pair[0]) as client:
+            body, _ = await bounded_probe_read(
+                client, collections_url, headers=headers, accept=OGC_JSON_ACCEPT
+            )
+    data = json.loads(body)
 
     raw_collections = data.get("collections", [])
+    if len(raw_collections) > MAX_COLLECTIONS:
+        logger.warning(
+            "STAC collections: server returned more than the cap",
+            returned=len(raw_collections),
+            cap=MAX_COLLECTIONS,
+        )
+        raw_collections = raw_collections[:MAX_COLLECTIONS]
     result = []
     for c in raw_collections:
         extent = c.get("extent", {})
@@ -380,10 +391,7 @@ async def search_stac_items(
     if datetime_range:
         body["datetime"] = datetime_range
 
-    headers = {
-        "Accept": "application/geo+json, application/json",
-        "Content-Type": "application/json",
-    }
+    headers = {"Content-Type": "application/json"}
     pair: tuple[str, str] | None = None
     if credential is not None:
         pair = build_credential_header(
@@ -391,12 +399,26 @@ async def search_stac_items(
         )
         if pair is not None:
             headers[pair[0]] = pair[1]
-    async with _make_client(None if pair is None else pair[0]) as client:
-        resp = await client.post(search_url, json=body, headers=headers)
-        resp.raise_for_status()
-        data = resp.json()
+    async with asyncio.timeout(DEFAULT_CHECK_TIMEOUT):
+        async with _make_client(None if pair is None else pair[0]) as client:
+            raw, resp = await bounded_probe_exchange(
+                client,
+                "POST",
+                search_url,
+                headers=headers,
+                accept=OGC_JSON_ACCEPT,
+                json_body=body,
+            )
+    data = json.loads(raw)
 
     features = data.get("features", [])
+    if len(features) > limit:
+        logger.warning(
+            "STAC search: server returned more items than requested",
+            requested=limit,
+            returned=len(features),
+        )
+        features = features[:limit]
     matched = data.get("numberMatched") or data.get("context", {}).get("matched")
 
     items = []
