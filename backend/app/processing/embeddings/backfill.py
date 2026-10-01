@@ -24,6 +24,7 @@ from app.processing.embeddings.service import (
     compute_content_hash,
     content_fields,
     generate_embeddings_batch,
+    raster_summary_of,
     records_still_current,
     resolve_embedding_base_url,
 )
@@ -735,7 +736,13 @@ async def backfill_embeddings(
 
     # Extract all data upfront so rollback/commit won't trigger lazy loads
     # (rollback expires all ORM instances → accessing attrs causes MissingGreenlet)
-    observed = {r.id: content_fields(r) for r in records}
+    observed = {
+        r.id: {
+            **content_fields(r),
+            "raster_summary": await raster_summary_of(session, r),
+        }
+        for r in records
+    }
 
     total = len(observed)
 

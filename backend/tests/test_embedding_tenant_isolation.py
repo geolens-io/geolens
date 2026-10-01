@@ -143,6 +143,7 @@ async def test_admin_stats_and_force_delete_are_record_scoped(monkeypatch):
     # scoping has to hold.
     record = SimpleNamespace(
         id=uuid.uuid4(),
+        record_type="vector_dataset",
         title="Tenant Scoped Record",
         summary=None,
         keywords=[],
@@ -394,6 +395,7 @@ async def test_force_backfill_deletes_only_active_tenant_embeddings(
         # untouched, which is the fleet-wide-delete hazard this test exists for.
         record_a = SimpleNamespace(
             id=uuid.UUID(surface.rec_a_id),
+            record_type="vector_dataset",
             title="Tenant A Record",
             summary=None,
             keywords=[],

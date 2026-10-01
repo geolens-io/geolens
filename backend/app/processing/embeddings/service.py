@@ -348,6 +348,41 @@ def content_fields(record) -> dict[str, Any]:  # type: ignore[no-untyped-def]
     }
 
 
+async def raster_summary_of(session: AsyncSession, record) -> str | None:  # type: ignore[no-untyped-def]
+    """The raster facts a raster dataset's embedded text carries, if any."""
+    from app.processing.raster.models import RasterAsset
+
+    if record.record_type != "raster_dataset":
+        return None
+    dataset_orm = get_processing_port().get_dataset_orm_class()
+    ra = (
+        await session.execute(
+            select(
+                RasterAsset.size_bytes,
+                RasterAsset.res_x,
+                RasterAsset.band_count,
+                RasterAsset.dtype,
+                RasterAsset.epsg,
+                RasterAsset.compression,
+            )
+            .join(dataset_orm, RasterAsset.dataset_id == dataset_orm.id)
+            .where(dataset_orm.record_id == record.id)
+        )
+    ).first()
+    if ra is None:
+        return None
+    size_str = (
+        f"{ra.size_bytes / (1024 * 1024):.1f}MB" if ra.size_bytes else "unknown size"
+    )
+    # res_x may be NULL, which the float format would raise on.
+    res_str = f"{ra.res_x:.6f} resolution, " if ra.res_x is not None else ""
+    return (
+        f"GeoTIFF, {ra.band_count} band(s), {ra.dtype}, "
+        f"{res_str}EPSG:{ra.epsg}, "
+        f"{ra.compression} compression, {size_str}"
+    )
+
+
 def _comparable(fields: dict[str, Any]) -> dict[str, Any]:
     # Keywords have no load order, so two reads of the same set may differ.
     return {**fields, "keywords": sorted(fields["keywords"])}
@@ -358,9 +393,10 @@ async def records_still_current(
 ) -> set[Any]:
     """The observed records whose ``content_fields`` are unchanged.
 
-    The records stay share-locked until the caller commits, so an edit waits
-    for the embedding write and then queues its own re-embed. A deleted record
-    is not current.
+    An observed ``raster_summary`` is compared as well. The records stay
+    share-locked until the caller commits, so an edit waits for the embedding
+    write and then queues its own re-embed; raster publishes lock the record
+    row too. A deleted record is not current.
     """
     record_orm = get_processing_port().get_record_orm_class()
     ids = list(observed)
@@ -379,10 +415,12 @@ async def records_still_current(
         # The caller's identity map may still hold these records as first read.
         .execution_options(populate_existing=True)
     )
-    current = {
-        record.id: _comparable(content_fields(record))
-        for record in result.unique().scalars().all()
-    }
+    current = {}
+    for record in result.unique().scalars().all():
+        fields = content_fields(record)
+        if "raster_summary" in observed.get(record.id, {}):
+            fields["raster_summary"] = await raster_summary_of(session, record)
+        current[record.id] = _comparable(fields)
     return {
         record_id
         for record_id, fields in observed.items()
@@ -406,8 +444,9 @@ async def generate_and_store_embedding(
 
     Non-fatal: catches all errors and logs warnings instead of raising.
     Skips silently when AI is disabled, content is empty, or hash is unchanged.
-    ``observed`` is the record's ``content_fields`` the text was built from;
-    when given, the vector is stored only if the record still holds them.
+    ``observed`` is what the text was built from: the record's
+    ``content_fields``, plus its ``raster_summary`` when that was included.
+    When given, the vector is stored only if the record still holds them.
 
     Returns:
         True if an embedding was created/updated, False otherwise.

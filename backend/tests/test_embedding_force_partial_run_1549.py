@@ -101,6 +101,7 @@ def _as_record(record_id: uuid.UUID, *, title: str | None):
     """
     return SimpleNamespace(
         id=record_id,
+        record_type="vector_dataset",
         title=title,
         summary=None if title is None else _SEED_SUMMARY,
         keywords=[],
