@@ -46,16 +46,20 @@ Receives the defer exception so the rollback can name its type in the
 stored reason (fix(#1953): ``coded_failure_reason``, never ``str(exc)``,
 which ADR-002 Decision 3 keeps out of a stored reason). Must *not* commit
 the session — ``defer_with_orphan_guard`` commits after invoking the
-rollback. The guard ignores its result.
+rollback. Returning ``True`` reports that its write landed, which
+``DeferFailed.landed`` carries; any other result reports that it did not.
 """
 
 
 class DeferFailed(HTTPException):
     """The 503 raised when a defer fails, carrying the rollback's fate.
 
-    fix(#1550): ``rolled_back`` tells a caller whether the revert actually
-    landed, so an audit trail doesn't record "failed" while the row is still
-    ``pending`` (which would block every later embedding-backfill run).
+    fix(#1550): ``rolled_back`` tells a caller whether the rollback ran and
+    committed, so an audit trail doesn't record "failed" while the row is
+    still ``pending`` (which would block every later embedding-backfill run).
+    ``landed`` is True only when the rollback also reported that its fenced
+    write landed. Only then does no worker or other request own the job, so
+    only then may a caller delete what the job would have read.
 
     fix(#1755): ``cause_class`` is ``type(cause).__name__`` — a safe
     Python identifier, never ``str(cause)``, which can carry a credential or
@@ -63,7 +67,9 @@ class DeferFailed(HTTPException):
     Procrastinate's queue genuinely being unreachable.
     """
 
-    def __init__(self, *, rolled_back: bool, cause: BaseException) -> None:
+    def __init__(
+        self, *, rolled_back: bool, cause: BaseException, landed: bool = False
+    ) -> None:
         self.cause_class = type(cause).__name__
         super().__init__(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -74,6 +80,7 @@ class DeferFailed(HTTPException):
             },
         )
         self.rolled_back = rolled_back
+        self.landed = landed
 
 
 async def stamp_commit_attempted(job: IngestJob, *, db: AsyncSession) -> None:
@@ -167,22 +174,22 @@ def _render_or_unreadable(render: Callable[[], str]) -> str:
 
 async def _settle_after_failed_dispatch(
     rollback: RollbackCallable, exc: BaseException, db: AsyncSession
-) -> bool:
-    """Run the caller's rollback closure and commit it. Returns whether it landed.
+) -> DeferFailed:
+    """Run the caller's rollback closure, commit it, and build the 503 to raise.
 
     fix(#1774): one copy, so the two ways a dispatch can fail settle the row
     identically rather than diverging on committing, logging or `rolled_back`.
     """
     try:
-        await rollback(exc)
+        landed = await rollback(exc)
         await db.commit()
-        return True
     except Exception:  # broad: rollback can itself fail with DB errors
         logger.exception(
             "Orphan-guard rollback failed after defer error",
             defer_error=_render_or_unreadable(lambda: redact_nested(str(exc))),
         )
-        return False
+        return DeferFailed(rolled_back=False, cause=exc)
+    return DeferFailed(rolled_back=True, cause=exc, landed=landed is True)
 
 
 def _log_dispatch_failure(job: IngestJob, exc: BaseException, *, stage: str) -> None:
@@ -257,8 +264,9 @@ async def defer_with_orphan_guard(
         _log_dispatch_failure(job, stamp_exc, stage="commit_attempted_marker")
         # fix(#1774): reset discards nothing — every caller commits before dispatching.
         await reset_session_for_settlement(job, db=db)
-        rolled_back = await _settle_after_failed_dispatch(rollback, stamp_exc, db)
-        raise DeferFailed(rolled_back=rolled_back, cause=stamp_exc) from stamp_exc
+        raise await _settle_after_failed_dispatch(
+            rollback, stamp_exc, db
+        ) from stamp_exc
 
     try:
         await defer_call()
@@ -266,8 +274,9 @@ async def defer_with_orphan_guard(
         Exception
     ) as defer_exc:  # broad: defer_async can throw various job-runner errors
         _log_dispatch_failure(job, defer_exc, stage="defer_async")
-        rolled_back = await _settle_after_failed_dispatch(rollback, defer_exc, db)
-        raise DeferFailed(rolled_back=rolled_back, cause=defer_exc) from defer_exc
+        raise await _settle_after_failed_dispatch(
+            rollback, defer_exc, db
+        ) from defer_exc
 
 
 async def settle_ingest_job_failed(

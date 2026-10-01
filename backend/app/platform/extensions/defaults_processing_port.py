@@ -405,6 +405,14 @@ class DefaultProcessingPort:
 
         return await update_map(session, map_id, **kwargs)
 
+    async def update_dataset_metadata(self, session, dataset_id, fields, *, actor_id):  # type: ignore[no-untyped-def]
+        from app.modules.catalog.datasets.domain.schemas import DatasetMetaUpdate
+        from app.modules.catalog.datasets.domain.service import update_user_metadata
+
+        await update_user_metadata(
+            session, dataset_id, DatasetMetaUpdate(**fields), actor_id=actor_id
+        )
+
     def create_ingestion_result(self, **kwargs):  # type: ignore[no-untyped-def]
         from app.modules.catalog.datasets.domain.schemas import IngestionResult
 

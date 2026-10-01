@@ -52,9 +52,9 @@ from app.platform.jobs.models import (
 
 log = structlog.get_logger()
 
-# `{job id}_{name}` from uploads, reuploads, URL imports and
-# `resolve_file_path`'s downloads, and `manifest_{hex}_{name}` from a
-# manifest's copy of its source.
+# `{job id}_{name}` from uploads, reuploads, URL imports, manifest copies and
+# `resolve_file_path`'s downloads, and `manifest_{hex}_{name}`, the name
+# earlier versions gave a manifest's copy of its source.
 _UPLOAD_NAME = re.compile(
     r"^(?:(?P<job>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"
     r"|manifest_[0-9a-f]{32})_.",

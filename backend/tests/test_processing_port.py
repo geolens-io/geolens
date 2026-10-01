@@ -220,6 +220,9 @@ class FakeProcessingPort:
     async def update_map(self, session, map_id, **kwargs):
         return (self._map, [], None, None)
 
+    async def update_dataset_metadata(self, session, dataset_id, fields, *, actor_id):
+        return None
+
     def create_ingestion_result(self, **kwargs):
         result = MagicMock()
         for k, v in kwargs.items():

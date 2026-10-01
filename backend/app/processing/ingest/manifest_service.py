@@ -204,9 +204,19 @@ async def _upload_max_size_bytes(db: AsyncSession) -> int:
     return (await UPLOAD_MAX_SIZE_MB.get(db)) * 1024 * 1024
 
 
+def _owned_staging_path(job_id: uuid.UUID, prepared: ManifestPreparedSource) -> Path:
+    """The staged copy a reservation writes, named for its committed job row.
+
+    The local staging reconciler attributes a ``{job id}_`` file to that row,
+    so a copy left before the reservation bound it is still reclaimable.
+    """
+    return Path(settings.upload_staging_dir) / f"{job_id}_{prepared.source_filename}"
+
+
 async def _download_http_source(
     prepared: ManifestPreparedSource,
     *,
+    job_id: uuid.UUID,
     max_size_bytes: int,
     quota_byte_limit: int | None = None,
 ) -> str:
@@ -215,11 +225,8 @@ async def _download_http_source(
     fix(#1814): a session here would hold a pooled connection for the
     download's length; the caller reads the size ceiling before committing.
     """
-    staging_dir = Path(settings.upload_staging_dir)
-    staging_dir.mkdir(parents=True, exist_ok=True)
-    destination = staging_dir / (
-        f"manifest_{uuid.uuid4().hex}_{prepared.source_filename}"
-    )
+    destination = _owned_staging_path(job_id, prepared)
+    destination.parent.mkdir(parents=True, exist_ok=True)
 
     bytes_seen = 0
     # Rule 2 (AGENTS.md): make_safe_client for per-hop SSRF revalidation on
@@ -318,6 +325,7 @@ async def _download_http_source(
 async def _stage_source_if_needed(
     prepared: ManifestPreparedSource,
     *,
+    job_id: uuid.UUID,
     dry_run: bool,
     max_size_bytes: int,
     quota_byte_limit: int | None = None,
@@ -331,6 +339,7 @@ async def _stage_source_if_needed(
         async with asyncio.timeout(MANIFEST_STAGE_MAX_SECONDS):
             return await _stage_source(
                 prepared,
+                job_id=job_id,
                 dry_run=dry_run,
                 max_size_bytes=max_size_bytes,
                 quota_byte_limit=quota_byte_limit,
@@ -345,6 +354,7 @@ async def _stage_source_if_needed(
 async def _stage_source(
     prepared: ManifestPreparedSource,
     *,
+    job_id: uuid.UUID,
     dry_run: bool,
     max_size_bytes: int,
     quota_byte_limit: int | None = None,
@@ -354,6 +364,7 @@ async def _stage_source(
             return None
         return await _download_http_source(
             prepared,
+            job_id=job_id,
             max_size_bytes=max_size_bytes,
             quota_byte_limit=quota_byte_limit,
         )
@@ -363,9 +374,7 @@ async def _stage_source(
         import shutil
 
         source_path = Path(prepared.file_path)
-        owned_copy = Path(settings.upload_staging_dir) / (
-            f"manifest_{uuid.uuid4().hex}_{prepared.source_filename}"
-        )
+        owned_copy = _owned_staging_path(job_id, prepared)
         try:
             await run_in_thread_draining(shutil.copyfile, source_path, owned_copy)
         except BaseException:
@@ -952,6 +961,7 @@ async def _finalize_reserved_entry(
     try:
         file_path = await _stage_source_if_needed(
             prepared,
+            job_id=job.id,
             dry_run=False,
             max_size_bytes=reserved.max_size_bytes,
             quota_byte_limit=reserved.quota_byte_limit,

@@ -724,12 +724,6 @@ PUT_SITES_WITH_ANOTHER_OWNER: dict[tuple[str, str], tuple[int, str]] = {
         "on the job row, and the settlement seam runs fetch to completion "
         "before it calls install, so the stale-job reaper can name them",
     ),
-    ("processing/ingest/tasks_vrt.py", "regenerate_vrt"): (
-        3,
-        "generation-scoped keys, rebuilt from the durable VrtGeneration row by "
-        "_stale_generation_storage_keys in the job sweep (feat(#1267)) - the "
-        "mechanism this finding's recorder was modelled on",
-    ),
     ("processing/ingest/tasks_staging.py", "_archive_original_file"): (
         1,
         "originals/{dataset_id}/: the first-ingest tail records it as intent "

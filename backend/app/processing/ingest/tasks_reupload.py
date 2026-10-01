@@ -50,6 +50,7 @@ from app.processing.ingest.tasks_common import (
     _install_reupload_table,
     _run_service_import_with_wfs_fallback,
     _write_reupload_catalog,
+    apply_manifest_publication,
     apply_manifest_record_metadata,
     purge_token_on_failure,
     resolve_service_type,
@@ -354,6 +355,9 @@ class _FileReupload:
         # attribution, which replaces the old credit.
         await apply_manifest_record_metadata(
             session, dataset.record, self.user_metadata
+        )
+        await apply_manifest_publication(
+            session, dataset, self.user_metadata, actor_id=uuid.UUID(self.user_id)
         )
         # The bytes came from the browser, so nothing remote was contacted.
         return Published(

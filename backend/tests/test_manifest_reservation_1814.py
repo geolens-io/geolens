@@ -170,6 +170,7 @@ class _GatedDownload:
         self,
         prepared,
         *,
+        job_id: uuid.UUID,
         max_size_bytes: int,
         quota_byte_limit: int | None = None,
     ) -> str:
@@ -1060,7 +1061,9 @@ class TestReservationFailureReleasesTheKey:
 
         downloads = 0
 
-        async def _download(prepared, *, max_size_bytes, quota_byte_limit=None) -> str:
+        async def _download(
+            prepared, *, job_id, max_size_bytes, quota_byte_limit=None
+        ) -> str:
             nonlocal downloads
             downloads += 1
             return str(_staged_bytes(f"manifest_1814_ledger_{downloads}.geojson"))

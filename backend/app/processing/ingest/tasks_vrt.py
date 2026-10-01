@@ -1172,6 +1172,28 @@ async def regenerate_vrt(
         next_ql256_uri = f"{generation_base_key}/quicklook_256.png"
         next_ql512_uri = f"{generation_base_key}/quicklook_512.png"
 
+        # The job row owes these until a sweep confirms them deleted or a live
+        # pointer names them. A failed generation is out of the stale
+        # generation sweep's reach, so it cannot be their only owner.
+        if not await record_unpublished_storage_keys(
+            job_uuid,
+            attempt_uuid,
+            keys=[
+                next_vrt_storage_key,
+                *([next_ql256_uri] if ql256 is not None else []),
+                *([next_ql512_uri] if ql512 is not None else []),
+            ],
+            already_published=(
+                key
+                for key in (vrt_storage_key, vrt_ql256_uri, vrt_ql512_uri)
+                if key is not None
+            ),
+            attempt_scope=str(generation_uuid),
+            job_id=job_id,
+            task="regenerate_vrt",
+        ):
+            return
+
         # 10. Write immutable generation objects. The catalog pointer switches
         # only after the job lease and current_generation_id are checked
         # together in phase 2, so a stale worker can never overwrite the

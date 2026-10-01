@@ -1190,7 +1190,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/maps/service_diff.py": 400,
         "backend/app/modules/catalog/maps/service_shared.py": 400,
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 657,
-        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 546,
+        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 553,
         # Internal pointer reads sit beside the detail query that shares them.
         "backend/app/modules/catalog/datasets/domain/service_query.py": 434,
         "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 513,
@@ -1202,7 +1202,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/platform/extensions/defaults_ai_anthropic.py": 372,
         "backend/app/platform/extensions/defaults_catalog_port.py": 569,
         # ProcessingPort signatures remain explicit across the catalog boundary.
-        "backend/app/platform/extensions/defaults_processing_port.py": 568,
+        "backend/app/platform/extensions/defaults_processing_port.py": 571,
         "backend/app/platform/extensions/defaults_extensions.py": 433,
         "backend/app/modules/catalog/search/service_filters.py": 366,
     }
@@ -1273,7 +1273,7 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 _MODULE_LOC_CAPS: dict[str, int] = {
     # Manifest reservation, staging, run admission and fenced settlement share one
     # apply workflow.
-    "backend/app/processing/ingest/manifest_service.py": 1220,
+    "backend/app/processing/ingest/manifest_service.py": 1230,
     # Endpoint parsing, SSRF checks and credential forwarding share one security
     # boundary.
     "backend/app/platform/service_endpoints.py": 1360,
@@ -1303,17 +1303,18 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Ingest API router debt; split upload, import and registration endpoints before
     # raising further. Each upload door branches once per 3D upload kind: a 3D
     # Tiles tileset and a COPC point cloud.
-    "backend/app/processing/ingest/router.py": 1712,
+    "backend/app/processing/ingest/router.py": 1708,
     # One reader for untrusted COPC files: header, VLRs, hierarchy lookups,
     # chunk table, the checks before the decode child and the published extent.
     "backend/app/processing/ingest/pointcloud.py": 1085,
     # Owed publish follow-ups and their retry schedule, plus settling the archive
     # flags of jobs that owe no follow-up.
     "backend/app/processing/ingest/publish_followups.py": 1090,
-    # Shared ingest finalization carries verification, bounded ArcGIS requests and lifecycle context.
-    "backend/app/processing/ingest/tasks_common.py": 1731,
+    # Shared ingest finalization carries verification, manifest record fields, bounded
+    # ArcGIS requests and lifecycle context.
+    "backend/app/processing/ingest/tasks_common.py": 1760,
     # File and remote-source replacement strategies own retrieval, staging and verification.
-    "backend/app/processing/ingest/tasks_reupload.py": 1189,
+    "backend/app/processing/ingest/tasks_reupload.py": 1193,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection.
     "backend/app/modules/catalog/datasets/api/router_refresh.py": 1397,
@@ -1336,8 +1337,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/embeddings/backfill.py": 933,
     # Reupload preview, compatibility and staged commit share an endpoint lifecycle.
     "backend/app/modules/catalog/datasets/api/router_reupload.py": 1540,
-    # VRT creation and regeneration share publication and superseded-object cleanup.
-    "backend/app/processing/ingest/tasks_vrt.py": 1628,
+    # VRT creation and regeneration share publication, owed-object records and
+    # superseded-object cleanup.
+    "backend/app/processing/ingest/tasks_vrt.py": 1650,
     # Raster replacement owns conversion, read-back and published-object cleanup.
     "backend/app/processing/ingest/tasks_raster_replace.py": 614,
     # File and remote-source imports own publication fencing, heartbeat phases
@@ -1345,7 +1347,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_vector.py": 1110,
     # GDAL environments, timeouts, reaping and error sanitization share one process
     # boundary.
-    "backend/app/processing/ingest/ogr.py": 1423,
+    "backend/app/processing/ingest/ogr.py": 1430,
     # Archive and GDAL content validation remain centralized at the upload security
     # boundary.
     "backend/app/processing/ingest/validation.py": 1206,
@@ -1355,7 +1357,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Admin mutations share locking and audit outcomes.
     "backend/app/modules/admin/service.py": 1022,
     # Ingest admission, staging and job settlement share one orchestration boundary.
-    "backend/app/processing/ingest/service.py": 1462,
+    "backend/app/processing/ingest/service.py": 1521,
     # The PostGIS strategy: geometry repair, the snapshot measurement and its
     # catalog writes.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 660,

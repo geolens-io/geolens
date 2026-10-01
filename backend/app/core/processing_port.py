@@ -321,6 +321,21 @@ class ProcessingPort(Protocol):
         **kwargs: Any,
     ) -> tuple[MapProtocol, list[Any], str | None, str | None]: ...
 
+    async def update_dataset_metadata(
+        self,
+        session: AsyncSession,
+        dataset_id: uuid.UUID,
+        fields: dict[str, Any],
+        *,
+        actor_id: uuid.UUID,
+    ) -> None:
+        """Apply ``fields`` as the metadata PATCH body would, with its checks.
+
+        Raises ``ValueError`` for a change the PATCH would refuse. Does not
+        commit.
+        """
+        ...
+
     def create_ingestion_result(self, **kwargs: Any) -> Any: ...  # -> IngestionResult
 
     # fix(#1314): the refresh/reupload paths can change a dataset's modality,
