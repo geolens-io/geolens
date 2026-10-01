@@ -1,3 +1,4 @@
+import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 import type { MapLayerResponse } from '@/types/api';
 
 // ux(#720): analysis needs a VECTOR dataset. `!is_dem` alone let ordinary
@@ -22,8 +23,12 @@ import type { MapLayerResponse } from '@/types/api';
 // ux(#772): extracted from AnalysisPanel.tsx so the stack-row kebab can gate
 // its "Analyze this layer" entry on the same predicate without statically
 // importing the lazy-loaded panel chunk.
+//
+// A folder-group row is built as a copy of its first child, so it carries that
+// child's dataset_id and geometry type; it is a container, not a dataset.
 const RASTER_RECORD_TYPES = new Set(['raster_dataset', 'vrt_dataset']);
 export const isAnalysableLayer = (l: MapLayerResponse) =>
+  !isFolderGroupLayer(l) &&
   !!l.dataset_id &&
   !l.is_dem &&
   !RASTER_RECORD_TYPES.has((l.dataset_record_type ?? '').toLowerCase()) &&
