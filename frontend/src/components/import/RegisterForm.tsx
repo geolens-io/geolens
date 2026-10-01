@@ -23,7 +23,7 @@ import { describeFailureReason } from '@/lib/failure-reason';
 type DatasetVisibilityChoice = 'private' | 'public';
 
 // Discovery's refusal codes, each with a sentence under register.refusal.
-const REFUSAL_CODES = new Set(['source_srid_undeclared']);
+const REFUSAL_CODES = new Set(['source_srid_undeclared', 'source_gid_unusable']);
 
 function toDisplayName(tableName: string): string {
   return tableName

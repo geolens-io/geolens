@@ -76,11 +76,14 @@ from app.processing.ingest.metadata_projection import (
     REPAIR_NO_GEOMETRY,  # noqa: F401
     Geom4326Repair,  # noqa: F401
     Geom4326State,  # noqa: F401
+    GID_KEYABLE_SQL,  # noqa: F401
     add_4326_column,  # noqa: F401
+    add_gid_column,  # noqa: F401
     ensure_geom_4326_gist_index,  # noqa: F401
     grant_reader_access,  # noqa: F401
     linearize_existing_4326,  # noqa: F401
     probe_geom_4326,  # noqa: F401
+    probe_gid,  # noqa: F401
     rederive_geom_4326,  # noqa: F401
 )
 from app.processing.ingest.metadata_quality import (
@@ -99,6 +102,7 @@ from app.processing.ingest.metadata_sql import (
 )
 
 __all__ = [
+    "GID_KEYABLE_SQL",
     "REPAIR_APPLIED",
     "REPAIR_GENERATED",
     "REPAIR_NO_GEOMETRY",
@@ -132,6 +136,7 @@ __all__ = [
     "_table_has_geometry",
     "_validate_table_name",
     "add_4326_column",
+    "add_gid_column",
     "clip_to_mercator_bounds",
     "compute_quality_score",
     "compute_table_content_digest",
@@ -153,6 +158,7 @@ __all__ = [
     "grant_reader_access",
     "linearize_existing_4326",
     "probe_geom_4326",
+    "probe_gid",
     "promote_z_to_elev",
     "rederive_geom_4326",
     "refresh_attribute_metadata",

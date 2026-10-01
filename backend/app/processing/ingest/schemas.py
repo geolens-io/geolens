@@ -532,6 +532,10 @@ class TableRegisterResponse(BaseModel):
 # finds one fails its run with the same code.
 UNDECLARED_SRID_CODE = "source_srid_undeclared"
 
+# Discovery's refusal for a gid column readers cannot key features on. A
+# refresh that finds one fails its run with the same code.
+UNUSABLE_GID_CODE = "source_gid_unusable"
+
 
 class DiscoveredTable(BaseModel):
     table_name: str = Field(description="PostgreSQL table name in the `data` schema.")
@@ -548,9 +552,9 @@ class DiscoveredTable(BaseModel):
         default=None,
         description=(
             "Why registration would refuse this table, as one of a fixed set "
-            f"of GeoLens codes: {UNDECLARED_SRID_CODE}. Null when discovery finds "
-            "none, though registration can still refuse a table for a reason "
-            "discovery does not check."
+            f"of GeoLens codes: {UNDECLARED_SRID_CODE}, {UNUSABLE_GID_CODE}. "
+            "Null when discovery finds none, though registration can still "
+            "refuse a table for a reason discovery does not check."
         ),
     )
 

@@ -166,6 +166,7 @@ _TENANCY_GLOBAL_STATE_MODULES = {
     "test_analysis_materialize",  # register_existing_table → grant_reader_access
     "test_registered_delete_detach_1452",  # same: registers real tables
     "test_register_geom_column_name_1737",  # same: its accept-case registers
+    "test_register_without_gid",  # same: registers real tables
     "test_registered_geom_4326_rederive_1738",  # same: registers, and REVOKEs
     "test_replacement_post_commit",  # staging and the PostGIS repair grant the reader
     "test_replacement_preamble",  # same: it drives the same replacements
