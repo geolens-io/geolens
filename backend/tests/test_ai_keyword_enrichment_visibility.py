@@ -129,3 +129,42 @@ async def test_keyword_prompt_omits_keywords_of_records_the_caller_cannot_read(
 
     assert private_keyword in _section(owner_prompt, _VOCABULARY)
     assert private_keyword in _section(owner_prompt, _NEIGHBORS)
+
+
+@pytest.mark.anyio
+async def test_hidden_nearer_records_do_not_crowd_out_a_readable_neighbor(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    owner_headers, owner_id = await create_user(client, admin_auth_header, "editor")
+    reader_headers, _ = await create_user(client, admin_auth_header, "editor")
+    owner = uuid.UUID(owner_id)
+    tag = uuid.uuid4().hex
+    public_keyword = f"public-{tag}"
+    model = f"keyword-crowding-{tag[:8]}"
+
+    target = await create_dataset(
+        test_db_session, created_by=owner, name="Shared parks", visibility="public"
+    )
+    await _embed(test_db_session, target.record_id, _vec(1.0, 0.0), model)
+    for index in range(6):
+        hidden = await create_dataset(
+            test_db_session,
+            created_by=owner,
+            name=f"Owner notes {index}",
+            visibility="private",
+            keywords=[f"private-{index}-{tag}"],
+        )
+        await _embed(test_db_session, hidden.record_id, _vec(0.95, 0.05), model)
+    public = await create_dataset(
+        test_db_session,
+        created_by=owner,
+        name="Shared trails",
+        visibility="public",
+        keywords=[public_keyword],
+    )
+    await _embed(test_db_session, public.record_id, _vec(0.8, 0.2), model)
+
+    reader_prompt = await _keyword_prompt(client, reader_headers, target.id)
+
+    assert public_keyword in _section(reader_prompt, _NEIGHBORS)
+    assert f"private-0-{tag}" not in reader_prompt

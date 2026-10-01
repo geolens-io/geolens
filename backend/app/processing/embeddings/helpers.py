@@ -4,9 +4,10 @@ import hashlib
 import json
 import time
 import uuid
+from collections.abc import Callable
 
 import structlog
-from sqlalchemy import select, text
+from sqlalchemy import Select, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.tenant_session import defer_async_with_tenant
@@ -353,11 +354,14 @@ async def get_nearest_record_ids(
     anchor: tuple[list[float], str, str | None] | None = None,
     limit: int = 5,
     max_distance: float = 0.7,
+    restrict: Callable[[Select], Select] | None = None,
 ) -> list[uuid.UUID]:
     """Return record IDs of the nearest neighbors by cosine distance.
 
     Excludes the given record_id. Returns an empty list when the record
     has no embedding or no neighbors are within the distance threshold.
+    ``restrict`` narrows the candidates before the limit applies, so rows it
+    excludes never take a neighbor's place.
 
     fix(#1580): neighbours are restricted to the anchor row's own vector
     space via ``usable_by_stored_anchor`` — same model AND same stamp as
@@ -394,6 +398,8 @@ async def get_nearest_record_ids(
         .order_by(RecordEmbedding.embedding.cosine_distance(embedding))
         .limit(limit)
     )
+    if restrict is not None:
+        nn_stmt = restrict(nn_stmt)
     nn_result = await session.execute(nn_stmt)
     return [row[0] for row in nn_result.all()]
 

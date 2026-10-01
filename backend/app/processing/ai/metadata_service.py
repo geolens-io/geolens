@@ -248,7 +248,16 @@ async def _get_related_keywords_from_embeddings(
             return []
 
         neighbor_ids = await get_nearest_record_ids(
-            session, dataset.record_id, limit=limit
+            session,
+            dataset.record_id,
+            limit=limit,
+            restrict=lambda stmt: port.apply_visibility_filter(
+                stmt,
+                user,
+                user_roles,
+                port.get_record_orm_class(),
+                port.get_grant_orm_class(),
+            ),
         )
         if not neighbor_ids:
             return []
