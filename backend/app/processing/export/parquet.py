@@ -50,12 +50,10 @@ _MAX_EXPORT_FEATURES = 5_000_000
 _BATCH_MAX_ROWS = 100_000
 _BATCH_MAX_BYTES = 32 * 1024 * 1024
 
-# Rows asked of the cursor at a time, sized from the rows last read so that
-# prefetched rows stay near _FETCH_MAX_BYTES. SQLAlchemy's asyncpg cursor
-# reads at least 50 rows per round trip, so asking for fewer saves nothing.
-_FETCH_MIN_ROWS = 50
-_FETCH_MAX_ROWS = 1000
-_FETCH_MAX_BYTES = 4 * 1024 * 1024
+# Rows asked of the cursor at a time. They are held before any of them is
+# measured, so a fixed small window bounds prefetch by the widest rows.
+# SQLAlchemy's asyncpg cursor reads 50 per round trip whatever is asked.
+_FETCH_ROWS = 50
 
 
 class ExportTooLargeError(Exception):
@@ -428,35 +426,27 @@ async def _stream_batches(
 
     A batch ends at ``_BATCH_MAX_ROWS`` rows or ``_BATCH_MAX_BYTES`` of
     accumulated values, whichever comes first, so a few very wide rows flush
-    early instead of growing a batch without limit. Rows are fetched in
-    windows that narrow as rows widen, since the cursor holds a whole window.
+    early instead of growing a batch without limit.
     """
     geom: list[bytes | None] = []
     cols: dict[str, list] = {name: [] for name in attr_names}
     held = 0
-    window = _FETCH_MIN_ROWS
 
     result = await db.stream(text(sql).bindparams(**params))
-    while rows := await result.fetchmany(window):
-        fetched = 0
+    while rows := await result.fetchmany(_FETCH_ROWS):
         for row in rows:
-            size = 0
             for i, name in enumerate(attr_names):
                 cols[name].append(row[i])
-                size += _approx_bytes(row[i])
+                held += _approx_bytes(row[i])
             wkb = row[geom_idx]
             geom.append(bytes(wkb) if wkb is not None else None)
-            size += _approx_bytes(wkb)
-            held += size
-            fetched += size
+            held += _approx_bytes(wkb)
 
             if len(geom) >= _BATCH_MAX_ROWS or held >= _BATCH_MAX_BYTES:
                 yield geom, cols
                 geom = []
                 cols = {name: [] for name in attr_names}
                 held = 0
-        window = _FETCH_MAX_BYTES * len(rows) // max(fetched, 1)
-        window = max(_FETCH_MIN_ROWS, min(_FETCH_MAX_ROWS, window))
 
     if geom:
         yield geom, cols

@@ -39,15 +39,13 @@ Decimal = decimal.Decimal
 
 
 class _Cursor:
-    """An async row source that records how many rows each fetch asked for."""
+    """An async row source that counts how many rows have been pulled."""
 
     def __init__(self, rows: list[tuple]):
         self._rows = rows
         self.pulled = 0
-        self.asked: list[int] = []
 
     async def fetchmany(self, size: int) -> list[tuple]:
-        self.asked.append(size)
         rows = self._rows[self.pulled : self.pulled + size]
         self.pulled += len(rows)
         return rows
@@ -153,26 +151,6 @@ class TestStreamBatches:
         assert cols["doc"][0] is deep
 
     @pytest.mark.anyio
-    @pytest.mark.parametrize(
-        ("value", "widest_fetch"),
-        [("x" * 50_000, 1), ("x", 100)],
-        ids=["wide", "narrow"],
-    )
-    async def test_the_fetch_window_follows_the_width_of_rows(
-        self, monkeypatch, value, widest_fetch
-    ):
-        """The cursor holds a whole window, so wide rows are fetched a few at a
-        time and narrow ones many at a time."""
-        monkeypatch.setattr(export_parquet_module, "_FETCH_MIN_ROWS", 1)
-        monkeypatch.setattr(export_parquet_module, "_FETCH_MAX_ROWS", 100)
-        monkeypatch.setattr(export_parquet_module, "_FETCH_MAX_BYTES", 100_000)
-        cursor = _Cursor([(i, value, b"\x01") for i in range(30)])
-
-        await _batches(_FakeDb(cursor), ["pop", "name"])
-
-        assert max(cursor.asked[1:]) == widest_fetch
-
-    @pytest.mark.anyio
     async def test_an_empty_selection_yields_no_batch(self):
         assert await _batches(_FakeDb(_Cursor([])), ["pop", "name"]) == []
 
@@ -191,8 +169,7 @@ class TestExportStreams:
         """The file is written while the cursor is still being read: each write
         sees at most one batch, and the cursor is only a batch further along."""
         monkeypatch.setattr(export_parquet_module, "_BATCH_MAX_ROWS", 10)
-        monkeypatch.setattr(export_parquet_module, "_FETCH_MIN_ROWS", 5)
-        monkeypatch.setattr(export_parquet_module, "_FETCH_MAX_ROWS", 5)
+        monkeypatch.setattr(export_parquet_module, "_FETCH_ROWS", 5)
         cursor = _Cursor(_rows(25))
         seen: list[tuple[int, int]] = []
         real_write = _GeoParquetWriter.write
@@ -696,17 +673,19 @@ class TestRealTable:
             await test_db_session.commit()
 
     @pytest.mark.anyio
-    async def test_wide_rows_are_not_prefetched_far_past_the_batch(
+    async def test_wide_rows_after_narrow_ones_are_not_prefetched_at_once(
         self, test_db_session, monkeypatch
     ):
-        """The real cursor's default buffer grows to 1000 rows whatever their
-        width; 600 rows of 128 KiB would sit in it mostly at once."""
+        """A fetch is held whole before any of its rows is measured. Sized by
+        the 50 narrow rows, or by the driver's growing default buffer, it
+        would take most of the 600 wide ones at once."""
         monkeypatch.setattr(export_parquet_module, "_BATCH_MAX_BYTES", 1024 * 1024)
         table_name = f"exp_pqwide_{uuid.uuid4().hex[:12]}"
         await test_db_session.execute(
             text(
                 f"CREATE TABLE data.{table_name} AS SELECT i, "
-                "repeat(md5(i::text), 4096) AS s FROM generate_series(1, 600) AS i"
+                "CASE WHEN i <= 50 THEN 'x' ELSE repeat(md5(i::text), 4096) END AS s "
+                "FROM generate_series(1, 650) AS i"
             )
         )
         await test_db_session.commit()
@@ -716,7 +695,7 @@ class TestRealTable:
                 rows = 0
                 async for geom, _cols in _stream_batches(
                     test_db_session,
-                    f"SELECT i, s, NULL::bytea FROM data.{table_name}",
+                    f"SELECT i, s, NULL::bytea FROM data.{table_name} ORDER BY i",
                     {},
                     ["i", "s"],
                     2,
@@ -727,7 +706,7 @@ class TestRealTable:
             finally:
                 tracemalloc.stop()
 
-            assert rows == 600
+            assert rows == 650
             assert peak < 24 * 1024 * 1024, f"peak {peak / 1e6:.1f} MB"
         finally:
             await test_db_session.rollback()
