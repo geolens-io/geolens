@@ -10,8 +10,9 @@ Requirements:
 """
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import text
@@ -1470,6 +1471,26 @@ class TestStacImport:
 # ---------------------------------------------------------------------------
 
 
+def _streaming_stac_client(payload: dict) -> httpx.AsyncClient:
+    """A real client over a MockTransport that answers every request with *payload*.
+
+    The adapter reads through ``bounded_probe_read``, which streams the body
+    via ``aiter_raw``; a response built from an in-memory body refuses that
+    with ``StreamConsumed``, so the body is served from an async generator.
+    """
+    import json as _json
+
+    raw = _json.dumps(payload).encode()
+
+    async def _chunks():
+        yield raw
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=_chunks())
+
+    return httpx.AsyncClient(transport=httpx.MockTransport(handle))
+
+
 class TestStacAdapter:
     """Unit tests for the STAC adapter functions with mocked httpx."""
 
@@ -1553,19 +1574,9 @@ class TestStacAdapter:
     async def test_list_collections(self):
         from app.modules.catalog.sources.adapters.stac import list_stac_collections
 
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = STAC_COLLECTIONS
-        mock_response.raise_for_status = lambda: None
-
-        mock_client = AsyncMock()
-        mock_client.get.return_value = mock_response
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-
         with patch(
             "app.modules.catalog.sources.adapters.stac._make_client",
-            return_value=mock_client,
+            return_value=_streaming_stac_client(STAC_COLLECTIONS),
         ):
             result = await list_stac_collections("https://stac.example.com/v1")
 
@@ -1577,19 +1588,9 @@ class TestStacAdapter:
     async def test_search_items(self):
         from app.modules.catalog.sources.adapters.stac import search_stac_items
 
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = STAC_SEARCH_RESULTS
-        mock_response.raise_for_status = lambda: None
-
-        mock_client = AsyncMock()
-        mock_client.post.return_value = mock_response
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-
         with patch(
             "app.modules.catalog.sources.adapters.stac._make_client",
-            return_value=mock_client,
+            return_value=_streaming_stac_client(STAC_SEARCH_RESULTS),
         ):
             result = await search_stac_items(
                 "https://stac.example.com/v1",

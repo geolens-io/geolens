@@ -9067,17 +9067,10 @@ class TestAdapterProbeReadsAreBounded:
     sweep below enumerates the ones that stay unbounded and why each is a
     different, lower-severity case than the four named entry points:
 
-    - `stac.py`'s `list_stac_collections`/`search_stac_items`: STAC's own
-      adapter carries no credential at all on this codepath (`_make_client`
-      builds an anonymous client; `has_url_credentials` is what this module
-      polices instead), so the "a caller already holds a credential for it"
-      half of the finding does not apply the same way.
-
-    Closing those is real follow-up work, not a settled non-issue -- an
-    unbounded read is still an unbounded read regardless of what credential
-    is or is not attached -- but it is a different, wider-scoped change than
-    this finding's four named entry points, so it is named here rather than
-    silently left for a future sweep to rediscover.
+    `stac.py`'s `list_stac_collections`/`search_stac_items` were on that list
+    and are off it: both read through `bounded_probe_read`/
+    `bounded_probe_exchange` under `DEFAULT_CHECK_TIMEOUT`, so they no longer
+    show up as a raw `client.<verb>(` call.
 
     fix(#1770 round 44 P1): `arcgis.py`'s `_fetch_count`/
     `fetch_arcgis_feature_count`/`fetch_arcgis_pagination_info`/
@@ -9226,15 +9219,9 @@ class TestAdapterProbeReadsAreBounded:
             # not a member (its token travels in the URL, never a header;
             # `ARCGIS_SERVICE_FORMAT` in this file). No bound of any kind ran
             # for these four before this round.
-            (
-                "app.modules.catalog.sources.adapters.stac",
-                "list_stac_collections",
-                "get",
-            ),
-            ("app.modules.catalog.sources.adapters.stac", "search_stac_items", "post"),
             # The two already-bounded implementations themselves.
             ("app.platform.service_endpoints", "fetch_document", "stream"),
-            ("app.platform.probe_bounds", "bounded_probe_read", "stream"),
+            ("app.platform.probe_bounds", "bounded_probe_exchange", "stream"),
             # fix(#1770 round 43 P1): the tree-wide widening. See class
             # docstring for why each of these is out of scope.
             ("app.modules.auth.oauth.service", "_resolve_github_identity", "get"),
