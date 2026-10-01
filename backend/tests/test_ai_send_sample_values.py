@@ -161,6 +161,24 @@ async def test_should_send_sample_values_respects_toggle(client: AsyncClient):
         assert result is False
 
 
+@pytest.mark.anyio
+async def test_an_unreadable_sample_values_setting_withholds_samples(
+    client: AsyncClient,
+):
+    from unittest.mock import AsyncMock, patch
+
+    from app.api.main import app
+    from app.core.dependencies import get_db
+    from app.core.persistent_config import AI_SEND_SAMPLE_VALUES
+    from app.processing.ai.service import _should_send_sample_values
+
+    with patch.object(
+        AI_SEND_SAMPLE_VALUES, "get", AsyncMock(side_effect=TimeoutError)
+    ):
+        async for db in app.dependency_overrides[get_db]():
+            assert await _should_send_sample_values(db) is False
+
+
 # ---------------------------------------------------------------------------
 # _execute_search_tool integration tests
 # ---------------------------------------------------------------------------

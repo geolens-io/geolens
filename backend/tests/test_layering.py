@@ -1378,7 +1378,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # SQL allowlisting and cost validation must share canonical AST resolution.
     "backend/app/platform/sandbox/validator.py": 1706,
     # AI orchestration coordinates tool execution, usage accounting and SSE failures.
-    "backend/app/processing/ai/service.py": 994,
+    "backend/app/processing/ai/service.py": 992,
     # Record children share ownership, ordering and publication-version invariants.
     "backend/app/modules/catalog/records/service.py": 877,
     # Export formats share visibility, lineage, raster-asset presence and
