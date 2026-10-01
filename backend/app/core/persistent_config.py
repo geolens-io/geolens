@@ -105,8 +105,10 @@ class PersistentConfig(Generic[T]):
         tab: str = "",
         label: str = "",
         env_default_factory: Any | None = None,
+        cache: bool = True,
     ) -> None:
         self.key = key
+        self._cache = cache
         self._type = type_
         self._adapter: TypeAdapter[T] = TypeAdapter(type_)
         self._env_default_static = env_default
@@ -129,21 +131,15 @@ class PersistentConfig(Generic[T]):
         """The value this key takes when it has no override."""
         return self.env_default
 
-    @property
-    def cache_key(self) -> str:
-        return f"{_CACHE_PREFIX}{self.key}"
-
-    @property
-    def evict_keys(self) -> tuple[str, ...]:
-        return (self.cache_key,)
-
     async def get(self, db: AsyncSession) -> T:
         """Resolve effective value: env_only -> cache -> DB -> env_default."""
+        if not self._cache:
+            return await self.get_uncached(db)
         if _is_env_only():
             return self.env_default
 
         cache = _get_cache_safe()
-        cache_key = self.cache_key
+        cache_key = f"{_CACHE_PREFIX}{self.key}"
         if cache is not None:
             cached = await cache.get(cache_key)
             if cached is not None:
@@ -368,7 +364,7 @@ async def apply_side_effects_batch(
 
     cache = _get_cache_safe()
     if cache is not None:
-        await cache.delete_many(*(key for cfg, _ in items for key in cfg.evict_keys))
+        await cache.delete_many(*(f"{_CACHE_PREFIX}{cfg.key}" for cfg, _ in items))
 
     for cfg, value in items:
         cfg._apply_local_side_effects(value)
@@ -605,6 +601,8 @@ AI_ENABLED = PersistentConfig[bool](
     label="AI Features Enabled",
 )
 
+# Uncached like the model settings, so a provider/model pair is read from the
+# same committed rows.
 LLM_PROVIDER = PersistentConfig[str](
     key="llm_provider",
     type_=str,
@@ -613,6 +611,7 @@ LLM_PROVIDER = PersistentConfig[str](
     ),
     tab="ai",
     label="LLM Provider",
+    cache=False,
 )
 
 
@@ -630,39 +629,25 @@ def llm_model_default(provider: str, *, light: bool = False) -> str:
 class _ProviderModelConfig(PersistentConfig[str]):
     """A model setting whose default follows the selected LLM provider.
 
-    The stored default is empty, so only an admin override is cached. The
-    provider's default is resolved on every read, so switching the provider
-    takes effect at once. A blank or whitespace value, including one stored by
-    an older version, means no override.
+    The stored default is empty, and a blank or whitespace value, including one
+    an older version stored, means no override; either resolves to the selected
+    provider's default on each read. Reads skip the shared cache: older releases
+    read ``config:<key>`` as the model itself and only ever evict that key, so
+    no cached copy stays coherent across a rolling deploy. Writes still evict
+    that key for them.
     """
 
     def __init__(self, key: str, *, light: bool, label: str) -> None:
-        super().__init__(key, type_=str, env_default="", tab="ai", label=label)
+        super().__init__(
+            key, type_=str, env_default="", tab="ai", label=label, cache=False
+        )
         self.light = light
 
-    @property
-    def cache_key(self) -> str:
-        # Older releases read the plain key as the model itself, so the empty
-        # "follow the provider" value is cached under its own key.
-        return f"{_CACHE_PREFIX}{self.key}:follows-provider"
-
-    @property
-    def evict_keys(self) -> tuple[str, ...]:
-        # Older releases may still cache the model under the plain key.
-        return (self.cache_key, f"{_CACHE_PREFIX}{self.key}")
-
     async def resolved_default(self, db: AsyncSession) -> str:
-        # Uncached, so a batch that changed the provider earlier in this
-        # transaction is seen before its cache eviction.
-        return llm_model_default(await LLM_PROVIDER.get_uncached(db), light=self.light)
-
-    async def get(self, db: AsyncSession) -> str:
-        value = await super().get(db)
-        if value.strip():
-            return value
         return llm_model_default(await LLM_PROVIDER.get(db), light=self.light)
 
     async def get_uncached(self, db: AsyncSession) -> str:
+        # get() lands here too, since this setting is uncached.
         value = await super().get_uncached(db)
         return value if value.strip() else await self.resolved_default(db)
 

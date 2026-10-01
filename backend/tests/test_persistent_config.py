@@ -30,7 +30,7 @@ async def _clean_settings(client: AsyncClient):
         from app.core.persistent_config import _registry
 
         for cfg in _registry:
-            await cache.delete(cfg.cache_key)
+            await cache.delete(f"config:{cfg.key}")
     except RuntimeError:
         pass
 
@@ -1002,11 +1002,11 @@ async def test_llm_provider_from_persistent_config(
 
 
 @pytest.mark.anyio
-async def test_model_default_is_cached_apart_from_the_plain_key(
+async def test_model_reads_skip_the_shared_cache(
     client: AsyncClient, admin_auth_header: dict
 ):
-    """Older releases read config:llm_model as the model, so the empty default
-    this release caches must not land there."""
+    """Older releases read and evict only config:llm_model, so model reads go to
+    the database: a stale shared entry is ignored and none is written."""
     from app.api.main import app
     from app.core.dependencies import get_db
     from app.core.persistent_config import LLM_MODEL
@@ -1014,12 +1014,20 @@ async def test_model_default_is_cached_apart_from_the_plain_key(
 
     init_cache()
     cache = get_cache()
+    await client.put(
+        "/settings/",
+        json={"settings": {"llm_model": "db-model"}},
+        headers=admin_auth_header,
+    )
+    for key in ("config:llm_model", "config:llm_model:follows-provider"):
+        await cache.set(key, "stale-model", ttl=60)
+    async for db in app.dependency_overrides[get_db]():
+        assert await LLM_MODEL.get(db) == "db-model"
     await cache.delete("config:llm_model")
-    await cache.delete(LLM_MODEL.cache_key)
+    await cache.delete("config:llm_model:follows-provider")
     async for db in app.dependency_overrides[get_db]():
         await LLM_MODEL.get(db)
     assert await cache.get("config:llm_model") is None
-    assert await cache.get(LLM_MODEL.cache_key) == ""
 
 
 @pytest.mark.anyio
