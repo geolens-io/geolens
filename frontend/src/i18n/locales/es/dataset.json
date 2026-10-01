@@ -423,7 +423,7 @@
     }
   },
   "serviceUrls": {
-    "authHelpSimple": "Estos endpoints aceptan un encabezado X-Api-Key o Authorization: Bearer.",
+    "authHelpSimple": "Las descargas y los endpoints de OGC Features aceptan un encabezado X-Api-Key o Authorization: Bearer.",
     "manageApiKeys": "Gestionar claves API"
   },
   "schema": {

@@ -374,7 +374,7 @@
     }
   },
   "serviceUrls": {
-    "authHelpSimple": "这些端点接受 X-Api-Key 或 Authorization: Bearer 请求头。",
+    "authHelpSimple": "下载和 OGC Features 端点接受 X-Api-Key 或 Authorization: Bearer 请求头。",
     "manageApiKeys": "管理 API 密钥"
   },
   "schema": {

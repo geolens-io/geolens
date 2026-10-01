@@ -10,7 +10,7 @@ import type { DatasetResponse, DistributionResponse } from '@/types/api';
 const EMPTY_DISTRIBUTIONS: DistributionResponse[] = [];
 
 export function useDatasetAccessEndpoints(
-  dataset: Pick<DatasetResponse, 'id' | 'record_id' | 'record_type' | 'table_name'>,
+  dataset: Pick<DatasetResponse, 'id' | 'record_id' | 'record_type' | 'table_name' | 'visibility'>,
 ): { endpoints: DatasetAccessEndpoints; publicApiBaseUrl: string | null } {
   const { data: distributions } = useDistributions(dataset.record_id);
   const { data: tileConfig } = useTileConfig();
