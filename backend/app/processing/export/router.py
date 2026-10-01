@@ -8,11 +8,13 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import FileResponse
+import structlog
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.background import BackgroundTask
 
 from app.modules.audit.service import AuditEvent, audit_emit
+from app.core.failure_reason import redact_failure_reason
 from app.core.identity import Identity
 from app.core.record_types import capabilities
 from app.modules.auth.dependencies import get_optional_user
@@ -53,6 +55,8 @@ from app.standards.ogc.errors import (
     PAYLOAD_TOO_LARGE_RESPONSE,
     PRECONDITION_FAILED_RESPONSE,
 )
+
+logger = structlog.stdlib.get_logger(__name__)
 
 router = APIRouter(
     prefix="/datasets",
@@ -208,6 +212,25 @@ async def _count_selected_features(
     )
     result = await db.execute(text(sql).bindparams(**params))
     return result.scalar_one()
+
+
+async def _has_null_or_empty_geometry(
+    db: AsyncSession, *, table_name: str, schema: str
+) -> bool:
+    """Whether any row's geometry is NULL or empty.
+
+    GDAL treats an empty geometry as null, and its FlatGeobuf writer refuses
+    both while building the spatial index. Table-wide on purpose: a bbox or
+    attribute filter only narrows the rows, so a conservative answer just
+    skips the index.
+    """
+    result = await db.execute(
+        text(
+            f"SELECT EXISTS (SELECT 1 FROM {_qtable(table_name, schema=schema)} "
+            "WHERE geom IS NULL OR ST_IsEmpty(geom))"
+        )
+    )
+    return bool(result.scalar_one())
 
 
 def _head_export_response(dataset_title: str, format_key: str) -> Response:
@@ -612,6 +635,11 @@ async def export_dataset_endpoint(
     dataset_columns = dataset.column_info
     dataset_has_geometry = dataset.geometry_type is not None
     dataset_extent = dataset.record.spatial_extent
+    fgb_spatial_index = True
+    if format == ExportFormat.fgb and dataset_has_geometry:
+        fgb_spatial_index = not await _has_null_or_empty_geometry(
+            db, table_name=dataset_table, schema=data_schema
+        )
     del dataset
     await db.rollback()
 
@@ -690,13 +718,20 @@ async def export_dataset_endpoint(
                 column_info=dataset_columns,
                 pmtiles_maxzoom=pmtiles_maxzoom,
                 deadline=request_deadline,
+                spatial_index=fgb_spatial_index,
             )
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         )
-    except ExportError:
+    except ExportError as exc:
+        logger.warning(
+            "export_failed",
+            dataset_id=str(dataset_id),
+            format=format.value,
+            reason=redact_failure_reason(str(exc)),
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Export failed",

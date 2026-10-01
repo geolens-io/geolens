@@ -369,6 +369,7 @@ async def export_dataset(
     column_info: list[dict] | None = None,
     pmtiles_maxzoom: int | None = None,
     deadline: float | None = None,
+    spatial_index: bool = True,
 ) -> tuple[str, str, str]:
     """Export a dataset table to a file.
 
@@ -384,6 +385,8 @@ async def export_dataset(
         deadline: ``time.monotonic()`` stamp by which the whole request must
             be answered; passed to the ogr2ogr subprocess, which reads what
             is left of it at spawn time (fix(#1778)).
+        spatial_index: FlatGeobuf only; False when the table holds null or
+            empty geometries (see ``run_ogr2ogr_export``).
 
     Returns:
         Tuple of (file_path, download_filename, media_type).
@@ -463,6 +466,7 @@ async def export_dataset(
             # sign only in columns the database calls numeric, so it needs
             # types, not values. Empty for other formats or missing column_info.
             numeric_columns=numeric_column_names(column_info),
+            spatial_index=spatial_index,
         )
         if format_key == "gpkg":
             # fix(#1532): off the event loop, like every other

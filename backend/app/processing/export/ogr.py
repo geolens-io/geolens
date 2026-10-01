@@ -311,6 +311,7 @@ async def run_ogr2ogr_export(
     pmtiles_maxzoom: int | None = None,
     deadline: float | None = None,
     numeric_columns: frozenset[str] = frozenset(),
+    spatial_index: bool = True,
 ) -> None:
     """Run ogr2ogr to export a PostGIS table to a file.
 
@@ -329,6 +330,9 @@ async def run_ogr2ogr_export(
             outside a request (see ``export_subprocess_timeout_seconds``).
         numeric_columns: Numeric-type columns; CSV only, decides which
             cells keep a leading sign unescaped.
+        spatial_index: FlatGeobuf only. GDAL refuses null or empty
+            geometries while writing the packed index, so a table holding
+            any must pass False to keep those rows.
 
     Raises:
         ExportError: If ogr2ogr exits with non-zero code.
@@ -376,6 +380,9 @@ async def run_ogr2ogr_export(
 
     if format_key == "csv":
         cmd.extend(["-lco", "GEOMETRY=AS_WKT"])
+
+    if format_key == "fgb" and not spatial_index:
+        cmd.extend(["-lco", "SPATIAL_INDEX=NO"])
 
     if format_key == "pmtiles":
         # Driver defaults MAXZOOM to 5; every column and the default layer
