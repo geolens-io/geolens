@@ -1089,6 +1089,34 @@ async def test_model_defaults_follow_the_selected_provider(
 
 
 @pytest.mark.anyio
+async def test_a_switch_after_the_provider_read_keeps_that_providers_model(
+    client: AsyncClient, admin_auth_header: dict, _both_ai_keys
+):
+    """A request that read the provider before a switch committed is not handed
+    the new provider's model."""
+    from app.api.main import app
+    from app.core.dependencies import get_db
+    from app.core.persistent_config import LLM_PROVIDER
+    from app.processing.ai.llm_loop import resolve_provider
+
+    await client.put(
+        "/settings/",
+        json={"settings": {"llm_provider": "openai_compatible"}},
+        headers=admin_auth_header,
+    )
+    real_get = LLM_PROVIDER.get
+    reads = iter(["anthropic"])
+
+    async def first_read_before_the_switch(db):
+        return next(reads, None) or await real_get(db)
+
+    with patch.object(LLM_PROVIDER, "get", first_read_before_the_switch):
+        async for db in app.dependency_overrides[get_db]():
+            name, model, _ = await resolve_provider(db)
+    assert (name, model) == ("anthropic", "anthropic-chat-env")
+
+
+@pytest.mark.anyio
 async def test_model_override_survives_a_provider_switch(
     client: AsyncClient, admin_auth_header: dict, _both_ai_keys
 ):

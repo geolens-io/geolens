@@ -946,7 +946,7 @@ async def get_ai_status(
         provider,
         semantic_search_enabled=semantic,
         has_embeddings=has_embeds,
-        model=await LLM_MODEL.get(db),
+        model=await LLM_MODEL.for_provider(db, provider),
     )
     if probe:
         from app.processing.ai.probe import run_ai_probe
@@ -998,7 +998,7 @@ async def update_ai_status(
         provider,
         semantic_search_enabled=semantic,
         has_embeddings=has_embeds,
-        model=await LLM_MODEL.get(db),
+        model=await LLM_MODEL.for_provider(db, provider),
     )
 
 

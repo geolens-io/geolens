@@ -356,5 +356,5 @@ class DefaultAnthropicProvider:
     async def resolve_runtime_config(self, db) -> dict[str, object]:  # type: ignore[no-untyped-def]
         from app.core.persistent_config import LLM_MODEL
 
-        model = await LLM_MODEL.get(db)
+        model = await LLM_MODEL.for_provider(db, "anthropic")
         return {"base_url": None, "default_model": model}

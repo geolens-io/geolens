@@ -428,7 +428,7 @@ async def generate_sql(
         ValueError: if the LLM provider is not configured or unknown.
     """
     provider = await LLM_PROVIDER.get(db)
-    model = await LLM_MODEL_LIGHT.get(db)
+    model = await LLM_MODEL_LIGHT.for_provider(db, provider)
     # Keep static reference in the cacheable system prompt; send the schema
     # and question once in the per-call user message.
     user_message = build_sql_user_message(

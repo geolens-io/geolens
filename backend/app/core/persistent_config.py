@@ -651,6 +651,13 @@ class _ProviderModelConfig(PersistentConfig[str]):
         value = await super().get_uncached(db)
         return value if value.strip() else await self.resolved_default(db)
 
+    async def for_provider(self, db: AsyncSession, provider: str) -> str:
+        """The override, or ``provider``'s default, for a caller that has
+        already chosen the provider, so a concurrent switch can't pair it with
+        another provider's model."""
+        value = await super().get_uncached(db)
+        return value if value.strip() else llm_model_default(provider, light=self.light)
+
     async def set(
         self,
         db: AsyncSession,

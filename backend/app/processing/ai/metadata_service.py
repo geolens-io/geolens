@@ -309,7 +309,7 @@ async def _generate_structured(
         else ("anthropic" if settings.anthropic_api_key else "openai_compatible")
     )
     model = (
-        await LLM_MODEL_LIGHT.get(db)
+        await LLM_MODEL_LIGHT.for_provider(db, provider)
         if db is not None
         else llm_model_default(provider, light=True)
     )
