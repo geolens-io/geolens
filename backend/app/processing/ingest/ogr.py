@@ -1004,9 +1004,9 @@ async def run_ogr2ogr(
         schema: Target PostgreSQL schema. Required so callers cannot silently
             fall back to the shared ``data`` schema in multi-tenant mode.
         effective_srid: The SRID ``add_4326_column`` will be called with
-            (user srid_override > detected > 4326). Used only by the parquet
-            path, which must stamp geometries with the SRID the downstream
-            ST_Transform will trust; GDAL formats carry their own CRS.
+            (user srid_override > detected > 4326). Every format's geometries
+            are stamped with it when it differs from ``source_srid``, since
+            clipping and the 4326 transform read the stored SRID.
         original_filename: The user-visible upload filename (not the staging
             path in ``file_path``), used only to phrase the friendly message
             on an "unable to open" failure.
@@ -1105,8 +1105,15 @@ async def run_ogr2ogr(
                 "GEOM_POSSIBLE_NAMES=WKT,wkt,geometry,geom,the_geom,shape",
             ]
         )
-        if source_srid is None:
-            cmd.extend(["-a_srs", "EPSG:4326"])
+
+    if not is_non_spatial:
+        assigned_srid = effective_srid
+        if assigned_srid is None and is_csv:
+            assigned_srid = 4326
+        # -a_srs replaces a missing or wrong declared CRS without moving any
+        # coordinate. An EPSG code, never source WKT, reaches PROJ.
+        if assigned_srid is not None and assigned_srid != source_srid:
+            cmd.extend(["-a_srs", f"EPSG:{int(assigned_srid)}"])
 
     if layer_name:
         cmd.append(layer_name)

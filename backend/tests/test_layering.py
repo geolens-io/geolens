@@ -1346,7 +1346,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_vector.py": 1110,
     # GDAL environments, timeouts, reaping and error sanitization share one process
     # boundary.
-    "backend/app/processing/ingest/ogr.py": 1423,
+    "backend/app/processing/ingest/ogr.py": 1430,
     # Archive and GDAL content validation remain centralized at the upload security
     # boundary.
     "backend/app/processing/ingest/validation.py": 1206,
