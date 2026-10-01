@@ -21,6 +21,7 @@ from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.service_diff import _replace_layers
 from app.modules.catalog.maps.service_layers import bulk_check_dataset_access
 from app.core.text import escape_ilike
+from app.modules.catalog.maps.style_json import project_terrain_config
 from app.modules.catalog.maps.service_shared import (
     LayerRow,
     _apply_map_visibility_filter,
@@ -634,29 +635,6 @@ async def duplicate_map(
 
     fork_name = await _generate_fork_name(session, source.name, user.id)
 
-    new_map = Map(
-        name=fork_name,
-        description=source.description,
-        notes=source.notes,
-        center_lng=source.center_lng,
-        center_lat=source.center_lat,
-        zoom=source.zoom,
-        bearing=source.bearing,
-        pitch=source.pitch,
-        basemap_style=source.basemap_style,
-        show_basemap_labels=source.show_basemap_labels,
-        basemap_config=source.basemap_config,
-        terrain_config=source.terrain_config,
-        plugins=source.plugins,
-        legend_title=source.legend_title,
-        thumbnail_uri=None,
-        visibility="private",
-        forked_from=source.id,
-        created_by=user.id,
-    )
-    session.add(new_map)
-    await session.flush()
-
     # Copy layers, filtering by RBAC
     layers_result = await session.execute(
         select(MapLayer)
@@ -670,6 +648,31 @@ async def duplicate_map(
     accessible_ids = await bulk_check_dataset_access(
         session, layer_dataset_ids, user, user_roles
     )
+
+    new_map = Map(
+        name=fork_name,
+        description=source.description,
+        notes=source.notes,
+        center_lng=source.center_lng,
+        center_lat=source.center_lat,
+        zoom=source.zoom,
+        bearing=source.bearing,
+        pitch=source.pitch,
+        basemap_style=source.basemap_style,
+        show_basemap_labels=source.show_basemap_labels,
+        basemap_config=source.basemap_config,
+        # The fork's owner may not see the source's DEM, and every later read of
+        # the fork would return the id stored here.
+        terrain_config=project_terrain_config(source.terrain_config, accessible_ids),
+        plugins=source.plugins,
+        legend_title=source.legend_title,
+        thumbnail_uri=None,
+        visibility="private",
+        forked_from=source.id,
+        created_by=user.id,
+    )
+    session.add(new_map)
+    await session.flush()
 
     excluded_count = 0
     for layer in layers:

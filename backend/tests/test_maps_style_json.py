@@ -1,5 +1,6 @@
 """Tests for saved map MapLibre style JSON import/export helpers."""
 
+import json
 import uuid
 from urllib.parse import parse_qs, urlsplit
 
@@ -492,16 +493,18 @@ def test_build_maplibre_style_exports_basemap_config_metadata():
     assert style["metadata"]["geolens"]["basemap_config"] == expected
 
 
-def test_build_maplibre_style_omits_terrain_block_when_dem_source_missing():
+def test_build_maplibre_style_omits_terrain_when_dem_source_missing():
+    missing_dem_id = str(uuid.uuid4())
     map_obj = _map()
     map_obj.terrain_config = {
         "enabled": True,
-        "source_dataset_id": str(uuid.uuid4()),  # no matching layer below
+        "source_dataset_id": missing_dem_id,  # no matching layer below
         "exaggeration": 1.5,
     }
     style = build_maplibre_style(map_obj, [_layer()])  # vector layer only
     assert "terrain" not in style
-    assert style["metadata"]["geolens"]["terrain_config"]["enabled"] is True
+    assert style["metadata"]["geolens"]["terrain_config"] is None
+    assert missing_dem_id not in json.dumps(style)
 
 
 def test_build_maplibre_style_preserves_builder_style_config_in_layer_metadata():

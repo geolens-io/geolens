@@ -395,6 +395,7 @@ async def get_map_endpoint(
         layers,
         forked_from_name=forked_name,
         created_by_username=owner_username,
+        project_terrain=True,
     )
 
 
