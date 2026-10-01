@@ -448,7 +448,17 @@ GID_UNUSABLE_SQL = """(
     OR (
         a.attnum IS NOT NULL
         AND NOT (
-            a.atttypid IN ('int2'::regtype, 'int4'::regtype, 'int8'::regtype)
+            COALESCE((
+                WITH RECURSIVE base(oid, typtype, typbasetype) AS (
+                    SELECT t.oid, t.typtype, t.typbasetype
+                    FROM pg_type t WHERE t.oid = a.atttypid
+                    UNION ALL
+                    SELECT t.oid, t.typtype, t.typbasetype
+                    FROM pg_type t JOIN base b ON t.oid = b.typbasetype
+                    WHERE b.typtype = 'd'
+                )
+                SELECT oid FROM base WHERE typtype <> 'd'
+            ) IN ('int2'::regtype, 'int4'::regtype, 'int8'::regtype), false)
             AND (
                 c.relkind NOT IN ('r', 'p')
                 OR (

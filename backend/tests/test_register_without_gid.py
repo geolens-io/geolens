@@ -29,10 +29,27 @@ pytestmark = [
 _POINTS = "ST_SetSRID(ST_MakePoint(-73.9, 40.7), 4326)"
 
 _KEYED = {
-    "id_primary_key": "id serial PRIMARY KEY, name text, geom geometry(Point, 4326)",
-    "no_primary_key": "name text, geom geometry(Point, 4326)",
-    "ogc_fid": "ogc_fid serial PRIMARY KEY, name text, geom geometry(Point, 4326)",
-    "gid_primary_key": "gid serial PRIMARY KEY, name text, geom geometry(Point, 4326)",
+    "id_primary_key": [
+        "CREATE TABLE data.{t} "
+        "(id serial PRIMARY KEY, name text, geom geometry(Point, 4326))"
+    ],
+    "no_primary_key": ["CREATE TABLE data.{t} (name text, geom geometry(Point, 4326))"],
+    "ogc_fid": [
+        "CREATE TABLE data.{t} "
+        "(ogc_fid serial PRIMARY KEY, name text, geom geometry(Point, 4326))"
+    ],
+    "gid_primary_key": [
+        "CREATE TABLE data.{t} "
+        "(gid serial PRIMARY KEY, name text, geom geometry(Point, 4326))"
+    ],
+    "integer_domain": [
+        "CREATE DOMAIN data.{t}_base AS integer",
+        "CREATE DOMAIN data.{t}_type AS data.{t}_base",
+        "CREATE SEQUENCE data.{t}_seq",
+        "CREATE TABLE data.{t} (gid data.{t}_type PRIMARY KEY "
+        "DEFAULT nextval('data.{t}_seq'), name text, geom geometry(Point, 4326))",
+        "ALTER SEQUENCE data.{t}_seq OWNED BY data.{t}.gid",
+    ],
 }
 
 _INHERITED = "CREATE TABLE data.{t}_kid () INHERITS (data.{t})"
@@ -107,17 +124,23 @@ async def _drop(session, table: str) -> None:
     await session.execute(
         text(f"DROP TABLE IF EXISTS data.{table}, data.{table}_parent CASCADE")
     )
-    await session.execute(text(f"DROP TYPE IF EXISTS data.{table}_type CASCADE"))
+    await session.execute(
+        text(f"DROP TYPE IF EXISTS data.{table}_type, data.{table}_base CASCADE")
+    )
     await session.commit()
 
 
-@pytest.mark.parametrize("columns", list(_KEYED.values()), ids=list(_KEYED))
+@pytest.mark.parametrize("statements", list(_KEYED.values()), ids=list(_KEYED))
 async def test_a_registered_table_is_read_by_feature_id(
-    client: AsyncClient, admin_auth_header: dict, test_db_session, columns: str
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    statements: list[str],
 ) -> None:
     """Tiles, OGC items and rows read a registered table, and its new rows get a gid."""
     table = f"keyed_{uuid.uuid4().hex[:10]}"
-    await test_db_session.execute(text(f"CREATE TABLE data.{table} ({columns})"))
+    for statement in statements:
+        await test_db_session.execute(text(statement.format(t=table)))
     await test_db_session.execute(
         text(
             f"INSERT INTO data.{table} (name, geom) "
