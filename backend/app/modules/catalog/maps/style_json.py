@@ -1464,8 +1464,13 @@ def build_maplibre_style(
     layers: list[MapLayerResponse],
     *,
     mvt_source_layer_prefix: str = "data",
+    terrain_dataset_ids: Iterable[Any] | None = None,
 ) -> dict[str, Any]:
-    """Build a complete MapLibre style document from saved map data."""
+    """Build a complete MapLibre style document from saved map data.
+
+    The terrain binding is kept only when its DEM is in ``terrain_dataset_ids``,
+    which defaults to the layers' datasets.
+    """
 
     sources: dict[str, Any] = {}
     style_layers: list[dict[str, Any]] = []
@@ -1526,9 +1531,9 @@ def build_maplibre_style(
             )
 
     terrain_block: dict[str, Any] | None = None
-    tc = project_terrain_config(
-        map_obj.terrain_config, [layer.dataset_id for layer in layers]
-    )
+    if terrain_dataset_ids is None:
+        terrain_dataset_ids = [layer.dataset_id for layer in layers]
+    tc = project_terrain_config(map_obj.terrain_config, terrain_dataset_ids)
     if tc and tc.get("enabled") and tc.get("source_dataset_id"):
         try:
             exaggeration = float(tc.get("exaggeration", 1.0))

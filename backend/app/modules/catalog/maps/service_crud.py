@@ -22,6 +22,7 @@ from app.modules.catalog.maps.service_diff import _replace_layers
 from app.modules.catalog.maps.service_layers import (
     bulk_check_dataset_access,
     lock_map_layers,
+    terrain_dataset_ids_visible_to,
 )
 from app.core.text import escape_ilike
 from app.modules.catalog.maps.style_json import project_terrain_config
@@ -668,7 +669,12 @@ async def duplicate_map(
         basemap_config=source.basemap_config,
         # The fork's owner may not see the source's DEM, and every later read of
         # the fork would return the id stored here.
-        terrain_config=project_terrain_config(source.terrain_config, accessible_ids),
+        terrain_config=project_terrain_config(
+            source.terrain_config,
+            await terrain_dataset_ids_visible_to(
+                session, source.terrain_config, accessible_ids, user
+            ),
+        ),
         plugins=source.plugins,
         legend_title=source.legend_title,
         thumbnail_uri=None,

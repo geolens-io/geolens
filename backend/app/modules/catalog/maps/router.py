@@ -67,6 +67,7 @@ from app.modules.catalog.maps.service import (
     delete_map,
     discard_map_asset_objects,
     filter_layer_rows_by_dataset_visibility,
+    terrain_dataset_ids_visible_to,
     get_dataset_meta,
     duplicate_map,
     get_map,
@@ -396,7 +397,9 @@ async def get_map_endpoint(
         layers,
         forked_from_name=forked_name,
         created_by_username=owner_username,
-        project_terrain=True,
+        terrain_dataset_ids=await terrain_dataset_ids_visible_to(
+            db, map_obj.terrain_config, [layer.dataset_id for layer in layers], user
+        ),
     )
 
 

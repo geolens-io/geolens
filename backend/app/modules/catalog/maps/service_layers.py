@@ -1,6 +1,8 @@
 """Map layer access checks and mutation helpers."""
 
 import uuid
+from collections.abc import Iterable
+from typing import Any
 
 from fastapi import HTTPException, status
 from sqlalchemy import delete, func, select, text
@@ -9,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.sqlstate import is_lock_conflict
 from app.core.identity import Identity
-from app.modules.catalog.authorization import apply_visibility_filter
+from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.schemas import (
@@ -49,6 +51,47 @@ async def bulk_check_dataset_access(
     stmt = apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)
     result = await session.execute(stmt)
     return {row[0] for row in result}
+
+
+async def terrain_dataset_ids_visible_to(
+    session: AsyncSession,
+    terrain_config: Any,
+    layer_dataset_ids: Iterable[uuid.UUID],
+    user: Identity | None,
+) -> set[str]:
+    """Dataset ids a terrain binding may name in a read by ``user``.
+
+    The visible layers count, and so does a DEM outside them that the caller can
+    see or that no longer exists, which the builder shows as a missing source.
+    Only a DEM that exists and is hidden from the caller is left out.
+    """
+    allowed = {str(dataset_id) for dataset_id in layer_dataset_ids}
+    source_id = (
+        terrain_config.get("source_dataset_id")
+        if isinstance(terrain_config, dict)
+        else None
+    )
+    if source_id is None or str(source_id) in allowed:
+        return allowed
+    try:
+        dem_id = uuid.UUID(str(source_id))
+    except ValueError:
+        return allowed | {str(source_id)}
+    user_roles = await get_user_roles(session, user) if user is not None else set()
+    visible = apply_visibility_filter(
+        select(Dataset.id)
+        .join(Record, Dataset.record_id == Record.id)
+        .where(Dataset.id == dem_id),
+        user,
+        user_roles,
+        Record,
+        DatasetGrant,
+    )
+    if (await session.execute(visible)).first() is not None or (
+        await session.execute(select(Dataset.id).where(Dataset.id == dem_id))
+    ).first() is None:
+        allowed.add(str(source_id))
+    return allowed
 
 
 _LAYER_LOCK_TIMEOUT = "2s"

@@ -316,19 +316,17 @@ def _build_map_response(
     forked_from_name: str | None = None,
     created_by_username: str | None = None,
     *,
-    project_terrain: bool = False,
+    terrain_dataset_ids: set[str] | None = None,
 ) -> MapResponse:
     """Build the map response.
 
-    ``project_terrain`` is for callers that filtered ``layers`` by what the
-    caller may see: the stored terrain binding then survives only when its DEM
-    is one of those layers, so a hidden DEM's id is not echoed.
+    ``terrain_dataset_ids`` is for reads filtered by what the caller may see:
+    the stored terrain binding then survives only when its DEM is one of those
+    ids, so a hidden DEM's id is not echoed.
     """
     terrain_config = map_obj.terrain_config
-    if project_terrain:
-        terrain_config = project_terrain_config(
-            terrain_config, [layer.dataset_id for layer in layers]
-        )
+    if terrain_dataset_ids is not None:
+        terrain_config = project_terrain_config(terrain_config, terrain_dataset_ids)
     thumbnail_url = f"/maps/{map_obj.id}/thumbnail/" if map_obj.thumbnail_uri else None
     og_image_url = f"/maps/{map_obj.id}/og-image/" if map_obj.og_image_uri else None
     return MapResponse(

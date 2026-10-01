@@ -1168,7 +1168,7 @@ def test_analysis_sql_facade_guard_sees_every_bypass_shape() -> None:
 def test_decomposed_service_modules_stay_within_size_budgets() -> None:
     """Keep split service modules and their stable facades bounded."""
     facade_line_budgets = {
-        "backend/app/modules/catalog/maps/service.py": 102,
+        "backend/app/modules/catalog/maps/service.py": 104,
         "backend/app/modules/catalog/search/service.py": 80,
         "backend/app/modules/catalog/datasets/domain/service.py": 112,
         "backend/app/processing/ai/chat_service.py": 519,
@@ -1256,11 +1256,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
 # These decomposition ceilings may shrink freely; the inclusion rule uses them
 # to avoid tracking the same module in both cap tables.
 _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
-    "backend/app/modules/catalog/maps/style_json.py": 1619,
+    "backend/app/modules/catalog/maps/style_json.py": 1624,
     "backend/app/modules/catalog/maps/style_import.py": 605,
     "backend/app/modules/catalog/maps/style_sanitizers.py": 192,
     "backend/app/modules/catalog/maps/router_assets.py": 149,
-    "backend/app/modules/catalog/maps/router_sharing.py": 430,
+    "backend/app/modules/catalog/maps/router_sharing.py": 434,
     "backend/app/modules/catalog/search/query_params.py": 205,
     "backend/app/modules/catalog/search/router_saved.py": 97,
     "backend/app/modules/admin/router_operations.py": 323,
@@ -1367,7 +1367,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # lifecycle.
     "backend/app/processing/analysis/tasks.py": 1401,
     # Map endpoints share response assembly, visibility and ownership checks.
-    "backend/app/modules/catalog/maps/router.py": 1527,
+    "backend/app/modules/catalog/maps/router.py": 1530,
     # Native search and OGC Records share visibility, query parsing and pagination.
     "backend/app/modules/catalog/search/router.py": 1429,
     # STAC endpoints share visibility, extent, lineage and pagination conformance rules.

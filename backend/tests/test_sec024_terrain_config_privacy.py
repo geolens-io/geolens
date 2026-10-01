@@ -464,6 +464,60 @@ class TestTerrainBindingProjectedForEveryReader:
             }, f"{name} dropped the binding for a caller who can see the DEM"
 
 
+class TestDanglingTerrainBinding:
+    """A binding whose DEM is not a layer stays readable as a missing source."""
+
+    async def _detail_and_style(self, client, map_id, token):
+        reads = await _read_map_three_ways(client, map_id, token)
+        return {name: reads[name][0] for name in ("detail", "style")}
+
+    async def test_a_visible_dem_outside_the_layers_keeps_its_binding(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        dem = await _create_raster_dem_dataset(
+            test_db_session, created_by=admin_id, visibility="public"
+        )
+        vector_ds = await _create_public_vector_dataset(
+            test_db_session, created_by=admin_id
+        )
+        map_id, token = await _publish_map_with_terrain(
+            client,
+            admin_auth_header,
+            test_db_session,
+            layer_dataset_ids=[vector_ds.id],
+            terrain_dataset_id=dem.id,
+        )
+
+        for name, terrain in (
+            await self._detail_and_style(client, map_id, token)
+        ).items():
+            assert terrain is not None, f"{name} dropped a visible DEM's binding"
+            assert terrain["source_dataset_id"] == str(dem.id)
+
+    async def test_a_deleted_dem_keeps_its_binding(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        vector_ds = await _create_public_vector_dataset(
+            test_db_session, created_by=admin_id
+        )
+        missing_dem_id = uuid.uuid4()
+        map_id, token = await _publish_map_with_terrain(
+            client,
+            admin_auth_header,
+            test_db_session,
+            layer_dataset_ids=[vector_ds.id],
+            terrain_dataset_id=missing_dem_id,
+        )
+
+        for name, terrain in (
+            await self._detail_and_style(client, map_id, token)
+        ).items():
+            assert terrain is not None, f"{name} dropped a deleted DEM's binding"
+            assert terrain["source_dataset_id"] == str(missing_dem_id)
+
+
 class TestForkedTerrainBinding:
     async def test_a_fork_never_stores_a_dem_id_its_owner_cannot_see(
         self,
@@ -530,3 +584,36 @@ class TestForkedTerrainBinding:
             )
         ).scalar_one()
         assert stored in (None, "null")
+
+    async def test_a_fork_keeps_a_binding_its_owner_can_see_outside_the_layers(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        editor_auth_header: dict,
+        test_db_session,
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        dem = await _create_raster_dem_dataset(
+            test_db_session, created_by=admin_id, visibility="public"
+        )
+        vector_ds = await _create_public_vector_dataset(
+            test_db_session, created_by=admin_id
+        )
+        missing_dem_id = uuid.uuid4()
+        for terrain_dataset_id in (dem.id, missing_dem_id):
+            map_id, _token = await _publish_map_with_terrain(
+                client,
+                admin_auth_header,
+                test_db_session,
+                layer_dataset_ids=[vector_ds.id],
+                terrain_dataset_id=terrain_dataset_id,
+            )
+
+            fork = await client.post(
+                f"/maps/{map_id}/duplicate/", headers=editor_auth_header
+            )
+
+            assert fork.status_code == 201
+            terrain = fork.json()["terrain_config"]
+            assert terrain is not None
+            assert terrain["source_dataset_id"] == str(terrain_dataset_id)
