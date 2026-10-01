@@ -1574,6 +1574,47 @@ async def test_a_named_wrapper_previews_its_default_not_the_override(
 
 
 @pytest.mark.anyio
+async def test_an_extension_reading_the_model_setting_does_not_recurse(
+    client: AsyncClient, _both_ai_keys
+):
+    from app.api.main import app
+    from app.core.dependencies import get_db
+    from app.core.persistent_config import LLM_MODEL, LLM_PROVIDER
+
+    class _ReadsTheSetting:
+        async def resolve_runtime_config(self, db):
+            return {"base_url": None, "default_model": await LLM_MODEL.get(db)}
+
+    with (
+        patch.object(LLM_PROVIDER, "get", return_value="extension"),
+        patch(
+            "app.platform.extensions.get_ai_provider",
+            return_value=_ReadsTheSetting(),
+        ),
+    ):
+        async for db in app.dependency_overrides[get_db]():
+            assert await LLM_MODEL.for_provider(db, "extension") == "openai-chat-env"
+
+
+@pytest.mark.anyio
+async def test_an_extension_resolver_error_is_not_hidden(client: AsyncClient):
+    from app.api.main import app
+    from app.core.dependencies import get_db
+    from app.core.persistent_config import LLM_MODEL
+
+    class _Misconfigured:
+        async def resolve_runtime_config(self, _db):
+            raise ValueError("extension endpoint not configured")
+
+    with patch(
+        "app.platform.extensions.get_ai_provider", return_value=_Misconfigured()
+    ):
+        async for db in app.dependency_overrides[get_db]():
+            with pytest.raises(ValueError, match="not configured"):
+                await LLM_MODEL.default_for(db, "extension")
+
+
+@pytest.mark.anyio
 async def test_a_reset_audits_the_model_in_effect_before_it(
     client: AsyncClient, admin_auth_header: dict, _both_ai_keys
 ):

@@ -11,6 +11,7 @@ import logging
 import time
 import uuid
 from collections.abc import Sequence
+from contextvars import ContextVar
 from typing import Any, Generic, TypeVar, cast
 
 import structlog
@@ -637,6 +638,13 @@ def llm_model_default(provider: str, *, light: bool = False) -> str:
     return settings.openai_model
 
 
+# Set while an extension resolves its default model, so a resolver that reads
+# the model setting gets the community default instead of recursing.
+_RESOLVING_EXTENSION_DEFAULT: ContextVar[bool] = ContextVar(
+    "resolving_extension_default", default=False
+)
+
+
 class _ProviderModelConfig(PersistentConfig[str]):
     """A model setting whose default follows the selected LLM provider.
 
@@ -660,15 +668,23 @@ class _ProviderModelConfig(PersistentConfig[str]):
         The built-in provider names always take the community defaults, so an
         overlay registered under one of them needs a model override.
         """
-        if provider in ("anthropic", "openai_compatible"):
+        if (
+            provider in ("anthropic", "openai_compatible")
+            or _RESOLVING_EXTENSION_DEFAULT.get()
+        ):
             return llm_model_default(provider, light=self.light)
         # An extension provider names its own default model.
         from app.platform.extensions import get_ai_provider
 
         try:
-            runtime = await get_ai_provider(provider).resolve_runtime_config(db)
+            registered = get_ai_provider(provider)
         except ValueError:
             return llm_model_default(provider, light=self.light)
+        token = _RESOLVING_EXTENSION_DEFAULT.set(True)
+        try:
+            runtime = await registered.resolve_runtime_config(db)
+        finally:
+            _RESOLVING_EXTENSION_DEFAULT.reset(token)
         return str(runtime.get("default_model") or "")
 
     async def resolved_default(self, db: AsyncSession) -> str:
