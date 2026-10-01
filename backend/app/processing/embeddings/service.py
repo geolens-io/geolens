@@ -422,6 +422,9 @@ async def rebuild_column_or_restore(
     try:
         await rebuild_embedding_column(db, new_dims)
     except Exception as exc:  # broad: DDL rebuild can fail for schema/lock reasons; roll setting back atomically
+        # A failure before the rebuild's own rollback leaves the transaction
+        # aborted, and the restore below would fail on it.
+        await db.rollback()
         # One transaction, then one side-effect step, so no reader sees the
         # new model beside the old width. Evicting before the commit would let
         # a concurrent reader re-cache the value being rolled back.

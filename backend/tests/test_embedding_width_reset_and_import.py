@@ -721,3 +721,67 @@ async def test_an_import_naming_the_model_in_effect_is_refused_while_a_change_re
     assert await EMBEDDING_MODEL.get_uncached(test_db_session) == _OLD_MODEL
     assert await EMBEDDING_DIMS.get_uncached(test_db_session) == width
     assert await _column_dims(test_db_session) == width
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("how", ["put", "reset", "import"])
+async def test_a_rebuild_that_aborts_the_transaction_still_restores_the_pair(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    monkeypatch,
+    restore_embedding_settings,
+    how: str,
+):
+    """A rebuild that fails on a database error restores the previous pair and overrides."""
+    from sqlalchemy import text
+
+    from app.core.db.models import AppSetting
+    from app.processing.embeddings import service
+
+    width = _width_other_than(EMBEDDING_DIMS.env_default)
+    await _publish_width(client, admin_auth_header, test_db_session, width)
+    await EMBEDDING_MODEL.set(test_db_session, _OLD_MODEL)
+
+    # Fails the way the column lookup does on a database error: the statement
+    # raises and leaves the request's transaction aborted.
+    async def _abort_the_transaction(db, _new_dims):
+        await db.execute(text("SELECT 1 / 0"))
+
+    monkeypatch.setattr(service, "rebuild_embedding_column", _abort_the_transaction)
+    new_pair = {
+        "embedding_model": _NEW_MODEL,
+        "embedding_dims": _width_other_than(width, EMBEDDING_DIMS.env_default),
+    }
+    if how == "put":
+        resp = await client.put(
+            "/settings/", json={"settings": new_pair}, headers=admin_auth_header
+        )
+    elif how == "reset":
+        resp = await client.post(
+            "/settings/reset/",
+            json={"keys": ["embedding_model", "embedding_dims"]},
+            headers=admin_auth_header,
+        )
+    else:
+        resp = await client.post(
+            "/config-ops/import/?mode=merge",
+            json={"settings": new_pair},
+            headers=admin_auth_header,
+        )
+
+    assert resp.status_code == 503, resp.text
+    stored = dict(
+        (
+            await test_db_session.execute(
+                select(AppSetting.key, AppSetting.value).where(
+                    AppSetting.key.in_((EMBEDDING_DIMS.key, EMBEDDING_MODEL.key))
+                )
+            )
+        ).all()
+    )
+    assert stored == {
+        EMBEDDING_DIMS.key: {"v": width},
+        EMBEDDING_MODEL.key: {"v": _OLD_MODEL},
+    }
+    assert await _column_dims(test_db_session) == width
