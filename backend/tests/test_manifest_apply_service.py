@@ -344,15 +344,17 @@ class TestManifestApplyHelpers:
         dataset = _request(_manifest_dataset(uri="seed.geojson")).datasets[0]
         prepared = await classify_manifest_source(dataset.sources[0])
 
+        first_job, second_job = uuid.uuid4(), uuid.uuid4()
         first = await _stage_source_if_needed(
-            prepared, dry_run=False, max_size_bytes=1024 * 1024
+            prepared, job_id=first_job, dry_run=False, max_size_bytes=1024 * 1024
         )
         second = await _stage_source_if_needed(
-            prepared, dry_run=False, max_size_bytes=1024 * 1024
+            prepared, job_id=second_job, dry_run=False, max_size_bytes=1024 * 1024
         )
 
         assert first is not None and second is not None
-        assert first != second
+        assert Path(first).name.startswith(f"{first_job}_")
+        assert Path(second).name.startswith(f"{second_job}_")
         assert first != str(seed)
         assert Path(first).read_bytes() == seed.read_bytes()
         assert Path(second).read_bytes() == seed.read_bytes()
@@ -556,17 +558,19 @@ class TestManifestApplyHelpers:
             ),
         ):
             prepared = await classify_manifest_source(source)
+            job_id = uuid.uuid4()
             with pytest.raises(
                 ManifestSourceError,
                 match="remaining storage quota",
             ):
                 await _download_http_source(
                     prepared,
+                    job_id=job_id,
                     max_size_bytes=100 * 1024 * 1024,
                     quota_byte_limit=5,
                 )
 
-        assert list(tmp_path.glob("manifest_*")) == []
+        assert list(tmp_path.glob(f"{job_id}_*")) == []
         assert body.iterated is not with_content_length
 
     @pytest.mark.anyio
@@ -614,8 +618,11 @@ class TestManifestApplyHelpers:
             patch.object(Path, "open", new=blocking_open),
         ):
             prepared = await classify_manifest_source(source)
+            job_id = uuid.uuid4()
             task = asyncio.create_task(
-                _download_http_source(prepared, max_size_bytes=100 * 1024 * 1024)
+                _download_http_source(
+                    prepared, job_id=job_id, max_size_bytes=100 * 1024 * 1024
+                )
             )
             assert await asyncio.to_thread(open_started.wait, 5)
             task.cancel()
@@ -631,7 +638,7 @@ class TestManifestApplyHelpers:
 
         assert len(opened_files) == 1
         assert opened_files[0].closed
-        assert list(tmp_path.glob("manifest_*")) == []
+        assert list(tmp_path.glob(f"{job_id}_*")) == []
 
 
 @pytest.mark.anyio

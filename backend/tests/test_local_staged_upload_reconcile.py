@@ -369,6 +369,42 @@ class TestAnUploadBeforeItsBind:
         assert outcome.skipped_needed == 1
 
 
+class TestAManifestCopyBeforeItsBind:
+    async def test_a_copy_a_failed_reservation_never_bound_is_deleted(
+        self, test_db_session: AsyncSession, root: Path, now: datetime
+    ) -> None:
+        """The request staging it died, so only the reservation's row can own it."""
+        from app.processing.ingest.manifest_schemas import ManifestSource
+        from app.processing.ingest.manifest_service import _stage_source_if_needed
+        from app.processing.ingest.manifest_sources import classify_manifest_source
+
+        seed = _staged(root, "roads.geojson", now)
+        reservation = await _job(test_db_session, None, now, status="running")
+        prepared = await classify_manifest_source(
+            ManifestSource(type="vector", uri="roads.geojson")
+        )
+        copy = Path(
+            await _stage_source_if_needed(
+                prepared, job_id=reservation, dry_run=False, max_size_bytes=1 << 20
+            )
+        )
+        _age(copy, now)
+
+        await _run(test_db_session, now)
+        assert copy.exists()
+
+        await test_db_session.execute(
+            text("UPDATE catalog.ingest_jobs SET status = 'failed' WHERE id = :id"),
+            {"id": reservation},
+        )
+        await test_db_session.commit()
+        outcome = await _run(test_db_session, now)
+
+        assert not copy.exists()
+        assert outcome.uploads_deleted == 1
+        assert seed.exists()
+
+
 class TestWhatIsNeverAnUpload:
     async def test_an_upload_shaped_file_whose_job_has_no_row(
         self, test_db_session: AsyncSession, root: Path, now: datetime
