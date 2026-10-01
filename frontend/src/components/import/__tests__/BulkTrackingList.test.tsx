@@ -166,6 +166,26 @@ describe('BulkTrackingList', () => {
     expect(screen.getByTestId('job-progress-job-2')).toBeInTheDocument();
   });
 
+  it('links each completed dataset to its page', () => {
+    mockUseQueries.mockReturnValueOnce([
+      { data: { status: 'complete', dataset_id: 'dataset-1', source_filename: 'a.geojson' } },
+      { data: { status: 'complete', dataset_id: 'dataset-2', source_filename: 'b.geojson' } },
+    ] as never);
+
+    render(
+      <BulkTrackingList
+        entries={[
+          makeEntry({ id: 'a', jobId: 'job-1', fileName: 'a.geojson', submittedTitle: 'Alpha' }),
+          makeEntry({ id: 'b', jobId: 'job-2', fileName: 'b.geojson', submittedTitle: 'Beta' }),
+        ]}
+        onReset={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('link', { name: 'Alpha' })).toHaveAttribute('href', '/datasets/dataset-1');
+    expect(screen.getByRole('link', { name: 'Beta' })).toHaveAttribute('href', '/datasets/dataset-2');
+  });
+
   it('counts a finished tileset as 3D Tiles and describes it as ready for a 3D Tiles client', () => {
     mockUseQueries.mockReturnValueOnce([
       { data: { status: 'complete', dataset_id: 'dataset-3', source_filename: 'campus.zip' } },

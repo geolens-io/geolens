@@ -203,7 +203,12 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false, onOutc
               >
                 <TypeTag kind={entry.kind} />
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium tracking-tight">{entry.title}</p>
+                  <Link
+                    to={`/datasets/${entry.datasetId}`}
+                    className="block truncate text-sm font-medium tracking-tight hover:underline"
+                  >
+                    {entry.title}
+                  </Link>
                   <div className="flex items-center gap-2 mt-0.5">
                     <Badge variant="secondary" className="text-2xs">{t(KIND_LABEL_KEYS[entry.kind])}</Badge>
                     <Badge variant="outline" className="text-2xs">{getVisibilityLabel(t, entry.visibility)}</Badge>
