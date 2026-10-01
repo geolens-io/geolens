@@ -1,6 +1,7 @@
 """Settings API endpoints: unified admin settings, public basemaps/map-defaults/tile-config."""
 
 import uuid
+from typing import TYPE_CHECKING
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -64,6 +65,9 @@ from app.modules.settings.router_public import router as public_router
 # (same discipline as app.platform.notifications.env_sink from Plan 02).
 from app.platform.notifications.smtp_channel import send_email  # noqa: E402
 from app.platform.notifications.webhook_channel import post_webhook  # noqa: E402
+
+if TYPE_CHECKING:
+    from app.processing.embeddings.service import CommittedEmbeddingPair
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -273,6 +277,28 @@ async def _detect_dims_for_requested_model(
         ) from exc
 
 
+async def _rebuild_column_or_503(
+    db: AsyncSession,
+    new_dims: int,
+    previous: "CommittedEmbeddingPair",
+    *,
+    user_id: uuid.UUID,
+    ip_address: str | None,
+) -> None:
+    """Resize the vector column to a committed width; a failed rebuild is a 503."""
+    from app.processing.embeddings.service import (
+        EmbeddingColumnRebuildError,
+        rebuild_column_or_restore,
+    )
+
+    try:
+        await rebuild_column_or_restore(
+            db, new_dims, previous, user_id=user_id, ip_address=ip_address
+        )
+    except EmbeddingColumnRebuildError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
 # ROUTE-01 (Phase 1092): dual-shape decorator — both trailing-slash and
 # no-trailing-slash variants register against the same handler. Slash form
 # stays canonical (already in OpenAPI); no-slash is a hidden alias closing
@@ -454,21 +480,16 @@ async def update_settings(
                 ),
             )
 
-    # Capture the previous embedding pair before any changes (rollback source
-    # for the column rebuild below). Uncached so the rollback restores what is
-    # actually committed rather than a cache entry that may already be stale.
-    old_dims_value: int | None = None
-    old_model_value: str | None = None
-    rollback_model = False
+    # The rollback source for the column rebuild below. A request that
+    # publishes both halves rolls back both, or a failed rebuild would leave
+    # the new model beside the old width.
+    embedding_before = None
     if "embedding_dims" in validated_settings:
-        old_dims_value = await EMBEDDING_DIMS.get_uncached(db)
-        # fix(#1529): a request that publishes both halves has to roll back
-        # both halves. Restoring embedding_dims alone would leave the NEW model
-        # standing beside the OLD width — the mismatched pair, reached through
-        # the failure path instead of the probe window.
-        rollback_model = "embedding_model" in validated_settings
-        if rollback_model:
-            old_model_value = await EMBEDDING_MODEL.get_uncached(db)
+        from app.processing.embeddings.service import read_committed_embedding_pair
+
+        embedding_before = await read_committed_embedding_pair(
+            db, with_model="embedding_model" in validated_settings
+        )
 
     ip = get_client_ip(request)
     # Registry order writes the provider before a model whose blank value
@@ -500,46 +521,14 @@ async def update_settings(
     # Rebuild column + index when embedding dimensions change. An
     # auto-detected width reaches this branch too (#1529), added to
     # validated_settings above, so the column follows every published width.
-    if "embedding_dims" in validated_settings:
-        from app.processing.embeddings.service import rebuild_embedding_column
-
-        new_dims = int(validated_settings["embedding_dims"])
-        try:
-            await rebuild_embedding_column(db, new_dims)
-        except Exception as exc:  # broad: DDL rebuild can fail for schema/lock reasons; roll setting back atomically
-            # Roll the published pair back in ONE transaction, same reason as
-            # the forward publish. Side effects follow the commit, never
-            # precede it (fix(#430)): invalidating the cache first would let a
-            # concurrent reader repopulate it with the value being rolled back.
-            await EMBEDDING_DIMS.set(
-                db, old_dims_value, user_id=user.id, ip_address=ip, commit=False
-            )
-            if rollback_model:
-                await EMBEDDING_MODEL.set(
-                    db, old_model_value, user_id=user.id, ip_address=ip, commit=False
-                )
-            await db.commit()
-            # fix(#1543): in ONE step, same reason the rollback is one
-            # transaction — evicting the two keys in sequence would put the
-            # mismatched pair back into readable state on the way out.
-            rolled_back: list[tuple] = [(EMBEDDING_DIMS, old_dims_value)]
-            if rollback_model:
-                rolled_back.append((EMBEDDING_MODEL, old_model_value))
-            await apply_side_effects_batch(rolled_back)
-            logger.exception(
-                "Embedding column rebuild failed, rolling back the embedding pair",
-                old_dims=old_dims_value,
-                new_dims=new_dims,
-                old_model=old_model_value if rollback_model else None,
-                rolled_back_model=rollback_model,
-            )
-            raise HTTPException(
-                status_code=503,
-                detail=(
-                    "Embedding column rebuild failed. The embedding settings have "
-                    "been reverted to their previous values."
-                ),
-            ) from exc
+    if embedding_before is not None:
+        await _rebuild_column_or_503(
+            db,
+            int(validated_settings["embedding_dims"]),
+            embedding_before,
+            user_id=user.id,
+            ip_address=ip,
+        )
 
     # Phase 279 (L-01): second get_all_settings() call is INTENTIONAL — this
     # handler can persist values the request body doesn't name: auto-detected
@@ -596,6 +585,14 @@ async def reset_settings(
                 ),
             )
 
+    embedding_before = None
+    if EMBEDDING_DIMS in configs_to_reset:
+        from app.processing.embeddings.service import read_committed_embedding_pair
+
+        embedding_before = await read_committed_embedding_pair(
+            db, with_model=EMBEDDING_MODEL in configs_to_reset
+        )
+
     ip = get_client_ip(request)
     before = [await cfg.get(db) for cfg in configs_to_reset]
     for cfg, old_value in zip(configs_to_reset, before):
@@ -612,6 +609,13 @@ async def reset_settings(
     # one step so no reader sees a half-reset batch (fix(#1543)).
     await db.commit()
     await apply_side_effects_batch([(cfg, cfg.env_default) for cfg in configs_to_reset])
+
+    # The rebuild deletes every vector, so only a change in width runs it.
+    default_dims = EMBEDDING_DIMS.env_default
+    if embedding_before is not None and default_dims != embedding_before.dims:
+        await _rebuild_column_or_503(
+            db, default_dims, embedding_before, user_id=user.id, ip_address=ip
+        )
 
     # Phase 279 (L-01): intentional second SELECT — cfg.reset() writes
     # env_default to AppSetting; re-read captures the post-reset state, which

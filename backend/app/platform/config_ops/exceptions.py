@@ -13,6 +13,12 @@ class ConfigLockedError(Exception):
     pass
 
 
+class ConfigApplyError(Exception):
+    """Raised when part of a committed import could not take effect and was reverted."""
+
+    pass
+
+
 class ConfigPreviewError(Exception):
     """Raised when an overwrite is not backed by a current, matching preview."""
 

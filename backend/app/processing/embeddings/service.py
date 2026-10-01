@@ -2,6 +2,7 @@
 
 import hashlib
 import uuid
+from dataclasses import dataclass
 from typing import Any
 
 import structlog
@@ -13,7 +14,12 @@ from app.core.config import settings
 from app.platform.extensions import get_embedding_provider, get_processing_port
 from app.processing.embeddings.helpers import resolve_live_embedding_config
 from app.processing.embeddings.models import RecordEmbedding
-from app.core.persistent_config import AI_ENABLED, EMBEDDING_DIMS, EMBEDDING_MODEL
+from app.core.persistent_config import (
+    AI_ENABLED,
+    EMBEDDING_DIMS,
+    EMBEDDING_MODEL,
+    apply_side_effects_batch,
+)
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -289,6 +295,78 @@ async def rebuild_embedding_column(db: AsyncSession, new_dims: int) -> bool:
         raise
 
     return True
+
+
+class EmbeddingColumnRebuildError(RuntimeError):
+    """The column rebuild failed and the embedding settings were put back."""
+
+
+@dataclass(frozen=True)
+class CommittedEmbeddingPair:
+    """The embedding settings a failed column rebuild puts back.
+
+    ``model`` is None when the settings batch leaves the model alone.
+    """
+
+    dims: int
+    model: str | None
+
+
+async def read_committed_embedding_pair(
+    db: AsyncSession, *, with_model: bool
+) -> CommittedEmbeddingPair:
+    """Read before a settings batch writes. Uncached, so a rollback restores
+    what is committed rather than a cache entry that may already be stale."""
+    dims = await EMBEDDING_DIMS.get_uncached(db)
+    model = await EMBEDDING_MODEL.get_uncached(db) if with_model else None
+    return CommittedEmbeddingPair(dims=dims, model=model)
+
+
+async def rebuild_column_or_restore(
+    db: AsyncSession,
+    new_dims: int,
+    previous: CommittedEmbeddingPair,
+    *,
+    user_id: uuid.UUID,
+    ip_address: str | None,
+) -> None:
+    """Rebuild the column to the width a settings batch just committed.
+
+    On failure, restores ``previous`` and raises EmbeddingColumnRebuildError,
+    so published settings never name a width the column does not have.
+    """
+    try:
+        await rebuild_embedding_column(db, new_dims)
+    except Exception as exc:  # broad: DDL rebuild can fail for schema/lock reasons; roll setting back atomically
+        # One transaction, then one side-effect step, so no reader sees the
+        # new model beside the old width. Evicting before the commit would let
+        # a concurrent reader re-cache the value being rolled back.
+        await EMBEDDING_DIMS.set(
+            db, previous.dims, user_id=user_id, ip_address=ip_address, commit=False
+        )
+        rolled_back: list[tuple] = [(EMBEDDING_DIMS, previous.dims)]
+        if previous.model is not None:
+            await EMBEDDING_MODEL.set(
+                db,
+                previous.model,
+                user_id=user_id,
+                ip_address=ip_address,
+                commit=False,
+            )
+            rolled_back.append((EMBEDDING_MODEL, previous.model))
+        await db.commit()
+        await apply_side_effects_batch(rolled_back)
+        logger.exception(
+            "Embedding column rebuild failed, rolling back the embedding pair",
+            old_dims=previous.dims,
+            new_dims=new_dims,
+            old_model=previous.model,
+            rolled_back_model=previous.model is not None,
+        )
+        raise EmbeddingColumnRebuildError(
+            "Embedding column rebuild failed. The embedding settings have "
+            "been reverted to their previous values."
+        ) from exc
 
 
 def build_content_text(

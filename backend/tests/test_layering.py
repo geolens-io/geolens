@@ -1318,8 +1318,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection.
     "backend/app/modules/catalog/datasets/api/router_refresh.py": 1397,
-    # Config planning, signed dry runs and application share one transaction workflow.
-    "backend/app/platform/config_ops/service.py": 1268,
+    # Config planning, signed dry runs, application and the embedding column
+    # rebuild an applied width needs share one import workflow.
+    "backend/app/platform/config_ops/service.py": 1298,
     # One settlement pass, its precheck and its reapers serve startup recovery, the
     # lifespan sweep, admin cleanup, the job status poll and manifest expiry.
     "backend/app/platform/jobs/sweep.py": 1793,

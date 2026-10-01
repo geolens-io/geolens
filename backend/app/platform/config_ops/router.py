@@ -12,6 +12,7 @@ from app.core.dependencies import get_client_ip, get_db
 from app.core.identity import Identity
 from app.modules.auth.dependencies import require_mode_permission
 from app.platform.config_ops.exceptions import (
+    ConfigApplyError,
     ConfigLockedError,
     ConfigPreviewError,
     ConfigValidationError,
@@ -153,6 +154,11 @@ async def import_configuration(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Configuration import conflict — duplicate entry",
+        )
+    except ConfigApplyError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(e),
         )
     return result
 

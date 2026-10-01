@@ -22,6 +22,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.platform.config_ops.exceptions import (
+    ConfigApplyError,
     ConfigLockedError,
     ConfigPreviewError,
     ConfigValidationError,
@@ -1052,6 +1053,8 @@ async def import_config(
     additionally requires the signed token from a matching, current dry-run.
     """
     from app.core.persistent_config import (
+        EMBEDDING_DIMS,
+        EMBEDDING_MODEL,
         ENTERPRISE_ONLY_TABS,
         _registry,
         apply_side_effects_batch,
@@ -1060,6 +1063,11 @@ async def import_config(
         AuditEvent,
         audit_emit,
     )  # LAZY — preserved per D-17
+    from app.processing.embeddings.service import (
+        EmbeddingColumnRebuildError,
+        read_committed_embedding_pair,
+        rebuild_column_or_restore,
+    )
 
     # Database-enforced write fence covering state recompute, confirmation
     # check, and apply — otherwise a concurrent transaction could commit
@@ -1100,6 +1108,11 @@ async def import_config(
         cfg for cfg in _registry if cfg.key in plan.settings_to_apply or cfg in resets
     ]
     before = {cfg.key: await cfg.get(db) for cfg in touched}
+    embedding_before = None
+    if EMBEDDING_DIMS in touched:
+        embedding_before = await read_committed_embedding_pair(
+            db, with_model=EMBEDDING_MODEL in touched
+        )
     for cfg in touched:
         if cfg.key in plan.settings_to_apply:
             value = plan.settings_to_apply[cfg.key]
@@ -1164,6 +1177,23 @@ async def import_config(
     # fix(#1543): one eviction for the whole import — a per-key loop here held
     # the widest mismatch window of the three batch call sites.
     await apply_side_effects_batch(deferred_side_effects)
+
+    # The rebuild deletes every vector, so only a change in width runs it.
+    published = {cfg.key: value for cfg, value in deferred_side_effects}
+    new_dims = published.get(EMBEDDING_DIMS.key)
+    if embedding_before is not None and new_dims != embedding_before.dims:
+        try:
+            await rebuild_column_or_restore(
+                db,
+                new_dims,
+                embedding_before,
+                user_id=user_id,
+                ip_address=ip_address,
+            )
+        except EmbeddingColumnRebuildError as exc:
+            raise ConfigApplyError(
+                f"{exc} The rest of the import was applied."
+            ) from exc
 
     logger.info(
         "config_imported",
