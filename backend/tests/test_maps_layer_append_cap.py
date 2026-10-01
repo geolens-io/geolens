@@ -138,6 +138,9 @@ async def _wait_for_a_blocked_writer(session) -> None:
     """Block until another backend is waiting on a lock this session holds."""
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
+        # The activity view is snapshotted once per transaction, and this one
+        # holds the lock the writer waits on.
+        await session.execute(text("SELECT pg_stat_clear_snapshot()"))
         blocked = (
             await session.execute(
                 text(
