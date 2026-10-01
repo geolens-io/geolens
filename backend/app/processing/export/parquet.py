@@ -104,6 +104,33 @@ def _geometry_column_name(attr_names: list[str]) -> str:
     return candidate
 
 
+def _holds_object(value: object) -> bool:
+    """Whether ``value`` is a JSON object or an array holding one at any depth."""
+    if not isinstance(value, (dict, list)):
+        return False
+    pending = [value]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, dict):
+            return True
+        if isinstance(item, list):
+            pending.extend(item)
+    return False
+
+
+def _as_text(value: object) -> str:
+    """JSON for an object or array, so readers can parse it; plain text otherwise."""
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, default=str, ensure_ascii=False)
+    return str(value)
+
+
+def _text(values: list) -> "pa.Array":
+    return pa.array(
+        [None if v is None else _as_text(v) for v in values], type=pa.string()
+    )
+
+
 def build_geoparquet_table(
     geom: list[bytes | None],
     cols: dict[str, list],
@@ -113,18 +140,21 @@ def build_geoparquet_table(
     """Build a GeoParquet-annotated Arrow table from columnar Python values.
 
     WKB geometry lives in ``geom_col`` (renamed off "geometry" only when a
-    user attribute claims that name). A column pyarrow can't unify falls
-    back to string so the export still succeeds. Pure/DB-free, unit-testable.
+    user attribute claims that name). A column holding a JSON object, alone
+    or inside an array, is written as text, and so is a column pyarrow can't
+    unify, so the export still succeeds. Pure/DB-free, unit-testable.
     """
     arrays: dict[str, "pa.Array"] = {}
     for name in attr_names:
+        values = cols[name]
+        # As a struct, every row would take a slot for every key in the column.
+        if any(_holds_object(v) for v in values):
+            arrays[name] = _text(values)
+            continue
         try:
-            arrays[name] = pa.array(cols[name])
-        except (pa.ArrowInvalid, pa.ArrowTypeError):
-            arrays[name] = pa.array(
-                [None if v is None else str(v) for v in cols[name]],
-                type=pa.string(),
-            )
+            arrays[name] = pa.array(values)
+        except (pa.ArrowInvalid, pa.ArrowTypeError, OverflowError):
+            arrays[name] = _text(values)
     arrays[geom_col] = pa.array(geom, type=pa.binary())
 
     table = pa.table(arrays)
@@ -133,18 +163,19 @@ def build_geoparquet_table(
     )
 
 
-def _wider_type(current: pa.DataType, incoming: pa.DataType) -> pa.DataType:
-    """The type holding the values of both, or string when none does.
+def _common_type(current: pa.DataType, incoming: pa.DataType) -> pa.DataType | None:
+    """The type holding the values of both, or None when none does.
 
-    Arrow's promotion widens null, struct and numeric types and the element of
-    a list. It takes the larger precision and the larger scale of two decimals
+    Arrow's promotion widens null and numeric types and the element of a list.
+    It takes the larger precision and the larger scale of two decimals
     separately, which can drop integer digits, so decimals are widened here by
     digit counts instead.
     """
     if current.equals(incoming):
         return current
     if pa.types.is_list(current) and pa.types.is_list(incoming):
-        return pa.list_(_wider_type(current.value_type, incoming.value_type))
+        element = _common_type(current.value_type, incoming.value_type)
+        return None if element is None else pa.list_(element)
     if pa.types.is_decimal(current) and pa.types.is_decimal(incoming):
         scale = max(current.scale, incoming.scale)
         precision = scale + max(
@@ -152,45 +183,52 @@ def _wider_type(current: pa.DataType, incoming: pa.DataType) -> pa.DataType:
         )
         if precision <= 38:
             return pa.decimal128(precision, scale)
-        return pa.decimal256(precision, scale) if precision <= 76 else pa.string()
+        return pa.decimal256(precision, scale) if precision <= 76 else None
     try:
         unified = pa.unify_schemas(
             [pa.schema([("c", current)]), pa.schema([("c", incoming)])],
             promote_options="permissive",
         )
     except pa.ArrowTypeError:
-        return pa.string()
+        return None
     return unified.field("c").type
 
 
-def _conform(table: pa.Table, schema: pa.Schema) -> pa.Table:
-    """Cast ``table`` to ``schema``.
+def _wider_type(current: pa.DataType, incoming: pa.DataType) -> pa.DataType:
+    """The type holding the values of both, or string when none does."""
+    common = _common_type(current, incoming)
+    return pa.string() if common is None else common
 
-    A column that has to become string is stringified the way
-    build_geoparquet_table's fallback does, because Arrow cannot cast nested
-    values to string.
+
+def _conform(table: pa.Table, schema: pa.Schema) -> tuple[pa.Table, pa.Schema]:
+    """Cast ``table`` to ``schema``; return the table and the schema it took.
+
+    A column whose values don't cast becomes string in both. Text is written
+    the way build_geoparquet_table's fallback writes it, so a column reads
+    the same whichever batch turned it into text.
     """
     columns = []
-    for field, column in zip(schema, table.columns):
-        if pa.types.is_string(field.type) and not pa.types.is_string(column.type):
-            column = pa.array(
-                [None if v is None else str(v) for v in column.to_pylist()],
-                type=pa.string(),
-            )
-        else:
-            column = column.cast(field.type)
+    for i, (field, column) in enumerate(zip(schema, table.columns)):
+        if not pa.types.is_string(field.type):
+            try:
+                columns.append(column.cast(field.type))
+                continue
+            except (pa.ArrowInvalid, pa.ArrowNotImplementedError, pa.ArrowTypeError):
+                schema = schema.set(i, field.with_type(pa.string()))
+        if not pa.types.is_string(column.type):
+            column = _text(column.to_pylist())
         columns.append(column)
-    return pa.table(columns, schema=schema)
+    return pa.table(columns, schema=schema), schema
 
 
 class _GeoParquetWriter:
     """Appends batches to one GeoParquet file under a single file schema.
 
-    Each batch infers its own Arrow types, as the whole selection once did, so
-    a column that is all NULL in an early batch, or whose later decimals have
-    more digits, does not fit the schema the first batch fixed. The file is
-    re-encoded under the wider schema when that happens; a column whose type
-    holds steady never pays for it.
+    Each batch infers its own Arrow types, so a column that is all NULL in an
+    early batch, or whose later decimals have more digits, does not fit the
+    schema the first batch fixed. The file is then re-encoded under the wider
+    schema; a column whose type holds steady never pays for it. A column whose
+    batches share no type, or whose values don't cast to it, becomes text.
 
     Blocking; call ``write`` and ``close`` via run_in_thread_draining so they
     don't stall the event loop.
@@ -213,23 +251,35 @@ class _GeoParquetWriter:
             ],
             metadata=self._writer.schema.metadata,
         )
+        batch, target = _conform(table, target)
         if not target.equals(self._writer.schema):
-            self._writer = self._reencode(self._writer, target)
-        self._writer.write_table(_conform(table, target))
+            self._reencode(target)
+            # Rewriting can turn more columns into text than this batch did.
+            batch, _ = _conform(table, self._writer.schema)
+        self._writer.write_table(batch)
 
-    def _reencode(
-        self, writer: pq.ParquetWriter, schema: pa.Schema
-    ) -> pq.ParquetWriter:
-        """Rewrite the rows written so far under ``schema``, one row group at a time."""
-        writer.close()
+    def _reencode(self, schema: pa.Schema) -> None:
+        """Rewrite the rows written so far under ``schema``, one row group at a time.
+
+        A column whose earlier values don't cast becomes text and the rewrite
+        starts over, so the reopened writer's schema can differ from ``schema``.
+        """
+        self._writer.close()
         written = self._path + ".prev"
         os.replace(self._path, written)
-        widened = pq.ParquetWriter(self._path, schema)
         with pq.ParquetFile(written) as source:
-            for i in range(source.num_row_groups):
-                widened.write_table(_conform(source.read_row_group(i), schema))
+            while True:
+                self._writer = pq.ParquetWriter(self._path, schema)
+                for i in range(source.num_row_groups):
+                    rows, fitted = _conform(source.read_row_group(i), schema)
+                    if not fitted.equals(schema):
+                        break
+                    self._writer.write_table(rows)
+                else:
+                    break
+                self._writer.close()
+                schema = fitted
         os.remove(written)
-        return widened
 
     def close(self) -> None:
         if self._writer is not None:
@@ -343,10 +393,21 @@ async def plan_parquet_export(
 
 
 def _approx_bytes(value: object) -> int:
-    """Python memory held by one cell, counting the elements of an array value."""
-    if isinstance(value, (list, tuple)):
-        return sys.getsizeof(value) + sum(_approx_bytes(v) for v in value)
-    return sys.getsizeof(value)
+    """Python memory held by one cell, counting what an array or JSON value holds."""
+    if not isinstance(value, (dict, list, tuple)):
+        return sys.getsizeof(value)
+    # A stack, not recursion: JSON can nest deeper than Python's recursion limit.
+    total = 0
+    pending = [value]
+    while pending:
+        item = pending.pop()
+        total += sys.getsizeof(item)
+        if isinstance(item, dict):
+            pending.extend(item.keys())
+            pending.extend(item.values())
+        elif isinstance(item, (list, tuple)):
+            pending.extend(item)
+    return total
 
 
 async def _stream_batches(
