@@ -1117,6 +1117,41 @@ async def test_a_switch_after_the_provider_read_keeps_that_providers_model(
 
 
 @pytest.mark.anyio
+async def test_an_extension_provider_without_an_override_uses_its_own_model(
+    client: AsyncClient, admin_auth_header: dict
+):
+    from app.api.main import app
+    from app.core.dependencies import get_db
+    from app.core.persistent_config import LLM_PROVIDER
+    from app.processing.ai.llm_loop import resolve_provider
+
+    class _ExtensionProvider:
+        async def resolve_runtime_config(self, _db):
+            return {"base_url": None, "default_model": "extension-model"}
+
+    async def resolved() -> str:
+        with (
+            patch.object(LLM_PROVIDER, "get", return_value="extension"),
+            patch(
+                "app.platform.extensions.get_ai_provider",
+                return_value=_ExtensionProvider(),
+            ),
+        ):
+            async for db in app.dependency_overrides[get_db]():
+                _, model, _ = await resolve_provider(db)
+                return model
+        raise AssertionError("no session")
+
+    assert await resolved() == "extension-model"
+    await client.put(
+        "/settings/",
+        json={"settings": {"llm_model": "admin-model"}},
+        headers=admin_auth_header,
+    )
+    assert await resolved() == "admin-model"
+
+
+@pytest.mark.anyio
 async def test_model_override_survives_a_provider_switch(
     client: AsyncClient, admin_auth_header: dict, _both_ai_keys
 ):

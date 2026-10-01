@@ -254,7 +254,8 @@ async def resolve_provider(db) -> tuple[str, str, dict[str, object]]:
     name = await LLM_PROVIDER.get(db)
     provider_ext = get_ai_provider(name)
     runtime_config = await provider_ext.resolve_runtime_config(db)
-    model = await LLM_MODEL.for_provider(db, name)
+    # Each provider's runtime config carries its own default model.
+    model = await LLM_MODEL.override(db) or runtime_config.get("default_model", "")
     return name, model, runtime_config
 
 
