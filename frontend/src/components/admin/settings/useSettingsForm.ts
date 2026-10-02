@@ -32,11 +32,11 @@ function isEqual(a: unknown, b: unknown, mode: 'strict' | 'json' = 'strict'): bo
 export function useSettingsForm<K extends string>(
   settings: SettingItem[],
   fields: readonly FieldDef[] & { readonly [i: number]: { key: K } },
-  /** The save mutation's pending flag; lets the hook snapshot what was
-   *  submitted so a post-submit edit survives the save's own refetch. */
+  /** The save mutation's pending flag; lets the hook track edits made after
+   *  the submit so they survive the save's own refetch. */
   isSaving = false,
   /** The save mutation's error flag; a failed save acknowledged nothing,
-   *  so the submitted snapshot is dropped as soon as this turns true. */
+   *  so edit tracking is dropped as soon as this turns true. */
   saveFailed = false,
 ) {
   type Values = Record<K, unknown>;
@@ -70,28 +70,28 @@ export function useSettingsForm<K extends string>(
     setValues(initialValues);
   }, [initialValues]);
 
-  // Snapshot the draft the moment a save starts, so the save's own refetch
-  // can tell an acknowledged submission apart from an edit typed while the
-  // save was in flight (inputs stay enabled during isSaving).
-  const valuesRef = useRef(values);
-  valuesRef.current = values;
+  // Track which fields the user edits once a save starts, so the save's own
+  // refetch can tell an acknowledged submission apart from an edit typed
+  // while the save was in flight (inputs stay enabled during isSaving).
+  // Recording setter calls rather than comparing values keeps a refetched
+  // server value from being mistaken for an edit, and catches an edit that
+  // lands back on the old value. Null means no save is being tracked.
   const isSavingRef = useRef(isSaving);
   isSavingRef.current = isSaving;
-  const submittedRef = useRef<Values | null>(null);
+  const editedDuringSaveRef = useRef<Set<string> | null>(null);
   useEffect(() => {
-    if (isSaving) submittedRef.current = valuesRef.current;
+    if (isSaving) editedDuringSaveRef.current = new Set();
   }, [isSaving]);
 
-  // Snapshot lifetime rule: a SUCCESSFUL save always produces a settings
-  // refetch, and that refetch can land after isSaving settles — so the
-  // snapshot must stay armed across the pending→settled edge and is
-  // consumed by the merge effect below. A FAILED save produces no
-  // refetch and acknowledged nothing, so the snapshot is cleared the
-  // moment the mutation reports an error; otherwise a later reset or
-  // external change would be misread as a post-submit edit and the
-  // stale draft would win over the new server value.
+  // Tracking lifetime rule: a SUCCESSFUL save always produces a settings
+  // refetch, and that refetch can land after isSaving settles — so tracking
+  // must stay armed across the pending→settled edge and is consumed by the
+  // merge effect below. A FAILED save produces no refetch and acknowledged
+  // nothing, so tracking is cleared the moment the mutation reports an
+  // error; otherwise a later reset or external change would be misread as a
+  // post-submit edit and the stale draft would win over the new server value.
   useEffect(() => {
-    if (saveFailed) submittedRef.current = null;
+    if (saveFailed) editedDuringSaveRef.current = null;
   }, [saveFailed]);
 
   // fix(#830): only sync untouched fields on refetch — a mid-edit query
@@ -112,21 +112,19 @@ export function useSettingsForm<K extends string>(
     baselineRef.current = initialValues;
     const prevSources = sourcesBaselineRef.current;
     sourcesBaselineRef.current = serverSources;
-    const submitted = submittedRef.current;
-    // Consume the snapshot only once the save is no longer pending — an
+    const editedDuringSave = editedDuringSaveRef.current;
+    // Consume the tracking only once the save is no longer pending — an
     // unrelated refetch racing an in-flight save must leave it for the
     // save's own refetch.
-    if (!isSavingRef.current) submittedRef.current = null;
+    if (!isSavingRef.current) editedDuringSaveRef.current = null;
     setValues((prev) => {
       const next: Record<string, unknown> = { ...initialValues };
       for (const f of fields) {
         const key = f.key as K;
         const mode = f.compare ?? 'strict';
-        const editedAfterSubmit =
-          submitted !== null && !isEqual(prev[key], submitted[key], mode);
-        // An edit typed during the save can land back on the old baseline;
-        // it is still newer than what the save acknowledged.
-        if (editedAfterSubmit) {
+        // An edit made during the save is newer than anything the save
+        // acknowledged, even when it lands back on the old baseline.
+        if (editedDuringSave?.has(f.key)) {
           next[f.key] = prev[key];
           continue;
         }
@@ -147,8 +145,10 @@ export function useSettingsForm<K extends string>(
   const setters = useMemo(() => {
     const s: Record<string, (v: unknown) => void> = {};
     for (const f of fields) {
-      s[f.key] = (v: unknown) =>
+      s[f.key] = (v: unknown) => {
+        editedDuringSaveRef.current?.add(f.key);
         setValues((prev) => ({ ...prev, [f.key]: v }));
+      };
     }
     return s as Record<K, (v: unknown) => void>;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount

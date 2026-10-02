@@ -248,6 +248,23 @@ describe('useSettingsForm', () => {
       expect(result.current.dirty).toEqual({ flag: false });
     });
 
+    it('takes the persisted value when a background refetch changed the field mid-save', () => {
+      const initial = [makeSetting('name', 'A'), makeSetting('flag', false)];
+      const { result, rerender } = renderWithSettings(initial);
+
+      act(() => result.current.setters.name('B'));
+      rerender({ s: initial, saving: true });
+
+      // Another admin's change lands while the save is pending.
+      rerender({ s: [makeSetting('name', 'C'), makeSetting('flag', false)], saving: true });
+
+      // The save's own refetch returns what it persisted.
+      rerender({ s: [makeSetting('name', 'B'), makeSetting('flag', false)], saving: false });
+
+      expect(result.current.values.name).toBe('B');
+      expect(result.current.hasDirty).toBe(false);
+    });
+
     it('keeps a post-submit edit even when an unrelated refetch races the save', () => {
       const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
       const { result, rerender } = renderWithSettings(initial);
