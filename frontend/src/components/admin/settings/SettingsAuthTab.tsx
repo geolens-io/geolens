@@ -58,7 +58,6 @@ interface TabProps {
   onSave: (changes: Record<string, unknown>) => void;
   onReset: (key: string) => void;
   isSaving: boolean;
-  saveFailed?: boolean;
   settingsUpdatedAt?: number;
   onDirtyChange?: (dirty: boolean) => void;
 }
@@ -760,9 +759,9 @@ const AUTH_FIELDS = [
   { key: 'email_verification_required', defaultValue: true },
 ] as const;
 
-export function SettingsAuthTab({ settings, envOnly, onSave, onReset, isSaving, saveFailed, settingsUpdatedAt, onDirtyChange }: TabProps) {
+export function SettingsAuthTab({ settings, envOnly, onSave, onReset, isSaving, settingsUpdatedAt, onDirtyChange }: TabProps) {
   const { t } = useTranslation('admin');
-  const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, AUTH_FIELDS, isSaving, saveFailed, settingsUpdatedAt);
+  const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, AUTH_FIELDS, isSaving, settingsUpdatedAt);
 
   // Local input state for the domain allowlist add-input (not part of form state).
   const [domainInput, setDomainInput] = useState('');

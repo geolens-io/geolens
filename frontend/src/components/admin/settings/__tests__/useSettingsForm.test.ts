@@ -134,11 +134,11 @@ describe('useSettingsForm', () => {
       { key: 'flag', defaultValue: false },
     ] as const;
 
-    type Props = { s: SettingItem[]; saving?: boolean; failed?: boolean; u?: number };
+    type Props = { s: SettingItem[]; saving?: boolean; u?: number };
 
     function renderWithSettings(settings: SettingItem[]) {
       return renderHook(
-        ({ s, saving, failed, u }: Props) => useSettingsForm(s, fields, saving, failed, u),
+        ({ s, saving, u }: Props) => useSettingsForm(s, fields, saving, u),
         { initialProps: { s: settings } as Props },
       );
     }
@@ -313,19 +313,21 @@ describe('useSettingsForm', () => {
       expect(result.current.dirty).toEqual({ name: 'Dave' });
     });
 
-    it('reads clean when a save fails after the edit went back to the server value', () => {
+    it('keeps an edit reverted during a failing save dirty until the refetch lands', () => {
       const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
       const { result, rerender } = renderWithSettings(initial);
 
       act(() => result.current.setters.flag(true));
-      rerender({ s: initial, saving: true });
+      rerender({ s: initial, saving: true, u: 1 });
       act(() => result.current.setters.flag(false));
+
+      // The save failed, but part of the batch may have committed, so the
+      // cached server value is not yet known to be current.
+      rerender({ s: initial, saving: false, u: 1 });
       expect(result.current.hasDirty).toBe(true);
 
-      // The save failed and nothing was acknowledged; the draft matches the
-      // server again, so there is nothing left to save or to guard.
-      rerender({ s: initial, saving: false, failed: true });
-
+      // The error refetch returns unchanged data: nothing persisted.
+      rerender({ s: initial, saving: false, u: 2 });
       expect(result.current.hasDirty).toBe(false);
       expect(result.current.dirty).toEqual({});
     });
@@ -340,11 +342,10 @@ describe('useSettingsForm', () => {
 
       // The backend committed flag=true, then failed on another field of
       // the batch. The error path refetches and returns the committed value.
-      rerender({ s: initial, saving: false, failed: true });
+      rerender({ s: initial, saving: false });
       rerender({
         s: [makeSetting('name', 'Alice'), makeSetting('flag', true)],
         saving: false,
-        failed: true,
       });
 
       expect(result.current.values.flag).toBe(false);
@@ -401,15 +402,14 @@ describe('useSettingsForm', () => {
 
       // The save fails and its error refetch returns unchanged data, which
       // reconciles the draft and ends the tracking.
-      rerender({ s: initial, saving: false, failed: true, u: 1 });
-      rerender({ s: initial, saving: false, failed: true, u: 2 });
+      rerender({ s: initial, saving: false, u: 1 });
+      rerender({ s: initial, saving: false, u: 2 });
 
       // The user edits the field again, then resets it.
       act(() => result.current.setters.name('Dave'));
       rerender({
         s: [makeSetting('name', 'Default'), makeSetting('flag', false)],
         saving: false,
-        failed: true,
         u: 3,
       });
 
@@ -429,13 +429,12 @@ describe('useSettingsForm', () => {
 
       // The save fails; the error refetch returns identical data, so the
       // settings object keeps its identity and only the fetch time moves.
-      rerender({ s: initial, saving: false, failed: true, u: 1 });
-      rerender({ s: initial, saving: false, failed: true, u: 2 });
+      rerender({ s: initial, saving: false, u: 1 });
+      rerender({ s: initial, saving: false, u: 2 });
 
       rerender({
         s: [makeSetting('name', 'Default'), makeSetting('flag', false)],
         saving: false,
-        failed: true,
         u: 3,
       });
 
@@ -449,7 +448,7 @@ describe('useSettingsForm', () => {
 
       act(() => result.current.setters.flag(true));
       rerender({ s: initial, saving: true, u: 1 });
-      rerender({ s: initial, saving: false, failed: true, u: 1 });
+      rerender({ s: initial, saving: false, u: 1 });
 
       // The user flips the switch back before the error refetch responds.
       act(() => result.current.setters.flag(false));
@@ -457,7 +456,6 @@ describe('useSettingsForm', () => {
       rerender({
         s: [makeSetting('name', 'Alice'), makeSetting('flag', true)],
         saving: false,
-        failed: true,
         u: 2,
       });
 

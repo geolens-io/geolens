@@ -35,9 +35,6 @@ export function useSettingsForm<K extends string>(
   /** The save mutation's pending flag; lets the hook track edits made after
    *  the submit so they survive the save's own refetch. */
   isSaving = false,
-  /** The save mutation's error flag; a failed save acknowledged nothing,
-   *  so edits made during it stop counting as unsaved once this turns true. */
-  saveFailed = false,
   /** The settings query's `dataUpdatedAt`. It advances on every completed
    *  fetch, including one that returns identical data and so leaves
    *  `settings` the same object, which still has to reconcile the draft. */
@@ -79,11 +76,9 @@ export function useSettingsForm<K extends string>(
   const isSavingRef = useRef(isSaving);
   isSavingRef.current = isSaving;
   const editedDuringSaveRef = useRef<Set<string> | null>(null);
-  const trackingFailedRef = useRef(false);
   useEffect(() => {
     if (!isSaving) return;
     editedDuringSaveRef.current = new Set();
-    trackingFailedRef.current = false;
   }, [isSaving]);
 
   // Discarding drops the draft, so edits tracked so far must not pin the
@@ -98,17 +93,9 @@ export function useSettingsForm<K extends string>(
   // Tracking lifetime rule: a settings save refetches whether it succeeds
   // or fails (a failure can follow a partial commit), and that refetch can
   // land after isSaving settles — so tracking stays armed across the
-  // pending→settled edge and is consumed by the merge effect below. A failed
-  // save acknowledged nothing, so its tracking only shields the draft from
-  // that refetch: it no longer holds a field dirty, so an edit that went back
-  // to the server value reads clean. `dirty` reads the flag, so flipping it
-  // recomputes `dirty`.
-  const [trackingVersion, setTrackingVersion] = useState(0);
-  useEffect(() => {
-    if (!saveFailed) return;
-    trackingFailedRef.current = true;
-    setTrackingVersion((v) => v + 1);
-  }, [saveFailed]);
+  // pending→settled edge and is consumed by the merge effect below, which
+  // also runs on a refetch that returns unchanged data. Until then an edited
+  // field stays dirty even when it equals the not-yet-refreshed server value.
 
   // fix(#830): only sync untouched fields on refetch — a mid-edit query
   // invalidation (e.g. a background refetch) must not wipe drafts.
@@ -181,15 +168,14 @@ export function useSettingsForm<K extends string>(
       // lands, even when it equals the not-yet-refreshed server value, so
       // the navigation guard and Save still see it.
       if (
-        (editedDuringSaveRef.current?.has(f.key) && !trackingFailedRef.current) ||
+        editedDuringSaveRef.current?.has(f.key) ||
         !isEqual(localVal, serverVal, f.compare ?? 'strict')
       ) {
         changes[f.key] = localVal;
       }
     }
     return changes;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- trackingVersion recomputes dirty when edit tracking is cleared
-  }, [fields, settings, values, trackingVersion]);
+  }, [fields, settings, values]);
 
   const hasDirty = Object.keys(dirty).length > 0;
 
