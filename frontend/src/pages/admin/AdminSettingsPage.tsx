@@ -119,7 +119,9 @@ export function AdminSettingsPage() {
     );
   }
 
-  if (isError) {
+  // A failed background refetch keeps the cached settings; unmounting the tab
+  // would throw away the draft the user is still editing.
+  if (isError && !allSettings) {
     return (
       <>
         <PageHeader
