@@ -278,6 +278,25 @@ describe('useSettingsForm', () => {
       expect(result.current.hasDirty).toBe(false);
     });
 
+    it('adopts the persisted value after a discard between save settling and its refetch', () => {
+      const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
+      const { result, rerender } = renderWithSettings(initial);
+
+      act(() => result.current.setters.name('Bob'));
+      rerender({ s: initial, saving: true });
+      act(() => result.current.setters.name('Carol'));
+
+      // The mutation settles; its refetch has not landed yet.
+      rerender({ s: initial, saving: false });
+      act(() => result.current.discard());
+      expect(result.current.values.name).toBe('Alice');
+
+      rerender({ s: [makeSetting('name', 'Bob'), makeSetting('flag', false)], saving: false });
+
+      expect(result.current.values.name).toBe('Bob');
+      expect(result.current.hasDirty).toBe(false);
+    });
+
     it('keeps a post-submit edit even when an unrelated refetch races the save', () => {
       const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
       const { result, rerender } = renderWithSettings(initial);

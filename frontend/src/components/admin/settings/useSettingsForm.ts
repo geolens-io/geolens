@@ -66,10 +66,6 @@ export function useSettingsForm<K extends string>(
 
   const [values, setValues] = useState<Values>(initialValues);
 
-  const syncFromSettings = useCallback(() => {
-    setValues(initialValues);
-  }, [initialValues]);
-
   // Track which fields the user edits once a save starts, so the save's own
   // refetch can tell an acknowledged submission apart from an edit typed
   // while the save was in flight (inputs stay enabled during isSaving).
@@ -82,6 +78,14 @@ export function useSettingsForm<K extends string>(
   useEffect(() => {
     if (isSaving) editedDuringSaveRef.current = new Set();
   }, [isSaving]);
+
+  // Discarding drops the draft, so edits tracked from a save that has settled
+  // but not yet refetched must not pin the discarded value over the
+  // persisted one.
+  const syncFromSettings = useCallback(() => {
+    editedDuringSaveRef.current = null;
+    setValues(initialValues);
+  }, [initialValues]);
 
   // Tracking lifetime rule: a SUCCESSFUL save always produces a settings
   // refetch, and that refetch can land after isSaving settles — so tracking
