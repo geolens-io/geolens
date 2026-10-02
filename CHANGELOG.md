@@ -7,6 +7,8 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.21.1] - 2026-10-02
+
 ### Added
 
 - 3D Tiles and COPC dataset pages show a map preview with the dataset's
@@ -4630,7 +4632,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.21.0...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.21.1...HEAD
+[1.21.1]: https://github.com/geolens-io/geolens/compare/v1.21.0...v1.21.1
 [1.21.0]: https://github.com/geolens-io/geolens/compare/v1.20.0...v1.21.0
 [1.20.0]: https://github.com/geolens-io/geolens/compare/v1.19.1...v1.20.0
 [1.19.1]: https://github.com/geolens-io/geolens/compare/v1.19.0...v1.19.1
