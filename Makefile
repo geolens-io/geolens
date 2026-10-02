@@ -6,7 +6,7 @@
 SHELL := /bin/bash
 .SHELLFLAGS := -o pipefail -c
 
-.PHONY: dev dev-init down reset-db migrate migration alembic-check overlay-migration-check test test-sequential test-cov env-test ai-evals e2e logs logs-db logs-api status doctor preflight openapi openapi-check sdks _sdks_generate sdks-check sdks-test manifest-contract-check publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli mcp-build mcp-test mcp-live-test publish-mcp audit-sink-discipline billing-extraction-discipline catalog-domain-discipline bump version-check public-surface-check deployed-surface-check
+.PHONY: dev dev-init down reset-db migrate migration alembic-check overlay-migration-check test test-sequential test-cov env-test ai-evals e2e smoke-auth logs logs-db logs-api status doctor preflight openapi openapi-check sdks _sdks_generate sdks-check sdks-test manifest-contract-check publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli mcp-build mcp-test mcp-live-test publish-mcp audit-sink-discipline billing-extraction-discipline catalog-domain-discipline bump version-check public-surface-check deployed-surface-check
 
 # Pre-flight: verify boot-required env vars are non-empty in .env before any
 # `docker compose` build (which takes 5-10 minutes on a cold cache only to crash
@@ -113,6 +113,21 @@ ai-evals:
 
 e2e:
 	npx playwright test
+
+# Resolves the admin credentials the way Compose does (quotes, exported
+# overrides) without sourcing .env. Sign-in only: no shared fixture is seeded
+# or torn down, and the session and runner output go to their own paths, so an
+# e2e run keeps its login, fixture, report and failure artifacts. A failed fill
+# can echo its value, so the output is redacted.
+smoke-auth: ## Sign the admin in and save the session to playwright/.auth/smoke.json
+	set -o pipefail; . scripts/lib/common.sh && \
+	effective_env_value_into admin_user GEOLENS_ADMIN_USERNAME .env && \
+	effective_env_value_into admin_pass GEOLENS_ADMIN_PASSWORD .env && \
+	GEOLENS_ADMIN_USERNAME="$$admin_user" GEOLENS_ADMIN_PASSWORD="$$admin_pass" E2E_SKIP_SEED=1 \
+	E2E_AUTH_FILE=playwright/.auth/smoke.json \
+	npx playwright test e2e/auth.setup.ts --project=setup --no-deps --grep "authenticate as admin" \
+		--output=playwright/.auth/smoke-auth-results --reporter=line 2>&1 | \
+	SMOKE_AUTH_SECRET="$$admin_pass" python3 -c 'import os, sys; s = os.environ["SMOKE_AUTH_SECRET"]; sys.stdout.write(sys.stdin.read().replace(s, "[redacted]"))'
 
 logs:
 	docker compose logs -f
