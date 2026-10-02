@@ -1,8 +1,7 @@
-# Use bash with pipefail so `make sdks`'s
-# `uvx openapi-python-client ... 2>&1 | tee .../...log` propagates the
-# generator's non-zero exit instead of `tee`'s 0. Applies to all recipes;
-# existing recipes are pipefail-safe (no recipe relies on partial-pipeline
-# tolerance).
+# Bash with pipefail, so a piped recipe such as `make sdks`'s `... | tee log`
+# fails when the command fails rather than reporting tee's 0. GNU Make 3.81,
+# the version macOS ships, ignores .SHELLFLAGS, so piped recipes also run
+# `set -o pipefail` themselves.
 SHELL := /bin/bash
 .SHELLFLAGS := -o pipefail -c
 
@@ -232,7 +231,7 @@ _sdks_generate:
 	# Post-hook ruff is pinned to the backend's version (keep in sync with
 	# backend uv.lock): left unpinned, the ruff 0.16.0 release (2026-07)
 	# rewrote generated output and broke `make sdks-check` on every PR.
-	uvx --with "ruff==0.15.22" openapi-python-client@0.28.3 generate \
+	set -o pipefail; uvx --with "ruff==0.15.22" openapi-python-client@0.28.3 generate \
 	  --path "$(SDKS_TMPDIR)/openapi-flat.json" \
 	  --output-path sdks/python/geolens \
 	  --overwrite --meta none \
