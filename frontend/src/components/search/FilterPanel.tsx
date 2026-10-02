@@ -710,7 +710,7 @@ export function FilterPanel({
         >
           <ToggleGroupItem value="all" className="h-8 justify-between px-3 text-xs">
             {t('filters.allTypes', { defaultValue: 'All' })}
-            {Object.keys(counts).length > 0 && <span className="readout text-muted-foreground">{allTypeCount}</span>}
+            {(allTypesTotal !== undefined || Object.keys(counts).length > 0) && <span className="readout text-muted-foreground">{allTypeCount}</span>}
           </ToggleGroupItem>
           <ToggleGroupItem value="vector_dataset" className="h-8 justify-between px-3 text-xs" disabled={counts.vector_dataset === 0}>
             {t('filters.vector', { defaultValue: 'Vector' })}
@@ -877,7 +877,7 @@ export function FilterPanel({
               >
                 <ToggleGroupItem value="all" className="text-xs px-2.5 h-7">
                   {t('filters.allTypes', { defaultValue: 'All' })}
-                  {Object.keys(counts).length > 0 && ` (${allTypeCount})`}
+                  {(allTypesTotal !== undefined || Object.keys(counts).length > 0) && ` (${allTypeCount})`}
                 </ToggleGroupItem>
                 <ToggleGroupItem value="vector_dataset" className="text-xs px-2.5 h-7" disabled={counts.vector_dataset === 0}>
                   {t('filters.vector', { defaultValue: 'Vector' })}

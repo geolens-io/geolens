@@ -373,7 +373,7 @@ export function FilterSheet({ totalResults, allTypesTotal }: FilterSheetProps) {
             >
               <ToggleGroupItem value="all" className="flex-1 text-xs">
                 {t('filters.allTypes', { defaultValue: 'All' })}
-                {Object.keys(counts).length > 0 && ` (${allTypeCount})`}
+                {(allTypesTotal !== undefined || Object.keys(counts).length > 0) && ` (${allTypeCount})`}
               </ToggleGroupItem>
               <ToggleGroupItem value="vector_dataset" className="flex-1 text-xs" disabled={counts.vector_dataset === 0}>
                 {t('filters.vector', { defaultValue: 'Vector' })}

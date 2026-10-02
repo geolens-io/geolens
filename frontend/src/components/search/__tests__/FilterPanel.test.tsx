@@ -57,6 +57,21 @@ describe('FilterPanel', () => {
     expect(screen.getByRole('radio', { name: /All/ })).not.toHaveTextContent('16');
   });
 
+  it.each(['toolbar', 'rail'] as const)('shows All with an empty facet map for a collection-only or zero total (%s)', (desktopLayout) => {
+    const counts = mockFacets.record_type as Record<string, number>;
+    const saved = { ...counts };
+    for (const k of Object.keys(counts)) delete counts[k];
+    try {
+      const { rerender } = render(<FilterPanel totalResults={2} allTypesTotal={2} showMobile={false} desktopLayout={desktopLayout} />);
+      expect(screen.getByRole('radio', { name: /All/ })).toHaveTextContent('2');
+
+      rerender(<FilterPanel totalResults={undefined} allTypesTotal={0} showMobile={false} desktopLayout={desktopLayout} />);
+      expect(screen.getByRole('radio', { name: /All/ })).toHaveTextContent('0');
+    } finally {
+      Object.assign(counts, saved);
+    }
+  });
+
   it('disables badges with count of 0', () => {
     render(<FilterPanel totalResults={18} />);
 

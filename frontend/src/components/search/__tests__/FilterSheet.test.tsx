@@ -104,6 +104,16 @@ describe('FilterSheet 3D Tiles and point cloud filters', () => {
     expect(screen.getByRole('radio', { name: /All/ })).toHaveTextContent('(17)');
   });
 
+  it('shows All with an empty facet map for a collection-only or zero total', () => {
+    facetCounts.record_type = {};
+    const { rerender } = render(<FilterSheet totalResults={2} allTypesTotal={2} />);
+    fireEvent.click(screen.getByRole('button', { name: /Filters/i }));
+    expect(screen.getByRole('radio', { name: /All/ })).toHaveTextContent('(2)');
+
+    rerender(<FilterSheet totalResults={undefined} allTypesTotal={0} />);
+    expect(screen.getByRole('radio', { name: /All/ })).toHaveTextContent('(0)');
+  });
+
   it('offers a Point cloud toggle, counted in All, when the catalog holds point clouds', () => {
     facetCounts.record_type = { vector_dataset: 3, pointcloud_dataset: 2 };
     render(<FilterSheet totalResults={5} allTypesTotal={5} />);
