@@ -137,12 +137,11 @@ _SCALAR_TYPES: dict[str, pa.DataType] = {
 }
 
 _COLUMN_TYPES_SQL = """
-    SELECT a.attname, t.typname, t.typcategory::text, e.typname, a.atttypmod
+    SELECT a.attname, t.typname, t.typcategory::text, a.atttypmod
     FROM pg_attribute a
     JOIN pg_class c ON c.oid = a.attrelid
     JOIN pg_namespace n ON n.oid = c.relnamespace
     JOIN pg_type t ON t.oid = a.atttypid
-    LEFT JOIN pg_type e ON e.oid = t.typelem AND t.typcategory = 'A'
     WHERE n.nspname = :schema AND c.relname = :table_name
       AND a.attnum > 0 AND NOT a.attisdropped
 """
@@ -187,15 +186,16 @@ async def _declared_column_types(
         )
     ).all()
     declared: dict[str, pa.DataType] = {}
-    for name, typname, category, element, typmod in rows:
+    for name, typname, category, typmod in rows:
         if name not in attr_names:
             continue
         if name in json_columns:
             declared[name] = pa.string()
             continue
-        arrow = _arrow_type(element if category == "A" else typname, typmod)
+        # Array columns carry no dimensionality, so their nesting is inferred.
+        arrow = None if category == "A" else _arrow_type(typname, typmod)
         if arrow is not None:
-            declared[name] = pa.list_(arrow) if category == "A" else arrow
+            declared[name] = arrow
     return declared
 
 

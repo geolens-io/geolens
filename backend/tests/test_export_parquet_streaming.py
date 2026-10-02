@@ -695,18 +695,17 @@ class TestRealTable:
                 f"CREATE TABLE data.{table_name} "
                 "(gid serial PRIMARY KEY, small smallint, late integer, "
                 "price numeric(10,3), loose numeric, ratio double precision, "
-                "ids integer[], geom geometry(Point, 4326), "
+                "geom geometry(Point, 4326), "
                 "geom_4326 geometry(Point, 4326))"
             )
         )
         await test_db_session.execute(
             text(
                 f"INSERT INTO data.{table_name} "
-                "(small, late, price, loose, ratio, ids, geom, geom_4326) "
+                "(small, late, price, loose, ratio, geom, geom_4326) "
                 "SELECT i, CASE WHEN i < 15 THEN NULL ELSE i END, "
                 "CASE WHEN i < 15 THEN 1 ELSE 1.125 END, i + 0.5, "
                 "CASE WHEN i < 15 THEN 2 ELSE 2.5 END, "
-                "CASE WHEN i < 15 THEN NULL ELSE ARRAY[i] END, "
                 "ST_SetSRID(ST_MakePoint(i, i), 4326), "
                 "ST_SetSRID(ST_MakePoint(i, i), 4326) "
                 "FROM generate_series(0, 24) AS i"
@@ -727,7 +726,6 @@ class TestRealTable:
             assert schema.field("price").type == pa.decimal128(10, 3)
             assert pa.types.is_decimal(schema.field("loose").type)
             assert schema.field("ratio").type == pa.float64()
-            assert schema.field("ids").type == pa.list_(pa.int32())
             table = written.read().sort_by("small")
             assert table.column("late").to_pylist()[15:] == list(range(15, 25))
             assert table.column("price").to_pylist()[0] == Decimal("1.000")
@@ -770,6 +768,41 @@ class TestRealTable:
                 test_db_session, table_name, "Scale", schema="data", plan=plan
             )
             assert pq.read_table(path).num_rows == (15 if populated else 0)
+        finally:
+            await test_db_session.rollback()
+            await test_db_session.execute(
+                text(f"DROP TABLE IF EXISTS data.{table_name}")
+            )
+            await test_db_session.commit()
+
+    @pytest.mark.anyio
+    async def test_a_two_dimensional_integer_array_exports_as_nested_lists(
+        self, test_db_session, staging
+    ):
+        """Postgres array types carry no dimensions, so the nesting is inferred."""
+        table_name = f"exp_pqarr_{uuid.uuid4().hex[:12]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table_name} (gid serial PRIMARY KEY, "
+                "grid integer[], geom geometry(Point, 4326), "
+                "geom_4326 geometry(Point, 4326))"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{table_name} (grid, geom_4326) VALUES "
+                "(ARRAY[[1,2],[3,4]], ST_SetSRID(ST_MakePoint(0, 0), 4326))"
+            )
+        )
+        await test_db_session.commit()
+        try:
+            plan = await plan_parquet_export(test_db_session, table_name, schema="data")
+            path, _filename, _media_type = await export_parquet(
+                test_db_session, table_name, "Arr", schema="data", plan=plan
+            )
+            table = pq.read_table(path)
+            assert table.schema.field("grid").type == pa.list_(pa.list_(pa.int64()))
+            assert table.column("grid").to_pylist() == [[[1, 2], [3, 4]]]
         finally:
             await test_db_session.rollback()
             await test_db_session.execute(
