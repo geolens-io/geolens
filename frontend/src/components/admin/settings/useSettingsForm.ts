@@ -161,7 +161,13 @@ export function useSettingsForm<K extends string>(
       if (!setting) continue;
       const serverVal = f.coerce ? f.coerce(setting.value) : setting.value;
       const localVal = values[f.key as K];
-      if (!isEqual(localVal, serverVal, f.compare ?? 'strict')) {
+      // A field edited during a save stays dirty until the save's refetch
+      // lands, even when it equals the not-yet-refreshed server value, so
+      // the navigation guard and Save still see it.
+      if (
+        editedDuringSaveRef.current?.has(f.key) ||
+        !isEqual(localVal, serverVal, f.compare ?? 'strict')
+      ) {
         changes[f.key] = localVal;
       }
     }

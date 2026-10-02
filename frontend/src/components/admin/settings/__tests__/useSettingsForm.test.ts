@@ -248,6 +248,19 @@ describe('useSettingsForm', () => {
       expect(result.current.dirty).toEqual({ flag: false });
     });
 
+    it('reports an edit reverted during a pending save as unsaved before the refetch', () => {
+      const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
+      const { result, rerender } = renderWithSettings(initial);
+
+      act(() => result.current.setters.flag(true));
+      rerender({ s: initial, saving: true });
+      act(() => result.current.setters.flag(false));
+
+      // The draft equals the server value the page still holds, but the
+      // pending request will persist the opposite, so leaving must warn.
+      expect(result.current.hasDirty).toBe(true);
+    });
+
     it('takes the persisted value when a background refetch changed the field mid-save', () => {
       const initial = [makeSetting('name', 'A'), makeSetting('flag', false)];
       const { result, rerender } = renderWithSettings(initial);
