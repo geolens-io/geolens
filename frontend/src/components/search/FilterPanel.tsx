@@ -139,13 +139,15 @@ export function FilterPanel({
   // ====================================================================
   const { data: facets } = useFacets();
   const counts = facets?.record_type ?? {};
+  // All matches the result total, which also counts collections; per-type facets are dataset-only.
   const allTypeCount =
-    (counts.vector_dataset ?? 0) +
+    totalResults ??
+    ((counts.vector_dataset ?? 0) +
     (counts.raster_dataset ?? 0) +
     (counts.vrt_dataset ?? 0) +
     (counts.table ?? 0) +
     (counts.tiles3d_dataset ?? 0) +
-    (counts.pointcloud_dataset ?? 0);
+    (counts.pointcloud_dataset ?? 0));
 
   const { data: summaries } = useCatalogSummary();
 
