@@ -51,7 +51,7 @@ const TAB_COMPONENTS: Record<TabKey, React.ComponentType<{
   onSave: (changes: Record<string, unknown>) => void;
   onReset: (key: string) => void;
   isSaving: boolean;
-  saveFailed?: boolean;
+  settingsUpdatedAt?: number;
   onDirtyChange?: (dirty: boolean) => void;
 }>> = {
   general: SettingsGeneralTab,
@@ -68,7 +68,7 @@ export function AdminSettingsPage() {
   const { t } = useTranslation('admin');
   useDocumentTitle(t('common:pageTitle.adminSettings'));
   const { tab } = useParams<{ tab: string }>();
-  const { data: allSettings, isLoading, isError, error } = useAllSettings();
+  const { data: allSettings, dataUpdatedAt, isLoading, isError, error } = useAllSettings();
   const { data: configMode } = useConfigMode();
   const updateMutation = useUpdateSettings();
   const resetMutation = useResetSettings();
@@ -119,7 +119,9 @@ export function AdminSettingsPage() {
     );
   }
 
-  if (isError) {
+  // A failed background refetch keeps the cached settings; unmounting the tab
+  // would throw away the draft the user is still editing.
+  if (isError && !allSettings) {
     return (
       <>
         <PageHeader
@@ -158,7 +160,7 @@ export function AdminSettingsPage() {
           onSave={handleSave}
           onReset={handleReset}
           isSaving={updateMutation.isPending}
-          saveFailed={updateMutation.isError}
+          settingsUpdatedAt={dataUpdatedAt}
           onDirtyChange={handleDirtyChange}
         />
       </div>

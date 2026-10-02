@@ -171,13 +171,6 @@ describe('admin api request contracts', () => {
     expect(calledUrl()).toBe('/admin/backfill-embeddings/?force=true');
   });
 
-  it('updateSemanticSearch PUTs the settings envelope to /settings/', async () => {
-    await admin.updateSemanticSearch(true);
-    expect(calledUrl()).toBe('/settings/');
-    expect(calledInit()?.method).toBe('PUT');
-    expect(JSON.parse(calledInit()?.body as string)).toEqual({ settings: { semantic_search_enabled: true } });
-  });
-
   it('exportUsersCsv uses the refresh-aware raw fetch against the absolute export URL (UX-01)', async () => {
     await admin.exportUsersCsv();
     expect(mockRawFetch).toHaveBeenCalledWith(`${API_BASE}/admin/users/export.csv`);

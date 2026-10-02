@@ -32,12 +32,13 @@ function isEqual(a: unknown, b: unknown, mode: 'strict' | 'json' = 'strict'): bo
 export function useSettingsForm<K extends string>(
   settings: SettingItem[],
   fields: readonly FieldDef[] & { readonly [i: number]: { key: K } },
-  /** The save mutation's pending flag; lets the hook snapshot what was
-   *  submitted so a post-submit edit survives the save's own refetch. */
+  /** The save mutation's pending flag; lets the hook track edits made after
+   *  the submit so they survive the save's own refetch. */
   isSaving = false,
-  /** The save mutation's error flag; a failed save acknowledged nothing,
-   *  so the submitted snapshot is dropped as soon as this turns true. */
-  saveFailed = false,
+  /** The settings query's `dataUpdatedAt`. It advances on every completed
+   *  fetch, including one that returns identical data and so leaves
+   *  `settings` the same object, which still has to reconcile the draft. */
+  settingsUpdatedAt?: number,
 ) {
   type Values = Record<K, unknown>;
 
@@ -66,36 +67,40 @@ export function useSettingsForm<K extends string>(
 
   const [values, setValues] = useState<Values>(initialValues);
 
+  // Track which fields the user edits once a save starts, so the save's own
+  // refetch can tell an acknowledged submission apart from an edit typed
+  // while the save was in flight (inputs stay enabled during isSaving).
+  // Recording setter calls rather than comparing values keeps a refetched
+  // server value from being mistaken for an edit, and catches an edit that
+  // lands back on the old value. Null means no save is being tracked.
+  const isSavingRef = useRef(isSaving);
+  isSavingRef.current = isSaving;
+  const editedDuringSaveRef = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!isSaving) return;
+    // A save started before the previous one's refetch landed still owes
+    // that refetch the edits recorded so far.
+    editedDuringSaveRef.current = new Set(editedDuringSaveRef.current);
+  }, [isSaving]);
+
+  // Discarding drops the draft, so edits tracked so far must not pin the
+  // discarded value over the persisted one. Tracking stays armed, because a
+  // save that has settled may not have refetched yet and a new edit made
+  // before it lands still has to survive it.
   const syncFromSettings = useCallback(() => {
+    if (editedDuringSaveRef.current) editedDuringSaveRef.current = new Set();
     setValues(initialValues);
   }, [initialValues]);
 
-  // Snapshot the draft the moment a save starts, so the save's own refetch
-  // can tell an acknowledged submission apart from an edit typed while the
-  // save was in flight (inputs stay enabled during isSaving).
-  const valuesRef = useRef(values);
-  valuesRef.current = values;
-  const isSavingRef = useRef(isSaving);
-  isSavingRef.current = isSaving;
-  const submittedRef = useRef<Values | null>(null);
-  useEffect(() => {
-    if (isSaving) submittedRef.current = valuesRef.current;
-  }, [isSaving]);
-
-  // Snapshot lifetime rule: a SUCCESSFUL save always produces a settings
-  // refetch, and that refetch can land after isSaving settles — so the
-  // snapshot must stay armed across the pending→settled edge and is
-  // consumed by the merge effect below. A FAILED save produces no
-  // refetch and acknowledged nothing, so the snapshot is cleared the
-  // moment the mutation reports an error; otherwise a later reset or
-  // external change would be misread as a post-submit edit and the
-  // stale draft would win over the new server value.
-  useEffect(() => {
-    if (saveFailed) submittedRef.current = null;
-  }, [saveFailed]);
+  // Tracking lifetime rule: a settings save refetches whether it succeeds
+  // or fails (a failure can follow a partial commit), and that refetch can
+  // land after isSaving settles — so tracking stays armed across the
+  // pending→settled edge and is consumed by the merge effect below, which
+  // also runs on a refetch that returns unchanged data. Until then an edited
+  // field stays dirty even when it equals the not-yet-refreshed server value.
 
   // fix(#830): only sync untouched fields on refetch — a mid-edit query
-  // invalidation (e.g. the semantic-search toggle) must not wipe drafts.
+  // invalidation (e.g. a background refetch) must not wipe drafts.
   // A field keeps its draft while the server state for it is unchanged.
   // When the refetch reports a NEW server value OR source for a field,
   // the server wins — covering save/reset refetches where the backend
@@ -112,37 +117,43 @@ export function useSettingsForm<K extends string>(
     baselineRef.current = initialValues;
     const prevSources = sourcesBaselineRef.current;
     sourcesBaselineRef.current = serverSources;
-    const submitted = submittedRef.current;
-    // Consume the snapshot only once the save is no longer pending — an
+    const editedDuringSave = editedDuringSaveRef.current;
+    // Consume the tracking only once the save is no longer pending — an
     // unrelated refetch racing an in-flight save must leave it for the
     // save's own refetch.
-    if (!isSavingRef.current) submittedRef.current = null;
+    if (!isSavingRef.current) editedDuringSaveRef.current = null;
     setValues((prev) => {
       const next: Record<string, unknown> = { ...initialValues };
       for (const f of fields) {
         const key = f.key as K;
         const mode = f.compare ?? 'strict';
+        // An edit made during the save is newer than anything the save
+        // acknowledged, even when it lands back on the old baseline.
+        if (editedDuringSave?.has(f.key)) {
+          next[f.key] = prev[key];
+          continue;
+        }
         const touched = !isEqual(prev[key], prevBaseline[key], mode);
         if (!touched) continue;
         const serverChanged =
           !isEqual(initialValues[key], prevBaseline[key], mode) ||
           serverSources[key] !== prevSources[key];
-        const editedAfterSubmit =
-          submitted !== null && !isEqual(prev[key], submitted[key], mode);
-        if (!serverChanged || editedAfterSubmit) {
+        if (!serverChanged) {
           next[f.key] = prev[key];
         }
       }
       return next as Values;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- resync only when the loaded settings change
-  }, [initialValues]);
+  }, [initialValues, settingsUpdatedAt]);
 
   const setters = useMemo(() => {
     const s: Record<string, (v: unknown) => void> = {};
     for (const f of fields) {
-      s[f.key] = (v: unknown) =>
+      s[f.key] = (v: unknown) => {
+        editedDuringSaveRef.current?.add(f.key);
         setValues((prev) => ({ ...prev, [f.key]: v }));
+      };
     }
     return s as Record<K, (v: unknown) => void>;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount
@@ -155,7 +166,13 @@ export function useSettingsForm<K extends string>(
       if (!setting) continue;
       const serverVal = f.coerce ? f.coerce(setting.value) : setting.value;
       const localVal = values[f.key as K];
-      if (!isEqual(localVal, serverVal, f.compare ?? 'strict')) {
+      // A field edited during a save stays dirty until the save's refetch
+      // lands, even when it equals the not-yet-refreshed server value, so
+      // the navigation guard and Save still see it.
+      if (
+        editedDuringSaveRef.current?.has(f.key) ||
+        !isEqual(localVal, serverVal, f.compare ?? 'strict')
+      ) {
         changes[f.key] = localVal;
       }
     }

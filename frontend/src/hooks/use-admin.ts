@@ -25,7 +25,6 @@ import {
   getInfrastructure,
   getEmbeddingStats,
   triggerBackfill,
-  updateSemanticSearch,
 } from '@/api/admin';
 import type { ApiKeyScope } from '@/types/api';
 import { toast } from 'sonner';
@@ -511,22 +510,6 @@ export function useBackfillJobStatus(jobId: string | null) {
   }, [jobId, status, query.data?.rows_failed, qc]);
 
   return query;
-}
-
-// Semantic search toggle
-export function useUpdateSemanticSearch() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (enabled: boolean) => updateSemanticSearch(enabled),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.admin.aiStatus });
-      qc.invalidateQueries({ queryKey: queryKeys.settings.all });
-    },
-    onError: (err) => {
-      logger.error('[useUpdateSemanticSearch]', err);
-      toast.error(i18n.t('admin:errors.semanticSearchFailed'));
-    },
-  });
 }
 
 // Infrastructure

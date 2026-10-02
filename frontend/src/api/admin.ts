@@ -277,14 +277,6 @@ export async function triggerBackfill(force = false): Promise<BackfillResponse> 
   });
 }
 
-// Semantic search toggle (uses unified settings endpoint)
-export async function updateSemanticSearch(enabled: boolean): Promise<void> {
-  return apiFetch<void>('/settings/', {
-    method: 'PUT',
-    body: JSON.stringify({ settings: { semantic_search_enabled: enabled } }),
-  });
-}
-
 // Audit log export (returns blob for browser download)
 export async function exportAuditLogs(
   format: 'csv' | 'json',

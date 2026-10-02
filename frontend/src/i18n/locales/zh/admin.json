@@ -7,8 +7,7 @@
     "updateUserFailed": "更新用户失败",
     "deleteUserFailed": "删除用户失败",
     "backfillFailed": "嵌入回填失败",
-    "backfillAlreadyRunning": "已有嵌入回填正在运行——请等待其完成",
-    "semanticSearchFailed": "更新语义搜索设置失败"
+    "backfillAlreadyRunning": "已有嵌入回填正在运行——请等待其完成"
   },
   "roles": {
     "viewer": "查看者",

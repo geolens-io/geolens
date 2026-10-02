@@ -138,6 +138,20 @@ describe('AdminSettingsPage', () => {
     expect(screen.queryByTestId('settings-general-tab')).not.toBeInTheDocument();
   });
 
+  it('keeps the tab mounted when a background refetch fails and settings are cached', () => {
+    mockUseParams.mockReturnValue({ tab: 'general' });
+    mockUseAllSettings.mockReturnValue({
+      data: { env_only: false, tabs: { general: [] } },
+      isLoading: false,
+      isError: true,
+      error: new Error('boom'),
+    });
+
+    render(<AdminSettingsPage />);
+
+    expect(screen.getByTestId('settings-general-tab')).toBeInTheDocument();
+  });
+
   // test(#828): the appearance tab's edition gate lives here (visibleTabs
   // excludes 'appearance' unless isEnterprise). Both edition directions are
   // pinned below because e2e can only ever observe one of them — the stack

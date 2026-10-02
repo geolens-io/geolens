@@ -7,8 +7,7 @@
     "updateUserFailed": "Failed to update user",
     "deleteUserFailed": "Failed to delete user",
     "backfillFailed": "Embedding backfill failed",
-    "backfillAlreadyRunning": "An embedding backfill is already running — wait for it to finish",
-    "semanticSearchFailed": "Failed to update semantic search setting"
+    "backfillAlreadyRunning": "An embedding backfill is already running — wait for it to finish"
   },
   "roles": {
     "viewer": "Viewer",

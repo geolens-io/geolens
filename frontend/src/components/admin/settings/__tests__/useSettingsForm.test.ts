@@ -134,11 +134,11 @@ describe('useSettingsForm', () => {
       { key: 'flag', defaultValue: false },
     ] as const;
 
-    type Props = { s: SettingItem[]; saving?: boolean; failed?: boolean };
+    type Props = { s: SettingItem[]; saving?: boolean; u?: number };
 
     function renderWithSettings(settings: SettingItem[]) {
       return renderHook(
-        ({ s, saving, failed }: Props) => useSettingsForm(s, fields, saving, failed),
+        ({ s, saving, u }: Props) => useSettingsForm(s, fields, saving, u),
         { initialProps: { s: settings } as Props },
       );
     }
@@ -153,7 +153,7 @@ describe('useSettingsForm', () => {
       expect(result.current.hasDirty).toBe(true);
 
       // Simulate a query invalidation: new array identity, 'flag' changed
-      // on the server (e.g. the semantic-search toggle), 'name' unchanged.
+      // on the server (e.g. a background refetch), 'name' unchanged.
       rerender({ s: [makeSetting('name', 'Alice'), makeSetting('flag', true)] });
 
       expect(result.current.values.name).toBe('Bob'); // draft survives
@@ -232,6 +232,146 @@ describe('useSettingsForm', () => {
       expect(result.current.dirty).toEqual({ name: 'Carol' });
     });
 
+    it('keeps an edit that returns to the previous value while the save is in flight', () => {
+      const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
+      const { result, rerender } = renderWithSettings(initial);
+
+      act(() => result.current.setters.flag(true));
+      rerender({ s: initial, saving: true });
+
+      // The user flips the switch back to the value the server still holds.
+      act(() => result.current.setters.flag(false));
+
+      rerender({ s: [makeSetting('name', 'Alice'), makeSetting('flag', true)], saving: false });
+
+      expect(result.current.values.flag).toBe(false);
+      expect(result.current.dirty).toEqual({ flag: false });
+    });
+
+    it('reports an edit reverted during a pending save as unsaved before the refetch', () => {
+      const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
+      const { result, rerender } = renderWithSettings(initial);
+
+      act(() => result.current.setters.flag(true));
+      rerender({ s: initial, saving: true });
+      act(() => result.current.setters.flag(false));
+
+      // The draft equals the server value the page still holds, but the
+      // pending request will persist the opposite, so leaving must warn.
+      expect(result.current.hasDirty).toBe(true);
+    });
+
+    it('takes the persisted value when a background refetch changed the field mid-save', () => {
+      const initial = [makeSetting('name', 'A'), makeSetting('flag', false)];
+      const { result, rerender } = renderWithSettings(initial);
+
+      act(() => result.current.setters.name('B'));
+      rerender({ s: initial, saving: true });
+
+      // Another admin's change lands while the save is pending.
+      rerender({ s: [makeSetting('name', 'C'), makeSetting('flag', false)], saving: true });
+
+      // The save's own refetch returns what it persisted.
+      rerender({ s: [makeSetting('name', 'B'), makeSetting('flag', false)], saving: false });
+
+      expect(result.current.values.name).toBe('B');
+      expect(result.current.hasDirty).toBe(false);
+    });
+
+    it('adopts the persisted value after a discard between save settling and its refetch', () => {
+      const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
+      const { result, rerender } = renderWithSettings(initial);
+
+      act(() => result.current.setters.name('Bob'));
+      rerender({ s: initial, saving: true });
+      act(() => result.current.setters.name('Carol'));
+
+      // The mutation settles; its refetch has not landed yet.
+      rerender({ s: initial, saving: false });
+      act(() => result.current.discard());
+      expect(result.current.values.name).toBe('Alice');
+
+      rerender({ s: [makeSetting('name', 'Bob'), makeSetting('flag', false)], saving: false });
+
+      expect(result.current.values.name).toBe('Bob');
+      expect(result.current.hasDirty).toBe(false);
+    });
+
+    it('keeps a new edit made after a discard while the save refetch is outstanding', () => {
+      const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
+      const { result, rerender } = renderWithSettings(initial);
+
+      act(() => result.current.setters.name('Bob'));
+      rerender({ s: initial, saving: true });
+      rerender({ s: initial, saving: false });
+      act(() => result.current.discard());
+      act(() => result.current.setters.name('Dave'));
+
+      rerender({ s: [makeSetting('name', 'Bob'), makeSetting('flag', false)], saving: false });
+
+      expect(result.current.values.name).toBe('Dave');
+      expect(result.current.dirty).toEqual({ name: 'Dave' });
+    });
+
+    it('keeps an edit reverted during a failing save dirty until the refetch lands', () => {
+      const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
+      const { result, rerender } = renderWithSettings(initial);
+
+      act(() => result.current.setters.flag(true));
+      rerender({ s: initial, saving: true, u: 1 });
+      act(() => result.current.setters.flag(false));
+
+      // The save failed, but part of the batch may have committed, so the
+      // cached server value is not yet known to be current.
+      rerender({ s: initial, saving: false, u: 1 });
+      expect(result.current.hasDirty).toBe(true);
+
+      // The error refetch returns unchanged data: nothing persisted.
+      rerender({ s: initial, saving: false, u: 2 });
+      expect(result.current.hasDirty).toBe(false);
+      expect(result.current.dirty).toEqual({});
+    });
+
+    it('keeps an edit made during a save that fails after a partial commit', () => {
+      const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
+      const { result, rerender } = renderWithSettings(initial);
+
+      act(() => result.current.setters.flag(true));
+      rerender({ s: initial, saving: true });
+      act(() => result.current.setters.flag(false));
+
+      // The backend committed flag=true, then failed on another field of
+      // the batch. The error path refetches and returns the committed value.
+      rerender({ s: initial, saving: false });
+      rerender({
+        s: [makeSetting('name', 'Alice'), makeSetting('flag', true)],
+        saving: false,
+      });
+
+      expect(result.current.values.flag).toBe(false);
+      expect(result.current.dirty).toEqual({ flag: false });
+    });
+
+    it('keeps an edit through the first refetch when a second save starts before it lands', () => {
+      const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
+      const { result, rerender } = renderWithSettings(initial);
+
+      act(() => result.current.setters.name('Bob'));
+      rerender({ s: initial, saving: true, u: 1 });
+      act(() => result.current.setters.name('Carol'));
+      rerender({ s: initial, saving: false, u: 1 });
+
+      // A second save starts before the first save's refetch has landed.
+      act(() => result.current.setters.flag(true));
+      rerender({ s: initial, saving: true, u: 1 });
+
+      // The first refetch lands while the second save is pending.
+      rerender({ s: [makeSetting('name', 'Bob'), makeSetting('flag', false)], saving: true, u: 2 });
+
+      expect(result.current.values.name).toBe('Carol');
+      expect(result.current.dirty).toEqual({ name: 'Carol', flag: true });
+    });
+
     it('keeps a post-submit edit even when an unrelated refetch races the save', () => {
       const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
       const { result, rerender } = renderWithSettings(initial);
@@ -278,19 +418,69 @@ describe('useSettingsForm', () => {
       const { result, rerender } = renderWithSettings(initial);
 
       act(() => result.current.setters.name('Bob'));
-      rerender({ s: initial, saving: true });
+      rerender({ s: initial, saving: true, u: 1 });
 
-      // The save fails: mutation settles with an error, no refetch happens.
-      rerender({ s: initial, saving: false, failed: true });
+      // The save fails and its error refetch returns unchanged data, which
+      // reconciles the draft and ends the tracking.
+      rerender({ s: initial, saving: false, u: 1 });
+      rerender({ s: initial, saving: false, u: 2 });
 
       // The user edits the field again, then resets it.
       act(() => result.current.setters.name('Dave'));
-      rerender({ s: [makeSetting('name', 'Default'), makeSetting('flag', false)], saving: false, failed: true });
+      rerender({
+        s: [makeSetting('name', 'Default'), makeSetting('flag', false)],
+        saving: false,
+        u: 3,
+      });
 
       // The failed submission must not be misread as a post-submit edit:
       // the reset's server value wins and the form reads pristine.
       expect(result.current.values.name).toBe('Default');
       expect(result.current.hasDirty).toBe(false);
+    });
+
+    it('ends failed-save tracking on an unchanged refetch so a later reset wins', () => {
+      const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
+      const { result, rerender } = renderWithSettings(initial);
+
+      act(() => result.current.setters.name('Bob'));
+      rerender({ s: initial, saving: true, u: 1 });
+      act(() => result.current.setters.name('Carol'));
+
+      // The save fails; the error refetch returns identical data, so the
+      // settings object keeps its identity and only the fetch time moves.
+      rerender({ s: initial, saving: false, u: 1 });
+      rerender({ s: initial, saving: false, u: 2 });
+
+      rerender({
+        s: [makeSetting('name', 'Default'), makeSetting('flag', false)],
+        saving: false,
+        u: 3,
+      });
+
+      expect(result.current.values.name).toBe('Default');
+      expect(result.current.hasDirty).toBe(false);
+    });
+
+    it('keeps an edit made after a failure but before its refetch lands', () => {
+      const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
+      const { result, rerender } = renderWithSettings(initial);
+
+      act(() => result.current.setters.flag(true));
+      rerender({ s: initial, saving: true, u: 1 });
+      rerender({ s: initial, saving: false, u: 1 });
+
+      // The user flips the switch back before the error refetch responds.
+      act(() => result.current.setters.flag(false));
+
+      rerender({
+        s: [makeSetting('name', 'Alice'), makeSetting('flag', true)],
+        saving: false,
+        u: 2,
+      });
+
+      expect(result.current.values.flag).toBe(false);
+      expect(result.current.dirty).toEqual({ flag: false });
     });
 
     it('reads pristine after a pending save when the draft was not edited again', () => {
