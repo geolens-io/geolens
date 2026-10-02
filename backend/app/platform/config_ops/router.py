@@ -32,7 +32,11 @@ from app.platform.config_ops.service import (
     validate_connectivity,
 )
 from app.processing.export.service import safe_content_disposition
-from app.standards.ogc.errors import CONFLICT_RESPONSE, ERROR_RESPONSES_AUTH
+from app.standards.ogc.errors import (
+    CONFIG_APPLY_UNAVAILABLE_RESPONSE,
+    CONFLICT_RESPONSE,
+    ERROR_RESPONSES_AUTH,
+)
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -102,7 +106,9 @@ async def export_configuration(
 
 
 @router.post(
-    "/import/", response_model=ImportResult, responses={409: CONFLICT_RESPONSE}
+    "/import/",
+    response_model=ImportResult,
+    responses={409: CONFLICT_RESPONSE, 503: CONFIG_APPLY_UNAVAILABLE_RESPONSE},
 )
 async def import_configuration(
     data: ConfigImportRequest,

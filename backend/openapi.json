@@ -32173,7 +32173,7 @@
                 }
               }
             },
-            "description": "Service unavailable \u2014 the database could not serve the request"
+            "description": "Service unavailable \u2014 the configuration could not be applied"
           }
         },
         "security": [
@@ -56719,6 +56719,16 @@
             },
             "description": "Not found"
           },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Conflict \u2014 another embedding change holds the lock"
+          },
           "422": {
             "content": {
               "application/problem+json": {
@@ -56766,7 +56776,7 @@
                 }
               }
             },
-            "description": "Service unavailable \u2014 the database could not serve the request"
+            "description": "Service unavailable \u2014 the embedding vector column could not be rebuilt"
           }
         },
         "security": [
@@ -58590,6 +58600,16 @@
             },
             "description": "Not found"
           },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Conflict \u2014 another embedding change holds the lock"
+          },
           "422": {
             "content": {
               "application/problem+json": {
@@ -58637,7 +58657,7 @@
                 }
               }
             },
-            "description": "Service unavailable \u2014 the database could not serve the request"
+            "description": "Service unavailable \u2014 the embedding vector column could not be rebuilt"
           }
         },
         "security": [
