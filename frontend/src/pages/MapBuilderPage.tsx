@@ -2289,12 +2289,18 @@ export function MapBuilderPage() {
           }
         }}
         addDataInitialQuery={dialogs.addDataInitialQuery}
+        // The click that dismisses the dialog picks its own target, so the
+        // deferred editor-open would otherwise race (and toggle shut) a click
+        // on the layer just added.
+        onAddDataPointerDownOutside={() => {
+          pendingEditorLayerIdRef.current = null;
+        }}
         onAddDataset={(datasetId: string) => {
           layers.handleAddDataset(datasetId, (newLayerId) => {
-            // ux(#776): keep the dialog open for multi-add — the row flips to
-            // "Added ✓" and Escape/backdrop/X still close it. The editor
-            // opens on close (see onShowAddDataChange above) instead of
-            // landing behind the dialog.
+            // Keep the dialog open for multi-add: the row flips to "Added"
+            // and Escape, an outside click or the close button still close
+            // it. The editor opens on close (see onShowAddDataChange above)
+            // instead of landing behind the dialog.
             pendingEditorLayerIdRef.current = newLayerId;
           });
         }}
