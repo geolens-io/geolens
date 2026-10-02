@@ -123,22 +123,99 @@ def _text(values: list) -> "pa.Array":
     )
 
 
+_SCALAR_TYPES: dict[str, pa.DataType] = {
+    "int2": pa.int16(),
+    "int4": pa.int32(),
+    "int8": pa.int64(),
+    "float4": pa.float32(),
+    "float8": pa.float64(),
+    "bool": pa.bool_(),
+    "date": pa.date32(),
+    "timestamp": pa.timestamp("us"),
+    "timestamptz": pa.timestamp("us", tz="UTC"),
+    "bytea": pa.binary(),
+}
+
+_COLUMN_TYPES_SQL = """
+    SELECT a.attname, t.typname, t.typcategory::text, e.typname, a.atttypmod
+    FROM pg_attribute a
+    JOIN pg_class c ON c.oid = a.attrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    JOIN pg_type t ON t.oid = a.atttypid
+    LEFT JOIN pg_type e ON e.oid = t.typelem AND t.typcategory = 'A'
+    WHERE n.nspname = :schema AND c.relname = :table_name
+      AND a.attnum > 0 AND NOT a.attisdropped
+"""
+
+
+def _arrow_type(typname: str, typmod: int) -> pa.DataType:
+    """The Arrow type for a Postgres base type, or string when none fits.
+
+    ``numeric`` without a declared precision has no fixed scale, so it is
+    string too.
+    """
+    if typname == "numeric" and typmod >= 4:
+        precision, scale = ((typmod - 4) >> 16) & 0xFFFF, (typmod - 4) & 0xFFFF
+        if precision <= 38:
+            return pa.decimal128(precision, scale)
+        if precision <= 76:
+            return pa.decimal256(precision, scale)
+    return _SCALAR_TYPES.get(typname, pa.string())
+
+
+async def _declared_column_types(
+    db: AsyncSession,
+    table_name: str,
+    schema: str,
+    attr_names: list[str],
+    json_columns: frozenset[str],
+) -> dict[str, pa.DataType]:
+    """Arrow types for ``attr_names`` taken from the table's column types.
+
+    Fixing them before the first row is read keeps a column's type the same
+    in every batch, however its values happen to look.
+    """
+    rows = (
+        await db.execute(
+            text(_COLUMN_TYPES_SQL).bindparams(schema=schema, table_name=table_name)
+        )
+    ).all()
+    declared: dict[str, pa.DataType] = {}
+    for name, typname, category, element, typmod in rows:
+        if name not in attr_names:
+            continue
+        if name in json_columns:
+            declared[name] = pa.string()
+        elif category == "A":
+            declared[name] = pa.list_(_arrow_type(element, typmod))
+        else:
+            declared[name] = _arrow_type(typname, typmod)
+    return declared
+
+
 def build_geoparquet_table(
     geom: list[bytes | None],
     cols: dict[str, list],
     attr_names: list[str],
     geom_col: str = "geometry",
+    column_types: dict[str, pa.DataType] | None = None,
 ) -> "pa.Table":
     """Build a GeoParquet-annotated Arrow table from columnar Python values.
 
     WKB geometry lives in ``geom_col`` (renamed off "geometry" only when a
-    user attribute claims that name). A column pyarrow can't unify falls
-    back to string so the export still succeeds. Pure/DB-free, unit-testable.
+    user attribute claims that name). A column listed in ``column_types`` is
+    built as that type; the others are inferred from their values. A column
+    pyarrow can't build falls back to string so the export still succeeds.
+    Pure/DB-free, unit-testable.
     """
     arrays: dict[str, "pa.Array"] = {}
     for name in attr_names:
+        declared = (column_types or {}).get(name)
+        if declared is not None and pa.types.is_string(declared):
+            arrays[name] = _text(cols[name])
+            continue
         try:
-            arrays[name] = pa.array(cols[name])
+            arrays[name] = pa.array(cols[name], type=declared)
         except (pa.ArrowInvalid, pa.ArrowTypeError, OverflowError):
             arrays[name] = _text(cols[name])
     arrays[geom_col] = pa.array(geom, type=pa.binary())
@@ -224,10 +301,17 @@ class _GeoParquetWriter:
     stall the event loop and stop between row groups when cancelled.
     """
 
-    def __init__(self, output_path: str, attr_names: list[str], geom_col: str) -> None:
+    def __init__(
+        self,
+        output_path: str,
+        attr_names: list[str],
+        geom_col: str,
+        column_types: dict[str, pa.DataType] | None = None,
+    ) -> None:
         self._path = output_path
         self._attr_names = attr_names
         self._geom_col = geom_col
+        self._column_types = column_types
         self._writer: pq.ParquetWriter | None = None
         self._segments: list[str] = []
         self._stopping = threading.Event()
@@ -236,7 +320,9 @@ class _GeoParquetWriter:
         self._stopping.set()
 
     def write(self, geom: list[bytes | None], cols: dict[str, list]) -> None:
-        table = build_geoparquet_table(geom, cols, self._attr_names, self._geom_col)
+        table = build_geoparquet_table(
+            geom, cols, self._attr_names, self._geom_col, self._column_types
+        )
         if self._writer is None:
             self._start_segment(table.schema)
         target = pa.schema(
@@ -264,6 +350,7 @@ class _GeoParquetWriter:
                 {name: [] for name in self._attr_names},
                 self._attr_names,
                 self._geom_col,
+                self._column_types,
             )
             pq.write_table(empty, self._path)
             return
@@ -299,6 +386,7 @@ class ParquetExportPlan(NamedTuple):
     where_sql: str
     params: dict
     json_columns: frozenset[str] = frozenset()
+    column_types: dict[str, pa.DataType] = {}
 
 
 async def plan_parquet_export(
@@ -392,7 +480,10 @@ async def plan_parquet_export(
             "with a bbox or attribute filter."
         )
 
-    return ParquetExportPlan(attr_names, where_sql, params, json_columns)
+    column_types = await _declared_column_types(
+        db, table_name, schema, attr_names, json_columns
+    )
+    return ParquetExportPlan(attr_names, where_sql, params, json_columns, column_types)
 
 
 def _approx_bytes(value: object) -> int:
@@ -512,7 +603,7 @@ async def export_parquet(
         stream past the edge-proxy window with nothing else to stop it. None
         outside a request.
     """
-    attr_names, where_sql, params, json_columns = plan
+    attr_names, where_sql, params, json_columns, column_types = plan
 
     # Selects attribute columns directly (not via to_jsonb) so the async
     # driver returns native Python values and Arrow infers real types; json
@@ -540,7 +631,9 @@ async def export_parquet(
     # One naming rule for both verbs; see export_descriptor.
     filename, _ = export_descriptor(dataset_name, "parquet")
     output_path = os.path.join(temp_dir, filename)
-    sink = _GeoParquetWriter(output_path, attr_names, _geometry_column_name(attr_names))
+    sink = _GeoParquetWriter(
+        output_path, attr_names, _geometry_column_name(attr_names), column_types
+    )
 
     row_stream_timeout = export_subprocess_timeout_seconds(deadline)
     try:

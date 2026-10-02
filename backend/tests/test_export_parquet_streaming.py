@@ -680,3 +680,60 @@ class TestRealTable:
                 text(f"DROP TABLE IF EXISTS data.{table_name}")
             )
             await test_db_session.commit()
+
+    @pytest.mark.anyio
+    async def test_column_types_follow_the_table_across_batches(
+        self, test_db_session, monkeypatch, staging
+    ):
+        """Types come from the table, so a NULL-only first batch, whole-number
+        decimals and small integers keep their declared type in every batch."""
+        monkeypatch.setattr(export_parquet_module, "_BATCH_MAX_ROWS", 10)
+        table_name = f"exp_pqtypes_{uuid.uuid4().hex[:12]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table_name} "
+                "(gid serial PRIMARY KEY, small smallint, late integer, "
+                "price numeric(10,3), loose numeric, ratio double precision, "
+                "ids integer[], geom geometry(Point, 4326), "
+                "geom_4326 geometry(Point, 4326))"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{table_name} "
+                "(small, late, price, loose, ratio, ids, geom, geom_4326) "
+                "SELECT i, CASE WHEN i < 15 THEN NULL ELSE i END, "
+                "CASE WHEN i < 15 THEN 1 ELSE 1.125 END, i + 0.5, "
+                "CASE WHEN i < 15 THEN 2 ELSE 2.5 END, "
+                "CASE WHEN i < 15 THEN NULL ELSE ARRAY[i] END, "
+                "ST_SetSRID(ST_MakePoint(i, i), 4326), "
+                "ST_SetSRID(ST_MakePoint(i, i), 4326) "
+                "FROM generate_series(0, 24) AS i"
+            )
+        )
+        await test_db_session.commit()
+        try:
+            plan = await plan_parquet_export(test_db_session, table_name, schema="data")
+            path, _filename, _media_type = await export_parquet(
+                test_db_session, table_name, "Types", schema="data", plan=plan
+            )
+
+            written = pq.ParquetFile(path)
+            schema = written.schema_arrow
+            assert written.metadata.num_row_groups == 3
+            assert schema.field("small").type == pa.int16()
+            assert schema.field("late").type == pa.int32()
+            assert schema.field("price").type == pa.decimal128(10, 3)
+            assert schema.field("loose").type == pa.string()
+            assert schema.field("ratio").type == pa.float64()
+            assert schema.field("ids").type == pa.list_(pa.int32())
+            table = written.read().sort_by("small")
+            assert table.column("late").to_pylist()[15:] == list(range(15, 25))
+            assert table.column("price").to_pylist()[0] == Decimal("1.000")
+            assert table.column("loose").to_pylist()[1] == "1.5"
+        finally:
+            await test_db_session.rollback()
+            await test_db_session.execute(
+                text(f"DROP TABLE IF EXISTS data.{table_name}")
+            )
+            await test_db_session.commit()
