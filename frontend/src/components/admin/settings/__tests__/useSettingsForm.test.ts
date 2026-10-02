@@ -352,6 +352,26 @@ describe('useSettingsForm', () => {
       expect(result.current.dirty).toEqual({ flag: false });
     });
 
+    it('keeps an edit through the first refetch when a second save starts before it lands', () => {
+      const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
+      const { result, rerender } = renderWithSettings(initial);
+
+      act(() => result.current.setters.name('Bob'));
+      rerender({ s: initial, saving: true, u: 1 });
+      act(() => result.current.setters.name('Carol'));
+      rerender({ s: initial, saving: false, u: 1 });
+
+      // A second save starts before the first save's refetch has landed.
+      act(() => result.current.setters.flag(true));
+      rerender({ s: initial, saving: true, u: 1 });
+
+      // The first refetch lands while the second save is pending.
+      rerender({ s: [makeSetting('name', 'Bob'), makeSetting('flag', false)], saving: true, u: 2 });
+
+      expect(result.current.values.name).toBe('Carol');
+      expect(result.current.dirty).toEqual({ name: 'Carol', flag: true });
+    });
+
     it('keeps a post-submit edit even when an unrelated refetch races the save', () => {
       const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
       const { result, rerender } = renderWithSettings(initial);

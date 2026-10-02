@@ -78,7 +78,9 @@ export function useSettingsForm<K extends string>(
   const editedDuringSaveRef = useRef<Set<string> | null>(null);
   useEffect(() => {
     if (!isSaving) return;
-    editedDuringSaveRef.current = new Set();
+    // A save started before the previous one's refetch landed still owes
+    // that refetch the edits recorded so far.
+    editedDuringSaveRef.current = new Set(editedDuringSaveRef.current);
   }, [isSaving]);
 
   // Discarding drops the draft, so edits tracked so far must not pin the
