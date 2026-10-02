@@ -95,8 +95,12 @@ export function useSettingsForm<K extends string>(
   // nothing, so tracking is cleared the moment the mutation reports an
   // error; otherwise a later reset or external change would be misread as a
   // post-submit edit and the stale draft would win over the new server value.
+  // `dirty` reads the tracking, so a change to it must recompute `dirty`.
+  const [trackingVersion, setTrackingVersion] = useState(0);
   useEffect(() => {
-    if (saveFailed) editedDuringSaveRef.current = null;
+    if (!saveFailed) return;
+    editedDuringSaveRef.current = null;
+    setTrackingVersion((v) => v + 1);
   }, [saveFailed]);
 
   // fix(#830): only sync untouched fields on refetch — a mid-edit query
@@ -177,7 +181,8 @@ export function useSettingsForm<K extends string>(
       }
     }
     return changes;
-  }, [fields, settings, values]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- trackingVersion recomputes dirty when edit tracking is cleared
+  }, [fields, settings, values, trackingVersion]);
 
   const hasDirty = Object.keys(dirty).length > 0;
 

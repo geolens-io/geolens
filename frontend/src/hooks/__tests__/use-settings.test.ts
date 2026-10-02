@@ -120,4 +120,21 @@ describe('useUpdateSettings', () => {
 
     await waitFor(() => expect(getAIStatus).toHaveBeenCalledTimes(2));
   });
+
+  it('refetches the AI status after a failed save, which may have partly committed', async () => {
+    vi.mocked(getAIStatus).mockResolvedValue({ semantic_search_enabled: false } as never);
+    vi.mocked(updateSettings).mockRejectedValue(new Error('503'));
+
+    const { result } = renderHook(() => ({
+      status: useAIStatus({ enabled: true }),
+      update: useUpdateSettings(),
+    }));
+    await waitFor(() => expect(result.current.status.isSuccess).toBe(true));
+
+    await act(async () => {
+      await result.current.update.mutateAsync({ semantic_search_enabled: true }).catch(() => {});
+    });
+
+    await waitFor(() => expect(getAIStatus).toHaveBeenCalledTimes(2));
+  });
 });

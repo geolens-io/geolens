@@ -135,19 +135,25 @@ export function useEnterpriseOnlyTabs(options?: { enabled?: boolean }) {
 
 export function useUpdateSettings() {
   const qc = useQueryClient();
+  const refetchSettingsViews = () => {
+    qc.invalidateQueries({ queryKey: queryKeys.settings.all });
+    // fix(#553): several settings (banner_text/color, landing_first)
+    // surface through /auth/config, which mounted banners read with a
+    // 5-min staleTime — refetch it so saves apply immediately
+    qc.invalidateQueries({ queryKey: queryKeys.authConfig.config });
+    // The AI status card reports semantic_search_enabled and ai_enabled.
+    qc.invalidateQueries({ queryKey: queryKeys.admin.aiStatus });
+  };
   return useMutation({
     mutationFn: (settings: Record<string, unknown>) => updateSettings(settings),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.settings.all });
-      // fix(#553): several settings (banner_text/color, landing_first)
-      // surface through /auth/config, which mounted banners read with a
-      // 5-min staleTime — refetch it so saves apply immediately
-      qc.invalidateQueries({ queryKey: queryKeys.authConfig.config });
-      // The AI status card reports semantic_search_enabled and ai_enabled.
-      qc.invalidateQueries({ queryKey: queryKeys.admin.aiStatus });
+      refetchSettingsViews();
       toast.success(i18n.t('settingsToasts.saved'));
     },
     onError: (err) => {
+      // A failed embedding-column rebuild reports an error after the rest of
+      // the batch is committed, so the cached values can already be stale.
+      refetchSettingsViews();
       toast.error(formatMutationError('settingsToasts.saveFailed', err));
     },
   });

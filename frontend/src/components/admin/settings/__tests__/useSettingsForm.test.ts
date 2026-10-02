@@ -313,6 +313,23 @@ describe('useSettingsForm', () => {
       expect(result.current.dirty).toEqual({ name: 'Dave' });
     });
 
+    it('reads clean when a save fails after the edit went back to the server value', () => {
+      const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
+      const { result, rerender } = renderWithSettings(initial);
+
+      act(() => result.current.setters.flag(true));
+      rerender({ s: initial, saving: true });
+      act(() => result.current.setters.flag(false));
+      expect(result.current.hasDirty).toBe(true);
+
+      // The save failed and nothing was acknowledged; the draft matches the
+      // server again, so there is nothing left to save or to guard.
+      rerender({ s: initial, saving: false, failed: true });
+
+      expect(result.current.hasDirty).toBe(false);
+      expect(result.current.dirty).toEqual({});
+    });
+
     it('keeps a post-submit edit even when an unrelated refetch races the save', () => {
       const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
       const { result, rerender } = renderWithSettings(initial);
