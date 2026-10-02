@@ -134,11 +134,11 @@ describe('useSettingsForm', () => {
       { key: 'flag', defaultValue: false },
     ] as const;
 
-    type Props = { s: SettingItem[]; saving?: boolean; failed?: boolean };
+    type Props = { s: SettingItem[]; saving?: boolean; failed?: boolean; u?: number };
 
     function renderWithSettings(settings: SettingItem[]) {
       return renderHook(
-        ({ s, saving, failed }: Props) => useSettingsForm(s, fields, saving, failed),
+        ({ s, saving, failed, u }: Props) => useSettingsForm(s, fields, saving, failed, u),
         { initialProps: { s: settings } as Props },
       );
     }
@@ -397,19 +397,72 @@ describe('useSettingsForm', () => {
       const { result, rerender } = renderWithSettings(initial);
 
       act(() => result.current.setters.name('Bob'));
-      rerender({ s: initial, saving: true });
+      rerender({ s: initial, saving: true, u: 1 });
 
-      // The save fails: mutation settles with an error, no refetch happens.
-      rerender({ s: initial, saving: false, failed: true });
+      // The save fails and its error refetch returns unchanged data, which
+      // reconciles the draft and ends the tracking.
+      rerender({ s: initial, saving: false, failed: true, u: 1 });
+      rerender({ s: initial, saving: false, failed: true, u: 2 });
 
       // The user edits the field again, then resets it.
       act(() => result.current.setters.name('Dave'));
-      rerender({ s: [makeSetting('name', 'Default'), makeSetting('flag', false)], saving: false, failed: true });
+      rerender({
+        s: [makeSetting('name', 'Default'), makeSetting('flag', false)],
+        saving: false,
+        failed: true,
+        u: 3,
+      });
 
       // The failed submission must not be misread as a post-submit edit:
       // the reset's server value wins and the form reads pristine.
       expect(result.current.values.name).toBe('Default');
       expect(result.current.hasDirty).toBe(false);
+    });
+
+    it('ends failed-save tracking on an unchanged refetch so a later reset wins', () => {
+      const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
+      const { result, rerender } = renderWithSettings(initial);
+
+      act(() => result.current.setters.name('Bob'));
+      rerender({ s: initial, saving: true, u: 1 });
+      act(() => result.current.setters.name('Carol'));
+
+      // The save fails; the error refetch returns identical data, so the
+      // settings object keeps its identity and only the fetch time moves.
+      rerender({ s: initial, saving: false, failed: true, u: 1 });
+      rerender({ s: initial, saving: false, failed: true, u: 2 });
+
+      rerender({
+        s: [makeSetting('name', 'Default'), makeSetting('flag', false)],
+        saving: false,
+        failed: true,
+        u: 3,
+      });
+
+      expect(result.current.values.name).toBe('Default');
+      expect(result.current.hasDirty).toBe(false);
+    });
+
+    it('keeps an edit made after a failure but before its refetch lands', () => {
+      const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
+      const { result, rerender } = renderWithSettings(initial);
+
+      act(() => result.current.setters.flag(true));
+      rerender({ s: initial, saving: true, u: 1 });
+      rerender({ s: initial, saving: false, failed: true, u: 1 });
+
+      // The user flips the switch back before the error refetch responds.
+      act(() => result.current.setters.flag(false));
+
+      rerender({
+        s: [makeSetting('name', 'Alice'), makeSetting('flag', true)],
+        saving: false,
+        failed: true,
+        u: 2,
+      });
+
+      expect(result.current.values.flag).toBe(false);
+      expect(result.current.dirty).toEqual({ flag: false });
     });
 
     it('reads pristine after a pending save when the draft was not edited again', () => {

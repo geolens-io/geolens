@@ -36,8 +36,12 @@ export function useSettingsForm<K extends string>(
    *  the submit so they survive the save's own refetch. */
   isSaving = false,
   /** The save mutation's error flag; a failed save acknowledged nothing,
-   *  so edit tracking is dropped as soon as this turns true. */
+   *  so edits made during it stop counting as unsaved once this turns true. */
   saveFailed = false,
+  /** The settings query's `dataUpdatedAt`. It advances on every completed
+   *  fetch, including one that returns identical data and so leaves
+   *  `settings` the same object, which still has to reconcile the draft. */
+  settingsUpdatedAt?: number,
 ) {
   type Values = Record<K, unknown>;
 
@@ -96,10 +100,9 @@ export function useSettingsForm<K extends string>(
   // land after isSaving settles — so tracking stays armed across the
   // pending→settled edge and is consumed by the merge effect below. A failed
   // save acknowledged nothing, so its tracking only shields the draft from
-  // that refetch: it records no further edits and no longer holds a field
-  // dirty, because a refetch of unchanged data never runs the merge and a
-  // forced-dirty field would never clear. `dirty` reads the flag, so flipping
-  // it recomputes `dirty`.
+  // that refetch: it no longer holds a field dirty, so an edit that went back
+  // to the server value reads clean. `dirty` reads the flag, so flipping it
+  // recomputes `dirty`.
   const [trackingVersion, setTrackingVersion] = useState(0);
   useEffect(() => {
     if (!saveFailed) return;
@@ -153,13 +156,13 @@ export function useSettingsForm<K extends string>(
       return next as Values;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- resync only when the loaded settings change
-  }, [initialValues]);
+  }, [initialValues, settingsUpdatedAt]);
 
   const setters = useMemo(() => {
     const s: Record<string, (v: unknown) => void> = {};
     for (const f of fields) {
       s[f.key] = (v: unknown) => {
-        if (!trackingFailedRef.current) editedDuringSaveRef.current?.add(f.key);
+        editedDuringSaveRef.current?.add(f.key);
         setValues((prev) => ({ ...prev, [f.key]: v }));
       };
     }

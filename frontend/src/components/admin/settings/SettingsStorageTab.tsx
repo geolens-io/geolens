@@ -16,6 +16,7 @@ interface TabProps {
   onReset: (key: string) => void;
   isSaving: boolean;
   saveFailed?: boolean;
+  settingsUpdatedAt?: number;
   onDirtyChange?: (dirty: boolean) => void;
 }
 
@@ -56,9 +57,9 @@ function storageBytes(quantity: string, unit: StorageUnit): number | null {
   return bytes <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(bytes) : null;
 }
 
-export function SettingsStorageTab({ settings, envOnly, onSave, onReset, isSaving, saveFailed, onDirtyChange }: TabProps) {
+export function SettingsStorageTab({ settings, envOnly, onSave, onReset, isSaving, saveFailed, settingsUpdatedAt, onDirtyChange }: TabProps) {
   const { t } = useTranslation('admin');
-  const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, FIELDS, isSaving, saveFailed);
+  const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, FIELDS, isSaving, saveFailed, settingsUpdatedAt);
   const storedBytes = values.max_storage_bytes_per_user as number;
   const [storageUnit, setStorageUnit] = useState<StorageUnit>(() => storedBytes && storedBytes % GIB !== 0 ? 'bytes' : 'gib');
   const [storageQuantity, setStorageQuantity] = useState(() => displayStorage(storedBytes, storageUnit));

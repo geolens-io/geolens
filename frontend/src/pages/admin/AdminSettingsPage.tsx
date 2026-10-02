@@ -52,6 +52,7 @@ const TAB_COMPONENTS: Record<TabKey, React.ComponentType<{
   onReset: (key: string) => void;
   isSaving: boolean;
   saveFailed?: boolean;
+  settingsUpdatedAt?: number;
   onDirtyChange?: (dirty: boolean) => void;
 }>> = {
   general: SettingsGeneralTab,
@@ -68,7 +69,7 @@ export function AdminSettingsPage() {
   const { t } = useTranslation('admin');
   useDocumentTitle(t('common:pageTitle.adminSettings'));
   const { tab } = useParams<{ tab: string }>();
-  const { data: allSettings, isLoading, isError, error } = useAllSettings();
+  const { data: allSettings, dataUpdatedAt, isLoading, isError, error } = useAllSettings();
   const { data: configMode } = useConfigMode();
   const updateMutation = useUpdateSettings();
   const resetMutation = useResetSettings();
@@ -159,6 +160,7 @@ export function AdminSettingsPage() {
           onReset={handleReset}
           isSaving={updateMutation.isPending}
           saveFailed={updateMutation.isError}
+          settingsUpdatedAt={dataUpdatedAt}
           onDirtyChange={handleDirtyChange}
         />
       </div>
