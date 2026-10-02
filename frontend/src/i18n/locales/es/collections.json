@@ -29,7 +29,7 @@
   "search": {
     "placeholder": "Buscar colecciones...",
     "empty": "No hay colecciones coincidentes",
-    "emptyHint": "Ninguna coleccion coincide con su busqueda. Intente con otro nombre."
+    "emptyHint": "Ninguna colección coincide con su búsqueda. Intente con otro nombre."
   },
   "card": {
     "datasetCount_one": "{{count}} conjunto de datos",

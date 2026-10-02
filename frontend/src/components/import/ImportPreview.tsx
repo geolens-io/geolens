@@ -20,7 +20,7 @@ import {
 import { getGeometryTypeLabel } from '@/i18n/labels';
 import { semanticBadgeColors } from '@/lib/status-colors';
 import { TilesetFacts } from './TilesetFacts';
-import { isPointCloudPreview, isRasterPreview, isTilesetPreview } from './utils';
+import { displayLayerName, isPointCloudPreview, isRasterPreview, isTilesetPreview } from './utils';
 
 interface ImportPreviewProps {
   preview:
@@ -164,7 +164,7 @@ export function ImportPreview({ preview }: ImportPreviewProps) {
           </div>
           <div>
             <p className="text-xs text-muted-foreground">{t('preview.layerName')}</p>
-            <Badge variant="secondary">{preview.layer_name}</Badge>
+            <Badge variant="secondary">{displayLayerName(preview.layer_name, preview.job_id, preview.source_filename)}</Badge>
           </div>
         </div>
 

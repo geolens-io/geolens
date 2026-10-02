@@ -1,6 +1,7 @@
 import { renderHook, waitFor } from '@/test/test-utils';
 import { act, renderHook as renderHookRTL } from '@testing-library/react';
 import { vi } from 'vitest';
+import { ApiError } from '@/api/client';
 import { createElement, useRef, type ReactNode } from 'react';
 import { useQueryClient, QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query';
 
@@ -45,6 +46,26 @@ describe('useDataset', () => {
     vi.clearAllMocks();
   });
 
+  it('does not retry a 404 but retries other failures once', async () => {
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(
+        QueryClientProvider,
+        { client: new QueryClient({ defaultOptions: { queries: { retry: 1, retryDelay: 0 } } }) },
+        children,
+      );
+
+    mockGetDataset.mockRejectedValue(new ApiError('Not found', 404));
+    const missing = renderHookRTL(() => useDataset('gone'), { wrapper });
+    await waitFor(() => expect(missing.result.current.isError).toBe(true));
+    expect(mockGetDataset).toHaveBeenCalledTimes(1);
+
+    mockGetDataset.mockReset();
+    mockGetDataset.mockRejectedValue(new ApiError('Boom', 500));
+    const failing = renderHookRTL(() => useDataset('flaky'), { wrapper });
+    await waitFor(() => expect(failing.result.current.isError).toBe(true));
+    expect(mockGetDataset).toHaveBeenCalledTimes(2);
+  });
+
   it('fetches dataset by id', async () => {
     const mockData = { id: 'ds-1', title: 'Test Dataset' };
     mockGetDataset.mockResolvedValueOnce(mockData as never);
@@ -63,15 +84,16 @@ describe('useDataset', () => {
   });
 
   it('returns error state on failure', async () => {
-    mockGetDataset.mockRejectedValueOnce(new Error('Not found'));
+    mockGetDataset.mockRejectedValue(new Error('Boom'));
 
     const { result } = renderHook(() => useDataset('bad-id'));
 
-    await waitFor(() => expect(result.current.isError).toBe(true));
+    // One retry with the default backoff before the error surfaces.
+    await waitFor(() => expect(result.current.isError).toBe(true), { timeout: 3000 });
   });
 
   it('returns error state on 404', async () => {
-    mockGetDataset.mockRejectedValueOnce(Object.assign(new Error('Not Found'), { status: 404 }));
+    mockGetDataset.mockRejectedValueOnce(new ApiError('Not Found', 404));
 
     const { result } = renderHook(() => useDataset('nonexistent'));
 

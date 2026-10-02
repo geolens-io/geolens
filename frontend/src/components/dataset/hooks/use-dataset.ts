@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient, keepPreviousData, type QueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
+import { ApiError } from '@/api/client';
 import {
   createDataset,
   getDataset,
@@ -50,6 +51,9 @@ export function useDataset(id: string, options?: { refetchInterval?: number | fa
     enabled: !!id,
     refetchInterval: options?.refetchInterval,
     staleTime: 60_000,
+    // A missing dataset stays missing; retrying only delays the not-found page.
+    retry: (failureCount, error) =>
+      !(error instanceof ApiError && error.status === 404) && failureCount < 1,
   });
 }
 
