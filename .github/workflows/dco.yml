@@ -11,7 +11,7 @@ permissions:
 jobs:
   dco:
     name: DCO sign-off check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       # Verify every commit in the PR carries a `Signed-off-by:` trailer
       # (added via `git commit -s`), certifying the Developer Certificate of

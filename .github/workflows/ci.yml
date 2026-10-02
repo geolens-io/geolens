@@ -54,7 +54,7 @@ jobs:
   # ---------- detect changed paths for conditional jobs ----------
   changes:
     name: Detect Changes
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # Every job below now carries an explicit cap. Runner apt-get/npm-mirror
     # installs have blackholed nine times across geolens-io repos in the two
     # days before 2026-08-19 (e.g. runs 32158035509, 32172191527,
@@ -459,7 +459,7 @@ jobs:
     name: Backend Lint
     needs: changes
     if: needs.changes.outputs.backend == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     defaults:
       run:
@@ -501,7 +501,7 @@ jobs:
 
   pre-commit:
     name: Pre-commit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -556,7 +556,7 @@ jobs:
     name: Installer Tag Resolution
     needs: changes
     if: needs.changes.outputs.installer == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -594,7 +594,7 @@ jobs:
       # .env interpolation/decoding checked against REAL `docker compose`
       # (not just our own understanding of its grammar) for the full corpus
       # of rounds 6-12 findings. `docker compose config` needs no daemon,
-      # image pull, or network — ubuntu-latest ships docker compose.
+      # image pull, or network — ubuntu-26.04 ships docker compose.
       - name: get_env_value vs real Docker Compose oracle test
         run: sh scripts/tests/test-env-file-compose-oracle.sh
 
@@ -633,7 +633,7 @@ jobs:
     name: Backup Restore Round-trip
     needs: changes
     if: needs.changes.outputs.backup == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     env:
       PGHOST: localhost
@@ -724,7 +724,7 @@ jobs:
           # client (pg_dump/pg_restore/psql/createdb/dropdb).
           #
           # awscli is intentionally NOT installed from apt (dropped from noble).
-          # AWS CLI v2 is already preinstalled on ubuntu-latest runners and is
+          # AWS CLI v2 is already preinstalled on ubuntu-26.04 runners and is
           # used in the managed-mode step below to pull the staging archive from
           # MinIO after the backup image uploads it via its own SigV4 path.
           sudo install -d /usr/share/postgresql-common/pgdg
@@ -951,7 +951,7 @@ jobs:
     name: OpenAPI Snapshot Drift
     needs: changes
     if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.sdks == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     defaults:
       run:
@@ -988,7 +988,7 @@ jobs:
     name: SDKs Drift Gate
     needs: changes
     if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.sdks == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     env:
       # Match the OpenAPI snapshot job's env so dump_openapi.py runs
@@ -1043,7 +1043,7 @@ jobs:
   # + json + re); no DB, no Docker, runs on every push/PR.
   version-coherence:
     name: Version Coherence
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -1081,7 +1081,7 @@ jobs:
   # Pure stdlib; runs on every push/PR.
   docs-contract:
     name: Docs Contract
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -1115,7 +1115,7 @@ jobs:
   # file. Pure stdlib Node — no DB, browser, or network. Runs on every push/PR.
   readme-assets:
     name: README Assets
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -1139,7 +1139,7 @@ jobs:
     name: Monitoring Rules
     needs: changes
     if: needs.changes.outputs.monitoring == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     env:
       # Same image RUNBOOK.md §4 tells operators to run Prometheus from, pinned
@@ -1195,7 +1195,7 @@ jobs:
     name: CLI Tests
     needs: changes
     if: needs.changes.outputs.cli == 'true' || needs.changes.outputs.backend == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     env:
       # CLI round-trip tests import the FastAPI app and exercise DB-backed
@@ -1335,7 +1335,7 @@ jobs:
     name: MCP Server Tests
     needs: changes
     if: needs.changes.outputs.mcp == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # Compose boot + image build for the live tier need headroom on a shared
     # runner; the e2e-smoke job uses the same budget for a larger stack.
     timeout-minutes: 20
@@ -1404,7 +1404,7 @@ jobs:
     # Alembic-only changes must run the suite too — this condition absorbed the
     # deleted pytest-parallel-isolation job's trigger when that job folded in.
     if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.alembic == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 60
     defaults:
       run:
@@ -1642,7 +1642,7 @@ jobs:
     name: Alembic Clean-DB Upgrade
     needs: changes
     if: needs.changes.outputs.alembic == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -1674,7 +1674,7 @@ jobs:
     name: Frontend Lint & Typecheck
     needs: changes
     if: needs.changes.outputs.frontend == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     defaults:
       run:
@@ -1744,7 +1744,7 @@ jobs:
     name: Frontend Tests
     needs: changes
     if: needs.changes.outputs.frontend == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     defaults:
       run:
@@ -1786,7 +1786,7 @@ jobs:
   # against the current tree). The JSON report is still uploaded as an artifact.
   license-check:
     name: License Check (frontend)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     if: always()  # run even if other jobs fail
     timeout-minutes: 5
     # fix(#1816 round 2): job-scoped, not step-scoped. Codex round 1 on #1818
@@ -1861,7 +1861,7 @@ jobs:
     name: Security Scan
     needs: changes
     if: needs.changes.outputs.backend == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     defaults:
       run:
@@ -1957,7 +1957,7 @@ jobs:
     # always() alone would rubber-stamp: it only guarantees this job RUNS.
     # The step below does the real gating on needs.*.result.
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       - name: Fail if any needed job failed or was cancelled
@@ -1989,7 +1989,7 @@ jobs:
   runtime-extension-image-probe:
     name: "Runtime Extension Image Probe (${{ matrix.target }})"
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -2057,7 +2057,7 @@ jobs:
       && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
       && !contains(needs.*.result, 'failure')
       && !contains(needs.*.result, 'cancelled')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     needs: [backend-lint, backend-test, frontend-lint, frontend-test, security-scan]
     # A clean run includes fixture ingestion, 150+ checks, retries, and cleanup.
     # Keep enough headroom for the whole suite to finish on a shared runner.
@@ -2116,7 +2116,7 @@ jobs:
           path: |
             ~/.cache/ms-playwright
             ~/playwright-apt-archives/*.deb
-          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+          key: playwright-${{ runner.os }}-ubuntu-26.04-${{ steps.playwright-version.outputs.version }}
 
       - name: Install Playwright Browsers
         timeout-minutes: 13
@@ -2185,7 +2185,7 @@ jobs:
           path: |
             ~/.cache/ms-playwright
             ~/playwright-apt-archives/*.deb
-          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+          key: playwright-${{ runner.os }}-ubuntu-26.04-${{ steps.playwright-version.outputs.version }}
 
       - name: Run E2E tests
         run: npx playwright test
@@ -2275,7 +2275,7 @@ jobs:
     if: >-
       (github.event_name == 'pull_request' && needs.changes.outputs.e2e == 'true')
       || github.event_name == 'merge_group'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     steps:
       # The recipe below mirrors the nightly e2e-test job above — same .env
@@ -2328,7 +2328,7 @@ jobs:
           path: |
             ~/.cache/ms-playwright
             ~/playwright-apt-archives/*.deb
-          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+          key: playwright-${{ runner.os }}-ubuntu-26.04-${{ steps.playwright-version.outputs.version }}
 
       - name: Install Playwright Browsers
         timeout-minutes: 13
@@ -2397,7 +2397,7 @@ jobs:
           path: |
             ~/.cache/ms-playwright
             ~/playwright-apt-archives/*.deb
-          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+          key: playwright-${{ runner.os }}-ubuntu-26.04-${{ steps.playwright-version.outputs.version }}
 
       - name: Run core E2E smoke suite
         run: npm run e2e:smoke:core
@@ -2438,7 +2438,7 @@ jobs:
   ai-evals:
     name: AI Evals (live provider)
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # Live-API job: cap it so a hung provider call can't burn Actions minutes.
     timeout-minutes: 30
     defaults:
@@ -2594,7 +2594,7 @@ jobs:
       && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group')
       && !contains(needs.*.result, 'failure')
       && !contains(needs.*.result, 'cancelled')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     needs: [backend-lint, backend-test, frontend-lint, frontend-test, security-scan]
     timeout-minutes: 15
     steps:
@@ -2644,7 +2644,7 @@ jobs:
           path: |
             ~/.cache/ms-playwright
             ~/playwright-apt-archives/*.deb
-          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+          key: playwright-${{ runner.os }}-ubuntu-26.04-${{ steps.playwright-version.outputs.version }}
 
       - name: Install Playwright Browsers
         timeout-minutes: 13
@@ -2740,7 +2740,7 @@ jobs:
           path: |
             ~/.cache/ms-playwright
             ~/playwright-apt-archives/*.deb
-          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+          key: playwright-${{ runner.os }}-ubuntu-26.04-${{ steps.playwright-version.outputs.version }}
 
       - name: Run accessibility tests
         run: >-
@@ -2789,7 +2789,7 @@ jobs:
       && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group')
       && !contains(needs.*.result, 'failure')
       && !contains(needs.*.result, 'cancelled')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     needs: [backend-lint, backend-test, frontend-lint, frontend-test, security-scan]
     timeout-minutes: 20
     steps:
@@ -2887,7 +2887,7 @@ jobs:
       always()
       && github.event_name == 'schedule'
       && (needs.e2e-test.result != 'success' || needs.accessibility.result != 'success')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
       issues: write

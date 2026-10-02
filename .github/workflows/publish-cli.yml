@@ -42,7 +42,7 @@ jobs:
   gate:
     if: ${{ !inputs.dry_run }}
     name: Approve release publish
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     environment: publish  # required-reviewer approval gate (see repo Settings → Environments)
     steps:
       - run: echo "Release publish approved (ref ${GITHUB_REF_NAME})"
@@ -54,7 +54,7 @@ jobs:
     # implicit success() that skips this job whenever a `needs` is skipped (dry run).
     if: ${{ !cancelled() && (needs.gate.result == 'success' || needs.gate.result == 'skipped') }}
     name: Publish geolens-cli to PyPI
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 

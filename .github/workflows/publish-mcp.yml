@@ -56,7 +56,7 @@ jobs:
   gate:
     if: ${{ !inputs.dry_run }}
     name: Approve release publish
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     environment: publish  # required-reviewer approval gate (see repo Settings → Environments)
     steps:
       - run: echo "Release publish approved (ref ${GITHUB_REF_NAME})"
@@ -68,7 +68,7 @@ jobs:
     # implicit success() that skips this job whenever a `needs` is skipped (dry run).
     if: ${{ !cancelled() && (needs.gate.result == 'success' || needs.gate.result == 'skipped') }}
     name: Publish geolens-mcp to PyPI
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -185,7 +185,7 @@ jobs:
         env:
           MCP_PUBLISHER_VERSION: '1.8.1'
           # sha256 of mcp-publisher_linux_amd64.tar.gz, from the v1.8.1 release's
-          # registry_1.8.1_checksums.txt. Runners are ubuntu-latest (linux/amd64),
+          # registry_1.8.1_checksums.txt. Runners are ubuntu-26.04 (linux/amd64),
           # so the asset is named outright rather than derived from uname.
           MCP_PUBLISHER_SHA256: 'a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc'
         run: |
