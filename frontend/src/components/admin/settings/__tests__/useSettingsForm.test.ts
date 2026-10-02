@@ -330,6 +330,27 @@ describe('useSettingsForm', () => {
       expect(result.current.dirty).toEqual({});
     });
 
+    it('keeps an edit made during a save that fails after a partial commit', () => {
+      const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
+      const { result, rerender } = renderWithSettings(initial);
+
+      act(() => result.current.setters.flag(true));
+      rerender({ s: initial, saving: true });
+      act(() => result.current.setters.flag(false));
+
+      // The backend committed flag=true, then failed on another field of
+      // the batch. The error path refetches and returns the committed value.
+      rerender({ s: initial, saving: false, failed: true });
+      rerender({
+        s: [makeSetting('name', 'Alice'), makeSetting('flag', true)],
+        saving: false,
+        failed: true,
+      });
+
+      expect(result.current.values.flag).toBe(false);
+      expect(result.current.dirty).toEqual({ flag: false });
+    });
+
     it('keeps a post-submit edit even when an unrelated refetch races the save', () => {
       const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
       const { result, rerender } = renderWithSettings(initial);

@@ -75,8 +75,11 @@ export function useSettingsForm<K extends string>(
   const isSavingRef = useRef(isSaving);
   isSavingRef.current = isSaving;
   const editedDuringSaveRef = useRef<Set<string> | null>(null);
+  const trackingFailedRef = useRef(false);
   useEffect(() => {
-    if (isSaving) editedDuringSaveRef.current = new Set();
+    if (!isSaving) return;
+    editedDuringSaveRef.current = new Set();
+    trackingFailedRef.current = false;
   }, [isSaving]);
 
   // Discarding drops the draft, so edits tracked so far must not pin the
@@ -88,18 +91,19 @@ export function useSettingsForm<K extends string>(
     setValues(initialValues);
   }, [initialValues]);
 
-  // Tracking lifetime rule: a SUCCESSFUL save always produces a settings
-  // refetch, and that refetch can land after isSaving settles — so tracking
-  // must stay armed across the pending→settled edge and is consumed by the
-  // merge effect below. A FAILED save produces no refetch and acknowledged
-  // nothing, so tracking is cleared the moment the mutation reports an
-  // error; otherwise a later reset or external change would be misread as a
-  // post-submit edit and the stale draft would win over the new server value.
-  // `dirty` reads the tracking, so a change to it must recompute `dirty`.
+  // Tracking lifetime rule: a settings save refetches whether it succeeds
+  // or fails (a failure can follow a partial commit), and that refetch can
+  // land after isSaving settles — so tracking stays armed across the
+  // pending→settled edge and is consumed by the merge effect below. A failed
+  // save acknowledged nothing, so its tracking only shields the draft from
+  // that refetch: it records no further edits and no longer holds a field
+  // dirty, because a refetch of unchanged data never runs the merge and a
+  // forced-dirty field would never clear. `dirty` reads the flag, so flipping
+  // it recomputes `dirty`.
   const [trackingVersion, setTrackingVersion] = useState(0);
   useEffect(() => {
     if (!saveFailed) return;
-    editedDuringSaveRef.current = null;
+    trackingFailedRef.current = true;
     setTrackingVersion((v) => v + 1);
   }, [saveFailed]);
 
@@ -155,7 +159,7 @@ export function useSettingsForm<K extends string>(
     const s: Record<string, (v: unknown) => void> = {};
     for (const f of fields) {
       s[f.key] = (v: unknown) => {
-        editedDuringSaveRef.current?.add(f.key);
+        if (!trackingFailedRef.current) editedDuringSaveRef.current?.add(f.key);
         setValues((prev) => ({ ...prev, [f.key]: v }));
       };
     }
@@ -174,7 +178,7 @@ export function useSettingsForm<K extends string>(
       // lands, even when it equals the not-yet-refreshed server value, so
       // the navigation guard and Save still see it.
       if (
-        editedDuringSaveRef.current?.has(f.key) ||
+        (editedDuringSaveRef.current?.has(f.key) && !trackingFailedRef.current) ||
         !isEqual(localVal, serverVal, f.compare ?? 'strict')
       ) {
         changes[f.key] = localVal;
