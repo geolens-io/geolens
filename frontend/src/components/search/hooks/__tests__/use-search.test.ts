@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from '@/test/test-utils';
+import { act, renderHook, waitFor } from '@/test/test-utils';
 import { vi } from 'vitest';
 
 vi.mock('@/api/search', async (importOriginal) => {
@@ -10,7 +10,7 @@ vi.mock('@/api/maps', () => ({ listMaps: vi.fn() }));
 
 import { searchDatasets, fetchCatalogSummary, fetchFacets } from '@/api/search';
 import { listMaps } from '@/api/maps';
-import { useSearchResults, useMapSearchResults, useFacets, useCatalogSummary } from '@/components/search/hooks/use-search';
+import { useSearchResults, useMapSearchResults, useFacets, useCatalogSummary, useAllTypesTotal } from '@/components/search/hooks/use-search';
 import { useSearchStore } from '@/stores/search-store';
 
 const mockSearchDatasets = vi.mocked(searchDatasets);
@@ -115,5 +115,37 @@ describe('useSearchResults – error and empty states', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data?.features).toEqual([]);
     expect(result.current.data?.numberMatched).toBe(0);
+  });
+});
+
+describe('useAllTypesTotal', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useSearchStore.setState(initialState, true);
+  });
+
+  it('keeps All at the untyped total across All, a type, and back', async () => {
+    mockSearchDatasets.mockResolvedValue({ numberMatched: 12, features: [] } as never);
+
+    useSearchStore.getState().setFilter('record_type', 'vector_dataset');
+    const { result, rerender } = renderHook(({ total }) => useAllTypesTotal(total), {
+      initialProps: { total: 10 as number | undefined },
+    });
+
+    await waitFor(() => expect(result.current).toBe(12));
+    const [params] = mockSearchDatasets.mock.calls[0];
+    expect(params).toMatchObject({ limit: '1' });
+    expect(params).not.toHaveProperty('record_type');
+
+    act(() => useSearchStore.getState().setFilter('record_type', ''));
+    rerender({ total: 12 });
+    expect(result.current).toBe(12);
+  });
+
+  it('makes no request and returns the result total when no type is selected', () => {
+    const { result } = renderHook(() => useAllTypesTotal(12));
+
+    expect(result.current).toBe(12);
+    expect(mockSearchDatasets).not.toHaveBeenCalled();
   });
 });

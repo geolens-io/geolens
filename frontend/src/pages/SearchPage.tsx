@@ -14,7 +14,7 @@ import { SearchResultCard } from '@/components/search/SearchResultCard';
 import { DatasetCardSkeleton } from '@/components/search/DatasetCardSkeleton';
 import { Pagination } from '@/components/layout/Pagination';
 import { MapCard } from '@/components/maps/MapCard';
-import { useSearchResults, useMapSearchResults } from '@/components/search/hooks/use-search';
+import { useSearchResults, useMapSearchResults, useAllTypesTotal } from '@/components/search/hooks/use-search';
 import { useSearchStore } from '@/stores/search-store';
 import { useAuthStore } from '@/stores/auth-store';
 import { useUrlSearchSync } from '@/components/search/hooks/use-url-search-sync';
@@ -23,10 +23,11 @@ import { usePermissions } from '@/hooks/use-permissions';
 
 interface SearchControlsProps {
   totalResults: number | undefined;
+  allTypesTotal: number | undefined;
   children?: ReactNode;
 }
 
-function SearchControls({ totalResults, children }: SearchControlsProps) {
+function SearchControls({ totalResults, allTypesTotal, children }: SearchControlsProps) {
   return (
     <>
       <SearchBar mode="compact" />
@@ -37,7 +38,7 @@ function SearchControls({ totalResults, children }: SearchControlsProps) {
       ) : null}
       <div className="mt-3 border-t border-border/40 pt-3 lg:hidden">
         <div className="md:px-1">
-          <FilterPanel totalResults={totalResults} showDesktop={false} />
+          <FilterPanel totalResults={totalResults} allTypesTotal={allTypesTotal} showDesktop={false} />
         </div>
       </div>
     </>
@@ -84,6 +85,7 @@ export function SearchPage() {
   // logged in AND allowed. See Navbar.tsx CreateMenu.
   const canImport = !!token && can('upload');
   const totalMatched = data ? Math.max(data.numberMatched ?? 0, data.features.length) : 0;
+  const allTypesTotal = useAllTypesTotal(totalMatched > 0 ? totalMatched : undefined);
   const hasMapTextQuery = mapQuery.length > 0;
   const isMapSearchPending = hasMapTextQuery && (isLoadingMaps || isFetchingMaps);
   const hasMapMatches = (mapResults?.maps.length ?? 0) > 0;
@@ -107,6 +109,7 @@ export function SearchPage() {
             <div className="sticky top-16 max-h-[calc(100vh-5rem)] overflow-y-auto">
               <FilterPanel
                 totalResults={totalMatched > 0 ? totalMatched : undefined}
+                allTypesTotal={allTypesTotal}
                 showMobile={false}
                 desktopLayout="rail"
               />
@@ -115,7 +118,7 @@ export function SearchPage() {
 
           <div className="min-w-0 space-y-6">
             <section className="rounded-lg border bg-card p-4 shadow-sm sm:px-6">
-              <SearchControls totalResults={totalMatched > 0 ? totalMatched : undefined}>
+              <SearchControls totalResults={totalMatched > 0 ? totalMatched : undefined} allTypesTotal={allTypesTotal}>
                 {token ? <SavedSearches className="justify-center md:justify-start" /> : null}
               </SearchControls>
             </section>

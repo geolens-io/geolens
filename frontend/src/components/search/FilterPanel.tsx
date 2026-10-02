@@ -45,6 +45,7 @@ const SORT_OPTIONS = ['relevance', 'date_added', 'name', 'last_updated'] as cons
 
 interface FilterPanelProps {
   totalResults: number | undefined;
+  allTypesTotal?: number;
   showDesktop?: boolean;
   showMobile?: boolean;
   desktopLayout?: 'toolbar' | 'rail';
@@ -99,6 +100,7 @@ function parseTemporalInterval(datetime: string): [string, string] {
  */
 export function FilterPanel({
   totalResults,
+  allTypesTotal,
   showDesktop = true,
   showMobile = true,
   desktopLayout = 'toolbar',
@@ -139,11 +141,8 @@ export function FilterPanel({
   // ====================================================================
   const { data: facets } = useFacets();
   const counts = facets?.record_type ?? {};
-  // Without a type selected the result total is the one All returns, collections
-  // included. With one selected the total is type-narrowed and the facets carry
-  // no collection count, so All falls back to the dataset-facet sum.
   const allTypeCount =
-    (recordType === '' ? totalResults : undefined) ??
+    allTypesTotal ??
     ((counts.vector_dataset ?? 0) +
     (counts.raster_dataset ?? 0) +
     (counts.vrt_dataset ?? 0) +
@@ -859,7 +858,7 @@ export function FilterPanel({
   return (
     <>
       {/* ---- Mobile bar + chip row + sheet ---- */}
-      {showMobile && <FilterSheet totalResults={totalResults} />}
+      {showMobile && <FilterSheet totalResults={totalResults} allTypesTotal={allTypesTotal} />}
 
       {/* ---- Desktop primary filter row ---- */}
       {showDesktop && desktopLayout === 'rail' ? renderDesktopRail() : null}

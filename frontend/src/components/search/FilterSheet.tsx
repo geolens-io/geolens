@@ -73,6 +73,7 @@ function parseTemporalInterval(datetime: string): [string, string] {
 
 interface FilterSheetProps {
   totalResults: number | undefined;
+  allTypesTotal?: number;
 }
 
 /**
@@ -84,7 +85,7 @@ interface FilterSheetProps {
  *
  * State source: All filter state is read from `useSearchStore` (zustand).
  */
-export function FilterSheet({ totalResults }: FilterSheetProps) {
+export function FilterSheet({ totalResults, allTypesTotal }: FilterSheetProps) {
   const { t } = useTranslation('search');
   const filterTriggerRef = useRef<HTMLButtonElement>(null);
   const geometryType = useSearchStore((s) => s.geometry_type);
@@ -105,11 +106,8 @@ export function FilterSheet({ totalResults }: FilterSheetProps) {
 
   const { data: facets } = useFacets();
   const counts = facets?.record_type ?? {};
-  // Without a type selected the result total is the one All returns, collections
-  // included. With one selected the total is type-narrowed and the facets carry
-  // no collection count, so All falls back to the dataset-facet sum.
   const allTypeCount =
-    (recordType === '' ? totalResults : undefined) ??
+    allTypesTotal ??
     ((counts.vector_dataset ?? 0) +
     (counts.raster_dataset ?? 0) +
     (counts.vrt_dataset ?? 0) +

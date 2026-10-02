@@ -86,7 +86,7 @@ describe('FilterSheet 3D Tiles and point cloud filters', () => {
 
   it('offers a 3D Tiles toggle, counted in All, when the catalog holds tilesets', () => {
     facetCounts.record_type = { vector_dataset: 3, tiles3d_dataset: 2 };
-    render(<FilterSheet totalResults={5} />);
+    render(<FilterSheet totalResults={5} allTypesTotal={5} />);
 
     fireEvent.click(screen.getByRole('button', { name: /Filters/i }));
 
@@ -94,19 +94,19 @@ describe('FilterSheet 3D Tiles and point cloud filters', () => {
     expect(screen.getByRole('radio', { name: /All/ })).toHaveTextContent('(5)');
   });
 
-  it('keeps All at the cross-type count while a type is selected', () => {
+  it('shows the supplied All total, not the type-narrowed result total', () => {
     facetCounts.record_type = { vector_dataset: 10, raster_dataset: 5 };
     useSearchStore.getState().setFilter('record_type', 'raster_dataset');
-    render(<FilterSheet totalResults={5} />);
+    render(<FilterSheet totalResults={5} allTypesTotal={17} />);
 
     fireEvent.click(screen.getByRole('button', { name: /Filters/i }));
 
-    expect(screen.getByRole('radio', { name: /All/ })).toHaveTextContent('(15)');
+    expect(screen.getByRole('radio', { name: /All/ })).toHaveTextContent('(17)');
   });
 
   it('offers a Point cloud toggle, counted in All, when the catalog holds point clouds', () => {
     facetCounts.record_type = { vector_dataset: 3, pointcloud_dataset: 2 };
-    render(<FilterSheet totalResults={5} />);
+    render(<FilterSheet totalResults={5} allTypesTotal={5} />);
 
     fireEvent.click(screen.getByRole('button', { name: /Filters/i }));
 

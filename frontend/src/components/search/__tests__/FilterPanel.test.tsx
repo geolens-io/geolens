@@ -28,7 +28,7 @@ describe('FilterPanel', () => {
   });
 
   it('renders badge text with counts from useFacets', () => {
-    render(<FilterPanel totalResults={18} />);
+    render(<FilterPanel totalResults={18} allTypesTotal={18} />);
 
     // All shows the result total (18), not the dataset-facet sum (16).
     expect(screen.getByText(/All.*\(18\)/)).toBeInTheDocument();
@@ -38,14 +38,13 @@ describe('FilterPanel', () => {
   });
 
   it('shows the result total on All when it exceeds the dataset facet sum', () => {
-    render(<FilterPanel totalResults={4} />);
+    render(<FilterPanel totalResults={4} allTypesTotal={4} />);
 
     expect(screen.getByRole('radio', { name: /All/ })).toHaveTextContent('4');
     expect(screen.getByRole('radio', { name: /Vector/ })).toHaveTextContent('10');
   });
 
-  it('keeps All at the cross-type count while a type is selected', () => {
-    useSearchStore.getState().setFilter('record_type', 'raster_dataset');
+  it('falls back to the facet sum while the All total is unavailable', () => {
     render(<FilterPanel totalResults={5} />);
 
     expect(screen.getByRole('radio', { name: /All/ })).toHaveTextContent('16');
@@ -66,7 +65,7 @@ describe('FilterPanel', () => {
     const counts = mockFacets.record_type as Record<string, number>;
     counts.tiles3d_dataset = 2;
     try {
-      render(<FilterPanel totalResults={18} showMobile={false} desktopLayout={desktopLayout} />);
+      render(<FilterPanel totalResults={18} allTypesTotal={18} showMobile={false} desktopLayout={desktopLayout} />);
 
       expect(screen.getByRole('radio', { name: /3D Tiles/ })).toHaveTextContent('2');
       expect(screen.getByRole('radio', { name: /All/ })).toHaveTextContent('18');
@@ -85,7 +84,7 @@ describe('FilterPanel', () => {
     const counts = mockFacets.record_type as Record<string, number>;
     counts.pointcloud_dataset = 2;
     try {
-      render(<FilterPanel totalResults={18} showMobile={false} desktopLayout={desktopLayout} />);
+      render(<FilterPanel totalResults={18} allTypesTotal={18} showMobile={false} desktopLayout={desktopLayout} />);
 
       expect(screen.getByRole('radio', { name: /Point cloud/ })).toHaveTextContent('2');
       expect(screen.getByRole('radio', { name: /All/ })).toHaveTextContent('18');
