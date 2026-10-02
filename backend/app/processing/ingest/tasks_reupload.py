@@ -121,6 +121,11 @@ def require_scheduled_execution_claim(fn):
     return _wrapped
 
 
+def _quicklook_table(dataset, measurement) -> str | None:
+    """The installed table, when it has geometry for a quicklook to draw."""
+    return None if measurement.geometry_type is None else dataset.table_name
+
+
 def _assert_geometry_survives(
     *, record_type: str | None, geometry_type: str | None, has_geometry: bool
 ) -> None:
@@ -366,6 +371,7 @@ class _FileReupload:
             schema_diff=schema_diff,
             contacted_origin=False,
             live_table=dataset.table_name,
+            quicklook_table=_quicklook_table(dataset, self.measurement),
             reaps_staged_upload=True,
             upload_archive_key=original_archive_key(
                 dataset.id, self.file_path, self._archive_name()
@@ -1111,6 +1117,7 @@ class _ServiceReupload:
             contacted_origin=True,
             verification=self.verification,
             live_table=dataset.table_name,
+            quicklook_table=_quicklook_table(dataset, self.measurement),
         )
 
     def classify(self, exc: BaseException) -> Failure:

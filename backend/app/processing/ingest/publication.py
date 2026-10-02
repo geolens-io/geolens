@@ -55,6 +55,7 @@ from app.processing.ingest.publish_followups import (
 )
 from app.processing.ingest.tasks_common import (
     _current_tenant_schema,
+    _generate_quicklook,
     cleanup_step,
     invalidate_tile_cache_for_table,
 )
@@ -109,6 +110,8 @@ class Published:
     verification: dict[str, Any] | None = None
     # Its cached tiles are purged after the commit.
     live_table: str | None = None
+    # A feature table whose quicklook is drawn again after the commit.
+    quicklook_table: str | None = None
     # Whether the write changed tile content, which bumps the tile version.
     tiles_changed: bool = True
     # Whether it changed what the dataset's search embedding is built from.
@@ -336,6 +339,8 @@ class _Attempt:
     reembed: bool = True
     # The publish recorded follow-ups for its staged upload or what it superseded.
     owes_followups: bool = False
+    # The published feature table whose quicklook is drawn again.
+    quicklook_table: str | None = None
 
 
 async def settle_replacement(
@@ -393,6 +398,9 @@ async def settle_replacement(
     if attempt.publication is not None and attempt.reembed:
         async with cleanup_step(f"{strategy.task} embedding", job_id=job_id):
             await _defer_embedding(attempt.dataset_id)
+    if attempt.quicklook_table is not None:
+        async with cleanup_step(f"{strategy.task} quicklook", job_id=job_id):
+            await _redraw_quicklook(attempt.dataset_id, attempt.quicklook_table)
 
 
 async def _claim(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
@@ -565,6 +573,7 @@ async def _publish(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
             session, job_id=job_id, attempt_id=attempt_id, task=strategy.task
         )
         attempt.owes_followups = owes_followups
+        attempt.quicklook_table = published.quicklook_table
 
         # Published, so each step below logs its own failure instead of
         # failing the replacement.
@@ -810,6 +819,14 @@ async def _drop_staging_table(staging_table: str) -> None:
         logger.warning(
             "attempt_staging_cleanup_failed", staging_table=staging_table, exc_info=True
         )
+
+
+async def _redraw_quicklook(dataset_id: uuid.UUID, table_name: str) -> None:
+    """Draw the published table's quicklook again, on a session of its own."""
+    from app.core.db import async_session
+
+    async with async_session() as session:
+        await _generate_quicklook(session, dataset_id, table_name)
 
 
 async def _defer_embedding(dataset_id: uuid.UUID) -> None:

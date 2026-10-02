@@ -1,6 +1,7 @@
 """Dataset core CRUD endpoints: list, create, get, update, delete, quicklook, history."""
 
 import asyncio
+import hashlib
 import uuid
 
 import structlog
@@ -62,6 +63,7 @@ from app.modules.catalog.datasets.domain.schemas import (
 from app.platform.refresh.service import list_runs_for_dataset
 from app.platform.cache.provider import get_tile_cache, notify_table_invalidated
 from app.platform.cache.scope import is_publicly_cacheable
+from app.platform.http.ranges import if_none_match_matches
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.modules.catalog.collections.service import get_dataset_collections
 from app.modules.catalog.datasets.domain.service import (
@@ -224,6 +226,7 @@ async def get_single_dataset(
 )
 async def get_quicklook(
     dataset_id: uuid.UUID,
+    request: Request,
     size: int = Query(
         256, ge=1, le=512, description="Quicklook size in pixels (256 or 512)"
     ),
@@ -290,16 +293,18 @@ async def get_quicklook(
         )
     # A shared cache keys on the URL alone, so only an image anyone may fetch is public.
     record = dataset.record
-    cache_control = (
-        "public, max-age=3600"
-        if is_publicly_cacheable(record.visibility, record.record_status)
-        else "private, no-store"
-    )
-    return Response(
-        content=data,
-        media_type="image/png",
-        headers={"Cache-Control": cache_control},
-    )
+    if not is_publicly_cacheable(record.visibility, record.record_status):
+        headers = {"Cache-Control": "private, no-store"}
+    elif record_type == "vector_dataset":
+        # A replacement redraws the image under the same URL, so a cache
+        # revalidates every use against a tag of the bytes.
+        etag = '"' + hashlib.sha256(data).hexdigest() + '"'
+        headers = {"Cache-Control": "public, no-cache", "ETag": etag}
+        if if_none_match_matches(request.headers.get("if-none-match"), etag):
+            return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
+    else:
+        headers = {"Cache-Control": "public, max-age=3600"}
+    return Response(content=data, media_type="image/png", headers=headers)
 
 
 @router.patch("/{dataset_id}", response_model=DatasetResponse)

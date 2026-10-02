@@ -1311,10 +1311,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # flags of jobs that owe no follow-up.
     "backend/app/processing/ingest/publish_followups.py": 1090,
     # Shared ingest finalization carries verification, manifest record fields, bounded
-    # ArcGIS requests and lifecycle context.
-    "backend/app/processing/ingest/tasks_common.py": 1760,
+    # ArcGIS requests, lifecycle context and the quicklook draw that ingest and
+    # replacement share.
+    "backend/app/processing/ingest/tasks_common.py": 1803,
     # File and remote-source replacement strategies own retrieval, staging and verification.
-    "backend/app/processing/ingest/tasks_reupload.py": 1193,
+    "backend/app/processing/ingest/tasks_reupload.py": 1200,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection.
     "backend/app/modules/catalog/datasets/api/router_refresh.py": 1397,

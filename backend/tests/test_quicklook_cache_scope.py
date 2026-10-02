@@ -1,5 +1,10 @@
-"""A dataset quicklook is publicly cacheable only when the dataset is public and published."""
+"""A dataset quicklook is publicly cacheable only when the dataset is public and published.
 
+A public vector quicklook is redrawn under the same URL when its data is
+replaced, so caches revalidate it by ETag; a raster's keeps an hour's freshness.
+"""
+
+import hashlib
 import uuid
 
 import pytest
@@ -11,12 +16,14 @@ from app.core.config import settings
 from app.modules.auth.models import Role
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant
 from app.modules.catalog.maps.models import Map, MapLayer
-from tests.factories import create_dataset, get_user_id
+from tests.factories import create_dataset, create_raster_dataset, get_user_id
 
 pytestmark = pytest.mark.anyio
 
 PNG = b"\x89PNG\r\n\x1a\nquicklook"
-PUBLIC = "public, max-age=3600"
+PNG_ETAG = '"' + hashlib.sha256(PNG).hexdigest() + '"'
+PUBLIC = "public, no-cache"
+PUBLIC_RASTER = "public, max-age=3600"
 PRIVATE = "private, no-store"
 
 
@@ -72,6 +79,42 @@ async def test_a_public_published_dataset_is_publicly_cacheable(
 
     assert _cache_control(anonymous) == PUBLIC
     assert _cache_control(signed_in) == PUBLIC
+    assert anonymous.headers["etag"] == signed_in.headers["etag"] == PNG_ETAG
+
+
+async def test_a_held_public_vector_quicklook_is_not_sent_again(
+    client: AsyncClient, test_db_session
+):
+    dataset = await _dataset_with_quicklook(test_db_session, visibility="public")
+
+    resp = await client.get(
+        f"/datasets/{dataset.id}/quicklook", headers={"If-None-Match": PNG_ETAG}
+    )
+
+    assert resp.status_code == 304
+    assert resp.content == b""
+    assert resp.headers["etag"] == PNG_ETAG
+    assert resp.headers["cache-control"] == PUBLIC
+
+
+async def test_a_public_raster_quicklook_stays_fresh_for_an_hour(
+    client: AsyncClient, test_db_session
+):
+    owner = await get_user_id(test_db_session, settings.geolens_admin_username)
+    dataset = await create_raster_dataset(
+        test_db_session,
+        created_by=owner,
+        name=f"Raster quicklook {uuid.uuid4().hex[:8]}",
+        create_raster_asset=True,
+        raster_asset_kwargs={"quicklook_256_uri": "rasters/x/quicklook_256.png"},
+    )
+
+    resp = await client.get(
+        f"/datasets/{dataset.id}/quicklook", headers={"If-None-Match": PNG_ETAG}
+    )
+
+    assert _cache_control(resp) == PUBLIC_RASTER
+    assert "etag" not in resp.headers
 
 
 @pytest.mark.parametrize(

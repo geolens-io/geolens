@@ -297,6 +297,12 @@ class TestDatasetToResponseVrt:
 # ---------------------------------------------------------------------------
 
 
+def _quicklook_request():
+    from starlette.requests import Request
+
+    return Request({"type": "http", "method": "GET", "path": "/", "headers": []})
+
+
 class TestQuicklookVrt:
     """Quicklook guard accepts vrt_dataset (200); rejects vector_dataset (400)."""
 
@@ -339,6 +345,7 @@ class TestQuicklookVrt:
                     # Should not raise HTTPException 400 — guard passes for vrt_dataset
                     response = await get_quicklook(
                         dataset_id=dataset_id,
+                        request=_quicklook_request(),
                         size=256,
                         user=mock_user,
                         db=mock_db,
@@ -370,6 +377,7 @@ class TestQuicklookVrt:
                 with pytest.raises(HTTPException) as exc_info:
                     await get_quicklook(
                         dataset_id=dataset_id,
+                        request=_quicklook_request(),
                         size=256,
                         user=mock_user,
                         db=mock_db,
@@ -395,6 +403,7 @@ class TestQuicklookVrt:
             with pytest.raises(HTTPException) as exc_info:
                 await get_quicklook(
                     dataset_id=dataset_id,
+                    request=_quicklook_request(),
                     size=256,
                     user=mock_user,
                     db=mock_db,
