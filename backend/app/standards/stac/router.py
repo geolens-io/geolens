@@ -56,7 +56,12 @@ from app.standards.ogc.utils import (
     link_header_value,
     parse_accept_languages,
 )
-from app.core.geo import make_bbox_filter, rollup_bbox, rollup_bbox_columns
+from app.core.geo import (
+    make_bbox_filter,
+    rollup_bbox,
+    rollup_bbox_columns,
+    wrap_geometry_longitudes,
+)
 from app.modules.catalog.search.service import build_assets, dataset_to_ogc_record
 from app.standards.stac.schemas import (
     StacCatalog,
@@ -1359,7 +1364,9 @@ def _build_search_filters(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Invalid intersects geometry: {e}",
                 )
-        _geom = func.ST_SetSRID(func.ST_GeomFromGeoJSON(intersects_str), 4326)
+        _geom = wrap_geometry_longitudes(
+            func.ST_SetSRID(func.ST_GeomFromGeoJSON(intersects_str), 4326)
+        )
         filters.append(Record.spatial_extent.op("&&")(func.ST_Envelope(_geom)))
         filters.append(func.ST_Intersects(Record.spatial_extent, _geom))
     elif bbox:

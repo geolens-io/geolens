@@ -19,7 +19,10 @@ from app.standards.stac.schemas import (
     StacItemResponse,
     StacLink,
 )
-from app.standards.stac.router import _item_collection_response
+from app.standards.stac.router import (
+    _build_search_filters,
+    _item_collection_response,
+)
 from app.standards.stac.serializer import STAC_CONFORMANCE
 
 
@@ -129,6 +132,64 @@ class TestStacSearch:
         coll_str = "coll-a, coll-b"
         parsed = [s.strip() for s in coll_str.split(",")]
         assert parsed == ["coll-a", "coll-b"]
+
+    def test_intersects_geometry_wrapping_dict(self):
+        """_build_search_filters wraps longitudes in intersects geometry from dict."""
+        poly = {
+            "type": "Polygon",
+            "coordinates": [
+                [
+                    [-194.53, 11.59],
+                    [-145.31, 11.59],
+                    [-145.31, 36.93],
+                    [-194.53, 36.93],
+                    [-194.53, 11.59],
+                ]
+            ],
+        }
+        filters, ids_empty = _build_search_filters(intersects=poly)
+        assert not ids_empty
+        assert len(filters) == 2
+        sql_combined = " ".join(str(f) for f in filters)
+        assert "ST_WrapX" in sql_combined
+        assert "ST_Envelope" in sql_combined
+        assert "ST_Intersects" in sql_combined
+
+    def test_intersects_geometry_wrapping_string(self):
+        """_build_search_filters wraps longitudes in intersects geometry from JSON string."""
+        poly_str = json.dumps(
+            {
+                "type": "Polygon",
+                "coordinates": [
+                    [
+                        [165.47, 11.59],
+                        [214.69, 11.59],
+                        [214.69, 36.93],
+                        [165.47, 36.93],
+                        [165.47, 11.59],
+                    ]
+                ],
+            }
+        )
+        filters, ids_empty = _build_search_filters(intersects=poly_str)
+        assert not ids_empty
+        assert len(filters) == 2
+        sql_combined = " ".join(str(f) for f in filters)
+        assert "ST_WrapX" in sql_combined
+        assert "ST_Envelope" in sql_combined
+        assert "ST_Intersects" in sql_combined
+
+    def test_intersects_and_bbox_mutually_exclusive(self):
+        """Specifying both intersects and bbox raises HTTPException 400."""
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            _build_search_filters(
+                intersects={"type": "Point", "coordinates": [0, 0]},
+                bbox="-10,-10,10,10",
+            )
+        assert exc_info.value.status_code == 400
+        assert "Only one of bbox and intersects" in exc_info.value.detail
 
 
 # ---------------------------------------------------------------------------
