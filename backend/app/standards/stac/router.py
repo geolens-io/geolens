@@ -57,6 +57,7 @@ from app.standards.ogc.utils import (
     parse_accept_languages,
 )
 from app.core.geo import (
+    check_wrap_turns,
     make_bbox_filter,
     rollup_bbox,
     rollup_bbox_columns,
@@ -1353,17 +1354,16 @@ def _build_search_filters(
 
     # Filter by intersects (GeoJSON geometry) — accept string or dict
     if intersects:
-        if isinstance(intersects, dict):
-            intersects_str = json.dumps(intersects)
-        else:
-            intersects_str = intersects
-            try:
-                json.loads(intersects_str)  # validate JSON before sending to DB
-            except (ValueError, TypeError) as e:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Invalid intersects geometry: {e}",
-                )
+        intersects_str = (
+            intersects if isinstance(intersects, str) else json.dumps(intersects)
+        )
+        try:
+            check_wrap_turns(json.loads(intersects_str))
+        except (ValueError, TypeError) as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid intersects geometry: {e}",
+            )
         _geom = wrap_geometry_longitudes(
             func.ST_SetSRID(func.ST_GeomFromGeoJSON(intersects_str), 4326)
         )

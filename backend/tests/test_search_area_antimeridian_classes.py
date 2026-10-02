@@ -407,6 +407,8 @@ async def overlap_items(client: AsyncClient, test_db_session) -> dict:
     extents["bow_gap"] = _wkt(_rect(8, 1, 9, 2))
     # Touches the seam on the +180 side only.
     extents["plus_edge"] = _wkt(_rect(178, 20, 180, 22))
+    # Reached only by the last world copy of _WIDEST_ACCEPTED.
+    extents["last_copy"] = _wkt(_rect(-175.1, 80, -174.9, 80.2))
     return await _create_items(test_db_session, "seamoverlap", extents)
 
 
@@ -455,3 +457,52 @@ async def test_seam_member_keeps_its_side_when_another_member_folds(
     assert found == expected
     if not route.endswith("within"):
         assert expected == {"plus_edge"}
+
+
+def _sloped_strip(west: float, east: float) -> dict:
+    """A strip rising from lat 0 at ``west`` to lat 80 at ``east``."""
+    return _poly([[west, 0], [east, 80], [east, 81], [west, 1], [west, 0]])
+
+
+# Spans exactly 8 world copies (turns -3 to 4); its last copy reaches lat 80.
+_WIDEST_ACCEPTED = _sloped_strip(-1250, 1270)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("route", _ROUTES)
+async def test_widest_accepted_area_matches_in_its_last_world_copy(
+    client: AsyncClient, admin_auth_header: dict, overlap_items: dict, route: str
+):
+    found = await _matches(
+        client, admin_auth_header, overlap_items, route, _WIDEST_ACCEPTED
+    )
+
+    if not route.endswith("within"):
+        assert "last_copy" in found
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("route", ["stac-GET", "stac-POST", "catalog-intersects"])
+@pytest.mark.parametrize(
+    "geometry",
+    [_sloped_strip(-3070, 170), _sloped_strip(-1250, 1630)],
+    ids=["review_counterexample", "one_copy_past_the_widest"],
+)
+async def test_area_spanning_too_many_world_copies_is_refused(
+    client: AsyncClient, admin_auth_header: dict, route: str, geometry: dict
+):
+    if route == "stac-GET":
+        resp = await client.get(
+            "/stac/search", params={"intersects": json.dumps(geometry)}
+        )
+    elif route == "stac-POST":
+        resp = await client.post("/stac/search", json={"intersects": geometry})
+    else:
+        resp = await client.get(
+            "/search/datasets/",
+            params={"geometry": json.dumps(geometry)},
+            headers=admin_auth_header,
+        )
+
+    assert resp.status_code == 400, resp.text
+    assert "world copies" in resp.json()["detail"]
