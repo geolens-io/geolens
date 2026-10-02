@@ -113,6 +113,7 @@ class _RepairReport(NamedTuple):
     rows_rewritten: int = 0
     column_added: bool = False
     index_added: bool = False
+    gid_added: bool = False
     # The version the bump actually published, read back from the increment
     # rather than computed here (fix(#1738)); None when nothing was
     # rewritten and so nothing was bumped.
@@ -324,11 +325,12 @@ async def _repair_geom_4326(
     readers filter on.
 
     Refresh is the only place the fix survives ``-overwrite``, which drops the
-    table and any trigger, generated column or index with it. This runs before
-    the measurement, in its own transaction, so the measurement sees the
-    repaired table and the repair's tile-version bump is committed before the
-    content token is read; a later bump would trip the write step's superseded
-    check against this task's own repair.
+    table and any trigger, generated column or index with it, and recreates
+    it keyed on its own FID column, so a missing ``gid`` is added back too.
+    This runs before the measurement, in its own transaction, so the
+    measurement sees the repaired table and the repair's tile-version bump is
+    committed before the content token is read; a later bump would trip the
+    write step's superseded check against this task's own repair.
 
     Bounded twice (``_REPAIR_STATEMENT_TIMEOUT_MS``,
     ``_REPAIR_LOCK_TIMEOUT_MS``) since holding and waiting on a lock are
@@ -342,10 +344,12 @@ async def _repair_geom_4326(
     """
     from app.core.db import async_session
     from app.processing.ingest.metadata import (
+        add_gid_column,
         ensure_geom_4326_gist_index,
         get_declared_srid,
         grant_reader_access,
         probe_geom_4326,
+        probe_gid,
         rederive_geom_4326,
     )
 
@@ -393,6 +397,13 @@ async def _repair_geom_4326(
                 # Phase 2 refuses a table without an SRID, so nothing about it
                 # is re-derived, indexed or granted first.
                 return _RepairReport(_REPAIR_NOT_APPLICABLE)
+            gid_keyable = await probe_gid(session, table_name, schema=schema)
+            if gid_keyable is False:
+                # Phase 2 refuses this too, on the same terms.
+                return _RepairReport(_REPAIR_NOT_APPLICABLE)
+            gid_added = gid_keyable is None
+            if gid_added:
+                await add_gid_column(session, table_name, schema=schema)
 
             state = await probe_geom_4326(session, table_name, schema=schema)
             repair = None
@@ -425,10 +436,11 @@ async def _repair_geom_4326(
             await grant_reader_access(session, table_name, schema=schema, role=role)
 
             tile_version = None
-            if repair is not None and repair.rows_rewritten:
-                # Gated on rewritten ROWS, not column or index: the bump's
-                # contract is that it fires with a change to tile CONTENT.
-                # An index restore doesn't change content; an added column on
+            if gid_added or (repair is not None and repair.rows_rewritten):
+                # Gated on rewritten ROWS or a new gid, not column or index:
+                # the bump's contract is that it fires with a change to tile
+                # CONTENT, and a new gid renumbers every feature. An index
+                # restore doesn't change content; an added render column on
                 # an empty table renders the same nothing.
                 #
                 # fix(#1738): atomic spelling — this transaction holds no
@@ -443,6 +455,7 @@ async def _repair_geom_4326(
                 repair.rows_rewritten if repair is not None else 0,
                 repair.column_added if repair is not None else False,
                 index_added,
+                gid_added,
                 tile_version,
             )
         except Exception as exc:  # broad: the repair is best-effort — see the docstring
@@ -495,8 +508,11 @@ class _PostgisRefresh:
 
         from app.core.db import async_session
         from app.platform.extensions import get_processing_port
-        from app.processing.ingest.metadata import get_declared_srid
-        from app.processing.ingest.schemas import UNDECLARED_SRID_CODE
+        from app.processing.ingest.metadata import get_declared_srid, probe_gid
+        from app.processing.ingest.schemas import (
+            UNDECLARED_SRID_CODE,
+            UNUSABLE_GID_CODE,
+        )
 
         Dataset = get_processing_port().get_dataset_orm_class()
         schema = _current_tenant_schema()
@@ -512,6 +528,7 @@ class _PostgisRefresh:
             rows_rewritten=repair.rows_rewritten,
             column_added=repair.column_added,
             index_added=repair.index_added,
+            gid_added=repair.gid_added,
             tile_cache_version=repair.tile_cache_version,
         )
 
@@ -554,6 +571,28 @@ class _PostgisRefresh:
                         "coordinates are. The catalog entry is unchanged; give the "
                         "column an SRID, then refresh again.",
                         error_code=UNDECLARED_SRID_CODE,
+                    )
+                gid_keyable = await probe_gid(session, table_name, schema=schema)
+                if gid_keyable is None:
+                    # The repair adds a missing gid, so it did not finish.
+                    raise PostgisRefreshError(
+                        "The registered table has no gid column, and GeoLens "
+                        "could not add one during this refresh. The catalog "
+                        "entry is unchanged; refresh again, and if it keeps "
+                        "failing, check that the GeoLens database role can "
+                        "alter the table.",
+                        error_code=_ERROR_CODE_GENERIC,
+                    )
+                if gid_keyable is False:
+                    raise PostgisRefreshError(
+                        "The registered table has no gid column GeoLens can "
+                        "identify features by: an integer that is NOT NULL "
+                        "and unique, such as a primary key, in a table no "
+                        "other table inherits from. The catalog entry is "
+                        "unchanged; add or fix the gid column, or rename one "
+                        "GeoLens can't use so it can add its own, then "
+                        "refresh again.",
+                        error_code=UNUSABLE_GID_CODE,
                     )
                 self.measurement = await measure(
                     session, dataset, table=table_name, schema=schema

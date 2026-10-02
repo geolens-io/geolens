@@ -22,10 +22,10 @@ vi.mock('@/components/import/hooks/use-ingest', () => ({
   useBulkRegister: () => mockUseBulkRegister(),
 }));
 
-// ── Stub i18n — return the key so assertions are key-based ──────────────────
+// ── Stub i18n — return the key, plus any schema, so assertions are key-based ─
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string) => key,
+    t: (key: string, options?: { schema?: string }) => (options?.schema ? `${key}:${options.schema}` : key),
     i18n: { language: 'en' },
   }),
 }));
@@ -106,6 +106,21 @@ describe('RegisterForm empty state', () => {
 });
 
 describe('RegisterForm results', () => {
+  test('the list and the selected table are labelled with the data schema', async () => {
+    mockUseDiscoverTables.mockReturnValue({
+      data: { tables: [{ table_name: 'parcels', geometry_type: 'Polygon', srid: 4326, estimated_rows: 10 }] },
+      isLoading: false,
+      error: null,
+    });
+    mockUseDatasetCountHint.mockReturnValue({ data: undefined });
+
+    render(<RegisterForm />);
+    expect(screen.getByText('register.tableCount:data')).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByText('parcels'));
+
+    expect(screen.getByText('data /')).toHaveTextContent('data / parcels');
+  });
+
   test('table statistics pair their labels and values in a description list', async () => {
     mockUseDiscoverTables.mockReturnValue({
       data: { tables: [{ table_name: 'parcels', geometry_type: 'Polygon', srid: 4326, estimated_rows: 10 }] },
@@ -150,32 +165,35 @@ describe('RegisterForm results', () => {
 });
 
 describe('RegisterForm refusal', () => {
-  test('a table discovery refuses shows the reason and cannot be registered', async () => {
-    const user = userEvent.setup();
-    mockUseDiscoverTables.mockReturnValue({
-      data: {
-        tables: [
-          {
-            table_name: 'nosrid',
-            geometry_type: 'Point',
-            srid: 0,
-            estimated_rows: 1,
-            refusal_reason: 'source_srid_undeclared',
-          },
-        ],
-      },
-      isLoading: false,
-      error: null,
-    });
-    mockUseDatasetCountHint.mockReturnValue({ data: undefined });
+  test.each(['source_srid_undeclared', 'source_gid_unusable'])(
+    'a table discovery refuses with %s shows the reason and cannot be registered',
+    async (code) => {
+      const user = userEvent.setup();
+      mockUseDiscoverTables.mockReturnValue({
+        data: {
+          tables: [
+            {
+              table_name: 'refused',
+              geometry_type: 'Point',
+              srid: 4326,
+              estimated_rows: 1,
+              refusal_reason: code,
+            },
+          ],
+        },
+        isLoading: false,
+        error: null,
+      });
+      mockUseDatasetCountHint.mockReturnValue({ data: undefined });
 
-    render(<RegisterForm />);
-    await user.click(screen.getByText('nosrid'));
+      render(<RegisterForm />);
+      await user.click(screen.getByText('refused'));
 
-    const reason = 'register.refusal.source_srid_undeclared';
-    expect(screen.getByText(reason)).toBeInTheDocument();
-    const button = screen.getByRole('button', { name: 'register.registerButton' });
-    expect(button).toBeDisabled();
-    expect(button).toHaveAccessibleDescription(reason);
-  });
+      const reason = `register.refusal.${code}`;
+      expect(screen.getByText(reason)).toBeInTheDocument();
+      const button = screen.getByRole('button', { name: 'register.registerButton' });
+      expect(button).toBeDisabled();
+      expect(button).toHaveAccessibleDescription(reason);
+    },
+  );
 });

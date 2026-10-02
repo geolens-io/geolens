@@ -35,16 +35,20 @@ from app.core.db.tenant_session import defer_async_with_tenant
 from app.platform.dataset_origin import set_postgis_origin
 from app.platform.extensions import get_processing_port
 from app.processing.ingest.metadata import (
+    GID_UNUSABLE_SQL,
     add_4326_column,
+    add_gid_column,
     linearize_existing_4326,
     extract_metadata,
     get_declared_srid,
     get_sample_values,
     get_table_srid,
     grant_reader_access,
+    probe_gid,
 )
 from app.processing.ingest.schemas import (
     UNDECLARED_SRID_CODE,
+    UNUSABLE_GID_CODE,
     DiscoveredTable,
     RegisterRequest,
     VrtCreateRequest,
@@ -79,6 +83,14 @@ UNDECLARED_SRID_REASON = (
     "PostGIS reports no SRID for its geom column, so GeoLens cannot tell where "
     "its coordinates are. Give the column an SRID, for example with "
     "UpdateGeometrySRID on a plain geometry column, then register the table."
+)
+
+UNUSABLE_GID_REASON = (
+    "GeoLens identifies features by a column named gid: an integer that is NOT "
+    "NULL and unique, such as a primary key, in a table no other table "
+    "inherits from. This table does not meet that. Add or fix the gid "
+    "column, or rename one GeoLens can't use so it can add its own, then "
+    "register the table."
 )
 
 
@@ -135,7 +147,9 @@ async def discover_unregistered_tables(
                 t.table_name,
                 gc.type AS geometry_type,
                 gc.srid,
-                c.reltuples::bigint AS estimated_rows
+                CASE WHEN c.reltuples >= 0 THEN c.reltuples::bigint END
+                    AS estimated_rows,
+                {GID_UNUSABLE_SQL} AS gid_unusable
             FROM information_schema.tables t
             LEFT JOIN catalog.datasets d ON d.table_name = t.table_name
                 {tenant_join_clause}
@@ -148,6 +162,10 @@ async def discover_unregistered_tables(
                 AND c.relnamespace = (
                     SELECT oid FROM pg_catalog.pg_namespace WHERE nspname = :schema
                 )
+            LEFT JOIN pg_catalog.pg_attribute a
+                ON a.attrelid = c.oid
+                AND a.attname = 'gid'
+                AND NOT a.attisdropped
             WHERE t.table_schema = :schema
                 AND t.table_type = 'BASE TABLE'
                 AND d.table_name IS NULL
@@ -168,11 +186,23 @@ async def discover_unregistered_tables(
     )
     return [
         DiscoveredTable(
-            **dict(row),
-            refusal_reason=UNDECLARED_SRID_CODE if row["srid"] == 0 else None,
+            table_name=row["table_name"],
+            geometry_type=row["geometry_type"],
+            srid=row["srid"],
+            estimated_rows=row["estimated_rows"],
+            refusal_reason=_discovery_refusal(row),
         )
         for row in result.mappings().all()
     ]
+
+
+def _discovery_refusal(row: Any) -> str | None:
+    """The code registration would refuse a discovered table with, if any."""
+    if row["srid"] == 0:
+        return UNDECLARED_SRID_CODE
+    if row["gid_unusable"]:
+        return UNUSABLE_GID_CODE
+    return None
 
 
 async def get_job_or_404(
@@ -722,8 +752,27 @@ def _step_refusal(message: str, exc: Exception) -> ValueError:
     """
     if is_composed_exception(exc):
         return ValueError(f"{message}: {redact_failure_reason(exc)}")
-    logger.warning("register_geom_4326_step_failed", step=message, exc_info=exc)
+    logger.warning("register_table_step_failed", step=message, exc_info=exc)
     return ValueError(f"{message}.")
+
+
+async def _ensure_keyable_gid(
+    session: AsyncSession, table_name: str, *, schema: str
+) -> None:
+    """Refuse a ``gid`` readers cannot key features on; add one where there is none."""
+    keyable = await probe_gid(session, table_name, schema=schema)
+    if keyable is False:
+        raise ValueError(
+            f"Table '{table_name}' cannot be registered. {UNUSABLE_GID_REASON}"
+        )
+    if keyable is None:
+        try:
+            async with session.begin_nested():
+                await add_gid_column(session, table_name, schema=schema)
+        except Exception as exc:  # broad: ALTER TABLE inside savepoint can fail for schema/permission reasons
+            raise _step_refusal(
+                f"Failed to add a gid column to '{table_name}'", exc
+            ) from exc
 
 
 async def register_existing_table(
@@ -736,8 +785,8 @@ async def register_existing_table(
     """Register an existing data-schema table into the dataset catalog.
 
     Verifies the table exists, checks for duplicate registration,
-    ensures geom_4326 column and reader access, extracts metadata,
-    and creates a Dataset record.
+    ensures the gid and geom_4326 columns and reader access, extracts
+    metadata, and creates a Dataset record.
 
     fix(#1114): registered-table linear-geometry contract. ``geom_4326`` on a
     registered table must stay linear (no CIRCULARSTRING, COMPOUNDCURVE,
@@ -880,6 +929,8 @@ async def register_existing_table(
         raise ValueError(
             f"Table '{table_name}' cannot be registered. {UNDECLARED_SRID_REASON}"
         )
+
+    await _ensure_keyable_gid(session, table_name, schema=_schema)
 
     if has_geom:
         if not has_4326:

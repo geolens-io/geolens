@@ -1299,7 +1299,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/maps/schemas.py": 1397,
     # Metadata facade preserves the import and patch surface used by extensions and
     # callers.
-    "backend/app/processing/ingest/metadata.py": 161,
+    "backend/app/processing/ingest/metadata.py": 167,
     # Ingest API router debt; split upload, import and registration endpoints before
     # raising further. Each upload door branches once per 3D upload kind: a 3D
     # Tiles tileset and a COPC point cloud.
@@ -1357,11 +1357,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/auth/oauth/service.py": 1111,
     # Admin mutations share locking and audit outcomes.
     "backend/app/modules/admin/service.py": 1022,
-    # Ingest admission, staging and job settlement share one orchestration boundary.
-    "backend/app/processing/ingest/service.py": 1521,
-    # The PostGIS strategy: geometry repair, the snapshot measurement and its
-    # catalog writes.
-    "backend/app/processing/ingest/tasks_postgis_refresh.py": 660,
+    # Ingest admission, staging, job settlement and table registration share one
+    # orchestration boundary.
+    "backend/app/processing/ingest/service.py": 1572,
+    # The PostGIS strategy: geometry and gid repair, the snapshot measurement and
+    # its catalog writes.
+    "backend/app/processing/ingest/tasks_postgis_refresh.py": 699,
     # Dataset request and verification response families share this public contract.
     "backend/app/modules/catalog/datasets/domain/schemas.py": 1650,
     # Analysis validation, bounded execution and fenced registration share one task

@@ -130,19 +130,15 @@ def render_intersect_pairs(
       to run once per source row, not once per candidate pair — inlined it
       is #953's 28.4s-vs-0.2s trap, worse here since this shape probes every
       piece of every overlapping mask feature.
-    - The aggregate groups by the two gids only (fix(#1099)). ``_src.gid`` is
-      a real primary key, so Postgres licenses the other ``_src`` columns by
-      functional dependency; ``_mp`` is a keyless CTE, so its columns need
-      explicit GROUP BY. Routing overlay attributes through the CTE would
-      require naming each in GROUP BY, and ``json``/``xml`` have no equality
-      operator (SQLSTATE 42883) — a nested-GeoJSON properties column (which
-      lands as ``json``) would make a layer unusable as an overlay. So
-      overlay attributes travel via a LEFT JOIN back to the overlay table
-      after aggregation instead (LEFT is safe: every ``_gl_mask_gid`` came
-      from that same table in this statement, so a miss is impossible, and
-      ``gid`` is its primary key so the join can't multiply rows). Rendered
-      only when overlay columns are requested, so the columnless preview is
-      unchanged.
+    - The aggregate groups by the two gids, and everything else it reads
+      from the source is an aggregate too. Source and overlay attributes are
+      joined back by gid afterwards: a registered table's gid can be unique
+      without being its primary key, which Postgres won't take as a
+      functional dependency, and ``json``/``xml`` columns have no equality
+      operator to GROUP BY (SQLSTATE 42883). gid is unique in both tables,
+      so neither join multiplies rows, and every gid came from that same
+      table in this statement, so neither misses. Each join is rendered only
+      when its columns are requested, so the columnless preview has none.
     - ``ST_LineMerge`` on single-part LineString sources only, for the same
       reason as ``render_clip_layer_join``.
     - ``row_number()`` runs after ``WHERE``, so generated gids stay
@@ -159,9 +155,13 @@ def render_intersect_pairs(
     Applied inside the inner subquery before ``GROUP BY``, so it also
     shrinks the ``_mask_pieces`` join's candidate set.
     """
-    src_sel = "".join(f", _src.{c}" for c in src_columns)
-    outer_cols = "".join(f", _p.{c}" for c in src_columns)
+    outer_cols = "".join(f", _s.{c}" for c in src_columns)
     outer_cols += "".join(f", _mo.{c}" for c in mask_columns)
+    src_join = (
+        f" JOIN {src_table_ref} AS _s ON _s.gid = _p.{INTERSECT_SOURCE_GID_COLUMN}"
+        if src_columns
+        else ""
+    )
     mask_join = (
         f" LEFT JOIN {mask_table_ref} AS _mo ON _mo.gid = _p._gl_mask_gid"
         if mask_columns
@@ -181,8 +181,8 @@ def render_intersect_pairs(
         f" CASE WHEN _p._gl_src_type = 'LINESTRING'"
         f" THEN ST_LineMerge(_p.geom) ELSE _p.geom END AS geom"
         f" FROM (SELECT _src.gid AS {INTERSECT_SOURCE_GID_COLUMN},"
-        f" GeometryType(_src.geom_4326) AS _gl_src_type,"
-        f" _mp._gl_mask_gid{src_sel},"
+        f" min(GeometryType(_src.geom_4326)) AS _gl_src_type,"
+        f" _mp._gl_mask_gid,"
         f" ST_Union(ST_CollectionExtract("
         f"ST_Intersection(_sv.g, _mp.geom),"
         f" ST_Dimension(_src.geom_4326) + 1)) AS geom"
@@ -195,7 +195,7 @@ def render_intersect_pairs(
         f" AND ST_Intersects(_mp.geom, _sv.g)"
         f"{bbox_where}"
         f" GROUP BY _src.gid, _mp._gl_mask_gid) AS _p"
-        f"{mask_join}"
+        f"{src_join}{mask_join}"
         f" WHERE _p.geom IS NOT NULL AND NOT ST_IsEmpty(_p.geom)"
     )
 

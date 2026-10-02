@@ -23,8 +23,8 @@ class DiscoveredTable:
         srid (int | None): Coordinate reference system EPSG code, if defined.
         estimated_rows (int | None): PostgreSQL row count estimate from `pg_class.reltuples`.
         refusal_reason (None | str | Unset): Why registration would refuse this table, as one of a fixed set of GeoLens
-            codes: source_srid_undeclared. Null when discovery finds none, though registration can still refuse a table for
-            a reason discovery does not check.
+            codes: source_srid_undeclared, source_gid_unusable. Null when discovery finds none, though registration can
+            still refuse a table for a reason discovery does not check.
     """
 
     table_name: str

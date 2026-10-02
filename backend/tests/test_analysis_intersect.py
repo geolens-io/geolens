@@ -269,6 +269,58 @@ class TestPairwiseRows:
         assert out.feature_count == 1, "one mask FEATURE, one row, however it split"
 
 
+class TestUniqueSourceKey:
+    async def test_a_source_keyed_by_a_unique_gid_overlays_in_preview_and_materialize(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """A source whose gid is unique but not its primary key overlays like any other."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        zones = await _create_zones(test_db_session, created_by=admin_id)
+        bar = await _create_bar(test_db_session, created_by=admin_id)
+        await test_db_session.execute(
+            text(
+                f"ALTER TABLE data.{bar.table_name} "  # noqa: S608
+                f"DROP CONSTRAINT {bar.table_name}_pkey, ADD UNIQUE (gid)"
+            )
+        )
+        await test_db_session.commit()
+
+        resp = await client.post(
+            _preview_url(bar.id),
+            json={"operation": "intersect", "mask_dataset_id": str(zones.id)},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["feature_count"] == 3
+
+        job = await _create_job(test_db_session, admin_id)
+        await _materialize(
+            job_id=str(job.id),
+            dataset_id=str(bar.id),
+            user_id=str(admin_id),
+            operation="intersect",
+            title=f"Unique {uuid.uuid4().hex[:6]}",
+            mask_dataset_id=str(zones.id),
+        )
+        await test_db_session.refresh(job)
+        assert job.status == "complete", job.error_message
+
+        from app.modules.catalog.datasets.domain.models import Dataset
+
+        out = await test_db_session.get(Dataset, job.dataset_id)
+        rows = (
+            await test_db_session.execute(
+                text(
+                    f"SELECT parcel, zone FROM data.{out.table_name} ORDER BY zone"  # noqa: S608
+                )
+            )
+        ).all()
+        assert [tuple(r) for r in rows] == [("bar", "A"), ("bar", "B"), ("bar", "C")]
+
+
 class TestOverlayAttributes:
     """fix(#1099): the overlay's attributes are joined back, not grouped by.
 
