@@ -192,7 +192,8 @@ and releases use semantic versioning.
   tables before counting keys. (#2518, #2512)
 - Vector dataset quicklooks are redrawn after a file re-upload, a conversion
   to a live service or a service refresh, instead of showing the old data.
-  (#2534)
+  A redraw uses one database connection, and a replacement is no longer
+  held up by a slow image upload. (#2534)
 - Refreshing a registered PostGIS table restores its `gid`, and a refresh
   whose recreated `gid` cannot key features fails with
   `source_gid_unusable` instead of reporting a healthy table. The register
@@ -214,9 +215,20 @@ and releases use semantic versioning.
   applied polygon reopens as itself and keeps its shape on Apply instead
   of turning into its bounding rectangle. (#2531)
 - A polygon search area that crosses the antimeridian now matches records on
-  both sides of it. Search and facets fold the polygon back into the
-  longitude range before matching, where records past the seam never
-  matched before. (#2537)
+  both sides of it. Catalog search, its facets and STAC Item Search fold a
+  geometry written with longitudes past 180 back into range before
+  matching, where records past the seam never matched before. A search
+  area spanning more than 8 world copies, or with a coordinate too large
+  for a float, is refused with a 400. (#2537, #2556)
+- The Semantic Search switch in AI settings now saves with the rest of the
+  AI settings, counts as an unsaved change and is restored by Discard
+  Changes, instead of saving the moment it is flipped. It is disabled when
+  settings come from environment variables. Edits made while a save runs
+  are kept, and the settings page keeps the form when a background refresh
+  fails instead of dropping it. (#2553)
+- The map builder's Add Data dialog no longer blocks the page behind it, so
+  one click on the map or layer list works while it is open, and focus
+  returns to where it was when the dialog closes. (#2554)
 - The Render as buttons in the builder expose their selected state to
   assistive technology, and the notifications region label is translated in
   every language. (#2531)
@@ -227,10 +239,12 @@ and releases use semantic versioning.
   all five languages, the tile token is refetched after a publish,
   unpublish or visibility change, a non-public dataset no longer offers an
   unsigned vector tiles URL. (#2531)
-- A single-layer upload previews under the file's own name, a dataset that
-  is not found stops retrying its dependent queries, the dataset map
-  attribution stays clear of the basemap thumbnail on narrow maps, and 19
-  Spanish strings regain their accents. (#2532)
+- The import preview shows a single-layer upload's own name as Layer Name
+  instead of the staged file's job-id prefix, and keeps real layer names
+  that merely end with the file name. A dataset that is not found stops
+  retrying its dependent queries, the dataset map attribution stays clear
+  of the basemap thumbnail on narrow maps, and 19 Spanish strings regain
+  their accents. (#2532)
 - Collection Add buttons are named after their dataset, the Create dataset
   link is hidden from users without `edit_metadata`, folder groups are kept
   out of analysis layer pickers, and the analysis panel notes that a
