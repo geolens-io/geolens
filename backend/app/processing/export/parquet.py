@@ -148,19 +148,22 @@ _COLUMN_TYPES_SQL = """
 """
 
 
-def _arrow_type(typname: str, typmod: int) -> pa.DataType:
-    """The Arrow type for a Postgres base type, or string when none fits.
+def _arrow_type(typname: str, typmod: int) -> pa.DataType | None:
+    """The Arrow type for a Postgres base type, or None when none fits.
 
-    ``numeric`` without a declared precision has no fixed scale, so it is
-    string too.
+    ``numeric`` is declared only with a precision and a scale Arrow can hold.
+    Postgres also allows a negative scale or one above the precision.
     """
     if typname == "numeric" and typmod >= 4:
-        precision, scale = ((typmod - 4) >> 16) & 0xFFFF, (typmod - 4) & 0xFFFF
-        if precision <= 38:
+        precision, scale = ((typmod - 4) >> 16) & 0xFFFF, (typmod - 4) & 0x7FF
+        if scale >= 1024:
+            scale -= 2048
+        if 0 <= scale <= precision <= 38:
             return pa.decimal128(precision, scale)
-        if precision <= 76:
+        if 0 <= scale <= precision <= 76:
             return pa.decimal256(precision, scale)
-    return _SCALAR_TYPES.get(typname, pa.string())
+        return None
+    return _SCALAR_TYPES.get(typname)
 
 
 async def _declared_column_types(
@@ -171,6 +174,9 @@ async def _declared_column_types(
     json_columns: frozenset[str],
 ) -> dict[str, pa.DataType]:
     """Arrow types for ``attr_names`` taken from the table's column types.
+
+    A column whose type has no clean Arrow equivalent is left out, so its
+    type is inferred from its values.
 
     Fixing them before the first row is read keeps a column's type the same
     in every batch, however its values happen to look.
@@ -186,10 +192,10 @@ async def _declared_column_types(
             continue
         if name in json_columns:
             declared[name] = pa.string()
-        elif category == "A":
-            declared[name] = pa.list_(_arrow_type(element, typmod))
-        else:
-            declared[name] = _arrow_type(typname, typmod)
+            continue
+        arrow = _arrow_type(element if category == "A" else typname, typmod)
+        if arrow is not None:
+            declared[name] = pa.list_(arrow) if category == "A" else arrow
     return declared
 
 

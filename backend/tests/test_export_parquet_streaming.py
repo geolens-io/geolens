@@ -686,7 +686,8 @@ class TestRealTable:
         self, test_db_session, monkeypatch, staging
     ):
         """Types come from the table, so a NULL-only first batch, whole-number
-        decimals and small integers keep their declared type in every batch."""
+        decimals and small integers keep their declared type in every batch;
+        unconstrained numeric is still inferred."""
         monkeypatch.setattr(export_parquet_module, "_BATCH_MAX_ROWS", 10)
         table_name = f"exp_pqtypes_{uuid.uuid4().hex[:12]}"
         await test_db_session.execute(
@@ -724,13 +725,51 @@ class TestRealTable:
             assert schema.field("small").type == pa.int16()
             assert schema.field("late").type == pa.int32()
             assert schema.field("price").type == pa.decimal128(10, 3)
-            assert schema.field("loose").type == pa.string()
+            assert pa.types.is_decimal(schema.field("loose").type)
             assert schema.field("ratio").type == pa.float64()
             assert schema.field("ids").type == pa.list_(pa.int32())
             table = written.read().sort_by("small")
             assert table.column("late").to_pylist()[15:] == list(range(15, 25))
             assert table.column("price").to_pylist()[0] == Decimal("1.000")
-            assert table.column("loose").to_pylist()[1] == "1.5"
+            assert table.column("loose").to_pylist()[1] == Decimal("1.5")
+        finally:
+            await test_db_session.rollback()
+            await test_db_session.execute(
+                text(f"DROP TABLE IF EXISTS data.{table_name}")
+            )
+            await test_db_session.commit()
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize("populated", [False, True], ids=["empty", "null-first"])
+    async def test_numeric_scales_arrow_cannot_hold_export_without_error(
+        self, test_db_session, staging, monkeypatch, populated
+    ):
+        """numeric(2,-3) and numeric(3,5) are valid in Postgres but not as Arrow
+        decimals; they must not break the file write."""
+        monkeypatch.setattr(export_parquet_module, "_BATCH_MAX_ROWS", 10)
+        table_name = f"exp_pqscale_{uuid.uuid4().hex[:12]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table_name} (gid serial PRIMARY KEY, "
+                "neg numeric(2,-3), big numeric(3,5), geom geometry(Point, 4326), "
+                "geom_4326 geometry(Point, 4326))"
+            )
+        )
+        if populated:
+            await test_db_session.execute(
+                text(
+                    f"INSERT INTO data.{table_name} (neg, big, geom_4326) "
+                    "SELECT NULL, NULL, ST_SetSRID(ST_MakePoint(i, i), 4326) "
+                    "FROM generate_series(0, 14) AS i"
+                )
+            )
+        await test_db_session.commit()
+        try:
+            plan = await plan_parquet_export(test_db_session, table_name, schema="data")
+            path, _filename, _media_type = await export_parquet(
+                test_db_session, table_name, "Scale", schema="data", plan=plan
+            )
+            assert pq.read_table(path).num_rows == (15 if populated else 0)
         finally:
             await test_db_session.rollback()
             await test_db_session.execute(
