@@ -85,7 +85,7 @@ export function SearchPage() {
   // logged in AND allowed. See Navbar.tsx CreateMenu.
   const canImport = !!token && can('upload');
   const totalMatched = data ? Math.max(data.numberMatched ?? 0, data.features.length) : 0;
-  const allTypesTotal = useAllTypesTotal(totalMatched > 0 ? totalMatched : undefined);
+  const allTypesTotal = useAllTypesTotal(data ? totalMatched : undefined);
   const hasMapTextQuery = mapQuery.length > 0;
   const isMapSearchPending = hasMapTextQuery && (isLoadingMaps || isFetchingMaps);
   const hasMapMatches = (mapResults?.maps.length ?? 0) > 0;

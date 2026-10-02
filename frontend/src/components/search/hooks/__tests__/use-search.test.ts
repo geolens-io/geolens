@@ -142,6 +142,21 @@ describe('useAllTypesTotal', () => {
     expect(result.current).toBe(12);
   });
 
+  it('treats a zero untyped total as authoritative with and without a type', async () => {
+    mockSearchDatasets.mockResolvedValue({ numberMatched: 0, features: [] } as never);
+
+    useSearchStore.getState().setFilter('record_type', 'vector_dataset');
+    const { result, rerender } = renderHook(({ total }) => useAllTypesTotal(total), {
+      initialProps: { total: 0 as number | undefined },
+    });
+
+    await waitFor(() => expect(result.current).toBe(0));
+
+    act(() => useSearchStore.getState().setFilter('record_type', ''));
+    rerender({ total: 0 });
+    expect(result.current).toBe(0);
+  });
+
   it('makes no request and returns the result total when no type is selected', () => {
     const { result } = renderHook(() => useAllTypesTotal(12));
 

@@ -50,6 +50,13 @@ describe('FilterPanel', () => {
     expect(screen.getByRole('radio', { name: /All/ })).toHaveTextContent('16');
   });
 
+  it('shows a zero All total even when the facets are positive', () => {
+    render(<FilterPanel totalResults={undefined} allTypesTotal={0} />);
+
+    expect(screen.getByRole('radio', { name: /All/ })).toHaveTextContent('0');
+    expect(screen.getByRole('radio', { name: /All/ })).not.toHaveTextContent('16');
+  });
+
   it('disables badges with count of 0', () => {
     render(<FilterPanel totalResults={18} />);
 
