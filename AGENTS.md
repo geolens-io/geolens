@@ -41,7 +41,7 @@ Commands start at the repository root unless specified. Setup: [.github/CONTRIBU
 - Schema changes: `make migrate`, then `make alembic-check` against a compatible DB at migration heads.
 - Backend: `make test` / `make test-cov` use the API container. Python changes require `cd backend && uv run ruff check . && uv run ruff format --check .`. Coverage floor: 80%; McCabe limit: 15; `backend/pyproject.toml`'s `per-file-ignores` may only shrink.
 - Frontend: `cd frontend && API_PROXY_TARGET=http://localhost:8001 npm run dev`. Gates: `npm run build && npm run lint && npm run typecheck && npm run test:coverage` from `frontend/`; `npx tsc --noEmit` does not check this project. Focused test: `npx vitest run src/path/foo.test.ts`.
-- E2E needs a running stack: `npm run e2e` / `npm run e2e:smoke`; focused: `npx playwright test e2e/foo.spec.ts --project=chromium`. Run relevant smoke groups for user-flow changes; see the contributor guide.
+- E2E needs a running stack: `npm run e2e` / `npm run e2e:smoke`; focused: `npx playwright test e2e/foo.spec.ts --project=chromium`. Run relevant smoke groups for user-flow changes; see the contributor guide. For a manual browser check through the Playwright MCP (sign-in, locators, screenshots, cleanup), read `docs/agents/browser-smoke.md`.
 - Contracts: `make openapi-check`, `make sdks-check` (regenerates files), `make cli-test` (includes DB integration), `make mcp-test`.
 - Versions: `make bump VERSION=X.Y.Z`; never edit versions individually. Gate: `make version-check`.
 

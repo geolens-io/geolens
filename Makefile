@@ -1,12 +1,11 @@
-# Use bash with pipefail so `make sdks`'s
-# `uvx openapi-python-client ... 2>&1 | tee .../...log` propagates the
-# generator's non-zero exit instead of `tee`'s 0. Applies to all recipes;
-# existing recipes are pipefail-safe (no recipe relies on partial-pipeline
-# tolerance).
+# Bash with pipefail, so a piped recipe such as `make sdks`'s `... | tee log`
+# fails when the command fails rather than reporting tee's 0. GNU Make 3.81,
+# the version macOS ships, ignores .SHELLFLAGS, so piped recipes also run
+# `set -o pipefail` themselves.
 SHELL := /bin/bash
 .SHELLFLAGS := -o pipefail -c
 
-.PHONY: dev dev-init down reset-db migrate migration alembic-check overlay-migration-check test test-sequential test-cov env-test ai-evals e2e logs logs-db logs-api status doctor preflight openapi openapi-check sdks _sdks_generate sdks-check sdks-test manifest-contract-check publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli mcp-build mcp-test mcp-live-test publish-mcp audit-sink-discipline billing-extraction-discipline catalog-domain-discipline bump version-check public-surface-check deployed-surface-check
+.PHONY: dev dev-init down reset-db migrate migration alembic-check overlay-migration-check test test-sequential test-cov env-test ai-evals e2e smoke-auth logs logs-db logs-api status doctor preflight openapi openapi-check sdks _sdks_generate sdks-check sdks-test manifest-contract-check publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli mcp-build mcp-test mcp-live-test publish-mcp audit-sink-discipline billing-extraction-discipline catalog-domain-discipline bump version-check public-surface-check deployed-surface-check
 
 # Pre-flight: verify boot-required env vars are non-empty in .env before any
 # `docker compose` build (which takes 5-10 minutes on a cold cache only to crash
@@ -114,6 +113,21 @@ ai-evals:
 e2e:
 	npx playwright test
 
+# Resolves the admin credentials the way Compose does (quotes, exported
+# overrides) without sourcing .env. Sign-in only: no shared fixture is seeded
+# or torn down, and the session and runner output go to their own paths, so an
+# e2e run keeps its login, fixture, report and failure artifacts. A failed fill
+# can echo its value, so the output is redacted.
+smoke-auth: ## Sign the admin in and save the session to playwright/.auth/smoke.json
+	set -o pipefail; . scripts/lib/common.sh && \
+	effective_env_value_into admin_user GEOLENS_ADMIN_USERNAME .env && \
+	effective_env_value_into admin_pass GEOLENS_ADMIN_PASSWORD .env && \
+	GEOLENS_ADMIN_USERNAME="$$admin_user" GEOLENS_ADMIN_PASSWORD="$$admin_pass" E2E_SKIP_SEED=1 \
+	E2E_AUTH_FILE=playwright/.auth/smoke.json \
+	npx playwright test e2e/auth.setup.ts --project=setup --no-deps --grep "authenticate as admin" \
+		--output=playwright/.auth/smoke-auth-results --reporter=line 2>&1 | \
+	SMOKE_AUTH_SECRET="$$admin_pass" python3 -c 'import os, sys; s = os.environ["SMOKE_AUTH_SECRET"]; sys.stdout.write(sys.stdin.read().replace(s, "[redacted]"))'
+
 logs:
 	docker compose logs -f
 
@@ -217,7 +231,7 @@ _sdks_generate:
 	# Post-hook ruff is pinned to the backend's version (keep in sync with
 	# backend uv.lock): left unpinned, the ruff 0.16.0 release (2026-07)
 	# rewrote generated output and broke `make sdks-check` on every PR.
-	uvx --with "ruff==0.15.22" openapi-python-client@0.28.3 generate \
+	set -o pipefail; uvx --with "ruff==0.15.22" openapi-python-client@0.28.3 generate \
 	  --path "$(SDKS_TMPDIR)/openapi-flat.json" \
 	  --output-path sdks/python/geolens \
 	  --overwrite --meta none \

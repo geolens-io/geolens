@@ -7,7 +7,9 @@ import {
   type SeededDataset,
 } from './helpers/catalog';
 
-const authFile = path.join(__dirname, '../playwright/.auth/user.json');
+const authFile = process.env.E2E_AUTH_FILE
+  ? path.resolve(process.env.E2E_AUTH_FILE)
+  : path.join(__dirname, '../playwright/.auth/user.json');
 const catalogFixtureFile = path.join(__dirname, '../playwright/.auth/catalog-fixture.json');
 
 setup('authenticate as admin', async ({ page }) => {
