@@ -194,8 +194,9 @@ and releases use semantic versioning.
   tables before counting keys. (#2518, #2512)
 - Vector dataset quicklooks are redrawn after a file re-upload, a conversion
   to a live service or a service refresh, instead of showing the old data.
-  A redraw uses one database connection, and a replacement is no longer
-  held up by a slow image upload. (#2534)
+  A redraw uses one database connection, a replacement is no longer held
+  up by a slow image upload, and a redraw removes the image it uploaded if
+  the dataset was deleted in the meantime. (#2534)
 - Refreshing a registered PostGIS table restores its `gid`, and a refresh
   whose recreated `gid` cannot key features fails with
   `source_gid_unusable` instead of reporting a healthy table. The register
