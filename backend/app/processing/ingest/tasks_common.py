@@ -1090,42 +1090,36 @@ async def _generate_quicklook(session, dataset_id: uuid.UUID, table_name: str) -
     session that trips ``MissingGreenlet`` on ``dataset.record``'s next lazy
     access.
 
-    Every draw of a dataset overwrites the same object. Draws take turns on an
-    advisory lock held on a connection of its own, which a cancelled query
-    cannot end, so each reads the table after the previous put and the last
-    put shows the newest data. A draw whose data changed while it ran draws
-    again, since the draw that change queued may have given up waiting.
+    Every draw of a dataset overwrites the same object, so of two draws that
+    overlap the later put can come from the earlier read. Each change to the
+    data rolls the dataset's tile version, so a draw that sees the version
+    move while it ran draws again, and the last put shows the newest data.
+    The draw holds only the caller's session, one pooled connection.
 
     The caller's view of ``quicklook_256_uri`` is stale after this returns.
     """
     from sqlalchemy import select
 
-    from app.core.db import async_session
-    from app.platform.catalog_locks import WORKER_LOCK_TIMEOUT, lock_request_key
     from app.platform.extensions import get_processing_port
 
     Dataset = get_processing_port().get_dataset_orm_class()
     content_version = select(Dataset.tile_cache_version).where(Dataset.id == dataset_id)
-    async with async_session() as turn:
-        try:
-            await lock_request_key(
-                turn,
-                scope=f"vector-quicklook:{dataset_id}",
-                lock_timeout=WORKER_LOCK_TIMEOUT,
-            )
-            for _ in range(_QUICKLOOK_DRAWS):
-                drawn = await turn.scalar(content_version)
-                await _draw_quicklook(session, dataset_id, table_name)
-                if await turn.scalar(content_version) == drawn:
-                    return
-        except Exception as exc:  # broad: the dataset is already published
-            structlog.get_logger().warning(
-                "quicklook_failed", phase="turn", table=table_name, error=str(exc)
-            )
+    try:
+        for _ in range(_QUICKLOOK_DRAWS):
+            drawn = await session.scalar(content_version)
+            await _draw_quicklook(session, dataset_id, table_name)
+            # A draw that failed can leave its transaction aborted.
+            await session.rollback()
+            if await session.scalar(content_version) == drawn:
+                return
+    except Exception as exc:  # broad: the dataset is already published
+        structlog.get_logger().warning(
+            "quicklook_failed", phase="version", table=table_name, error=str(exc)
+        )
 
 
 async def _draw_quicklook(session, dataset_id: uuid.UUID, table_name: str) -> None:
-    """The body of :func:`_generate_quicklook`, run while it holds the dataset's turn."""
+    """Draw, upload and record the quicklook once; :func:`_generate_quicklook` repeats it."""
     import io as _io
 
     from sqlalchemy import update

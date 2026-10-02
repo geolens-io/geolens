@@ -1313,7 +1313,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Shared ingest finalization carries verification, manifest record fields, bounded
     # ArcGIS requests, lifecycle context and the quicklook draw that ingest and
     # replacement share.
-    "backend/app/processing/ingest/tasks_common.py": 1799,
+    "backend/app/processing/ingest/tasks_common.py": 1793,
     # File and remote-source replacement strategies own retrieval, staging and verification.
     "backend/app/processing/ingest/tasks_reupload.py": 1200,
     # Refresh strategies share access, admission and dispatch rules at this API

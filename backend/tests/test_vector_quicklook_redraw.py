@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from contextlib import ExitStack
+from functools import partial
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -299,77 +300,115 @@ async def _draw(dataset: Dataset) -> None:
         await _generate_quicklook(session, dataset.id, dataset.table_name)
 
 
-async def _wait_until_waiting_or_done(task: asyncio.Task) -> None:
-    """Return once ``task`` has finished or a session waits on an advisory lock."""
-    import app.core.db as db_module
-
-    for _ in range(200):
-        if task.done():
-            return
-        # A fresh session per poll: pg_stat_activity is a per-transaction snapshot.
-        async with db_module.async_session() as probe:
-            waiting = await probe.scalar(
-                text(
-                    "SELECT count(*) FROM pg_locks l "
-                    "JOIN pg_stat_activity a ON a.pid = l.pid "
-                    "WHERE l.locktype = 'advisory' AND NOT l.granted "
-                    "AND a.datname = current_database()"
-                )
-            )
-        if waiting:
-            return
-        await asyncio.sleep(0.05)
-    raise AssertionError("the second draw neither finished nor waited")
+async def _publish_spread(session: AsyncSession, dataset: Dataset) -> None:
+    """Replace the table with three points and roll the tile version, as a replacement does."""
+    await session.execute(text(f'DELETE FROM "data"."{dataset.table_name}"'))
+    await session.execute(
+        text(
+            f'INSERT INTO "data"."{dataset.table_name}" (name, geom, geom_4326) '
+            "SELECT name, geom, geom FROM (VALUES "
+            f"{_points_sql(_SPREAD)}) AS v(name, geom)"
+        )
+    )
+    await session.execute(
+        text(
+            "UPDATE catalog.datasets SET tile_cache_version = "
+            "coalesce(tile_cache_version, 1) + 1 WHERE id = :id"
+        ),
+        {"id": dataset.id},
+    )
+    await session.commit()
 
 
-async def test_an_older_draw_never_lands_over_a_newer_one(
-    test_db_session, storage, tables
+@pytest.mark.parametrize("stall", ["read", "upload"])
+async def test_an_older_draw_that_lands_last_draws_the_newer_table(
+    test_db_session, storage, tables, monkeypatch, stall: str
 ) -> None:
-    """A draw that read the table before a replacement cannot put after a later draw."""
+    """A draw that read the table before a replacement, and put after its draw, draws again."""
     dataset, _admin_id, before = await _published_one_point_dataset(
         test_db_session, storage, tables
     )
-    real = quicklook_module.generate_vector_quicklook_with_timeout
-    first_drawn = asyncio.Event()
-    release_first = asyncio.Event()
+    held = asyncio.Event()
+    release = asyncio.Event()
     calls = 0
 
-    async def _slow_first(db, table_name, geometry_type, size=256, **kwargs):
+    async def _hold_first(real, *args, **kwargs):
         nonlocal calls
         calls += 1
-        png = await real(db, table_name, geometry_type, size, **kwargs)
-        if calls == 1:
-            first_drawn.set()
-            await release_first.wait()
-        return png
+        if calls == 1 and stall == "upload":
+            held.set()
+            await release.wait()
+        result = await real(*args, **kwargs)
+        if calls == 1 and stall == "read":
+            held.set()
+            await release.wait()
+        return result
 
-    with patch.object(
-        quicklook_module, "generate_vector_quicklook_with_timeout", _slow_first
-    ):
-        older = asyncio.create_task(_draw(dataset))
-        await asyncio.wait_for(first_drawn.wait(), timeout=10)
-        # The older draw has read the one point; the table now holds three.
-        await test_db_session.execute(
-            text(f'DELETE FROM "data"."{dataset.table_name}"')
+    if stall == "read":
+        real = quicklook_module.generate_vector_quicklook_with_timeout
+        monkeypatch.setattr(
+            quicklook_module,
+            "generate_vector_quicklook_with_timeout",
+            partial(_hold_first, real),
         )
-        await test_db_session.execute(
-            text(
-                f'INSERT INTO "data"."{dataset.table_name}" (name, geom, geom_4326) '
-                "SELECT name, geom, geom FROM (VALUES "
-                f"{_points_sql(_SPREAD)}) AS v(name, geom)"
-            )
-        )
-        await test_db_session.commit()
-        newer = asyncio.create_task(_draw(dataset))
-        try:
-            await _wait_until_waiting_or_done(newer)
-        finally:
-            release_first.set()
-        await asyncio.wait_for(asyncio.gather(older, newer), timeout=30)
+    else:
+        monkeypatch.setattr(storage, "put", partial(_hold_first, storage.put))
+
+    older = asyncio.create_task(_draw(dataset))
+    try:
+        await asyncio.wait_for(held.wait(), timeout=10)
+        await _publish_spread(test_db_session, dataset)
+        await asyncio.wait_for(_draw(dataset), timeout=30)
+    finally:
+        release.set()
+        await asyncio.wait_for(older, timeout=30)
 
     _uri, stored = await _stored_quicklook(storage, dataset.id)
-    assert stored != before, "the draw of the replaced data was kept"
+    assert stored != before, "the older draw of the replaced data was kept"
     assert stored == await _render(dataset.table_name)
+
+
+async def test_draws_of_two_datasets_finish_on_a_one_connection_pool(
+    test_db_session, storage, tables, monkeypatch
+) -> None:
+    """A redraw holds one pooled connection, so a full pool only queues the next."""
+    import app.core.db as db_module
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from app.processing.ingest.publication import _redraw_quicklook
+
+    first, _admin_id, _before = await _published_one_point_dataset(
+        test_db_session, storage, tables
+    )
+    second, _admin_id, _before = await _published_one_point_dataset(
+        test_db_session, storage, tables
+    )
+    for dataset in (first, second):
+        await _publish_spread(test_db_session, dataset)
+
+    engine = create_async_engine(
+        db_module.engine.url, pool_size=1, max_overflow=0, pool_timeout=3
+    )
+    try:
+        with monkeypatch.context() as patched:
+            patched.setattr(
+                db_module,
+                "async_session",
+                async_sessionmaker(engine, expire_on_commit=False),
+            )
+            await asyncio.wait_for(
+                asyncio.gather(
+                    _redraw_quicklook(first.id, first.table_name),
+                    _redraw_quicklook(second.id, second.table_name),
+                ),
+                timeout=30,
+            )
+    finally:
+        await engine.dispose()
+
+    for dataset in (first, second):
+        _uri, stored = await _stored_quicklook(storage, dataset.id)
+        assert stored == await _render(dataset.table_name), dataset.table_name
 
 
 async def test_a_stalled_upload_leaves_the_table_free_for_a_replacement(
@@ -412,61 +451,6 @@ async def test_a_stalled_upload_leaves_the_table_free_for_a_replacement(
         await asyncio.wait_for(draw, timeout=30)
 
 
-async def test_a_draw_overtaken_while_its_waiter_gave_up_draws_the_newer_table(
-    test_db_session, storage, tables, monkeypatch
-) -> None:
-    """An upload that outlasts the next draw's wait still ends on the newer data."""
-    dataset, _admin_id, before = await _published_one_point_dataset(
-        test_db_session, storage, tables
-    )
-    monkeypatch.setattr("app.platform.catalog_locks.WORKER_LOCK_TIMEOUT", "1s")
-    uploading = asyncio.Event()
-    release_upload = asyncio.Event()
-    real_put = storage.put
-    puts = 0
-
-    async def _first_put_stalls(key, data):
-        nonlocal puts
-        puts += 1
-        if puts == 1:
-            uploading.set()
-            await release_upload.wait()
-        return await real_put(key, data)
-
-    monkeypatch.setattr(storage, "put", _first_put_stalls)
-    older = asyncio.create_task(_draw(dataset))
-    try:
-        await asyncio.wait_for(uploading.wait(), timeout=10)
-        # A replacement publishes three points and rolls the tile version.
-        await test_db_session.execute(
-            text(f'DELETE FROM "data"."{dataset.table_name}"')
-        )
-        await test_db_session.execute(
-            text(
-                f'INSERT INTO "data"."{dataset.table_name}" (name, geom, geom_4326) '
-                "SELECT name, geom, geom FROM (VALUES "
-                f"{_points_sql(_SPREAD)}) AS v(name, geom)"
-            )
-        )
-        await test_db_session.execute(
-            text(
-                "UPDATE catalog.datasets SET tile_cache_version = "
-                "coalesce(tile_cache_version, 1) + 1 WHERE id = :id"
-            ),
-            {"id": dataset.id},
-        )
-        await test_db_session.commit()
-        # Its draw waits out the budget and gives up.
-        await asyncio.wait_for(_draw(dataset), timeout=30)
-    finally:
-        release_upload.set()
-        await asyncio.wait_for(older, timeout=30)
-
-    _uri, stored = await _stored_quicklook(storage, dataset.id)
-    assert stored != before, "the slow draw of the replaced data was kept"
-    assert stored == await _render(dataset.table_name)
-
-
 async def test_a_redraw_gives_the_public_quicklook_a_new_etag(
     client, test_db_session, storage, tables
 ) -> None:
@@ -480,15 +464,7 @@ async def test_a_redraw_gives_the_public_quicklook_a_new_etag(
     assert first.content == before
     held = first.headers["etag"]
 
-    await test_db_session.execute(text(f'DELETE FROM "data"."{dataset.table_name}"'))
-    await test_db_session.execute(
-        text(
-            f'INSERT INTO "data"."{dataset.table_name}" (name, geom, geom_4326) '
-            "SELECT name, geom, geom FROM (VALUES "
-            f"{_points_sql(_SPREAD)}) AS v(name, geom)"
-        )
-    )
-    await test_db_session.commit()
+    await _publish_spread(test_db_session, dataset)
     await _draw(dataset)
 
     revalidated = await client.get(url, headers={"If-None-Match": held})
