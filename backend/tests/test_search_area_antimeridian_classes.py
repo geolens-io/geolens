@@ -266,31 +266,39 @@ _CASES = {
 _ROUTES = ["stac-GET", "stac-POST", "catalog-intersects", "catalog-within"]
 
 
-@pytest.fixture
-async def items(client: AsyncClient, test_db_session) -> dict:
+def _wkt(ring: list) -> str:
+    return "POLYGON((" + ",".join(f"{x} {y}" for x, y in ring) + "))"
+
+
+async def _create_items(session, prefix: str, extents: dict[str, str]) -> dict:
     """The same extents as public raster items (STAC) and vector records (catalog)."""
-    token = f"seamclass{uuid.uuid4().hex[:10]}"
-    admin_id = await get_user_id(test_db_session, "admin")
+    token = f"{prefix}{uuid.uuid4().hex[:10]}"
+    admin_id = await get_user_id(session, "admin")
     rasters, vectors = {}, {}
-    for name, wkt in _EXTENTS.items():
+    for name, wkt in extents.items():
         raster = await create_raster_dataset(
-            test_db_session, created_by=admin_id, name=f"{token} raster {name}"
+            session, created_by=admin_id, name=f"{token} raster {name}"
         )
-        await test_db_session.execute(
+        await session.execute(
             update(Record)
             .where(Record.id == raster.record_id)
             .values(spatial_extent=func.ST_GeomFromText(wkt, 4326))
         )
-        await test_db_session.commit()
+        await session.commit()
         rasters[name] = str(raster.id)
         vector = await create_dataset(
-            test_db_session,
+            session,
             created_by=admin_id,
             name=f"{token} vector {name}",
             spatial_extent_wkt=wkt,
         )
         vectors[name] = str(vector.id)
     return {"token": token, "rasters": rasters, "vectors": vectors}
+
+
+@pytest.fixture
+async def items(client: AsyncClient, test_db_session) -> dict:
+    return await _create_items(test_db_session, "seamclass", _EXTENTS)
 
 
 async def _matches(
@@ -303,11 +311,15 @@ async def _matches(
         if mode == "GET":
             resp = await client.get(
                 "/stac/search",
-                params={"ids": ",".join(ids), "intersects": json.dumps(geometry)},
+                params={
+                    "ids": ",".join(ids),
+                    "intersects": json.dumps(geometry),
+                    "limit": 100,
+                },
             )
         else:
             resp = await client.post(
-                "/stac/search", json={"ids": ids, "intersects": geometry}
+                "/stac/search", json={"ids": ids, "intersects": geometry, "limit": 100}
             )
         by_id = items["rasters"]
     else:
@@ -375,3 +387,71 @@ async def test_empty_area_matches_nothing(
         return
 
     assert await _matches(client, admin_auth_header, items, route, geometry) == set()
+
+
+@pytest.fixture
+async def overlap_items(client: AsyncClient, test_db_session) -> dict:
+    """Items under an in-range overlapping MultiPolygon and a bowtie.
+
+    The many fillers make PostGIS reuse a prepared form of the search area
+    before it reaches the items inside the overlap.
+    """
+    extents = {
+        f"filler_{i}": _wkt(_rect(-179 + i / 2, 1, -178.8 + i / 2, 2))
+        for i in range(24)
+    }
+    extents |= {
+        f"core_{i}": _wkt(_rect(-169 + i / 3, 6, -168 + i / 3, 9)) for i in range(6)
+    }
+    extents["bow_left"] = _wkt(_rect(1, 9, 2, 11))
+    extents["bow_gap"] = _wkt(_rect(8, 1, 9, 2))
+    # Touches the seam on the +180 side only.
+    extents["plus_edge"] = _wkt(_rect(178, 20, 180, 22))
+    return await _create_items(test_db_session, "seamoverlap", extents)
+
+
+_IN_RANGE_OVERLAP = _multi(_A_IN[0], _A_IN[1], _B_IN)
+_IN_RANGE_BOWTIE = _poly([[0, 0], [20, 20], [20, 0], [0, 20], [0, 0]])
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("route", _ROUTES)
+async def test_in_range_overlapping_multipolygon_matches_every_item_inside(
+    client: AsyncClient, admin_auth_header: dict, overlap_items: dict, route: str
+):
+    found = await _matches(
+        client, admin_auth_header, overlap_items, route, _IN_RANGE_OVERLAP
+    )
+
+    inside = {
+        name for name in overlap_items["rasters"] if name.startswith(("filler", "core"))
+    }
+    assert found == inside
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("route", _ROUTES)
+async def test_in_range_bowtie_matches_inside_its_triangles(
+    client: AsyncClient, admin_auth_header: dict, overlap_items: dict, route: str
+):
+    found = await _matches(
+        client, admin_auth_header, overlap_items, route, _IN_RANGE_BOWTIE
+    )
+
+    assert found == {"bow_left"}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("route", _ROUTES)
+async def test_seam_member_keeps_its_side_when_another_member_folds(
+    client: AsyncClient, admin_auth_header: dict, overlap_items: dict, route: str
+):
+    in_range = {"type": "MultiPoint", "coordinates": [[180, 21], [-172, 0]]}
+    wrapped = {"type": "MultiPoint", "coordinates": [[180, 21], [188, 0]]}
+
+    expected = await _matches(client, admin_auth_header, overlap_items, route, in_range)
+    found = await _matches(client, admin_auth_header, overlap_items, route, wrapped)
+
+    assert found == expected
+    if not route.endswith("within"):
+        assert expected == {"plus_edge"}

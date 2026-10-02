@@ -451,8 +451,8 @@ _MAX_WRAP_TURNS = 8
 def wrap_geometry_longitudes(geom: ColumnElement) -> ColumnElement:
     """Fold a 4326 geometry drawn on a wrapped web map into ``[-180, 180]``.
 
-    Returns ``geom`` itself when every longitude is already in range.
-    Otherwise each member is repaired, cut into the world copies it spans
+    Returns ``geom`` itself when it is valid and every longitude is already
+    in range. Otherwise each member is repaired, cut into the world copies it spans
     (at most ``_MAX_WRAP_TURNS``; the rest of a wider member is dropped),
     each slice is shifted by whole turns into range, and the union of the
     slices is returned. Slices keep their member's dimension, so collapsed
@@ -461,7 +461,8 @@ def wrap_geometry_longitudes(geom: ColumnElement) -> ColumnElement:
     members = func.ST_Dump(geom).table_valued("geom")
     member = members.c.geom
     dimension = func.ST_Dimension(member)
-    first_turn = func.floor((func.ST_XMin(member) + 180) / 360.0)
+    # Closed world copies: a member on ±180 lands on both sides of the seam.
+    first_turn = func.ceil((func.ST_XMin(member) - 180) / 360.0)
     last_turn = func.floor((func.ST_XMax(member) + 180) / 360.0)
     extra_turns = func.least(last_turn - first_turn, _MAX_WRAP_TURNS - 1)
     steps = func.generate_series(0, cast(extra_turns, Integer))
@@ -491,7 +492,7 @@ def wrap_geometry_longitudes(geom: ColumnElement) -> ColumnElement:
     # Non-finite input matches nothing; GEOS raises on it.
     finite = xmax - xmin + func.ST_YMax(geom) - func.ST_YMin(geom) < math.inf
     return case(
-        (and_(xmin >= -180, xmax <= 180), geom),
+        (and_(xmin >= -180, xmax <= 180, func.ST_IsValid(geom)), geom),
         (finite, folded),
     )
 
