@@ -164,7 +164,7 @@ export function ImportPreview({ preview }: ImportPreviewProps) {
           </div>
           <div>
             <p className="text-xs text-muted-foreground">{t('preview.layerName')}</p>
-            <Badge variant="secondary">{displayLayerName(preview.layer_name, preview.source_filename)}</Badge>
+            <Badge variant="secondary">{displayLayerName(preview.layer_name, preview.job_id, preview.source_filename)}</Badge>
           </div>
         </div>
 

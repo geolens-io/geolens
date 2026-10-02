@@ -115,7 +115,7 @@ function DetectionPanel({ entry }: { entry: FileEntry }) {
                 )}
               </dd>
               <dt className="font-mono text-mini text-muted-foreground">{t('detect.labels.layer')}</dt>
-              <dd className="font-mono text-mini">{displayLayerName(file.layer_name, file.source_filename)}</dd>
+              <dd className="font-mono text-mini">{displayLayerName(file.layer_name, file.job_id, file.source_filename)}</dd>
             </>
           ) : null}
         </dl>

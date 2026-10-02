@@ -19,15 +19,16 @@ function preview(layerName: string): FilePreviewResponse {
 }
 
 describe('displayLayerName', () => {
-  it('replaces a layer name derived from the staged file with the file stem', () => {
-    expect(displayLayerName(`${JOB}_significant_month`, 'significant_month.geojson')).toBe('significant_month');
-    expect(displayLayerName(`${JOB}_x1y2_significant_month`, 'significant_month.geojson')).toBe('significant_month');
-    expect(displayLayerName('significant_month', 'significant_month.geojson')).toBe('significant_month');
+  it('replaces a layer name carrying the job id prefix with the file stem', () => {
+    expect(displayLayerName(`${JOB}_significant_month`, JOB, 'significant_month.geojson')).toBe('significant_month');
+    expect(displayLayerName(`${JOB}_x1y2_significant_month`, JOB, 'significant_month.geojson')).toBe('significant_month');
   });
 
-  it('keeps a real layer name', () => {
-    expect(displayLayerName('roads', 'network.gpkg')).toBe('roads');
-    expect(displayLayerName('roads', null)).toBe('roads');
+  it('keeps real layer names, including ones that end with the file stem', () => {
+    expect(displayLayerName('roads', JOB, 'network.gpkg')).toBe('roads');
+    expect(displayLayerName('roads', JOB, null)).toBe('roads');
+    expect(displayLayerName('primary_roads', JOB, 'roads.gpkg')).toBe('primary_roads');
+    expect(displayLayerName('secondary_roads', JOB, 'roads.gpkg')).toBe('secondary_roads');
   });
 });
 
