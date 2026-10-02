@@ -59,12 +59,14 @@ and releases use semantic versioning.
   and model and answers 503, and the message says which other settings in
   the request were kept. In env-only mode these changes still answer 403.
   (#2527)
-- Feature responses carry an opaque `table_id`. `PUT`, `PATCH` and `DELETE`
-  on `/datasets/{id}/features/{gid}` accept it as an optional query
-  parameter, and a write whose table was replaced since the editor read it
-  is refused with 409 `dataset_replaced`. A retried create whose feature is
-  gone is refused with 409 `feature_gone`, alongside the existing
-  `feature_changed`. Writes without `table_id` behave as before. (#2528)
+- The single-feature `GET`, the create, `PUT` and `PATCH` responses, and the
+  `feature_changed` 409 carry an opaque `table_id`. The feature list and
+  `features.geojson` responses do not. `PUT`, `PATCH` and `DELETE` on
+  `/datasets/{id}/features/{gid}` accept it as an optional query parameter,
+  and a write whose table was replaced since the editor read it is refused
+  with 409 `dataset_replaced`. A retried create whose feature is gone is
+  refused with 409 `feature_gone`, alongside the existing `feature_changed`.
+  Writes without `table_id` behave as before. (#2528)
 - `POST /datasets/{id}/features/` accepts optional `Idempotency-Key` and
   `Idempotency-Attempt` headers, so a retried create returns the stored
   feature instead of inserting a second one. A migration adds the table
