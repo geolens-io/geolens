@@ -472,3 +472,35 @@ async def test_a_redraw_gives_the_public_quicklook_a_new_etag(
     assert revalidated.content == await _render(dataset.table_name)
     assert revalidated.content != before
     assert revalidated.headers["etag"] not in (None, held)
+
+
+async def test_a_draw_whose_dataset_was_deleted_removes_its_upload(
+    test_db_session, storage, tables, monkeypatch
+) -> None:
+    """A delete that reaps the quicklook before the draw's upload leaves no orphan."""
+    import app.core.db as db_module
+
+    dataset, _admin_id, _before = await _published_one_point_dataset(
+        test_db_session, storage, tables
+    )
+    key = f"vectors/{dataset.id}/quicklook_256.png"
+    real_put = storage.put
+
+    async def _deleted_before_put(stored_key, data):
+        # The delete commits and reaps vectors/{id}/ while the draw renders.
+        async with db_module.async_session() as delete:
+            await delete.execute(
+                text(
+                    "DELETE FROM catalog.records WHERE id = "
+                    "(SELECT record_id FROM catalog.datasets WHERE id = :id)"
+                ),
+                {"id": dataset.id},
+            )
+            await delete.commit()
+        await storage.delete(key)
+        return await real_put(stored_key, data)
+
+    monkeypatch.setattr(storage, "put", _deleted_before_put)
+    await _draw(dataset)
+
+    assert not await storage.exists(key), "the upload outlived its dataset"

@@ -1122,11 +1122,16 @@ async def _draw_quicklook(session, dataset_id: uuid.UUID, table_name: str) -> No
     """Draw, upload and record the quicklook once; :func:`_generate_quicklook` repeats it."""
     import io as _io
 
-    from sqlalchemy import update
+    from sqlalchemy import select, update
 
+    from app.core.db.tenant_session import current_tenant_var
     from app.platform.extensions import get_processing_port
+    from app.platform.storage.titiler_url import resolve_storage_key
 
     _ql_log = structlog.get_logger()
+    ql_storage = get_storage()
+    ql_key = f"vectors/{dataset_id}/quicklook_256.png"
+    stored_key = resolve_storage_key(ql_key, tenant_id=current_tenant_var.get())
     try:
         from app.processing.vector.quicklook import (
             generate_vector_quicklook_with_timeout as generate_vector_quicklook,
@@ -1143,15 +1148,7 @@ async def _draw_quicklook(session, dataset_id: uuid.UUID, table_name: str) -> No
         # table against a later replacement's rename. Also recovers a cursor
         # a wait_for cancel poisoned.
         await session.rollback()
-        from app.core.db.tenant_session import current_tenant_var
-        from app.platform.storage.titiler_url import resolve_storage_key
-
-        ql_storage = get_storage()
-        ql_key = f"vectors/{dataset_id}/quicklook_256.png"
-        await ql_storage.put(
-            resolve_storage_key(ql_key, tenant_id=current_tenant_var.get()),
-            _io.BytesIO(ql_bytes),
-        )
+        await ql_storage.put(stored_key, _io.BytesIO(ql_bytes))
     except Exception as _ql_exc:  # broad: quicklook generation is non-fatal; geometry rendering can OOM/timeout
         _ql_log.warning(
             "quicklook_failed",
@@ -1165,7 +1162,7 @@ async def _draw_quicklook(session, dataset_id: uuid.UUID, table_name: str) -> No
     # already published, so its failure is only logged.
     Dataset = get_processing_port().get_dataset_orm_class()
     try:
-        await session.execute(
+        written = await session.execute(
             update(Dataset)
             .where(
                 Dataset.id == dataset_id,
@@ -1173,6 +1170,10 @@ async def _draw_quicklook(session, dataset_id: uuid.UUID, table_name: str) -> No
             )
             .values(quicklook_256_uri=ql_key)
             .execution_options(synchronize_session=False)
+        )
+        gone = not written.rowcount and (
+            await session.scalar(select(Dataset.id).where(Dataset.id == dataset_id))
+            is None
         )
     except Exception as _ql_recovery_exc:  # broad: non-fatal contract — connection drop between upload and recovery must not propagate
         try:
@@ -1185,6 +1186,15 @@ async def _draw_quicklook(session, dataset_id: uuid.UUID, table_name: str) -> No
             table=table_name,
             error=str(_ql_recovery_exc)[:500],
         )
+        return
+
+    if gone:
+        # A delete that reaped vectors/{id}/ before this upload left it unowned.
+        await session.rollback()
+        try:
+            await ql_storage.delete(stored_key)
+        except Exception as exc:  # broad: an orphaned image only costs storage
+            _ql_log.warning("quicklook_reap_failed", table=table_name, error=str(exc))
         return
 
     try:
