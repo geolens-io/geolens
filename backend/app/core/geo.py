@@ -3,12 +3,12 @@ from __future__ import annotations
 import hashlib
 import math
 import re
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from functools import lru_cache
 from typing import TYPE_CHECKING
 
 from geoalchemy2.shape import to_shape
-from sqlalchemy import and_, case, column, func, or_, select, text
+from sqlalchemy import Integer, and_, case, cast, column, func, or_, select, text, true
 from sqlalchemy import table as sql_table
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -444,22 +444,105 @@ def make_bbox_filter(
         return and_(geom_col.op("&&")(envelope), spatial_fn(geom_col, envelope))
 
 
+# World copies wrap_geometry_longitudes folds per member; check_wrap_turns
+# refuses wider input so nothing is ever truncated.
+MAX_WRAP_TURNS = 8
+
+
+def _member_coordinates(geometry: dict) -> Iterator[object]:
+    """Coordinates of each member of a GeoJSON geometry, split as ST_Dump splits it."""
+    kind = geometry.get("type")
+    if kind == "GeometryCollection":
+        for member in geometry.get("geometries") or []:
+            if isinstance(member, dict):
+                yield from _member_coordinates(member)
+    elif kind in ("MultiPoint", "MultiLineString", "MultiPolygon"):
+        yield from geometry.get("coordinates") or []
+    else:
+        yield geometry.get("coordinates")
+
+
+def _longitudes(coordinates: object) -> Iterator[float]:
+    if not isinstance(coordinates, list) or not coordinates:
+        return
+    if isinstance(coordinates[0], int | float):
+        try:
+            lng = float(coordinates[0])
+        except OverflowError as exc:
+            raise ValueError("a coordinate is too large") from exc
+        if math.isfinite(lng):
+            yield lng
+        return
+    for nested in coordinates:
+        yield from _longitudes(nested)
+
+
+def check_wrap_turns(geometry: object) -> None:
+    """Raise ``ValueError`` if a GeoJSON member spans more than ``MAX_WRAP_TURNS``
+    world copies, counted as :func:`wrap_geometry_longitudes` counts them.
+
+    Malformed geometry passes; PostGIS rejects it when it is parsed.
+    """
+    if not isinstance(geometry, dict):
+        return
+    for coordinates in _member_coordinates(geometry):
+        xs = list(_longitudes(coordinates))
+        if not xs:
+            continue
+        first = math.ceil((min(xs) - 180) / 360.0)
+        last = math.floor((max(xs) + 180) / 360.0)
+        if last - first + 1 > MAX_WRAP_TURNS:
+            raise ValueError(
+                f"a member spans more than {MAX_WRAP_TURNS} world copies of longitude"
+            )
+
+
 def wrap_geometry_longitudes(geom: ColumnElement) -> ColumnElement:
     """Fold a 4326 geometry drawn on a wrapped web map into ``[-180, 180]``.
 
-    Returns ``geom`` itself when every longitude is already in range.
-    Otherwise moves it by whole turns so its centre lies in ``[-180, 180)``,
-    splits it at ±180, shifts the outer pieces one turn back into range and
-    returns the union of the highest-dimension pieces.
+    Returns ``geom`` itself when it is valid and every longitude is already
+    in range. Otherwise each member is repaired, cut into the world copies it
+    spans (at most ``MAX_WRAP_TURNS``; :func:`check_wrap_turns` refuses wider
+    input), each slice is shifted by whole turns into range, and the union of the
+    slices is returned. Slices keep their member's dimension, so collapsed
+    repair output and seam slivers are dropped. Non-finite input yields NULL.
     """
+    members = func.ST_Dump(geom).table_valued("geom")
+    member = members.c.geom
+    dimension = func.ST_Dimension(member)
+    # Closed world copies: a member on ±180 lands on both sides of the seam.
+    first_turn = func.ceil((func.ST_XMin(member) - 180) / 360.0)
+    last_turn = func.floor((func.ST_XMax(member) + 180) / 360.0)
+    extra_turns = func.least(last_turn - first_turn, MAX_WRAP_TURNS - 1)
+    steps = func.generate_series(0, cast(extra_turns, Integer))
+    steps = steps.table_valued("value").render_derived().lateral()
+    turn = first_turn + steps.c.value
+    # Repairing overlapping polygons together would drop their shared area, and
+    # ST_Intersection raises on an invalid one; repair each polygon on its own.
+    repaired = case(
+        (dimension == 2, func.ST_CollectionExtract(func.ST_MakeValid(member), 3)),
+        else_=member,
+    )
+    world = func.ST_MakeEnvelope(turn * 360 - 180, -90, turn * 360 + 180, 90, 4326)
+    piece = func.ST_CollectionExtract(
+        func.ST_Intersection(repaired, world), dimension + 1
+    )
+    folded = (
+        select(
+            func.ST_UnaryUnion(
+                func.ST_Collect(func.ST_Translate(piece, turn * -360, 0))
+            )
+        )
+        .select_from(members)
+        .join(steps, true())
+        .scalar_subquery()
+    )
     xmin, xmax = func.ST_XMin(geom), func.ST_XMax(geom)
-    turns = func.floor((xmin + xmax + 360.0) / 720.0)
-    # The union raises on overlapping invalid pieces; drawn input can self-intersect.
-    centred = func.ST_MakeValid(func.ST_Translate(geom, turns * -360.0, 0))
-    folded = func.ST_WrapX(func.ST_WrapX(centred, -180, 360), 180, -360)
+    # Non-finite input matches nothing; GEOS raises on it.
+    finite = xmax - xmin + func.ST_YMax(geom) - func.ST_YMin(geom) < math.inf
     return case(
-        (and_(xmin >= -180, xmax <= 180), geom),
-        else_=func.ST_UnaryUnion(func.ST_CollectionExtract(folded)),
+        (and_(xmin >= -180, xmax <= 180, func.ST_IsValid(geom)), geom),
+        (finite, folded),
     )
 
 

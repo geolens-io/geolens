@@ -10,6 +10,7 @@ from typing import Literal
 from fastapi import HTTPException, Query, status
 from pydantic import BaseModel, field_validator
 
+from app.core.geo import check_wrap_turns
 from app.core.record_types import RECORD_TYPES
 from app.modules.catalog.features.service import parse_bbox
 from app.modules.catalog.search.service import SearchFilters
@@ -33,7 +34,7 @@ def parse_spatial_params(
     geometry_geojson: str | None = None
     if geometry:
         try:
-            parsed = json.loads(geometry)
+            check_wrap_turns(parsed := json.loads(geometry))
             if "type" not in parsed or "coordinates" not in parsed:
                 raise ValueError("missing type or coordinates")
             geometry_geojson = geometry
