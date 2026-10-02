@@ -44,6 +44,13 @@ describe('FilterPanel', () => {
     expect(screen.getByRole('radio', { name: /Vector/ })).toHaveTextContent('10');
   });
 
+  it('keeps All at the cross-type count while a type is selected', () => {
+    useSearchStore.getState().setFilter('record_type', 'raster_dataset');
+    render(<FilterPanel totalResults={5} />);
+
+    expect(screen.getByRole('radio', { name: /All/ })).toHaveTextContent('16');
+  });
+
   it('disables badges with count of 0', () => {
     render(<FilterPanel totalResults={18} />);
 

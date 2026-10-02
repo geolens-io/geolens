@@ -105,9 +105,11 @@ export function FilterSheet({ totalResults }: FilterSheetProps) {
 
   const { data: facets } = useFacets();
   const counts = facets?.record_type ?? {};
-  // All matches the result total, which also counts collections; per-type facets are dataset-only.
+  // Without a type selected the result total is the one All returns, collections
+  // included. With one selected the total is type-narrowed and the facets carry
+  // no collection count, so All falls back to the dataset-facet sum.
   const allTypeCount =
-    totalResults ??
+    (recordType === '' ? totalResults : undefined) ??
     ((counts.vector_dataset ?? 0) +
     (counts.raster_dataset ?? 0) +
     (counts.vrt_dataset ?? 0) +
