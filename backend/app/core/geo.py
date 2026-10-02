@@ -466,8 +466,12 @@ def _longitudes(coordinates: object) -> Iterator[float]:
     if not isinstance(coordinates, list) or not coordinates:
         return
     if isinstance(coordinates[0], int | float):
-        if math.isfinite(coordinates[0]):
-            yield coordinates[0]
+        try:
+            lng = float(coordinates[0])
+        except OverflowError as exc:
+            raise ValueError("a coordinate is too large") from exc
+        if math.isfinite(lng):
+            yield lng
         return
     for nested in coordinates:
         yield from _longitudes(nested)

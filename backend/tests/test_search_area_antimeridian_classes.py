@@ -506,3 +506,27 @@ async def test_area_spanning_too_many_world_copies_is_refused(
 
     assert resp.status_code == 400, resp.text
     assert "world copies" in resp.json()["detail"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("route", ["stac-GET", "stac-POST", "catalog-intersects"])
+async def test_coordinate_too_large_for_a_float_is_refused(
+    client: AsyncClient, admin_auth_header: dict, route: str
+):
+    geometry = '{"type": "Point", "coordinates": [1' + "0" * 400 + ", 22]}"
+    if route == "stac-GET":
+        resp = await client.get("/stac/search", params={"intersects": geometry})
+    elif route == "stac-POST":
+        resp = await client.post(
+            "/stac/search",
+            content='{"intersects": ' + geometry + "}",
+            headers={"Content-Type": "application/json"},
+        )
+    else:
+        resp = await client.get(
+            "/search/datasets/",
+            params={"geometry": geometry},
+            headers=admin_auth_header,
+        )
+
+    assert resp.status_code == 400, resp.text
