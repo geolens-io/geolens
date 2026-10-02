@@ -79,11 +79,12 @@ export function useSettingsForm<K extends string>(
     if (isSaving) editedDuringSaveRef.current = new Set();
   }, [isSaving]);
 
-  // Discarding drops the draft, so edits tracked from a save that has settled
-  // but not yet refetched must not pin the discarded value over the
-  // persisted one.
+  // Discarding drops the draft, so edits tracked so far must not pin the
+  // discarded value over the persisted one. Tracking stays armed, because a
+  // save that has settled may not have refetched yet and a new edit made
+  // before it lands still has to survive it.
   const syncFromSettings = useCallback(() => {
-    editedDuringSaveRef.current = null;
+    if (editedDuringSaveRef.current) editedDuringSaveRef.current = new Set();
     setValues(initialValues);
   }, [initialValues]);
 

@@ -297,6 +297,22 @@ describe('useSettingsForm', () => {
       expect(result.current.hasDirty).toBe(false);
     });
 
+    it('keeps a new edit made after a discard while the save refetch is outstanding', () => {
+      const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
+      const { result, rerender } = renderWithSettings(initial);
+
+      act(() => result.current.setters.name('Bob'));
+      rerender({ s: initial, saving: true });
+      rerender({ s: initial, saving: false });
+      act(() => result.current.discard());
+      act(() => result.current.setters.name('Dave'));
+
+      rerender({ s: [makeSetting('name', 'Bob'), makeSetting('flag', false)], saving: false });
+
+      expect(result.current.values.name).toBe('Dave');
+      expect(result.current.dirty).toEqual({ name: 'Dave' });
+    });
+
     it('keeps a post-submit edit even when an unrelated refetch races the save', () => {
       const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
       const { result, rerender } = renderWithSettings(initial);
