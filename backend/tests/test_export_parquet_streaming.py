@@ -809,3 +809,54 @@ class TestRealTable:
                 text(f"DROP TABLE IF EXISTS data.{table_name}")
             )
             await test_db_session.commit()
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize("populated", [False, True], ids=["empty", "rows"])
+    async def test_domain_columns_take_their_base_type(
+        self, test_db_session, staging, monkeypatch, populated
+    ):
+        """A domain over a supported type is declared as that type, keeping the
+        numeric scale, rather than inferred."""
+        monkeypatch.setattr(export_parquet_module, "_BATCH_MAX_ROWS", 10)
+        suffix = uuid.uuid4().hex[:12]
+        table_name = f"exp_pqdom_{suffix}"
+        for statement in (
+            f"CREATE DOMAIN data.int_dom_{suffix} AS integer",
+            f"CREATE DOMAIN data.num_dom_{suffix} AS numeric(10,3)",
+            f"CREATE DOMAIN data.nested_dom_{suffix} AS data.int_dom_{suffix}",
+            f"CREATE TABLE data.{table_name} (gid serial PRIMARY KEY, "
+            f"n data.int_dom_{suffix}, p data.num_dom_{suffix}, "
+            f"q data.nested_dom_{suffix}, geom geometry(Point, 4326), "
+            "geom_4326 geometry(Point, 4326))",
+        ):
+            await test_db_session.execute(text(statement))
+        if populated:
+            await test_db_session.execute(
+                text(
+                    f"INSERT INTO data.{table_name} (n, p, q, geom_4326) "
+                    "SELECT CASE WHEN i < 15 THEN NULL ELSE i END, "
+                    "CASE WHEN i < 15 THEN 1 ELSE 1.125 END, NULL, "
+                    "ST_SetSRID(ST_MakePoint(i, i), 4326) "
+                    "FROM generate_series(0, 24) AS i"
+                )
+            )
+        await test_db_session.commit()
+        try:
+            plan = await plan_parquet_export(test_db_session, table_name, schema="data")
+            path, _filename, _media_type = await export_parquet(
+                test_db_session, table_name, "Dom", schema="data", plan=plan
+            )
+            schema = pq.ParquetFile(path).schema_arrow
+            assert schema.field("n").type == pa.int32()
+            assert schema.field("p").type == pa.decimal128(10, 3)
+            assert schema.field("q").type == pa.int32()
+        finally:
+            await test_db_session.rollback()
+            await test_db_session.execute(
+                text(f"DROP TABLE IF EXISTS data.{table_name}")
+            )
+            for domain in ("nested_dom", "num_dom", "int_dom"):
+                await test_db_session.execute(
+                    text(f"DROP DOMAIN IF EXISTS data.{domain}_{suffix}")
+                )
+            await test_db_session.commit()
