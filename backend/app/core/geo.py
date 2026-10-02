@@ -8,7 +8,7 @@ from functools import lru_cache
 from typing import TYPE_CHECKING
 
 from geoalchemy2.shape import to_shape
-from sqlalchemy import and_, case, column, func, or_, select, text
+from sqlalchemy import Integer, and_, case, cast, column, func, or_, select, text, true
 from sqlalchemy import table as sql_table
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -444,42 +444,55 @@ def make_bbox_filter(
         return and_(geom_col.op("&&")(envelope), spatial_fn(geom_col, envelope))
 
 
+# Bounds the slicing work; no drawn member spans this many world copies.
+_MAX_WRAP_TURNS = 8
+
+
 def wrap_geometry_longitudes(geom: ColumnElement) -> ColumnElement:
     """Fold a 4326 geometry drawn on a wrapped web map into ``[-180, 180]``.
 
-    Returns ``geom`` itself when every longitude is already in range, and its
-    whole latitude band when it spans 360° of longitude or more. Otherwise
-    each member is repaired, moved by the whole turns that bring the
-    geometry's centre into ``[-180, 180)`` and split at ±180, the outer pieces
-    are shifted one turn back into range, and the union of all pieces is
-    returned. Points and lines are kept; lines or points that the repair
-    collapses out of a polygon are not.
+    Returns ``geom`` itself when every longitude is already in range.
+    Otherwise each member is repaired, cut into the world copies it spans
+    (at most ``_MAX_WRAP_TURNS``; the rest of a wider member is dropped),
+    each slice is shifted by whole turns into range, and the union of the
+    slices is returned. Slices keep their member's dimension, so collapsed
+    repair output and seam slivers are dropped. Non-finite input yields NULL.
     """
-    xmin, xmax = func.ST_XMin(geom), func.ST_XMax(geom)
-    turns = func.floor((xmin + xmax + 360.0) / 720.0)
     members = func.ST_Dump(geom).table_valued("geom")
     member = members.c.geom
+    dimension = func.ST_Dimension(member)
+    first_turn = func.floor((func.ST_XMin(member) + 180) / 360.0)
+    last_turn = func.floor((func.ST_XMax(member) + 180) / 360.0)
+    extra_turns = func.least(last_turn - first_turn, _MAX_WRAP_TURNS - 1)
+    steps = func.generate_series(0, cast(extra_turns, Integer))
+    steps = steps.table_valued("value").render_derived().lateral()
+    turn = first_turn + steps.c.value
     # Repairing overlapping polygons together would drop their shared area, and
-    # the union raises on an invalid one; repair each polygon on its own.
+    # ST_Intersection raises on an invalid one; repair each polygon on its own.
     repaired = case(
-        (
-            func.ST_Dimension(member) == 2,
-            func.ST_CollectionExtract(func.ST_MakeValid(member), 3),
-        ),
+        (dimension == 2, func.ST_CollectionExtract(func.ST_MakeValid(member), 3)),
         else_=member,
     )
-    moved = func.ST_Translate(repaired, turns * -360.0, 0)
-    pieces = func.ST_WrapX(func.ST_WrapX(moved, -180, 360), 180, -360)
+    world = func.ST_MakeEnvelope(turn * 360 - 180, -90, turn * 360 + 180, 90, 4326)
+    piece = func.ST_CollectionExtract(
+        func.ST_Intersection(repaired, world), dimension + 1
+    )
     folded = (
-        select(func.ST_UnaryUnion(func.ST_Collect(pieces)))
+        select(
+            func.ST_UnaryUnion(
+                func.ST_Collect(func.ST_Translate(piece, turn * -360, 0))
+            )
+        )
         .select_from(members)
+        .join(steps, true())
         .scalar_subquery()
     )
-    band = func.ST_MakeEnvelope(-180, func.ST_YMin(geom), 180, func.ST_YMax(geom), 4326)
+    xmin, xmax = func.ST_XMin(geom), func.ST_XMax(geom)
+    # Non-finite input matches nothing; GEOS raises on it.
+    finite = xmax - xmin + func.ST_YMax(geom) - func.ST_YMin(geom) < math.inf
     return case(
         (and_(xmin >= -180, xmax <= 180), geom),
-        (xmax - xmin >= 360, band),
-        else_=folded,
+        (finite, folded),
     )
 
 

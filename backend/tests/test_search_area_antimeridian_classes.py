@@ -28,6 +28,8 @@ _EXTENTS = {
     "overlap_core": "POLYGON((-169 6,-166 6,-166 9,-169 9,-169 6))",
     # Inside the shell of _HOLE_SEAM and outside its hole.
     "ring": "POLYGON((162 5,165 5,165 8,162 8,162 5))",
+    # Inside the latitude band of _STAIR but outside its coverage.
+    "band_gap": "POLYGON((10 1,15 1,15 3,10 3,10 1))",
 }
 
 
@@ -100,6 +102,38 @@ _HOLE_SEAM_IN = {
     ],
 }
 
+
+def _shift(ring: list, dx: float) -> list:
+    return [[x + dx, *rest] for x, *rest in ring]
+
+
+# The seam strip stored split at ±180, as an in-range MultiPolygon.
+_SEAM_SPLIT = [_rect(-180, 20, -170, 25), _rect(170, 20, 180, 25)]
+
+_SEAM_LINE = [[-190, 22], [-165, 22]]
+_SEAM_LINE_IN = {
+    "type": "MultiLineString",
+    "coordinates": [[[170, 22], [180, 22]], [[-180, 22], [-165, 22]]],
+}
+
+# Wider than 360° but covering only part of its latitude band.
+_STAIR = _poly(
+    [[-200, 0], [-100, 0], [-100, 5], [200, 5], [200, 10], [-200, 10], [-200, 0]]
+)
+_STAIR_IN = _poly(
+    [
+        [-100, 0],
+        [-180, 0],
+        [-180, 10],
+        [180, 10],
+        [180, 0],
+        [160, 0],
+        [160, 5],
+        [-100, 5],
+        [-100, 0],
+    ]
+)
+
 _SEAM_Z = [[x, y, 5] for x, y in _rect(-194.53, 11.59, -145.31, 36.93)]
 _SEAM_Z_IN = {
     "type": "MultiPolygon",
@@ -134,11 +168,8 @@ _CASES = {
     ),
     "hole_across_seam": (_HOLE_SEAM, _HOLE_SEAM_IN, {"ring", "overlap_core"}, True),
     "line_across_seam": (
-        {"type": "LineString", "coordinates": [[-190, 22], [-165, 22]]},
-        {
-            "type": "MultiLineString",
-            "coordinates": [[[170, 22], [180, 22]], [[-180, 22], [-165, 22]]],
-        },
+        {"type": "LineString", "coordinates": _SEAM_LINE},
+        _SEAM_LINE_IN,
         {"east", "west", "straddling"},
         True,
     ),
@@ -170,6 +201,64 @@ _CASES = {
         _poly(_SEAM_Z),
         _SEAM_Z_IN,
         {"east", "west", "straddling"},
+        True,
+    ),
+    "seam_split_turn_east": (
+        _multi(*(_shift(r, 360) for r in _SEAM_SPLIT)),
+        _multi(*_SEAM_SPLIT),
+        {"east", "west", "straddling"},
+        True,
+    ),
+    "seam_split_turn_west": (
+        _multi(*(_shift(r, -360) for r in _SEAM_SPLIT)),
+        _multi(*_SEAM_SPLIT),
+        {"east", "west", "straddling"},
+        True,
+    ),
+    "wider_than_360_partial": (_STAIR, _STAIR_IN, {"overlap_core", "ring"}, True),
+    "point_two_turns_east": (
+        {"type": "Point", "coordinates": [548, 22]},
+        {"type": "Point", "coordinates": [-172, 22]},
+        {"west"},
+        True,
+    ),
+    "point_in_two_copies": (
+        {"type": "MultiPoint", "coordinates": [[-172, 22], [548, 22]]},
+        {"type": "Point", "coordinates": [-172, 22]},
+        {"west"},
+        True,
+    ),
+    "line_two_turns_east": (
+        {"type": "LineString", "coordinates": _shift(_SEAM_LINE, 720)},
+        _SEAM_LINE_IN,
+        {"east", "west", "straddling"},
+        True,
+    ),
+    "line_in_two_copies": (
+        {
+            "type": "MultiLineString",
+            "coordinates": [_SEAM_LINE, _shift(_SEAM_LINE, 720)],
+        },
+        _SEAM_LINE_IN,
+        {"east", "west", "straddling"},
+        True,
+    ),
+    "hole_two_turns_east": (
+        _poly(*(_shift(r, 720) for r in _HOLE_SEAM["coordinates"])),
+        _HOLE_SEAM_IN,
+        {"ring", "overlap_core"},
+        True,
+    ),
+    "hole_in_two_copies": (
+        {
+            "type": "MultiPolygon",
+            "coordinates": [
+                _HOLE_SEAM["coordinates"],
+                [_shift(r, 720) for r in _HOLE_SEAM["coordinates"]],
+            ],
+        },
+        _HOLE_SEAM_IN,
+        {"ring", "overlap_core"},
         True,
     ),
 }
