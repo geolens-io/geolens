@@ -156,15 +156,19 @@ async def _owed(job_id) -> dict | None:
 
 
 @contextmanager
-def _completion_steps():
-    """Record each catalog cache purge and embedding refresh the follow-ups run, in order."""
+def _completion_steps(vrt_id):
+    """Record each catalog cache purge, and each refresh of ``vrt_id``'s embedding, the follow-ups run, in order.
+
+    A sweep also runs records other tests left due, so only this VRT's embedding counts.
+    """
     steps: list[str] = []
 
     async def _cache() -> None:
         steps.append("cache")
 
     async def _embedding(dataset) -> None:
-        steps.append("embedding")
+        if dataset.id == vrt_id:
+            steps.append("embedding")
 
     with (
         patch.object(publish_followups, "invalidate_catalog_cache", _cache),
@@ -220,7 +224,7 @@ async def test_a_confirmed_regeneration_purges_the_cache_and_refreshes_the_embed
     lost = _LostAcknowledgement(job.id, ConnectionResetError("dropped"))
     try:
         with ExitStack() as stack:
-            steps = stack.enter_context(_completion_steps())
+            steps = stack.enter_context(_completion_steps(ids[0]))
             if publish == "observed":
                 stack.enter_context(lost.installed())
                 stack.enter_context(_observed(PublishObservation.LANDED))
@@ -246,7 +250,7 @@ async def test_a_regeneration_that_landed_unseen_gets_its_completion_steps_from_
     )
     lost = _LostAcknowledgement(job.id, ConnectionResetError("dropped"))
     try:
-        with _completion_steps() as steps:
+        with _completion_steps(ids[0]) as steps:
             with lost.installed(), _observed(PublishObservation.UNKNOWN):
                 await _regenerate(job, generation_id, ids[0])
             assert lost.fired == 1
@@ -360,7 +364,7 @@ async def test_a_followups_failure_leaves_the_completion_steps_to_the_sweep(
         test_db_session, vrt_id=ids[0], user_id=admin_id
     )
     try:
-        with _completion_steps() as steps:
+        with _completion_steps(ids[0]) as steps:
             with patch.object(
                 tasks_vrt,
                 "run_publish_followups",
@@ -399,7 +403,7 @@ async def test_a_crash_between_the_reap_and_the_completion_steps_leaves_them_to_
         raise ConnectionResetError("the worker died after the reap")
 
     try:
-        with _completion_steps() as steps:
+        with _completion_steps(ids[0]) as steps:
             with patch.object(
                 publish_followups, "_settle_storage_items", _crash_once_settled
             ):
