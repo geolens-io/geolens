@@ -661,6 +661,7 @@ class _ProviderModelConfig(PersistentConfig[str]):
         own ``default_model`` through ``resolve_runtime_config``; without one
         it takes the community default.
         """
+        from app.core.ai_credentials import OpenAICredentialDestinationError
         from app.platform.extensions import get_ai_provider
         from app.platform.extensions.defaults_ai_anthropic import (
             DefaultAnthropicProvider,
@@ -674,7 +675,13 @@ class _ProviderModelConfig(PersistentConfig[str]):
         except ValueError:
             return llm_model_default(provider, light=self.light)
         if type(ext) not in (DefaultAnthropicProvider, DefaultOpenAICompatibleProvider):
-            model = (await ext.resolve_runtime_config(db)).get("default_model")
+            # A stale endpoint must not stop the settings page or an import
+            # that would repair it; the call-time check still rejects it.
+            try:
+                config = await ext.resolve_runtime_config(db)
+            except OpenAICredentialDestinationError:
+                config = {}
+            model = config.get("default_model")
             if isinstance(model, str) and model.strip():
                 return model
         return llm_model_default(provider, light=self.light)

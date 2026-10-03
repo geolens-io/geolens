@@ -58,3 +58,18 @@ async def test_subclass_of_a_built_in_provider_supplies_its_default_model(
 
     monkeypatch.setattr("app.platform.extensions.get_ai_provider", lambda n: _Sub())
     assert await cfg.default_for(None, "anthropic") == "sub-deployment"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cfg", [LLM_MODEL, LLM_MODEL_LIGHT])
+async def test_invalid_endpoint_does_not_break_default_model_lookup(monkeypatch, cfg):
+    from app.core.ai_credentials import OpenAICredentialDestinationError
+
+    class _Stale:
+        async def resolve_runtime_config(self, db):
+            raise OpenAICredentialDestinationError("stale endpoint")
+
+    monkeypatch.setattr("app.platform.extensions.get_ai_provider", lambda n: _Stale())
+    assert await cfg.default_for(None, "ext") == llm_model_default(
+        "ext", light=cfg.light
+    )
