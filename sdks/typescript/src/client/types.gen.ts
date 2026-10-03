@@ -10647,6 +10647,16 @@ export type StacSearchRequest = {
      */
     limit?: number;
     /**
+     * Token
+     *
+     * Optional auth token for a protected STAC catalog. Deprecated: use the auth object with method bearer.
+     */
+    token?: string | null;
+    /**
+     * Structured credential for a protected service. Mutually exclusive with the token field.
+     */
+    auth?: ServiceAuthRequest | null;
+    /**
      * Max Cloud Cover
      *
      * Only items at or below this eo:cloud_cover percentage.
@@ -10662,16 +10672,6 @@ export type StacSearchRequest = {
      * The next_page of the previous response, to fetch the page after it. Send the same filters as the first request.
      */
     next_page?: StacNextPage | null;
-    /**
-     * Token
-     *
-     * Optional auth token for a protected STAC catalog. Deprecated: use the auth object with method bearer.
-     */
-    token?: string | null;
-    /**
-     * Structured credential for a protected service. Mutually exclusive with the token field.
-     */
-    auth?: ServiceAuthRequest | null;
 };
 
 /**

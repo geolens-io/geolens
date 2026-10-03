@@ -33,15 +33,15 @@ class StacSearchRequest:
         bbox (list[float] | None | Unset): Bounding box filter as [west, south, east, north].
         datetime_range (None | str | Unset): Temporal filter in STAC datetime format (e.g. '2023-01-01/2023-12-31').
         limit (int | Unset): Maximum items to return. Default: 20.
+        token (None | str | Unset): Optional auth token for a protected STAC catalog. Deprecated: use the auth object
+            with method bearer.
+        auth (None | ServiceAuthRequest | Unset): Structured credential for a protected service. Mutually exclusive with
+            the token field.
         max_cloud_cover (float | None | Unset): Only items at or below this eo:cloud_cover percentage.
         cloud_cover_mode (None | StacSearchRequestCloudCoverModeType0 | Unset): How to send max_cloud_cover: 'query' for
             the STAC Query extension, 'filter' for CQL2 JSON. Pick the one the catalog lists in its landing page conformsTo.
         next_page (None | StacNextPage | Unset): The next_page of the previous response, to fetch the page after it.
             Send the same filters as the first request.
-        token (None | str | Unset): Optional auth token for a protected STAC catalog. Deprecated: use the auth object
-            with method bearer.
-        auth (None | ServiceAuthRequest | Unset): Structured credential for a protected service. Mutually exclusive with
-            the token field.
     """
 
     url: str
@@ -49,11 +49,11 @@ class StacSearchRequest:
     bbox: list[float] | None | Unset = UNSET
     datetime_range: None | str | Unset = UNSET
     limit: int | Unset = 20
+    token: None | str | Unset = UNSET
+    auth: None | ServiceAuthRequest | Unset = UNSET
     max_cloud_cover: float | None | Unset = UNSET
     cloud_cover_mode: None | StacSearchRequestCloudCoverModeType0 | Unset = UNSET
     next_page: None | StacNextPage | Unset = UNSET
-    token: None | str | Unset = UNSET
-    auth: None | ServiceAuthRequest | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -88,6 +88,20 @@ class StacSearchRequest:
 
         limit = self.limit
 
+        token: None | str | Unset
+        if isinstance(self.token, Unset):
+            token = UNSET
+        else:
+            token = self.token
+
+        auth: dict[str, Any] | None | Unset
+        if isinstance(self.auth, Unset):
+            auth = UNSET
+        elif isinstance(self.auth, ServiceAuthRequest):
+            auth = self.auth.to_dict()
+        else:
+            auth = self.auth
+
         max_cloud_cover: float | None | Unset
         if isinstance(self.max_cloud_cover, Unset):
             max_cloud_cover = UNSET
@@ -110,20 +124,6 @@ class StacSearchRequest:
         else:
             next_page = self.next_page
 
-        token: None | str | Unset
-        if isinstance(self.token, Unset):
-            token = UNSET
-        else:
-            token = self.token
-
-        auth: dict[str, Any] | None | Unset
-        if isinstance(self.auth, Unset):
-            auth = UNSET
-        elif isinstance(self.auth, ServiceAuthRequest):
-            auth = self.auth.to_dict()
-        else:
-            auth = self.auth
-
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -139,16 +139,16 @@ class StacSearchRequest:
             field_dict["datetime_range"] = datetime_range
         if limit is not UNSET:
             field_dict["limit"] = limit
+        if token is not UNSET:
+            field_dict["token"] = token
+        if auth is not UNSET:
+            field_dict["auth"] = auth
         if max_cloud_cover is not UNSET:
             field_dict["max_cloud_cover"] = max_cloud_cover
         if cloud_cover_mode is not UNSET:
             field_dict["cloud_cover_mode"] = cloud_cover_mode
         if next_page is not UNSET:
             field_dict["next_page"] = next_page
-        if token is not UNSET:
-            field_dict["token"] = token
-        if auth is not UNSET:
-            field_dict["auth"] = auth
 
         return field_dict
 
@@ -205,6 +205,32 @@ class StacSearchRequest:
 
         limit = d.pop("limit", UNSET)
 
+        def _parse_token(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        token = _parse_token(d.pop("token", UNSET))
+
+        def _parse_auth(data: object) -> None | ServiceAuthRequest | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                auth_type_0 = ServiceAuthRequest.from_dict(data)
+
+                return auth_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | ServiceAuthRequest | Unset, data)
+
+        auth = _parse_auth(d.pop("auth", UNSET))
+
         def _parse_max_cloud_cover(data: object) -> float | None | Unset:
             if data is None:
                 return data
@@ -252,43 +278,17 @@ class StacSearchRequest:
 
         next_page = _parse_next_page(d.pop("next_page", UNSET))
 
-        def _parse_token(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        token = _parse_token(d.pop("token", UNSET))
-
-        def _parse_auth(data: object) -> None | ServiceAuthRequest | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            try:
-                if not isinstance(data, dict):
-                    raise TypeError()
-                auth_type_0 = ServiceAuthRequest.from_dict(data)
-
-                return auth_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(None | ServiceAuthRequest | Unset, data)
-
-        auth = _parse_auth(d.pop("auth", UNSET))
-
         stac_search_request = cls(
             url=url,
             collections=collections,
             bbox=bbox,
             datetime_range=datetime_range,
             limit=limit,
+            token=token,
+            auth=auth,
             max_cloud_cover=max_cloud_cover,
             cloud_cover_mode=cloud_cover_mode,
             next_page=next_page,
-            token=token,
-            auth=auth,
         )
 
         stac_search_request.additional_properties = d

@@ -325,3 +325,20 @@ class TestConnectConformance:
         assert resp.json()["conforms_to"] == [
             "https://api.stacspec.org/v1.0.0/item-search#query"
         ]
+
+
+def test_search_request_appends_new_fields_after_the_credential_fields():
+    """Generated SDK constructors are positional, so published order must not shift."""
+    from app.modules.catalog.sources.stac_router import StacSearchRequest
+
+    fields = list(StacSearchRequest.model_fields)
+    assert fields[:7] == [
+        "url",
+        "collections",
+        "bbox",
+        "datetime_range",
+        "limit",
+        "token",
+        "auth",
+    ]
+    assert fields[7:] == ["max_cloud_cover", "cloud_cover_mode", "next_page"]

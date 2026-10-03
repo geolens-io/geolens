@@ -269,6 +269,14 @@ class StacSearchRequest(BaseModel):
         le=100,
         description="Maximum items to return.",
     )
+    token: str | None = Field(
+        default=None, max_length=1000, description=_STAC_TOKEN_DESCRIPTION
+    )
+    _validate_token = field_validator("token")(_validate_safe_token)
+    auth: ServiceAuthRequest | None = Field(
+        default=None, description=SERVICE_AUTH_FIELD_DESCRIPTION
+    )
+    _reject_auth_conflict = model_validator(mode="after")(reject_service_auth_conflict)
     max_cloud_cover: float | None = Field(
         default=None,
         ge=0,
@@ -290,14 +298,6 @@ class StacSearchRequest(BaseModel):
             "it. Send the same filters as the first request."
         ),
     )
-    token: str | None = Field(
-        default=None, max_length=1000, description=_STAC_TOKEN_DESCRIPTION
-    )
-    _validate_token = field_validator("token")(_validate_safe_token)
-    auth: ServiceAuthRequest | None = Field(
-        default=None, description=SERVICE_AUTH_FIELD_DESCRIPTION
-    )
-    _reject_auth_conflict = model_validator(mode="after")(reject_service_auth_conflict)
 
     @model_validator(mode="after")
     def _cloud_cover_needs_a_mode(self) -> "StacSearchRequest":

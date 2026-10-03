@@ -18229,6 +18229,30 @@
             "title": "Limit",
             "type": "integer"
           },
+          "token": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional auth token for a protected STAC catalog. Deprecated: use the auth object with method bearer.",
+            "title": "Token"
+          },
+          "auth": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ServiceAuthRequest"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Structured credential for a protected service. Mutually exclusive with the token field."
+          },
           "max_cloud_cover": {
             "anyOf": [
               {
@@ -18269,30 +18293,6 @@
               }
             ],
             "description": "The next_page of the previous response, to fetch the page after it. Send the same filters as the first request."
-          },
-          "token": {
-            "anyOf": [
-              {
-                "maxLength": 1000,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Optional auth token for a protected STAC catalog. Deprecated: use the auth object with method bearer.",
-            "title": "Token"
-          },
-          "auth": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ServiceAuthRequest"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Structured credential for a protected service. Mutually exclusive with the token field."
           }
         },
         "required": [

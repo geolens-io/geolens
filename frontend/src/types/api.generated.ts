@@ -13476,6 +13476,13 @@ export interface components {
              */
             limit: number;
             /**
+             * Token
+             * @description Optional auth token for a protected STAC catalog. Deprecated: use the auth object with method bearer.
+             */
+            token?: string | null;
+            /** @description Structured credential for a protected service. Mutually exclusive with the token field. */
+            auth?: components["schemas"]["ServiceAuthRequest"] | null;
+            /**
              * Max Cloud Cover
              * @description Only items at or below this eo:cloud_cover percentage.
              */
@@ -13487,13 +13494,6 @@ export interface components {
             cloud_cover_mode?: ("query" | "filter") | null;
             /** @description The next_page of the previous response, to fetch the page after it. Send the same filters as the first request. */
             next_page?: components["schemas"]["StacNextPage"] | null;
-            /**
-             * Token
-             * @description Optional auth token for a protected STAC catalog. Deprecated: use the auth object with method bearer.
-             */
-            token?: string | null;
-            /** @description Structured credential for a protected service. Mutually exclusive with the token field. */
-            auth?: components["schemas"]["ServiceAuthRequest"] | null;
         };
         /** StacSearchResponse */
         StacSearchResponse: {
