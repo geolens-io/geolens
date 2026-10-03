@@ -604,15 +604,15 @@ async def _load_setting_state(
 
 
 _EMBEDDING_CHANGE_REASONS = {
-    "embedding_dims": (
-        "Changes the embedding width: every stored embedding is deleted and "
-        "must be regenerated."
-    ),
     "embedding_model": (
         "Changes the embedding model: stored embeddings from the previous "
         "model need regenerating."
     ),
 }
+_EMBEDDING_WIDTH_REASON = (
+    "Changes the embedding column width: every stored embedding is deleted "
+    "and must be regenerated."
+)
 
 
 def _overwrite_reset_reason(key: str, current: Any, imported: Any) -> str:
@@ -738,6 +738,39 @@ async def _load_oauth_account_rows(
     return list(result.all())
 
 
+async def _flag_embedding_width_deletion(
+    db: AsyncSession,
+    setting_changes: list[dict[str, Any]],
+    validated_settings: dict[str, Any],
+    mode: ImportMode,
+    registry_map: dict[str, Any],
+) -> None:
+    """Warn when applying the import resizes the live embedding column.
+
+    The apply step reconciles against the column's real width, which can differ
+    from the saved setting, so the comparison uses storage and not the diff.
+    """
+    from app.processing.embeddings.backfill import _live_column_dims
+
+    cfg = registry_map["embedding_dims"]
+    if cfg.key in validated_settings:
+        effective = validated_settings[cfg.key]
+    elif mode == "overwrite":
+        effective = cfg.env_default
+    else:
+        return
+    live = await _live_column_dims(db)
+    if live is None or int(effective) == live:
+        return
+    for change in setting_changes:
+        if change["key"] == cfg.key:
+            change["reason"] = (
+                f"{change['reason']} {_EMBEDDING_WIDTH_REASON}"
+                if change.get("reason")
+                else _EMBEDDING_WIDTH_REASON
+            )
+
+
 async def preflight_import(
     db: AsyncSession,
     data: dict[str, Any],
@@ -844,6 +877,10 @@ async def preflight_import(
                     reason=reason,
                 ).model_dump()
             )
+
+    await _flag_embedding_width_deletion(
+        db, setting_changes, validated_settings, mode, registry_map
+    )
 
     existing_providers = await oauth_service.list_providers(
         db, include_saml_fields=True

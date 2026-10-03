@@ -584,10 +584,8 @@ async def test_list_providers_can_load_deferred_saml_export_fields():
     assert "sp_entity_id" in statement
 
 
-@pytest.mark.anyio
-@pytest.mark.parametrize("mode", ["merge", "overwrite"])
-async def test_dry_run_warns_that_an_embedding_width_change_deletes_embeddings(mode):
-    """The import preview names the embedding deletion on a width change."""
+async def _preview(mode, settings, live_width):
+    """Dry-run an import against a mocked database whose column has ``live_width``."""
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from app.platform.config_ops.service import dry_run_import
@@ -599,13 +597,53 @@ async def test_dry_run_warns_that_an_embedding_width_change_deletes_embeddings(m
     mock_result.all.return_value = []
     mock_db.execute = AsyncMock(return_value=mock_result)
 
-    preview = await dry_run_import(
-        mock_db,
-        {"settings": {"embedding_dims": "768", "embedding_model": "other-model"}},
-        mode,
+    with patch(
+        "app.processing.embeddings.backfill._live_column_dims",
+        AsyncMock(return_value=live_width),
+    ):
+        preview = await dry_run_import(mock_db, {"settings": settings}, mode)
+    return {c["key"]: c for c in preview.settings["changes"]}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("mode", ["merge", "overwrite"])
+async def test_dry_run_warns_that_a_width_change_deletes_embeddings(mode):
+    """A width that differs from the live column warns, with the model change noted."""
+    changes = await _preview(
+        mode, {"embedding_dims": "768", "embedding_model": "other-model"}, 1536
     )
 
-    reasons = {c["key"]: c["reason"] for c in preview.settings["changes"]}
-    assert "deleted" in reasons["embedding_dims"]
-    assert "regenerat" in reasons["embedding_dims"]
-    assert "regenerat" in reasons["embedding_model"]
+    assert "deleted" in changes["embedding_dims"]["reason"]
+    assert "regenerat" in changes["embedding_dims"]["reason"]
+    assert "regenerat" in changes["embedding_model"]["reason"]
+
+
+@pytest.mark.anyio
+async def test_dry_run_warns_when_the_saved_width_differs_from_the_live_column():
+    """Importing the saved width still resizes a column left at another one."""
+    from app.core.persistent_config import EMBEDDING_DIMS
+
+    # Equal to the setting in effect, so the diff itself has nothing to say.
+    saved = str(EMBEDDING_DIMS.env_default)
+    changes = await _preview("merge", {"embedding_dims": saved}, 512)
+
+    assert "deleted" in changes["embedding_dims"]["reason"]
+
+
+@pytest.mark.anyio
+async def test_dry_run_warns_when_an_overwrite_resets_the_width_to_the_default():
+    """An overwrite that omits the width resets it, which resizes a different column."""
+    changes = await _preview("overwrite", {"ai_enabled": True}, 512)
+
+    assert "deleted" in changes["embedding_dims"]["reason"]
+
+
+@pytest.mark.anyio
+async def test_dry_run_is_quiet_when_the_width_matches_the_live_column():
+    """A width the column already has deletes nothing."""
+    from app.core.persistent_config import EMBEDDING_DIMS
+
+    default = int(EMBEDDING_DIMS.env_default)
+    changes = await _preview("merge", {"embedding_dims": str(default)}, default)
+
+    assert "deleted" not in (changes["embedding_dims"]["reason"] or "")
