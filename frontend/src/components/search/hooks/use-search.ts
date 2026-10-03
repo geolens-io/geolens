@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
 import { useShallow } from 'zustand/react/shallow';
@@ -82,16 +82,17 @@ export function useAllTypesTotal(totalResults: number | undefined, isPlaceholder
     (notify) => queryClient.getQueryCache().subscribe(notify),
     () => queryClient.getQueryState<SearchResponse>(key),
   );
-  const [, expire] = useReducer((n: number) => n + 1, 0);
   const updatedAt = state?.dataUpdatedAt ?? 0;
-  const remaining = updatedAt + SEARCH_STALE_TIME - Date.now();
+  const [expiredFor, setExpiredFor] = useState(0);
   useEffect(() => {
-    if (remaining <= 0) return;
-    const id = setTimeout(expire, remaining);
+    const id = setTimeout(
+      () => setExpiredFor(updatedAt),
+      Math.max(updatedAt + SEARCH_STALE_TIME - Date.now(), 0),
+    );
     return () => clearTimeout(id);
-  }, [remaining]);
+  }, [updatedAt]);
   const cachedTotal =
-    state?.data && !state.isInvalidated && remaining > 0 ? state.data.numberMatched : undefined;
+    state?.data && !state.isInvalidated && expiredFor !== updatedAt ? state.data.numberMatched : undefined;
   // While the main query still shows the previous (typed) results, only the
   // cached untyped total is correct.
   return record_type || isPlaceholderData ? cachedTotal : totalResults;
