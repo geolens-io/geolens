@@ -2,6 +2,8 @@ import { render, screen } from '@/test/test-utils';
 import * as serviceSession from '@/api/service-url-session';
 import { ImportPage } from '../ImportPage';
 
+const mockGetJobStatus = vi.hoisted(() => vi.fn());
+vi.mock('@/api/ingest', () => ({ getJobStatus: mockGetJobStatus }));
 vi.mock('@/hooks/use-document-title', () => ({ useDocumentTitle: vi.fn() }));
 vi.mock('@/components/import/UploadForm', () => ({ UploadForm: () => <div>Upload workflow</div> }));
 vi.mock('@/components/import/RegisterForm', () => ({ RegisterForm: () => <div /> }));
@@ -19,18 +21,18 @@ vi.mock('@/components/import/ServiceUrlForm', () => ({
 }));
 
 describe('ImportPage prefill', () => {
-  it('opens the service tab with the URL from the link', () => {
+  it('opens the service tab with the URL from the link', async () => {
     render(<ImportPage />, {
       route: '/import?tab=service&url=https%3A%2F%2Fmaps.example.com%2Fwfs',
     });
 
-    expect(screen.getByText('Service workflow [https://maps.example.com/wfs]')).toBeInTheDocument();
+    expect(await screen.findByText('Service workflow [https://maps.example.com/wfs]')).toBeInTheDocument();
   });
 
-  it('opens the file URL tab without handing the URL to the other form', () => {
+  it('opens the file URL tab without handing the URL to the other form', async () => {
     render(<ImportPage />, { route: '/import?tab=url' });
 
-    expect(screen.getByText('File URL workflow []')).toBeInTheDocument();
+    expect(await screen.findByText('File URL workflow []')).toBeInTheDocument();
   });
 
   it('ignores an unknown tab', () => {
@@ -41,32 +43,42 @@ describe('ImportPage prefill', () => {
 
   describe('with a retained service session', () => {
     const route = '/import?tab=service&url=https%3A%2F%2Fmaps.example.com%2Fwfs';
+    const retain = (status: 'fulfilled' | 'rejected', jobId: string | null) => {
+      vi.spyOn(serviceSession, 'peekServiceImport').mockReturnValue({ status, jobId } as never);
+      return vi.spyOn(serviceSession, 'clearServiceImport').mockImplementation(() => {});
+    };
     afterEach(() => vi.restoreAllMocks());
 
-    it('releases an ended session so the prefilled URL wins', () => {
-      vi.spyOn(serviceSession, 'peekServiceImport').mockReturnValue({
-        status: 'rejected',
-        jobId: null,
-      } as never);
-      const clear = vi.spyOn(serviceSession, 'clearServiceImport').mockImplementation(() => {});
+    it('releases a job that failed since it was last seen, so the prefilled URL wins', async () => {
+      const clear = retain('fulfilled', 'job-1');
+      mockGetJobStatus.mockResolvedValue({ status: 'failed' });
 
       render(<ImportPage />, { route });
 
+      expect(
+        await screen.findByText('Service workflow [https://maps.example.com/wfs]'),
+      ).toBeInTheDocument();
       expect(clear).toHaveBeenCalled();
-      expect(screen.getByText('Service workflow [https://maps.example.com/wfs]')).toBeInTheDocument();
     });
 
-    it('keeps an active session and ignores the link URL', () => {
-      vi.spyOn(serviceSession, 'peekServiceImport').mockReturnValue({
-        status: 'fulfilled',
-        jobId: 'job-1',
-      } as never);
-      const clear = vi.spyOn(serviceSession, 'clearServiceImport').mockImplementation(() => {});
+    it('keeps an active session and ignores the link URL', async () => {
+      const clear = retain('fulfilled', 'job-1');
+      mockGetJobStatus.mockResolvedValue({ status: 'running' });
 
       render(<ImportPage />, { route });
 
+      expect(await screen.findByText('Service workflow []')).toBeInTheDocument();
       expect(clear).not.toHaveBeenCalled();
-      expect(screen.getByText('Service workflow []')).toBeInTheDocument();
+    });
+
+    it('keeps the session when the status lookup fails', async () => {
+      const clear = retain('fulfilled', 'job-1');
+      mockGetJobStatus.mockRejectedValue(new Error('network'));
+
+      render(<ImportPage />, { route });
+
+      expect(await screen.findByText('Service workflow []')).toBeInTheDocument();
+      expect(clear).not.toHaveBeenCalled();
     });
   });
 });

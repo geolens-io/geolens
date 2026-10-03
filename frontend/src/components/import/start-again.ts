@@ -1,10 +1,9 @@
 /** The server redacts credential query values to this marker. */
 const REDACTED_QUERY_VALUE = '<redacted>';
 
-import type { QueryClient } from '@tanstack/react-query';
+import { getJobStatus } from '@/api/ingest';
 import { clearServiceImport, peekServiceImport } from '@/api/service-url-session';
 import { clearUrlImport, peekUrlImport } from '@/api/url-import-session';
-import { queryKeys } from '@/lib/query-keys';
 
 export type StartAgainSource = 'url' | 'service';
 
@@ -39,22 +38,23 @@ function stripCredentials(raw: string): string | null {
 const IN_FLIGHT_STATUSES = new Set(['pending', 'running']);
 
 /**
- * Releases a retained import session that already ended, so the prefilled form
- * is not replaced by it. Returns false when a session is still active (or its
- * job status is unknown) and must keep the form.
+ * Releases a retained import session whose job has ended, so the prefilled form
+ * is not replaced by it. The job's status is read fresh: the cache may still
+ * say "running" for a job that failed while the user was elsewhere. Returns
+ * false when the session is active or the lookup fails, and must keep the form.
  */
-export function releaseTerminalImportSession(
-  source: StartAgainSource,
-  queryClient: QueryClient,
-): boolean {
+export async function releaseTerminalImportSession(source: StartAgainSource): Promise<boolean> {
   const session = source === 'url' ? peekUrlImport() : peekServiceImport();
   if (!session) return true;
-  const jobStatus = session.jobId
-    ? queryClient.getQueryData<{ status: string }>(queryKeys.ingest.jobStatus(session.jobId))
-        ?.status
-    : undefined;
-  const ended =
-    session.status === 'rejected' || (jobStatus !== undefined && !IN_FLIGHT_STATUSES.has(jobStatus));
+  let ended = session.status === 'rejected';
+  if (!ended && session.jobId) {
+    try {
+      const { status } = await getJobStatus(session.jobId);
+      ended = !IN_FLIGHT_STATUSES.has(status);
+    } catch {
+      return false;
+    }
+  }
   if (!ended) return false;
   if (source === 'url') clearUrlImport();
   else clearServiceImport();

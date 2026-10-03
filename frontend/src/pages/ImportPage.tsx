@@ -1,10 +1,10 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
-import { useQueryClient } from '@tanstack/react-query';
 import { releaseTerminalImportSession } from '@/components/import/start-again';
 import { useTranslation } from 'react-i18next';
 import { Upload, Link, Database, Globe, Satellite } from 'lucide-react';
 import { PageHeader } from '@/components/layout/PageHeader';
+import { LoadingState } from '@/components/layout/LoadingState';
 import { PageShell } from '@/components/layout/PageShell';
 import { AppErrorBoundary } from '@/components/error';
 import { UploadForm } from '@/components/import/UploadForm';
@@ -33,14 +33,23 @@ export function ImportPage() {
   // A "Start again" link from Admin Jobs opens the URL or service tab with its URL.
   const [searchParams] = useSearchParams();
   const tabParam = searchParams.get('tab');
-  const queryClient = useQueryClient();
-  const [prefillUrl] = useState(() => {
-    if (tabParam !== 'url' && tabParam !== 'service') return '';
+  const restartTab = tabParam === 'url' || tabParam === 'service' ? tabParam : null;
+  // null while a retained import session's job is being looked up.
+  const [prefillUrl, setPrefillUrl] = useState<string | null>(restartTab ? null : '');
+  const requestedUrl = searchParams.get('url') ?? '';
+  useEffect(() => {
+    if (!restartTab) return;
+    let cancelled = false;
     // An active import keeps the form; the link's URL is dropped.
-    return releaseTerminalImportSession(tabParam, queryClient)
-      ? (searchParams.get('url') ?? '')
-      : '';
-  });
+    void releaseTerminalImportSession(restartTab).then((released) => {
+      if (!cancelled) setPrefillUrl(released ? requestedUrl : '');
+    });
+    return () => {
+      cancelled = true;
+    };
+    // Decided once per arrival; later URL edits in the address bar don't redo it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [activeTab, setActiveTab] = useState<Tab>(
     tabParam === 'url' || tabParam === 'service' ? tabParam : 'upload',
   );
@@ -106,6 +115,9 @@ export function ImportPage() {
       {/* Two-column layout */}
       <div className="grid grid-cols-1 gap-6 pb-12 xl:grid-cols-[1fr_320px]">
         <div className="min-w-0">
+          {prefillUrl === null ? (
+            <LoadingState />
+          ) : (
           <AppErrorBoundary>
             {activeTab === 'upload' && <UploadForm onPhaseChange={handlePhaseChange} onOutcomeChange={handleOutcomeChange} />}
             {activeTab === 'url' && <UrlImportForm initialUrl={tabParam === 'url' ? prefillUrl : ''} />}
@@ -113,6 +125,7 @@ export function ImportPage() {
             {activeTab === 'service' && <ServiceUrlForm initialUrl={tabParam === 'service' ? prefillUrl : ''} />}
             {activeTab === 'stac' && <StacImportForm />}
           </AppErrorBoundary>
+          )}
         </div>
         <WorkflowRail
           mode={activeTab}

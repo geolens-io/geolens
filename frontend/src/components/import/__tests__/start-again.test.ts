@@ -1,6 +1,7 @@
-import { QueryClient } from '@tanstack/react-query';
 import * as serviceSession from '@/api/service-url-session';
-import { queryKeys } from '@/lib/query-keys';
+const mockGetJobStatus = vi.hoisted(() => vi.fn());
+vi.mock('@/api/ingest', () => ({ getJobStatus: mockGetJobStatus }));
+
 import { releaseTerminalImportSession, startAgainPath } from '../start-again';
 
 describe('startAgainPath', () => {
@@ -31,45 +32,43 @@ describe('startAgainPath', () => {
 });
 
 describe('releaseTerminalImportSession', () => {
-  const failedJob = { status: 'failed' };
-
-  function setup(jobStatus?: { status: string }) {
-    const qc = new QueryClient();
-    if (jobStatus) qc.setQueryData(queryKeys.ingest.jobStatus('job-1'), jobStatus);
-    return qc;
-  }
-
-  function startSession(jobId: string | null, status: 'pending' | 'fulfilled' | 'rejected') {
-    const promise = new Promise<never>(() => {});
-    vi.spyOn(serviceSession, 'peekServiceImport').mockReturnValue({
-      status,
-      jobId,
-      promise,
-    } as never);
+  function retainSession(jobId: string | null, status: 'pending' | 'fulfilled' | 'rejected') {
+    vi.spyOn(serviceSession, 'peekServiceImport').mockReturnValue({ status, jobId } as never);
     return vi.spyOn(serviceSession, 'clearServiceImport').mockImplementation(() => {});
   }
 
   afterEach(() => vi.restoreAllMocks());
 
-  it('releases a service session whose committed job failed', () => {
-    const clear = startSession('job-1', 'fulfilled');
+  it('releases a session whose job the server now reports failed', async () => {
+    const clear = retainSession('job-1', 'fulfilled');
+    mockGetJobStatus.mockResolvedValue({ status: 'failed' });
 
-    expect(releaseTerminalImportSession('service', setup(failedJob))).toBe(true);
+    await expect(releaseTerminalImportSession('service')).resolves.toBe(true);
+    expect(mockGetJobStatus).toHaveBeenCalledWith('job-1');
     expect(clear).toHaveBeenCalled();
   });
 
-  it('releases a service session whose preview was rejected', () => {
-    const clear = startSession(null, 'rejected');
+  it('releases a session whose preview was rejected without a lookup', async () => {
+    const clear = retainSession(null, 'rejected');
 
-    expect(releaseTerminalImportSession('service', setup())).toBe(true);
+    await expect(releaseTerminalImportSession('service')).resolves.toBe(true);
+    expect(mockGetJobStatus).not.toHaveBeenCalled();
     expect(clear).toHaveBeenCalled();
   });
 
-  it('keeps a session whose job is still running or awaiting review', () => {
-    const clear = startSession('job-1', 'fulfilled');
+  it('keeps a session whose job is still running', async () => {
+    const clear = retainSession('job-1', 'fulfilled');
+    mockGetJobStatus.mockResolvedValue({ status: 'running' });
 
-    expect(releaseTerminalImportSession('service', setup({ status: 'running' }))).toBe(false);
-    expect(releaseTerminalImportSession('service', setup())).toBe(false);
+    await expect(releaseTerminalImportSession('service')).resolves.toBe(false);
+    expect(clear).not.toHaveBeenCalled();
+  });
+
+  it('keeps the session when the lookup fails', async () => {
+    const clear = retainSession('job-1', 'fulfilled');
+    mockGetJobStatus.mockRejectedValue(new Error('network'));
+
+    await expect(releaseTerminalImportSession('service')).resolves.toBe(false);
     expect(clear).not.toHaveBeenCalled();
   });
 });
