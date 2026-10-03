@@ -219,7 +219,14 @@
     "credentialHeaderNamePlaceholder": "p. ej. Ocp-Apim-Subscription-Key",
     "credentialHeaderValueLabel": "Valor del encabezado",
     "credentialHeaderValuePlaceholder": "Su clave API",
-    "credentialHelpText": "Elija el método que documenta su catálogo. Un token bearer se envía como encabezado Authorization; un usuario y contraseña se envían como autenticación HTTP Basic; una clave API puede enviarse bajo el nombre de encabezado que especifique el proveedor, por ejemplo X-API-Key, Ocp-Apim-Subscription-Key o key. Autentica el catálogo, sus colecciones y sus elementos; los teselados se generan desde la URL del recurso y no llevan credencial."
+    "credentialHelpText": "Elija el método que documenta su catálogo. Un token bearer se envía como encabezado Authorization; un usuario y contraseña se envían como autenticación HTTP Basic; una clave API puede enviarse bajo el nombre de encabezado que especifique el proveedor, por ejemplo X-API-Key, Ocp-Apim-Subscription-Key o key. Autentica el catálogo, sus colecciones y sus elementos; los teselados se generan desde la URL del recurso y no llevan credencial.",
+    "filterStart": "Desde",
+    "filterEnd": "Hasta",
+    "filterBbox": "Área (oeste, sur, este, norte)",
+    "filterBboxPlaceholder": "-74.3, 40.5, -73.7, 40.9",
+    "filterApply": "Aplicar filtros",
+    "filterDateOrder": "La fecha de inicio no puede ser posterior a la fecha de fin.",
+    "filterBboxInvalid": "Introduzca cuatro números: oeste, sur, este, norte (longitud de -180 a 180, latitud de -90 a 90, sur no mayor que norte)."
   },
   "serviceUrl": {
     "label": "URL de servicio",

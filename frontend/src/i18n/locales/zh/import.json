@@ -242,7 +242,14 @@
     "credentialHeaderNamePlaceholder": "例如 Ocp-Apim-Subscription-Key",
     "credentialHeaderValueLabel": "请求头值",
     "credentialHeaderValuePlaceholder": "您的 API 密钥",
-    "credentialHelpText": "选择您的目录文档说明的方式。Bearer 令牌会通过 Authorization 请求头发送；用户名和密码会通过 HTTP Basic 身份验证发送；API 密钥可放在服务提供商指定的任意请求头中，例如 X-API-Key、Ocp-Apim-Subscription-Key 或 key。它用于验证目录及其集合和条目；瓦片由资源 URL 渲染，不携带凭据。"
+    "credentialHelpText": "选择您的目录文档说明的方式。Bearer 令牌会通过 Authorization 请求头发送；用户名和密码会通过 HTTP Basic 身份验证发送；API 密钥可放在服务提供商指定的任意请求头中，例如 X-API-Key、Ocp-Apim-Subscription-Key 或 key。它用于验证目录及其集合和条目；瓦片由资源 URL 渲染，不携带凭据。",
+    "filterStart": "起始",
+    "filterEnd": "截止",
+    "filterBbox": "区域（西、南、东、北）",
+    "filterBboxPlaceholder": "-74.3, 40.5, -73.7, 40.9",
+    "filterApply": "应用筛选",
+    "filterDateOrder": "开始日期不能晚于结束日期。",
+    "filterBboxInvalid": "请按西、南、东、北输入四个数字（经度 -180 到 180，纬度 -90 到 90，南不大于北）。"
   },
   "serviceUrl": {
     "label": "服务 URL",

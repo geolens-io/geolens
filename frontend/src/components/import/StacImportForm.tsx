@@ -32,6 +32,7 @@ import type {
   StacItemSummary,
   StacImportItem,
   StacImportResult,
+  StacSearchRequest,
 } from '@/types/api';
 import { originOf } from './utils';
 import { Button } from '@/components/ui/button';
@@ -136,6 +137,11 @@ export function StacImportForm() {
   const [selectedCollection, setSelectedCollection] = useState<StacCollectionSummary | null>(null);
   const [searchResult, setSearchResult] = useState<{ items: StacItemSummary[]; matched: number | null }>({ items: [], matched: null });
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [bboxText, setBboxText] = useState('');
+  const [filtering, setFiltering] = useState(false);
+  const [filterError, setFilterError] = useState<string | null>(null);
   const [importResult, setImportResult] = useState<{
     created: number;
     skipped: number;
@@ -216,6 +222,10 @@ export function StacImportForm() {
     setSelectedCollection(null);
     setSearchResult({ items: [], matched: null });
     setSelectedItems(new Set());
+    setStartDate('');
+    setEndDate('');
+    setBboxText('');
+    setFilterError(null);
     setImportResult(null);
     setError(null);
     // fix(#1712): defensive symmetry with the success/failure settlement
@@ -262,6 +272,10 @@ export function StacImportForm() {
   // ── Step 2: Select collection and search items ──
   const handleCollectionSelect = async (collection: StacCollectionSummary) => {
     setSelectedCollection(collection);
+    setStartDate('');
+    setEndDate('');
+    setBboxText('');
+    setFilterError(null);
     setStep('loading-items');
     setError(null);
 
@@ -283,6 +297,67 @@ export function StacImportForm() {
       setError(msg);
       setStep('collections');
       toast.error(msg);
+    }
+  };
+
+  // The `bbox` and `datetime_range` the filter fields describe, or an error
+  // message when a field is unusable. Blank fields mean no filter.
+  function buildSearchFilters(): { filters: Pick<StacSearchRequest, 'bbox' | 'datetime_range'> } | { error: string } {
+    const filters: Pick<StacSearchRequest, 'bbox' | 'datetime_range'> = {};
+    if (startDate && endDate && startDate > endDate) {
+      return { error: t('stac.filterDateOrder') };
+    }
+    if (startDate || endDate) {
+      const from = startDate ? `${startDate}T00:00:00Z` : '..';
+      const to = endDate ? `${endDate}T23:59:59Z` : '..';
+      filters.datetime_range = `${from}/${to}`;
+    }
+    if (bboxText.trim()) {
+      const parts = bboxText.split(',').map((p) => p.trim());
+      const nums = parts.map(Number);
+      const [west, south, east, north] = nums;
+      const valid =
+        parts.length === 4 &&
+        parts.every((p) => p !== '') &&
+        nums.every(Number.isFinite) &&
+        west >= -180 && east <= 180 && south >= -90 && north <= 90 &&
+        south <= north;
+      if (!valid) return { error: t('stac.filterBboxInvalid') };
+      filters.bbox = nums;
+    }
+    return { filters };
+  }
+
+  const handleApplyFilters = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedCollection || !catalogInfo) return;
+    const built = buildSearchFilters();
+    if ('error' in built) {
+      setFilterError(built.error);
+      return;
+    }
+    setFilterError(null);
+    setFiltering(true);
+    setError(null);
+    try {
+      const auth = buildStacAuth();
+      const result = await searchStacItems({
+        url: catalogInfo.url,
+        collections: [selectedCollection.id],
+        limit: 50,
+        ...built.filters,
+        ...(auth ? { auth } : {}),
+      });
+      if (!mountedRef.current) return;
+      setSearchResult({ items: result.items, matched: result.matched });
+      setSelectedItems(new Set());
+    } catch (err) {
+      if (!mountedRef.current) return;
+      const msg = err instanceof ApiError ? err.message : t('stac.searchItemsFailed');
+      setFilterError(msg);
+      toast.error(msg);
+    } finally {
+      if (mountedRef.current) setFiltering(false);
     }
   };
 
@@ -747,6 +822,51 @@ export function StacImportForm() {
             </span>
           )}
         </div>
+
+        <form
+          data-testid="stac-search-filters"
+          onSubmit={handleApplyFilters}
+          className="flex flex-wrap items-end gap-3 rounded-lg border border-border bg-surface-1 px-4 py-3"
+        >
+          <div className="space-y-1">
+            <Label htmlFor="stac-filter-start" className="text-xs">{t('stac.filterStart')}</Label>
+            <Input
+              id="stac-filter-start"
+              type="date"
+              value={startDate}
+              max={endDate || undefined}
+              onChange={(e) => setStartDate(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="stac-filter-end" className="text-xs">{t('stac.filterEnd')}</Label>
+            <Input
+              id="stac-filter-end"
+              type="date"
+              value={endDate}
+              min={startDate || undefined}
+              onChange={(e) => setEndDate(e.target.value)}
+            />
+          </div>
+          <div className="min-w-56 flex-1 space-y-1">
+            <Label htmlFor="stac-filter-bbox" className="text-xs">{t('stac.filterBbox')}</Label>
+            <Input
+              id="stac-filter-bbox"
+              value={bboxText}
+              placeholder={t('stac.filterBboxPlaceholder')}
+              onChange={(e) => setBboxText(e.target.value)}
+              aria-invalid={filterError ? true : undefined}
+            />
+          </div>
+          <Button type="submit" size="sm" disabled={filtering}>
+            {t('stac.filterApply')}
+          </Button>
+          {filterError && (
+            <p role="alert" data-testid="stac-filter-error" className="basis-full text-sm text-destructive">
+              {filterError}
+            </p>
+          )}
+        </form>
 
         {/* Action bar */}
         <div

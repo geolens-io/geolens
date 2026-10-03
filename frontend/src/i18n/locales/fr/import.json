@@ -219,7 +219,14 @@
     "credentialHeaderNamePlaceholder": "p. ex. Ocp-Apim-Subscription-Key",
     "credentialHeaderValueLabel": "Valeur de l'en-tête",
     "credentialHeaderValuePlaceholder": "Votre clé API",
-    "credentialHelpText": "Choisissez la méthode documentée par votre catalogue. Un jeton bearer est envoyé comme en-tête Authorization ; un nom d'utilisateur et un mot de passe sont envoyés en authentification HTTP Basic ; une clé API peut être envoyée sous le nom d'en-tête que le fournisseur indique, par exemple X-API-Key, Ocp-Apim-Subscription-Key ou key. Elle authentifie le catalogue, ses collections et ses éléments ; les tuiles sont rendues depuis l'URL de la ressource et ne portent aucune information d'authentification."
+    "credentialHelpText": "Choisissez la méthode documentée par votre catalogue. Un jeton bearer est envoyé comme en-tête Authorization ; un nom d'utilisateur et un mot de passe sont envoyés en authentification HTTP Basic ; une clé API peut être envoyée sous le nom d'en-tête que le fournisseur indique, par exemple X-API-Key, Ocp-Apim-Subscription-Key ou key. Elle authentifie le catalogue, ses collections et ses éléments ; les tuiles sont rendues depuis l'URL de la ressource et ne portent aucune information d'authentification.",
+    "filterStart": "Du",
+    "filterEnd": "Au",
+    "filterBbox": "Zone (ouest, sud, est, nord)",
+    "filterBboxPlaceholder": "-74.3, 40.5, -73.7, 40.9",
+    "filterApply": "Appliquer les filtres",
+    "filterDateOrder": "La date de début ne peut pas être postérieure à la date de fin.",
+    "filterBboxInvalid": "Saisissez quatre nombres : ouest, sud, est, nord (longitude de -180 à 180, latitude de -90 à 90, sud pas au-dessus du nord)."
   },
   "serviceUrl": {
     "label": "URL de service",
