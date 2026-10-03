@@ -1,4 +1,4 @@
-import { useQuery, keepPreviousData } from '@tanstack/react-query';
+import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
 import { useShallow } from 'zustand/react/shallow';
 import { useSearchStore } from '@/stores/search-store';
@@ -69,12 +69,19 @@ export function useAllTypesTotal(totalResults: number | undefined, isPlaceholder
   // query's fetch function; disabled so it only reads the cache.
   // placeholderData is cleared so an uncached key reads as unknown, not as the
   // previous search's total.
-  const { data, isPlaceholderData: cachedIsPlaceholder } = useQuery({
+  const queryClient = useQueryClient();
+  const untypedKey = queryKeys.search.results(untyped);
+  // isStale is read only so an invalidation re-renders this hook.
+  const { data, isPlaceholderData: cachedIsPlaceholder, isStale } = useQuery({
     ...searchResultsOptions(untyped),
     placeholderData: undefined,
     enabled: false,
   });
-  const cachedTotal = cachedIsPlaceholder ? undefined : data?.numberMatched;
+  void isStale;
+  // An invalidated entry is never refetched while only this disabled observer
+  // holds it, so its total would stay frozen at the old value.
+  const invalidated = queryClient.getQueryState(untypedKey)?.isInvalidated;
+  const cachedTotal = cachedIsPlaceholder || invalidated ? undefined : data?.numberMatched;
   // While the main query still shows the previous (typed) results, only the
   // cached untyped total is correct.
   return record_type || isPlaceholderData ? cachedTotal : totalResults;

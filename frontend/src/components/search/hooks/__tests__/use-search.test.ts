@@ -183,6 +183,23 @@ describe('useAllTypesTotal', () => {
     expect(result.current.all).toBeUndefined();
   });
 
+  it('drops an invalidated untyped total that nothing will refetch', async () => {
+    const { result } = renderHook(() => {
+      const client = useQueryClient();
+      return { ...useAll(), client };
+    });
+    await waitFor(() => expect(result.current.all).toBe(12));
+    act(() => useSearchStore.getState().setFilter('record_type', 'vector_dataset'));
+    await waitFor(() => expect(result.current.results.data?.numberMatched).toBe(3));
+    expect(result.current.all).toBe(12);
+
+    mockSearchDatasets.mockImplementation((async () => ({ numberMatched: 20, features: [] })) as never);
+    await act(() => result.current.client.invalidateQueries({ queryKey: ['search'] }));
+    await waitFor(() => expect(result.current.results.data?.numberMatched).toBe(20));
+
+    expect(result.current.all).toBeUndefined();
+  });
+
   it('is undefined when nothing is cached for the untyped params', async () => {
     useSearchStore.getState().setFilter('record_type', 'vector_dataset');
     const { result } = renderHook(useAll);
