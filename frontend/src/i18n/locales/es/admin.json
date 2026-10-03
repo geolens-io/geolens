@@ -288,6 +288,7 @@
     "generateMissing": "Generar embeddings faltantes",
     "generating": "Generando...",
     "backfillQueued": "Relleno de embeddings en cola — esta página se actualizará cuando termine",
+    "regenerationPending": "No se pudieron regenerar los embeddings automáticamente. Usa Generar embeddings faltantes para regenerarlos.",
     "backfillFinished": "Relleno de embeddings finalizado",
     "backfillFinishedWithErrors": "El relleno de embeddings terminó con {{errors}} registro(s) rechazado(s) — la cobertura tiene huecos",
     "backfillRunFailed": "La ejecución del relleno de embeddings falló — revise los registros del servidor",
@@ -315,6 +316,7 @@
     "detectDims": "Detectar",
     "dimsChangeWarning": "Cambiar las dimensiones hará que {{count}} embedding(s) existente(s) sean incompatibles. Necesitará regenerar todos los embeddings después de guardar.",
     "dimsConfirm": {
+      "regenerate": "Regenerar los embeddings después de guardar",
       "title": "¿Cambiar el ancho de los embeddings?",
       "titleModel": "¿Cambiar el modelo de embeddings?",
       "confirm": "Eliminar embeddings",

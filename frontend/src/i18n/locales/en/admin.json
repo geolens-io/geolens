@@ -313,6 +313,7 @@
     "generateMissing": "Generate Missing Embeddings",
     "generating": "Generating...",
     "backfillQueued": "Embedding backfill queued — this page updates when it finishes",
+    "regenerationPending": "Embeddings could not be regenerated automatically. Use Generate Missing Embeddings to regenerate them.",
     "backfillFinished": "Embedding backfill finished",
     "backfillFinishedWithErrors": "Embedding backfill finished with {{errors}} rejected record(s) — coverage has gaps",
     "backfillRunFailed": "The embedding backfill run failed — check the server logs",
@@ -354,6 +355,7 @@
     "dimsDetectFailed": "Could not detect dimensions. Check that OPENAI_API_KEY is set and the embedding model is valid.",
     "dimsChangeWarning": "Changing dimensions will make {{count}} existing embedding(s) incompatible. You will need to regenerate all embeddings after saving.",
     "dimsConfirm": {
+      "regenerate": "Regenerate embeddings after saving",
       "title": "Change embedding width?",
       "titleModel": "Change embedding model?",
       "confirm": "Delete embeddings",

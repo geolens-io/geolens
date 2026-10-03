@@ -288,6 +288,7 @@
     "generateMissing": "Fehlende Embeddings generieren",
     "generating": "Wird generiert...",
     "backfillQueued": "Einbettungs-Backfill eingereiht — diese Seite aktualisiert sich, wenn er fertig ist",
+    "regenerationPending": "Die Embeddings konnten nicht automatisch neu erzeugt werden. Mit „Fehlende Embeddings generieren“ lassen sie sich neu erzeugen.",
     "backfillFinished": "Einbettungs-Backfill abgeschlossen",
     "backfillFinishedWithErrors": "Einbettungs-Backfill abgeschlossen mit {{errors}} abgelehnten Datensätzen — die Abdeckung weist Lücken auf",
     "backfillRunFailed": "Der Einbettungs-Backfill-Lauf ist fehlgeschlagen — prüfen Sie die Serverprotokolle",
@@ -315,6 +316,7 @@
     "detectDims": "Erkennen",
     "dimsChangeWarning": "Das Ändern der Dimensionen macht {{count}} vorhandene(s) Embedding(s) inkompatibel.",
     "dimsConfirm": {
+      "regenerate": "Embeddings nach dem Speichern neu erzeugen",
       "title": "Embedding-Breite ändern?",
       "titleModel": "Embedding-Modell ändern?",
       "confirm": "Embeddings löschen",

@@ -49,7 +49,7 @@ const TAB_LABELS: Record<TabKey, string> = {
 const TAB_COMPONENTS: Record<TabKey, React.ComponentType<{
   settings: SettingItem[];
   envOnly: boolean;
-  onSave: (changes: Record<string, unknown>) => void;
+  onSave: (changes: Record<string, unknown>) => void | Promise<boolean>;
   onReset: ResetHandler;
   isSaving: boolean;
   settingsUpdatedAt?: number;
@@ -96,7 +96,10 @@ export function AdminSettingsPage() {
   const envOnly = configMode?.env_only ?? allSettings?.env_only ?? false;
 
   function handleSave(changes: Record<string, unknown>) {
-    updateMutation.mutate(changes);
+    return updateMutation.mutateAsync(changes).then(
+      () => true,
+      () => false,
+    );
   }
 
   function handleReset(key: string) {

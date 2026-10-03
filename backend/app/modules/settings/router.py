@@ -428,7 +428,17 @@ async def get_all_settings(
         else:
             source = "default"
 
-        item = SettingItem(key=cfg.key, value=value, source=source, label=cfg.label)
+        item = SettingItem(
+            key=cfg.key,
+            value=value,
+            source=source,
+            label=cfg.label,
+            # Lets the UI tell a reset that changes the live width from one
+            # that only drops an override equal to the default.
+            default_value=(
+                await cfg.resolved_default(db) if cfg is EMBEDDING_DIMS else None
+            ),
+        )
         tabs.setdefault(cfg.tab, []).append(item)
 
     return SettingsAllResponse(env_only=env_only, tabs=tabs)

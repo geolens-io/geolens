@@ -9409,6 +9409,12 @@ export type SettingItem = {
      * Human-readable label for display in the admin UI.
      */
     label: string;
+    /**
+     * Default Value
+     *
+     * Runtime default the setting resets to. Reported only for embedding_dims, so the UI can tell whether a reset changes the live width.
+     */
+    default_value?: unknown;
 };
 
 /**

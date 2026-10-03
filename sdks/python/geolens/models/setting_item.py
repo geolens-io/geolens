@@ -6,6 +6,8 @@ from typing import Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..types import UNSET, Unset
+
 
 T = TypeVar("T", bound="SettingItem")
 
@@ -20,12 +22,15 @@ class SettingItem:
         source (str): Where the value came from: 'default' (built-in default), 'overridden' (admin set via UI), or
             'env_only' (configured via environment variable, read-only).
         label (str): Human-readable label for display in the admin UI.
+        default_value (Any | Unset): Runtime default the setting resets to. Reported only for embedding_dims, so the UI
+            can tell whether a reset changes the live width.
     """
 
     key: str
     value: Any
     source: str
     label: str
+    default_value: Any | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -37,6 +42,8 @@ class SettingItem:
 
         label = self.label
 
+        default_value = self.default_value
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -47,6 +54,8 @@ class SettingItem:
                 "label": label,
             }
         )
+        if default_value is not UNSET:
+            field_dict["default_value"] = default_value
 
         return field_dict
 
@@ -61,11 +70,14 @@ class SettingItem:
 
         label = d.pop("label")
 
+        default_value = d.pop("default_value", UNSET)
+
         setting_item = cls(
             key=key,
             value=value,
             source=source,
             label=label,
+            default_value=default_value,
         )
 
         setting_item.additional_properties = d

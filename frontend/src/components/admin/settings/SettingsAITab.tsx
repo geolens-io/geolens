@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
@@ -40,7 +41,7 @@ import type { AIProbeCheck, AIProbeReport } from '@/types/api';
 interface TabProps {
   settings: SettingItem[];
   envOnly: boolean;
-  onSave: (changes: Record<string, unknown>) => void;
+  onSave: (changes: Record<string, unknown>) => void | Promise<boolean>;
   onReset: ResetHandler;
   isSaving: boolean;
   settingsUpdatedAt?: number;
@@ -121,6 +122,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
     backfill.mutate(force, {
       onSuccess: (data) => {
         setBackfillJobId(data.job_id);
+        setRegenPending(false);
         toast.info(t('ai.backfillQueued'));
       },
     });
@@ -130,12 +132,15 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
   const widthEdited = savedDims !== undefined && String(embeddingDims) !== String(savedDims);
   const widthChangeWipesEmbeddings =
     Boolean(embeddingStats && embeddingStats.embedded_records > 0) && widthEdited;
+  const [regenerate, setRegenerate] = useState(true);
+  const [regenPending, setRegenPending] = useState(false);
   const [pending, setPending] = useState<
     { kind: 'save'; changes: Record<string, unknown> } | { kind: 'reset'; key: string } | null
   >(null);
 
   const handleSave = (changes: Record<string, unknown>) => {
     if ('embedding_dims' in changes || 'embedding_model' in changes) {
+      setRegenerate(true);
       setPending({ kind: 'save', changes });
       return;
     }
@@ -143,18 +148,42 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
   };
 
   const handleReset = (key: string) => {
+    const dims = findSetting(settings, 'embedding_dims');
+    // Dropping an override equal to the default leaves the live width alone.
+    const resetKeepsWidth =
+      key === 'embedding_dims' &&
+      dims?.default_value !== undefined &&
+      dims.default_value !== null &&
+      String(dims.default_value) === String(dims.value);
+    if (resetKeepsWidth) {
+      onReset(key);
+      return;
+    }
     if (key === 'embedding_dims' || key === 'embedding_model') {
+      setRegenerate(true);
       setPending({ kind: 'reset', key });
       return;
     }
     onReset(key);
   };
 
-  const confirmEmbeddingChange = () => {
+  const confirmEmbeddingChange = async () => {
     if (!pending) return;
-    if (pending.kind === 'save') onSave(pending.changes);
-    else onReset(pending.key);
+    const current = pending;
+    const queueAfter = regenerate && canManageUsers;
     setPending(null);
+    const saved = current.kind === 'save' ? await onSave(current.changes) : await onReset(current.key);
+    if (saved === false || !queueAfter) return;
+    // The save already succeeded; a run that cannot start leaves the
+    // embeddings to regenerate by hand.
+    backfill.mutate(false, {
+      onSuccess: (data) => {
+        setBackfillJobId(data.job_id);
+        setRegenPending(false);
+        toast.info(t('ai.backfillQueued'));
+      },
+      onError: () => setRegenPending(true),
+    });
   };
 
   const pendingChangesWidth =
@@ -509,6 +538,12 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
                   </Button>
                 )}
               </div>
+              {regenPending && (
+                <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 p-3">
+                  <AlertTriangle className="h-4 w-4 text-warning mt-0.5 flex-shrink-0" />
+                  <p className="text-sm text-foreground">{t('ai.regenerationPending')}</p>
+                </div>
+              )}
               {embeddingStats.stale_records > 0 && (
                 <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 p-3">
                   <AlertTriangle className="h-4 w-4 text-warning mt-0.5 flex-shrink-0" />
@@ -632,6 +667,16 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {canManageUsers && (
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="regenerate-after-save"
+                checked={regenerate}
+                onCheckedChange={(checked) => setRegenerate(checked === true)}
+              />
+              <Label htmlFor="regenerate-after-save">{t('ai.dimsConfirm.regenerate')}</Label>
+            </div>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common:cancel')}</AlertDialogCancel>
             <AlertDialogAction variant="destructive" onClick={confirmEmbeddingChange}>
