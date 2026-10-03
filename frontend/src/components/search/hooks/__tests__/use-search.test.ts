@@ -200,6 +200,26 @@ describe('useAllTypesTotal', () => {
     expect(result.current.all).toBeUndefined();
   });
 
+  it('stops trusting the cached untyped total once it goes stale', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { result } = renderHook(useAll);
+      await waitFor(() => expect(result.current.all).toBe(12));
+      act(() => useSearchStore.getState().setFilter('record_type', 'vector_dataset'));
+      await waitFor(() => expect(result.current.results.data?.numberMatched).toBe(3));
+      expect(result.current.all).toBe(12);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_001);
+      });
+
+      expect(result.current.all).toBeUndefined();
+      expect(mockSearchDatasets).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('is undefined when nothing is cached for the untyped params', async () => {
     useSearchStore.getState().setFilter('record_type', 'vector_dataset');
     const { result } = renderHook(useAll);

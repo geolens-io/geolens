@@ -1,15 +1,19 @@
+import { useEffect, useReducer, useSyncExternalStore } from 'react';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
 import { useShallow } from 'zustand/react/shallow';
 import { useSearchStore } from '@/stores/search-store';
 import { searchDatasets, fetchCatalogSummary, fetchFacets } from '@/api/search';
 import { listMaps } from '@/api/maps';
+import type { SearchResponse } from '@/types/api';
+
+const SEARCH_STALE_TIME = 30_000;
 
 function searchResultsOptions(params: Record<string, string>) {
   return {
     queryKey: queryKeys.search.results(params),
     queryFn: () => searchDatasets(params),
-    staleTime: 30_000,
+    staleTime: SEARCH_STALE_TIME,
     placeholderData: keepPreviousData,
   };
 }
@@ -67,21 +71,27 @@ export function useAllTypesTotal(totalResults: number | undefined, isPlaceholder
   const { record_type, offset, ...untyped } = params;
   // Same options as useSearchResults so this observer never replaces the shared
   // query's fetch function; disabled so it only reads the cache.
-  // placeholderData is cleared so an uncached key reads as unknown, not as the
-  // previous search's total.
+  // This disabled observer only keeps the entry alive; the entry's own state
+  // is read directly because disabled observers never report isStale. Only a
+  // fresh, non-invalidated total is trusted: nothing refetches it while a type
+  // is selected.
   const queryClient = useQueryClient();
-  const untypedKey = queryKeys.search.results(untyped);
-  // isStale is read only so an invalidation re-renders this hook.
-  const { data, isPlaceholderData: cachedIsPlaceholder, isStale } = useQuery({
-    ...searchResultsOptions(untyped),
-    placeholderData: undefined,
-    enabled: false,
-  });
-  void isStale;
-  // An invalidated entry is never refetched while only this disabled observer
-  // holds it, so its total would stay frozen at the old value.
-  const invalidated = queryClient.getQueryState(untypedKey)?.isInvalidated;
-  const cachedTotal = cachedIsPlaceholder || invalidated ? undefined : data?.numberMatched;
+  const key = queryKeys.search.results(untyped);
+  useQuery({ ...searchResultsOptions(untyped), enabled: false });
+  const state = useSyncExternalStore(
+    (notify) => queryClient.getQueryCache().subscribe(notify),
+    () => queryClient.getQueryState<SearchResponse>(key),
+  );
+  const [, expire] = useReducer((n: number) => n + 1, 0);
+  const updatedAt = state?.dataUpdatedAt ?? 0;
+  const remaining = updatedAt + SEARCH_STALE_TIME - Date.now();
+  useEffect(() => {
+    if (remaining <= 0) return;
+    const id = setTimeout(expire, remaining);
+    return () => clearTimeout(id);
+  }, [remaining]);
+  const cachedTotal =
+    state?.data && !state.isInvalidated && remaining > 0 ? state.data.numberMatched : undefined;
   // While the main query still shows the previous (typed) results, only the
   // cached untyped total is correct.
   return record_type || isPlaceholderData ? cachedTotal : totalResults;
