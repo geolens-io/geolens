@@ -663,10 +663,8 @@ class _ProviderModelConfig(PersistentConfig[str]):
         """
         from app.core.ai_credentials import OpenAICredentialDestinationError
         from app.platform.extensions import get_ai_provider
-        from app.platform.extensions.defaults_ai_anthropic import (
+        from app.platform.extensions.defaults import (
             DefaultAnthropicProvider,
-        )
-        from app.platform.extensions.defaults_ai_openai import (
             DefaultOpenAICompatibleProvider,
         )
 
