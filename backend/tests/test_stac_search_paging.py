@@ -194,13 +194,56 @@ class TestNextPageDerivation:
         next_page = {
             "method": "POST",
             "href": f"{CATALOG}/search",
-            "body": {"next": "abc", "limit": 5},
+            "body": {"next": "abc"},
             "merge": False,
         }
         _, sent = await _search(
             {"features": []}, collections=["c1"], next_page=next_page
         )
-        assert json.loads(sent[0].content) == {"next": "abc", "limit": 5}
+        assert json.loads(sent[0].content) == {"next": "abc", "limit": 20}
+
+    async def test_post_follow_up_pins_the_page_size_to_the_request_limit(self):
+        next_page = {
+            "method": "POST",
+            "href": f"{CATALOG}/search",
+            "body": {"offset": 50, "limit": 100},
+            "merge": False,
+        }
+        _, sent = await _search({"features": []}, limit=50, next_page=next_page)
+        assert json.loads(sent[0].content) == {"offset": 50, "limit": 50}
+
+    async def test_merged_post_follow_up_also_pins_the_page_size(self):
+        next_page = {
+            "method": "POST",
+            "href": f"{CATALOG}/search",
+            "body": {"offset": 50, "limit": 100},
+            "merge": True,
+        }
+        _, sent = await _search({"features": []}, limit=50, next_page=next_page)
+        assert json.loads(sent[0].content)["limit"] == 50
+
+    async def test_get_follow_up_rewrites_a_limit_param(self):
+        next_page = {
+            "method": "GET",
+            "href": f"{CATALOG}/search?offset=50&limit=100",
+            "body": None,
+            "merge": False,
+        }
+        _, sent = await _search({"features": []}, limit=50, next_page=next_page)
+        assert sent[0].url.params["limit"] == "50"
+        assert sent[0].url.params["offset"] == "50"
+
+    async def test_over_returning_catalog_ends_paging_rather_than_skipping(self):
+        features = [{"id": f"i{n}", "assets": {}} for n in range(3)]
+        result, _ = await _search(
+            {
+                "features": features,
+                "links": [{"rel": "next", "href": f"{CATALOG}/search?offset=3"}],
+            },
+            limit=2,
+        )
+        assert result["returned"] == 2
+        assert result["next_page"] is None
 
     async def test_get_follow_up_is_a_bodyless_get_of_the_link(self):
         next_page = {

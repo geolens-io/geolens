@@ -261,6 +261,30 @@ def next_page_link(
     return None
 
 
+def _follow_up_request(
+    next_page: dict[str, Any], base_body: dict[str, Any], limit: int
+) -> tuple[str, str, dict[str, Any] | None]:
+    """The ``(method, url, body)`` that fetches *next_page*.
+
+    The page size is pinned to this request's *limit*: a link asking for more
+    would return items the caller truncates away while its cursor moves on.
+    """
+    method = next_page["method"]
+    href = next_page["href"]
+    if method == "GET":
+        url = httpx.URL(href)
+        if "limit" in url.params:
+            href = str(url.copy_set_param("limit", limit))
+        return method, href, None
+    next_body = next_page.get("body")
+    if next_page.get("merge"):
+        body = {**base_body, **(next_body or {})}
+    else:
+        body = dict(next_body or {})
+    body["limit"] = limit
+    return method, href, body
+
+
 def _following_page(
     data: dict[str, Any],
     response_url: str,
@@ -494,15 +518,7 @@ async def search_stac_items(
 
     method = "POST"
     if next_page is not None:
-        method = next_page["method"]
-        search_url = next_page["href"]
-        next_body = next_page.get("body")
-        if method == "GET":
-            body = None
-        elif next_page.get("merge"):
-            body = {**body, **(next_body or {})}
-        else:
-            body = next_body
+        method, search_url, body = _follow_up_request(next_page, body, limit)
 
     headers = {"Content-Type": "application/json"} if body is not None else {}
     pair: tuple[str, str] | None = None
@@ -525,7 +541,8 @@ async def search_stac_items(
     data = json.loads(raw)
 
     features = data.get("features", [])
-    if len(features) > limit:
+    over_returned = len(features) > limit
+    if over_returned:
         logger.warning(
             "STAC search: server returned more items than requested",
             requested=limit,
@@ -606,5 +623,8 @@ async def search_stac_items(
         "items": items,
         "matched": matched,
         "returned": len(items),
-        "next_page": _following_page(data, str(resp.url), url, next_page),
+        # The cursor sits past the dropped items, so it cannot be followed.
+        "next_page": None
+        if over_returned
+        else _following_page(data, str(resp.url), url, next_page),
     }
