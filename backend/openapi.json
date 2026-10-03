@@ -592,6 +592,34 @@
             "description": "Why the job cannot be retried, when retry is unavailable.",
             "title": "Retry Reason"
           },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Service URL a service import was started from, with userinfo and credential query values redacted. Null for every other job.",
+            "title": "Source Url"
+          },
+          "restart_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "url",
+                  "service"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Import tab a failed job whose retry is refused can be started again from: 'url' for a file URL import, 'service' for a service import. Null otherwise.",
+            "title": "Restart Source"
+          },
           "user_metadata": {
             "anyOf": [
               {

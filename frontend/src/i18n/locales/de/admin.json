@@ -213,6 +213,8 @@
     },
     "retry": "Wiederholen",
     "retrying": "Wird wiederholt...",
+    "startAgain": "Erneut starten",
+    "retryAvailable": "Wiederholung möglich",
     "cancel": "Abbrechen",
     "cancelling": "Wird abgebrochen...",
     "hideDetails": "Details ausblenden für {{name}}",

@@ -10,6 +10,7 @@ from .admin_embed_token_list_response import AdminEmbedTokenListResponse
 from .admin_embed_token_response import AdminEmbedTokenResponse
 from .admin_job_list_response import AdminJobListResponse
 from .admin_job_response import AdminJobResponse
+from .admin_job_response_restart_source_type_0 import AdminJobResponseRestartSourceType0
 from .admin_job_response_status import AdminJobResponseStatus
 from .admin_job_response_user_metadata_type_0 import AdminJobResponseUserMetadataType0
 from .admin_password_reset import AdminPasswordReset
@@ -809,6 +810,7 @@ __all__ = (
     "AdminEmbedTokenResponse",
     "AdminJobListResponse",
     "AdminJobResponse",
+    "AdminJobResponseRestartSourceType0",
     "AdminJobResponseStatus",
     "AdminJobResponseUserMetadataType0",
     "AdminPasswordReset",

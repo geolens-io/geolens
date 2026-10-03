@@ -759,6 +759,8 @@ export interface AdminJobResponse {
   error_code?: string | null;
   can_retry: boolean;
   retry_reason: string | null;
+  source_url?: string | null;
+  restart_source?: 'url' | 'service' | null;
   user_metadata: Record<string, unknown> | null;
   created_by: string | null;
   username: string | null;

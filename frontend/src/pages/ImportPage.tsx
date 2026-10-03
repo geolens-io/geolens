@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import { useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Upload, Link, Database, Globe, Satellite } from 'lucide-react';
 import { PageHeader } from '@/components/layout/PageHeader';
@@ -27,7 +28,13 @@ const MODE_TABS: { value: Tab; icon: typeof Upload; labelKey: string }[] = [
 
 export function ImportPage() {
   const { t } = useTranslation('import');
-  const [activeTab, setActiveTab] = useState<Tab>('upload');
+  // A "Start again" link from Admin Jobs opens the URL or service tab with its URL.
+  const [searchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  const [prefillUrl] = useState(searchParams.get('url') ?? '');
+  const [activeTab, setActiveTab] = useState<Tab>(
+    tabParam === 'url' || tabParam === 'service' ? tabParam : 'upload',
+  );
   const [uploadPhase, setUploadPhase] = useState<BatchPhase>('idle');
   const [uploadOutcome, setUploadOutcome] = useState<{ state: 'complete' | 'partial' | null; kinds: DataKind[] }>({ state: null, kinds: [] });
   const handlePhaseChange = useCallback((phase: BatchPhase) => {
@@ -92,9 +99,9 @@ export function ImportPage() {
         <div className="min-w-0">
           <AppErrorBoundary>
             {activeTab === 'upload' && <UploadForm onPhaseChange={handlePhaseChange} onOutcomeChange={handleOutcomeChange} />}
-            {activeTab === 'url' && <UrlImportForm />}
+            {activeTab === 'url' && <UrlImportForm initialUrl={tabParam === 'url' ? prefillUrl : ''} />}
             {activeTab === 'register' && <RegisterForm />}
-            {activeTab === 'service' && <ServiceUrlForm />}
+            {activeTab === 'service' && <ServiceUrlForm initialUrl={tabParam === 'service' ? prefillUrl : ''} />}
             {activeTab === 'stac' && <StacImportForm />}
           </AppErrorBoundary>
         </div>

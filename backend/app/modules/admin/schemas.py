@@ -241,6 +241,17 @@ class AdminJobResponse(BaseModel):
     retry_reason: str | None = Field(
         description="Why the job cannot be retried, when retry is unavailable."
     )
+    source_url: str | None = Field(
+        default=None,
+        description="Service URL a service import was started from, with userinfo and "
+        "credential query values redacted. Null for every other job.",
+    )
+    restart_source: Literal["url", "service"] | None = Field(
+        default=None,
+        description="Import tab a failed job whose retry is refused can be started "
+        "again from: 'url' for a file URL import, 'service' for a service import. "
+        "Null otherwise.",
+    )
     user_metadata: dict[str, Any] | None = Field(
         description="Metadata captured with the job: the fields supplied at upload and commit (title, summary, tags, visibility, file_type, vrt_type, etc.) and outcomes such as warnings. Heterogeneous shape across ingest paths. Worker bookkeeping, such as staging keys and unpublished artifacts, is left out; null when nothing else is recorded.",
     )

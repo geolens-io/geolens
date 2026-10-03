@@ -213,6 +213,8 @@
     },
     "retry": "Réessayer",
     "retrying": "Nouvelle tentative...",
+    "startAgain": "Recommencer",
+    "retryAvailable": "Nouvelle tentative possible",
     "cancel": "Annuler",
     "cancelling": "Annulation...",
     "hideDetails": "Masquer les détails de {{name}}",

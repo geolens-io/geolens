@@ -215,6 +215,8 @@
     },
     "retry": "重试",
     "retrying": "正在重试...",
+    "startAgain": "重新开始",
+    "retryAvailable": "可重试",
     "cancel": "取消",
     "cancelling": "正在取消..."
   },

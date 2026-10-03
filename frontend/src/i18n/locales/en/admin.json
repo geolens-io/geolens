@@ -215,6 +215,8 @@
     },
     "retry": "Retry",
     "retrying": "Retrying...",
+    "startAgain": "Start again",
+    "retryAvailable": "Retry available",
     "cancel": "Cancel",
     "cancelling": "Cancelling..."
   },

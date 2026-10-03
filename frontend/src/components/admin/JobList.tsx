@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { getIngestSourceLabel } from '@/i18n/labels';
 import type { TFunction } from 'i18next';
 import { describeFailureReason } from '@/lib/failure-reason';
-import { useLocation, useSearchParams } from 'react-router';
+import { Link, useLocation, useSearchParams } from 'react-router';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useAdminJobs, useCancelAdminJob, useRetryAdminJob, useUserNames } from '@/hooks/use-admin';
 import { formatDate } from '@/lib/format';
@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
+import { startAgainPath } from '@/components/import/start-again';
 import { DataTablePagination } from './DataTablePagination';
 import { SortableColumnHeader, type SortDirection } from './SortableColumnHeader';
 import { DataTableSearch } from './DataTableSearch';
@@ -442,6 +443,11 @@ export function JobList() {
                           >
                             {jobStatusLabel(t, job.status)}
                           </Badge>
+                          {job.status === 'failed' && job.can_retry && (
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {t('jobs.retryAvailable')}
+                            </p>
+                          )}
                         </TableCell>
                         <TableCell>
                           {formatDuration(job.started_at, job.completed_at)}
@@ -469,6 +475,13 @@ export function JobList() {
                                 <p className="mb-2 text-xs text-muted-foreground">
                                   {job.retry_reason}
                                 </p>
+                              )}
+                              {job.status === 'failed' && !job.can_retry && job.restart_source && (
+                                <Button asChild variant="outline" size="sm" className="mb-2">
+                                  <Link to={startAgainPath(job.restart_source, job.source_url)}>
+                                    {t('jobs.startAgain')}
+                                  </Link>
+                                </Button>
                               )}
                               {job.user_metadata && (
                                 <div className="mb-2">

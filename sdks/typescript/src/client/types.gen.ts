@@ -387,6 +387,18 @@ export type AdminJobResponse = {
      */
     retry_reason: string | null;
     /**
+     * Source Url
+     *
+     * Service URL a service import was started from, with userinfo and credential query values redacted. Null for every other job.
+     */
+    source_url?: string | null;
+    /**
+     * Restart Source
+     *
+     * Import tab a failed job whose retry is refused can be started again from: 'url' for a file URL import, 'service' for a service import. Null otherwise.
+     */
+    restart_source?: 'url' | 'service' | null;
+    /**
      * User Metadata
      *
      * Metadata captured with the job: the fields supplied at upload and commit (title, summary, tags, visibility, file_type, vrt_type, etc.) and outcomes such as warnings. Heterogeneous shape across ingest paths. Worker bookkeeping, such as staging keys and unpublished artifacts, is left out; null when nothing else is recorded.
