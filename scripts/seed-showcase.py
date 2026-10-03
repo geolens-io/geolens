@@ -6605,14 +6605,13 @@ def _semantic_setting_source(api: Api) -> str | None:
     )
 
 
-def _run_embedding_backfill(api: Api) -> bool:
-    """Queue the backfill and wait for it. False when one is already running."""
+def _run_embedding_backfill(api: Api) -> dict | None:
+    """Queue the backfill and return its finished job; None when one is already running."""
     r = api.client.post(f"{api.base}/api/admin/backfill-embeddings/", headers=api.h)
     if r.status_code == 409:
-        return False
+        return None
     r.raise_for_status()
-    api.poll(r.json()["job_id"], timeout=1800)
-    return True
+    return api.poll(r.json()["job_id"], timeout=1800)
 
 
 def enable_semantic_search(api: Api) -> None:
@@ -6651,10 +6650,22 @@ def enable_semantic_search(api: Api) -> None:
             return
         enable = True
     print("  Generating embeddings for semantic search...")
-    if not _run_embedding_backfill(api):
+    job = _run_embedding_backfill(api)
+    if job is None:
         print("  An embedding backfill is already running; rerun the seed once it finishes.")
         return
+    # A run that embedded only some rows still finishes as complete.
+    if job.get("rows_failed"):
+        print(
+            f"  {job['rows_failed']} record(s) failed to embed; semantic search "
+            "not enabled. Rerun the seed to retry."
+        )
+        return
     if enable:
+        # The backfill can take a while; an admin may have chosen a value since.
+        if _semantic_setting_source(api) != "default":
+            print("  Semantic search was set while embeddings ran; leaving it alone.")
+            return
         put = api.client.put(
             f"{api.base}/api/settings/",
             headers=api.h,

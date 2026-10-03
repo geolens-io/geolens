@@ -187,6 +187,19 @@ def test_backfill_already_running_is_not_a_failure_and_changes_no_setting():
     assert _writes(api) == [BACKFILL] and polled == []
 
 
+def test_partial_backfill_does_not_enable_search(capsys):
+    api, _ = _api(READY, job={"rows_failed": 3})
+    seeder.enable_semantic_search(api)
+    assert _writes(api) == [BACKFILL]
+    assert "3 record(s) failed" in capsys.readouterr().out
+
+
+def test_an_override_saved_during_the_backfill_is_not_overwritten():
+    api, _ = _api(READY, source_after_poll="overridden")
+    seeder.enable_semantic_search(api)
+    assert _writes(api) == [BACKFILL]
+
+
 def test_setting_on_without_embeddings_backfills_without_touching_the_setting():
     api, polled = _api(
         {**READY, "semantic_search_enabled": True, "has_embeddings": False}
