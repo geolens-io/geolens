@@ -105,7 +105,7 @@ async def emit_event_safe(
     *,
     event_key: str,
     build: "Callable[[], Notification]",
-) -> None:
+) -> bool:
     """Defensive async wrapper for firing a single event notification.
 
     Returns immediately if ``event_enabled(event_key)`` is False — no
@@ -113,14 +113,15 @@ async def emit_event_safe(
     ``await notify(notification)`` inside one try/except that logs the
     exception type only (never payload/secrets) and swallows it, so a
     thrown *builder* — unlike ``notify()``'s own fail-safety — can never
-    escape to the caller (T-1230-01/T-1230-02).
+    escape to the caller (T-1230-01/T-1230-02). Returns False when the
+    build or any sink failed, and True otherwise, a disabled event included.
     """
     if not event_enabled(event_key):
-        return
+        return True
 
     try:
         notification = build()
-        await notify(notification)
+        result = await notify(notification)
     except Exception as exc:  # noqa: BLE001 — notification must never break callers
         # Log only the exception type — never the notification body or any secret.
         logger.warning(
@@ -128,3 +129,5 @@ async def emit_event_safe(
             event_key=event_key,
             error_type=type(exc).__name__,
         )
+        return False
+    return not getattr(result, "errors", None)

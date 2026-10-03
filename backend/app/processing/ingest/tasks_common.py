@@ -128,7 +128,7 @@ async def _emit_billing_event(
     *,
     event_id: str | None = None,
     table_name: str | None = None,
-) -> None:
+) -> bool:
     """Dispatch a billable usage event to registered BillingExtensions (METER-01).
 
     Imports ONLY ``get_billing_extensions`` from ``app.platform.extensions`` —
@@ -147,14 +147,17 @@ async def _emit_billing_event(
             idempotent at the DB layer.
         table_name: workers leave this None; the tile/OGC request path
             passes it to drive the METER-03 last_accessed_at signal.
+
+    Returns False when an extension raised, and True otherwise.
     """
     if not tenant_id:
-        return  # single_tenant no-op: no ledger, no billing (byte-identical OSS)
+        return True  # single_tenant no-op: no ledger, no billing (byte-identical OSS)
 
     # Billing-import-free: only import the extension accessor, never billing symbols
     from app.platform.extensions import get_billing_extensions
 
     _log = structlog.get_logger()
+    emitted = True
     for ext in get_billing_extensions():
         if not hasattr(ext, "on_usage_event"):
             continue  # DefaultBillingExtension + other extensions without the hook
@@ -176,6 +179,8 @@ async def _emit_billing_event(
                 ext=type(ext).__name__,
                 exc_info=True,
             )
+            emitted = False
+    return emitted
 
 
 @dataclass
@@ -1073,7 +1078,7 @@ async def load_job_for_error_write(
 _QUICKLOOK_DRAWS = 3
 
 
-async def _generate_quicklook(session, dataset_id: uuid.UUID, table_name: str) -> None:
+async def _generate_quicklook(session, dataset_id: uuid.UUID, table_name: str) -> bool:
     """Draw ``table_name``'s quicklook and point the dataset at it (non-fatal).
 
     Runs after the commit that published the table, so a connection-killing
@@ -1095,6 +1100,7 @@ async def _generate_quicklook(session, dataset_id: uuid.UUID, table_name: str) -
     The draw holds only the caller's session, one pooled connection.
 
     The caller's view of ``quicklook_256_uri`` is stale after this returns.
+    Returns whether the last draw landed, or True when the dataset is gone.
     """
     from sqlalchemy import select
 
@@ -1102,22 +1108,25 @@ async def _generate_quicklook(session, dataset_id: uuid.UUID, table_name: str) -
 
     Dataset = get_processing_port().get_dataset_orm_class()
     content_version = select(Dataset.tile_cache_version).where(Dataset.id == dataset_id)
+    landed = False
     try:
         for _ in range(_QUICKLOOK_DRAWS):
             drawn = await session.scalar(content_version)
-            await _draw_quicklook(session, dataset_id, table_name)
+            landed = await _draw_quicklook(session, dataset_id, table_name)
             # A draw that failed can leave its transaction aborted.
             await session.rollback()
             if await session.scalar(content_version) == drawn:
-                return
+                return landed
     except Exception as exc:  # broad: the dataset is already published
         structlog.get_logger().warning(
             "quicklook_failed", phase="version", table=table_name, error=str(exc)
         )
+        return False
+    return landed
 
 
-async def _draw_quicklook(session, dataset_id: uuid.UUID, table_name: str) -> None:
-    """Draw, upload and record the quicklook once; :func:`_generate_quicklook` repeats it."""
+async def _draw_quicklook(session, dataset_id: uuid.UUID, table_name: str) -> bool:
+    """Draw, upload and record the quicklook once; returns whether it landed or the dataset is gone."""
     import io as _io
 
     from sqlalchemy import select, update
@@ -1154,7 +1163,7 @@ async def _draw_quicklook(session, dataset_id: uuid.UUID, table_name: str) -> No
             table=table_name,
             error=str(_ql_exc),
         )
-        return
+        return False
 
     # The write is IO that can raise on a dead connection, and the dataset is
     # already published, so its failure is only logged.
@@ -1184,7 +1193,7 @@ async def _draw_quicklook(session, dataset_id: uuid.UUID, table_name: str) -> No
             table=table_name,
             error=str(_ql_recovery_exc)[:500],
         )
-        return
+        return False
 
     if gone:
         # A delete that reaped vectors/{id}/ before this upload left it unowned.
@@ -1193,7 +1202,7 @@ async def _draw_quicklook(session, dataset_id: uuid.UUID, table_name: str) -> No
             await ql_storage.delete(stored_key)
         except Exception as exc:  # broad: an orphaned image only costs storage
             _ql_log.warning("quicklook_reap_failed", table=table_name, error=str(exc))
-        return
+        return True
 
     try:
         await session.commit()
@@ -1207,6 +1216,8 @@ async def _draw_quicklook(session, dataset_id: uuid.UUID, table_name: str) -> No
             table=table_name,
             error=str(_ql_commit_exc),
         )
+        return False
+    return True
 
 
 async def _detect_3d_and_promote_elev(

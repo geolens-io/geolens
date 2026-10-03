@@ -98,11 +98,16 @@ async def _job(
     task: str,
     status: str = "complete",
     error_message: str | None = None,
+    table_name: str | None = None,
     **record,
 ) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
     """A job whose record, shaped as an older worker wrote it, owes ``task``: (job, attempt, record)."""
     admin_id = await get_user_id(session, "admin")
-    dataset = await create_dataset(session, created_by=admin_id)
+    dataset = await create_dataset(
+        session,
+        created_by=admin_id,
+        **({"table_name": table_name} if table_name else {}),
+    )
     job = IngestJob(
         dataset_id=dataset.id,
         status=status,
@@ -392,3 +397,188 @@ async def test_a_first_vector_import_dying_after_its_commit_leaves_its_steps_to_
         assert not ingest.source.exists()
     finally:
         await ingest.clean_up(client, admin_auth_header)
+
+
+# --- Transient failures beneath the runners ----------------------------------
+
+
+async def _retried_once_due(job_id, item: str) -> None:
+    """The record still owes ``item`` after one attempt, under its retry delay."""
+    record = await _record(job_id)
+    assert (item in record, record["attempts"]) == (True, 1)
+    assert await _leased(job_id)
+
+
+async def test_a_notice_every_sink_failed_to_deliver_is_sent_again_once_due(
+    test_db_session, monkeypatch
+) -> None:
+    """A webhook that is down leaves the failure notice owed, and the retry delivers it."""
+    from app.platform.notifications import env_sink
+
+    posted: list[str] = []
+    down = {"webhook": True}
+
+    async def _post(notification) -> None:
+        if down["webhook"]:
+            raise ConnectionError("the webhook is unreachable")
+        posted.append(notification.data["notification_id"])
+
+    monkeypatch.setattr(env_sink, "post_webhook", _post)
+    monkeypatch.setattr(
+        "app.platform.notifications.get_notification_sinks",
+        lambda: [env_sink.EnvConfiguredNotificationSink()],
+    )
+    monkeypatch.setattr(settings, "notifications_enabled", True)
+    monkeypatch.setattr(settings, "notify_on_ingest_failed", True)
+    monkeypatch.setattr(settings, "smtp_host", None)
+    monkeypatch.setattr(
+        settings, "notification_webhook_url", "https://hooks.example.com/geolens"
+    )
+    job_id, attempt_id, record_id = await _job(
+        test_db_session, task="reupload_file", status="failed", error_message="no"
+    )
+    try:
+        await run_publish_followups(job_id)
+        await _retried_once_due(job_id, "notice")
+
+        down["webhook"] = False
+        await _make_due(job_id)
+        await run_owed_publish_followups()
+
+        assert posted == [f"{job_id}:{attempt_id}:ingest_failed"]
+        assert await _record(job_id) is None
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+@pytest.mark.parametrize("cache", ["open-circuit", "in-memory"])
+async def test_a_catalog_purge_redis_skipped_stays_owed_and_a_local_one_lands(
+    test_db_session, monkeypatch, cache
+) -> None:
+    """A purge an open Redis circuit skips is retried once due; one with no Redis lands at once."""
+    from app.platform.cache import provider
+    from app.platform.cache.memory import InMemoryCacheProvider
+    from app.platform.cache.redis import RedisCacheProvider
+
+    redis = RedisCacheProvider(url="redis://127.0.0.1:1/0", max_failures=1)
+    redis._record_failure()
+    monkeypatch.setattr(
+        provider,
+        "_cache_provider",
+        redis if cache == "open-circuit" else InMemoryCacheProvider(),
+    )
+    job_id, _, record_id = await _job(
+        test_db_session, task="reupload_file", claimed=True, catalog_cache=True
+    )
+    try:
+        await run_publish_followups(job_id)
+        if cache == "open-circuit":
+            await _retried_once_due(job_id, "catalog_cache")
+            monkeypatch.setattr(provider, "_cache_provider", InMemoryCacheProvider())
+            await _make_due(job_id)
+            await run_owed_publish_followups()
+
+        assert await _record(job_id) is None
+    finally:
+        await redis._client.aclose()
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def test_a_usage_event_the_billing_extension_refused_is_emitted_once_due(
+    test_db_session, monkeypatch
+) -> None:
+    """A billing extension that raises leaves the usage event owed, and the retry emits it."""
+
+    class _Meter:
+        def __init__(self) -> None:
+            self.down = True
+            self.events: list[str | None] = []
+
+        async def on_usage_event(self, *, event_id=None, **_kwargs) -> None:
+            if self.down:
+                raise ConnectionError("the meter is unreachable")
+            self.events.append(event_id)
+
+    meter = _Meter()
+    monkeypatch.setattr(
+        "app.platform.extensions.get_billing_extensions", lambda: [meter]
+    )
+    monkeypatch.setattr(
+        "app.processing.ingest.publish_followups._usage_tenant", lambda: "tenant-a"
+    )
+    job_id, _, record_id = await _job(
+        test_db_session, task="ingest_raster", claimed=True, usage="ingest_jobs"
+    )
+    try:
+        await run_publish_followups(job_id)
+        await _retried_once_due(job_id, "usage")
+
+        meter.down = False
+        await _make_due(job_id)
+        await run_owed_publish_followups()
+
+        assert meter.events == [str(job_id)]
+        assert await _record(job_id) is None
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def test_a_quicklook_whose_upload_failed_is_drawn_again_once_due(
+    test_db_session, tmp_path, monkeypatch
+) -> None:
+    """A storage write that fails leaves the quicklook owed, and the retry draws and records it."""
+    from app.platform.storage.local import LocalStorageProvider
+
+    table = f"qlretry_{uuid.uuid4().hex[:10]}"
+    async with db_module.async_session() as session:
+        await session.execute(
+            text(
+                f'CREATE TABLE "data"."{table}" '
+                "(gid serial PRIMARY KEY, geom_4326 geometry(Point, 4326))"
+            )
+        )
+        await session.execute(
+            text(
+                f'INSERT INTO "data"."{table}" (geom_4326) '
+                "VALUES (ST_SetSRID(ST_MakePoint(2.35, 48.85), 4326))"
+            )
+        )
+        await session.commit()
+    store = LocalStorageProvider(str(tmp_path / "objects"))
+    real_put = store.put
+    down = {"storage": True}
+
+    async def _put(key, data):
+        if down["storage"]:
+            raise OSError("the object store refused the write")
+        return await real_put(key, data)
+
+    monkeypatch.setattr(store, "put", _put)
+    monkeypatch.setattr("app.processing.ingest.tasks_common.get_storage", lambda: store)
+    job_id, _, record_id = await _job(
+        test_db_session,
+        task="reupload_file",
+        table_name=table,
+        claimed=True,
+        quicklook=table,
+    )
+    try:
+        await run_publish_followups(job_id)
+        await _retried_once_due(job_id, "quicklook")
+
+        down["storage"] = False
+        await _make_due(job_id)
+        await run_owed_publish_followups()
+
+        assert await _record(job_id) is None
+        async with db_module.async_session() as session:
+            dataset_id = await session.scalar(
+                select(IngestJob.dataset_id).where(IngestJob.id == job_id)
+            )
+        key = f"vectors/{dataset_id}/quicklook_256.png"
+        assert await store.exists(key)
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+        async with db_module.async_session() as session:
+            await session.execute(text(f'DROP TABLE IF EXISTS "data"."{table}"'))
+            await session.commit()

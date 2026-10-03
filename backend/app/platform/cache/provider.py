@@ -81,8 +81,8 @@ class CacheProvider(Protocol):
         """
         ...
 
-    async def delete_pattern(self, pattern: str) -> None:
-        """Delete all keys matching glob pattern (e.g. 'settings:*')."""
+    async def delete_pattern(self, pattern: str) -> bool | None:
+        """Delete all keys matching glob pattern (e.g. 'settings:*'); False when the delete did not reach the store."""
         ...
 
     async def health_check(self) -> None:

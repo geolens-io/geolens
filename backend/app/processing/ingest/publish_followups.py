@@ -840,12 +840,12 @@ async def _published_dataset(dataset_id: uuid.UUID | None):
     return None if dataset is None or dataset.record is None else dataset
 
 
-async def _redraw_quicklook(dataset_id: uuid.UUID, table_name: str) -> None:
-    """Draw the published table's quicklook again, on a session of its own."""
+async def _redraw_quicklook(dataset_id: uuid.UUID, table_name: str) -> bool:
+    """Draw the published table's quicklook again, on a session of its own; returns whether it landed."""
     import app.core.db as db_module
 
     async with db_module.async_session() as session:
-        await _generate_quicklook(session, dataset_id, table_name)
+        return await _generate_quicklook(session, dataset_id, table_name)
 
 
 def _completion_text(task: str, dataset) -> tuple[str, str, str]:
@@ -866,8 +866,11 @@ def _completion_text(task: str, dataset) -> tuple[str, str, str]:
     )
 
 
-async def _send_notice(event: str, job_uuid: uuid.UUID, row, dataset) -> None:
-    """Send the job's ``event`` notice, identified so a receiver can drop a repeat."""
+async def _send_notice(event: str, job_uuid: uuid.UUID, row, dataset) -> bool:
+    """Send the job's ``event`` notice, identified so a receiver can drop a repeat.
+
+    Returns False when any sink failed; the whole notice then goes again.
+    """
     from app.platform.notifications.events import (
         build_event_notification,
         emit_event_safe,
@@ -875,16 +878,15 @@ async def _send_notice(event: str, job_uuid: uuid.UUID, row, dataset) -> None:
 
     notification_id = f"{job_uuid}:{row.owed_attempt}:{event}"
     if event == "ingest_failed":
-        await notify_ingest_failed(
+        return await notify_ingest_failed(
             job_uuid,
             task=row.task,
             reason=row.error_message or "",
             notification_id=notification_id,
         )
-        return
     subject, body, title = _completion_text(row.task, dataset)
     extra = {"job_id": str(job_uuid), "dataset": title}
-    await emit_event_safe(
+    return await emit_event_safe(
         event_key=event,
         build=lambda: build_event_notification(
             event,
@@ -896,27 +898,37 @@ async def _send_notice(event: str, job_uuid: uuid.UUID, row, dataset) -> None:
 
 
 async def _run_item(item: str, value, job_uuid: uuid.UUID, row, dataset) -> bool:
-    """Run one run-once item; returns False when it did not land."""
-    from app.core.db.tenant_session import current_tenant_var
-    from app.core.tenancy import is_multi_tenant
+    """Run one run-once item; returns False when it did not land.
+
+    Each runner reports its own transient failure, which it also logs, and
+    counts a deliberate no-op, such as a disabled event, as landed.
+    """
     from app.processing.embeddings.helpers import defer_embedding
 
     if item == _CATALOG_CACHE:
-        return await invalidate_catalog_cache() is not False
-    if item == _TILE_CACHE:
-        return await invalidate_tile_cache_for_table(value) is not False
-    if item == _QUICKLOOK:
-        await _redraw_quicklook(dataset.id, value)
+        settled = await invalidate_catalog_cache()
+    elif item == _TILE_CACHE:
+        settled = await invalidate_tile_cache_for_table(value)
+    elif item == _QUICKLOOK:
+        settled = await _redraw_quicklook(dataset.id, value)
     elif item == _EMBEDDING:
-        return await defer_embedding(dataset) is not False
+        settled = await defer_embedding(dataset)
     elif item == _NOTICE:
-        await _send_notice(value, job_uuid, row, dataset)
+        settled = await _send_notice(value, job_uuid, row, dataset)
     else:
-        tenant_id = current_tenant_var.get() if is_multi_tenant() else None
-        await _emit_billing_event(
-            str(tenant_id) if tenant_id else None, value, event_id=str(job_uuid)
+        settled = await _emit_billing_event(
+            _usage_tenant(), value, event_id=str(job_uuid)
         )
-    return True
+    return settled is not False
+
+
+def _usage_tenant() -> str | None:
+    """The tenant a usage event is billed to, or None outside a hosted install."""
+    from app.core.db.tenant_session import current_tenant_var
+    from app.core.tenancy import is_multi_tenant
+
+    tenant_id = current_tenant_var.get() if is_multi_tenant() else None
+    return str(tenant_id) if tenant_id else None
 
 
 async def _settle_run_once_items(
@@ -1080,8 +1092,8 @@ async def notify_ingest_failed(
     task: str,
     reason: str | BaseException,
     notification_id: str | None = None,
-) -> None:
-    """Send ``ingest_failed`` for ``job_id``, with ``reason`` redacted."""
+) -> bool:
+    """Send ``ingest_failed`` for ``job_id``, with ``reason`` redacted; returns False when a sink failed."""
     from app.platform.notifications.events import (
         build_event_notification,
         emit_event_safe,
@@ -1091,7 +1103,7 @@ async def notify_ingest_failed(
     extra = {"job_id": str(job_id), "task": task}
     if notification_id is not None:
         extra["notification_id"] = notification_id
-    await emit_event_safe(
+    return await emit_event_safe(
         event_key="ingest_failed",
         build=lambda: build_event_notification(
             "ingest_failed",

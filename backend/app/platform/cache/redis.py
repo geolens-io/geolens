@@ -356,14 +356,14 @@ class RedisCacheProvider:
             )
             self._record_failure()
 
-    async def delete_pattern(self, pattern: str) -> None:
+    async def delete_pattern(self, pattern: str) -> bool:
         await self._fallback.delete_pattern(pattern)
         for key in [
             k for k in self._pending_authoritative if fnmatch.fnmatch(k, pattern)
         ]:
             self._pending_authoritative.pop(key, None)
         if await self._circuit_open():
-            return
+            return False
         try:
             async for key in self._client.scan_iter(match=pattern):
                 await self._client.delete(key)
@@ -375,6 +375,8 @@ class RedisCacheProvider:
                 exc_info=True,
             )
             self._record_failure()
+            return False
+        return True
 
     async def health_check(self) -> None:
         """Verify Redis is reachable via PING.
