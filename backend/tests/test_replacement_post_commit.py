@@ -47,6 +47,17 @@ from tests.test_publish_followups import _make_due
 
 pytestmark = pytest.mark.anyio
 
+
+@pytest.fixture(autouse=True)
+def _embedding_defers(monkeypatch) -> None:
+    """The embedding defer lands, as it does with the task queue open."""
+
+    async def _deferred(dataset) -> bool:
+        return True
+
+    monkeypatch.setattr("app.processing.embeddings.helpers.defer_embedding", _deferred)
+
+
 _SQUARE = "POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))"
 _WFS_BASE = "https://services.example.com/wfs"
 _STAC_ITEM = "https://stac.example.com/api/collections/scenes/items/scene-1"
@@ -622,14 +633,14 @@ _BUILDERS = {
 _QUICKLOOK_RENDER = (
     "app.processing.vector.quicklook.generate_vector_quicklook_with_timeout"
 )
-_QUICKLOOK_DRAW = "app.processing.ingest.publication._generate_quicklook"
+_QUICKLOOK_DRAW = "app.processing.ingest.publish_followups._generate_quicklook"
 
 # Where each path looks up the post-commit steps it runs.
 _STEPS = {
     "file": {
-        "catalog cache": "app.processing.ingest.publication.invalidate_catalog_cache",
+        "catalog cache": "app.processing.ingest.publish_followups.invalidate_catalog_cache",
         "tile cache": (
-            "app.processing.ingest.publication.invalidate_tile_cache_for_table"
+            "app.processing.ingest.publish_followups.invalidate_tile_cache_for_table"
         ),
         "archive": "app.processing.ingest.publish_followups._archive_original_file",
         "embedding": "app.processing.embeddings.helpers.defer_embedding",
@@ -637,27 +648,27 @@ _STEPS = {
         "quicklook session": _QUICKLOOK_DRAW,
     },
     "service": {
-        "catalog cache": "app.processing.ingest.publication.invalidate_catalog_cache",
+        "catalog cache": "app.processing.ingest.publish_followups.invalidate_catalog_cache",
         "tile cache": (
-            "app.processing.ingest.publication.invalidate_tile_cache_for_table"
+            "app.processing.ingest.publish_followups.invalidate_tile_cache_for_table"
         ),
         "embedding": "app.processing.embeddings.helpers.defer_embedding",
         "quicklook": _QUICKLOOK_RENDER,
         "quicklook session": _QUICKLOOK_DRAW,
     },
     "raster": {
-        "catalog cache": "app.processing.ingest.publication.invalidate_catalog_cache",
+        "catalog cache": "app.processing.ingest.publish_followups.invalidate_catalog_cache",
         "embedding": "app.processing.embeddings.helpers.defer_embedding",
     },
     "postgis": {
-        "catalog cache": "app.processing.ingest.publication.invalidate_catalog_cache",
+        "catalog cache": "app.processing.ingest.publish_followups.invalidate_catalog_cache",
         "tile cache": (
-            "app.processing.ingest.publication.invalidate_tile_cache_for_table"
+            "app.processing.ingest.publish_followups.invalidate_tile_cache_for_table"
         ),
         "embedding": "app.processing.embeddings.helpers.defer_embedding",
     },
     "stac": {
-        "catalog cache": "app.processing.ingest.publication.invalidate_catalog_cache",
+        "catalog cache": "app.processing.ingest.publish_followups.invalidate_catalog_cache",
     },
 }
 
@@ -1026,6 +1037,7 @@ async def test_a_publish_that_landed_unseen_is_cleaned_up_by_the_sweep(
     )
     assert await _archived(replacement, storage) == []
 
+    await _make_due(replacement.job_id)
     await run_owed_publish_followups()
     assert await _upload_left(replacement, storage) == []
     if kind == "file":
@@ -1066,6 +1078,7 @@ async def test_an_earlier_archive_under_the_uploads_filename_is_not_taken_for_it
     await storage.put(earlier, b"an earlier version")
     with _landed_unseen(replacement.job_id):
         await replacement.run()
+    await _make_due(replacement.job_id)
 
     await run_owed_publish_followups()
     assert await _upload_left(replacement, storage) == []
@@ -1085,6 +1098,7 @@ async def test_a_superseded_publish_never_overwrites_the_live_versions_archive(
     first = await replace("file")
     with _landed_unseen(first.job_id):
         await first.run()
+    await _make_due(first.job_id)
 
     # A second replacement of the same dataset, under the same filename.
     admin_id = await get_user_id(test_db_session, "admin")
@@ -1144,6 +1158,7 @@ async def test_an_archive_the_sweep_cannot_make_keeps_the_upload(
     replacement = await replace("file", in_storage=in_storage)
     with _landed_unseen(replacement.job_id):
         await replacement.run()
+    await _make_due(replacement.job_id)
 
     real = getattr(storage, call)
 
@@ -1226,6 +1241,7 @@ async def test_a_raster_publish_that_landed_unseen_leaves_what_it_superseded_to_
     replacement = await replace("raster")
     with _landed_unseen(replacement.job_id):
         await replacement.run()
+    await _make_due(replacement.job_id)
     assert await _prior_left(replacement, storage) == replacement.prior_keys
 
     await run_owed_publish_followups()
@@ -1242,6 +1258,7 @@ async def test_a_later_replacement_keeps_what_it_made_live_through_the_sweep(
     first = await replace("raster")
     with _landed_unseen(first.job_id):
         await first.run()
+    await _make_due(first.job_id)
 
     admin_id = await get_user_id(test_db_session, "admin")
     upload = Path(settings.upload_staging_dir) / "second.tif"
@@ -1297,6 +1314,7 @@ async def test_the_sweep_keeps_a_superseded_key_the_live_raster_names_again(
     replacement = await replace("raster")
     with _landed_unseen(replacement.job_id):
         await replacement.run()
+    await _make_due(replacement.job_id)
     named = replacement.prior_keys[index]
     async with db_module.async_session() as session:
         await session.execute(
@@ -1319,6 +1337,7 @@ async def test_a_superseded_delete_cut_short_is_retried(
     replacement = await replace("raster")
     with _landed_unseen(replacement.job_id):
         await replacement.run()
+    await _make_due(replacement.job_id)
     real_cleanup = tasks_raster_common._cleanup_orphaned_storage_keys
     stops: list[list[str]] = []
 
@@ -1336,6 +1355,7 @@ async def test_a_superseded_delete_cut_short_is_retried(
     assert stops, "the delete never ran"
     assert await _prior_left(replacement, storage) == replacement.prior_keys
 
+    await _make_due(replacement.job_id)
     await run_publish_followups(replacement.job_id)
     assert await _prior_left(replacement, storage) == []
 
@@ -1371,6 +1391,7 @@ async def test_a_superseded_delete_that_fails_is_retried_once_due(
     replacement = await replace("raster")
     with _landed_unseen(replacement.job_id):
         await replacement.run()
+    await _make_due(replacement.job_id)
     cog = replacement.prior_keys[0]
     real_delete = storage.delete
     failures: list[str] = []
@@ -1404,6 +1425,7 @@ async def test_a_live_read_that_fails_is_retried_once_due(
     replacement = await replace("raster")
     with _landed_unseen(replacement.job_id):
         await replacement.run()
+    await _make_due(replacement.job_id)
     real_read = sweep._live_referenced_storage_keys
     failures: list[tuple[str, ...]] = []
 
@@ -1436,6 +1458,7 @@ async def test_a_delete_that_keeps_failing_stays_owed_and_deletes_the_upload_onc
     replacement = await replace("raster")
     with _landed_unseen(replacement.job_id):
         await replacement.run()
+    await _make_due(replacement.job_id)
     cog = replacement.prior_keys[0]
     real_delete = storage.delete
     real_upload_delete = publish_followups._delete_staged_upload
@@ -1480,11 +1503,13 @@ async def test_a_failing_superseded_delete_does_not_crowd_out_a_fresh_record(
     fresh = await replace("raster")
     with _landed_unseen(fresh.job_id):
         await fresh.run()
+    await _make_due(fresh.job_id)
     async with db_module.async_session() as session:
         await session.execute(
             text(
-                "UPDATE catalog.ingest_jobs "
-                "SET completed_at = completed_at - interval '1 hour' WHERE id = :id"
+                "UPDATE catalog.ingest_jobs SET user_metadata = jsonb_set("
+                "user_metadata, '{publish_followups,next_attempt_at}', "
+                "to_jsonb(now() - interval '1 hour')) WHERE id = :id"
             ),
             {"id": stuck.job_id},
         )
@@ -1539,6 +1564,7 @@ async def test_a_hosted_install_deletes_the_tenants_superseded_objects(
         monkeypatch.setattr(module, "resolve_current_storage_key", _hosted)
     with _landed_unseen(replacement.job_id):
         await replacement.run()
+    await _make_due(replacement.job_id)
     assert await _owed_keys(replacement.job_id) == replacement.prior_keys
 
     await run_owed_publish_followups()
@@ -1563,7 +1589,10 @@ async def test_a_cancel_after_the_publishing_commit_keeps_the_publication(
 
     with (
         _quiet_embedding(),
-        patch("app.processing.ingest.publication.invalidate_catalog_cache", new=_stall),
+        patch(
+            "app.processing.ingest.publish_followups.invalidate_catalog_cache",
+            new=_stall,
+        ),
     ):
         task = asyncio.create_task(replacement.run())
         await asyncio.wait_for(purging.wait(), timeout=20)

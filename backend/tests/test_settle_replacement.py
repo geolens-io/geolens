@@ -295,6 +295,20 @@ def _events(notifications: AsyncMock) -> list[str]:
     return [call.kwargs["event_key"] for call in notifications.await_args_list]
 
 
+async def _end_lease(job_id: uuid.UUID) -> None:
+    """Make the job's follow-up record due now, as once its lease has run out."""
+    async with db_module.async_session() as session:
+        await session.execute(
+            text(
+                "UPDATE catalog.ingest_jobs SET user_metadata = jsonb_set("
+                "user_metadata, '{publish_followups,next_attempt_at}', "
+                "to_jsonb(now() - interval '1 minute')) WHERE id = :id"
+            ),
+            {"id": job_id},
+        )
+        await session.commit()
+
+
 async def test_the_job_row_comes_before_the_catalog_rows_and_every_fetch_before_both(
     seed,
 ) -> None:
@@ -309,14 +323,14 @@ async def test_the_job_row_comes_before_the_catalog_rows_and_every_fetch_before_
     assert fake.seen["write"] == {row: True for row in _ROWS}
 
 
-async def test_a_publish_that_consumed_no_upload_owes_no_followups(seed) -> None:
-    """A publish naming no staged upload records no follow-ups and claims none."""
-    claim = AsyncMock()
-    with patch("app.processing.ingest.publication.run_publish_followups", claim):
-        await _settle(_Fake(seed))
+async def test_a_publish_that_consumed_no_upload_runs_its_own_followups(
+    seed, embedding
+) -> None:
+    """A publish naming no staged upload runs the run-once items it recorded, and the record goes."""
+    await _settle(_Fake(seed))
 
     assert (await _state(seed))["job"] == "complete"
-    claim.assert_not_awaited()
+    embedding.assert_awaited_once()
     assert not await _owes_followups(seed)
 
 
@@ -327,24 +341,35 @@ async def test_a_publish_that_consumed_an_upload_owes_it_after_the_release(
     fake = _Fake(seed, reaps_staged_upload=True, stage_note={"warnings": ["w"]})
     released_at_claim: list = []
 
-    async def _claim(job_uuid) -> bool:
-        released_at_claim.append(fake.released)
+    async def _claim(job_uuid, **kwargs) -> bool:
+        released_at_claim.append((fake.released, kwargs))
         return False
 
     with patch("app.processing.ingest.publication.run_publish_followups", _claim):
         await _settle(fake)
 
     assert (await _state(seed))["job"] == "complete"
-    assert released_at_claim == [(PublicationCommit.ACKNOWLEDGED, False)]
+    assert released_at_claim == [
+        (
+            (PublicationCommit.ACKNOWLEDGED, False),
+            {"attempt_id": seed.attempt_id},
+        )
+    ]
     async with db_module.async_session() as session:
         metadata = await session.scalar(
             select(IngestJob.user_metadata).where(IngestJob.id == seed.job_id)
         )
     assert metadata["warnings"] == ["w"]
-    assert metadata[PUBLISH_FOLLOWUPS_FIELD] == {
+    record = metadata[PUBLISH_FOLLOWUPS_FIELD]
+    assert record.pop("next_attempt_at")
+    assert record == {
         "task": "fake_replacement",
         "attempt_id": str(seed.attempt_id),
         "reaps_staged_upload": True,
+        "catalog_cache": True,
+        "tile_cache": seed.table,
+        "embedding": True,
+        "claimed": True,
     }
 
 
@@ -723,19 +748,27 @@ async def test_a_cancel_that_wins_rolls_the_publication_back_and_writes_nothing(
     assert _events(notifications) == []
 
 
-@pytest.mark.parametrize("step", ["catalog cache", "tile cache", "embedding"])
+@pytest.mark.parametrize(
+    ("item", "target"),
+    [
+        (
+            "catalog_cache",
+            "app.processing.ingest.publish_followups.invalidate_catalog_cache",
+        ),
+        (
+            "tile_cache",
+            "app.processing.ingest.publish_followups.invalidate_tile_cache_for_table",
+        ),
+        ("embedding", "app.processing.embeddings.helpers.defer_embedding"),
+    ],
+)
 async def test_a_failure_after_the_commit_is_logged_and_the_job_stays_complete(
-    seed, step: str
+    seed, item: str, target: str
 ) -> None:
-    """A post-commit step that raises leaves the publication complete and the task returns."""
-    target = {
-        "catalog cache": "app.processing.ingest.publication.invalidate_catalog_cache",
-        "tile cache": "app.processing.ingest.publication.invalidate_tile_cache_for_table",
-        "embedding": "app.processing.ingest.publication._defer_embedding",
-    }[step]
+    """A post-commit step that raises leaves the publication complete and stays owed alone."""
     fake = _Fake(seed)
     with (
-        patch(target, new=AsyncMock(side_effect=RuntimeError(f"{step} down"))),
+        patch(target, new=AsyncMock(side_effect=RuntimeError(f"{item} down"))),
         structlog.testing.capture_logs() as logs,
     ):
         await _settle(fake)
@@ -743,9 +776,16 @@ async def test_a_failure_after_the_commit_is_logged_and_the_job_stays_complete(
     state = await _state(seed)
     assert (state["job"], state["run"][0]) == ("complete", "succeeded")
     assert state["catalog"] == (7, "Replaced", 2)
-    assert [e["step"] for e in logs if e["event"] == "ingest_cleanup_step_failed"] == [
-        f"fake_replacement {step}"
+    assert [e["item"] for e in logs if e["event"] == "publish_followup_failed"] == [
+        item
     ]
+    async with db_module.async_session() as session:
+        metadata = await session.scalar(
+            select(IngestJob.user_metadata).where(IngestJob.id == seed.job_id)
+        )
+    record = metadata[PUBLISH_FOLLOWUPS_FIELD]
+    owed = {"catalog_cache", "tile_cache", "embedding"} & record.keys()
+    assert (owed, record["attempts"]) == ({item}, 1)
 
 
 def _rejection(seed: _Seed) -> Verdict:
@@ -904,7 +944,9 @@ def _in_order(steps: list[str], *, claim=None):
         steps.append(event_key)
 
     patches = [
-        patch("app.processing.ingest.publication.invalidate_catalog_cache", _purge),
+        patch(
+            "app.processing.ingest.publish_followups.invalidate_catalog_cache", _purge
+        ),
         patch("app.platform.notifications.events.emit_event_safe", _notice),
     ]
     if claim is not None:
@@ -943,10 +985,10 @@ async def test_a_stamped_failure_whose_acknowledgement_is_lost_still_purges_firs
 
 
 @pytest.mark.parametrize("claim_error", [ConnectionResetError, asyncio.CancelledError])
-async def test_a_notice_claim_that_breaks_leaves_the_purge_done(
+async def test_a_follow_up_call_that_breaks_leaves_the_purge_and_notice_to_the_sweep(
     seed, claim_error
 ) -> None:
-    """The stamped purge has run by the time the notice claim raises or is cancelled."""
+    """The stamped purge and the notice stay owed when the task's call breaks, and run in order once the lease ends."""
     steps: list[str] = []
     claim = AsyncMock(side_effect=claim_error("the claim broke"))
     with (
@@ -955,8 +997,13 @@ async def test_a_notice_claim_that_breaks_leaves_the_purge_done(
     ):
         await _settle(_Fake(seed, fail_at="fetch", failure=await _missing(seed)))
 
-    assert steps == ["purge"]
+    assert steps == []
     claim.assert_awaited_once()
+    await _end_lease(seed.job_id)
+    with _in_order(steps):
+        await run_owed_publish_followups()
+    assert steps == ["purge", "ingest_failed"]
+    assert not await _owes_followups(seed)
 
 
 async def test_a_failure_verdict_lands_once_a_brief_hold_on_the_dataset_row_ends(
@@ -1094,7 +1141,7 @@ async def test_a_rejection_the_task_cannot_settle_is_sent_once_by_the_sweep(
     async def _unknown(*args, **kwargs):
         return PublishObservation.UNKNOWN
 
-    async def _unreachable(job_id):
+    async def _unreachable(job_id, **kwargs):
         raise ConnectionResetError("the database is gone")
 
     monkeypatch.setattr(
@@ -1113,6 +1160,9 @@ async def test_a_rejection_the_task_cannot_settle_is_sent_once_by_the_sweep(
     assert _events(notifications) == []
     assert await _owes_followups(seed)
 
+    await run_owed_publish_followups()
+    assert _events(notifications) == [], "the sweep took a record under its lease"
+    await _end_lease(seed.job_id)
     await run_owed_publish_followups()
     assert _events(notifications) == ["ingest_failed"]
     await run_owed_publish_followups()

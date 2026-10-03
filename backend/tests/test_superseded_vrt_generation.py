@@ -42,6 +42,16 @@ from tests.test_replacement_post_commit import (
 pytestmark = pytest.mark.anyio
 
 
+@pytest.fixture(autouse=True)
+def _embedding_defers(monkeypatch) -> None:
+    """The embedding defer lands, as it does with the task queue open."""
+
+    async def _deferred(dataset) -> bool:
+        return True
+
+    monkeypatch.setattr("app.processing.embeddings.helpers.defer_embedding", _deferred)
+
+
 async def _admin_id(session) -> uuid.UUID:
     return (
         await session.execute(select(User.id).where(User.username == "admin"))
@@ -374,31 +384,32 @@ async def test_a_followups_failure_leaves_the_completion_steps_to_the_sweep(
         await _purge_vrt(test_db_session, ids=ids)
 
 
-async def test_a_crash_between_the_reap_and_the_claim_leaves_the_completion_steps_to_the_sweep(
+async def test_a_crash_between_the_reap_and_the_completion_steps_leaves_them_to_the_sweep(
     test_db_session, raster_storage
 ) -> None:
-    """The prior generation goes before the claim, and the sweep still runs each step once."""
+    """The purge and the prior generation's delete land first, and the sweep runs the rest once after the lease."""
     admin_id, ids, prior = await _vrt_with_quicklooks(test_db_session, raster_storage)
     job, generation_id = await _queue_regeneration(
         test_db_session, vrt_id=ids[0], user_id=admin_id
     )
-    settle = publish_followups._settle_owed_items
+    settle = publish_followups._settle_storage_items
 
     async def _crash_once_settled(*args, **kwargs):
         await settle(*args, **kwargs)
-        raise ConnectionResetError("the worker died before the claim")
+        raise ConnectionResetError("the worker died after the reap")
 
     try:
         with _completion_steps() as steps:
             with patch.object(
-                publish_followups, "_settle_owed_items", _crash_once_settled
+                publish_followups, "_settle_storage_items", _crash_once_settled
             ):
                 await _regenerate(job, generation_id, ids[0])
 
-            assert steps == []
+            assert steps == ["cache"]
             assert await _left(raster_storage, prior) == []
             assert "superseded_keys" not in await _owed(job.id)
 
+            await _make_due(job.id)
             await run_owed_publish_followups()
             assert steps == ["cache", "embedding"]
 

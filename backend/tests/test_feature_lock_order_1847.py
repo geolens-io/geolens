@@ -2453,6 +2453,17 @@ _CONDITIONAL_ACQUISITION = {
 }
 
 
+# Functions a caller reaches only after its own commit, which write only in
+# sessions they open, so none of their writes joins the caller's transaction.
+# Their own bodies are still scanned; only the edge into a caller is cut.
+_OWN_TRANSACTION_CALLEES = {
+    "app.processing.ingest.publish_followups.run_publish_followups": (
+        "runs a job's follow-ups once its terminal commit has landed, each "
+        "write in a session of its own"
+    ),
+}
+
+
 ACQUIRERS = frozenset(
     {
         "app.platform.catalog_locks.lock_catalog_rows",
@@ -2676,7 +2687,10 @@ def _app_function_facts():
     for rel, module, bindings, fn in _walk_app_functions():
         key = f"{module}.{fn.name}"
         writes.setdefault(key, set()).update(_direct_writes(fn))
-        calls.setdefault(key, set()).update(_called_targets(fn, bindings, module))
+        callees = (
+            _called_targets(fn, bindings, module) - _OWN_TRANSACTION_CALLEES.keys()
+        )
+        calls.setdefault(key, set()).update(callees)
         sites.setdefault(key, f"{rel}:{fn.lineno}")
     return writes, calls, sites
 
@@ -2820,7 +2834,10 @@ def _write_predicate(bindings, module, is_acq, reaches_write):
             return False
         if not isinstance(node.func, ast.Name):
             return False  # unresolvable attribute call; do not guess
-        reached = reaches_write.get(_resolve(node.func.id, bindings, module)) or set()
+        callee = _resolve(node.func.id, bindings, module)
+        if callee in _OWN_TRANSACTION_CALLEES:
+            return False
+        reached = reaches_write.get(callee) or set()
         return bool(reached & {"record", "dataset"})
 
     return is_write
@@ -2889,6 +2906,11 @@ class TestEveryPairWriterTakesTheHouseOrder:
     SQLAlchemy flushes catalog.records before catalog.datasets, so one that
     acquires nothing inverts against every writer holding the dataset row.
     """
+
+    def test_every_own_transaction_callee_is_an_app_function(self):
+        """A stale entry cuts no edge, so each one names a function that exists."""
+        _writes, _calls, sites = _app_function_facts()
+        assert not _OWN_TRANSACTION_CALLEES.keys() - sites.keys()
 
     def test_every_pair_writer_acquires_or_is_exempt(self):
         writers = _pair_writer_report()

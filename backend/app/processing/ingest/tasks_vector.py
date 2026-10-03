@@ -24,6 +24,7 @@ from app.platform.jobs.heartbeat import (
     stop_ingest_job_heartbeat,
 )
 from app.processing.ingest.metadata import _qtable
+from app.processing.ingest.publish_followups import run_publish_followups
 from app.processing.ingest.source_format import derive_source_format
 from app.processing.ingest.tasks_common import (
     IngestContext,
@@ -745,6 +746,10 @@ async def ingest_file(
         ).release_import(
             final_status=final_status, archive_confirmed=not archive_failed
         )
+        # After the task's own archive, which the follow-ups then only confirm.
+        if final_status == "complete":
+            async with cleanup_step("ingest_file follow-ups", job_id=job_id):
+                await run_publish_followups(job_uuid, attempt_id=attempt_uuid)
 
 
 @task_app.task(
@@ -1108,3 +1113,5 @@ async def ingest_service(
             await stop_ingest_job_heartbeat(heartbeat_task)
         async with cleanup_step("ingest_service staging table", job_id=job_id):
             await _drop_attempt_staging_table(staging_table_name)
+    async with cleanup_step("ingest_service follow-ups", job_id=job_id):
+        await run_publish_followups(job_uuid, attempt_id=attempt_uuid)

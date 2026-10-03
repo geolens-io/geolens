@@ -164,10 +164,10 @@ async def test_a_first_import_is_listed_once_its_job_reads_complete(
         patch("app.processing.ingest.ogr.run_ogr2ogr", new=_fake_ogr2ogr),
         patch("app.processing.ingest.metadata.grant_reader_access", AsyncMock()),
         patch(
-            "app.processing.ingest.tasks_common.invalidate_catalog_cache",
+            "app.processing.ingest.publish_followups.invalidate_catalog_cache",
             AsyncMock(side_effect=poller.between_commit_and_purge),
         ),
-        patch("app.processing.ingest.tasks_common.defer_embedding", AsyncMock()),
+        patch("app.processing.embeddings.helpers.defer_embedding", AsyncMock()),
     ):
         await ingest_file.func(
             job_id=str(job_id),
@@ -307,7 +307,7 @@ async def test_a_service_reupload_lists_the_new_origin_once_its_job_reads_comple
         )
         stack.enter_context(
             patch(
-                "app.processing.ingest.publication.invalidate_catalog_cache",
+                "app.processing.ingest.publish_followups.invalidate_catalog_cache",
                 AsyncMock(side_effect=poller.between_commit_and_purge),
             )
         )

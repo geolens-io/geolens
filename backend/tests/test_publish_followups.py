@@ -44,9 +44,9 @@ from tests.test_raster_replace_1221 import raster_storage as raster_storage
 pytestmark = pytest.mark.anyio
 
 _RASTER = [
-    ("notice", "ingest_complete"),
     ("cache",),
     ("embed",),
+    ("notice", "ingest_complete"),
     ("bill", "ingest_jobs"),
 ]
 
@@ -69,9 +69,11 @@ def followups(monkeypatch) -> _Ran:
 
     async def _cache():
         ran.append(("cache",))
+        return True
 
     async def _embed(dataset):
         ran.append(("embed",))
+        return True
 
     async def _bill(tenant_id, dimension, value=1, *, event_id=None, table_name=None):
         ran.append(("bill", dimension))
@@ -563,7 +565,7 @@ async def test_a_hosted_staging_key_never_reads_as_a_local_file(
 async def test_a_delete_cut_short_leaves_the_record_for_the_next_run(
     test_db_session, raster_storage, followups, monkeypatch
 ) -> None:
-    """A run stopped inside the upload's delete keeps the record, and the next run deletes the upload."""
+    """A run stopped inside the upload's delete keeps the record, and the run after its lease deletes the upload."""
     import app.processing.ingest.publish_followups as publish_followups
 
     real_reap = publish_followups.reap_presigned_staging_object
@@ -585,7 +587,10 @@ async def test_a_delete_cut_short_leaves_the_record_for_the_next_run(
             await run_publish_followups(job_id)
         assert await _owes(job_id), "the record went before the upload did"
         assert await left(), "precondition: the delete stopped before the unlink"
+        await run_owed_publish_followups()
+        assert await left(), "the sweep took a record still under its lease"
 
+        await _make_due(job_id)
         await run_owed_publish_followups()
         assert await left() == []
         assert not await _owes(job_id)
@@ -1449,7 +1454,10 @@ async def test_a_failure_racing_a_confirmed_archive_restores_nothing(
 
         async def _race() -> None:
             race["running"] = True
-            race["won"] = await run_publish_followups(job_id)
+            # The other run takes the record once this run's lease has run out.
+            await _make_due(job_id)
+            await run_publish_followups(job_id)
+            race["won"] = True
 
         async def _read(src, dest):
             if fails_in == "read" and src == upload and not race["running"]:

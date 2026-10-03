@@ -519,11 +519,11 @@ class TestManifestApplyRoundTrip:
             patch("app.processing.ingest.ogr.run_ogrinfo", new=_fake_run_ogrinfo),
             patch("app.processing.ingest.ogr.run_ogr2ogr", new=_fake_run_ogr2ogr),
             patch(
-                "app.processing.ingest.tasks_common.invalidate_catalog_cache",
+                "app.processing.ingest.publish_followups.invalidate_catalog_cache",
                 new=AsyncMock(),
             ),
             patch(
-                "app.processing.ingest.tasks_common.defer_embedding",
+                "app.processing.embeddings.helpers.defer_embedding",
                 new=AsyncMock(),
             ),
         ):

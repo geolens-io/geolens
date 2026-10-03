@@ -31,6 +31,16 @@ from app.processing.ingest.tasks_vector import ingest_file
 pytestmark = pytest.mark.anyio
 
 
+@pytest.fixture(autouse=True)
+def _embedding_defers(monkeypatch) -> None:
+    """The embedding defer lands, as it does with the task queue open."""
+
+    async def _deferred(dataset) -> bool:
+        return True
+
+    monkeypatch.setattr("app.processing.embeddings.helpers.defer_embedding", _deferred)
+
+
 _GEOJSON = (
     b'{"type":"FeatureCollection","features":['
     b'{"type":"Feature","properties":{"name":"a"},'
@@ -188,10 +198,10 @@ class TestAnUnarchivedOriginalKeepsItsUpload:
             patch("app.processing.ingest.ogr.run_ogr2ogr", new=self._fake_ogr2ogr),
             patch("app.processing.ingest.metadata.grant_reader_access", AsyncMock()),
             patch(
-                "app.processing.ingest.tasks_common.invalidate_catalog_cache",
+                "app.processing.ingest.publish_followups.invalidate_catalog_cache",
                 AsyncMock(),
             ),
-            patch("app.processing.ingest.tasks_common.defer_embedding", AsyncMock()),
+            patch("app.processing.embeddings.helpers.defer_embedding", AsyncMock()),
             patch("app.processing.ingest.tasks_common.get_storage", lambda: storage),
             patch("app.processing.ingest.tasks_staging.get_storage", lambda: storage),
             patch("app.platform.storage.get_storage", lambda: storage),
@@ -300,9 +310,15 @@ class TestAnUnarchivedOriginalKeepsItsUpload:
         """A task stopped right after the publish commit leaves the job marked and owing its archive."""
         from app.processing.ingest.publish_followups import PUBLISH_FOLLOWUPS_FIELD
 
+        from app.processing.ingest.tasks_vector import _finalize_ingest
+
+        async def _stops_after_the_commit(ctx):
+            await _finalize_ingest(ctx)
+            raise asyncio.CancelledError
+
         stopped = patch(
-            "app.platform.notifications.events.emit_event_safe",
-            AsyncMock(side_effect=asyncio.CancelledError()),
+            "app.processing.ingest.tasks_vector._finalize_ingest",
+            _stops_after_the_commit,
         )
         job_id, storage, source, metadata = await self._import(
             test_db_session,

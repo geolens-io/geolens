@@ -133,8 +133,8 @@ class TileCacheProvider:
         except Exception:  # broad: redis client surfaces pool/timeout/io errors as varied types; cache write is non-fatal
             logger.warning("tile_cache_set_failed", key=key, exc_info=True)
 
-    async def invalidate_table(self, table: str) -> None:
-        """Delete all cached tiles for a table. Silent on failure.
+    async def invalidate_table(self, table: str) -> bool:
+        """Delete all cached tiles for a table; returns False on failure, never raises.
 
         Uses the exact active-tenant prefix; scanning ``tile:*:{table}:*``
         would let one tenant evict another's same-named dataset.
@@ -154,6 +154,8 @@ class TileCacheProvider:
             logger.info("tile_cache_invalidated", table=table)
         except Exception:  # broad: redis SCAN/DELETE can throw varied pool/timeout errors; invalidation is non-fatal
             logger.warning("tile_cache_invalidate_failed", table=table, exc_info=True)
+            return False
+        return True
 
 
 class InMemoryTileCacheProvider:
@@ -211,7 +213,7 @@ class InMemoryTileCacheProvider:
         key = f"tile:{table}:{z}:{x}:{y}{suffix}"
         self._cache[key] = (data, time.monotonic() + ttl)
 
-    async def invalidate_table(self, table: str) -> None:
+    async def invalidate_table(self, table: str) -> bool:
         """Delete all cached tiles for a table.
 
         Hosted invalidation is restricted to the active tenant's exact prefix;
@@ -223,3 +225,4 @@ class InMemoryTileCacheProvider:
         for k in keys:
             self._cache.pop(k, None)
         logger.info("tile_cache_invalidated", table=table)
+        return True

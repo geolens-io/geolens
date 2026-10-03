@@ -375,7 +375,7 @@ async def test_draws_of_two_datasets_finish_on_a_one_connection_pool(
     import app.core.db as db_module
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-    from app.processing.ingest.publication import _redraw_quicklook
+    from app.processing.ingest.publish_followups import _redraw_quicklook
 
     first, _admin_id, _before = await _published_one_point_dataset(
         test_db_session, storage, tables
