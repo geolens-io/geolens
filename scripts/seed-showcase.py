@@ -6592,6 +6592,10 @@ def _backfill_thumbnails(base_url: str, username: str, password: str) -> None:
         )
 
 
+EMBEDDINGS_POLL_ATTEMPTS = 10
+EMBEDDINGS_POLL_INTERVAL = 5
+
+
 def _semantic_setting_source(api: Api) -> str | None:
     r = api.client.get(f"{api.base}/api/settings/all/", headers=api.h)
     r.raise_for_status()
@@ -6661,10 +6665,16 @@ def enable_semantic_search(api: Api) -> None:
             "not enabled. Rerun the seed to retry."
         )
         return
-    after = api.client.get(f"{api.base}/api/admin/ai-status/", headers=api.h)
-    after.raise_for_status()
-    # A run whose embedding config did not resolve completes having done nothing.
-    if not after.json().get("has_embeddings"):
+    # ai-status caches has_embeddings for 30 s, so a fast run can still read False.
+    for attempt in range(EMBEDDINGS_POLL_ATTEMPTS):
+        if attempt:
+            time.sleep(EMBEDDINGS_POLL_INTERVAL)
+        after = api.client.get(f"{api.base}/api/admin/ai-status/", headers=api.h)
+        after.raise_for_status()
+        if after.json().get("has_embeddings"):
+            break
+    else:
+        # A run whose embedding config did not resolve completes having done nothing.
         print(
             "  The backfill produced no embeddings; semantic search not enabled. "
             "Check the embedding model settings."

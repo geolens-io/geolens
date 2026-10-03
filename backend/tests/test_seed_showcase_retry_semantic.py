@@ -208,6 +208,25 @@ def test_zero_work_backfill_does_not_enable_search(capsys):
     assert "no embeddings" in capsys.readouterr().out
 
 
+def test_a_cached_false_has_embeddings_is_reread_until_true():
+    api, _ = _api(READY)
+    reads = iter([False, False, True])
+    real_get = api.client.get
+
+    def get(url, **kw):
+        r = real_get(url, **kw)
+        if url.endswith("/api/admin/ai-status/") and api.client.sent.count(
+            ("POST", "http://x/api/admin/backfill-embeddings/", None)
+        ):
+            payload = {**r.json(), "has_embeddings": next(reads)}
+            return SimpleNamespace(raise_for_status=lambda: None, json=lambda: payload)
+        return r
+
+    api.client.get = get
+    seeder.enable_semantic_search(api)
+    assert _writes(api) == [BACKFILL, ENABLE]
+
+
 def test_an_override_saved_during_the_backfill_is_not_overwritten():
     api, _ = _api(READY, source_after_poll="overridden")
     seeder.enable_semantic_search(api)
