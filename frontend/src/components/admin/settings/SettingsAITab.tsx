@@ -10,6 +10,16 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { SettingSourceBadge } from './SettingSourceBadge';
 import { findSetting } from './utils';
@@ -116,6 +126,40 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
     });
   };
 
+  const savedDims = findSetting(settings, 'embedding_dims')?.value;
+  const widthEdited = savedDims !== undefined && String(embeddingDims) !== String(savedDims);
+  const widthChangeWipesEmbeddings =
+    Boolean(embeddingStats && embeddingStats.embedded_records > 0) && widthEdited;
+  const [pending, setPending] = useState<
+    { kind: 'save'; changes: Record<string, unknown> } | { kind: 'reset'; key: string } | null
+  >(null);
+
+  const handleSave = (changes: Record<string, unknown>) => {
+    if ('embedding_dims' in changes || 'embedding_model' in changes) {
+      setPending({ kind: 'save', changes });
+      return;
+    }
+    onSave(changes);
+  };
+
+  const handleReset = (key: string) => {
+    if (key === 'embedding_dims' || key === 'embedding_model') {
+      setPending({ kind: 'reset', key });
+      return;
+    }
+    onReset(key);
+  };
+
+  const confirmEmbeddingChange = () => {
+    if (!pending) return;
+    if (pending.kind === 'save') onSave(pending.changes);
+    else onReset(pending.key);
+    setPending(null);
+  };
+
+  const pendingChangesWidth =
+    pending !== null &&
+    (pending.kind === 'save' ? 'embedding_dims' in pending.changes : pending.key === 'embedding_dims');
   const handleDetectDims = async () => {
     setIsDetecting(true);
     try {
@@ -319,7 +363,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <Label htmlFor="embedding-model">{t('ai.labels.embeddingModel')}</Label>
-              <SettingSourceBadge source={findSetting(settings, 'embedding_model')?.source ?? 'default'} settingKey="embedding_model" onReset={onReset} />
+              <SettingSourceBadge source={findSetting(settings, 'embedding_model')?.source ?? 'default'} settingKey="embedding_model" onReset={handleReset} />
             </div>
             <Input
               id="embedding-model"
@@ -354,7 +398,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <Label htmlFor="embedding-dims">{t('ai.labels.embeddingDims')}</Label>
-              <SettingSourceBadge source={findSetting(settings, 'embedding_dims')?.source ?? 'default'} settingKey="embedding_dims" onReset={onReset} />
+              <SettingSourceBadge source={findSetting(settings, 'embedding_dims')?.source ?? 'default'} settingKey="embedding_dims" onReset={handleReset} />
             </div>
             <div className="flex items-center gap-3">
               <Input
@@ -382,9 +426,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
             </div>
             <p className="text-sm text-muted-foreground">{t('ai.embeddingDimsAutoDescription')}</p>
             {/* Dimension change warning when embeddings exist */}
-            {embeddingStats && embeddingStats.embedded_records > 0 &&
-              findSetting(settings, 'embedding_dims') &&
-              String(embeddingDims) !== String(findSetting(settings, 'embedding_dims')!.value) && (
+            {embeddingStats && widthChangeWipesEmbeddings && (
               <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 p-3">
                 <AlertTriangle className="h-4 w-4 text-warning mt-0.5 flex-shrink-0" />
                 <p className="text-sm text-foreground">
@@ -572,7 +614,32 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
 
       <Separator />
 
-      <SettingsFormActions dirty={dirty} hasDirty={hasDirty} envOnly={envOnly} isSaving={isSaving} onSave={onSave} onDiscard={discard} onDirtyChange={onDirtyChange} />
+      <SettingsFormActions dirty={dirty} hasDirty={hasDirty} envOnly={envOnly} isSaving={isSaving} onSave={handleSave} onDiscard={discard} onDirtyChange={onDirtyChange} />
+
+      <AlertDialog open={pending !== null} onOpenChange={(open) => { if (!open) setPending(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t(pendingChangesWidth ? 'ai.dimsConfirm.title' : 'ai.dimsConfirm.titleModel')}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t(
+                pendingChangesWidth
+                  ? 'ai.dimsConfirm.description'
+                  : pending?.kind === 'reset'
+                    ? 'ai.dimsConfirm.resetModelDescription'
+                    : 'ai.dimsConfirm.modelDescription',
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common:cancel')}</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={confirmEmbeddingChange}>
+              {t(pendingChangesWidth ? 'ai.dimsConfirm.confirm' : 'ai.dimsConfirm.confirmModel')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

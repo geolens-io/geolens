@@ -7197,7 +7197,7 @@
                 "type": "null"
               }
             ],
-            "description": "Short-lived signed confirmation token required to apply an overwrite. Bound to the normalized payload, overwrite mode, and current configuration state.",
+            "description": "Short-lived signed confirmation token required to apply an overwrite, or a merge that would delete the stored embeddings. Bound to the normalized payload, mode, and current configuration state.",
             "title": "Preview Token"
           }
         },
@@ -32157,7 +32157,7 @@
             }
           },
           {
-            "description": "Signed token returned by the matching dry-run. Required for overwrite mode.",
+            "description": "Signed token returned by the matching dry-run. Required for overwrite mode and for a merge that would delete the stored embeddings.",
             "in": "header",
             "name": "X-Config-Preview-Token",
             "required": false,
@@ -32170,7 +32170,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Signed token returned by the matching dry-run. Required for overwrite mode.",
+              "description": "Signed token returned by the matching dry-run. Required for overwrite mode and for a merge that would delete the stored embeddings.",
               "title": "X-Config-Preview-Token"
             }
           }

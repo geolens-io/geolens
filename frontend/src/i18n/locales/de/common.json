@@ -627,6 +627,15 @@
       "credentialStore": "Anmeldedatenspeicher",
       "resultsLabel": "Konnektivitätsergebnisse"
     },
+    "reason": {
+      "unknown_setting": "Unbekannter Einstellungsschlüssel; für künftige Kompatibilität beibehalten.",
+      "restricted_setting": "Die Einstellung ist in der aktuellen Laufzeit nicht schreibbar.",
+      "pins_runtime_default": "Legt den aktuellen Laufzeitstandard als Datenbank-Überschreibung fest.",
+      "repairs_invalid_override": "Repariert eine ungültige Datenbank-Überschreibung.",
+      "omitted_reset_to_default": "Im Überschreiben-Payload nicht enthalten; auf den Laufzeitstandard zurückgesetzt.",
+      "embedding_model_changed": "Ändert das Embedding-Modell: gespeicherte Embeddings des bisherigen Modells müssen neu erzeugt werden.",
+      "embedding_width_changed": "Ändert die Breite der Embedding-Spalte: alle gespeicherten Embeddings werden gelöscht und müssen neu erzeugt werden."
+    },
     "import": {
       "title": "Instanzkonfiguration importieren",
       "description": "Laden Sie eine JSON-Konfigurationsdatei hoch. Vorschau der Änderungen vor dem Anwenden.",

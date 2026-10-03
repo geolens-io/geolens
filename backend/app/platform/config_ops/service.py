@@ -268,12 +268,20 @@ def _issue_preview_token(plan: ConfigImportPlan, mode: ImportMode) -> str:
     return f"{_urlsafe_encode(payload)}.{_urlsafe_encode(signature)}"
 
 
+def _requires_preview(plan: ConfigImportPlan, mode: ImportMode) -> bool:
+    """Overwrite, and any import that would delete every stored embedding."""
+    return mode == "overwrite" or any(
+        change.get("reason_code") == "embedding_width_changed"
+        for change in plan.setting_changes
+    )
+
+
 def _verify_preview_token(
     token: str | None, plan: ConfigImportPlan, mode: ImportMode
 ) -> None:
     message = (
-        "A current matching dry-run is required before overwrite; preview the "
-        "configuration again and retry."
+        "A current matching dry-run is required before applying this import; "
+        "preview the configuration again and retry."
     )
     if not token:
         raise ConfigPreviewError(message)
@@ -603,6 +611,38 @@ async def _load_setting_state(
     return current_settings, overridden_keys, valid_stored_keys
 
 
+_REASONS = {
+    "unknown_setting": "Unknown setting key; retained for forward compatibility.",
+    "restricted_setting": "Setting is not writable in the current runtime.",
+    "pins_runtime_default": "Pins the current runtime default as a database override.",
+    "repairs_invalid_override": "Repairs an invalid database override.",
+    "omitted_reset_to_default": (
+        "Omitted from overwrite payload; reset to runtime default."
+    ),
+    "embedding_model_changed": (
+        "Changes the embedding model: stored embeddings from the previous "
+        "model need regenerating."
+    ),
+    "embedding_width_changed": (
+        "Changes the embedding column width: every stored embedding is deleted "
+        "and must be regenerated."
+    ),
+}
+
+
+def _reason(code: str | None) -> dict[str, str]:
+    """The ``reason`` and ``reason_code`` fields of a setting change."""
+    if code is None:
+        return {}
+    return {"reason": _REASONS[code], "reason_code": code}
+
+
+def _overwrite_reset_code(key: str, current: Any, imported: Any) -> str:
+    if key == "embedding_model" and current != imported:
+        return "embedding_model_changed"
+    return "omitted_reset_to_default"
+
+
 def _build_setting_changes(
     raw_settings: dict[str, Any],
     registry_map: dict[str, Any],
@@ -631,7 +671,7 @@ def _build_setting_changes(
                     current=None,
                     imported=raw_value,
                     action="skip_unknown",
-                    reason="Unknown setting key; retained for forward compatibility.",
+                    **_reason("unknown_setting"),
                 ).model_dump()
             )
             continue
@@ -642,7 +682,7 @@ def _build_setting_changes(
                     current=current_settings[key],
                     imported=raw_value,
                     action="skip_restricted",
-                    reason="Setting is not writable in the current runtime.",
+                    **_reason("restricted_setting"),
                 ).model_dump()
             )
             continue
@@ -671,18 +711,20 @@ def _build_setting_changes(
         )
         if needs_write:
             settings_to_apply[key] = value
-        reason = None
+        reason_code = None
         if pins_runtime_default:
-            reason = "Pins the current runtime default as a database override."
+            reason_code = "pins_runtime_default"
         elif repairs_invalid_override:
-            reason = "Repairs an invalid database override."
+            reason_code = "repairs_invalid_override"
+        if current != value and key == "embedding_model":
+            reason_code = "embedding_model_changed"
         changes.append(
             SettingChange(
                 key=key,
                 current=current,
                 imported=value,
                 action="update" if needs_write else "no_change",
-                reason=reason,
+                **_reason(reason_code),
             ).model_dump()
         )
     return settings_to_apply, changes
@@ -714,6 +756,36 @@ async def _load_oauth_account_rows(
         query = query.with_for_update(read=True)
     result = await db.execute(query)
     return list(result.all())
+
+
+def _flag_embedding_width_deletion(
+    live: int | None,
+    setting_changes: list[dict[str, Any]],
+    validated_settings: dict[str, Any],
+    mode: ImportMode,
+    registry_map: dict[str, Any],
+) -> None:
+    """Warn when applying the import resizes the live embedding column.
+
+    The apply step reconciles against the column's real width, which can differ
+    from the saved setting, so the comparison uses storage and not the diff.
+    """
+    cfg = registry_map["embedding_dims"]
+    if cfg.key in validated_settings:
+        effective = validated_settings[cfg.key]
+    elif mode == "overwrite":
+        effective = cfg.env_default
+    else:
+        return
+    if live is None or int(effective) == live:
+        return
+    for change in setting_changes:
+        if change["key"] == cfg.key:
+            change.update(_reason("embedding_width_changed"))
+            # The apply reconciles the column even when the stored value
+            # already matches, so the change is something to apply.
+            if change["action"] == "no_change":
+                change["action"] = "update"
 
 
 async def preflight_import(
@@ -810,15 +882,25 @@ async def preflight_import(
             imported = cfg.env_default
             if cfg.key in model_defaults:
                 imported = model_defaults[cfg.key]
+            reason_code = _overwrite_reset_code(
+                cfg.key, current_settings[cfg.key], imported
+            )
             setting_changes.append(
                 SettingChange(
                     key=cfg.key,
                     current=current_settings[cfg.key],
                     imported=imported,
                     action="reset",
-                    reason="Omitted from overwrite payload; reset to runtime default.",
+                    **_reason(reason_code),
                 ).model_dump()
             )
+
+    from app.processing.embeddings.service import live_embedding_column_width
+
+    live_column_width = await live_embedding_column_width(db)
+    _flag_embedding_width_deletion(
+        live_column_width, setting_changes, validated_settings, mode, registry_map
+    )
 
     existing_providers = await oauth_service.list_providers(
         db, include_saml_fields=True
@@ -872,6 +954,7 @@ async def preflight_import(
     state_digest = _canonical_digest(
         {
             "enterprise": caller_is_enterprise,
+            "embedding_column_width": live_column_width,
             "settings": [
                 {
                     "key": cfg.key,
@@ -927,7 +1010,7 @@ async def dry_run_import(
             "dependent_accounts_deleted": plan.oauth_accounts_deleted,
         },
         preview_token=(
-            _issue_preview_token(plan, mode) if mode == "overwrite" else None
+            _issue_preview_token(plan, mode) if _requires_preview(plan, mode) else None
         ),
     )
 
@@ -1051,8 +1134,9 @@ async def import_config(
     """Import configuration, applying settings and OAuth provider changes.
 
     Merge upserts settings and matches OAuth by slug; overwrite resets then
-    reapplies both. Preview and apply share the same preflight plan; overwrite
-    additionally requires the signed token from a matching, current dry-run.
+    reapplies both. Preview and apply share the same preflight plan; overwrite,
+    and any import that would delete the stored embeddings, additionally require
+    the signed token from a matching, current dry-run.
     """
     from app.core.persistent_config import (
         EMBEDDING_DIMS,
@@ -1077,7 +1161,7 @@ async def import_config(
     # whatever the lock state: the read-only preflight runs before the lock,
     # and again under the fence below, where its plan is the one applied.
     early_plan = await preflight_import(db, data, mode)
-    if mode == "overwrite":
+    if _requires_preview(early_plan, mode):
         _verify_preview_token(preview_token, early_plan, mode)
 
     # Taken before the settings fence and any write, so no request waits for
@@ -1100,18 +1184,30 @@ async def import_config(
                 mode,
                 lock_dependent_accounts=mode == "overwrite",
             )
-            if mode == "overwrite":
+            if _requires_preview(plan, mode):
                 _verify_preview_token(preview_token, plan, mode)
 
-            settings_no_change = len(plan.validated_settings) - len(
-                plan.settings_to_apply
+            # A width already stored but not matching the live column is still
+            # applied: the rebuild below reconciles it.
+            reconciles_width = EMBEDDING_DIMS.key in plan.validated_settings and (
+                EMBEDDING_DIMS.key not in plan.settings_to_apply
+                and any(
+                    change["key"] == EMBEDDING_DIMS.key
+                    and change.get("reason_code") == "embedding_width_changed"
+                    for change in plan.setting_changes
+                )
+            )
+            settings_no_change = (
+                len(plan.validated_settings)
+                - len(plan.settings_to_apply)
+                - int(reconciles_width)
             )
             settings_skipped = (
                 len(plan.skipped_unknown)
                 + len(plan.skipped_restricted)
                 + settings_no_change
             )
-            settings_applied = len(plan.settings_to_apply)
+            settings_applied = len(plan.settings_to_apply) + int(reconciles_width)
 
             # set()/reset() with commit=False defer their side effects (cache
             # invalidation, _on_change hooks, rate-limit warm): run before the

@@ -627,6 +627,15 @@
       "credentialStore": "Stockage des identifiants",
       "resultsLabel": "Résultats de connectivité"
     },
+    "reason": {
+      "unknown_setting": "Clé de paramètre inconnue ; conservée pour compatibilité ultérieure.",
+      "restricted_setting": "Ce paramètre n'est pas modifiable dans l'environnement actuel.",
+      "pins_runtime_default": "Fixe la valeur par défaut actuelle comme surcharge en base de données.",
+      "repairs_invalid_override": "Répare une surcharge invalide en base de données.",
+      "omitted_reset_to_default": "Absent de la charge d'écrasement ; réinitialisé à la valeur par défaut.",
+      "embedding_model_changed": "Modifie le modèle d'embeddings : les embeddings stockés de l'ancien modèle doivent être régénérés.",
+      "embedding_width_changed": "Modifie la largeur de la colonne d'embeddings : tous les embeddings stockés sont supprimés et doivent être régénérés."
+    },
     "import": {
       "title": "Importer la configuration de l'instance",
       "description": "Importez un fichier JSON de configuration. Prévisualisez les changements avant de les appliquer.",

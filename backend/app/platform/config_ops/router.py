@@ -118,7 +118,8 @@ async def import_configuration(
         default=None,
         alias="X-Config-Preview-Token",
         description=(
-            "Signed token returned by the matching dry-run. Required for overwrite mode."
+            "Signed token returned by the matching dry-run. Required for overwrite mode "
+            "and for a merge that would delete the stored embeddings."
         ),
     ),
     user: Identity = Depends(require_config_operator),

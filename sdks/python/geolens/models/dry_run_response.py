@@ -25,8 +25,9 @@ class DryRunResponse:
     Attributes:
         settings (DryRunResponseSettings): Per-setting diff result keyed by setting name.
         oauth_providers (DryRunResponseOauthProviders): Per-provider diff result keyed by slug.
-        preview_token (None | str | Unset): Short-lived signed confirmation token required to apply an overwrite. Bound
-            to the normalized payload, overwrite mode, and current configuration state.
+        preview_token (None | str | Unset): Short-lived signed confirmation token required to apply an overwrite, or a
+            merge that would delete the stored embeddings. Bound to the normalized payload, mode, and current configuration
+            state.
     """
 
     settings: DryRunResponseSettings

@@ -353,6 +353,15 @@
     "dimsDetected": "检测到 {{dims}} 维",
     "dimsDetectFailed": "无法检测维度。请检查 OPENAI_API_KEY 是否已设置、嵌入模型是否有效。",
     "dimsChangeWarning": "更改维度将导致 {{count}} 个现有嵌入不兼容。保存后需要重新生成所有嵌入。",
+    "dimsConfirm": {
+      "title": "更改向量维度？",
+      "titleModel": "更改向量模型？",
+      "confirm": "删除向量",
+      "confirmModel": "更改模型",
+      "description": "这将删除所有已存储的向量。在你于此标签页使用“生成缺失的嵌入”重新生成之前，语义搜索不会返回任何结果。",
+      "modelDescription": "旧模型生成的向量将不再使用。如果新模型的维度不同，所有已存储的向量会被删除。请在此标签页使用“生成缺失的嵌入”重新生成。",
+      "resetModelDescription": "旧模型生成的向量将不再使用。已存储的向量会保留。请在此标签页使用“生成缺失的嵌入”重新生成。"
+    },
     "openaiKeyRequired": "未设置 OPENAI_API_KEY。即使推理使用 Anthropic，嵌入生成也需要 OpenAI 兼容的 API 密钥。",
     "keyConfigured": "已配置",
     "keyNotSet": "未设置",

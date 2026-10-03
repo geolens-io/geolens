@@ -69,10 +69,17 @@ async def _import_default_width(client, headers, session, mode: str, extra: dict
     """
     if mode == "merge":
         payload = {**extra, "embedding_dims": EMBEDDING_DIMS.env_default}
+        preview = await client.post(
+            "/config-ops/dry-run/?mode=merge",
+            json={"settings": payload},
+            headers=headers,
+        )
+        assert preview.status_code == 200, preview.text
+        token = preview.json()["preview_token"]
         return await client.post(
             "/config-ops/import/?mode=merge",
             json={"settings": payload},
-            headers=headers,
+            headers={**headers, **({"X-Config-Preview-Token": token} if token else {})},
         )
     payload = {**(await _stored_overrides(session)), **extra}
     payload.pop("embedding_dims", None)
@@ -92,9 +99,25 @@ async def _import_default_width(client, headers, session, mode: str, extra: dict
     )
 
 
+async def _merge_import(client, headers, settings: dict):
+    """Merge-import ``settings`` with the token a width-changing preview returns."""
+    preview = await client.post(
+        "/config-ops/dry-run/?mode=merge", json={"settings": settings}, headers=headers
+    )
+    if preview.status_code != 200:
+        return preview
+    token = preview.json()["preview_token"]
+    return await client.post(
+        "/config-ops/import/?mode=merge",
+        json={"settings": settings},
+        headers={**headers, **({"X-Config-Preview-Token": token} if token else {})},
+    )
+
+
 async def _assert_regeneration_fits_storage(session, monkeypatch) -> None:
     """The backfill preflight accepts a vector of the published width."""
     from app.processing.embeddings import backfill
+    from app.processing.embeddings.service import live_embedding_column_width
 
     async def _embed_at_requested_width(texts, _session, *, dimensions, **_kwargs):
         return [[0.0] * dimensions for _ in texts]
@@ -106,7 +129,7 @@ async def _assert_regeneration_fits_storage(session, monkeypatch) -> None:
     await backfill._preflight_embedding(
         session,
         (_NEW_MODEL, dims, None),
-        await backfill._live_column_dims(session),
+        await live_embedding_column_width(session),
     )
     await session.rollback()
 
@@ -243,11 +266,7 @@ async def _resend_width(client, headers, how: str, width: int):
         return await client.post(
             "/settings/reset/", json={"keys": ["embedding_dims"]}, headers=headers
         )
-    return await client.post(
-        "/config-ops/import/?mode=merge",
-        json={"settings": {"embedding_dims": width}},
-        headers=headers,
-    )
+    return await _merge_import(client, headers, {"embedding_dims": width})
 
 
 @pytest.mark.anyio
@@ -361,11 +380,7 @@ async def _change_embedding(client, headers, how: str, width: int):
     settings = {"embedding_dims": width}
     if how == "import-model":
         settings["embedding_model"] = _NEW_MODEL
-    return await client.post(
-        "/config-ops/import/?mode=merge",
-        json={"settings": settings},
-        headers=headers,
-    )
+    return await _merge_import(client, headers, settings)
 
 
 @pytest.mark.anyio
@@ -658,15 +673,13 @@ async def test_a_failed_rebuild_leaves_no_override_where_there_was_none(
             headers=admin_auth_header,
         )
     else:
-        resp = await client.post(
-            "/config-ops/import/?mode=merge",
-            json={
-                "settings": {
-                    "embedding_model": _NEW_MODEL,
-                    "embedding_dims": _width_other_than(EMBEDDING_DIMS.env_default),
-                }
+        resp = await _merge_import(
+            client,
+            admin_auth_header,
+            {
+                "embedding_model": _NEW_MODEL,
+                "embedding_dims": _width_other_than(EMBEDDING_DIMS.env_default),
             },
-            headers=admin_auth_header,
         )
 
     assert resp.status_code == 503, resp.text
@@ -781,11 +794,7 @@ async def test_a_rebuild_that_aborts_the_transaction_still_restores_the_pair(
             headers=admin_auth_header,
         )
     else:
-        resp = await client.post(
-            "/config-ops/import/?mode=merge",
-            json={"settings": new_pair},
-            headers=admin_auth_header,
-        )
+        resp = await _merge_import(client, admin_auth_header, new_pair)
 
     assert resp.status_code == 503, resp.text
     stored = dict(

@@ -203,4 +203,113 @@ describe('AdminConfigOpsPage import confirmation', () => {
     expect(screen.queryByText('Settings Changes')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Apply Import' })).toBeDisabled();
   });
+
+  it('renders the translated reason for a known code and nothing for an unknown one', async () => {
+    mocks.dryRunMutate.mockImplementation((_variables, options) => {
+      options?.onSuccess?.({
+        ...updatePreview,
+        settings: {
+          changes: [
+            {
+              key: 'embedding_dims',
+              current: 1536,
+              imported: 768,
+              action: 'update',
+              reason: 'English from the backend',
+              reason_code: 'embedding_width_changed',
+            },
+            {
+              key: 'log_level',
+              current: 'INFO',
+              imported: 'DEBUG',
+              action: 'update',
+              reason: 'Other English from the backend',
+              reason_code: 'a_code_from_a_newer_server',
+            },
+          ],
+        },
+      });
+    });
+    const user = userEvent.setup();
+    render(<AdminConfigOpsPage />);
+    await uploadConfig(user);
+
+    await user.click(screen.getByRole('button', { name: 'Preview Changes' }));
+
+    expect(
+      await screen.findByText(/every stored embedding is deleted and must be regenerated/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/English from the backend/)).not.toBeInTheDocument();
+  });
+
+  it('sends the preview token for a merge that carries one', async () => {
+    mocks.dryRunMutate.mockImplementation((_variables, options) => {
+      options?.onSuccess?.({ ...updatePreview, preview_token: 'merge-width-preview' });
+    });
+    const user = userEvent.setup();
+    render(<AdminConfigOpsPage />);
+    await uploadConfig(user);
+
+    await user.click(screen.getByRole('button', { name: 'Preview Changes' }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Apply Import' })).toBeEnabled(),
+    );
+    await user.click(screen.getByRole('button', { name: 'Apply Import' }));
+
+    expect(mocks.importMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: 'merge', previewToken: 'merge-width-preview' }),
+      expect.any(Object),
+    );
+  });
+
+  it('enables Apply for a width reconciliation plan', async () => {
+    mocks.dryRunMutate.mockImplementation((_variables, options) => {
+      options?.onSuccess?.({
+        ...updatePreview,
+        settings: {
+          changes: [
+            {
+              key: 'embedding_dims',
+              current: 1536,
+              imported: 1536,
+              action: 'update',
+              reason_code: 'embedding_width_changed',
+            },
+          ],
+        },
+        preview_token: 'reconcile-preview',
+      });
+    });
+    const user = userEvent.setup();
+    render(<AdminConfigOpsPage />);
+    await uploadConfig(user, { embedding_dims: 1536 });
+
+    await user.click(screen.getByRole('button', { name: 'Preview Changes' }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Apply Import' })).toBeEnabled(),
+    );
+  });
+
+  it('clears a token-bearing merge preview when its apply is rejected', async () => {
+    mocks.dryRunMutate.mockImplementation((_variables, options) => {
+      options?.onSuccess?.({ ...updatePreview, preview_token: 'stale-merge-token' });
+    });
+    mocks.importMutate.mockImplementation((_variables, options) => {
+      options?.onError?.(new Error('409'));
+    });
+    const user = userEvent.setup();
+    render(<AdminConfigOpsPage />);
+    await uploadConfig(user);
+
+    await user.click(screen.getByRole('button', { name: 'Preview Changes' }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Apply Import' })).toBeEnabled(),
+    );
+    await user.click(screen.getByRole('button', { name: 'Apply Import' }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Apply Import' })).toBeDisabled(),
+    );
+  });
 });

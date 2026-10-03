@@ -314,6 +314,15 @@
     "baseUrlDescription": "Endpoint personalizado para proveedores compatibles con OpenAI (Ollama, Groq, Together, etc.). Dejar vacío para OpenAI por defecto.",
     "detectDims": "Detectar",
     "dimsChangeWarning": "Cambiar las dimensiones hará que {{count}} embedding(s) existente(s) sean incompatibles. Necesitará regenerar todos los embeddings después de guardar.",
+    "dimsConfirm": {
+      "title": "¿Cambiar el ancho de los embeddings?",
+      "titleModel": "¿Cambiar el modelo de embeddings?",
+      "confirm": "Eliminar embeddings",
+      "confirmModel": "Cambiar modelo",
+      "description": "Esto elimina todos los embeddings almacenados. La búsqueda semántica no devolverá resultados hasta que los regeneres con Generar embeddings faltantes en esta pestaña.",
+      "modelDescription": "Los embeddings del modelo anterior dejan de usarse. Si el ancho del nuevo modelo es distinto, se eliminan todos los embeddings almacenados. Regéneralos con Generar embeddings faltantes en esta pestaña.",
+      "resetModelDescription": "Los embeddings del modelo anterior dejan de usarse. Los embeddings almacenados se conservan. Regéneralos con Generar embeddings faltantes en esta pestaña."
+    },
     "dimsDetectFailed": "No se pudieron detectar las dimensiones. Verifique que OPENAI_API_KEY esté configurado y el modelo de embedding sea válido.",
     "dimsDetected": "{{dims}} dimensiones detectadas",
     "embeddingBaseUrlDescription": "Endpoint separado para generación de embeddings. Si está vacío, usa la URL base de inferencia.",

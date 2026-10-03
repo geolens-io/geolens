@@ -250,6 +250,9 @@ function ValidateSection() {
 
 function ImportSection() {
   const { t } = useTranslation();
+  // An unknown or missing code shows nothing rather than the backend's English.
+  const reasonText = (code?: string | null) =>
+    code ? t(`configOps.reason.${code}`, { defaultValue: '' }) : '';
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<ImportMode>('merge');
   const [fileData, setFileData] = useState<ConfigImportRequest | null>(null);
@@ -336,7 +339,7 @@ function ImportSection() {
 
   function runImport() {
     if (!fileData) return;
-    const previewToken = mode === 'overwrite' ? dryRunResult?.preview_token : null;
+    const previewToken = dryRunResult?.preview_token ?? null;
     if (mode === 'overwrite' && !previewToken) return;
     importMutation.mutate(
       { data: fileData, mode, previewToken },
@@ -349,7 +352,7 @@ function ImportSection() {
           if (fileInputRef.current) fileInputRef.current.value = '';
         },
         onError: () => {
-          if (mode === 'overwrite') setDryRunResult(null);
+          if (previewToken) setDryRunResult(null);
         },
       },
     );
@@ -533,6 +536,11 @@ function ImportSection() {
                           <Badge variant={actionBadgeVariant(c.action)}>
                             {c.action}
                           </Badge>
+                          {reasonText(c.reason_code) && (
+                            <p className="mt-1 max-w-xs whitespace-normal text-xs text-muted-foreground">
+                              {reasonText(c.reason_code)}
+                            </p>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}

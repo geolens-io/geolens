@@ -9,6 +9,7 @@ from typing import Any
 
 import structlog
 from sqlalchemy import func, select
+from sqlalchemy import text as sa_text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
@@ -217,6 +218,24 @@ async def probe_embedding_dimensions(session: AsyncSession) -> int:
             f"Embedding probe for model '{model}' returned empty vector."
         )
     return len(embedding)
+
+
+async def live_embedding_column_width(session: AsyncSession) -> int | None:
+    """Read the declared width of the embedding column, straight from storage.
+
+    pgvector stores the dimension in `atttypmod` with no offset; -1 means an
+    unconstrained `vector`. Storage rather than `EMBEDDING_DIMS`, because the
+    two can disagree and that is the point of asking.
+    """
+    return (
+        await session.execute(
+            sa_text(
+                "SELECT atttypmod FROM pg_attribute "
+                "WHERE attrelid = 'catalog.record_embeddings'::regclass "
+                "AND attname = 'embedding' AND NOT attisdropped"
+            )
+        )
+    ).scalar_one_or_none()
 
 
 async def rebuild_embedding_column(db: AsyncSession, new_dims: int) -> bool:
