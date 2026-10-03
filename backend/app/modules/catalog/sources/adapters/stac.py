@@ -267,15 +267,14 @@ def _follow_up_request(
     """The ``(method, url, body)`` that fetches *next_page*.
 
     The page size is pinned to this request's *limit*: a link asking for more
-    would return items the caller truncates away while its cursor moves on.
+    would return items the caller truncates away while its cursor moves on,
+    and so would a catalog whose default page is larger than the request's.
     """
     method = next_page["method"]
     href = next_page["href"]
     if method == "GET":
         url = httpx.URL(href)
-        if "limit" in url.params:
-            href = str(url.copy_set_param("limit", limit))
-        return method, href, None
+        return method, str(url.copy_set_param("limit", limit)), None
     next_body = next_page.get("body")
     if next_page.get("merge"):
         body = {**base_body, **(next_body or {})}

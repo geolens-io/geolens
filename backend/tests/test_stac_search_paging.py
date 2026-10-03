@@ -233,6 +233,25 @@ class TestNextPageDerivation:
         assert sent[0].url.params["limit"] == "50"
         assert sent[0].url.params["offset"] == "50"
 
+    async def test_get_follow_up_without_a_limit_param_gets_one(self):
+        next_page = {
+            "method": "GET",
+            "href": f"{CATALOG}/search?offset=50",
+            "body": None,
+            "merge": False,
+        }
+        result, sent = await _search(
+            {
+                "features": [],
+                "links": [{"rel": "next", "href": f"{CATALOG}/search?offset=100"}],
+            },
+            limit=50,
+            next_page=next_page,
+        )
+        assert sent[0].url.params["limit"] == "50"
+        assert sent[0].url.params["offset"] == "50"
+        assert result["next_page"] is not None
+
     async def test_over_returning_catalog_ends_paging_rather_than_skipping(self):
         features = [{"id": f"i{n}", "assets": {}} for n in range(3)]
         result, _ = await _search(
