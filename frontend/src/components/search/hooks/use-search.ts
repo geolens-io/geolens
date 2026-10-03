@@ -52,7 +52,7 @@ export function useCatalogSummary() {
 }
 
 /** Total for the Type filter's All option: the result total without the selected type. */
-export function useAllTypesTotal(totalResults: number | undefined) {
+export function useAllTypesTotal(totalResults: number | undefined, isPlaceholderData = false) {
   const params = useSearchStore(useShallow((s) => s.toParams()));
   const { record_type, offset: _offset, ...untyped } = params;
   void _offset;
@@ -63,5 +63,7 @@ export function useAllTypesTotal(totalResults: number | undefined) {
     enabled: typed,
     staleTime: 30_000,
   });
-  return typed ? data?.numberMatched : totalResults;
+  // While the main query still shows the previous (typed) results, the cached
+  // untyped total is the only correct one; reading it never triggers a fetch.
+  return typed || isPlaceholderData ? data?.numberMatched : totalResults;
 }

@@ -157,6 +157,25 @@ describe('useAllTypesTotal', () => {
     expect(result.current).toBe(0);
   });
 
+  it('uses the cached untyped total while the main results are still placeholder data', async () => {
+    mockSearchDatasets.mockResolvedValue({ numberMatched: 12, features: [] } as never);
+
+    useSearchStore.getState().setFilter('record_type', 'vector_dataset');
+    const { result, rerender } = renderHook(
+      ({ total, placeholder }) => useAllTypesTotal(total, placeholder),
+      { initialProps: { total: 3 as number | undefined, placeholder: false } },
+    );
+    await waitFor(() => expect(result.current).toBe(12));
+
+    act(() => useSearchStore.getState().setFilter('record_type', ''));
+    rerender({ total: 3, placeholder: true });
+    expect(result.current).toBe(12);
+    expect(mockSearchDatasets).toHaveBeenCalledTimes(1);
+
+    rerender({ total: 12, placeholder: false });
+    expect(result.current).toBe(12);
+  });
+
   it('makes no request and returns the result total when no type is selected', () => {
     const { result } = renderHook(() => useAllTypesTotal(12));
 
