@@ -78,6 +78,7 @@ from app.modules.catalog.search.service import (
     SearchFilters,
     consume_paired_query_claim,
     count_collections,
+    count_datasets,
     dataset_to_ogc_record,
     get_facet_counts,
     record_paired_query_claim,
@@ -259,16 +260,16 @@ async def _handle_search(
     # Collections are surfaced for text searches, explicit collection IDs, or
     # an explicit public collection type when the request is not scoped to an
     # internal record type or collection membership.
-    collections_applicable = bool(
+    collections_in_scope = bool(
         (
             text_search_requested
             or collection_ids is not None
             or collection_type_requested
         )
-        and not params.record_type
         and not params.collection_id
         and (resource_types is None or "collection" in resource_types)
     )
+    collections_applicable = collections_in_scope and not params.record_type
     collections_paginated = bool(
         collections_applicable
         and (collection_type_requested or collection_ids is not None)
@@ -278,13 +279,26 @@ async def _handle_search(
     # fix(#475): explicit Records collection filters participate in the combined
     # dataset-first result set, including its count and pagination.
     page0_collection_cap = 5
-    collection_total = 0
-    if collections_applicable:
-        collection_total = await count_collections(
+
+    async def _collection_total() -> int:
+        count = await count_collections(
             db, params.q or "", collection_ids=collection_ids
         )
-        if not collections_paginated:
-            collection_total = min(collection_total, page0_collection_cap)
+        if collection_type_requested or collection_ids is not None:
+            return count
+        return min(count, page0_collection_cap)
+
+    collection_total = await _collection_total() if collections_applicable else 0
+
+    # With a type selected, the untyped total lets the Type filter's All option
+    # match what choosing All returns.
+    matched_all_types: int | None = None
+    if params.record_type:
+        matched_all_types = await count_datasets(
+            db, user, user_roles, replace(filters, record_type=None)
+        )
+        if collections_in_scope:
+            matched_all_types += await _collection_total()
 
     if collections_paginated:
         collection_limit = max(0, params.limit - len(features))
@@ -376,6 +390,7 @@ async def _handle_search(
         # fix(#315): stable across pages; fix(#475): explicitly selected
         # collections are counted and paginated with datasets.
         numberMatched=total + collection_total,
+        numberMatchedAllTypes=matched_all_types,
         numberReturned=len(features),
         features=features,
         links=links,

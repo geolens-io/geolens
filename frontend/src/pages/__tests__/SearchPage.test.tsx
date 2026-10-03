@@ -11,7 +11,6 @@ vi.mock('@/components/search/hooks/use-search', () => ({
   // fix(#430 V-08): SearchPage now also calls useMapSearchResults — stub it so
   // the parallel maps section is inert (no maps) unless a test overrides it.
   useMapSearchResults: vi.fn(() => ({ data: undefined })),
-  useAllTypesTotal: (total: number | undefined) => total,
 }));
 
 vi.mock('@/components/search/hooks/use-url-search-sync', () => ({
@@ -237,6 +236,26 @@ describe('SearchPage', () => {
     // and no result cards are visible.
     expect(screen.queryByTestId('search-result-card')).not.toBeInTheDocument();
     expect(screen.queryByTestId('dataset-card-skeleton')).not.toBeInTheDocument();
+  });
+
+  it('passes the all-types total of a typed response to the filter panel as the All count', () => {
+    setAnonymousUser();
+    mockUseSearchResults.mockReturnValue({
+      data: {
+        type: 'FeatureCollection',
+        numberMatched: 3,
+        numberMatchedAllTypes: 5,
+        numberReturned: 0,
+        features: [] as OGCRecordResponse[],
+      },
+      isLoading: false,
+      error: null,
+      isFetching: false,
+    } as unknown as ReturnType<typeof useSearchResults>);
+
+    render(<SearchPage />, { route: '/' });
+
+    expect(screen.getAllByTestId('filter-panel')[0]).toHaveAttribute('data-all-total', '5');
   });
 
   it('passes a loaded zero total to the filter panel as the All count', () => {

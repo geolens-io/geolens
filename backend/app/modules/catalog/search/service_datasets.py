@@ -214,6 +214,27 @@ def _negotiated_title_expression(
     )
 
 
+async def count_datasets(
+    session: AsyncSession,
+    user: Identity | None,
+    user_roles: set[str],
+    filters: SearchFilters,
+) -> int:
+    """Count the datasets ``search_datasets`` would match for ``filters``."""
+    candidates = await select_candidates(
+        session,
+        select(func.count())
+        .select_from(Dataset)
+        .join(Record, Dataset.record_id == Record.id),
+        user,
+        user_roles,
+        filters,
+        search_only=True,
+        depth=1,
+    )
+    return (await session.execute(candidates.stmt)).scalar_one()
+
+
 async def search_datasets(
     session: AsyncSession,
     user: Identity | None,

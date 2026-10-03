@@ -256,6 +256,13 @@ class OGCFeatureCollectionResponse(BaseModel):
     type: str = "FeatureCollection"
     timeStamp: str | None = None
     numberMatched: int = Field(description="Total records matching the query")
+    numberMatchedAllTypes: int | None = Field(
+        default=None,
+        description=(
+            "Total records matching the query with record_type removed and every "
+            "other filter kept; present only when record_type is set"
+        ),
+    )
     numberReturned: int = Field(description="Number of records in this response page")
     features: list[OGCRecordResponse]
     links: list[OGCRecordLink] | None = Field(

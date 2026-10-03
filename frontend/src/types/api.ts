@@ -678,6 +678,7 @@ export interface OGCRecordResponse {
 export interface SearchResponse {
   type: "FeatureCollection";
   numberMatched: number;
+  numberMatchedAllTypes?: number | null;
   numberReturned: number;
   features: OGCRecordResponse[];
   links?: OGCRecordLink[] | null;

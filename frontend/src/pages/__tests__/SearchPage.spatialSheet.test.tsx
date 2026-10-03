@@ -6,7 +6,6 @@ import { useSearchStore } from '@/stores/search-store';
 vi.mock('@/components/search/hooks/use-search', () => ({
   useSearchResults: vi.fn(() => ({ data: { features: [], numberMatched: 0 }, isLoading: false })),
   useMapSearchResults: vi.fn(() => ({ data: undefined })),
-  useAllTypesTotal: (total: number | undefined) => total,
   useFacets: () => ({ data: undefined, isLoading: false }),
   useCatalogSummary: () => ({ data: undefined, isLoading: false }),
 }));

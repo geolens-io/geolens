@@ -11,7 +11,7 @@ from app.modules.catalog.search.service_collections import (
     count_collections,
     search_collections,
 )
-from app.modules.catalog.search.service_datasets import search_datasets
+from app.modules.catalog.search.service_datasets import count_datasets, search_datasets
 from app.modules.catalog.search.service_facets import get_facet_counts
 from app.modules.catalog.search.service_filters import (
     FacetCounts,
@@ -41,6 +41,7 @@ __all__ = [
     "get_facet_counts",
     "count_collections",
     "search_collections",
+    "count_datasets",
     "search_datasets",
     "build_assets",
     "dataset_to_ogc_record",

@@ -14,7 +14,7 @@ import { SearchResultCard } from '@/components/search/SearchResultCard';
 import { DatasetCardSkeleton } from '@/components/search/DatasetCardSkeleton';
 import { Pagination } from '@/components/layout/Pagination';
 import { MapCard } from '@/components/maps/MapCard';
-import { useSearchResults, useMapSearchResults, useAllTypesTotal } from '@/components/search/hooks/use-search';
+import { useSearchResults, useMapSearchResults } from '@/components/search/hooks/use-search';
 import { useSearchStore } from '@/stores/search-store';
 import { useAuthStore } from '@/stores/auth-store';
 import { useUrlSearchSync } from '@/components/search/hooks/use-url-search-sync';
@@ -48,7 +48,7 @@ function SearchControls({ totalResults, allTypesTotal, children }: SearchControl
 export function SearchPage() {
   const { t } = useTranslation('search');
   useDocumentTitle(t('common:pageTitle.search'));
-  const { data, isLoading, error, isFetching, isPlaceholderData, refetch } = useSearchResults();
+  const { data, isLoading, error, isFetching, refetch } = useSearchResults();
   // Map search uses the visibility-scoped maps endpoint because catalog search indexes datasets only.
   const {
     data: mapResults,
@@ -85,7 +85,7 @@ export function SearchPage() {
   // logged in AND allowed. See Navbar.tsx CreateMenu.
   const canImport = !!token && can('upload');
   const totalMatched = data ? Math.max(data.numberMatched ?? 0, data.features.length) : 0;
-  const allTypesTotal = useAllTypesTotal(data ? totalMatched : undefined, isPlaceholderData);
+  const allTypesTotal = data ? (data.numberMatchedAllTypes ?? data.numberMatched) : undefined;
   const hasMapTextQuery = mapQuery.length > 0;
   const isMapSearchPending = hasMapTextQuery && (isLoadingMaps || isFetchingMaps);
   const hasMapMatches = (mapResults?.maps.length ?? 0) > 0;
