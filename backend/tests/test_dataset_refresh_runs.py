@@ -344,6 +344,9 @@ def test_only_the_commit_handler_creates_a_run() -> None:
     # `refresh_dataset`, after the one Rule 1 gate — which is what makes the
     # partial unique index the referee for every origin kind rather than for
     # the two that happened to be written first.
+    #
+    # `dispatch_upload_acceptance` is the upload strategy behind the same
+    # door, for accepting a blocked file replacement, on the same terms.
     assert callers == {
         "router_reupload.py": {"reupload_commit"},
         "router_refresh.py": {
@@ -351,6 +354,7 @@ def test_only_the_commit_handler_creates_a_run() -> None:
             "_dispatch_postgis_refresh",
             "_dispatch_stac_refresh",
         },
+        "refresh_acceptance.py": {"dispatch_upload_acceptance"},
     }, f"A refresh run row may only be created by a dispatch handler. Found: {callers}"
 
 
@@ -1796,6 +1800,11 @@ class TestCommitTimeRecompute:
         from unittest.mock import AsyncMock, patch
 
         import app.core.db as db_module
+        from app.platform.refresh.verification import (
+            geometry_contract,
+            review_fingerprint,
+            review_subject,
+        )
         from app.processing.ingest.tasks import reupload_file
 
         user_id = await get_user_id(test_db_session, "admin")
@@ -1818,6 +1827,18 @@ class TestCommitTimeRecompute:
         )
         source = tmp_path / "update.geojson"
         source.write_text('{"type":"FeatureCollection","features":[]}')
+        unknown = geometry_contract(
+            geometry_types=None, srid=None, is_3d=None, n_dims=None
+        )
+        # The removal needs review; this is the fingerprint a preview gives it.
+        reviewed = review_fingerprint(
+            review_subject(
+                ["destructive_schema_change"],
+                {"columns_removed": [{"name": "retired"}], "type_changes": []},
+                unknown,
+                unknown,
+            )
+        )
         job = IngestJob(
             dataset_id=dataset.id,
             status="pending",
@@ -1825,7 +1846,11 @@ class TestCommitTimeRecompute:
             source_filename="update.geojson",
             file_path=str(source),
             created_by=user_id,
-            user_metadata={"reupload": True, "dataset_id": str(dataset.id)},
+            user_metadata={
+                "reupload": True,
+                "dataset_id": str(dataset.id),
+                "review_fingerprint": reviewed,
+            },
         )
         test_db_session.add(job)
         await test_db_session.flush()

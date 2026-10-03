@@ -413,7 +413,11 @@ async def _retry_capability(job: IngestJob) -> tuple[bool, str | None]:
         return True, None
     if not job.file_path:
         return False, "The source is no longer available. Start the import again."
+    return await staged_input_available(job)
 
+
+async def staged_input_available(job: IngestJob) -> tuple[bool, str | None]:
+    """Whether the staged file ``job.file_path`` names is still there to read."""
     from app.core.tenancy import is_multi_tenant
 
     candidate = Path(job.file_path)
@@ -1034,6 +1038,7 @@ __all__ = [
     "get_retry_capability",
     "post_expiry_sweep_after_seconds",
     "router",
+    "staged_input_available",
     "stale_pending_cutoff_seconds",
     "sweep_stale_vrt_assets",
 ]

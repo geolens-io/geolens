@@ -8,6 +8,12 @@ from attrs import field as _attrs_field
 
 from ..types import UNSET, Unset
 
+from ..models.reupload_preview_response_review_reasons_item import (
+    check_reupload_preview_response_review_reasons_item,
+)
+from ..models.reupload_preview_response_review_reasons_item import (
+    ReuploadPreviewResponseReviewReasonsItem,
+)
 from typing import cast
 from uuid import UUID
 
@@ -40,6 +46,10 @@ class ReuploadPreviewResponse:
         schema_diff (SchemaDiff):
         all_layers (list[ReuploadPreviewResponseAllLayersType0Item] | None | Unset):
         previous_source_layer (None | str | Unset):
+        review_reasons (list[ReuploadPreviewResponseReviewReasonsItem] | Unset): Changes in this file replacement that
+            hold it for review. Empty for a service re-upload, which is not judged at preview.
+        review_fingerprint (None | str | Unset): Fingerprint of the reviewed changes. Send it as the commit's
+            `review_fingerprint` once a person has seen them; null when nothing needs review.
     """
 
     job_id: UUID
@@ -53,6 +63,8 @@ class ReuploadPreviewResponse:
     schema_diff: SchemaDiff
     all_layers: list[ReuploadPreviewResponseAllLayersType0Item] | None | Unset = UNSET
     previous_source_layer: None | str | Unset = UNSET
+    review_reasons: list[ReuploadPreviewResponseReviewReasonsItem] | Unset = UNSET
+    review_fingerprint: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -102,6 +114,19 @@ class ReuploadPreviewResponse:
         else:
             previous_source_layer = self.previous_source_layer
 
+        review_reasons: list[str] | Unset = UNSET
+        if not isinstance(self.review_reasons, Unset):
+            review_reasons = []
+            for review_reasons_item_data in self.review_reasons:
+                review_reasons_item: str = review_reasons_item_data
+                review_reasons.append(review_reasons_item)
+
+        review_fingerprint: None | str | Unset
+        if isinstance(self.review_fingerprint, Unset):
+            review_fingerprint = UNSET
+        else:
+            review_fingerprint = self.review_fingerprint
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -121,6 +146,10 @@ class ReuploadPreviewResponse:
             field_dict["all_layers"] = all_layers
         if previous_source_layer is not UNSET:
             field_dict["previous_source_layer"] = previous_source_layer
+        if review_reasons is not UNSET:
+            field_dict["review_reasons"] = review_reasons
+        if review_fingerprint is not UNSET:
+            field_dict["review_fingerprint"] = review_fingerprint
 
         return field_dict
 
@@ -227,6 +256,30 @@ class ReuploadPreviewResponse:
             d.pop("previous_source_layer", UNSET)
         )
 
+        _review_reasons = d.pop("review_reasons", UNSET)
+        review_reasons: list[ReuploadPreviewResponseReviewReasonsItem] | Unset = UNSET
+        if _review_reasons is not UNSET:
+            review_reasons = []
+            for review_reasons_item_data in _review_reasons:
+                review_reasons_item = (
+                    check_reupload_preview_response_review_reasons_item(
+                        review_reasons_item_data
+                    )
+                )
+
+                review_reasons.append(review_reasons_item)
+
+        def _parse_review_fingerprint(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        review_fingerprint = _parse_review_fingerprint(
+            d.pop("review_fingerprint", UNSET)
+        )
+
         reupload_preview_response = cls(
             job_id=job_id,
             source_filename=source_filename,
@@ -239,6 +292,8 @@ class ReuploadPreviewResponse:
             schema_diff=schema_diff,
             all_layers=all_layers,
             previous_source_layer=previous_source_layer,
+            review_reasons=review_reasons,
+            review_fingerprint=review_fingerprint,
         )
 
         reupload_preview_response.additional_properties = d

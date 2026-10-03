@@ -9,7 +9,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import update
 
-from app.modules.catalog.datasets.api import router_refresh
+from app.modules.catalog.datasets.api import refresh_acceptance
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
@@ -102,7 +102,7 @@ async def _admitted_run(session, dataset_id, blocked_id) -> tuple[uuid.UUID, uui
         feature_count_before=None,
         execution_key=key,
     )
-    await router_refresh._consume_blocked_refresh_acceptance(
+    await refresh_acceptance.consume_blocked_refresh_acceptance(
         session,
         dataset_id=dataset_id,
         blocked_run_id=blocked_id,

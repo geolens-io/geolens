@@ -34,6 +34,9 @@ class ReuploadCommitRequest:
             is not silently rebound to an upload. A client may omit the field to skip this concurrency check.
         token (None | str | Unset): Deprecated: use the auth object with method bearer.
         layer_name (None | str | Unset):
+        review_fingerprint (None | str | Unset): The preview's `review_fingerprint`, sent once a person has seen the
+            changes it describes. A file replacement with review reasons publishes only when the worker's own fingerprint
+            matches; otherwise its run ends `blocked`. Service re-uploads ignore it.
         auth (None | ServiceAuthRequest | Unset): Structured credential for a protected service. Mutually exclusive with
             the token field.
     """
@@ -44,6 +47,7 @@ class ReuploadCommitRequest:
     ) = UNSET
     token: None | str | Unset = UNSET
     layer_name: None | str | Unset = UNSET
+    review_fingerprint: None | str | Unset = UNSET
     auth: None | ServiceAuthRequest | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -76,6 +80,12 @@ class ReuploadCommitRequest:
         else:
             layer_name = self.layer_name
 
+        review_fingerprint: None | str | Unset
+        if isinstance(self.review_fingerprint, Unset):
+            review_fingerprint = UNSET
+        else:
+            review_fingerprint = self.review_fingerprint
+
         auth: dict[str, Any] | None | Unset
         if isinstance(self.auth, Unset):
             auth = UNSET
@@ -95,6 +105,8 @@ class ReuploadCommitRequest:
             field_dict["token"] = token
         if layer_name is not UNSET:
             field_dict["layer_name"] = layer_name
+        if review_fingerprint is not UNSET:
+            field_dict["review_fingerprint"] = review_fingerprint
         if auth is not UNSET:
             field_dict["auth"] = auth
 
@@ -158,6 +170,17 @@ class ReuploadCommitRequest:
 
         layer_name = _parse_layer_name(d.pop("layer_name", UNSET))
 
+        def _parse_review_fingerprint(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        review_fingerprint = _parse_review_fingerprint(
+            d.pop("review_fingerprint", UNSET)
+        )
+
         def _parse_auth(data: object) -> None | ServiceAuthRequest | Unset:
             if data is None:
                 return data
@@ -180,6 +203,7 @@ class ReuploadCommitRequest:
             expected_origin_kind=expected_origin_kind,
             token=token,
             layer_name=layer_name,
+            review_fingerprint=review_fingerprint,
             auth=auth,
         )
 

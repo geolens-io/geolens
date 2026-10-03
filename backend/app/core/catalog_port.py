@@ -218,6 +218,16 @@ class CatalogPort(Protocol):
         schema: str | None = None,
     ) -> list[dict[str, Any]]: ...
 
+    def stored_column_name(self, source_name: str) -> str: ...
+
+    async def get_geometry_types(
+        self,
+        session: AsyncSession,
+        table_name: str,
+        *,
+        schema: str | None = None,
+    ) -> list[str]: ...
+
     async def generate_attribute_metadata(
         self,
         session: AsyncSession,

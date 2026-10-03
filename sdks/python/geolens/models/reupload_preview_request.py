@@ -19,9 +19,12 @@ class ReuploadPreviewRequest:
     """
     Attributes:
         layer_name (None | str | Unset):
+        srid_override (int | None | Unset): The SRID override the commit will send, so the preview judges the coordinate
+            system the replacement will be stored in.
     """
 
     layer_name: None | str | Unset = UNSET
+    srid_override: int | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -31,11 +34,19 @@ class ReuploadPreviewRequest:
         else:
             layer_name = self.layer_name
 
+        srid_override: int | None | Unset
+        if isinstance(self.srid_override, Unset):
+            srid_override = UNSET
+        else:
+            srid_override = self.srid_override
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
         if layer_name is not UNSET:
             field_dict["layer_name"] = layer_name
+        if srid_override is not UNSET:
+            field_dict["srid_override"] = srid_override
 
         return field_dict
 
@@ -52,8 +63,18 @@ class ReuploadPreviewRequest:
 
         layer_name = _parse_layer_name(d.pop("layer_name", UNSET))
 
+        def _parse_srid_override(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        srid_override = _parse_srid_override(d.pop("srid_override", UNSET))
+
         reupload_preview_request = cls(
             layer_name=layer_name,
+            srid_override=srid_override,
         )
 
         reupload_preview_request.additional_properties = d

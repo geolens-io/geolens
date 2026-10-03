@@ -147,7 +147,7 @@ async def _published_one_point_dataset(
         feature_count=1,
         source_format="geojson",
         source_filename="original.geojson",
-        column_info=[{"name": "name", "type": "character varying"}],
+        column_info=[{"name": "name", "type": "text"}],
     )
     tables.append((table, dataset.id))
     await _create_drawn_table(session, table, _PARIS)

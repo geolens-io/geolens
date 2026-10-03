@@ -349,6 +349,17 @@ class DefaultCatalogPort:
         schema, _role = self._data_plane_target(schema)
         return await get_column_info(session, table_name, schema=schema)
 
+    def stored_column_name(self, source_name: str) -> str:
+        from app.processing.ingest.metadata_geometry import stored_column_name
+
+        return stored_column_name(source_name)
+
+    async def get_geometry_types(self, session, table_name, *, schema=None):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.metadata import get_geometry_types
+
+        schema, _role = self._data_plane_target(schema)
+        return await get_geometry_types(session, table_name, schema=schema)
+
     async def generate_attribute_metadata(
         self,
         session,

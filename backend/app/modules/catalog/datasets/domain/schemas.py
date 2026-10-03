@@ -827,6 +827,18 @@ class SchemaDiff(BaseModel):
     )
 
 
+ReviewReason = Literal[
+    "source_count_unavailable",
+    "empty_result",
+    "destructive_schema_change",
+    "geometry_type_changed",
+    "srid_changed",
+    "coordinate_dimension_reduced",
+    "arcgis_id_coverage_unavailable",
+    "arcgis_source_membership_changed",
+]
+
+
 class ReuploadResponse(BaseModel):
     job_id: uuid.UUID
     status: str = "pending"
@@ -846,6 +858,21 @@ class ReuploadPreviewResponse(BaseModel):
     # GPKG-01 Phase 1058: multi-layer support fields
     all_layers: list[dict[str, Any]] | None = None
     previous_source_layer: str | None = None
+    review_reasons: list[ReviewReason] = Field(
+        default_factory=list,
+        description=(
+            "Changes in this file replacement that hold it for review. Empty "
+            "for a service re-upload, which is not judged at preview."
+        ),
+    )
+    review_fingerprint: str | None = Field(
+        default=None,
+        description=(
+            "Fingerprint of the reviewed changes. Send it as the commit's "
+            "`review_fingerprint` once a person has seen them; null when "
+            "nothing needs review."
+        ),
+    )
 
 
 class ReuploadServicePreviewRequest(BaseModel):
@@ -874,6 +901,15 @@ class ReuploadServicePreviewRequest(BaseModel):
 class ReuploadPreviewRequest(BaseModel):
     # GPKG-01 Phase 1058: optional layer_name for multi-layer file sources
     layer_name: str | None = Field(default=None, max_length=500)
+    srid_override: int | None = Field(
+        default=None,
+        ge=1,
+        le=998999,
+        description=(
+            "The SRID override the commit will send, so the preview judges "
+            "the coordinate system the replacement will be stored in."
+        ),
+    )
 
 
 class ReuploadCommitRequest(BaseModel):
@@ -895,6 +931,16 @@ class ReuploadCommitRequest(BaseModel):
     _validate_token = field_validator("token")(_validate_safe_token)
     # GPKG-01 Phase 1058: user-chosen layer for multi-layer GPKG files
     layer_name: str | None = Field(default=None, max_length=500)
+    review_fingerprint: str | None = Field(
+        default=None,
+        pattern="^[0-9a-f]{64}$",
+        description=(
+            "The preview's `review_fingerprint`, sent once a person has seen "
+            "the changes it describes. A file replacement with review reasons "
+            "publishes only when the worker's own fingerprint matches; "
+            "otherwise its run ends `blocked`. Service re-uploads ignore it."
+        ),
+    )
     auth: ServiceAuthRequest | None = Field(
         default=None, description=SERVICE_AUTH_FIELD_DESCRIPTION
     )
@@ -940,7 +986,8 @@ class DatasetRefreshRequest(BaseModel):
             "A blocked run whose reviewed source and staged content may be "
             "accepted. The refresh that uses the acceptance holds it until it "
             "ends, and a cancelled or failed refresh gives it back. A different "
-            "result blocks again."
+            "result blocks again. A blocked file replacement is accepted from "
+            "the upload its run kept."
         ),
     )
     auth: ServiceAuthRequest | None = Field(
@@ -1545,19 +1592,25 @@ class RefreshVerification(BaseModel):
     staged_srid: int | None = None
     staged_coordinate_dimension: int | None = None
     geometry_contract: dict[str, Any] | None = None
-    review_reasons: list[
-        Literal[
-            "source_count_unavailable",
-            "empty_result",
-            "destructive_schema_change",
-            "geometry_type_changed",
-            "srid_changed",
-            "coordinate_dimension_reduced",
-            "arcgis_id_coverage_unavailable",
-            "arcgis_source_membership_changed",
-        ]
-    ]
-    review_fingerprint: str | None
+    review_reasons: list[ReviewReason]
+    review_fingerprint: str | None = Field(
+        description=(
+            "Identifies what a blocked run asks a person to accept. A service "
+            "refresh fingerprints all of its evidence, so its acceptance must "
+            "fetch the same data again. A file replacement fingerprints only "
+            "its review reasons, removed columns, type changes and, for a "
+            "geometry reason, the geometry facts, which is what its preview "
+            "shows."
+        )
+    )
+    review_acknowledged_by: Literal["preview", "accepted_run"] | None = Field(
+        default=None,
+        description=(
+            "Why a file replacement with review reasons published: its commit "
+            "carried the preview's fingerprint, or a person accepted a blocked "
+            "run with the same changes."
+        ),
+    )
     accepted_blocked_run_id: uuid.UUID | None
     acceptance_consumed_by_run_id: uuid.UUID | None = None
 

@@ -2625,6 +2625,15 @@ export const getQuicklookDatasetsDatasetIdQuicklookGet = <ThrowOnError extends b
  * Refuses with 409 ``dataset_busy`` while another refresh or re-upload is
  * active for this dataset. A partial unique index prevents simultaneous
  * requests from both being admitted.
+ *
+ * ``accept_blocked_run_id`` accepts a blocked run once. A blocked service
+ * refresh is fetched again and publishes only if the result matches the run
+ * it accepts. A blocked file replacement (an ``upload`` run) is replaced
+ * again from the upload that run kept, and publishes only if its review
+ * reasons and changes match. That answers 422 ``upload_unavailable`` once
+ * the upload is gone. A review fingerprint is an acknowledgement, not a
+ * secret: it keeps a replacement nobody reviewed from publishing, and any
+ * caller with write access can still publish deliberately.
  */
 export const refreshDatasetDatasetsDatasetIdRefreshPost = <ThrowOnError extends boolean = false>(options: Options<RefreshDatasetDatasetsDatasetIdRefreshPostData, ThrowOnError>): RequestResult<RefreshDatasetDatasetsDatasetIdRefreshPostResponses, RefreshDatasetDatasetsDatasetIdRefreshPostErrors, ThrowOnError> => (options.client ?? client).post<RefreshDatasetDatasetsDatasetIdRefreshPostResponses, RefreshDatasetDatasetsDatasetIdRefreshPostErrors, ThrowOnError>({
     security: [

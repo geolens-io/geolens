@@ -1202,7 +1202,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # Default adapters expose explicit extension contracts rather than catch-all shims.
         "backend/app/platform/extensions/defaults_ai_openai.py": 520,
         "backend/app/platform/extensions/defaults_ai_anthropic.py": 372,
-        "backend/app/platform/extensions/defaults_catalog_port.py": 569,
+        "backend/app/platform/extensions/defaults_catalog_port.py": 574,
         # ProcessingPort signatures remain explicit across the catalog boundary.
         "backend/app/platform/extensions/defaults_processing_port.py": 576,
         "backend/app/platform/extensions/defaults_extensions.py": 433,
@@ -1318,10 +1318,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # replacement share.
     "backend/app/processing/ingest/tasks_common.py": 1784,
     # File and remote-source replacement strategies own retrieval, staging and verification.
-    "backend/app/processing/ingest/tasks_reupload.py": 1222,
+    "backend/app/processing/ingest/tasks_reupload.py": 1294,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection.
-    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1397,
+    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1353,
     # Config planning, signed dry runs, application and the embedding column
     # rebuild an applied width needs share one import workflow.
     "backend/app/platform/config_ops/service.py": 1443,
@@ -1340,8 +1340,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Backfill batches share vector/model validation and progress/cancellation
     # semantics.
     "backend/app/processing/embeddings/backfill.py": 919,
-    # Reupload preview, compatibility and staged commit share an endpoint lifecycle.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1540,
+    # Reupload preview, compatibility, review and staged commit share an endpoint lifecycle.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1600,
     # VRT creation and regeneration share publication, owed-object records and
     # superseded-object cleanup.
     "backend/app/processing/ingest/tasks_vrt.py": 1650,
@@ -1368,7 +1368,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # its catalog writes.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 699,
     # Dataset request and verification response families share this public contract.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1654,
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1707,
     # Analysis validation, bounded execution and fenced registration share one task
     # lifecycle.
     "backend/app/processing/analysis/tasks.py": 1401,

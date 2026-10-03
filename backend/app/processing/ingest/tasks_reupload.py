@@ -217,6 +217,10 @@ class _FileReupload:
         # Set when the upload fails the safety checks: recorded, not raised.
         self.refused = False
         self.owned_staging_key: str | None = None
+        self.verification: dict | None = None
+        self.accepted_run_id: str | None = None
+        # Kept while a person can still accept this upload's blocked run.
+        self.held = False
 
     def prepare(self, job, dataset, staging_table: str) -> None:
         # Read off the row, not the local `file_path` a download rebinds.
@@ -227,6 +231,11 @@ class _FileReupload:
         self.attempt_id = job.attempt_id
         self.source_filename = job.source_filename
         self.user_metadata = job.user_metadata or {}
+        self.reviewed_fingerprint = self.user_metadata.get("review_fingerprint")
+        self.accepted_fingerprint = self.user_metadata.get(
+            "accepted_refresh_fingerprint"
+        )
+        self.accepted_run_id = self.user_metadata.get("accepted_refresh_run_id")
         self.prior_record_type = dataset.record.record_type
         self.prior_geometry_type = dataset.geometry_type
         # The user-chosen layer of a multi-layer file.
@@ -333,7 +342,64 @@ class _FileReupload:
         # Tell the user when the Web Mercator clamp destroyed geometry,
         # instead of leaving them to discover it downstream.
         _append_mercator_clip_warning(job, staging_result.mercator_clip)
-        return PUBLISH
+        return await self._verify(session, dataset)
+
+    async def _verify(self, session, dataset) -> Verdict:
+        from app.processing.ingest.metadata import get_geometry_types
+
+        schema = _current_tenant_schema()
+        # The function and transaction `project()` diffs with after the swap.
+        self.schema_diff = catalog_projection.schema_diff(dataset, self.measurement)
+        self.verification = refresh_policy.verify_file_replacement(
+            schema_diff=self.schema_diff,
+            fetched_feature_count=self.measurement.metadata.get("feature_count"),
+            live=refresh_policy.geometry_contract(
+                geometry_types=await get_geometry_types(
+                    session, dataset.table_name, schema=schema
+                ),
+                srid=dataset.srid,
+                is_3d=dataset.is_3d,
+                n_dims=dataset.n_dims,
+            ),
+            staged=refresh_policy.geometry_contract(
+                geometry_types=await get_geometry_types(
+                    session, self.staging_table, schema=schema
+                ),
+                srid=self.measurement.metadata.get("srid"),
+                is_3d=self.measurement.three_d.get("is_3d"),
+                n_dims=self.measurement.three_d.get("n_dims"),
+            ),
+            source_binding={
+                "kind": "upload",
+                "filename": self.source_filename,
+                "file_hash": self.file_hash,
+            },
+            reviewed_fingerprint=self.reviewed_fingerprint,
+            accepted_fingerprint=self.accepted_fingerprint,
+            accepted_run_id=self.accepted_run_id,
+        )
+        if self.verification["decision"] == "allowed":
+            return PUBLISH
+        self.held = True
+        return Verdict(
+            publish=False,
+            reason=FixedReason(
+                "Review the detected changes before publication.",
+                code="review_required",
+            ),
+            settle=self._hold_back,
+            notify=False,
+        )
+
+    async def _hold_back(self, session) -> None:
+        # A file contacts no origin, so nothing about one is stamped.
+        await record_refresh_blocked(
+            session,
+            ingest_job_id=uuid.UUID(self.job_id),
+            feature_count_after=self.measurement.metadata.get("feature_count"),
+            schema_diff=self.schema_diff,
+            verification=self.verification,
+        )
 
     async def install(self, session, dataset) -> None:
         await _install_reupload_table(
@@ -371,6 +437,7 @@ class _FileReupload:
             feature_count=self.measurement.metadata.get("feature_count"),
             schema_diff=schema_diff,
             contacted_origin=False,
+            verification=self.verification,
             live_table=dataset.table_name,
             quicklook_table=_quicklook_table(dataset, self.measurement),
             reaps_staged_upload=True,
@@ -414,7 +481,12 @@ class _FileReupload:
                 local_path=self.file_path,
                 owned_presigned_key=self.owned_staging_key,
             ).release_file_replacement(
-                publication=publication, failed=failed, refused=self.refused
+                publication=publication,
+                failed=failed,
+                refused=self.refused,
+                # An accepting attempt that failed gives its acceptance back,
+                # so the upload stays for the next one.
+                held=self.held or (failed and self.accepted_run_id is not None),
             )
 
     def _archive_name(self) -> str:

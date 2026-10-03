@@ -2359,7 +2359,7 @@ class TestArchiveRunsAfterTheSwapCommit:
             feature_count=1,
             source_format="geojson",
             source_filename="original.geojson",
-            column_info=[{"name": "name", "type": "character varying"}],
+            column_info=[{"name": "name", "type": "text"}],
         )
         await session.execute(
             text(

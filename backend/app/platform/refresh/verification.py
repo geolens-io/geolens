@@ -1,4 +1,4 @@
-"""Pre-publication checks for service refreshes."""
+"""Pre-publication checks for service refreshes and file replacements."""
 
 from __future__ import annotations
 
@@ -95,6 +95,138 @@ def review_reasons(
     return reasons
 
 
+_GEOMETRY_REASONS = frozenset(
+    {"geometry_type_changed", "srid_changed", "coordinate_dimension_reduced"}
+)
+
+
+def declared_geometry_contract(
+    declared_type: str | None, *, srid: int | None
+) -> GeometryContract:
+    """The contract a file's declared layer type implies, before it is loaded.
+
+    ``declared_type`` is ogrinfo's spelling, such as ``MultiPolygonZ``. A
+    generic or unknown type gives no families, and the dimension count is
+    never taken from the declaration.
+    """
+    if not declared_type:
+        return GeometryContract(families=None, srid=None, is_3d=None, n_dims=None)
+    base = declared_type.upper().replace(" ", "")
+    has_z = base.endswith(("Z", "ZM"))
+    contract = geometry_contract(
+        geometry_types=[base.removesuffix("M").removesuffix("Z")],
+        srid=srid,
+        is_3d=True,
+        n_dims=None,
+    )
+    # A generic type without a Z suffix says nothing about its coordinates.
+    is_3d = True if has_z else (False if contract.families else None)
+    return GeometryContract(
+        families=contract.families, srid=srid, is_3d=is_3d, n_dims=None
+    )
+
+
+def _contract_facts(contract: GeometryContract) -> list[Any]:
+    return [sorted(contract.families or ()), contract.srid, contract.is_3d]
+
+
+def review_subject(
+    reasons: list[str],
+    schema_diff: dict[str, Any],
+    live: GeometryContract,
+    staged: GeometryContract,
+) -> dict[str, Any]:
+    """What a person reviewing a file replacement is shown and acknowledges.
+
+    Counts, added columns and file identity are left out: a preview cannot
+    see them the way the worker does.
+    """
+    subject: dict[str, Any] = {
+        "reasons": sorted(reasons),
+        "columns_removed": sorted(
+            column["name"].lower()
+            for column in schema_diff.get("columns_removed") or ()
+        ),
+        "type_changes": sorted(
+            [change["name"].lower(), change["old_type"], change["new_type"]]
+            for change in schema_diff.get("type_changes") or ()
+        ),
+    }
+    if _GEOMETRY_REASONS.intersection(reasons):
+        subject["geometry"] = {
+            "live": _contract_facts(live),
+            "staged": _contract_facts(staged),
+        }
+    return subject
+
+
+def review_fingerprint(subject: dict[str, Any]) -> str | None:
+    """The sha256 of the subject's canonical JSON, or ``None`` when nothing needs review."""
+    if not subject["reasons"]:
+        return None
+    return hashlib.sha256(
+        json.dumps(
+            subject, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+        ).encode()
+    ).hexdigest()
+
+
+def _geometry_evidence(
+    live: GeometryContract, staged: GeometryContract
+) -> dict[str, dict[str, Any]]:
+    return {
+        side: {**asdict(contract), "families": sorted(contract.families or ())}
+        for side, contract in (("live", live), ("staged", staged))
+    }
+
+
+def verify_file_replacement(
+    *,
+    schema_diff: dict[str, Any],
+    fetched_feature_count: int | None,
+    live: GeometryContract,
+    staged: GeometryContract,
+    source_binding: dict[str, Any],
+    reviewed_fingerprint: str | None,
+    accepted_fingerprint: str | None,
+    accepted_run_id: str | None,
+) -> dict[str, Any]:
+    """Return the evidence and decision for a staged file replacement.
+
+    A replacement with review reasons publishes only when a client sent the
+    fingerprint of the subject it showed, or a person accepted a blocked run
+    with the same subject. A file run is never rejected.
+    """
+    reasons = review_reasons(
+        schema_diff=schema_diff,
+        fetched_feature_count=fetched_feature_count,
+        live=live,
+        staged=staged,
+    )
+    fingerprint = review_fingerprint(review_subject(reasons, schema_diff, live, staged))
+    acknowledged_by = None
+    if fingerprint is not None and reviewed_fingerprint == fingerprint:
+        acknowledged_by = "preview"
+    elif fingerprint is not None and accepted_fingerprint == fingerprint:
+        acknowledged_by = "accepted_run"
+    return {
+        "decision": "blocked" if reasons and acknowledged_by is None else "allowed",
+        "source_binding": source_binding,
+        "source_binding_fingerprint": None,
+        "source_count": None,
+        "fetched_count": fetched_feature_count,
+        "count_status": "unavailable",
+        "identity_check": "unavailable",
+        "review_reasons": reasons,
+        "geometry_contract": _geometry_evidence(live, staged),
+        "review_fingerprint": fingerprint,
+        "review_acknowledged_by": acknowledged_by,
+        "accepted_blocked_run_id": (
+            accepted_run_id if acknowledged_by == "accepted_run" else None
+        ),
+    }
+
+
 def canonical_service_source_binding_fingerprint(source_binding: dict[str, Any]) -> str:
     """Fingerprint the secret-free service identity shared by runs and sync.
 
@@ -175,10 +307,7 @@ def verify_service_refresh(
     if strong_arcgis_policy and membership_status != "matched":
         reasons.append("arcgis_source_membership_changed")
 
-    geometry_evidence = {
-        side: {**asdict(contract), "families": sorted(contract.families or ())}
-        for side, contract in (("live", live), ("staged", staged))
-    }
+    geometry_evidence = _geometry_evidence(live, staged)
     fingerprint_payload = {
         "source_binding": source_binding,
         "schema_diff": schema_diff,

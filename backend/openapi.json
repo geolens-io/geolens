@@ -5354,7 +5354,7 @@
                 "type": "null"
               }
             ],
-            "description": "A blocked run whose reviewed source and staged content may be accepted. The refresh that uses the acceptance holds it until it ends, and a cancelled or failed refresh gives it back. A different result blocks again.",
+            "description": "A blocked run whose reviewed source and staged content may be accepted. The refresh that uses the acceptance holds it until it ends, and a cancelled or failed refresh gives it back. A different result blocks again. A blocked file replacement is accepted from the upload its run kept.",
             "title": "Accept Blocked Run Id"
           },
           "auth": {
@@ -14738,7 +14738,24 @@
                 "type": "null"
               }
             ],
+            "description": "Identifies what a blocked run asks a person to accept. A service refresh fingerprints all of its evidence, so its acceptance must fetch the same data again. A file replacement fingerprints only its review reasons, removed columns, type changes and, for a geometry reason, the geometry facts, which is what its preview shows.",
             "title": "Review Fingerprint"
+          },
+          "review_acknowledged_by": {
+            "anyOf": [
+              {
+                "enum": [
+                  "preview",
+                  "accepted_run"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why a file replacement with review reasons published: its commit carried the preview's fingerprint, or a person accepted a blocked run with the same changes.",
+            "title": "Review Acknowledged By"
           },
           "accepted_blocked_run_id": {
             "anyOf": [
@@ -15076,6 +15093,19 @@
             ],
             "title": "Layer Name"
           },
+          "review_fingerprint": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The preview's `review_fingerprint`, sent once a person has seen the changes it describes. A file replacement with review reasons publishes only when the worker's own fingerprint matches; otherwise its run ends `blocked`. Service re-uploads ignore it.",
+            "title": "Review Fingerprint"
+          },
           "auth": {
             "anyOf": [
               {
@@ -15128,6 +15158,20 @@
               }
             ],
             "title": "Layer Name"
+          },
+          "srid_override": {
+            "anyOf": [
+              {
+                "maximum": 998999.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The SRID override the commit will send, so the preview judges the coordinate system the replacement will be stored in.",
+            "title": "Srid Override"
           }
         },
         "title": "ReuploadPreviewRequest",
@@ -15231,6 +15275,36 @@
               }
             ],
             "title": "Previous Source Layer"
+          },
+          "review_reasons": {
+            "description": "Changes in this file replacement that hold it for review. Empty for a service re-upload, which is not judged at preview.",
+            "items": {
+              "enum": [
+                "source_count_unavailable",
+                "empty_result",
+                "destructive_schema_change",
+                "geometry_type_changed",
+                "srid_changed",
+                "coordinate_dimension_reduced",
+                "arcgis_id_coverage_unavailable",
+                "arcgis_source_membership_changed"
+              ],
+              "type": "string"
+            },
+            "title": "Review Reasons",
+            "type": "array"
+          },
+          "review_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Fingerprint of the reviewed changes. Send it as the commit's `review_fingerprint` once a person has seen them; null when nothing needs review.",
+            "title": "Review Fingerprint"
           }
         },
         "required": [
@@ -39367,7 +39441,7 @@
     },
     "/datasets/{dataset_id}/refresh": {
       "post": {
-        "description": "Re-pull this dataset's data from the origin it was imported from.\n\nOne request, no source pointer, no layer selection. The dataset keeps\nserving its current data throughout: the worker loads into an\nattempt-scoped staging table and swaps only once the new data is\ncomplete, so a refresh that fails leaves the live table and its freshness\nexactly as they were.\n\nDifferent origin kinds use different execution strategies. A dataset\nregistered from an existing PostGIS table serves directly from its origin,\nso refresh re-measures the\nlive relation \u2014 recounting features, recomputing the extent, rebuilding\nthe column schema snapshot and statistics. A dataset imported from a STAC\nitem points to an external COG, so its\nrefresh re-reads the item document and follows the asset if the publisher\nmoved it. Admission, the run row and the history they write are identical\nacross all three.\n\nRefuses with 409 ``dataset_busy`` while another refresh or re-upload is\nactive for this dataset. A partial unique index prevents simultaneous\nrequests from both being admitted.",
+        "description": "Re-pull this dataset's data from the origin it was imported from.\n\nOne request, no source pointer, no layer selection. The dataset keeps\nserving its current data throughout: the worker loads into an\nattempt-scoped staging table and swaps only once the new data is\ncomplete, so a refresh that fails leaves the live table and its freshness\nexactly as they were.\n\nDifferent origin kinds use different execution strategies. A dataset\nregistered from an existing PostGIS table serves directly from its origin,\nso refresh re-measures the\nlive relation \u2014 recounting features, recomputing the extent, rebuilding\nthe column schema snapshot and statistics. A dataset imported from a STAC\nitem points to an external COG, so its\nrefresh re-reads the item document and follows the asset if the publisher\nmoved it. Admission, the run row and the history they write are identical\nacross all three.\n\nRefuses with 409 ``dataset_busy`` while another refresh or re-upload is\nactive for this dataset. A partial unique index prevents simultaneous\nrequests from both being admitted.\n\n``accept_blocked_run_id`` accepts a blocked run once. A blocked service\nrefresh is fetched again and publishes only if the result matches the run\nit accepts. A blocked file replacement (an ``upload`` run) is replaced\nagain from the upload that run kept, and publishes only if its review\nreasons and changes match. That answers 422 ``upload_unavailable`` once\nthe upload is gone. A review fingerprint is an acknowledgement, not a\nsecret: it keeps a replacement nobody reviewed from publishing, and any\ncaller with write access can still publish deliberately.",
         "operationId": "refresh_dataset_datasets__dataset_id__refresh_post",
         "parameters": [
           {

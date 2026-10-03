@@ -58,7 +58,7 @@ async def _seed(session, tmp_path):
         record_type="vector_dataset",
         geometry_type="Point",
         feature_count=1,
-        column_info=[{"name": "name", "type": "character varying"}],
+        column_info=[{"name": "name", "type": "text"}],
     )
     await session.execute(
         text(
