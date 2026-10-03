@@ -24,17 +24,32 @@
 // Usage:
 //   GEOLENS_URL=https://demo.example.com \
 //   GEOLENS_ADMIN_USERNAME=... GEOLENS_ADMIN_PASSWORD=... \
-//   node scripts/backfill-map-thumbnails.mjs [--dry-run] [--include-public]
+//   node scripts/backfill-map-thumbnails.mjs [--dry-run] [--include-public] \
+//     [--refresh <map-id>...]
 //
 // Defaults to every map the credential can see that is missing a thumbnail.
-// --dry-run lists what it would open and changes nothing.
+// --refresh opens exactly the named maps and recaptures their thumbnails even
+// when one exists; ids the credential cannot see are reported and skipped, and
+// the exit code is nonzero if any map failed or was unknown.
+// --dry-run lists what it would open and changes nothing; it combines with
+// --refresh.
 
 import { chromium } from 'playwright';
+
+import { parseArgs, selectMaps } from './lib/backfill-map-thumbnails-args.mjs';
 
 const BASE_URL = (process.env.GEOLENS_URL ?? 'http://localhost:8080').replace(/\/+$/, '');
 const USERNAME = process.env.GEOLENS_ADMIN_USERNAME ?? 'admin';
 const PASSWORD = process.env.GEOLENS_ADMIN_PASSWORD;
-const DRY_RUN = process.argv.includes('--dry-run');
+let opts;
+try {
+  opts = parseArgs(process.argv.slice(2));
+} catch (err) {
+  console.error(`FAIL: ${err.message}`);
+  process.exit(2);
+}
+const DRY_RUN = opts.dryRun;
+const REFRESH = opts.refresh;
 
 // How long to wait for auto-capture to upload. The capture runs after the map
 // idles, so this is map-render time plus the PUT, not a fixed cost we control.
@@ -126,11 +141,18 @@ async function main() {
   const token = auth.access_token;
   nodeToken = token;
   const maps = await listMaps(token);
-  const missing = maps.filter((m) => !m.thumbnail_url);
+  const refreshing = REFRESH.length > 0;
+  const { targets: missing, unknown } = selectMaps(maps, REFRESH);
 
-  console.log(`${BASE_URL}: ${maps.length} maps visible, ${missing.length} without a thumbnail`);
+  console.log(
+    refreshing
+      ? `${BASE_URL}: ${maps.length} maps visible, ${missing.length} of ${REFRESH.length} named to refresh`
+      : `${BASE_URL}: ${maps.length} maps visible, ${missing.length} without a thumbnail`,
+  );
+  for (const id of unknown) console.error(`  unknown or inaccessible map id, skipped: ${id}`);
   if (missing.length === 0) {
     console.log('Nothing to do.');
+    if (unknown.length > 0) process.exit(1);
     return;
   }
   for (const m of missing) {
@@ -138,6 +160,7 @@ async function main() {
   }
   if (DRY_RUN) {
     console.log('\n--dry-run: opened nothing.');
+    if (unknown.length > 0) process.exit(1);
     return;
   }
 
@@ -185,17 +208,40 @@ async function main() {
   for (const m of missing) {
     process.stdout.write(`  opening ${m.name} ... `);
     try {
+      // The builder only auto-captures when the map detail reports no
+      // thumbnail, so a refresh serves it that view of the map and waits for
+      // the capture's own PUT; the upload still goes through the app.
+      const detail = new RegExp(`/api/maps/${m.id}/?(\\?.*)?$`);
+      let uploaded = null;
+      if (refreshing) {
+        await page.route(detail, async (route) => {
+          if (route.request().method() !== 'GET') return route.continue();
+          const res = await route.fetch();
+          const body = await res.json();
+          return route.fulfill({ response: res, json: { ...body, thumbnail_url: null } });
+        });
+        uploaded = page.waitForResponse(
+          (r) => r.request().method() === 'PUT' && r.url().includes(`/maps/${m.id}/thumbnail/`),
+          { timeout: CAPTURE_TIMEOUT_MS },
+        );
+        uploaded.catch(() => {});
+      }
       await page.goto(`${BASE_URL}/maps/${m.id}`);
       await page.waitForLoadState('networkidle').catch(() => {});
 
       // Poll the API rather than guessing at a fixed wait: the upload is
       // fire-and-forget inside the app, so its completion is only observable
       // as thumbnail_url flipping non-null.
-      const deadline = Date.now() + CAPTURE_TIMEOUT_MS;
       let ok = false;
-      while (Date.now() < deadline) {
-        await page.waitForTimeout(POLL_MS);
-        if (await hasThumbnail(m.id)) { ok = true; break; }
+      if (refreshing) {
+        ok = await uploaded.then((r) => r.ok()).catch(() => false);
+        await page.unroute(detail).catch(() => {});
+      } else {
+        const deadline = Date.now() + CAPTURE_TIMEOUT_MS;
+        while (Date.now() < deadline) {
+          await page.waitForTimeout(POLL_MS);
+          if (await hasThumbnail(m.id)) { ok = true; break; }
+        }
       }
       if (ok) { filled++; console.log('ok'); }
       else { failed.push(m.name); console.log('TIMED OUT'); }
@@ -208,8 +254,8 @@ async function main() {
   await browser.close();
 
   console.log(`\nFilled ${filled}/${missing.length}.`);
-  if (failed.length > 0) {
-    console.error('Still missing a thumbnail:');
+  if (failed.length > 0 || unknown.length > 0) {
+    if (failed.length > 0) console.error(refreshing ? 'Not refreshed:' : 'Still missing a thumbnail:');
     for (const n of failed) console.error(`  - ${n}`);
     // Non-zero so a CI or cron caller notices, without pretending the run
     // achieved nothing: the count above says what did land.
