@@ -57,6 +57,21 @@ class StacNextPage(BaseModel):
         return value
 
 
+def _canonical(value: Any) -> Any:
+    """*value* with whole-number floats as ints.
+
+    The descriptor is echoed through JavaScript, which writes ``40.0`` as
+    ``40``, so both spellings must sign the same.
+    """
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, dict):
+        return {k: _canonical(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_canonical(v) for v in value]
+    return value
+
+
 def _signed_payload(
     catalog_url: str, collections: list[str] | None, descriptor: dict[str, Any]
 ) -> bytes:
@@ -66,7 +81,7 @@ def _signed_payload(
             "collections": collections,
             "href": descriptor.get("href"),
             "method": descriptor.get("method"),
-            "body": descriptor.get("body"),
+            "body": _canonical(descriptor.get("body")),
             "merge": descriptor.get("merge"),
         },
         sort_keys=True,

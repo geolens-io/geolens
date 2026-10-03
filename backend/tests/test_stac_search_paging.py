@@ -8,7 +8,10 @@ import pytest
 from httpx import AsyncClient
 
 from app.modules.catalog.sources.adapters.stac import search_stac_items
-from app.modules.catalog.sources.stac_next_page import sign_next_page
+from app.modules.catalog.sources.stac_next_page import (
+    sign_next_page,
+    verify_next_page,
+)
 from app.platform.security import SSRFError
 
 CATALOG = "https://stac.example.com/v1"
@@ -423,6 +426,40 @@ class TestNextPageRoute:
         resp = await self._post(client, admin_auth_header, _descriptor())
         assert resp.status_code == 400
         search.assert_not_called()
+
+
+class TestSignatureSurvivesJavaScript:
+    def test_whole_number_floats_verify_after_a_js_style_round_trip(self):
+        descriptor = _descriptor(
+            method="POST",
+            body={
+                "bbox": [-74.0, 40.0, -73.5, 41.0],
+                "limit": 50,
+                "nested": {"x": 2.0},
+            },
+            merge=True,
+        )
+        signed = _signed(descriptor)
+        echoed = json.loads(
+            json.dumps(signed)
+            .replace("40.0", "40")
+            .replace("41.0", "41")
+            .replace("-74.0", "-74")
+            .replace("2.0", "2")
+        )
+        assert echoed["body"]["bbox"] == [-74, 40, -73.5, 41]
+        assert verify_next_page(
+            CATALOG,
+            None,
+            {k: v for k, v in echoed.items() if k != "signature"},
+            echoed["signature"],
+        )
+
+    def test_a_changed_number_still_fails(self):
+        descriptor = _descriptor(method="POST", body={"limit": 50.0})
+        signed = _signed(descriptor)
+        tampered = {**descriptor, "body": {"limit": 51}}
+        assert not verify_next_page(CATALOG, None, tampered, signed["signature"])
 
 
 class TestNextPageRoundTrip:
