@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { parseArgs, selectMaps } from '../lib/backfill-map-thumbnails-args.mjs';
+import { isThumbnailUploadOk, parseArgs, selectMaps } from '../lib/backfill-map-thumbnails-args.mjs';
 
 const maps = [
   { id: 'a', name: 'A', thumbnail_url: '/maps/a/thumbnail/' },
@@ -38,4 +38,12 @@ test('selectMaps reports ids the credential cannot see', () => {
   const { targets, unknown } = selectMaps(maps, ['a', 'zzz', 'a']);
   assert.deepEqual(targets.map((m) => m.id), ['a']);
   assert.deepEqual(unknown, ['zzz']);
+});
+
+test('isThumbnailUploadOk skips a failed PUT so a retried success counts', () => {
+  const url = 'http://x/api/maps/a/thumbnail/';
+  assert.equal(isThumbnailUploadOk('PUT', url, false, 'a'), false);
+  assert.equal(isThumbnailUploadOk('PUT', url, true, 'a'), true);
+  assert.equal(isThumbnailUploadOk('GET', url, true, 'a'), false);
+  assert.equal(isThumbnailUploadOk('PUT', url, true, 'b'), false);
 });

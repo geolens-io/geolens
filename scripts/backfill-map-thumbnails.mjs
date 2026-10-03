@@ -36,7 +36,7 @@
 
 import { chromium } from 'playwright';
 
-import { parseArgs, selectMaps } from './lib/backfill-map-thumbnails-args.mjs';
+import { isThumbnailUploadOk, parseArgs, selectMaps } from './lib/backfill-map-thumbnails-args.mjs';
 
 const BASE_URL = (process.env.GEOLENS_URL ?? 'http://localhost:8080').replace(/\/+$/, '');
 const USERNAME = process.env.GEOLENS_ADMIN_USERNAME ?? 'admin';
@@ -221,7 +221,7 @@ async function main() {
           return route.fulfill({ response: res, json: { ...body, thumbnail_url: null } });
         });
         uploaded = page.waitForResponse(
-          (r) => r.request().method() === 'PUT' && r.url().includes(`/maps/${m.id}/thumbnail/`),
+          (r) => isThumbnailUploadOk(r.request().method(), r.url(), r.ok(), m.id),
           { timeout: CAPTURE_TIMEOUT_MS },
         );
         uploaded.catch(() => {});
@@ -234,7 +234,7 @@ async function main() {
       // as thumbnail_url flipping non-null.
       let ok = false;
       if (refreshing) {
-        ok = await uploaded.then((r) => r.ok()).catch(() => false);
+        ok = await uploaded.then(() => true).catch(() => false);
         await page.unroute(detail).catch(() => {});
       } else {
         const deadline = Date.now() + CAPTURE_TIMEOUT_MS;

@@ -30,3 +30,8 @@ export function selectMaps(maps, refresh) {
     unknown: ids.filter((id) => !byId.has(id)),
   };
 }
+
+/** True for a successful thumbnail PUT response of the given map. */
+export function isThumbnailUploadOk(method, url, ok, mapId) {
+  return method === 'PUT' && url.includes(`/maps/${mapId}/thumbnail/`) && ok;
+}
