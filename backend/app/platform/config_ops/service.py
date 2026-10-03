@@ -603,24 +603,36 @@ async def _load_setting_state(
     return current_settings, overridden_keys, valid_stored_keys
 
 
-_EMBEDDING_CHANGE_REASONS = {
-    "embedding_model": (
+_REASONS = {
+    "unknown_setting": "Unknown setting key; retained for forward compatibility.",
+    "restricted_setting": "Setting is not writable in the current runtime.",
+    "pins_runtime_default": "Pins the current runtime default as a database override.",
+    "repairs_invalid_override": "Repairs an invalid database override.",
+    "omitted_reset_to_default": (
+        "Omitted from overwrite payload; reset to runtime default."
+    ),
+    "embedding_model_changed": (
         "Changes the embedding model: stored embeddings from the previous "
         "model need regenerating."
     ),
+    "embedding_width_changed": (
+        "Changes the embedding column width: every stored embedding is deleted "
+        "and must be regenerated."
+    ),
 }
-_EMBEDDING_WIDTH_REASON = (
-    "Changes the embedding column width: every stored embedding is deleted "
-    "and must be regenerated."
-)
 
 
-def _overwrite_reset_reason(key: str, current: Any, imported: Any) -> str:
-    reason = "Omitted from overwrite payload; reset to runtime default."
-    embedding_reason = _EMBEDDING_CHANGE_REASONS.get(key)
-    if embedding_reason and current != imported:
-        reason = f"{reason} {embedding_reason}"
-    return reason
+def _reason(code: str | None) -> dict[str, str]:
+    """The ``reason`` and ``reason_code`` fields of a setting change."""
+    if code is None:
+        return {}
+    return {"reason": _REASONS[code], "reason_code": code}
+
+
+def _overwrite_reset_code(key: str, current: Any, imported: Any) -> str:
+    if key == "embedding_model" and current != imported:
+        return "embedding_model_changed"
+    return "omitted_reset_to_default"
 
 
 def _build_setting_changes(
@@ -651,7 +663,7 @@ def _build_setting_changes(
                     current=None,
                     imported=raw_value,
                     action="skip_unknown",
-                    reason="Unknown setting key; retained for forward compatibility.",
+                    **_reason("unknown_setting"),
                 ).model_dump()
             )
             continue
@@ -662,7 +674,7 @@ def _build_setting_changes(
                     current=current_settings[key],
                     imported=raw_value,
                     action="skip_restricted",
-                    reason="Setting is not writable in the current runtime.",
+                    **_reason("restricted_setting"),
                 ).model_dump()
             )
             continue
@@ -691,20 +703,20 @@ def _build_setting_changes(
         )
         if needs_write:
             settings_to_apply[key] = value
-        reason = None
+        reason_code = None
         if pins_runtime_default:
-            reason = "Pins the current runtime default as a database override."
+            reason_code = "pins_runtime_default"
         elif repairs_invalid_override:
-            reason = "Repairs an invalid database override."
-        if current != value:
-            reason = _EMBEDDING_CHANGE_REASONS.get(key, reason)
+            reason_code = "repairs_invalid_override"
+        if current != value and key == "embedding_model":
+            reason_code = "embedding_model_changed"
         changes.append(
             SettingChange(
                 key=key,
                 current=current,
                 imported=value,
                 action="update" if needs_write else "no_change",
-                reason=reason,
+                **_reason(reason_code),
             ).model_dump()
         )
     return settings_to_apply, changes
@@ -761,11 +773,7 @@ def _flag_embedding_width_deletion(
         return
     for change in setting_changes:
         if change["key"] == cfg.key:
-            change["reason"] = (
-                f"{change['reason']} {_EMBEDDING_WIDTH_REASON}"
-                if change.get("reason")
-                else _EMBEDDING_WIDTH_REASON
-            )
+            change.update(_reason("embedding_width_changed"))
 
 
 async def preflight_import(
@@ -862,7 +870,7 @@ async def preflight_import(
             imported = cfg.env_default
             if cfg.key in model_defaults:
                 imported = model_defaults[cfg.key]
-            reason = _overwrite_reset_reason(
+            reason_code = _overwrite_reset_code(
                 cfg.key, current_settings[cfg.key], imported
             )
             setting_changes.append(
@@ -871,13 +879,13 @@ async def preflight_import(
                     current=current_settings[cfg.key],
                     imported=imported,
                     action="reset",
-                    reason=reason,
+                    **_reason(reason_code),
                 ).model_dump()
             )
 
-    from app.processing.embeddings.backfill import _live_column_dims
+    from app.processing.embeddings.service import live_embedding_column_width
 
-    live_column_width = await _live_column_dims(db)
+    live_column_width = await live_embedding_column_width(db)
     _flag_embedding_width_deletion(
         live_column_width, setting_changes, validated_settings, mode, registry_map
     )

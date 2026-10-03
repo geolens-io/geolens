@@ -10,7 +10,7 @@ Can be run as a module: python -m app.embeddings.backfill
 from typing import Any
 
 import structlog
-from sqlalchemy import delete, func, or_, select, text, tuple_
+from sqlalchemy import delete, func, or_, select, tuple_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,6 +24,7 @@ from app.processing.embeddings.service import (
     compute_content_hash,
     content_fields,
     generate_embeddings_batch,
+    live_embedding_column_width,
     raster_summary_of,
     records_still_current,
     resolve_embedding_base_url,
@@ -80,24 +81,6 @@ def _error_fields(exc: BaseException, traced: set[str]) -> dict[str, Any]:
         "error": _compact_error(exc),
         "exc_info": first_of_type,
     }
-
-
-async def _live_column_dims(session: AsyncSession) -> int | None:
-    """Read the declared width of the embedding column, straight from storage.
-
-    pgvector stores the dimension in `atttypmod` with no offset; -1 means an
-    unconstrained `vector`. Storage rather than `EMBEDDING_DIMS`, because the
-    two can disagree and that is the point of asking.
-    """
-    return (
-        await session.execute(
-            text(
-                "SELECT atttypmod FROM pg_attribute "
-                "WHERE attrelid = 'catalog.record_embeddings'::regclass "
-                "AND attname = 'embedding' AND NOT attisdropped"
-            )
-        )
-    ).scalar_one_or_none()
 
 
 class _AnomalousVectorWidth(RuntimeError):
@@ -549,7 +532,7 @@ async def _pinned_config_drift(
     # fix(#1533): BEFORE the endpoint block, whose `except` returns None and
     # would hide this on a half-configured install. Any change counts,
     # including a widening: those inserts SUCCEED, so nothing else reports it.
-    active_column_dims = await _live_column_dims(session)
+    active_column_dims = await live_embedding_column_width(session)
     if active_column_dims != pinned_column_dims:
         return (
             f"the embedding column width changed from vector({pinned_column_dims}) "
@@ -699,7 +682,7 @@ async def backfill_embeddings(
         # Fail-closed on an unresolvable model (#1506): force never consults the
         # model through get_records_without_embeddings.
         pinned = await _snapshot_embedding_config(session)
-        pinned_column_dims = await _live_column_dims(session)
+        pinned_column_dims = await live_embedding_column_width(session)
 
         # fix(#1511): a comparison guard is blind to a pair that is wrong,
         # committed and stable; one real embedding tests the property itself.
@@ -761,7 +744,7 @@ async def backfill_embeddings(
     # mid-run config change cannot store model B's vectors under A's label.
     if pinned is None:
         pinned = await _snapshot_embedding_config(session)
-        pinned_column_dims = await _live_column_dims(session)
+        pinned_column_dims = await live_embedding_column_width(session)
     model_name, embedding_dims, base_url = pinned
     # fix(#1546): every row is stamped with the PINNED configuration, never a
     # fresh read at write time.

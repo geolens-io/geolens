@@ -51,6 +51,15 @@ class SettingChange(BaseModel):
         default=None,
         description="Why a setting is skipped, when applicable.",
     )
+    reason_code: str | None = Field(
+        default=None,
+        description=(
+            "Stable code for the reason, for clients that translate it: "
+            "unknown_setting, restricted_setting, pins_runtime_default, "
+            "repairs_invalid_override, omitted_reset_to_default, "
+            "embedding_model_changed or embedding_width_changed."
+        ),
+    )
 
 
 class OAuthProviderChange(BaseModel):

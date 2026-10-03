@@ -598,7 +598,7 @@ async def _preview(mode, settings, live_width):
     mock_db.execute = AsyncMock(return_value=mock_result)
 
     with patch(
-        "app.processing.embeddings.backfill._live_column_dims",
+        "app.processing.embeddings.service.live_embedding_column_width",
         AsyncMock(return_value=live_width),
     ):
         preview = await dry_run_import(mock_db, {"settings": settings}, mode)
@@ -616,6 +616,8 @@ async def test_dry_run_warns_that_a_width_change_deletes_embeddings(mode):
     assert "deleted" in changes["embedding_dims"]["reason"]
     assert "regenerat" in changes["embedding_dims"]["reason"]
     assert "regenerat" in changes["embedding_model"]["reason"]
+    assert changes["embedding_dims"]["reason_code"] == "embedding_width_changed"
+    assert changes["embedding_model"]["reason_code"] == "embedding_model_changed"
 
 
 @pytest.mark.anyio
@@ -635,7 +637,7 @@ async def test_dry_run_warns_when_an_overwrite_resets_the_width_to_the_default()
     """An overwrite that omits the width resets it, which resizes a different column."""
     changes = await _preview("overwrite", {"ai_enabled": True}, 512)
 
-    assert "deleted" in changes["embedding_dims"]["reason"]
+    assert changes["embedding_dims"]["reason_code"] == "embedding_width_changed"
 
 
 @pytest.mark.anyio
@@ -673,7 +675,7 @@ async def test_a_preview_goes_stale_when_the_live_column_width_changes():
 
     async def _plan(live_width):
         with patch(
-            "app.processing.embeddings.backfill._live_column_dims",
+            "app.processing.embeddings.service.live_embedding_column_width",
             AsyncMock(return_value=live_width),
         ):
             return await preflight_import(mock_db, payload, "overwrite")

@@ -95,6 +95,7 @@ async def _import_default_width(client, headers, session, mode: str, extra: dict
 async def _assert_regeneration_fits_storage(session, monkeypatch) -> None:
     """The backfill preflight accepts a vector of the published width."""
     from app.processing.embeddings import backfill
+    from app.processing.embeddings.service import live_embedding_column_width
 
     async def _embed_at_requested_width(texts, _session, *, dimensions, **_kwargs):
         return [[0.0] * dimensions for _ in texts]
@@ -106,7 +107,7 @@ async def _assert_regeneration_fits_storage(session, monkeypatch) -> None:
     await backfill._preflight_embedding(
         session,
         (_NEW_MODEL, dims, None),
-        await backfill._live_column_dims(session),
+        await live_embedding_column_width(session),
     )
     await session.rollback()
 
