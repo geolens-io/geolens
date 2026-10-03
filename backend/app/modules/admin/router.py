@@ -64,6 +64,7 @@ from app.platform.jobs.models import (
     IngestJob,
     ACTIVE_BACKFILL_INDEX_NAME,
     EMBEDDING_BACKFILL_METADATA_KEY,
+    FAN_OUT_INTERRUPTED_METADATA_KEY,
     URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY,
     public_job_metadata,
 )
@@ -872,8 +873,21 @@ async def list_admin_jobs(
     return AdminJobListResponse(jobs=jobs, total=total)
 
 
+# Jobs that write to an existing dataset or are not imports at all; starting one
+# again from the import page would create a second dataset.
+_NOT_NEW_DATASET_MARKERS = (
+    "reupload",
+    "refresh",
+    "manifest_key",
+    "analysis",
+    EMBEDDING_BACKFILL_METADATA_KEY,
+    FAN_OUT_INTERRUPTED_METADATA_KEY,
+)
+
+
 def _restart_source(job: IngestJob) -> Literal["url", "service"] | None:
-    if job.status != "failed":
+    metadata = job.user_metadata or {}
+    if job.status != "failed" or any(metadata.get(m) for m in _NOT_NEW_DATASET_MARKERS):
         return None
     if job.source_url and not job.file_path:
         return "service"

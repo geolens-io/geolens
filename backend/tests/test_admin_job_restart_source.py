@@ -2,6 +2,7 @@
 
 import uuid
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import delete
 
@@ -100,3 +101,32 @@ async def test_a_job_that_can_be_retried_or_is_not_failed_has_no_restart_source(
     assert retryable["can_retry"] is True
     assert retryable["restart_source"] is None
     assert running["restart_source"] is None
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"reupload": True, "dataset_id": str(uuid.uuid4())},
+        {"refresh": True, "reupload": True},
+        {"manifest_key": "roads"},
+        {"analysis": {"kind": "clip"}},
+        {"embedding_backfill": {"force": False}},
+        {"fan_out_interrupted": True},
+    ],
+    ids=["reupload", "refresh", "manifest", "analysis", "backfill", "fan_out"],
+)
+async def test_jobs_that_are_not_new_dataset_imports_have_no_restart_source(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, metadata
+) -> None:
+    """Starting these again from the import page would create a second dataset."""
+    listed = await _listed(
+        client,
+        admin_auth_header,
+        test_db_session,
+        status="failed",
+        source_url=SECRET_URL,
+        user_metadata={"service_type": "ArcGIS FeatureServer", **metadata},
+    )
+
+    assert listed["can_retry"] is False
+    assert listed["restart_source"] is None

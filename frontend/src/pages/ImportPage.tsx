@@ -1,5 +1,7 @@
 import { useCallback, useState } from 'react';
 import { useSearchParams } from 'react-router';
+import { useQueryClient } from '@tanstack/react-query';
+import { releaseTerminalImportSession } from '@/components/import/start-again';
 import { useTranslation } from 'react-i18next';
 import { Upload, Link, Database, Globe, Satellite } from 'lucide-react';
 import { PageHeader } from '@/components/layout/PageHeader';
@@ -31,7 +33,14 @@ export function ImportPage() {
   // A "Start again" link from Admin Jobs opens the URL or service tab with its URL.
   const [searchParams] = useSearchParams();
   const tabParam = searchParams.get('tab');
-  const [prefillUrl] = useState(searchParams.get('url') ?? '');
+  const queryClient = useQueryClient();
+  const [prefillUrl] = useState(() => {
+    if (tabParam !== 'url' && tabParam !== 'service') return '';
+    // An active import keeps the form; the link's URL is dropped.
+    return releaseTerminalImportSession(tabParam, queryClient)
+      ? (searchParams.get('url') ?? '')
+      : '';
+  });
   const [activeTab, setActiveTab] = useState<Tab>(
     tabParam === 'url' || tabParam === 'service' ? tabParam : 'upload',
   );

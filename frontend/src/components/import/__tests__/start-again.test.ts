@@ -1,4 +1,7 @@
-import { startAgainPath } from '../start-again';
+import { QueryClient } from '@tanstack/react-query';
+import * as serviceSession from '@/api/service-url-session';
+import { queryKeys } from '@/lib/query-keys';
+import { releaseTerminalImportSession, startAgainPath } from '../start-again';
 
 describe('startAgainPath', () => {
   it('opens the service tab with the URL minus userinfo and redacted credentials', () => {
@@ -24,5 +27,49 @@ describe('startAgainPath', () => {
   it('drops a source URL that is not http(s) or does not parse', () => {
     expect(startAgainPath('service', 'javascript:alert(1)')).toBe('/import?tab=service');
     expect(startAgainPath('service', 'not a url')).toBe('/import?tab=service');
+  });
+});
+
+describe('releaseTerminalImportSession', () => {
+  const failedJob = { status: 'failed' };
+
+  function setup(jobStatus?: { status: string }) {
+    const qc = new QueryClient();
+    if (jobStatus) qc.setQueryData(queryKeys.ingest.jobStatus('job-1'), jobStatus);
+    return qc;
+  }
+
+  function startSession(jobId: string | null, status: 'pending' | 'fulfilled' | 'rejected') {
+    const promise = new Promise<never>(() => {});
+    vi.spyOn(serviceSession, 'peekServiceImport').mockReturnValue({
+      status,
+      jobId,
+      promise,
+    } as never);
+    return vi.spyOn(serviceSession, 'clearServiceImport').mockImplementation(() => {});
+  }
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('releases a service session whose committed job failed', () => {
+    const clear = startSession('job-1', 'fulfilled');
+
+    expect(releaseTerminalImportSession('service', setup(failedJob))).toBe(true);
+    expect(clear).toHaveBeenCalled();
+  });
+
+  it('releases a service session whose preview was rejected', () => {
+    const clear = startSession(null, 'rejected');
+
+    expect(releaseTerminalImportSession('service', setup())).toBe(true);
+    expect(clear).toHaveBeenCalled();
+  });
+
+  it('keeps a session whose job is still running or awaiting review', () => {
+    const clear = startSession('job-1', 'fulfilled');
+
+    expect(releaseTerminalImportSession('service', setup({ status: 'running' }))).toBe(false);
+    expect(releaseTerminalImportSession('service', setup())).toBe(false);
+    expect(clear).not.toHaveBeenCalled();
   });
 });

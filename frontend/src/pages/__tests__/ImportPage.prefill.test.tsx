@@ -1,4 +1,5 @@
 import { render, screen } from '@/test/test-utils';
+import * as serviceSession from '@/api/service-url-session';
 import { ImportPage } from '../ImportPage';
 
 vi.mock('@/hooks/use-document-title', () => ({ useDocumentTitle: vi.fn() }));
@@ -36,5 +37,36 @@ describe('ImportPage prefill', () => {
     render(<ImportPage />, { route: '/import?tab=stac&url=https%3A%2F%2Fx.test' });
 
     expect(screen.getByText('Upload workflow')).toBeInTheDocument();
+  });
+
+  describe('with a retained service session', () => {
+    const route = '/import?tab=service&url=https%3A%2F%2Fmaps.example.com%2Fwfs';
+    afterEach(() => vi.restoreAllMocks());
+
+    it('releases an ended session so the prefilled URL wins', () => {
+      vi.spyOn(serviceSession, 'peekServiceImport').mockReturnValue({
+        status: 'rejected',
+        jobId: null,
+      } as never);
+      const clear = vi.spyOn(serviceSession, 'clearServiceImport').mockImplementation(() => {});
+
+      render(<ImportPage />, { route });
+
+      expect(clear).toHaveBeenCalled();
+      expect(screen.getByText('Service workflow [https://maps.example.com/wfs]')).toBeInTheDocument();
+    });
+
+    it('keeps an active session and ignores the link URL', () => {
+      vi.spyOn(serviceSession, 'peekServiceImport').mockReturnValue({
+        status: 'fulfilled',
+        jobId: 'job-1',
+      } as never);
+      const clear = vi.spyOn(serviceSession, 'clearServiceImport').mockImplementation(() => {});
+
+      render(<ImportPage />, { route });
+
+      expect(clear).not.toHaveBeenCalled();
+      expect(screen.getByText('Service workflow []')).toBeInTheDocument();
+    });
   });
 });
