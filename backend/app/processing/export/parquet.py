@@ -139,7 +139,7 @@ _SCALAR_TYPES: dict[str, pa.DataType] = {
 _COLUMN_TYPES_SQL = """
     WITH RECURSIVE chain AS (
         SELECT a.attname, t.typname, t.typtype::text AS typtype,
-               t.typcategory::text AS typcategory, t.typbasetype,
+               t.typcategory::text AS typcategory, t.typnamespace, t.typbasetype,
                t.typtypmod, a.atttypmod AS typmod
         FROM pg_attribute a
         JOIN pg_class c ON c.oid = a.attrelid
@@ -149,13 +149,14 @@ _COLUMN_TYPES_SQL = """
           AND a.attnum > 0 AND NOT a.attisdropped
         UNION ALL
         SELECT ch.attname, t.typname, t.typtype::text, t.typcategory::text,
-               t.typbasetype, t.typtypmod,
+               t.typnamespace, t.typbasetype, t.typtypmod,
                CASE WHEN ch.typmod = -1 THEN ch.typtypmod ELSE ch.typmod END
         FROM chain ch
         JOIN pg_type t ON t.oid = ch.typbasetype
         WHERE ch.typtype = 'd'
     )
-    SELECT attname, typname, typcategory, typmod FROM chain WHERE typtype <> 'd'
+    SELECT attname, typname, typcategory, typmod FROM chain
+    WHERE typtype <> 'd' AND typnamespace = 'pg_catalog'::regnamespace
 """
 
 

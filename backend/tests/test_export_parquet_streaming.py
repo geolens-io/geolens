@@ -860,3 +860,34 @@ class TestRealTable:
                     text(f"DROP DOMAIN IF EXISTS data.{domain}_{suffix}")
                 )
             await test_db_session.commit()
+
+    @pytest.mark.anyio
+    async def test_a_user_type_named_like_a_builtin_is_not_declared(
+        self, test_db_session, staging
+    ):
+        """Only pg_catalog types map to Arrow; an enum named int4 elsewhere is
+        not an integer, whatever the table holds."""
+        table_name = f"exp_pqshadow_{uuid.uuid4().hex[:12]}"
+        await test_db_session.execute(text("CREATE TYPE data.int4 AS ENUM ('a')"))
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table_name} (gid serial PRIMARY KEY, "
+                "shadow data.int4, real_int integer, geom geometry(Point, 4326), "
+                "geom_4326 geometry(Point, 4326))"
+            )
+        )
+        await test_db_session.commit()
+        try:
+            plan = await plan_parquet_export(test_db_session, table_name, schema="data")
+            assert plan.column_types == {"real_int": pa.int32()}
+            path, _filename, _media_type = await export_parquet(
+                test_db_session, table_name, "Shadow", schema="data", plan=plan
+            )
+            assert pq.read_table(path).num_rows == 0
+        finally:
+            await test_db_session.rollback()
+            await test_db_session.execute(
+                text(f"DROP TABLE IF EXISTS data.{table_name}")
+            )
+            await test_db_session.execute(text("DROP TYPE IF EXISTS data.int4"))
+            await test_db_session.commit()
