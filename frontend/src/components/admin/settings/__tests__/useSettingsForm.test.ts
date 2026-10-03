@@ -435,6 +435,35 @@ describe('useSettingsForm', () => {
       expect(result.current.hasDirty).toBe(false);
     });
 
+    it('keeps a draft whose save failed after an earlier save succeeded', () => {
+      const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
+      const { result, rerender } = renderHook(
+        ({ s, saving, u, failed }: Props & { failed?: boolean }) =>
+          useSettingsForm(s, fields, saving, u, failed),
+        { initialProps: { s: initial } as Props & { failed?: boolean } },
+      );
+
+      act(() => result.current.setters.name('Bob'));
+      rerender({ s: initial, saving: true, u: 1 });
+      act(() => result.current.setters.name('Carol'));
+      rerender({ s: initial, saving: false, u: 1 });
+
+      // The second save submits Carol before the first refetch lands, then fails.
+      rerender({ s: initial, saving: true, u: 1 });
+      rerender({ s: initial, saving: false, u: 1, failed: true });
+
+      // The error refetch returns what the first save persisted.
+      rerender({
+        s: [makeSetting('name', 'Bob'), makeSetting('flag', false)],
+        saving: false,
+        u: 2,
+        failed: true,
+      });
+
+      expect(result.current.values.name).toBe('Carol');
+      expect(result.current.dirty).toEqual({ name: 'Carol' });
+    });
+
     it('keeps a post-submit edit even when an unrelated refetch races the save', () => {
       const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
       const { result, rerender } = renderWithSettings(initial);

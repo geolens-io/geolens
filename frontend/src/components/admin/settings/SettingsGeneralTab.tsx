@@ -16,6 +16,7 @@ interface TabProps {
   onReset: (key: string) => void;
   isSaving: boolean;
   settingsUpdatedAt?: number;
+  saveFailed?: boolean;
   onDirtyChange?: (dirty: boolean) => void;
 }
 
@@ -33,9 +34,9 @@ const FIELDS = [
   { key: 'log_json', defaultValue: false },
 ] as const;
 
-export function SettingsGeneralTab({ settings, envOnly, onSave, onReset, isSaving, settingsUpdatedAt, onDirtyChange }: TabProps) {
+export function SettingsGeneralTab({ settings, envOnly, onSave, onReset, isSaving, settingsUpdatedAt, saveFailed, onDirtyChange }: TabProps) {
   const { t } = useTranslation('admin');
-  const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, FIELDS, isSaving, settingsUpdatedAt);
+  const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, FIELDS, isSaving, settingsUpdatedAt, saveFailed);
 
   return (
     <div className="space-y-6">

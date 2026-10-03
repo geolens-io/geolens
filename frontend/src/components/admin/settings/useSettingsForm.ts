@@ -39,6 +39,9 @@ export function useSettingsForm<K extends string>(
    *  fetch, including one that returns identical data and so leaves
    *  `settings` the same object, which still has to reconcile the draft. */
   settingsUpdatedAt?: number,
+  /** The save mutation's error flag. A failed save does not acknowledge the
+   *  drafts it submitted, so their edit markers outlive its error refetch. */
+  saveFailed = false,
 ) {
   type Values = Record<K, unknown>;
 
@@ -79,9 +82,11 @@ export function useSettingsForm<K extends string>(
   const settledSaveRef = useRef(0);
   const reflectedSaveRef = useRef(0);
   const editMarkersRef = useRef(new Map<string, number>());
+  const saveFailedRef = useRef(saveFailed);
+  saveFailedRef.current = saveFailed;
   useEffect(() => {
     if (isSaving) startedSaveRef.current += 1;
-    else settledSaveRef.current = startedSaveRef.current;
+    else if (!saveFailedRef.current) settledSaveRef.current = startedSaveRef.current;
   }, [isSaving]);
 
   // Discarding drops the draft, so edits recorded so far must not pin the
@@ -98,9 +103,11 @@ export function useSettingsForm<K extends string>(
   // land after isSaving settles — so recording stays armed across the
   // pending→settled edge until the merge effect below sees a refetch that
   // reflects a later save, which also runs on a refetch that returns
-  // unchanged data. A refetch is taken to reflect every save that had settled
-  // when it landed. Until then an edited field stays dirty even when it equals
-  // the not-yet-refreshed server value.
+  // unchanged data. A refetch is taken to reflect every successful save that
+  // had settled when it landed; a failed save acknowledges nothing, so its
+  // markers last until a later successful save's refetch or a discard. Until
+  // then an edited field stays dirty even when it equals the not-yet-refreshed
+  // server value.
 
   // fix(#830): only sync untouched fields on refetch — a mid-edit query
   // invalidation (e.g. a background refetch) must not wipe drafts.

@@ -19,6 +19,7 @@ interface TabProps {
   onReset: (key: string) => void;
   isSaving: boolean;
   settingsUpdatedAt?: number;
+  saveFailed?: boolean;
   onDirtyChange?: (dirty: boolean) => void;
 }
 
@@ -57,9 +58,9 @@ function ChannelResult({ result }: { result: NotificationTestChannelResult }) {
   );
 }
 
-export function SettingsNetworkTab({ settings, envOnly, onSave, onReset, isSaving, settingsUpdatedAt, onDirtyChange }: TabProps) {
+export function SettingsNetworkTab({ settings, envOnly, onSave, onReset, isSaving, settingsUpdatedAt, saveFailed, onDirtyChange }: TabProps) {
   const { t } = useTranslation('admin');
-  const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, FIELDS, isSaving, settingsUpdatedAt);
+  const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, FIELDS, isSaving, settingsUpdatedAt, saveFailed);
 
   // Phase 1229 Plan 03 — notification channel status + test-send (NOTIF-06).
   const { data: notifStatus, isLoading: notifLoading } = useNotificationStatus();

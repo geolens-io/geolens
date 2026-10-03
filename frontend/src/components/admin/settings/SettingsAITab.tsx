@@ -34,6 +34,7 @@ interface TabProps {
   onReset: (key: string) => void;
   isSaving: boolean;
   settingsUpdatedAt?: number;
+  saveFailed?: boolean;
   onDirtyChange?: (dirty: boolean) => void;
 }
 
@@ -50,7 +51,7 @@ const AI_FIELDS = [
   { key: 'embedding_dims', defaultValue: '0', coerce: String },
 ] as const;
 
-export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, settingsUpdatedAt, onDirtyChange }: TabProps) {
+export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, settingsUpdatedAt, saveFailed, onDirtyChange }: TabProps) {
   const { t } = useTranslation('admin');
   const { can } = usePermissions();
   const canManageUsers = can('manage_users');
@@ -77,7 +78,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, se
     backfillJob.data?.status === 'running' ||
     Boolean(embeddingStats?.current_run);
 
-  const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, AI_FIELDS, isSaving, settingsUpdatedAt);
+  const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, AI_FIELDS, isSaving, settingsUpdatedAt, saveFailed);
   const [isDetecting, setIsDetecting] = useState(false);
   const [isProbing, setIsProbing] = useState(false);
   const [probe, setProbe] = useState<AIProbeReport | null>(null);
