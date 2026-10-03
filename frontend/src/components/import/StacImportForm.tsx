@@ -32,6 +32,7 @@ import type {
   StacItemSummary,
   StacImportItem,
   StacImportResult,
+  StacNextPage,
   StacSearchRequest,
 } from '@/types/api';
 import { originOf } from './utils';
@@ -141,6 +142,9 @@ export function StacImportForm() {
   const [endDate, setEndDate] = useState('');
   const [bboxText, setBboxText] = useState('');
   const [filtering, setFiltering] = useState(false);
+  const [nextPage, setNextPage] = useState<StacNextPage | null>(null);
+  const [appliedFilters, setAppliedFilters] = useState<Pick<StacSearchRequest, 'bbox' | 'datetime_range'>>({});
+  const [loadingMore, setLoadingMore] = useState(false);
   const [filterError, setFilterError] = useState<string | null>(null);
   const [importResult, setImportResult] = useState<{
     created: number;
@@ -226,6 +230,8 @@ export function StacImportForm() {
     setEndDate('');
     setBboxText('');
     setFilterError(null);
+    setNextPage(null);
+    setAppliedFilters({});
     setImportResult(null);
     setError(null);
     // fix(#1712): defensive symmetry with the success/failure settlement
@@ -276,6 +282,7 @@ export function StacImportForm() {
     setEndDate('');
     setBboxText('');
     setFilterError(null);
+    setAppliedFilters({});
     setStep('loading-items');
     setError(null);
 
@@ -290,6 +297,7 @@ export function StacImportForm() {
         ...(auth ? { auth } : {}),
       });
       setSearchResult({ items: result.items, matched: result.matched });
+      setNextPage(result.next_page ?? null);
       setSelectedItems(new Set());
       setStep('items');
     } catch (err) {
@@ -350,6 +358,8 @@ export function StacImportForm() {
       });
       if (!mountedRef.current) return;
       setSearchResult({ items: result.items, matched: result.matched });
+      setNextPage(result.next_page ?? null);
+      setAppliedFilters(built.filters);
       setSelectedItems(new Set());
     } catch (err) {
       if (!mountedRef.current) return;
@@ -358,6 +368,41 @@ export function StacImportForm() {
       toast.error(msg);
     } finally {
       if (mountedRef.current) setFiltering(false);
+    }
+  };
+
+  // Filters come from the last applied search, not the fields, which may
+  // have been edited since: the next page belongs to that search.
+  const handleLoadMore = async () => {
+    if (!selectedCollection || !catalogInfo || !nextPage) return;
+    setLoadingMore(true);
+    setError(null);
+    try {
+      const auth = buildStacAuth();
+      const result = await searchStacItems({
+        url: catalogInfo.url,
+        collections: [selectedCollection.id],
+        limit: 50,
+        ...appliedFilters,
+        next_page: nextPage,
+        ...(auth ? { auth } : {}),
+      });
+      if (!mountedRef.current) return;
+      setSearchResult((prev) => {
+        const seen = new Set(prev.items.map((i) => i.id));
+        return {
+          items: [...prev.items, ...result.items.filter((i) => !seen.has(i.id))],
+          matched: result.matched ?? prev.matched,
+        };
+      });
+      setNextPage(result.next_page ?? null);
+    } catch (err) {
+      if (!mountedRef.current) return;
+      const msg = err instanceof ApiError ? err.message : t('stac.searchItemsFailed');
+      setError(msg);
+      toast.error(msg);
+    } finally {
+      if (mountedRef.current) setLoadingMore(false);
     }
   };
 
@@ -981,6 +1026,20 @@ export function StacImportForm() {
             );
           })}
         </div>
+
+        {nextPage && (
+          <div className="flex justify-center">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={loadingMore}
+              onClick={handleLoadMore}
+            >
+              {t('stac.loadMore')}
+            </Button>
+          </div>
+        )}
       </div>
     );
   }

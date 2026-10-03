@@ -10526,6 +10526,40 @@ export type StacLink = {
 };
 
 /**
+ * StacNextPage
+ *
+ * A STAC ``rel="next"`` link, echoed back to fetch the following page.
+ */
+export type StacNextPage = {
+    /**
+     * Method
+     *
+     * HTTP method of the link.
+     */
+    method: 'GET' | 'POST';
+    /**
+     * Href
+     *
+     * Absolute URL of the next page. It must share the origin of the catalog URL it came from; any other origin is refused.
+     */
+    href: string;
+    /**
+     * Body
+     *
+     * JSON body of a POST link.
+     */
+    body?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Merge
+     *
+     * Whether the body is merged into the original search body.
+     */
+    merge?: boolean;
+};
+
+/**
  * StacSearchBody
  *
  * JSON body for POST /search.
@@ -10607,6 +10641,10 @@ export type StacSearchRequest = {
      */
     limit?: number;
     /**
+     * The next_page of the previous response, to fetch the page after it. Send the same filters as the first request.
+     */
+    next_page?: StacNextPage | null;
+    /**
      * Token
      *
      * Optional auth token for a protected STAC catalog. Deprecated: use the auth object with method bearer.
@@ -10640,6 +10678,10 @@ export type StacSearchResponse = {
      * Number of items in this response.
      */
     returned: number;
+    /**
+     * Link to the next page of results, or null on the last page. Send it back as next_page with the same filters.
+     */
+    next_page?: StacNextPage | null;
 };
 
 /**

@@ -226,7 +226,8 @@
     "filterBboxPlaceholder": "-74.3, 40.5, -73.7, 40.9",
     "filterApply": "Appliquer les filtres",
     "filterDateOrder": "La date de début ne peut pas être postérieure à la date de fin.",
-    "filterBboxInvalid": "Saisissez quatre nombres : ouest, sud, est, nord (longitude de -180 à 180, latitude de -90 à 90, sud pas au-dessus du nord)."
+    "filterBboxInvalid": "Saisissez quatre nombres : ouest, sud, est, nord (longitude de -180 à 180, latitude de -90 à 90, sud pas au-dessus du nord).",
+    "loadMore": "Charger plus"
   },
   "serviceUrl": {
     "label": "URL de service",

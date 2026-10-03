@@ -5,10 +5,12 @@ search items, and import selected items as raster datasets.
 """
 
 import asyncio
+import json
 import uuid
 from datetime import date, datetime, timezone
-from typing import Literal
+from typing import Any, Literal
 
+import httpx
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import (
@@ -41,6 +43,7 @@ from app.platform.extensions import get_catalog_port
 from app.modules.catalog.sources.adapters.stac import (
     MAX_ASSET_KEY_CHARS,
     MAX_ASSET_MEDIA_TYPE_CHARS,
+    MAX_NEXT_BODY_BYTES,
     connect_stac_api,
     list_stac_collections,
     search_stac_items,
@@ -206,6 +209,33 @@ class StacCollectionsResponse(BaseModel):
     )
 
 
+class StacNextPage(BaseModel):
+    """A STAC ``rel="next"`` link, echoed back to fetch the following page."""
+
+    method: Literal["GET", "POST"] = Field(description="HTTP method of the link.")
+    href: str = Field(
+        max_length=4096,
+        description=(
+            "Absolute URL of the next page. It must share the origin of the "
+            "catalog URL it came from; any other origin is refused."
+        ),
+    )
+    body: dict[str, Any] | None = Field(
+        default=None, description="JSON body of a POST link."
+    )
+    merge: bool = Field(
+        default=False,
+        description="Whether the body is merged into the original search body.",
+    )
+
+    @field_validator("body")
+    @classmethod
+    def _bound_body(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        if value is not None and len(json.dumps(value)) > MAX_NEXT_BODY_BYTES:
+            raise ValueError("next page body is too large")
+        return value
+
+
 class StacSearchRequest(BaseModel):
     url: str = Field(
         min_length=1,
@@ -231,6 +261,13 @@ class StacSearchRequest(BaseModel):
         ge=1,
         le=100,
         description="Maximum items to return.",
+    )
+    next_page: StacNextPage | None = Field(
+        default=None,
+        description=(
+            "The next_page of the previous response, to fetch the page after "
+            "it. Send the same filters as the first request."
+        ),
     )
     token: str | None = Field(
         default=None, max_length=1000, description=_STAC_TOKEN_DESCRIPTION
@@ -321,6 +358,13 @@ class StacSearchResponse(BaseModel):
         default=None, description="Total matches (if reported by API)."
     )
     returned: int = Field(description="Number of items in this response.")
+    next_page: StacNextPage | None = Field(
+        default=None,
+        description=(
+            "Link to the next page of results, or null on the last page. "
+            "Send it back as next_page with the same filters."
+        ),
+    )
 
 
 class StacImportItem(BaseModel):
@@ -530,6 +574,28 @@ async def stac_collections(
     )
 
 
+async def _validate_next_page_href(catalog_url: str, href: str) -> None:
+    """Refuse a next-page URL that the catalog's own response could not have named.
+
+    The follow-up carries the caller's credential and is fetched by this
+    server, so the client may not steer it to another origin or an internal
+    address.
+    """
+    try:
+        has_userinfo = bool(httpx.URL(href).userinfo)
+    except httpx.InvalidURL:
+        has_userinfo = True
+    if has_userinfo or not same_origin(catalog_url, href):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The next page must be on the same origin as the catalog URL.",
+        )
+    try:
+        await validate_url_for_ssrf(href)
+    except SSRFError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
 @router.post(
     "/search",
     response_model=StacSearchResponse,
@@ -550,6 +616,11 @@ async def stac_search(
     except SSRFError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
+    next_page = None
+    if request.next_page is not None:
+        next_page = request.next_page.model_dump()
+        await _validate_next_page_href(request.url, request.next_page.href)
+
     try:
         result = await search_stac_items(
             request.url,
@@ -558,6 +629,7 @@ async def stac_search(
             datetime_range=request.datetime_range,
             limit=request.limit,
             credential=credential,
+            next_page=next_page,
         )
     except Exception as exc:  # broad: STAC /search client/HTTP/parse can throw varied errors; map to 502 for the user
         logger.warning("STAC search failed", url=safe_url, error=str(exc))
@@ -578,6 +650,7 @@ async def stac_search(
         ],
         matched=result["matched"],
         returned=result["returned"],
+        next_page=result.get("next_page"),
     )
 
 

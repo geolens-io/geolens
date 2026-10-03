@@ -249,7 +249,8 @@
     "filterBboxPlaceholder": "-74.3, 40.5, -73.7, 40.9",
     "filterApply": "Apply filters",
     "filterDateOrder": "The start date must not be after the end date.",
-    "filterBboxInvalid": "Enter four numbers as west, south, east, north (longitude -180 to 180, latitude -90 to 90, south not above north)."
+    "filterBboxInvalid": "Enter four numbers as west, south, east, north (longitude -180 to 180, latitude -90 to 90, south not above north).",
+    "loadMore": "Load more"
   },
   "serviceUrl": {
     "label": "Service URL",

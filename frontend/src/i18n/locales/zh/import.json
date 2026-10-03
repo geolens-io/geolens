@@ -249,7 +249,8 @@
     "filterBboxPlaceholder": "-74.3, 40.5, -73.7, 40.9",
     "filterApply": "应用筛选",
     "filterDateOrder": "开始日期不能晚于结束日期。",
-    "filterBboxInvalid": "请按西、南、东、北输入四个数字（经度 -180 到 180，纬度 -90 到 90，南不大于北）。"
+    "filterBboxInvalid": "请按西、南、东、北输入四个数字（经度 -180 到 180，纬度 -90 到 90，南不大于北）。",
+    "loadMore": "加载更多"
   },
   "serviceUrl": {
     "label": "服务 URL",

@@ -18015,6 +18015,51 @@
         "title": "StacLink",
         "type": "object"
       },
+      "StacNextPage": {
+        "description": "A STAC ``rel=\"next\"`` link, echoed back to fetch the following page.",
+        "properties": {
+          "method": {
+            "description": "HTTP method of the link.",
+            "enum": [
+              "GET",
+              "POST"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "href": {
+            "description": "Absolute URL of the next page. It must share the origin of the catalog URL it came from; any other origin is refused.",
+            "maxLength": 4096,
+            "title": "Href",
+            "type": "string"
+          },
+          "body": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "JSON body of a POST link.",
+            "title": "Body"
+          },
+          "merge": {
+            "default": false,
+            "description": "Whether the body is merged into the original search body.",
+            "title": "Merge",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "method",
+          "href"
+        ],
+        "title": "StacNextPage",
+        "type": "object"
+      },
       "StacSearchBody": {
         "description": "JSON body for POST /search.",
         "examples": [
@@ -18176,6 +18221,17 @@
             "title": "Limit",
             "type": "integer"
           },
+          "next_page": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StacNextPage"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The next_page of the previous response, to fetch the page after it. Send the same filters as the first request."
+          },
           "token": {
             "anyOf": [
               {
@@ -18233,6 +18289,17 @@
             "description": "Number of items in this response.",
             "title": "Returned",
             "type": "integer"
+          },
+          "next_page": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StacNextPage"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Link to the next page of results, or null on the last page. Send it back as next_page with the same filters."
           }
         },
         "required": [

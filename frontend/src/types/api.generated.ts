@@ -13371,6 +13371,36 @@ export interface components {
             method?: string | null;
         };
         /**
+         * StacNextPage
+         * @description A STAC ``rel="next"`` link, echoed back to fetch the following page.
+         */
+        StacNextPage: {
+            /**
+             * Method
+             * @description HTTP method of the link.
+             * @enum {string}
+             */
+            method: "GET" | "POST";
+            /**
+             * Href
+             * @description Absolute URL of the next page. It must share the origin of the catalog URL it came from; any other origin is refused.
+             */
+            href: string;
+            /**
+             * Body
+             * @description JSON body of a POST link.
+             */
+            body?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Merge
+             * @description Whether the body is merged into the original search body.
+             * @default false
+             */
+            merge: boolean;
+        };
+        /**
          * StacSearchBody
          * @description JSON body for POST /search.
          * @example {
@@ -13440,6 +13470,8 @@ export interface components {
              * @default 20
              */
             limit: number;
+            /** @description The next_page of the previous response, to fetch the page after it. Send the same filters as the first request. */
+            next_page?: components["schemas"]["StacNextPage"] | null;
             /**
              * Token
              * @description Optional auth token for a protected STAC catalog. Deprecated: use the auth object with method bearer.
@@ -13465,6 +13497,8 @@ export interface components {
              * @description Number of items in this response.
              */
             returned: number;
+            /** @description Link to the next page of results, or null on the last page. Send it back as next_page with the same filters. */
+            next_page?: components["schemas"]["StacNextPage"] | null;
         };
         /** StaleCleanupResponse */
         StaleCleanupResponse: {

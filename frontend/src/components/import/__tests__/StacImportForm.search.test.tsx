@@ -161,3 +161,51 @@ describe('StacImportForm item search filters', () => {
     expect(mockSearchStacItems).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('StacImportForm load more', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const link = { method: 'GET' as const, href: 'https://example.com/stac/search?t=2' };
+
+  test('Load more sends the next link and appends the new items', async () => {
+    const user = await driveToItemsStep(page(['a', 'b'], { next_page: link }));
+    mockSearchStacItems.mockResolvedValueOnce(page(['b', 'c']));
+
+    await user.click(screen.getByRole('button', { name: 'stac.loadMore' }));
+
+    await waitFor(() => expect(screen.getByText('c')).toBeInTheDocument());
+    expect(screen.getAllByText('a')).toHaveLength(1);
+    expect(screen.getAllByText('b')).toHaveLength(1);
+    expect(mockSearchStacItems.mock.calls[1][0]).toMatchObject({
+      collections: ['test-col'],
+      next_page: link,
+    });
+    expect(screen.queryByRole('button', { name: 'stac.loadMore' })).not.toBeInTheDocument();
+  });
+
+  test('Load more repeats the applied filters, not the edited fields', async () => {
+    const user = await driveToItemsStep(page(['a']));
+    mockSearchStacItems.mockResolvedValueOnce(page(['b'], { next_page: link }));
+    await user.type(screen.getByLabelText('stac.filterBbox'), '-10, -10, 10, 10');
+    await user.click(screen.getByRole('button', { name: 'stac.filterApply' }));
+    await waitFor(() => screen.getByText('b'));
+
+    await user.clear(screen.getByLabelText('stac.filterBbox'));
+    await user.type(screen.getByLabelText('stac.filterBbox'), '0, 0, 1, 1');
+    mockSearchStacItems.mockResolvedValueOnce(page(['c']));
+    await user.click(screen.getByRole('button', { name: 'stac.loadMore' }));
+
+    await waitFor(() => expect(mockSearchStacItems).toHaveBeenCalledTimes(3));
+    expect(mockSearchStacItems.mock.calls[2][0]).toMatchObject({
+      bbox: [-10, -10, 10, 10],
+      next_page: link,
+    });
+  });
+
+  test('no Load more on the last page', async () => {
+    await driveToItemsStep(page(['a']));
+    expect(screen.queryByRole('button', { name: 'stac.loadMore' })).not.toBeInTheDocument();
+  });
+});

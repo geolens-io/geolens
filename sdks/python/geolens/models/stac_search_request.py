@@ -12,6 +12,7 @@ from typing import cast
 
 if TYPE_CHECKING:
     from ..models.service_auth_request import ServiceAuthRequest
+    from ..models.stac_next_page import StacNextPage
 
 
 T = TypeVar("T", bound="StacSearchRequest")
@@ -26,6 +27,8 @@ class StacSearchRequest:
         bbox (list[float] | None | Unset): Bounding box filter as [west, south, east, north].
         datetime_range (None | str | Unset): Temporal filter in STAC datetime format (e.g. '2023-01-01/2023-12-31').
         limit (int | Unset): Maximum items to return. Default: 20.
+        next_page (None | StacNextPage | Unset): The next_page of the previous response, to fetch the page after it.
+            Send the same filters as the first request.
         token (None | str | Unset): Optional auth token for a protected STAC catalog. Deprecated: use the auth object
             with method bearer.
         auth (None | ServiceAuthRequest | Unset): Structured credential for a protected service. Mutually exclusive with
@@ -37,12 +40,14 @@ class StacSearchRequest:
     bbox: list[float] | None | Unset = UNSET
     datetime_range: None | str | Unset = UNSET
     limit: int | Unset = 20
+    next_page: None | StacNextPage | Unset = UNSET
     token: None | str | Unset = UNSET
     auth: None | ServiceAuthRequest | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         from ..models.service_auth_request import ServiceAuthRequest
+        from ..models.stac_next_page import StacNextPage
 
         url = self.url
 
@@ -71,6 +76,14 @@ class StacSearchRequest:
             datetime_range = self.datetime_range
 
         limit = self.limit
+
+        next_page: dict[str, Any] | None | Unset
+        if isinstance(self.next_page, Unset):
+            next_page = UNSET
+        elif isinstance(self.next_page, StacNextPage):
+            next_page = self.next_page.to_dict()
+        else:
+            next_page = self.next_page
 
         token: None | str | Unset
         if isinstance(self.token, Unset):
@@ -101,6 +114,8 @@ class StacSearchRequest:
             field_dict["datetime_range"] = datetime_range
         if limit is not UNSET:
             field_dict["limit"] = limit
+        if next_page is not UNSET:
+            field_dict["next_page"] = next_page
         if token is not UNSET:
             field_dict["token"] = token
         if auth is not UNSET:
@@ -111,6 +126,7 @@ class StacSearchRequest:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.service_auth_request import ServiceAuthRequest
+        from ..models.stac_next_page import StacNextPage
 
         d = dict(src_dict)
         url = d.pop("url")
@@ -160,6 +176,23 @@ class StacSearchRequest:
 
         limit = d.pop("limit", UNSET)
 
+        def _parse_next_page(data: object) -> None | StacNextPage | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                next_page_type_0 = StacNextPage.from_dict(data)
+
+                return next_page_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | StacNextPage | Unset, data)
+
+        next_page = _parse_next_page(d.pop("next_page", UNSET))
+
         def _parse_token(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -192,6 +225,7 @@ class StacSearchRequest:
             bbox=bbox,
             datetime_range=datetime_range,
             limit=limit,
+            next_page=next_page,
             token=token,
             auth=auth,
         )

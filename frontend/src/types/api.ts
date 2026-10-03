@@ -2204,12 +2204,21 @@ export interface StacCollectionsResponse {
   collections: StacCollectionSummary[];
 }
 
+export interface StacNextPage {
+  method: 'GET' | 'POST';
+  href: string;
+  body?: Record<string, unknown> | null;
+  merge?: boolean;
+}
+
 export interface StacSearchRequest {
   url: string;
   collections?: string[];
   bbox?: number[];
   datetime_range?: string;
   limit?: number;
+  /** The previous response's `next_page`, sent with the same filters. */
+  next_page?: StacNextPage;
   // feat(#1764): a credential for a protected catalog, applied to this call.
   auth?: ServiceAuthRequest;
 }
@@ -2247,6 +2256,7 @@ export interface StacSearchResponse {
   items: StacItemSummary[];
   matched: number | null;
   returned: number;
+  next_page?: StacNextPage | null;
 }
 
 export interface StacImportItem {
