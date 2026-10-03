@@ -19,7 +19,7 @@ permissions:
 jobs:
   python-audit:
     name: Python audit (uv)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     defaults:
       run:
         working-directory: backend
@@ -63,7 +63,7 @@ jobs:
 
   js-audit:
     name: JS audit (${{ matrix.directory }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     strategy:
       fail-fast: false
       matrix:
@@ -95,7 +95,7 @@ jobs:
 
   resolve-docker-audit-matrix:
     name: Resolve docker-audit image pins
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     outputs:
       include: ${{ steps.matrix.outputs.include }}
     steps:
@@ -123,7 +123,7 @@ jobs:
   docker-audit:
     name: Docker image scan (Trivy)
     needs: resolve-docker-audit-matrix
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     strategy:
       fail-fast: false
       matrix:
@@ -166,7 +166,7 @@ jobs:
 
   python-system-audit:
     name: Python OS layer scan (Trivy)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -186,7 +186,7 @@ jobs:
 
   iac-scan:
     name: IaC config scan (Trivy)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       # Enforcing gate: Trivy config mode auto-detects Dockerfiles,

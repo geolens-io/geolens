@@ -50,7 +50,7 @@ concurrency:
 jobs:
   prod-smoke:
     name: Pull release images + boot prod compose to healthy
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 40
     steps:
       # Backstop for the tag globs above (fix #829): a glob still admits
@@ -239,7 +239,7 @@ jobs:
           path: |
             ~/.cache/ms-playwright
             ~/playwright-apt-archives/*.deb
-          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+          key: playwright-${{ runner.os }}-ubuntu-26.04-${{ steps.playwright-version.outputs.version }}
 
       - name: Install Playwright Browsers
         timeout-minutes: 13
@@ -291,7 +291,7 @@ jobs:
           path: |
             ~/.cache/ms-playwright
             ~/playwright-apt-archives/*.deb
-          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+          key: playwright-${{ runner.os }}-ubuntu-26.04-${{ steps.playwright-version.outputs.version }}
 
       - name: Run E2E audit suite through prod proxy
         env:

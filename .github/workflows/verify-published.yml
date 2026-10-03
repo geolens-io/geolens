@@ -150,7 +150,7 @@ jobs:
     # that way.
     if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow.name != 'Release') }}
     name: Verify Python packages on python:3.13-slim
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: pip install + smoke import (geolens SDK + geolens-cli + geolens-mcp)
         env:
@@ -201,7 +201,7 @@ jobs:
     # (vs .workflow_run.name) rationale.
     if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow.name != 'Release') }}
     name: Verify TypeScript package on node:22-slim
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: npm install + smoke import (@geolens/sdk)
         env:
@@ -247,7 +247,7 @@ jobs:
     # guard step below exists.
     if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow.name == 'Release') }}
     name: Verify GHCR images
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Guard against a hollow Release run
         id: release_guard
@@ -476,7 +476,7 @@ jobs:
     # guard step below exists.
     if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow.name == 'Release') }}
     name: Verify GitHub Release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Guard against a hollow Release run
         id: release_guard

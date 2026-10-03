@@ -52,7 +52,7 @@ jobs:
   gate:
     if: ${{ !inputs.dry_run }}
     name: Approve release publish
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     environment: publish  # required-reviewer approval gate (see repo Settings → Environments)
     steps:
       - run: echo "Release publish approved (ref ${GITHUB_REF_NAME})"
@@ -65,7 +65,7 @@ jobs:
     # Tag push → always (target defaults to both). Manual dispatch → honor target.
     if: ${{ !cancelled() && (needs.gate.result == 'success' || needs.gate.result == 'skipped') && (github.event_name == 'push' || inputs.target == 'python' || inputs.target == 'both') }}
     name: Publish Python SDK to PyPI
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -166,7 +166,7 @@ jobs:
     # Tag push → always (target defaults to both). Manual dispatch → honor target.
     if: ${{ !cancelled() && (needs.gate.result == 'success' || needs.gate.result == 'skipped') && (github.event_name == 'push' || inputs.target == 'typescript' || inputs.target == 'both') }}
     name: Publish TypeScript SDK to npm
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
