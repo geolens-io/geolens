@@ -42,8 +42,8 @@ async def test_extension_provider_without_default_model_uses_community_default(
 async def test_subclass_of_a_built_in_provider_supplies_its_default_model(
     monkeypatch, cfg, base
 ):
-    from app.platform.extensions.defaults_ai_anthropic import DefaultAnthropicProvider
-    from app.platform.extensions.defaults_ai_openai import (
+    from app.platform.extensions.defaults import (
+        DefaultAnthropicProvider,
         DefaultOpenAICompatibleProvider,
     )
 
@@ -81,8 +81,8 @@ async def test_invalid_endpoint_does_not_break_default_model_lookup(monkeypatch,
 async def test_subclass_inheriting_the_resolver_keeps_community_defaults(
     monkeypatch, cfg, base
 ):
-    from app.platform.extensions.defaults_ai_anthropic import DefaultAnthropicProvider
-    from app.platform.extensions.defaults_ai_openai import (
+    from app.platform.extensions.defaults import (
+        DefaultAnthropicProvider,
         DefaultOpenAICompatibleProvider,
     )
 
