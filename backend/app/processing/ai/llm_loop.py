@@ -254,7 +254,7 @@ async def resolve_provider(db) -> tuple[str, str, dict[str, object]]:
     name = await LLM_PROVIDER.get(db)
     provider_ext = get_ai_provider(name)
     runtime_config = await provider_ext.resolve_runtime_config(db)
-    model = await LLM_MODEL.for_provider(db, name)
+    model = await LLM_MODEL.for_provider(db, name, runtime_config)
     return name, model, runtime_config
 
 

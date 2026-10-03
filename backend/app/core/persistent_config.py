@@ -654,8 +654,16 @@ class _ProviderModelConfig(PersistentConfig[str]):
         )
         self.light = light
 
-    async def default_for(self, db: AsyncSession, provider: str) -> str:
+    async def default_for(
+        self,
+        db: AsyncSession,
+        provider: str,
+        runtime_config: dict[str, object] | None = None,
+    ) -> str:
         """The model ``provider`` uses when no admin override is set.
+
+        A caller that already resolved the provider's runtime config passes it,
+        so the model and endpoint come from one snapshot.
 
         An extension provider, or an overlay under a built-in name, supplies its
         own ``default_model`` through ``resolve_runtime_config``; without one
@@ -679,10 +687,12 @@ class _ProviderModelConfig(PersistentConfig[str]):
         if type(ext).resolve_runtime_config not in built_in_resolvers:
             # A stale endpoint must not stop the settings page or an import
             # that would repair it; the call-time check still rejects it.
-            try:
-                config = await ext.resolve_runtime_config(db)
-            except OpenAICredentialDestinationError:
-                config = {}
+            config = runtime_config
+            if config is None:
+                try:
+                    config = await ext.resolve_runtime_config(db)
+                except OpenAICredentialDestinationError:
+                    config = {}
             model = config.get("default_model")
             if isinstance(model, str) and model.strip():
                 return model
@@ -700,11 +710,18 @@ class _ProviderModelConfig(PersistentConfig[str]):
         # get() lands here too, since this setting is uncached.
         return await self.override(db) or await self.resolved_default(db)
 
-    async def for_provider(self, db: AsyncSession, provider: str) -> str:
+    async def for_provider(
+        self,
+        db: AsyncSession,
+        provider: str,
+        runtime_config: dict[str, object] | None = None,
+    ) -> str:
         """The override, or ``provider``'s default, for a caller that has
         already chosen the provider, so a concurrent switch can't pair it with
         another provider's model."""
-        return await self.override(db) or await self.default_for(db, provider)
+        return await self.override(db) or await self.default_for(
+            db, provider, runtime_config
+        )
 
     async def set(
         self,

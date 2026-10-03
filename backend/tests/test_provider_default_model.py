@@ -96,3 +96,34 @@ async def test_subclass_inheriting_the_resolver_keeps_community_defaults(
 
     monkeypatch.setattr("app.platform.extensions.get_ai_provider", lambda n: _Sub())
     assert await cfg.default_for(None, name) == llm_model_default(name, light=cfg.light)
+
+
+@pytest.mark.asyncio
+async def test_resolve_provider_pairs_model_and_endpoint_from_one_resolution(
+    monkeypatch,
+):
+    from app.core.persistent_config import LLM_PROVIDER
+    from app.processing.ai.llm_loop import resolve_provider
+
+    calls = []
+
+    class _Moving:
+        async def resolve_runtime_config(self, db):
+            calls.append(1)
+            n = len(calls)
+            return {"base_url": f"https://ep{n}.example", "default_model": f"m{n}"}
+
+    async def _provider(db):
+        return "ext"
+
+    async def _no_override(db):
+        return ""
+
+    monkeypatch.setattr(LLM_PROVIDER, "get", _provider)
+    monkeypatch.setattr(LLM_MODEL, "override", _no_override)
+    monkeypatch.setattr("app.platform.extensions.get_ai_provider", lambda n: _Moving())
+
+    _, model, runtime_config = await resolve_provider(None)
+
+    assert len(calls) == 1
+    assert (model, runtime_config["base_url"]) == ("m1", "https://ep1.example")

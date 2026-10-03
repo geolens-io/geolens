@@ -434,7 +434,9 @@ async def generate_sql(
         ValueError: if the LLM provider is not configured or unknown.
     """
     provider = await LLM_PROVIDER.get(db)
-    model = await LLM_MODEL_LIGHT.for_provider(db, provider)
+    provider_ext = get_ai_provider(provider)
+    runtime_config = await provider_ext.resolve_runtime_config(db)
+    model = await LLM_MODEL_LIGHT.for_provider(db, provider, runtime_config)
     # Keep static reference in the cacheable system prompt; send the schema
     # and question once in the per-call user message.
     user_message = build_sql_user_message(
@@ -451,8 +453,6 @@ async def generate_sql(
     # Pull base_url from the provider's own runtime config so future
     # overlays receive provider-correct values instead of an
     # OpenAI-shaped URL leaking into Anthropic-keyed providers.
-    provider_ext = get_ai_provider(provider)
-    runtime_config = await provider_ext.resolve_runtime_config(db)
     base_url = runtime_config.get("base_url")
 
     # Single-round calls count toward the round budget.
