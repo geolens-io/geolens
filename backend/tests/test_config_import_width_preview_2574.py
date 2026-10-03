@@ -9,6 +9,7 @@ import pytest
 from httpx import AsyncClient
 
 from app.core.persistent_config import EMBEDDING_DIMS
+from app.processing.embeddings.service import rebuild_embedding_column
 from tests.test_embedding_width_reset_and_import import (
     _publish_width,
     _width_other_than,
@@ -128,4 +129,35 @@ async def test_a_merge_that_keeps_the_width_needs_no_token(
     resp = await _merge(client, admin_auth_header, live)
 
     assert resp.status_code == 200, resp.text
+    assert await _column_dims(test_db_session) == live
+
+
+@pytest.mark.anyio
+async def test_a_merge_repairs_a_column_left_at_another_width_than_the_setting(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    restore_embedding_settings,
+):
+    """The stored width already matches, so only the live column needs the rebuild."""
+    live = await _column_dims(test_db_session)
+    await EMBEDDING_DIMS.set(test_db_session, live)
+    await rebuild_embedding_column(test_db_session, _width_other_than(live))
+    assert await _column_dims(test_db_session) != live
+
+    resp = await client.post(
+        "/config-ops/dry-run/?mode=merge",
+        json={"settings": {"embedding_dims": live}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200, resp.text
+    change = {c["key"]: c for c in resp.json()["settings"]["changes"]}["embedding_dims"]
+    assert change["action"] == "update"
+    assert change["reason_code"] == "embedding_width_changed"
+
+    applied = await _merge(
+        client, admin_auth_header, live, resp.json()["preview_token"]
+    )
+
+    assert applied.status_code == 200, applied.text
     assert await _column_dims(test_db_session) == live

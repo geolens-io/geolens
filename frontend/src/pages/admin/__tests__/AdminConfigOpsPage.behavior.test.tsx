@@ -261,4 +261,33 @@ describe('AdminConfigOpsPage import confirmation', () => {
       expect.any(Object),
     );
   });
+
+  it('enables Apply for a width reconciliation plan', async () => {
+    mocks.dryRunMutate.mockImplementation((_variables, options) => {
+      options?.onSuccess?.({
+        ...updatePreview,
+        settings: {
+          changes: [
+            {
+              key: 'embedding_dims',
+              current: 1536,
+              imported: 1536,
+              action: 'update',
+              reason_code: 'embedding_width_changed',
+            },
+          ],
+        },
+        preview_token: 'reconcile-preview',
+      });
+    });
+    const user = userEvent.setup();
+    render(<AdminConfigOpsPage />);
+    await uploadConfig(user, { embedding_dims: 1536 });
+
+    await user.click(screen.getByRole('button', { name: 'Preview Changes' }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Apply Import' })).toBeEnabled(),
+    );
+  });
 });

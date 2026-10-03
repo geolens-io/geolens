@@ -782,6 +782,10 @@ def _flag_embedding_width_deletion(
     for change in setting_changes:
         if change["key"] == cfg.key:
             change.update(_reason("embedding_width_changed"))
+            # The apply reconciles the column even when the stored value
+            # already matches, so the change is something to apply.
+            if change["action"] == "no_change":
+                change["action"] = "update"
 
 
 async def preflight_import(
