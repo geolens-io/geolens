@@ -318,12 +318,8 @@
       "title": "Modifier la largeur des embeddings ?",
       "titleModel": "Modifier le modèle d'embeddings ?",
       "confirm": "Supprimer les embeddings",
-      "description_one": "Cette action supprime {{count}} embedding stocké. La recherche sémantique ne renvoie rien tant que vous ne les avez pas régénérés avec Generer les embeddings manquants dans cet onglet.",
-      "description_other": "Cette action supprime {{count}} embeddings stockés. La recherche sémantique ne renvoie rien tant que vous ne les avez pas régénérés avec Generer les embeddings manquants dans cet onglet.",
-      "descriptionUnknown": "Cette action supprime tous les embeddings stockés. La recherche sémantique ne renvoie rien tant que vous ne les avez pas régénérés avec Generer les embeddings manquants dans cet onglet.",
-      "modelDescription_one": "Les embeddings de l'ancien modèle ne sont plus utilisés. Si la largeur du nouveau modèle diffère, {{count}} embedding stocké est supprimé. Régénérez-les avec Generer les embeddings manquants dans cet onglet.",
-      "modelDescription_other": "Les embeddings de l'ancien modèle ne sont plus utilisés. Si la largeur du nouveau modèle diffère, {{count}} embeddings stockés sont supprimés. Régénérez-les avec Generer les embeddings manquants dans cet onglet.",
-      "modelDescriptionUnknown": "Les embeddings de l'ancien modèle ne sont plus utilisés. Si la largeur du nouveau modèle diffère, tous les embeddings stockés sont supprimés. Régénérez-les avec Generer les embeddings manquants dans cet onglet."
+      "description": "Cette action supprime tous les embeddings stockés. La recherche sémantique ne renvoie rien tant que vous ne les avez pas régénérés avec Generer les embeddings manquants dans cet onglet.",
+      "modelDescription": "Les embeddings de l'ancien modèle ne sont plus utilisés. Si la largeur du nouveau modèle diffère, tous les embeddings stockés sont supprimés. Régénérez-les avec Generer les embeddings manquants dans cet onglet."
     },
     "dimsDetectFailed": "Impossible de détecter les dimensions.",
     "dimsDetected": "{{dims}} dimensions détectées",

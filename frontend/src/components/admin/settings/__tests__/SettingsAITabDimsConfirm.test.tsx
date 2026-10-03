@@ -84,7 +84,8 @@ describe('SettingsAITab embedding width confirmation', () => {
     await changeWidth(user, '768');
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
-    expect(screen.getByText(/deletes 50 stored embeddings/)).toBeInTheDocument();
+    expect(screen.getByText(/deletes all stored embeddings/)).toBeInTheDocument();
+    expect(screen.getByRole('alertdialog')).not.toHaveTextContent('50');
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
 
     expect(onSave).not.toHaveBeenCalled();
@@ -105,18 +106,7 @@ describe('SettingsAITab embedding width confirmation', () => {
     expect(hoisted.backfillMutate).not.toHaveBeenCalled();
   });
 
-  it('counts stale embeddings with the usable ones', async () => {
-    hoisted.stale = 7;
-    const user = userEvent.setup();
-    renderTab();
-
-    await changeWidth(user, '768');
-    await user.click(screen.getByRole('button', { name: 'Save' }));
-
-    expect(screen.getByText(/deletes 57 stored embeddings/)).toBeInTheDocument();
-  });
-
-  it('still confirms a width change when the stats are unavailable', async () => {
+  it('names all stored embeddings, never a tenant-scoped count, even when stats are unavailable', async () => {
     hoisted.statsAvailable = false;
     const user = userEvent.setup();
     const onSave = renderTab();
@@ -143,7 +133,7 @@ describe('SettingsAITab embedding width confirmation', () => {
     expect(onSave).toHaveBeenCalledWith({ embedding_model: 'other-model' });
   });
 
-  it('confirms with the generic wording when the stats report zero embeddings', async () => {
+  it('confirms when the stats report zero embeddings', async () => {
     hoisted.embedded = 0;
     const user = userEvent.setup();
     const onSave = renderTab();

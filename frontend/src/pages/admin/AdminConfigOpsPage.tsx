@@ -250,6 +250,9 @@ function ValidateSection() {
 
 function ImportSection() {
   const { t } = useTranslation();
+  // An unknown or missing code shows nothing rather than the backend's English.
+  const reasonText = (code?: string | null) =>
+    code ? t(`configOps.reason.${code}`, { defaultValue: '' }) : '';
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<ImportMode>('merge');
   const [fileData, setFileData] = useState<ConfigImportRequest | null>(null);
@@ -533,9 +536,9 @@ function ImportSection() {
                           <Badge variant={actionBadgeVariant(c.action)}>
                             {c.action}
                           </Badge>
-                          {c.reason && (
+                          {reasonText(c.reason_code) && (
                             <p className="mt-1 max-w-xs whitespace-normal text-xs text-muted-foreground">
-                              {c.reason}
+                              {reasonText(c.reason_code)}
                             </p>
                           )}
                         </TableCell>

@@ -130,13 +130,6 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
   const widthEdited = savedDims !== undefined && String(embeddingDims) !== String(savedDims);
   const widthChangeWipesEmbeddings =
     Boolean(embeddingStats && embeddingStats.embedded_records > 0) && widthEdited;
-  // Zero is not authoritative (the stats query can fail into zeros, and a cache
-  // can outlive a backfill), so only a positive count is shown and anything else
-  // falls back to "all stored embeddings".
-  const knownEmbeddings = embeddingStats
-    ? embeddingStats.embedded_records + embeddingStats.stale_records
-    : 0;
-  const storedEmbeddings = knownEmbeddings > 0 ? knownEmbeddings : null;
   const [pending, setPending] = useState<
     { kind: 'save'; changes: Record<string, unknown> } | { kind: 'reset'; key: string } | null
   >(null);
@@ -167,10 +160,6 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
   const pendingChangesWidth =
     pending !== null &&
     (pending.kind === 'save' ? 'embedding_dims' in pending.changes : pending.key === 'embedding_dims');
-  const confirmKey = `ai.dimsConfirm.${pendingChangesWidth ? 'description' : 'modelDescription'}${
-    storedEmbeddings === null ? 'Unknown' : ''
-  }`;
-
   const handleDetectDims = async () => {
     setIsDetecting(true);
     try {
@@ -634,7 +623,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
               {t(pendingChangesWidth ? 'ai.dimsConfirm.title' : 'ai.dimsConfirm.titleModel')}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {t(confirmKey, { count: storedEmbeddings ?? 0 })}
+              {t(pendingChangesWidth ? 'ai.dimsConfirm.description' : 'ai.dimsConfirm.modelDescription')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

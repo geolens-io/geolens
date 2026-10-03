@@ -644,6 +644,15 @@
       "credentialStore": "Credential store",
       "resultsLabel": "Connectivity results"
     },
+    "reason": {
+      "unknown_setting": "Unknown setting key; retained for forward compatibility.",
+      "restricted_setting": "Setting is not writable in the current runtime.",
+      "pins_runtime_default": "Pins the current runtime default as a database override.",
+      "repairs_invalid_override": "Repairs an invalid database override.",
+      "omitted_reset_to_default": "Omitted from the overwrite payload; reset to the runtime default.",
+      "embedding_model_changed": "Changes the embedding model: stored embeddings from the previous model need regenerating.",
+      "embedding_width_changed": "Changes the embedding column width: every stored embedding is deleted and must be regenerated."
+    },
     "import": {
       "title": "Import instance configuration",
       "description": "Upload a configuration JSON file. Preview changes before applying.",

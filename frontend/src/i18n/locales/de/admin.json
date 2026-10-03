@@ -318,12 +318,8 @@
       "title": "Embedding-Breite ändern?",
       "titleModel": "Embedding-Modell ändern?",
       "confirm": "Embeddings löschen",
-      "description_one": "Dadurch wird {{count}} gespeichertes Embedding gelöscht. Die semantische Suche liefert keine Treffer, bis Sie es in diesem Tab mit Fehlende Embeddings generieren neu erzeugen.",
-      "description_other": "Dadurch werden {{count}} gespeicherte Embeddings gelöscht. Die semantische Suche liefert keine Treffer, bis Sie sie in diesem Tab mit Fehlende Embeddings generieren neu erzeugen.",
-      "descriptionUnknown": "Dadurch werden alle gespeicherten Embeddings gelöscht. Die semantische Suche liefert keine Treffer, bis Sie sie in diesem Tab mit Fehlende Embeddings generieren neu erzeugen.",
-      "modelDescription_one": "Embeddings des bisherigen Modells werden nicht mehr verwendet. Weicht die Breite des neuen Modells ab, wird {{count}} gespeichertes Embedding gelöscht. Erzeugen Sie es in diesem Tab mit Fehlende Embeddings generieren neu.",
-      "modelDescription_other": "Embeddings des bisherigen Modells werden nicht mehr verwendet. Weicht die Breite des neuen Modells ab, werden {{count}} gespeicherte Embeddings gelöscht. Erzeugen Sie sie in diesem Tab mit Fehlende Embeddings generieren neu.",
-      "modelDescriptionUnknown": "Embeddings des bisherigen Modells werden nicht mehr verwendet. Weicht die Breite des neuen Modells ab, werden alle gespeicherten Embeddings gelöscht. Erzeugen Sie sie in diesem Tab mit Fehlende Embeddings generieren neu."
+      "description": "Dadurch werden alle gespeicherten Embeddings gelöscht. Die semantische Suche liefert keine Treffer, bis Sie sie in diesem Tab mit Fehlende Embeddings generieren neu erzeugen.",
+      "modelDescription": "Embeddings des bisherigen Modells werden nicht mehr verwendet. Weicht die Breite des neuen Modells ab, werden alle gespeicherten Embeddings gelöscht. Erzeugen Sie sie in diesem Tab mit Fehlende Embeddings generieren neu."
     },
     "dimsDetectFailed": "Dimensionen konnten nicht erkannt werden.",
     "dimsDetected": "{{dims}} Dimensionen erkannt",

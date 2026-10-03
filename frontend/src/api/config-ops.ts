@@ -22,6 +22,7 @@ export interface SettingChange {
   imported: unknown;
   action: 'update' | 'no_change' | 'reset' | 'skip_unknown' | 'skip_restricted';
   reason?: string | null;
+  reason_code?: string | null;
 }
 
 export interface OAuthProviderChange {

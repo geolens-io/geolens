@@ -644,6 +644,15 @@
       "credentialStore": "凭据存储",
       "resultsLabel": "连通性结果"
     },
+    "reason": {
+      "unknown_setting": "未知的设置键；保留以便日后兼容。",
+      "restricted_setting": "当前运行环境不可写入此设置。",
+      "pins_runtime_default": "将当前运行时默认值固定为数据库覆盖项。",
+      "repairs_invalid_override": "修复无效的数据库覆盖项。",
+      "omitted_reset_to_default": "覆盖导入中未包含；将重置为运行时默认值。",
+      "embedding_model_changed": "更改向量模型：旧模型生成的已存储向量需要重新生成。",
+      "embedding_width_changed": "更改向量列的维度：所有已存储的向量都会被删除，必须重新生成。"
+    },
     "import": {
       "title": "导入实例配置",
       "description": "上传配置 JSON 文件。应用前可预览更改。",

@@ -627,6 +627,15 @@
       "credentialStore": "Almacén de credenciales",
       "resultsLabel": "Resultados de conectividad"
     },
+    "reason": {
+      "unknown_setting": "Clave de ajuste desconocida; se conserva por compatibilidad futura.",
+      "restricted_setting": "El ajuste no se puede modificar en el entorno actual.",
+      "pins_runtime_default": "Fija el valor predeterminado actual como anulación en la base de datos.",
+      "repairs_invalid_override": "Repara una anulación no válida en la base de datos.",
+      "omitted_reset_to_default": "Omitido en la carga de sobrescritura; se restablece al valor predeterminado.",
+      "embedding_model_changed": "Cambia el modelo de embeddings: los embeddings almacenados del modelo anterior deben regenerarse.",
+      "embedding_width_changed": "Cambia el ancho de la columna de embeddings: se eliminan todos los embeddings almacenados y deben regenerarse."
+    },
     "import": {
       "title": "Importar la configuración de la instancia",
       "description": "Suba un archivo JSON de configuración. Previsualice los cambios antes de aplicarlos.",

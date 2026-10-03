@@ -203,4 +203,42 @@ describe('AdminConfigOpsPage import confirmation', () => {
     expect(screen.queryByText('Settings Changes')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Apply Import' })).toBeDisabled();
   });
+
+  it('renders the translated reason for a known code and nothing for an unknown one', async () => {
+    mocks.dryRunMutate.mockImplementation((_variables, options) => {
+      options?.onSuccess?.({
+        ...updatePreview,
+        settings: {
+          changes: [
+            {
+              key: 'embedding_dims',
+              current: 1536,
+              imported: 768,
+              action: 'update',
+              reason: 'English from the backend',
+              reason_code: 'embedding_width_changed',
+            },
+            {
+              key: 'log_level',
+              current: 'INFO',
+              imported: 'DEBUG',
+              action: 'update',
+              reason: 'Other English from the backend',
+              reason_code: 'a_code_from_a_newer_server',
+            },
+          ],
+        },
+      });
+    });
+    const user = userEvent.setup();
+    render(<AdminConfigOpsPage />);
+    await uploadConfig(user);
+
+    await user.click(screen.getByRole('button', { name: 'Preview Changes' }));
+
+    expect(
+      await screen.findByText(/every stored embedding is deleted and must be regenerated/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/English from the backend/)).not.toBeInTheDocument();
+  });
 });

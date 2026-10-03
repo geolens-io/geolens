@@ -318,12 +318,8 @@
       "title": "¿Cambiar el ancho de los embeddings?",
       "titleModel": "¿Cambiar el modelo de embeddings?",
       "confirm": "Eliminar embeddings",
-      "description_one": "Esto elimina {{count}} embedding almacenado. La búsqueda semántica no devolverá resultados hasta que los regeneres con Generar embeddings faltantes en esta pestaña.",
-      "description_other": "Esto elimina {{count}} embeddings almacenados. La búsqueda semántica no devolverá resultados hasta que los regeneres con Generar embeddings faltantes en esta pestaña.",
-      "descriptionUnknown": "Esto elimina todos los embeddings almacenados. La búsqueda semántica no devolverá resultados hasta que los regeneres con Generar embeddings faltantes en esta pestaña.",
-      "modelDescription_one": "Los embeddings del modelo anterior dejan de usarse. Si el ancho del nuevo modelo es distinto, se elimina {{count}} embedding almacenado. Regéneralos con Generar embeddings faltantes en esta pestaña.",
-      "modelDescription_other": "Los embeddings del modelo anterior dejan de usarse. Si el ancho del nuevo modelo es distinto, se eliminan {{count}} embeddings almacenados. Regéneralos con Generar embeddings faltantes en esta pestaña.",
-      "modelDescriptionUnknown": "Los embeddings del modelo anterior dejan de usarse. Si el ancho del nuevo modelo es distinto, se eliminan todos los embeddings almacenados. Regéneralos con Generar embeddings faltantes en esta pestaña."
+      "description": "Esto elimina todos los embeddings almacenados. La búsqueda semántica no devolverá resultados hasta que los regeneres con Generar embeddings faltantes en esta pestaña.",
+      "modelDescription": "Los embeddings del modelo anterior dejan de usarse. Si el ancho del nuevo modelo es distinto, se eliminan todos los embeddings almacenados. Regéneralos con Generar embeddings faltantes en esta pestaña."
     },
     "dimsDetectFailed": "No se pudieron detectar las dimensiones. Verifique que OPENAI_API_KEY esté configurado y el modelo de embedding sea válido.",
     "dimsDetected": "{{dims}} dimensiones detectadas",
