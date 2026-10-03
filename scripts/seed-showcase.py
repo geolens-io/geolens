@@ -6643,9 +6643,8 @@ def enable_semantic_search(api: Api) -> None:
         )
         return
     if ai.get("semantic_search_enabled"):
-        if ai.get("has_embeddings"):
-            print("  Semantic search is already on with embeddings; leaving it alone.")
-            return
+        # Only records without embeddings are embedded, so a complete catalog is
+        # zero work and an earlier partial run gets its failures retried.
         enable = False
     else:
         source = _semantic_setting_source(api)

@@ -227,13 +227,24 @@ def test_a_cached_false_has_embeddings_is_reread_until_true():
     assert _writes(api) == [BACKFILL, ENABLE]
 
 
+def test_a_partial_run_with_search_on_is_retried_by_the_next_run(capsys):
+    on = {**READY, "semantic_search_enabled": True, "has_embeddings": True}
+    first, _ = _api(on, job={"rows_failed": 2})
+    seeder.enable_semantic_search(first)
+    assert _writes(first) == [BACKFILL]
+    assert "2 record(s) failed" in capsys.readouterr().out
+    second, polled = _api(on)
+    seeder.enable_semantic_search(second)
+    assert _writes(second) == [BACKFILL] and polled == ["job-1"]
+
+
 def test_an_override_saved_during_the_backfill_is_not_overwritten():
     api, _ = _api(READY, source_after_poll="overridden")
     seeder.enable_semantic_search(api)
     assert _writes(api) == [BACKFILL]
 
 
-def test_setting_on_without_embeddings_backfills_without_touching_the_setting():
+def test_setting_on_always_backfills_without_touching_the_setting():
     api, polled = _api(
         {**READY, "semantic_search_enabled": True, "has_embeddings": False}
     )
@@ -244,7 +255,6 @@ def test_setting_on_without_embeddings_backfills_without_touching_the_setting():
 @pytest.mark.parametrize(
     ("ai", "source"),
     [
-        ({**READY, "semantic_search_enabled": True, "has_embeddings": True}, "default"),
         (READY, "overridden"),
         (READY, "env_only"),
     ],
