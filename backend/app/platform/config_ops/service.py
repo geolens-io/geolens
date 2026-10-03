@@ -603,6 +603,26 @@ async def _load_setting_state(
     return current_settings, overridden_keys, valid_stored_keys
 
 
+_EMBEDDING_CHANGE_REASONS = {
+    "embedding_dims": (
+        "Changes the embedding width: every stored embedding is deleted and "
+        "must be regenerated."
+    ),
+    "embedding_model": (
+        "Changes the embedding model: stored embeddings from the previous "
+        "model need regenerating."
+    ),
+}
+
+
+def _overwrite_reset_reason(key: str, current: Any, imported: Any) -> str:
+    reason = "Omitted from overwrite payload; reset to runtime default."
+    embedding_reason = _EMBEDDING_CHANGE_REASONS.get(key)
+    if embedding_reason and current != imported:
+        reason = f"{reason} {embedding_reason}"
+    return reason
+
+
 def _build_setting_changes(
     raw_settings: dict[str, Any],
     registry_map: dict[str, Any],
@@ -676,6 +696,8 @@ def _build_setting_changes(
             reason = "Pins the current runtime default as a database override."
         elif repairs_invalid_override:
             reason = "Repairs an invalid database override."
+        if current != value:
+            reason = _EMBEDDING_CHANGE_REASONS.get(key, reason)
         changes.append(
             SettingChange(
                 key=key,
@@ -810,13 +832,16 @@ async def preflight_import(
             imported = cfg.env_default
             if cfg.key in model_defaults:
                 imported = model_defaults[cfg.key]
+            reason = _overwrite_reset_reason(
+                cfg.key, current_settings[cfg.key], imported
+            )
             setting_changes.append(
                 SettingChange(
                     key=cfg.key,
                     current=current_settings[cfg.key],
                     imported=imported,
                     action="reset",
-                    reason="Omitted from overwrite payload; reset to runtime default.",
+                    reason=reason,
                 ).model_dump()
             )
 

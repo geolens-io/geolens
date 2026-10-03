@@ -533,6 +533,11 @@ function ImportSection() {
                           <Badge variant={actionBadgeVariant(c.action)}>
                             {c.action}
                           </Badge>
+                          {c.reason && (
+                            <p className="mt-1 max-w-xs whitespace-normal text-xs text-muted-foreground">
+                              {c.reason}
+                            </p>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}

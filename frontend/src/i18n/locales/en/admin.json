@@ -353,6 +353,17 @@
     "dimsDetected": "Detected {{dims}} dimensions",
     "dimsDetectFailed": "Could not detect dimensions. Check that OPENAI_API_KEY is set and the embedding model is valid.",
     "dimsChangeWarning": "Changing dimensions will make {{count}} existing embedding(s) incompatible. You will need to regenerate all embeddings after saving.",
+    "dimsConfirm": {
+      "title": "Change embedding width?",
+      "titleModel": "Change embedding model?",
+      "confirm": "Delete embeddings",
+      "description_one": "This deletes {{count}} stored embedding. Semantic search returns nothing until you regenerate them with Generate Missing Embeddings on this tab.",
+      "description_other": "This deletes {{count}} stored embeddings. Semantic search returns nothing until you regenerate them with Generate Missing Embeddings on this tab.",
+      "descriptionUnknown": "This deletes all stored embeddings. Semantic search returns nothing until you regenerate them with Generate Missing Embeddings on this tab.",
+      "modelDescription_one": "Embeddings from the previous model stop being used. If the new model's width differs, {{count}} stored embedding is deleted. Regenerate them with Generate Missing Embeddings on this tab.",
+      "modelDescription_other": "Embeddings from the previous model stop being used. If the new model's width differs, {{count}} stored embeddings are deleted. Regenerate them with Generate Missing Embeddings on this tab.",
+      "modelDescriptionUnknown": "Embeddings from the previous model stop being used. If the new model's width differs, all stored embeddings are deleted. Regenerate them with Generate Missing Embeddings on this tab."
+    },
     "openaiKeyRequired": "OPENAI_API_KEY is not set. Embedding generation requires an OpenAI-compatible API key, even when using Anthropic for inference.",
     "keyConfigured": "configured",
     "keyNotSet": "not set",

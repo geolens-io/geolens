@@ -582,3 +582,30 @@ async def test_list_providers_can_load_deferred_saml_export_fields():
     assert "idp_entity_id" in statement
     assert "idp_sso_url" in statement
     assert "sp_entity_id" in statement
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("mode", ["merge", "overwrite"])
+async def test_dry_run_warns_that_an_embedding_width_change_deletes_embeddings(mode):
+    """The import preview names the embedding deletion on a width change."""
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from app.platform.config_ops.service import dry_run_import
+
+    mock_db = AsyncMock(spec=AsyncSession)
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = None
+    mock_result.scalars.return_value.all.return_value = []
+    mock_result.all.return_value = []
+    mock_db.execute = AsyncMock(return_value=mock_result)
+
+    preview = await dry_run_import(
+        mock_db,
+        {"settings": {"embedding_dims": "768", "embedding_model": "other-model"}},
+        mode,
+    )
+
+    reasons = {c["key"]: c["reason"] for c in preview.settings["changes"]}
+    assert "deleted" in reasons["embedding_dims"]
+    assert "regenerat" in reasons["embedding_dims"]
+    assert "regenerat" in reasons["embedding_model"]
