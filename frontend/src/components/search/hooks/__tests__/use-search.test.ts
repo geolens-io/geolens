@@ -1,5 +1,6 @@
 import { act, renderHook, waitFor } from '@/test/test-utils';
 import { vi } from 'vitest';
+import { useQueryClient } from '@tanstack/react-query';
 
 vi.mock('@/api/search', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/api/search')>();
@@ -154,6 +155,21 @@ describe('useAllTypesTotal', () => {
     for (const [params] of mockSearchDatasets.mock.calls) {
       expect(params).not.toHaveProperty('limit', '1');
     }
+  });
+
+  it('lets the shared results query refetch after an invalidation', async () => {
+    const { result } = renderHook(() => {
+      const client = useQueryClient();
+      return { ...useAll(), client };
+    });
+    await waitFor(() => expect(result.current.all).toBe(12));
+    expect(mockSearchDatasets).toHaveBeenCalledTimes(1);
+
+    await act(() => result.current.client.invalidateQueries({ queryKey: ['search'] }));
+
+    await waitFor(() => expect(mockSearchDatasets).toHaveBeenCalledTimes(2));
+    expect(result.current.results.isError).toBe(false);
+    expect(result.current.all).toBe(12);
   });
 
   it('is undefined when nothing is cached for the untyped params', async () => {
