@@ -266,15 +266,13 @@ def _follow_up_request(
 ) -> tuple[str, str, dict[str, Any] | None]:
     """The ``(method, url, body)`` that fetches *next_page*.
 
-    The page size is pinned to this request's *limit*: a link asking for more
-    would return items the caller truncates away while its cursor moves on,
-    and so would a catalog whose default page is larger than the request's.
+    A POST body's page size is pinned to this request's *limit*. A GET href
+    is followed exactly as advertised, since it may be signed or opaque.
     """
     method = next_page["method"]
     href = next_page["href"]
     if method == "GET":
-        url = httpx.URL(href)
-        return method, str(url.copy_set_param("limit", limit)), None
+        return method, href, None
     next_body = next_page.get("body")
     if next_page.get("merge"):
         body = {**base_body, **(next_body or {})}
@@ -540,14 +538,16 @@ async def search_stac_items(
     data = json.loads(raw)
 
     features = data.get("features", [])
-    over_returned = len(features) > limit
-    if over_returned:
+    # Items past the hard cap are dropped, which leaves the catalog's cursor
+    # beyond them; every other page is kept whole so the cursor stays valid.
+    over_returned = len(features) > MAX_SEARCH_ITEMS
+    if len(features) > limit:
         logger.warning(
             "STAC search: server returned more items than requested",
             requested=limit,
             returned=len(features),
         )
-        features = features[:limit]
+        features = features[:MAX_SEARCH_ITEMS]
     matched = data.get("numberMatched") or data.get("context", {}).get("matched")
 
     items = []
@@ -622,7 +622,6 @@ async def search_stac_items(
         "items": items,
         "matched": matched,
         "returned": len(items),
-        # The cursor sits past the dropped items, so it cannot be followed.
         "next_page": None
         if over_returned
         else _following_page(data, str(resp.url), url, next_page),

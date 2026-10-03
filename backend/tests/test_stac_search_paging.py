@@ -222,46 +222,36 @@ class TestNextPageDerivation:
         _, sent = await _search({"features": []}, limit=50, next_page=next_page)
         assert json.loads(sent[0].content)["limit"] == 50
 
-    async def test_get_follow_up_rewrites_a_limit_param(self):
-        next_page = {
-            "method": "GET",
-            "href": f"{CATALOG}/search?offset=50&limit=100",
-            "body": None,
-            "merge": False,
-        }
+    @pytest.mark.parametrize(
+        "href", [f"{CATALOG}/search?offset=50&limit=100", f"{CATALOG}/search?sig=a%2Fb"]
+    )
+    async def test_get_follow_up_href_is_passed_unchanged(self, href):
+        next_page = {"method": "GET", "href": href, "body": None, "merge": False}
         _, sent = await _search({"features": []}, limit=50, next_page=next_page)
-        assert sent[0].url.params["limit"] == "50"
-        assert sent[0].url.params["offset"] == "50"
+        assert str(sent[0].url) == href
 
-    async def test_get_follow_up_without_a_limit_param_gets_one(self):
-        next_page = {
-            "method": "GET",
-            "href": f"{CATALOG}/search?offset=50",
-            "body": None,
-            "merge": False,
-        }
-        result, sent = await _search(
-            {
-                "features": [],
-                "links": [{"rel": "next", "href": f"{CATALOG}/search?offset=100"}],
-            },
-            limit=50,
-            next_page=next_page,
-        )
-        assert sent[0].url.params["limit"] == "50"
-        assert sent[0].url.params["offset"] == "50"
-        assert result["next_page"] is not None
-
-    async def test_over_returning_catalog_ends_paging_rather_than_skipping(self):
-        features = [{"id": f"i{n}", "assets": {}} for n in range(3)]
+    async def test_over_returning_page_is_kept_whole_with_its_cursor(self):
+        features = [{"id": f"i{n}", "assets": {}} for n in range(80)]
         result, _ = await _search(
             {
                 "features": features,
-                "links": [{"rel": "next", "href": f"{CATALOG}/search?offset=3"}],
+                "links": [{"rel": "next", "href": f"{CATALOG}/search?offset=80"}],
             },
-            limit=2,
+            limit=50,
         )
-        assert result["returned"] == 2
+        assert result["returned"] == 80
+        assert result["next_page"] is not None
+
+    async def test_page_beyond_the_hard_maximum_is_cut_and_ends_paging(self):
+        features = [{"id": f"i{n}", "assets": {}} for n in range(101)]
+        result, _ = await _search(
+            {
+                "features": features,
+                "links": [{"rel": "next", "href": f"{CATALOG}/search?offset=101"}],
+            },
+            limit=50,
+        )
+        assert result["returned"] == 100
         assert result["next_page"] is None
 
     async def test_get_follow_up_is_a_bodyless_get_of_the_link(self):
@@ -273,7 +263,7 @@ class TestNextPageDerivation:
         }
         _, sent = await _search({"features": []}, next_page=next_page)
         assert sent[0].method == "GET"
-        assert str(sent[0].url) == f"{CATALOG}/search?token=t1&limit=20"
+        assert str(sent[0].url) == f"{CATALOG}/search?token=t1"
         assert sent[0].content == b""
 
 
