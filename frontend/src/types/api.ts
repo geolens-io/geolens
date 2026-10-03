@@ -2207,12 +2207,8 @@ export interface StacCollectionsResponse {
 }
 
 export interface StacNextPage {
-  method: 'GET' | 'POST';
-  href: string;
-  body?: Record<string, unknown> | null;
-  merge?: boolean;
-  /** Server-issued; echo it back unchanged. */
-  signature?: string | null;
+  /** Opaque, server-issued; echo it back unchanged. */
+  cursor?: string | null;
 }
 
 export interface StacSearchRequest {

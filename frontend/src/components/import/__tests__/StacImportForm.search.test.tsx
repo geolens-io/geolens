@@ -201,11 +201,7 @@ describe('StacImportForm load more', () => {
     vi.clearAllMocks();
   });
 
-  const link = {
-    method: 'GET' as const,
-    href: 'https://example.com/stac/search?t=2',
-    signature: 'issued-by-server',
-  };
+  const link = { cursor: 'opaque-cursor-2' };
 
   test('Load more sends the next link and appends the new items', async () => {
     const user = await driveToItemsStep(page(['a', 'b'], { next_page: link }));
@@ -322,7 +318,7 @@ describe('StacImportForm stale search responses', () => {
     vi.clearAllMocks();
   });
 
-  const link = { method: 'GET' as const, href: 'https://example.com/stac/search?t=2' };
+  const link = { cursor: 'opaque-cursor-2' };
 
   test('a Load more that resolves after Apply filters is dropped', async () => {
     const user = await driveToItemsStep(page(['a'], { next_page: link }));
@@ -364,7 +360,7 @@ describe('StacImportForm while a filtered search is pending', () => {
     vi.clearAllMocks();
   });
 
-  const link = { method: 'GET' as const, href: 'https://example.com/stac/search?t=2' };
+  const link = { cursor: 'opaque-cursor-2' };
 
   async function startPendingApply(user: ReturnType<typeof userEvent.setup>) {
     const applied = deferred<unknown>();
@@ -403,7 +399,7 @@ describe('StacImportForm while a filtered search is pending', () => {
   });
 
   test('a failed filtered search keeps the loaded pages and Load more', async () => {
-    const second = { method: 'GET' as const, href: 'https://example.com/stac/search?t=3' };
+    const second = { cursor: 'opaque-cursor-3' };
     const user = await driveToItemsStep(page(['a'], { next_page: link }));
     mockSearchStacItems.mockResolvedValueOnce(page(['b'], { next_page: second }));
     await user.click(screen.getByRole('button', { name: 'stac.loadMore' }));

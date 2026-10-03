@@ -731,8 +731,6 @@ from .stac_item_summary_data_asset_import_refusal_type_0 import (
 )
 from .stac_link import StacLink
 from .stac_next_page import StacNextPage
-from .stac_next_page_body_type_0 import StacNextPageBodyType0
-from .stac_next_page_method import StacNextPageMethod
 from .stac_search_body import StacSearchBody
 from .stac_search_body_intersects_type_0 import StacSearchBodyIntersectsType0
 from .stac_search_request import StacSearchRequest
@@ -1334,8 +1332,6 @@ __all__ = (
     "StacItemSummaryDataAssetImportRefusalType0",
     "StacLink",
     "StacNextPage",
-    "StacNextPageBodyType0",
-    "StacNextPageMethod",
     "StacSearchBody",
     "StacSearchBodyIntersectsType0",
     "StacSearchRequest",

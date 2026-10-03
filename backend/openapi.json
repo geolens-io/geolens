@@ -18024,60 +18024,22 @@
         "type": "object"
       },
       "StacNextPage": {
-        "description": "A STAC ``rel=\"next\"`` link, echoed back to fetch the following page.",
+        "description": "Opaque handle for the next page of a search.",
         "properties": {
-          "method": {
-            "description": "HTTP method of the link.",
-            "enum": [
-              "GET",
-              "POST"
-            ],
-            "title": "Method",
-            "type": "string"
-          },
-          "href": {
-            "description": "Absolute URL of the next page. It must share the origin of the catalog URL it came from; any other origin is refused.",
-            "maxLength": 4096,
-            "title": "Href",
-            "type": "string"
-          },
-          "body": {
+          "cursor": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "JSON body of a POST link.",
-            "title": "Body"
-          },
-          "merge": {
-            "default": false,
-            "description": "Whether the body is merged into the original search body.",
-            "title": "Merge",
-            "type": "boolean"
-          },
-          "signature": {
-            "anyOf": [
-              {
-                "maxLength": 128,
+                "maxLength": 32768,
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Server-issued signature of this link for the catalog URL and collections it was issued for. Echo it back unchanged; a link without a matching signature is refused.",
-            "title": "Signature"
+            "description": "Server-issued token for the next page. Echo the next_page of the previous response unchanged, with the same url and collections; a missing or altered cursor is refused.",
+            "title": "Cursor"
           }
         },
-        "required": [
-          "method",
-          "href"
-        ],
         "title": "StacNextPage",
         "type": "object"
       },

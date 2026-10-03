@@ -1,112 +1,91 @@
-"""Authentication for the STAC next-page descriptor a search response hands out.
+"""The opaque cursor a STAC search response hands out for its next page.
 
-The descriptor round-trips through the client, which could otherwise edit it
-into any request on the catalog's origin. Each one is signed over the request
-that produced it, and a follow-up is replayed only if the signature still
-matches the request it arrives with.
+The cursor carries the catalog's next link, and a client could otherwise edit
+it into any request on the catalog's origin. It is therefore signed over the
+exact encoded text, and a follow-up is replayed only from the decoded
+descriptor of a cursor whose signature matches and which was issued for the
+same catalog URL and collections.
 """
 
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import hmac
 import json
-from typing import Any, Literal
+from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 from app.core.config import settings as app_settings
-from app.modules.catalog.sources.adapters.stac import MAX_NEXT_BODY_BYTES
 
 _DOMAIN = b"stac-next-page\0"
+MAX_CURSOR_CHARS = 32768
 
 
 class StacNextPage(BaseModel):
-    """A STAC ``rel="next"`` link, echoed back to fetch the following page."""
+    """Opaque handle for the next page of a search."""
 
-    method: Literal["GET", "POST"] = Field(description="HTTP method of the link.")
-    href: str = Field(
-        max_length=4096,
-        description=(
-            "Absolute URL of the next page. It must share the origin of the "
-            "catalog URL it came from; any other origin is refused."
-        ),
-    )
-    body: dict[str, Any] | None = Field(
-        default=None, description="JSON body of a POST link."
-    )
-    merge: bool = Field(
-        default=False,
-        description="Whether the body is merged into the original search body.",
-    )
-    signature: str | None = Field(
+    cursor: str | None = Field(
         default=None,
-        max_length=128,
+        max_length=MAX_CURSOR_CHARS,
         description=(
-            "Server-issued signature of this link for the catalog URL and "
-            "collections it was issued for. Echo it back unchanged; a link "
-            "without a matching signature is refused."
+            "Server-issued token for the next page. Echo the next_page of the "
+            "previous response unchanged, with the same url and collections; "
+            "a missing or altered cursor is refused."
         ),
     )
 
-    @field_validator("body")
-    @classmethod
-    def _bound_body(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
-        if value is not None and len(json.dumps(value)) > MAX_NEXT_BODY_BYTES:
-            raise ValueError("next page body is too large")
-        return value
+
+def _mac(encoded: str) -> str:
+    key = app_settings.jwt_secret_key.get_secret_value().encode("utf-8")
+    return hmac.new(key, _DOMAIN + encoded.encode("ascii"), hashlib.sha256).hexdigest()
 
 
-def _canonical(value: Any) -> Any:
-    """*value* with whole-number floats as ints.
-
-    The descriptor is echoed through JavaScript, which writes ``40.0`` as
-    ``40``, so both spellings must sign the same.
-    """
-    if isinstance(value, float) and value.is_integer():
-        return int(value)
-    if isinstance(value, dict):
-        return {k: _canonical(v) for k, v in value.items()}
-    if isinstance(value, list):
-        return [_canonical(v) for v in value]
-    return value
-
-
-def _signed_payload(
+def issue_cursor(
     catalog_url: str, collections: list[str] | None, descriptor: dict[str, Any]
-) -> bytes:
-    return json.dumps(
+) -> str | None:
+    """A signed cursor for *descriptor*, or None if it would exceed the length cap."""
+    payload = json.dumps(
         {
             "catalog_url": catalog_url,
             "collections": collections,
-            "href": descriptor.get("href"),
-            "method": descriptor.get("method"),
-            "body": _canonical(descriptor.get("body")),
-            "merge": descriptor.get("merge"),
+            "href": descriptor["href"],
+            "method": descriptor["method"],
+            "body": descriptor.get("body"),
+            "merge": bool(descriptor.get("merge")),
         },
         sort_keys=True,
         separators=(",", ":"),
-        ensure_ascii=True,
     ).encode("utf-8")
+    encoded = base64.urlsafe_b64encode(payload).rstrip(b"=").decode("ascii")
+    cursor = f"{encoded}.{_mac(encoded)}"
+    return cursor if len(cursor) <= MAX_CURSOR_CHARS else None
 
 
-def sign_next_page(
-    catalog_url: str, collections: list[str] | None, descriptor: dict[str, Any]
-) -> str:
-    """The hex signature binding *descriptor* to the request's catalog and collections."""
-    key = app_settings.jwt_secret_key.get_secret_value().encode("utf-8")
-    message = _DOMAIN + _signed_payload(catalog_url, collections, descriptor)
-    return hmac.new(key, message, hashlib.sha256).hexdigest()
+def open_cursor(
+    catalog_url: str, collections: list[str] | None, cursor: str | None
+) -> dict[str, Any] | None:
+    """The ``{method, href, body, merge}`` a valid cursor carries, else None.
 
-
-def verify_next_page(
-    catalog_url: str,
-    collections: list[str] | None,
-    descriptor: dict[str, Any],
-    signature: str | None,
-) -> bool:
-    """Whether *signature* is the one issued for *descriptor* under this request."""
-    if not signature:
-        return False
-    expected = sign_next_page(catalog_url, collections, descriptor)
-    return hmac.compare_digest(expected, signature)
+    Valid means the signature matches the received text and the cursor was
+    issued for this catalog URL and these collections.
+    """
+    if not cursor or "." not in cursor:
+        return None
+    encoded, _, signature = cursor.partition(".")
+    if not encoded.isascii() or not hmac.compare_digest(_mac(encoded), signature):
+        return None
+    try:
+        padded = encoded + "=" * (-len(encoded) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(padded))
+    except (binascii.Error, ValueError):
+        return None
+    if (
+        not isinstance(payload, dict)
+        or payload.get("catalog_url") != catalog_url
+        or payload.get("collections") != collections
+    ):
+        return None
+    return {k: payload.get(k) for k in ("method", "href", "body", "merge")}

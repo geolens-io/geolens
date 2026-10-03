@@ -48,8 +48,8 @@ from app.modules.catalog.sources.adapters.stac import (
 )
 from app.modules.catalog.sources.stac_next_page import (
     StacNextPage,
-    sign_next_page,
-    verify_next_page,
+    issue_cursor,
+    open_cursor,
 )
 from app.modules.catalog.sources.cog_info import fetch_cog_info, reconcile_epsg
 from app.modules.catalog.sources.schemas import (
@@ -587,13 +587,13 @@ async def stac_collections(
     )
 
 
-def _signed_next_page(
+def _issued_next_page(
     request: StacSearchRequest, next_page: dict[str, Any] | None
 ) -> StacNextPage | None:
     if next_page is None:
         return None
-    signature = sign_next_page(request.url, request.collections, next_page)
-    return StacNextPage(**next_page, signature=signature)
+    cursor = issue_cursor(request.url, request.collections, next_page)
+    return None if cursor is None else StacNextPage(cursor=cursor)
 
 
 async def _validate_next_page_href(catalog_url: str, href: str) -> None:
@@ -640,15 +640,15 @@ async def stac_search(
 
     next_page = None
     if request.next_page is not None:
-        next_page = request.next_page.model_dump(exclude={"signature"})
-        if not verify_next_page(
-            request.url, request.collections, next_page, request.next_page.signature
-        ):
+        next_page = open_cursor(
+            request.url, request.collections, request.next_page.cursor
+        )
+        if next_page is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="The next page link is not valid for this search.",
             )
-        await _validate_next_page_href(request.url, request.next_page.href)
+        await _validate_next_page_href(request.url, next_page["href"])
 
     try:
         result = await search_stac_items(
@@ -681,7 +681,7 @@ async def stac_search(
         ],
         matched=result["matched"],
         returned=result["returned"],
-        next_page=_signed_next_page(request, result.get("next_page")),
+        next_page=_issued_next_page(request, result.get("next_page")),
     )
 
 
