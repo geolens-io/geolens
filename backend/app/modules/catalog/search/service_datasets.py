@@ -25,6 +25,8 @@ from app.modules.catalog.search.service_candidates import (
 from app.modules.catalog.search.service_filters import SearchFilters
 from app.modules.catalog.search.service_semantic import (
     _attach_updated_actor_identities,
+    UNRESOLVED,
+    QueryEmbedding,
     _run_rrf_merge,
 )
 
@@ -220,6 +222,7 @@ async def _count_candidates(
     user: Identity | None,
     user_roles: set[str],
     filters: SearchFilters,
+    embedding: QueryEmbedding | None = UNRESOLVED,
 ) -> tuple[Candidates, int]:
     """Select the candidate set and count it as ``numberMatched`` reports it.
 
@@ -237,6 +240,7 @@ async def _count_candidates(
         filters,
         search_only=True,
         depth=filters.skip + filters.limit,
+        embedding=embedding,
     )
     total = (await session.execute(candidates.stmt)).scalar_one()
     semantic = candidates.semantic
@@ -250,9 +254,10 @@ async def count_datasets(
     user: Identity | None,
     user_roles: set[str],
     filters: SearchFilters,
+    embedding: QueryEmbedding | None = UNRESOLVED,
 ) -> int:
     """Count the datasets ``search_datasets`` would match for ``filters``."""
-    return (await _count_candidates(session, user, user_roles, filters))[1]
+    return (await _count_candidates(session, user, user_roles, filters, embedding))[1]
 
 
 async def search_datasets(
@@ -261,6 +266,7 @@ async def search_datasets(
     user_roles: set[str],
     filters: SearchFilters,
     preferred_languages: Sequence[str] | None = None,
+    embedding: QueryEmbedding | None = UNRESOLVED,
 ) -> tuple[list[Dataset], int]:
     """Search datasets with combined FTS + spatial + faceted filtering.
 
@@ -270,7 +276,9 @@ async def search_datasets(
 
     Returns a tuple of (matching_datasets, total_count).
     """
-    candidates, total = await _count_candidates(session, user, user_roles, filters)
+    candidates, total = await _count_candidates(
+        session, user, user_roles, filters, embedding
+    )
 
     has_text_search = candidates.text_clause is not None
     rank_col = None

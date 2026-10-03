@@ -30,12 +30,16 @@ from app.modules.catalog.search.service_records import (
     dataset_to_ogc_record,
 )
 from app.modules.catalog.search.service_semantic import (
+    UNRESOLVED,
     _compute_rrf_scores,
     consume_paired_query_claim,
     record_paired_query_claim,
+    resolve_query_embedding,
 )
 
 __all__ = [
+    "UNRESOLVED",
+    "resolve_query_embedding",
     "FacetCounts",
     "SearchFilters",
     "get_facet_counts",

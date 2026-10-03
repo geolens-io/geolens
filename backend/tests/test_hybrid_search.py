@@ -975,3 +975,46 @@ async def test_all_types_total_matches_the_untyped_approximate_count(
         untyped = await _get(offset)
         typed = await _get(offset, record_type="vector_dataset")
         assert typed["numberMatchedAllTypes"] == untyped["numberMatched"]
+
+
+@pytest.mark.anyio
+async def test_typed_search_calls_the_embedding_provider_once_when_it_fails(
+    client: AsyncClient,
+    test_db_session,
+):
+    """A typed search resolves the query embedding once, for the page and the all-types count."""
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    dim = await _get_embedding_dim(session)
+    await _set_semantic_search(session, True)
+
+    ds = await _create_search_dataset(
+        session,
+        created_by=admin_id,
+        name="Provider Outage Layer",
+        description="public",
+    )
+    session.add(
+        RecordEmbedding(
+            record_id=ds.record_id,
+            embedding=_make_vector_band(0.9, dim=dim, lo=90),
+            model_name="text-embedding-3-small",
+            content_hash="provider_outage_0",
+        )
+    )
+    await session.commit()
+
+    provider = AsyncMock(side_effect=RuntimeError("provider hung"))
+    with patch(
+        "app.modules.catalog.search.service_semantic.generate_embedding", provider
+    ):
+        r = await client.get(
+            "/search/datasets/",
+            params={"q": "provider outage", "record_type": "vector_dataset"},
+        )
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["numberMatched"] >= 1
+    assert body["numberMatchedAllTypes"] >= body["numberMatched"]
+    assert provider.await_count == 1

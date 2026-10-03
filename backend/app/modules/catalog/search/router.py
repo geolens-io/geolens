@@ -75,6 +75,7 @@ from app.modules.catalog.search.records_protocol import (
     validate_legacy_external_id_access,
 )
 from app.modules.catalog.search.service import (
+    UNRESOLVED,
     SearchFilters,
     consume_paired_query_claim,
     count_collections,
@@ -82,6 +83,7 @@ from app.modules.catalog.search.service import (
     dataset_to_ogc_record,
     get_facet_counts,
     record_paired_query_claim,
+    resolve_query_embedding,
     search_collections,
     search_datasets,
 )
@@ -213,6 +215,11 @@ async def _handle_search(
         if cached is not None:
             return OGCFeatureCollectionResponse(**cached)
 
+    # A typed search counts the untyped candidates too; resolving the query
+    # embedding once keeps a slow provider from being waited on twice.
+    embedding = (
+        await resolve_query_embedding(db, filters) if params.record_type else UNRESOLVED
+    )
     try:
         datasets, total = await search_datasets(
             db,
@@ -220,6 +227,7 @@ async def _handle_search(
             user_roles,
             filters,
             preferred_languages=preferred_languages,
+            embedding=embedding,
         )
     except DataError:
         raise HTTPException(
@@ -295,7 +303,7 @@ async def _handle_search(
     matched_all_types: int | None = None
     if params.record_type:
         matched_all_types = await count_datasets(
-            db, user, user_roles, replace(filters, record_type=None)
+            db, user, user_roles, replace(filters, record_type=None), embedding
         )
         if collections_in_scope:
             matched_all_types += await _collection_total()
