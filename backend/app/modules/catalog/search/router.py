@@ -303,7 +303,7 @@ async def _handle_search(
     matched_all_types: int | None = None
     if params.record_type:
         matched_all_types = await count_datasets(
-            db, user, user_roles, replace(filters, record_type=None), embedding
+            db, user, user_roles, replace(filters, record_type=None, skip=0), embedding
         )
         if collections_in_scope:
             matched_all_types += await _collection_total()

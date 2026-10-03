@@ -971,10 +971,11 @@ async def test_all_types_total_matches_the_untyped_approximate_count(
         assert r.status_code == 200
         return r.json()
 
+    # Choosing All resets the page, so the count is the untyped first page's.
+    untyped_first_page = await _get(0)
     for offset in (0, 4):
-        untyped = await _get(offset)
         typed = await _get(offset, record_type="vector_dataset")
-        assert typed["numberMatchedAllTypes"] == untyped["numberMatched"]
+        assert typed["numberMatchedAllTypes"] == untyped_first_page["numberMatched"]
 
 
 @pytest.mark.anyio
