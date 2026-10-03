@@ -67,8 +67,15 @@ export function useAllTypesTotal(totalResults: number | undefined, isPlaceholder
   const { record_type, offset, ...untyped } = params;
   // Same options as useSearchResults so this observer never replaces the shared
   // query's fetch function; disabled so it only reads the cache.
-  const { data } = useQuery({ ...searchResultsOptions(untyped), enabled: false });
+  // placeholderData is cleared so an uncached key reads as unknown, not as the
+  // previous search's total.
+  const { data, isPlaceholderData: cachedIsPlaceholder } = useQuery({
+    ...searchResultsOptions(untyped),
+    placeholderData: undefined,
+    enabled: false,
+  });
+  const cachedTotal = cachedIsPlaceholder ? undefined : data?.numberMatched;
   // While the main query still shows the previous (typed) results, only the
   // cached untyped total is correct.
-  return record_type || isPlaceholderData ? data?.numberMatched : totalResults;
+  return record_type || isPlaceholderData ? cachedTotal : totalResults;
 }

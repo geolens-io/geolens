@@ -172,6 +172,17 @@ describe('useAllTypesTotal', () => {
     expect(result.current.all).toBe(12);
   });
 
+  it('does not carry the previous search total to an uncached untyped key', async () => {
+    const { result } = renderHook(useAll);
+    await waitFor(() => expect(result.current.all).toBe(12));
+
+    act(() => useSearchStore.getState().setFilter('record_type', 'vector_dataset'));
+    await waitFor(() => expect(result.current.results.data?.numberMatched).toBe(3));
+    act(() => useSearchStore.getState().setFilter('q', 'other'));
+
+    expect(result.current.all).toBeUndefined();
+  });
+
   it('is undefined when nothing is cached for the untyped params', async () => {
     useSearchStore.getState().setFilter('record_type', 'vector_dataset');
     const { result } = renderHook(useAll);
