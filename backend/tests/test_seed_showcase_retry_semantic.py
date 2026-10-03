@@ -130,12 +130,14 @@ def _api(
     backfill_status: int = 200,
     job: dict | None = None,
     source_after_poll: str | None = None,
+    embeds_after_poll: bool = True,
 ):
     polled: list[str] = []
     client = FakeClient(ai, source, openai, backfill_status)
 
     def poll(job_id, timeout=300):
         polled.append(job_id)
+        client.ai = {**client.ai, "has_embeddings": embeds_after_poll}
         if source_after_poll is not None:
             client.source = source_after_poll
         return job or {}
@@ -199,6 +201,13 @@ def test_partial_backfill_does_not_enable_search(capsys):
     assert "3 record(s) failed" in capsys.readouterr().out
 
 
+def test_zero_work_backfill_does_not_enable_search(capsys):
+    api, _ = _api(READY, embeds_after_poll=False)
+    seeder.enable_semantic_search(api)
+    assert _writes(api) == [BACKFILL]
+    assert "no embeddings" in capsys.readouterr().out
+
+
 def test_an_override_saved_during_the_backfill_is_not_overwritten():
     api, _ = _api(READY, source_after_poll="overridden")
     seeder.enable_semantic_search(api)
@@ -227,7 +236,9 @@ def test_semantic_left_alone_when_already_set(ai, source):
     assert _writes(api) == [] and polled == []
 
 
-def _main_with_failed_builder(monkeypatch, argv: list[str], builder=None):
+def _main_with_failed_builder(
+    monkeypatch, argv: list[str], builder=None, semantic=None, post_steps=None
+):
     calls = {"semantic": 0}
 
     class FakeApi:
@@ -246,13 +257,18 @@ def _main_with_failed_builder(monkeypatch, argv: list[str], builder=None):
         monkeypatch.setattr(seeder, name, lambda _api: [])
     monkeypatch.setattr(seeder, "_rename_map_if_needed", lambda *_a: None)
     monkeypatch.setattr(seeder, "refresh_sentinel2_scenes", lambda _api: None)
-    monkeypatch.setattr(seeder, "_backfill_thumbnails", lambda *_a: None)
-    monkeypatch.setattr(seeder, "_print_pinned_summary", lambda *_a: None)
+    steps = post_steps if post_steps is not None else []
     monkeypatch.setattr(
-        seeder,
-        "enable_semantic_search",
-        lambda _api: calls.__setitem__("semantic", calls["semantic"] + 1),
+        seeder, "_backfill_thumbnails", lambda *_a: steps.append("thumbnails")
     )
+    monkeypatch.setattr(
+        seeder, "_print_pinned_summary", lambda *_a: steps.append("summary")
+    )
+
+    def default_semantic(_api):
+        calls["semantic"] += 1
+
+    monkeypatch.setattr(seeder, "enable_semantic_search", semantic or default_semantic)
     monkeypatch.setattr(seeder, "Api", FakeApi)
     monkeypatch.setattr(seeder, "build_meteorites", builder or boom)
     monkeypatch.setattr(seeder, "run_maintenance_mode", lambda *_a: None)
@@ -279,3 +295,22 @@ def test_main_runs_the_semantic_step_unless_no_semantic(monkeypatch):
 
     assert run([]) == 1
     assert run(["--no-semantic"]) == 0
+
+
+def test_a_transport_error_in_the_semantic_step_does_not_skip_the_post_steps(
+    monkeypatch, capsys
+):
+    def down(_api):
+        raise httpx.ConnectError("refused")
+
+    steps = []
+    rc, _ = _main_with_failed_builder(
+        monkeypatch,
+        ["--only", "meteorites"],
+        builder=lambda api, force=False, force_pinned=False: "map-id",
+        semantic=down,
+        post_steps=steps,
+    )
+    assert rc == 0
+    assert steps == ["thumbnails", "summary"]
+    assert "semantic search step failed" in capsys.readouterr().err

@@ -6661,6 +6661,15 @@ def enable_semantic_search(api: Api) -> None:
             "not enabled. Rerun the seed to retry."
         )
         return
+    after = api.client.get(f"{api.base}/api/admin/ai-status/", headers=api.h)
+    after.raise_for_status()
+    # A run whose embedding config did not resolve completes having done nothing.
+    if not after.json().get("has_embeddings"):
+        print(
+            "  The backfill produced no embeddings; semantic search not enabled. "
+            "Check the embedding model settings."
+        )
+        return
     if enable:
         # The backfill can take a while; an admin may have chosen a value since.
         if _semantic_setting_source(api) != "default":
@@ -7072,12 +7081,7 @@ def main() -> int:
         print("\nChecking semantic search...")
         try:
             enable_semantic_search(api)
-        except (
-            httpx.HTTPStatusError,
-            httpx.TimeoutException,
-            RuntimeError,
-            TimeoutError,
-        ) as e:
+        except (httpx.HTTPError, RuntimeError, TimeoutError) as e:
             print(f"  WARNING: semantic search step failed: {e}", file=sys.stderr)
 
     if not args.no_thumbnails:
