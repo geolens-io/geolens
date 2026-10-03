@@ -14700,12 +14700,27 @@
             ],
             "title": "Staged Coordinate Dimension"
           },
+          "geometry_contract": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Geometry Contract"
+          },
           "review_reasons": {
             "items": {
               "enum": [
                 "source_count_unavailable",
                 "empty_result",
                 "destructive_schema_change",
+                "geometry_type_changed",
+                "srid_changed",
+                "coordinate_dimension_reduced",
                 "arcgis_id_coverage_unavailable",
                 "arcgis_source_membership_changed"
               ],

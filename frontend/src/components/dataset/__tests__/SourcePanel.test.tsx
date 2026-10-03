@@ -992,6 +992,9 @@ describe('SourcePanel', () => {
         source_membership_status: 'changed',
       },
       review_reasons: [
+        'geometry_type_changed',
+        'srid_changed',
+        'coordinate_dimension_reduced',
         'arcgis_id_coverage_unavailable',
         'arcgis_source_membership_changed',
       ],
@@ -1051,6 +1054,11 @@ describe('SourcePanel', () => {
     expect(screen.getByText('Source: 0 · fetched: 0')).toBeInTheDocument();
     expect(screen.getByText(/Scheduled for/)).toBeInTheDocument();
     expect(screen.getByText('Source used: https://example.com/wfs')).toBeInTheDocument();
+    expect(screen.getByText('The refresh changes the geometry type.')).toBeInTheDocument();
+    expect(screen.getByText('The refresh changes the coordinate system.')).toBeInTheDocument();
+    expect(
+      screen.getByText('The refresh drops coordinate dimensions such as elevation.'),
+    ).toBeInTheDocument();
     expect(
       screen.getByText('GeoLens could not verify ArcGIS object ID coverage.'),
     ).toBeInTheDocument();

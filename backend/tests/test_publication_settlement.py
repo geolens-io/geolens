@@ -30,6 +30,9 @@ pytestmark = pytest.mark.anyio
 _WFS = "https://services.example.test/wfs"
 _BINDING = {"service_type": "wfs", "url": _WFS, "layer_id": "roads"}
 
+_POLYGON = "POLYGON((0 0, 1 0, 1 1, 0 1, 0 0))"
+_POINT = "POINT(5 5)"
+
 # What each test's candidates left behind: (record id, job id, live table).
 _created: list[tuple[uuid.UUID, uuid.UUID, str]] = []
 
@@ -41,7 +44,11 @@ async def _candidate(
     admin_id = await get_user_id(session, "admin")
     live = f"publication_{uuid.uuid4().hex[:10]}"
     dataset = await create_dataset(
-        session, created_by=admin_id, table_name=live, source_format="wfs"
+        session,
+        created_by=admin_id,
+        table_name=live,
+        source_format="wfs",
+        geometry_type="Point",
     )
     set_dataset_origin(
         dataset, "service", uri=origin_url, **{**_BINDING, "url": origin_url}
@@ -82,7 +89,12 @@ async def _candidate(
     return dataset, job, admin_id
 
 
-def _fetch(expected_feature_count: int | None, during=None):
+def _fetch(
+    expected_feature_count: int | None,
+    during=None,
+    geometry: str = "Point",
+    wkt: str | list[str] | None = None,
+):
     """Stand in for the service fetch: one staged row, and the source's own count."""
 
     async def _fake(*, staging_table: str, schema: str, on_spawn, **kwargs):
@@ -91,15 +103,18 @@ def _fetch(expected_feature_count: int | None, during=None):
             await session.execute(
                 sa.text(
                     f'CREATE TABLE "{schema}"."{staging_table}" '
-                    "(id serial PRIMARY KEY, name text, geom geometry(Point, 4326))"
+                    f"(id serial PRIMARY KEY, name text, geom geometry({geometry}, 4326))"
                 )
             )
-            await session.execute(
-                sa.text(
-                    f'INSERT INTO "{schema}"."{staging_table}" (name) '
-                    "VALUES ('candidate')"
+            for geom in [wkt] if isinstance(wkt, str) or wkt is None else wkt:
+                await session.execute(
+                    sa.text(
+                        f'INSERT INTO "{schema}"."{staging_table}" (name, geom) '
+                        "VALUES ('candidate', "
+                        + (f"ST_GeomFromText('{geom}', 4326)" if geom else "NULL")
+                        + ")"
+                    )
                 )
-            )
             await session.commit()
         if during is not None:
             await during()
@@ -118,6 +133,7 @@ async def _reupload(
     token: str | None = None,
     credential_ref: str | None = None,
     patches: tuple = (),
+    fetch=None,
 ) -> None:
     with ExitStack() as stack:
         stack.enter_context(
@@ -126,7 +142,7 @@ async def _reupload(
         stack.enter_context(
             patch(
                 "app.processing.ingest.tasks_reupload._fetch_service_layer_with_paging_guard",
-                new=_fetch(expected, during),
+                new=fetch or _fetch(expected, during),
             )
         )
         for extra in patches:
@@ -242,6 +258,114 @@ async def test_verified_refresh_publishes_and_settles_its_run(test_db_session):
 
     assert (await _run(job.id)).status == "succeeded"
     assert await _live(dataset) == "candidate"
+
+
+async def test_a_refresh_that_changes_the_geometry_family_waits_for_review(
+    test_db_session, quiet
+):
+    """A polygon fetch over a point dataset is held and leaves the live data alone."""
+    dataset, job, admin_id = await _candidate(test_db_session, refresh=True)
+    await test_db_session.execute(
+        sa.text(
+            f'UPDATE data."{dataset.table_name}" '
+            f"SET geom = ST_GeomFromText('{_POINT}', 4326)"
+        )
+    )
+    await test_db_session.commit()
+    polygon = _fetch(1, geometry="Polygon", wkt="POLYGON((0 0, 1 0, 1 1, 0 1, 0 0))")
+
+    await _reupload(dataset, job, admin_id, fetch=polygon)
+
+    run = await _run(job.id)
+    assert run.status == "blocked"
+    assert run.verification["review_reasons"] == ["geometry_type_changed"]
+    assert await _live(dataset) == "original"
+    async with db_module.async_session() as session:
+        row = await session.get(Dataset, dataset.id)
+        assert (row.geometry_type, row.tile_cache_version, row.current_version) == (
+            "Point",
+            dataset.tile_cache_version,
+            dataset.current_version,
+        )
+    assert _sent(quiet) == []
+
+
+async def _polygon_dataset(session) -> tuple[Dataset, IngestJob, uuid.UUID]:
+    """A refreshable dataset whose live table holds one polygon."""
+    dataset, job, admin_id = await _candidate(session, refresh=True)
+    await session.execute(
+        sa.text(
+            f'ALTER TABLE data."{dataset.table_name}" '
+            "ALTER COLUMN geom TYPE geometry(Geometry, 4326)"
+        )
+    )
+    await session.execute(
+        sa.text(
+            f'UPDATE data."{dataset.table_name}" '
+            f"SET geom = ST_GeomFromText('{_POLYGON}', 4326)"
+        )
+    )
+    await session.execute(
+        sa.text("UPDATE catalog.datasets SET geometry_type = 'POLYGON' WHERE id = :id"),
+        {"id": dataset.id},
+    )
+    await session.commit()
+    return dataset, job, admin_id
+
+
+async def test_a_polygon_first_fetch_that_then_adds_points_waits_for_review(
+    test_db_session,
+):
+    """A later point row changes the staged families even when the first row is a polygon."""
+    dataset, job, admin_id = await _polygon_dataset(test_db_session)
+    mixed = _fetch(2, geometry="Geometry", wkt=[_POLYGON, _POINT])
+
+    await _reupload(dataset, job, admin_id, expected=2, fetch=mixed)
+
+    run = await _run(job.id)
+    assert run.status == "blocked"
+    assert run.verification["review_reasons"] == ["geometry_type_changed"]
+    assert await _live(dataset) == "original"
+
+
+async def test_a_mixed_fetch_in_another_row_order_matches_a_mixed_dataset(
+    test_db_session,
+):
+    """The same families in a different row order are not a geometry change."""
+    dataset, job, admin_id = await _polygon_dataset(test_db_session)
+    await test_db_session.execute(
+        sa.text(
+            f'INSERT INTO data."{dataset.table_name}" (name, geom) '
+            f"VALUES ('point', ST_GeomFromText('{_POINT}', 4326))"
+        )
+    )
+    await test_db_session.commit()
+    mixed = _fetch(2, geometry="Geometry", wkt=[_POINT, _POLYGON])
+
+    await _reupload(dataset, job, admin_id, expected=2, fetch=mixed)
+
+    assert (await _run(job.id)).status == "succeeded"
+
+
+async def test_a_refresh_that_swaps_m_for_z_waits_for_review(test_db_session):
+    """An XYM line dataset refreshed with XYZ lines loses its M values and is held."""
+    dataset, job, admin_id = await _candidate(test_db_session, refresh=True)
+    await test_db_session.execute(
+        sa.text(
+            "UPDATE catalog.datasets SET geometry_type = 'LINESTRING', "
+            "is_3d = false, n_dims = 3 WHERE id = :id"
+        ),
+        {"id": dataset.id},
+    )
+    await test_db_session.commit()
+    xyz = _fetch(1, geometry="LineStringZ", wkt="LINESTRING Z (0 0 1, 1 1 1)")
+
+    await _reupload(dataset, job, admin_id, fetch=xyz)
+
+    run = await _run(job.id)
+    assert run.status == "blocked"
+    assert run.verification["review_reasons"] == ["coordinate_dimension_reduced"]
+    assert await _live(dataset) == "original"
 
 
 async def test_a_published_refresh_stores_the_diff_taken_under_the_lock(

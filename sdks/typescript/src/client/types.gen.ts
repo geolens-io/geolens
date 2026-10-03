@@ -8541,9 +8541,15 @@ export type RefreshVerification = {
      */
     staged_coordinate_dimension?: number | null;
     /**
+     * Geometry Contract
+     */
+    geometry_contract?: {
+        [key: string]: unknown;
+    } | null;
+    /**
      * Review Reasons
      */
-    review_reasons: Array<'source_count_unavailable' | 'empty_result' | 'destructive_schema_change' | 'arcgis_id_coverage_unavailable' | 'arcgis_source_membership_changed'>;
+    review_reasons: Array<'source_count_unavailable' | 'empty_result' | 'destructive_schema_change' | 'geometry_type_changed' | 'srid_changed' | 'coordinate_dimension_reduced' | 'arcgis_id_coverage_unavailable' | 'arcgis_source_membership_changed'>;
     /**
      * Review Fingerprint
      */

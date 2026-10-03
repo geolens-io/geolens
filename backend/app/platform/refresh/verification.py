@@ -4,7 +4,95 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Iterable
+from dataclasses import asdict, dataclass
 from typing import Any
+
+_GEOMETRY_FAMILIES = {
+    "POINT": "point",
+    "MULTIPOINT": "point",
+    "LINESTRING": "line",
+    "MULTILINESTRING": "line",
+    "POLYGON": "polygon",
+    "MULTIPOLYGON": "polygon",
+    "GEOMETRYCOLLECTION": "collection",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class GeometryContract:
+    """The geometry facts a refresh is compared on; ``None`` means unknown."""
+
+    families: frozenset[str] | None
+    srid: int | None
+    is_3d: bool | None
+    n_dims: int | None
+
+
+def geometry_contract(
+    *,
+    geometry_types: Iterable[str] | None,
+    srid: int | None,
+    is_3d: bool | None,
+    n_dims: int | None,
+) -> GeometryContract:
+    """Fold the distinct geometry types a table holds into a set of families.
+
+    Single and multi fold together and the generic type is dropped; no known
+    family means the contract has no families to compare.
+    """
+    families = frozenset(
+        family
+        for geometry_type in geometry_types or ()
+        if (family := _GEOMETRY_FAMILIES.get(geometry_type.upper()))
+    )
+    return GeometryContract(
+        families=families or None, srid=srid, is_3d=is_3d, n_dims=n_dims
+    )
+
+
+def _has_m(contract: GeometryContract) -> bool | None:
+    """Whether the contract carries M ordinates, or ``None`` when it can't tell."""
+    if contract.n_dims == 4:
+        return True
+    if contract.n_dims == 2:
+        return False
+    if contract.n_dims == 3 and contract.is_3d is not None:
+        return not contract.is_3d
+    return None
+
+
+def review_reasons(
+    *,
+    schema_diff: dict[str, Any],
+    fetched_feature_count: int | None,
+    live: GeometryContract,
+    staged: GeometryContract,
+) -> list[str]:
+    """Return the review reasons every refresh strategy shares, in order.
+
+    A fact unknown on either side is not compared, and single/multi within one
+    family or a gain in dimension never needs review.
+    """
+    reasons: list[str] = []
+    if fetched_feature_count == 0 and schema_diff.get("row_count_old", 0) != 0:
+        reasons.append("empty_result")
+    if schema_diff.get("columns_removed") or schema_diff.get("type_changes"):
+        reasons.append("destructive_schema_change")
+    if live.families and staged.families and live.families != staged.families:
+        reasons.append("geometry_type_changed")
+    if live.srid is not None and staged.srid is not None and live.srid != staged.srid:
+        reasons.append("srid_changed")
+    lost_z = live.is_3d is True and staged.is_3d is False
+    fewer_dims = (
+        live.n_dims is not None
+        and staged.n_dims is not None
+        and staged.n_dims < live.n_dims
+    )
+    lost_m = _has_m(live) is True and _has_m(staged) is False
+    if lost_z or fewer_dims or lost_m:
+        reasons.append("coordinate_dimension_reduced")
+    return reasons
 
 
 def canonical_service_source_binding_fingerprint(source_binding: dict[str, Any]) -> str:
@@ -46,6 +134,8 @@ def verify_service_refresh(
     staged_geometry_type: str | None,
     staged_srid: int | None,
     staged_coordinate_dimension: int | None,
+    live: GeometryContract,
+    staged: GeometryContract,
     accepted_fingerprint: str | None = None,
     accepted_run_id: str | None = None,
 ) -> dict[str, Any]:
@@ -57,7 +147,7 @@ def verify_service_refresh(
     else:
         count_status = "mismatched"
 
-    review_reasons: list[str] = []
+    reasons: list[str] = []
     id_coverage = source_binding.get("arcgis_id_coverage")
     strong_arcgis_policy = (
         source_binding.get("verification_policy") == "arcgis_id_set_v1"
@@ -71,16 +161,24 @@ def verify_service_refresh(
         else "unavailable"
     )
     if expected_feature_count is None:
-        review_reasons.append("source_count_unavailable")
-    if fetched_feature_count == 0 and schema_diff.get("row_count_old", 0) != 0:
-        review_reasons.append("empty_result")
-    if schema_diff.get("columns_removed") or schema_diff.get("type_changes"):
-        review_reasons.append("destructive_schema_change")
+        reasons.append("source_count_unavailable")
+    reasons.extend(
+        review_reasons(
+            schema_diff=schema_diff,
+            fetched_feature_count=fetched_feature_count,
+            live=live,
+            staged=staged,
+        )
+    )
     if strong_arcgis_policy and coverage_status != "matched":
-        review_reasons.append("arcgis_id_coverage_unavailable")
+        reasons.append("arcgis_id_coverage_unavailable")
     if strong_arcgis_policy and membership_status != "matched":
-        review_reasons.append("arcgis_source_membership_changed")
+        reasons.append("arcgis_source_membership_changed")
 
+    geometry_evidence = {
+        side: {**asdict(contract), "families": sorted(contract.families or ())}
+        for side, contract in (("live", live), ("staged", staged))
+    }
     fingerprint_payload = {
         "source_binding": source_binding,
         "schema_diff": schema_diff,
@@ -90,7 +188,8 @@ def verify_service_refresh(
         "staged_geometry_type": staged_geometry_type,
         "staged_srid": staged_srid,
         "staged_coordinate_dimension": staged_coordinate_dimension,
-        "review_reasons": review_reasons,
+        "review_reasons": reasons,
+        "geometry_contract": geometry_evidence,
     }
     fingerprint = hashlib.sha256(
         json.dumps(
@@ -105,7 +204,7 @@ def verify_service_refresh(
         coverage_status == "matched" and membership_status == "matched"
     )
     accepted = bool(
-        review_reasons
+        reasons
         and accepted_fingerprint
         and accepted_fingerprint == fingerprint
         and (not strong_arcgis_policy or exact_arcgis_membership)
@@ -115,7 +214,7 @@ def verify_service_refresh(
     )
     if count_status == "mismatched" or hard_id_failure:
         decision = "rejected"
-    elif review_reasons and not accepted:
+    elif reasons and not accepted:
         decision = "blocked"
     else:
         decision = "allowed"
@@ -135,8 +234,9 @@ def verify_service_refresh(
         "staged_geometry_type": staged_geometry_type,
         "staged_srid": staged_srid,
         "staged_coordinate_dimension": staged_coordinate_dimension,
-        "review_reasons": review_reasons,
-        "review_fingerprint": fingerprint if review_reasons else None,
+        "review_reasons": reasons,
+        "geometry_contract": geometry_evidence,
+        "review_fingerprint": fingerprint if reasons else None,
         "accepted_blocked_run_id": (
             accepted_run_id if accepted and decision == "allowed" else None
         ),

@@ -892,6 +892,9 @@
           "source_count_unavailable": "GeoLens could not compare the fetched row count with the source, so publication requires review.",
           "empty_result": "The refresh would replace a non-empty dataset with an empty result.",
           "destructive_schema_change": "The refresh removes columns or changes their types.",
+          "geometry_type_changed": "The refresh changes the geometry type.",
+          "srid_changed": "The refresh changes the coordinate system.",
+          "coordinate_dimension_reduced": "The refresh drops coordinate dimensions such as elevation.",
           "arcgis_id_coverage_unavailable": "GeoLens could not verify ArcGIS object ID coverage.",
           "arcgis_source_membership_changed": "The ArcGIS source changed while this refresh was running."
         },

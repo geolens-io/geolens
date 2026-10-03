@@ -1157,10 +1157,14 @@ export interface DatasetRefreshRunResponse {
     staged_geometry_type?: string | null;
     staged_srid?: number | null;
     staged_coordinate_dimension?: number | null;
+    geometry_contract?: Record<string, unknown> | null;
     review_reasons: Array<
       | 'source_count_unavailable'
       | 'empty_result'
       | 'destructive_schema_change'
+      | 'geometry_type_changed'
+      | 'srid_changed'
+      | 'coordinate_dimension_reduced'
       | 'arcgis_id_coverage_unavailable'
       | 'arcgis_source_membership_changed'
     >;

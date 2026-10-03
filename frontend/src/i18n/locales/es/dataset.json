@@ -941,6 +941,9 @@
           "source_count_unavailable": "GeoLens no pudo comparar las filas obtenidas con la fuente, por lo que la publicación requiere revisión.",
           "empty_result": "La actualización sustituiría un conjunto con datos por un resultado vacío.",
           "destructive_schema_change": "La actualización elimina columnas o cambia sus tipos.",
+          "geometry_type_changed": "La actualización cambia el tipo de geometría.",
+          "srid_changed": "La actualización cambia el sistema de coordenadas.",
+          "coordinate_dimension_reduced": "La actualización elimina dimensiones de coordenadas, como la elevación.",
           "arcgis_id_coverage_unavailable": "GeoLens no pudo verificar la cobertura de identificadores de objeto de ArcGIS.",
           "arcgis_source_membership_changed": "La fuente de ArcGIS cambió mientras se ejecutaba esta actualización."
         },
