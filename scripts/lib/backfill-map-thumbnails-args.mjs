@@ -1,0 +1,49 @@
+// Pure argument parsing and map selection for backfill-map-thumbnails.mjs.
+
+/** Parse argv (without node and script path) into { dryRun, includePublic, refresh }. */
+export function parseArgs(argv) {
+  const opts = { dryRun: false, includePublic: false, refresh: [] };
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === '--dry-run') opts.dryRun = true;
+    else if (arg === '--include-public') opts.includePublic = true;
+    else if (arg === '--refresh') {
+      // --refresh takes every following id up to the next flag.
+      const before = opts.refresh.length;
+      while (i + 1 < argv.length && !argv[i + 1].startsWith('--')) opts.refresh.push(argv[++i]);
+      if (opts.refresh.length === before) throw new Error('--refresh needs at least one map id');
+    } else throw new Error(`unknown argument: ${arg}`);
+  }
+  return opts;
+}
+
+/**
+ * Pick the maps to open. Without refresh ids that is every map missing a
+ * thumbnail; with them it is exactly the named maps, thumbnail or not. Ids the
+ * credential cannot see come back in `unknown`.
+ */
+export function selectMaps(maps, refresh) {
+  if (refresh.length === 0) return { targets: maps.filter((m) => !m.thumbnail_url), unknown: [] };
+  const byId = new Map(maps.map((m) => [m.id, m]));
+  const ids = [...new Set(refresh)];
+  return {
+    targets: ids.filter((id) => byId.has(id)).map((id) => byId.get(id)),
+    unknown: ids.filter((id) => !byId.has(id)),
+  };
+}
+
+/** True for a successful thumbnail PUT response of the given map. */
+export function isThumbnailUploadOk(method, url, ok, mapId) {
+  return method === 'PUT' && url.includes(`/maps/${mapId}/thumbnail/`) && ok;
+}
+
+/** Map detail JSON text with thumbnail_url nulled; null when it is not a JSON object. */
+export function blankThumbnail(text) {
+  try {
+    const body = JSON.parse(text);
+    if (body === null || typeof body !== 'object' || Array.isArray(body)) return null;
+    return JSON.stringify({ ...body, thumbnail_url: null });
+  } catch {
+    return null;
+  }
+}
