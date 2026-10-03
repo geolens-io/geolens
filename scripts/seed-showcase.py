@@ -27,6 +27,7 @@ import io
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -6733,6 +6734,20 @@ def _print_pinned_summary(base_url: str, username: str, password: str) -> None:
         print(f"\nSkipped the pinned-ids summary: {e}")
 
 
+def _rerun_command(argv: list[str], bname: str) -> str:
+    """The original command line narrowed to one builder, without the password."""
+    kept: list[str] = []
+    skip_value = False
+    for arg in argv:
+        if skip_value:
+            skip_value = False
+        elif arg in ("--only", "--password"):
+            skip_value = True
+        elif not arg.startswith(("--only=", "--password=")):
+            kept.append(arg)
+    return shlex.join(["python3", "scripts/seed-showcase.py", *kept, "--only", bname])
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Seed GeoLens showcase maps.")
     ap.add_argument(
@@ -6994,12 +7009,7 @@ def main() -> int:
             # pinned-map rule cannot be forgotten by a builder added later; the
             # two with no map of their own ignore force_pinned (fix(#1607)).
             result = fn(api, force=args.force, force_pinned=args.force_pinned)
-        except (
-            httpx.HTTPStatusError,
-            httpx.TimeoutException,
-            RuntimeError,
-            TimeoutError,
-        ) as e:
+        except (httpx.HTTPError, RuntimeError, TimeoutError) as e:
             print(f"\nERROR in [{bname}]: {e}", file=sys.stderr)
             if isinstance(e, httpx.HTTPStatusError):
                 print(e.response.text[:500], file=sys.stderr)
@@ -7079,11 +7089,7 @@ def main() -> int:
             print(f"  {bname}: {msg[:200]}", file=sys.stderr)
         for bname in failed:
             if bname in fns:
-                print(
-                    f"  rerun: python3 scripts/seed-showcase.py "
-                    f"--base-url {args.base_url} --only {bname}",
-                    file=sys.stderr,
-                )
+                print(f"  rerun: {_rerun_command(sys.argv[1:], bname)}", file=sys.stderr)
         return 1
 
     if not args.no_semantic and not args.expected_state:

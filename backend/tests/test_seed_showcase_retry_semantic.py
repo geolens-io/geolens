@@ -312,6 +312,39 @@ def test_a_failed_builder_prints_its_rerun_line(monkeypatch, capsys):
     assert calls["semantic"] == 0
 
 
+def test_an_unreachable_upstream_fails_only_its_builder(monkeypatch, capsys):
+    def down(api, force=False, force_pinned=False):
+        raise httpx.ConnectError("refused")
+
+    steps = []
+    rc, _ = _main_with_failed_builder(
+        monkeypatch, ["--only", "meteorites"], builder=down, post_steps=steps
+    )
+    assert rc == 1
+    assert "refused" in capsys.readouterr().err
+
+
+def test_the_rerun_line_keeps_options_but_not_the_password(monkeypatch, capsys):
+    rc, _ = _main_with_failed_builder(
+        monkeypatch,
+        [
+            "--only",
+            "meteorites",
+            "--copc-file",
+            "/a b/x.laz",
+            "--force",
+            "--no-semantic",
+        ],
+    )
+    err = capsys.readouterr().err
+    assert rc == 1
+    assert (
+        "rerun: python3 scripts/seed-showcase.py --copc-file '/a b/x.laz' --force "
+        "--no-semantic --only meteorites"
+    ) in err
+    assert "--password" not in err.split("rerun:")[1]
+
+
 def test_main_runs_the_semantic_step_unless_no_semantic(monkeypatch):
     def run(argv):
         rc, calls = _main_with_failed_builder(
