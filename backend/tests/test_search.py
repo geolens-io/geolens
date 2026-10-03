@@ -1463,6 +1463,52 @@ async def test_number_matched_caps_collections_at_display_limit(
 
 
 @pytest.mark.anyio
+async def test_number_matched_all_types_counts_the_untyped_search(
+    client: AsyncClient,
+    test_db_session,
+    clean_tables,
+):
+    """With record_type set, numberMatchedAllTypes counts the untyped visible matches."""
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    token = f"glall{uuid.uuid4().hex[:8]}"
+
+    for i in range(3):
+        await _create_search_dataset(
+            session, created_by=admin_id, name=f"{token} vector {i}"
+        )
+    await _create_search_dataset(
+        session,
+        created_by=admin_id,
+        name=f"{token} raster",
+        record_type="raster_dataset",
+    )
+    await _create_search_dataset(
+        session,
+        created_by=admin_id,
+        name=f"{token} hidden",
+        record_type="raster_dataset",
+        visibility="private",
+    )
+    session.add(
+        Collection(name=f"{token} collection", description="x", created_by=admin_id)
+    )
+    await session.commit()
+
+    typed = await client.get(
+        "/search/datasets/", params={"q": token, "record_type": "vector_dataset"}
+    )
+    assert typed.status_code == 200
+    assert typed.json()["numberMatched"] == 3
+    assert typed.json()["numberMatchedAllTypes"] == 5
+
+    untyped = await client.get("/search/datasets/", params={"q": token})
+    assert untyped.status_code == 200
+    assert untyped.json()["numberMatched"] == 5
+    assert untyped.json()["numberMatchedAllTypes"] is None
+
+
+@pytest.mark.anyio
 async def test_ogc_collections_list_raster_is_coverage_no_items_link(
     client: AsyncClient,
     admin_auth_header: dict,

@@ -45,6 +45,7 @@ const SORT_OPTIONS = ['relevance', 'date_added', 'name', 'last_updated'] as cons
 
 interface FilterPanelProps {
   totalResults: number | undefined;
+  allTypesTotal?: number;
   showDesktop?: boolean;
   showMobile?: boolean;
   desktopLayout?: 'toolbar' | 'rail';
@@ -99,6 +100,7 @@ function parseTemporalInterval(datetime: string): [string, string] {
  */
 export function FilterPanel({
   totalResults,
+  allTypesTotal,
   showDesktop = true,
   showMobile = true,
   desktopLayout = 'toolbar',
@@ -140,12 +142,13 @@ export function FilterPanel({
   const { data: facets } = useFacets();
   const counts = facets?.record_type ?? {};
   const allTypeCount =
-    (counts.vector_dataset ?? 0) +
+    allTypesTotal ??
+    ((counts.vector_dataset ?? 0) +
     (counts.raster_dataset ?? 0) +
     (counts.vrt_dataset ?? 0) +
     (counts.table ?? 0) +
     (counts.tiles3d_dataset ?? 0) +
-    (counts.pointcloud_dataset ?? 0);
+    (counts.pointcloud_dataset ?? 0));
 
   const { data: summaries } = useCatalogSummary();
 
@@ -707,7 +710,7 @@ export function FilterPanel({
         >
           <ToggleGroupItem value="all" className="h-8 justify-between px-3 text-xs">
             {t('filters.allTypes', { defaultValue: 'All' })}
-            {Object.keys(counts).length > 0 && <span className="readout text-muted-foreground">{allTypeCount}</span>}
+            {(allTypesTotal !== undefined || Object.keys(counts).length > 0) && <span className="readout text-muted-foreground">{allTypeCount}</span>}
           </ToggleGroupItem>
           <ToggleGroupItem value="vector_dataset" className="h-8 justify-between px-3 text-xs" disabled={counts.vector_dataset === 0}>
             {t('filters.vector', { defaultValue: 'Vector' })}
@@ -855,7 +858,7 @@ export function FilterPanel({
   return (
     <>
       {/* ---- Mobile bar + chip row + sheet ---- */}
-      {showMobile && <FilterSheet totalResults={totalResults} />}
+      {showMobile && <FilterSheet totalResults={totalResults} allTypesTotal={allTypesTotal} />}
 
       {/* ---- Desktop primary filter row ---- */}
       {showDesktop && desktopLayout === 'rail' ? renderDesktopRail() : null}
@@ -874,7 +877,7 @@ export function FilterPanel({
               >
                 <ToggleGroupItem value="all" className="text-xs px-2.5 h-7">
                   {t('filters.allTypes', { defaultValue: 'All' })}
-                  {Object.keys(counts).length > 0 && ` (${allTypeCount})`}
+                  {(allTypesTotal !== undefined || Object.keys(counts).length > 0) && ` (${allTypeCount})`}
                 </ToggleGroupItem>
                 <ToggleGroupItem value="vector_dataset" className="text-xs px-2.5 h-7" disabled={counts.vector_dataset === 0}>
                   {t('filters.vector', { defaultValue: 'Vector' })}

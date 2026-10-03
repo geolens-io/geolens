@@ -73,6 +73,7 @@ function parseTemporalInterval(datetime: string): [string, string] {
 
 interface FilterSheetProps {
   totalResults: number | undefined;
+  allTypesTotal?: number;
 }
 
 /**
@@ -84,7 +85,7 @@ interface FilterSheetProps {
  *
  * State source: All filter state is read from `useSearchStore` (zustand).
  */
-export function FilterSheet({ totalResults }: FilterSheetProps) {
+export function FilterSheet({ totalResults, allTypesTotal }: FilterSheetProps) {
   const { t } = useTranslation('search');
   const filterTriggerRef = useRef<HTMLButtonElement>(null);
   const geometryType = useSearchStore((s) => s.geometry_type);
@@ -106,12 +107,13 @@ export function FilterSheet({ totalResults }: FilterSheetProps) {
   const { data: facets } = useFacets();
   const counts = facets?.record_type ?? {};
   const allTypeCount =
-    (counts.vector_dataset ?? 0) +
+    allTypesTotal ??
+    ((counts.vector_dataset ?? 0) +
     (counts.raster_dataset ?? 0) +
     (counts.vrt_dataset ?? 0) +
     (counts.table ?? 0) +
     (counts.tiles3d_dataset ?? 0) +
-    (counts.pointcloud_dataset ?? 0);
+    (counts.pointcloud_dataset ?? 0));
 
   const { data: summaries } = useCatalogSummary();
 
@@ -371,7 +373,7 @@ export function FilterSheet({ totalResults }: FilterSheetProps) {
             >
               <ToggleGroupItem value="all" className="flex-1 text-xs">
                 {t('filters.allTypes', { defaultValue: 'All' })}
-                {Object.keys(counts).length > 0 && ` (${allTypeCount})`}
+                {(allTypesTotal !== undefined || Object.keys(counts).length > 0) && ` (${allTypeCount})`}
               </ToggleGroupItem>
               <ToggleGroupItem value="vector_dataset" className="flex-1 text-xs" disabled={counts.vector_dataset === 0}>
                 {t('filters.vector', { defaultValue: 'Vector' })}

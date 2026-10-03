@@ -23,6 +23,8 @@ from app.modules.catalog.search.service_filters import (
 )
 from app.modules.catalog.search.service_semantic import (
     SemanticArm,
+    UNRESOLVED,
+    QueryEmbedding,
     resolve_semantic_arm,
 )
 
@@ -113,6 +115,7 @@ async def select_candidates(
     *,
     search_only: bool,
     depth: int,
+    embedding: QueryEmbedding | None = UNRESOLVED,
 ) -> Candidates:
     """Apply the shared candidate selection to ``base``.
 
@@ -135,6 +138,8 @@ async def select_candidates(
         filters,
         search_only=search_only,
     )
-    semantic = await resolve_semantic_arm(session, filters, vet_stmt, depth=depth)
+    semantic = await resolve_semantic_arm(
+        session, filters, vet_stmt, depth=depth, embedding=embedding
+    )
     match = text_clause if semantic is None else or_(text_clause, semantic.clause())
     return Candidates(stmt.where(match), text_clause, text_parts, semantic)

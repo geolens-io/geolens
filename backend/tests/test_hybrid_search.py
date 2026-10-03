@@ -913,3 +913,109 @@ async def test_semantic_approximate_count_keeps_next_link(
     assert matched3 == 5, (
         f"non-full window should report the exact tail, got {matched3}"
     )
+
+
+@pytest.mark.anyio
+async def test_all_types_total_matches_the_untyped_approximate_count(
+    client: AsyncClient,
+    test_db_session,
+):
+    """Past the exact-count gate, numberMatchedAllTypes equals the untyped numberMatched."""
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    dim = await _get_embedding_dim(session)
+    await _set_semantic_search(session, True)
+
+    for i, base in enumerate((0.99, 0.95, 0.90, 0.85, 0.80)):
+        ds = await _create_search_dataset(
+            session,
+            created_by=admin_id,
+            name=f"Alltypes Band Layer {i}",
+            description="public",
+        )
+        session.add(
+            RecordEmbedding(
+                record_id=ds.record_id,
+                embedding=_make_vector_band(base, dim=dim, lo=90),
+                model_name="text-embedding-3-small",
+                content_hash=f"alltypes_band_{i}",
+            )
+        )
+    await session.commit()
+
+    async def _get(offset: int, **extra: str) -> dict:
+        with (
+            patch(
+                "app.modules.catalog.search.service_semantic.generate_embedding",
+                new_callable=AsyncMock,
+                return_value=_make_vector_band(1.0, dim=dim, lo=90),
+            ),
+            patch(
+                "app.modules.catalog.search.service_semantic._EXACT_SEMANTIC_COUNT_MAX_ROWS",
+                0,
+            ),
+            patch(
+                "app.modules.catalog.search.service_semantic._APPROXIMATE_CANDIDATE_WINDOW",
+                0,
+            ),
+        ):
+            r = await client.get(
+                "/search/datasets/",
+                params={
+                    "q": "zzznolexicalalltypesxyz",
+                    "limit": 2,
+                    "offset": offset,
+                    **extra,
+                },
+            )
+        assert r.status_code == 200
+        return r.json()
+
+    # Choosing All resets the page, so the count is the untyped first page's.
+    untyped_first_page = await _get(0)
+    for offset in (0, 4):
+        typed = await _get(offset, record_type="vector_dataset")
+        assert typed["numberMatchedAllTypes"] == untyped_first_page["numberMatched"]
+
+
+@pytest.mark.anyio
+async def test_typed_search_calls_the_embedding_provider_once_when_it_fails(
+    client: AsyncClient,
+    test_db_session,
+):
+    """A typed search resolves the query embedding once, for the page and the all-types count."""
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    dim = await _get_embedding_dim(session)
+    await _set_semantic_search(session, True)
+
+    ds = await _create_search_dataset(
+        session,
+        created_by=admin_id,
+        name="Provider Outage Layer",
+        description="public",
+    )
+    session.add(
+        RecordEmbedding(
+            record_id=ds.record_id,
+            embedding=_make_vector_band(0.9, dim=dim, lo=90),
+            model_name="text-embedding-3-small",
+            content_hash="provider_outage_0",
+        )
+    )
+    await session.commit()
+
+    provider = AsyncMock(side_effect=RuntimeError("provider hung"))
+    with patch(
+        "app.modules.catalog.search.service_semantic.generate_embedding", provider
+    ):
+        r = await client.get(
+            "/search/datasets/",
+            params={"q": "provider outage", "record_type": "vector_dataset"},
+        )
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["numberMatched"] >= 1
+    assert body["numberMatchedAllTypes"] >= body["numberMatched"]
+    assert provider.await_count == 1

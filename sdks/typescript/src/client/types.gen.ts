@@ -7281,6 +7281,12 @@ export type OgcFeatureCollectionResponse = {
      */
     numberMatched: number;
     /**
+     * Numbermatchedalltypes
+     *
+     * Total records matching the query with record_type removed and every other filter kept; present only when record_type is set
+     */
+    numberMatchedAllTypes?: number | null;
+    /**
      * Numberreturned
      *
      * Number of records in this response page

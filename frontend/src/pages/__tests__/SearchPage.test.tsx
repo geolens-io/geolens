@@ -32,8 +32,8 @@ vi.mock('@/components/search/SavedSearches', () => ({
 }));
 
 vi.mock('@/components/search/FilterPanel', () => ({
-  FilterPanel: ({ totalResults }: { totalResults: number | undefined }) => (
-    <div data-testid="filter-panel">{totalResults ?? 'none'}</div>
+  FilterPanel: ({ totalResults, allTypesTotal }: { totalResults: number | undefined; allTypesTotal?: number }) => (
+    <div data-testid="filter-panel" data-all-total={allTypesTotal ?? 'none'}>{totalResults ?? 'none'}</div>
   ),
 }));
 
@@ -236,6 +236,40 @@ describe('SearchPage', () => {
     // and no result cards are visible.
     expect(screen.queryByTestId('search-result-card')).not.toBeInTheDocument();
     expect(screen.queryByTestId('dataset-card-skeleton')).not.toBeInTheDocument();
+  });
+
+  it('passes the all-types total of a typed response to the filter panel as the All count', () => {
+    setAnonymousUser();
+    mockUseSearchResults.mockReturnValue({
+      data: {
+        type: 'FeatureCollection',
+        numberMatched: 3,
+        numberMatchedAllTypes: 5,
+        numberReturned: 0,
+        features: [] as OGCRecordResponse[],
+      },
+      isLoading: false,
+      error: null,
+      isFetching: false,
+    } as unknown as ReturnType<typeof useSearchResults>);
+
+    render(<SearchPage />, { route: '/' });
+
+    expect(screen.getAllByTestId('filter-panel')[0]).toHaveAttribute('data-all-total', '5');
+  });
+
+  it('passes a loaded zero total to the filter panel as the All count', () => {
+    setAnonymousUser();
+    mockUseSearchResults.mockReturnValue({
+      data: { type: 'FeatureCollection', numberMatched: 0, numberReturned: 0, features: [] as OGCRecordResponse[] },
+      isLoading: false,
+      error: null,
+      isFetching: false,
+    } as unknown as ReturnType<typeof useSearchResults>);
+
+    render(<SearchPage />, { route: '/' });
+
+    expect(screen.getAllByTestId('filter-panel')[0]).toHaveAttribute('data-all-total', '0');
   });
 
   // fix(#430 codex r4): a query matching maps but zero datasets must show the

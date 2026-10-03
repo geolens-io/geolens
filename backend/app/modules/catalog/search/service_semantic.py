@@ -7,6 +7,7 @@ import time
 import uuid as uuid_mod
 from collections import OrderedDict
 from dataclasses import dataclass
+from typing import Any
 
 import structlog
 from sqlalchemy import func, select
@@ -311,19 +312,28 @@ class SemanticArm:
         return Record.id.in_([uuid_mod.UUID(rid) for rid in self.ordered_ids])
 
 
-async def resolve_semantic_arm(
-    session: AsyncSession,
-    filters: SearchFilters,
-    vet_stmt: Select,
-    *,
-    depth: int,
-) -> SemanticArm | None:
-    """Decide whether a query runs in semantic mode and resolve its vector arm.
+@dataclass(frozen=True)
+class QueryEmbedding:
+    """A query's embedding with the configuration it was generated under."""
 
-    Returns None (lexical mode) on any disqualifier: search disabled, query
-    too short, no embeddings, unresolvable config, an embedding/query
-    failure, or no row within the cosine cutoff. ``depth`` is how many
-    nearest ids the caller needs; below the row gate every match is fetched.
+    config: tuple
+    vector: list[float]
+
+
+# Marks an embedding the caller has not resolved yet; None means it resolved to
+# "not usable" and the search runs lexically.
+UNRESOLVED: Any = object()
+
+
+async def resolve_query_embedding(
+    session: AsyncSession, filters: SearchFilters
+) -> QueryEmbedding | None:
+    """Embed the query text, or None for any disqualifier of semantic mode.
+
+    Disqualifiers: search disabled, query too short, no embeddings,
+    unresolvable config, or an embedding failure. A request that selects
+    candidates more than once resolves this once and passes it on, so a hung
+    provider is waited on once.
     """
     query_text = (filters.q or "").strip()
     if len(query_text) < _MIN_SEMANTIC_QUERY_LEN:
@@ -352,6 +362,32 @@ async def resolve_semantic_arm(
             "Failed to generate query embedding, falling back to FTS", exc_info=True
         )
         return None
+    return QueryEmbedding(config=config, vector=query_vector)
+
+
+async def resolve_semantic_arm(
+    session: AsyncSession,
+    filters: SearchFilters,
+    vet_stmt: Select,
+    *,
+    depth: int,
+    embedding: QueryEmbedding | None = UNRESOLVED,
+) -> SemanticArm | None:
+    """Decide whether a query runs in semantic mode and resolve its vector arm.
+
+    Returns None (lexical mode) on any disqualifier: those of
+    ``resolve_query_embedding``, a query failure, or no row within the cosine
+    cutoff. ``depth`` is how many nearest ids the caller needs; below the row
+    gate every match is fetched. ``embedding`` skips the provider call when the
+    caller already resolved it.
+    """
+    query_text = (filters.q or "").strip()
+    if embedding is UNRESOLVED:
+        embedding = await resolve_query_embedding(session, filters)
+    if embedding is None:
+        return None
+    config = embedding.config
+    query_vector = embedding.vector
 
     model_name, _dimensions, _base_url, config_fingerprint = config
     RecordEmbedding = get_catalog_port().record_embedding_orm_class()
@@ -436,9 +472,7 @@ async def _run_rrf_merge(
     """Merge FTS ranks with the vector arm through RRF and return one page.
 
     ``stmt`` is the vetted FTS statement (text clause only) and ``total`` the
-    count over the shared candidate set. Above the row gate a full vector
-    window reports one more than was counted so the router keeps emitting the
-    ``next`` link; a non-full window is the exact tail.
+    count over the shared candidate set.
     """
     page_end = filters.skip + filters.limit
     vector_ranks = semantic.ranks(page_end)
@@ -452,9 +486,6 @@ async def _run_rrf_merge(
     )
     fts_result = await session.execute(fts_stmt)
     fts_ids = [str(row[0]) for row in fts_result.all()]
-
-    if not semantic.exact and semantic.window_full:
-        total += 1
 
     rrf_ordered = _compute_rrf_scores(fts_ids, vector_ranks)
     page_ids = rrf_ordered[filters.skip : page_end]

@@ -28,6 +28,8 @@ class OGCFeatureCollectionResponse:
         features (list[OGCRecordResponse]):
         type_ (str | Unset):  Default: 'FeatureCollection'.
         time_stamp (None | str | Unset):
+        number_matched_all_types (int | None | Unset): Total records matching the query with record_type removed and
+            every other filter kept; present only when record_type is set
         links (list[OGCRecordLink] | None | Unset): Pagination and self links
     """
 
@@ -36,6 +38,7 @@ class OGCFeatureCollectionResponse:
     features: list[OGCRecordResponse]
     type_: str | Unset = "FeatureCollection"
     time_stamp: None | str | Unset = UNSET
+    number_matched_all_types: int | None | Unset = UNSET
     links: list[OGCRecordLink] | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -56,6 +59,12 @@ class OGCFeatureCollectionResponse:
             time_stamp = UNSET
         else:
             time_stamp = self.time_stamp
+
+        number_matched_all_types: int | None | Unset
+        if isinstance(self.number_matched_all_types, Unset):
+            number_matched_all_types = UNSET
+        else:
+            number_matched_all_types = self.number_matched_all_types
 
         links: list[dict[str, Any]] | None | Unset
         if isinstance(self.links, Unset):
@@ -82,6 +91,8 @@ class OGCFeatureCollectionResponse:
             field_dict["type"] = type_
         if time_stamp is not UNSET:
             field_dict["timeStamp"] = time_stamp
+        if number_matched_all_types is not UNSET:
+            field_dict["numberMatchedAllTypes"] = number_matched_all_types
         if links is not UNSET:
             field_dict["links"] = links
 
@@ -115,6 +126,17 @@ class OGCFeatureCollectionResponse:
 
         time_stamp = _parse_time_stamp(d.pop("timeStamp", UNSET))
 
+        def _parse_number_matched_all_types(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        number_matched_all_types = _parse_number_matched_all_types(
+            d.pop("numberMatchedAllTypes", UNSET)
+        )
+
         def _parse_links(data: object) -> list[OGCRecordLink] | None | Unset:
             if data is None:
                 return data
@@ -143,6 +165,7 @@ class OGCFeatureCollectionResponse:
             features=features,
             type_=type_,
             time_stamp=time_stamp,
+            number_matched_all_types=number_matched_all_types,
             links=links,
         )
 

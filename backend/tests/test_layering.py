@@ -1181,12 +1181,14 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/datasets/domain/service_analysis.py": 612,
         # Database commits and object publication/rollback form one asset lifecycle.
         "backend/app/modules/catalog/maps/service_crud.py": 850,
-        "backend/app/modules/catalog/search/service_datasets.py": 281,
+        # Page search and its counts share one candidate and semantic-window selection.
+        "backend/app/modules/catalog/search/service_datasets.py": 316,
         # Shared-map audience decisions stay behind the permission extension seam.
         "backend/app/modules/catalog/maps/service_public.py": 987,
         # Record assembly keeps one format and asset branch per record type.
         "backend/app/modules/catalog/search/service_records.py": 614,
-        "backend/app/modules/catalog/search/service_semantic.py": 483,
+        # Embedding resolution, the vector arm and the RRF merge share one semantic-mode decision.
+        "backend/app/modules/catalog/search/service_semantic.py": 514,
         "backend/app/modules/catalog/maps/service_diff.py": 400,
         "backend/app/modules/catalog/maps/service_shared.py": 400,
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 657,
@@ -1372,7 +1374,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Map endpoints share response assembly, visibility and ownership checks.
     "backend/app/modules/catalog/maps/router.py": 1530,
     # Native search and OGC Records share visibility, query parsing and pagination.
-    "backend/app/modules/catalog/search/router.py": 1429,
+    "backend/app/modules/catalog/search/router.py": 1452,
     # STAC endpoints share visibility, extent, lineage and pagination conformance rules.
     "backend/app/standards/stac/router.py": 1826,
     # Authorization, acquisition order and cache rehydration share this route boundary;

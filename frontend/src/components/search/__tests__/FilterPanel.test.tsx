@@ -28,13 +28,48 @@ describe('FilterPanel', () => {
   });
 
   it('renders badge text with counts from useFacets', () => {
-    render(<FilterPanel totalResults={18} />);
+    render(<FilterPanel totalResults={18} allTypesTotal={18} />);
 
-    // Desktop toggle items should show counts (All includes table records too).
-    expect(screen.getByText(/All.*\(16\)/)).toBeInTheDocument();
+    // All shows the result total (18), not the dataset-facet sum (16).
+    expect(screen.getByText(/All.*\(18\)/)).toBeInTheDocument();
     expect(screen.getByText(/Vector.*\(10\)/)).toBeInTheDocument();
     expect(screen.getByText(/Raster.*\(5\)/)).toBeInTheDocument();
     expect(screen.getByText(/Table.*\(1\)/)).toBeInTheDocument();
+  });
+
+  it('shows the result total on All when it exceeds the dataset facet sum', () => {
+    render(<FilterPanel totalResults={4} allTypesTotal={4} />);
+
+    expect(screen.getByRole('radio', { name: /All/ })).toHaveTextContent('4');
+    expect(screen.getByRole('radio', { name: /Vector/ })).toHaveTextContent('10');
+  });
+
+  it('falls back to the facet sum while the All total is unavailable', () => {
+    render(<FilterPanel totalResults={5} />);
+
+    expect(screen.getByRole('radio', { name: /All/ })).toHaveTextContent('16');
+  });
+
+  it('shows a zero All total even when the facets are positive', () => {
+    render(<FilterPanel totalResults={undefined} allTypesTotal={0} />);
+
+    expect(screen.getByRole('radio', { name: /All/ })).toHaveTextContent('0');
+    expect(screen.getByRole('radio', { name: /All/ })).not.toHaveTextContent('16');
+  });
+
+  it.each(['toolbar', 'rail'] as const)('shows All with an empty facet map for a collection-only or zero total (%s)', (desktopLayout) => {
+    const counts = mockFacets.record_type as Record<string, number>;
+    const saved = { ...counts };
+    for (const k of Object.keys(counts)) delete counts[k];
+    try {
+      const { rerender } = render(<FilterPanel totalResults={2} allTypesTotal={2} showMobile={false} desktopLayout={desktopLayout} />);
+      expect(screen.getByRole('radio', { name: /All/ })).toHaveTextContent('2');
+
+      rerender(<FilterPanel totalResults={undefined} allTypesTotal={0} showMobile={false} desktopLayout={desktopLayout} />);
+      expect(screen.getByRole('radio', { name: /All/ })).toHaveTextContent('0');
+    } finally {
+      Object.assign(counts, saved);
+    }
   });
 
   it('disables badges with count of 0', () => {
@@ -52,7 +87,7 @@ describe('FilterPanel', () => {
     const counts = mockFacets.record_type as Record<string, number>;
     counts.tiles3d_dataset = 2;
     try {
-      render(<FilterPanel totalResults={20} showMobile={false} desktopLayout={desktopLayout} />);
+      render(<FilterPanel totalResults={18} allTypesTotal={18} showMobile={false} desktopLayout={desktopLayout} />);
 
       expect(screen.getByRole('radio', { name: /3D Tiles/ })).toHaveTextContent('2');
       expect(screen.getByRole('radio', { name: /All/ })).toHaveTextContent('18');
@@ -71,7 +106,7 @@ describe('FilterPanel', () => {
     const counts = mockFacets.record_type as Record<string, number>;
     counts.pointcloud_dataset = 2;
     try {
-      render(<FilterPanel totalResults={20} showMobile={false} desktopLayout={desktopLayout} />);
+      render(<FilterPanel totalResults={18} allTypesTotal={18} showMobile={false} desktopLayout={desktopLayout} />);
 
       expect(screen.getByRole('radio', { name: /Point cloud/ })).toHaveTextContent('2');
       expect(screen.getByRole('radio', { name: /All/ })).toHaveTextContent('18');

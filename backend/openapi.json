@@ -12497,6 +12497,18 @@
             "title": "Numbermatched",
             "type": "integer"
           },
+          "numberMatchedAllTypes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Total records matching the query with record_type removed and every other filter kept; present only when record_type is set",
+            "title": "Numbermatchedalltypes"
+          },
           "numberReturned": {
             "description": "Number of records in this response page",
             "title": "Numberreturned",

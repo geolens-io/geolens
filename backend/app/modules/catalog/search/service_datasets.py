@@ -18,12 +18,15 @@ from app.modules.catalog.datasets.domain.models import (
     RecordTranslation,
 )
 from app.modules.catalog.search.service_candidates import (
+    Candidates,
     select_candidates,
     vetting_filters,
 )
 from app.modules.catalog.search.service_filters import SearchFilters
 from app.modules.catalog.search.service_semantic import (
     _attach_updated_actor_identities,
+    UNRESOLVED,
+    QueryEmbedding,
     _run_rrf_merge,
 )
 
@@ -214,20 +217,18 @@ def _negotiated_title_expression(
     )
 
 
-async def search_datasets(
+async def _count_candidates(
     session: AsyncSession,
     user: Identity | None,
     user_roles: set[str],
     filters: SearchFilters,
-    preferred_languages: Sequence[str] | None = None,
-) -> tuple[list[Dataset], int]:
-    """Search datasets with combined FTS + spatial + faceted filtering.
+    embedding: QueryEmbedding | None = UNRESOLVED,
+) -> tuple[Candidates, int]:
+    """Select the candidate set and count it as ``numberMatched`` reports it.
 
-    The candidate set (and so ``total``) comes from ``select_candidates``, the
-    same selection /search/facets/ counts over. In semantic mode the page is
-    the RRF merge of FTS ranks and the vector arm.
-
-    Returns a tuple of (matching_datasets, total_count).
+    Above the semantic row gate a full vector window reports one more than was
+    counted so the router keeps emitting the ``next`` link; a non-full window
+    is the exact tail.
     """
     candidates = await select_candidates(
         session,
@@ -239,8 +240,45 @@ async def search_datasets(
         filters,
         search_only=True,
         depth=filters.skip + filters.limit,
+        embedding=embedding,
     )
     total = (await session.execute(candidates.stmt)).scalar_one()
+    semantic = candidates.semantic
+    if semantic is not None and not semantic.exact and semantic.window_full:
+        total += 1
+    return candidates, total
+
+
+async def count_datasets(
+    session: AsyncSession,
+    user: Identity | None,
+    user_roles: set[str],
+    filters: SearchFilters,
+    embedding: QueryEmbedding | None = UNRESOLVED,
+) -> int:
+    """Count the datasets ``search_datasets`` would match for ``filters``."""
+    return (await _count_candidates(session, user, user_roles, filters, embedding))[1]
+
+
+async def search_datasets(
+    session: AsyncSession,
+    user: Identity | None,
+    user_roles: set[str],
+    filters: SearchFilters,
+    preferred_languages: Sequence[str] | None = None,
+    embedding: QueryEmbedding | None = UNRESOLVED,
+) -> tuple[list[Dataset], int]:
+    """Search datasets with combined FTS + spatial + faceted filtering.
+
+    The candidate set (and so ``total``) comes from ``select_candidates``, the
+    same selection /search/facets/ counts over. In semantic mode the page is
+    the RRF merge of FTS ranks and the vector arm.
+
+    Returns a tuple of (matching_datasets, total_count).
+    """
+    candidates, total = await _count_candidates(
+        session, user, user_roles, filters, embedding
+    )
 
     has_text_search = candidates.text_clause is not None
     rank_col = None
