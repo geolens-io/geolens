@@ -6735,15 +6735,24 @@ def _print_pinned_summary(base_url: str, username: str, password: str) -> None:
 
 
 def _rerun_command(argv: list[str], bname: str) -> str:
-    """The original command line narrowed to one builder, without the password."""
+    """The original command line narrowed to one builder, without the password.
+
+    argparse accepts any unambiguous prefix of a long option, so `--pass x` and
+    `--passw=x` are the password flag too.
+    """
+
+    def is_flag(arg: str, option: str) -> bool:
+        name = arg.split("=", 1)[0]
+        return len(name) > 2 and option.startswith(name)
+
     kept: list[str] = []
     skip_value = False
     for arg in argv:
         if skip_value:
             skip_value = False
-        elif arg in ("--only", "--password"):
-            skip_value = True
-        elif not arg.startswith(("--only=", "--password=")):
+        elif is_flag(arg, "--only") or is_flag(arg, "--password"):
+            skip_value = "=" not in arg
+        else:
             kept.append(arg)
     return shlex.join(["python3", "scripts/seed-showcase.py", *kept, "--only", bname])
 

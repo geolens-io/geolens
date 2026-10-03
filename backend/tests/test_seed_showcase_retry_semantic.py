@@ -345,6 +345,17 @@ def test_the_rerun_line_keeps_options_but_not_the_password(monkeypatch, capsys):
     assert "--password" not in err.split("rerun:")[1]
 
 
+@pytest.mark.parametrize(
+    "password_args", [["--pass", "secret"], ["--passw=secret"], ["--password=secret"]]
+)
+def test_the_rerun_line_never_carries_an_abbreviated_password(password_args):
+    line = seeder._rerun_command(
+        ["--on", "catalog", *password_args, "--force"], "meteorites"
+    )
+    assert "secret" not in line
+    assert line == ("python3 scripts/seed-showcase.py --force --only meteorites")
+
+
 def test_main_runs_the_semantic_step_unless_no_semantic(monkeypatch):
     def run(argv):
         rc, calls = _main_with_failed_builder(
