@@ -500,8 +500,8 @@ def check_wrap_turns(geometry: object) -> None:
 def wrap_geometry_longitudes(geom: ColumnElement) -> ColumnElement:
     """Fold a 4326 geometry drawn on a wrapped web map into ``[-180, 180]``.
 
-    Returns ``geom`` itself when it is valid and every longitude is already
-    in range. Otherwise each member is repaired, cut into the world copies it
+    Returns ``geom`` itself when it is valid and every longitude lies strictly
+    inside ``(-180, 180)``. Otherwise each member is repaired, cut into the world copies it
     spans (at most ``MAX_WRAP_TURNS``; :func:`check_wrap_turns` refuses wider
     input), each slice is shifted by whole turns into range, and the union of the
     slices is returned. Slices keep their member's dimension, so collapsed
@@ -541,7 +541,7 @@ def wrap_geometry_longitudes(geom: ColumnElement) -> ColumnElement:
     # Non-finite input matches nothing; GEOS raises on it.
     finite = xmax - xmin + func.ST_YMax(geom) - func.ST_YMin(geom) < math.inf
     return case(
-        (and_(xmin >= -180, xmax <= 180, func.ST_IsValid(geom)), geom),
+        (and_(xmin > -180, xmax < 180, func.ST_IsValid(geom)), geom),
         (finite, folded),
     )
 
