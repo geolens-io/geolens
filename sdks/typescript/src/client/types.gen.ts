@@ -10014,6 +10014,12 @@ export type StacConnectResponse = {
      * STAC specification version.
      */
     stac_version: string;
+    /**
+     * Conforms To
+     *
+     * Conformance classes from the landing page conformsTo, which tell a client which search extensions the catalog supports.
+     */
+    conforms_to?: Array<string>;
 };
 
 /**
@@ -10532,6 +10538,20 @@ export type StacLink = {
 };
 
 /**
+ * StacNextPage
+ *
+ * Opaque handle for the next page of a search.
+ */
+export type StacNextPage = {
+    /**
+     * Cursor
+     *
+     * Server-issued token for the next page. Echo the next_page of the previous response unchanged, with the same url and collections; a missing or altered cursor is refused.
+     */
+    cursor?: string | null;
+};
+
+/**
  * StacSearchBody
  *
  * JSON body for POST /search.
@@ -10622,6 +10642,22 @@ export type StacSearchRequest = {
      * Structured credential for a protected service. Mutually exclusive with the token field.
      */
     auth?: ServiceAuthRequest | null;
+    /**
+     * Max Cloud Cover
+     *
+     * Only items at or below this eo:cloud_cover percentage.
+     */
+    max_cloud_cover?: number | null;
+    /**
+     * Cloud Cover Mode
+     *
+     * How to send max_cloud_cover: 'query' for the STAC Query extension, 'filter' for CQL2 JSON. Pick the one the catalog lists in its landing page conformsTo.
+     */
+    cloud_cover_mode?: 'query' | 'filter' | null;
+    /**
+     * The next_page of the previous response, to fetch the page after it. Send the same filters as the first request.
+     */
+    next_page?: StacNextPage | null;
 };
 
 /**
@@ -10646,6 +10682,10 @@ export type StacSearchResponse = {
      * Number of items in this response.
      */
     returned: number;
+    /**
+     * Link to the next page of results, or null on the last page. Send it back as next_page with the same filters.
+     */
+    next_page?: StacNextPage | null;
 };
 
 /**

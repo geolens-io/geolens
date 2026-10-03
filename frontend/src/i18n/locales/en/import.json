@@ -242,7 +242,18 @@
     "credentialHeaderNamePlaceholder": "e.g. Ocp-Apim-Subscription-Key",
     "credentialHeaderValueLabel": "Header value",
     "credentialHeaderValuePlaceholder": "Your API key",
-    "credentialHelpText": "Choose the method your catalog documents. A bearer token is sent as an Authorization header; a username and password are sent as HTTP Basic auth; an API key can go under whatever header name the provider specifies — for example X-API-Key, Ocp-Apim-Subscription-Key, or key. It authenticates the catalog, its collections and its items; tiles are rendered from the asset URL and carry no credential."
+    "credentialHelpText": "Choose the method your catalog documents. A bearer token is sent as an Authorization header; a username and password are sent as HTTP Basic auth; an API key can go under whatever header name the provider specifies — for example X-API-Key, Ocp-Apim-Subscription-Key, or key. It authenticates the catalog, its collections and its items; tiles are rendered from the asset URL and carry no credential.",
+    "filterStart": "From",
+    "filterEnd": "To",
+    "filterBbox": "Area (west, south, east, north)",
+    "filterBboxPlaceholder": "-74.3, 40.5, -73.7, 40.9",
+    "filterApply": "Apply filters",
+    "filterDateOrder": "The start date must not be after the end date.",
+    "filterBboxInvalid": "Enter four numbers as west, south, east, north (longitude -180 to 180, latitude -90 to 90, south not above north).",
+    "loadMore": "Load more",
+    "filterCloud": "Max cloud cover (%)",
+    "filterCloudInvalid": "Enter a cloud cover between 0 and 100.",
+    "selectionLimit": "You can import up to {{count}} items at a time."
   },
   "serviceUrl": {
     "label": "Service URL",

@@ -32,6 +32,8 @@ import type {
   StacItemSummary,
   StacImportItem,
   StacImportResult,
+  StacNextPage,
+  StacSearchRequest,
 } from '@/types/api';
 import { originOf } from './utils';
 import { Button } from '@/components/ui/button';
@@ -49,6 +51,27 @@ import {
 // A copy rather than a shared component, matching ServiceCredentialBlock's
 // own note that converging the two is a follow-up.
 type StacCredentialMethod = 'none' | 'bearer' | 'basic' | 'header';
+
+type SearchFilters = Pick<
+  StacSearchRequest,
+  'bbox' | 'datetime_range' | 'max_cloud_cover' | 'cloud_cover_mode'
+>;
+
+// Which STAC extension the catalog advertises for filtering on cloud cover:
+// Query is the simpler one, CQL2 JSON the fallback. None means no filter.
+function cloudCoverMode(conformsTo: string[]): 'query' | 'filter' | null {
+  if (conformsTo.some((c) => c.includes('item-search#query'))) return 'query';
+  if (
+    conformsTo.some((c) => c.includes('item-search#filter')) &&
+    conformsTo.some((c) => c.includes('cql2-json'))
+  ) {
+    return 'filter';
+  }
+  return null;
+}
+
+// StacImportRequest.items allows at most this many per call.
+const MAX_IMPORT_ITEMS = 50;
 
 type Step =
   | 'idle'
@@ -136,6 +159,21 @@ export function StacImportForm() {
   const [selectedCollection, setSelectedCollection] = useState<StacCollectionSummary | null>(null);
   const [searchResult, setSearchResult] = useState<{ items: StacItemSummary[]; matched: number | null }>({ items: [], matched: null });
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [bboxText, setBboxText] = useState('');
+  const [maxCloud, setMaxCloud] = useState('');
+  // Latched once an item of this collection reports cloud cover, so a limit
+  // that empties the list does not take the control away.
+  const [cloudCoverSeen, setCloudCoverSeen] = useState(false);
+  const [filtering, setFiltering] = useState(false);
+  const [nextPage, setNextPage] = useState<StacNextPage | null>(null);
+  const [appliedFilters, setAppliedFilters] = useState<SearchFilters>({});
+  const [loadingMore, setLoadingMore] = useState(false);
+  // Bumped whenever the result set is replaced or abandoned, so a response
+  // for an earlier search cannot append to, or overwrite, a newer one.
+  const searchGenRef = useRef(0);
+  const [filterError, setFilterError] = useState<string | null>(null);
   const [importResult, setImportResult] = useState<{
     created: number;
     skipped: number;
@@ -158,8 +196,12 @@ export function StacImportForm() {
     };
   }, []);
 
+  const cloudMode = catalogInfo ? cloudCoverMode(catalogInfo.conforms_to ?? []) : null;
   const items = searchResult.items;
   const matchedCount = searchResult.matched;
+  useEffect(() => {
+    if (items.some((i) => i.cloud_cover != null)) setCloudCoverSeen(true);
+  }, [items]);
   const selectableItems = useMemo(
     () => items.filter((i) => assetAvailability(i).importable),
     [items],
@@ -208,6 +250,7 @@ export function StacImportForm() {
   }
 
   const reset = () => {
+    searchGenRef.current += 1;
     setStep('idle');
     setUrl('');
     clearCredential('none');
@@ -216,6 +259,14 @@ export function StacImportForm() {
     setSelectedCollection(null);
     setSearchResult({ items: [], matched: null });
     setSelectedItems(new Set());
+    setStartDate('');
+    setEndDate('');
+    setBboxText('');
+    setMaxCloud('');
+    setCloudCoverSeen(false);
+    setFilterError(null);
+    setNextPage(null);
+    setAppliedFilters({});
     setImportResult(null);
     setError(null);
     // fix(#1712): defensive symmetry with the success/failure settlement
@@ -261,7 +312,17 @@ export function StacImportForm() {
 
   // ── Step 2: Select collection and search items ──
   const handleCollectionSelect = async (collection: StacCollectionSummary) => {
+    const gen = ++searchGenRef.current;
+    setFiltering(false);
+    setLoadingMore(false);
     setSelectedCollection(collection);
+    setStartDate('');
+    setEndDate('');
+    setBboxText('');
+    setMaxCloud('');
+    setCloudCoverSeen(false);
+    setFilterError(null);
+    setAppliedFilters({});
     setStep('loading-items');
     setError(null);
 
@@ -275,14 +336,127 @@ export function StacImportForm() {
         limit: 50,
         ...(auth ? { auth } : {}),
       });
+      if (gen !== searchGenRef.current) return;
       setSearchResult({ items: result.items, matched: result.matched });
+      setNextPage(result.next_page ?? null);
       setSelectedItems(new Set());
       setStep('items');
     } catch (err) {
+      if (gen !== searchGenRef.current) return;
       const msg = err instanceof ApiError ? err.message : t('stac.searchItemsFailed');
       setError(msg);
       setStep('collections');
       toast.error(msg);
+    }
+  };
+
+  // The `bbox` and `datetime_range` the filter fields describe, or an error
+  // message when a field is unusable. Blank fields mean no filter.
+  function buildSearchFilters(): { filters: SearchFilters } | { error: string } {
+    const filters: SearchFilters = {};
+    if (startDate && endDate && startDate > endDate) {
+      return { error: t('stac.filterDateOrder') };
+    }
+    if (startDate || endDate) {
+      const from = startDate ? `${startDate}T00:00:00Z` : '..';
+      const to = endDate ? `${endDate}T23:59:59.999999Z` : '..';
+      filters.datetime_range = `${from}/${to}`;
+    }
+    if (bboxText.trim()) {
+      const parts = bboxText.split(',').map((p) => p.trim());
+      const nums = parts.map(Number);
+      const [west, south, east, north] = nums;
+      const valid =
+        parts.length === 4 &&
+        parts.every((p) => p !== '') &&
+        nums.every(Number.isFinite) &&
+        [west, east].every((lon) => lon >= -180 && lon <= 180) &&
+        [south, north].every((lat) => lat >= -90 && lat <= 90) &&
+        south <= north;
+      if (!valid) return { error: t('stac.filterBboxInvalid') };
+      filters.bbox = nums;
+    }
+    if (cloudMode && maxCloud.trim()) {
+      const value = Number(maxCloud);
+      if (!Number.isFinite(value) || value < 0 || value > 100) {
+        return { error: t('stac.filterCloudInvalid') };
+      }
+      filters.max_cloud_cover = value;
+      filters.cloud_cover_mode = cloudMode;
+    }
+    return { filters };
+  }
+
+  const handleApplyFilters = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedCollection || !catalogInfo) return;
+    const built = buildSearchFilters();
+    if ('error' in built) {
+      setFilterError(built.error);
+      return;
+    }
+    const gen = ++searchGenRef.current;
+    setFilterError(null);
+    setFiltering(true);
+    setLoadingMore(false);
+    setError(null);
+    try {
+      const auth = buildStacAuth();
+      const result = await searchStacItems({
+        url: catalogInfo.url,
+        collections: [selectedCollection.id],
+        limit: 50,
+        ...built.filters,
+        ...(auth ? { auth } : {}),
+      });
+      if (!mountedRef.current || gen !== searchGenRef.current) return;
+      setSearchResult({ items: result.items, matched: result.matched });
+      setNextPage(result.next_page ?? null);
+      setAppliedFilters(built.filters);
+      setSelectedItems(new Set());
+    } catch (err) {
+      if (!mountedRef.current || gen !== searchGenRef.current) return;
+      const msg = err instanceof ApiError ? err.message : t('stac.searchItemsFailed');
+      setFilterError(msg);
+      toast.error(msg);
+    } finally {
+      if (mountedRef.current && gen === searchGenRef.current) setFiltering(false);
+    }
+  };
+
+  // Filters come from the last applied search, not the fields, which may
+  // have been edited since: the next page belongs to that search.
+  const handleLoadMore = async () => {
+    if (!selectedCollection || !catalogInfo || !nextPage || filtering) return;
+    const gen = searchGenRef.current;
+    setLoadingMore(true);
+    setError(null);
+    try {
+      const auth = buildStacAuth();
+      const result = await searchStacItems({
+        url: catalogInfo.url,
+        collections: [selectedCollection.id],
+        limit: 50,
+        ...appliedFilters,
+        next_page: nextPage,
+        ...(auth ? { auth } : {}),
+      });
+      if (!mountedRef.current || gen !== searchGenRef.current) return;
+      setSearchResult((prev) => {
+        const seen = new Set(prev.items.map((i) => i.id));
+        return {
+          items: [...prev.items, ...result.items.filter((i) => !seen.has(i.id))],
+          matched: result.matched ?? prev.matched,
+        };
+      });
+      setNextPage(result.next_page ?? null);
+    } catch (err) {
+      if (!mountedRef.current || gen !== searchGenRef.current) return;
+      const msg = err instanceof ApiError ? err.message : t('stac.searchItemsFailed');
+      setError(msg);
+      toast.error(msg);
+    } finally {
+      if (mountedRef.current && gen === searchGenRef.current) setLoadingMore(false);
     }
   };
 
@@ -291,16 +465,26 @@ export function StacImportForm() {
     setSelectedItems((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
-      else next.add(id);
+      else if (next.size < MAX_IMPORT_ITEMS) next.add(id);
       return next;
     });
   };
 
+  const atSelectionCap = selectedItems.size >= MAX_IMPORT_ITEMS;
+  const allSelectableSelected =
+    selectedItems.size > 0 &&
+    selectedItems.size >= Math.min(MAX_IMPORT_ITEMS, selectableItems.length);
+
   const toggleAll = () => {
-    if (selectedItems.size === selectableItems.length) {
+    if (allSelectableSelected) {
       setSelectedItems(new Set());
     } else {
-      setSelectedItems(new Set(selectableItems.map((i) => i.id)));
+      const next = new Set(selectedItems);
+      for (const item of selectableItems) {
+        if (next.size >= MAX_IMPORT_ITEMS) break;
+        next.add(item.id);
+      }
+      setSelectedItems(next);
     }
   };
 
@@ -726,14 +910,14 @@ export function StacImportForm() {
 
   // ── Items list with selection ──
   if (step === 'items' && selectedCollection && catalogInfo) {
-    const allSelected = selectableItems.length > 0 && selectedItems.size === selectableItems.length;
+    const allSelected = allSelectableSelected;
 
     return (
       <div className="space-y-4">
         {/* Breadcrumb */}
         <div className="flex items-center gap-2 text-sm">
           <button
-            onClick={() => { setStep('collections'); setSelectedCollection(null); }}
+            onClick={() => { searchGenRef.current += 1; setStep('collections'); setSelectedCollection(null); }}
             className="flex items-center gap-1 text-muted-foreground hover:text-foreground"
           >
             <ArrowLeft className="size-3.5 rtl-mirror" />
@@ -747,6 +931,66 @@ export function StacImportForm() {
             </span>
           )}
         </div>
+
+        <form
+          data-testid="stac-search-filters"
+          onSubmit={handleApplyFilters}
+          className="flex flex-wrap items-end gap-3 rounded-lg border border-border bg-surface-1 px-4 py-3"
+        >
+          <div className="space-y-1">
+            <Label htmlFor="stac-filter-start" className="text-xs">{t('stac.filterStart')}</Label>
+            <Input
+              id="stac-filter-start"
+              type="date"
+              value={startDate}
+              max={endDate || undefined}
+              onChange={(e) => setStartDate(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="stac-filter-end" className="text-xs">{t('stac.filterEnd')}</Label>
+            <Input
+              id="stac-filter-end"
+              type="date"
+              value={endDate}
+              min={startDate || undefined}
+              onChange={(e) => setEndDate(e.target.value)}
+            />
+          </div>
+          <div className="min-w-56 flex-1 space-y-1">
+            <Label htmlFor="stac-filter-bbox" className="text-xs">{t('stac.filterBbox')}</Label>
+            <Input
+              id="stac-filter-bbox"
+              value={bboxText}
+              placeholder={t('stac.filterBboxPlaceholder')}
+              onChange={(e) => setBboxText(e.target.value)}
+              aria-invalid={filterError ? true : undefined}
+            />
+          </div>
+          {cloudMode && cloudCoverSeen && (
+            <div className="w-32 space-y-1">
+              <Label htmlFor="stac-filter-cloud" className="text-xs">{t('stac.filterCloud')}</Label>
+              <Input
+                id="stac-filter-cloud"
+                type="number"
+                min={0}
+                max={100}
+                step="any"
+                inputMode="decimal"
+                value={maxCloud}
+                onChange={(e) => setMaxCloud(e.target.value)}
+              />
+            </div>
+          )}
+          <Button type="submit" size="sm" disabled={filtering}>
+            {t('stac.filterApply')}
+          </Button>
+          {filterError && (
+            <p role="alert" data-testid="stac-filter-error" className="basis-full text-sm text-destructive">
+              {filterError}
+            </p>
+          )}
+        </form>
 
         {/* Action bar */}
         <div
@@ -767,12 +1011,17 @@ export function StacImportForm() {
             </label>
             <Button
               size="sm"
-              disabled={selectedItems.size === 0}
+              disabled={selectedItems.size === 0 || filtering}
               onClick={() => setStep('confirm')}
             >
               {selectedItems.size > 0 ? t('stac.importItems', { count: selectedItems.size }) : t('stac.importLabel')}
             </Button>
           </div>
+          {atSelectionCap && selectableItems.length > MAX_IMPORT_ITEMS && (
+            <p data-testid="stac-selection-limit" className="mt-2 text-xs text-muted-foreground">
+              {t('stac.selectionLimit', { count: MAX_IMPORT_ITEMS })}
+            </p>
+          )}
           {/* A refused import lands back on this step (see handleImport's catch);
               shown here, beside the action that triggered it, rather than below
               a list that can run to 50 rows and push it out of view. */}
@@ -810,7 +1059,7 @@ export function StacImportForm() {
                 <input
                   type="checkbox"
                   checked={isSelected}
-                  disabled={!availability.importable}
+                  disabled={!availability.importable || (atSelectionCap && !isSelected)}
                   aria-describedby={availability.importable ? undefined : reasonId}
                   onChange={() => toggleItem(item.id)}
                   className="rounded-sm border-border shrink-0"
@@ -861,6 +1110,20 @@ export function StacImportForm() {
             );
           })}
         </div>
+
+        {nextPage && (
+          <div className="flex justify-center">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={loadingMore || filtering}
+              onClick={handleLoadMore}
+            >
+              {t('stac.loadMore')}
+            </Button>
+          </div>
+        )}
       </div>
     );
   }

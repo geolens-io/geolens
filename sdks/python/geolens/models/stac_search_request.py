@@ -8,10 +8,17 @@ from attrs import field as _attrs_field
 
 from ..types import UNSET, Unset
 
+from ..models.stac_search_request_cloud_cover_mode_type_0 import (
+    check_stac_search_request_cloud_cover_mode_type_0,
+)
+from ..models.stac_search_request_cloud_cover_mode_type_0 import (
+    StacSearchRequestCloudCoverModeType0,
+)
 from typing import cast
 
 if TYPE_CHECKING:
     from ..models.service_auth_request import ServiceAuthRequest
+    from ..models.stac_next_page import StacNextPage
 
 
 T = TypeVar("T", bound="StacSearchRequest")
@@ -30,6 +37,11 @@ class StacSearchRequest:
             with method bearer.
         auth (None | ServiceAuthRequest | Unset): Structured credential for a protected service. Mutually exclusive with
             the token field.
+        max_cloud_cover (float | None | Unset): Only items at or below this eo:cloud_cover percentage.
+        cloud_cover_mode (None | StacSearchRequestCloudCoverModeType0 | Unset): How to send max_cloud_cover: 'query' for
+            the STAC Query extension, 'filter' for CQL2 JSON. Pick the one the catalog lists in its landing page conformsTo.
+        next_page (None | StacNextPage | Unset): The next_page of the previous response, to fetch the page after it.
+            Send the same filters as the first request.
     """
 
     url: str
@@ -39,10 +51,14 @@ class StacSearchRequest:
     limit: int | Unset = 20
     token: None | str | Unset = UNSET
     auth: None | ServiceAuthRequest | Unset = UNSET
+    max_cloud_cover: float | None | Unset = UNSET
+    cloud_cover_mode: None | StacSearchRequestCloudCoverModeType0 | Unset = UNSET
+    next_page: None | StacNextPage | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         from ..models.service_auth_request import ServiceAuthRequest
+        from ..models.stac_next_page import StacNextPage
 
         url = self.url
 
@@ -86,6 +102,28 @@ class StacSearchRequest:
         else:
             auth = self.auth
 
+        max_cloud_cover: float | None | Unset
+        if isinstance(self.max_cloud_cover, Unset):
+            max_cloud_cover = UNSET
+        else:
+            max_cloud_cover = self.max_cloud_cover
+
+        cloud_cover_mode: None | str | Unset
+        if isinstance(self.cloud_cover_mode, Unset):
+            cloud_cover_mode = UNSET
+        elif isinstance(self.cloud_cover_mode, str):
+            cloud_cover_mode = self.cloud_cover_mode
+        else:
+            cloud_cover_mode = self.cloud_cover_mode
+
+        next_page: dict[str, Any] | None | Unset
+        if isinstance(self.next_page, Unset):
+            next_page = UNSET
+        elif isinstance(self.next_page, StacNextPage):
+            next_page = self.next_page.to_dict()
+        else:
+            next_page = self.next_page
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -105,12 +143,19 @@ class StacSearchRequest:
             field_dict["token"] = token
         if auth is not UNSET:
             field_dict["auth"] = auth
+        if max_cloud_cover is not UNSET:
+            field_dict["max_cloud_cover"] = max_cloud_cover
+        if cloud_cover_mode is not UNSET:
+            field_dict["cloud_cover_mode"] = cloud_cover_mode
+        if next_page is not UNSET:
+            field_dict["next_page"] = next_page
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.service_auth_request import ServiceAuthRequest
+        from ..models.stac_next_page import StacNextPage
 
         d = dict(src_dict)
         url = d.pop("url")
@@ -186,6 +231,53 @@ class StacSearchRequest:
 
         auth = _parse_auth(d.pop("auth", UNSET))
 
+        def _parse_max_cloud_cover(data: object) -> float | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(float | None | Unset, data)
+
+        max_cloud_cover = _parse_max_cloud_cover(d.pop("max_cloud_cover", UNSET))
+
+        def _parse_cloud_cover_mode(
+            data: object,
+        ) -> None | StacSearchRequestCloudCoverModeType0 | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                cloud_cover_mode_type_0 = (
+                    check_stac_search_request_cloud_cover_mode_type_0(data)
+                )
+
+                return cloud_cover_mode_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | StacSearchRequestCloudCoverModeType0 | Unset, data)
+
+        cloud_cover_mode = _parse_cloud_cover_mode(d.pop("cloud_cover_mode", UNSET))
+
+        def _parse_next_page(data: object) -> None | StacNextPage | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                next_page_type_0 = StacNextPage.from_dict(data)
+
+                return next_page_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | StacNextPage | Unset, data)
+
+        next_page = _parse_next_page(d.pop("next_page", UNSET))
+
         stac_search_request = cls(
             url=url,
             collections=collections,
@@ -194,6 +286,9 @@ class StacSearchRequest:
             limit=limit,
             token=token,
             auth=auth,
+            max_cloud_cover=max_cloud_cover,
+            cloud_cover_mode=cloud_cover_mode,
+            next_page=next_page,
         )
 
         stac_search_request.additional_properties = d

@@ -7,8 +7,9 @@ search items, and import selected items as raster datasets.
 import asyncio
 import uuid
 from datetime import date, datetime, timezone
-from typing import Literal
+from typing import Any, Literal
 
+import httpx
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import (
@@ -44,6 +45,11 @@ from app.modules.catalog.sources.adapters.stac import (
     connect_stac_api,
     list_stac_collections,
     search_stac_items,
+)
+from app.modules.catalog.sources.stac_next_page import (
+    StacNextPage,
+    issue_cursor,
+    open_cursor,
 )
 from app.modules.catalog.sources.cog_info import fetch_cog_info, reconcile_epsg
 from app.modules.catalog.sources.schemas import (
@@ -177,6 +183,13 @@ class StacConnectResponse(BaseModel):
     title: str = Field(description="Catalog title.")
     description: str = Field(description="Catalog description.")
     stac_version: str = Field(description="STAC specification version.")
+    conforms_to: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Conformance classes from the landing page conformsTo, which "
+            "tell a client which search extensions the catalog supports."
+        ),
+    )
 
 
 class StacCollectionSummary(BaseModel):
@@ -240,6 +253,35 @@ class StacSearchRequest(BaseModel):
         default=None, description=SERVICE_AUTH_FIELD_DESCRIPTION
     )
     _reject_auth_conflict = model_validator(mode="after")(reject_service_auth_conflict)
+    max_cloud_cover: float | None = Field(
+        default=None,
+        ge=0,
+        le=100,
+        description="Only items at or below this eo:cloud_cover percentage.",
+    )
+    cloud_cover_mode: Literal["query", "filter"] | None = Field(
+        default=None,
+        description=(
+            "How to send max_cloud_cover: 'query' for the STAC Query "
+            "extension, 'filter' for CQL2 JSON. Pick the one the catalog "
+            "lists in its landing page conformsTo."
+        ),
+    )
+    next_page: StacNextPage | None = Field(
+        default=None,
+        description=(
+            "The next_page of the previous response, to fetch the page after "
+            "it. Send the same filters as the first request."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _cloud_cover_needs_a_mode(self) -> "StacSearchRequest":
+        if (self.max_cloud_cover is None) != (self.cloud_cover_mode is None):
+            raise ValueError(
+                "max_cloud_cover and cloud_cover_mode must be sent together"
+            )
+        return self
 
 
 class StacItemSummary(BaseModel):
@@ -321,6 +363,13 @@ class StacSearchResponse(BaseModel):
         default=None, description="Total matches (if reported by API)."
     )
     returned: int = Field(description="Number of items in this response.")
+    next_page: StacNextPage | None = Field(
+        default=None,
+        description=(
+            "Link to the next page of results, or null on the last page. "
+            "Send it back as next_page with the same filters."
+        ),
+    )
 
 
 class StacImportItem(BaseModel):
@@ -492,7 +541,15 @@ async def stac_connect(
         title=result["title"],
         description=result["description"],
         stac_version=result["stac_version"],
+        conforms_to=_conformance_classes(result.get("conforms_to")),
     )
+
+
+def _conformance_classes(value: object) -> list[str]:
+    """The landing page's conformsTo as a bounded list of strings."""
+    if not isinstance(value, list):
+        return []
+    return [c for c in value if isinstance(c, str) and len(c) <= 512][:200]
 
 
 @router.post(
@@ -530,6 +587,37 @@ async def stac_collections(
     )
 
 
+def _issued_next_page(
+    request: StacSearchRequest, next_page: dict[str, Any] | None
+) -> StacNextPage | None:
+    if next_page is None:
+        return None
+    cursor = issue_cursor(request.url, request.collections, next_page)
+    return None if cursor is None else StacNextPage(cursor=cursor)
+
+
+async def _validate_next_page_href(catalog_url: str, href: str) -> None:
+    """Refuse a next-page URL that the catalog's own response could not have named.
+
+    The follow-up carries the caller's credential and is fetched by this
+    server, so the client may not steer it to another origin or an internal
+    address.
+    """
+    try:
+        has_userinfo = bool(httpx.URL(href).userinfo)
+    except httpx.InvalidURL:
+        has_userinfo = True
+    if has_userinfo or not same_origin(catalog_url, href):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The next page must be on the same origin as the catalog URL.",
+        )
+    try:
+        await validate_url_for_ssrf(href)
+    except SSRFError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
 @router.post(
     "/search",
     response_model=StacSearchResponse,
@@ -550,6 +638,18 @@ async def stac_search(
     except SSRFError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
+    next_page = None
+    if request.next_page is not None:
+        next_page = open_cursor(
+            request.url, request.collections, request.next_page.cursor
+        )
+        if next_page is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="The next page link is not valid for this search.",
+            )
+        await _validate_next_page_href(request.url, next_page["href"])
+
     try:
         result = await search_stac_items(
             request.url,
@@ -558,6 +658,9 @@ async def stac_search(
             datetime_range=request.datetime_range,
             limit=request.limit,
             credential=credential,
+            next_page=next_page,
+            max_cloud_cover=request.max_cloud_cover,
+            cloud_cover_mode=request.cloud_cover_mode,
         )
     except Exception as exc:  # broad: STAC /search client/HTTP/parse can throw varied errors; map to 502 for the user
         logger.warning("STAC search failed", url=safe_url, error=str(exc))
@@ -578,6 +681,7 @@ async def stac_search(
         ],
         matched=result["matched"],
         returned=result["returned"],
+        next_page=_issued_next_page(request, result.get("next_page")),
     )
 
 

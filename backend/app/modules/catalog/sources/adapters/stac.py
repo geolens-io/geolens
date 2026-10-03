@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import replace
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict
 from urllib.parse import urljoin
 
 import httpx
@@ -186,6 +186,112 @@ def self_link_href(
             continue
         return resolved
     return None
+
+
+# Bound on the body a catalog's POST next link may ask the follow-up to send.
+MAX_NEXT_BODY_BYTES = 16384
+MAX_NEXT_HREF_CHARS = 4096
+
+
+def _resolved_next_href(href: Any, base_url: str) -> str | None:
+    """*href* resolved against *base_url*, or None if it is not a plain http(s) URL.
+
+    Unlike ``storable_href`` this keeps a ``token`` query parameter, which is
+    how pagination cursors travel; the link is fetched once and never stored.
+    """
+    if not isinstance(href, str) or not href.strip():
+        return None
+    try:
+        resolved = urljoin(base_url, href)
+        parsed = httpx.URL(resolved)
+    except (ValueError, httpx.InvalidURL):
+        return None
+    if (
+        parsed.scheme not in ("http", "https")
+        or parsed.userinfo
+        or len(resolved) > MAX_NEXT_HREF_CHARS
+        or carries_registered_credential(resolved)
+    ):
+        return None
+    return resolved
+
+
+def next_page_link(
+    data: dict[str, Any], response_url: str, catalog_url: str
+) -> dict[str, Any] | None:
+    """The response's ``rel="next"`` link as ``{method, href, body, merge}``, or None.
+
+    The follow-up request carries the caller's credential, so a link that
+    leaves the submitted catalog's origin, carries credentials of its own or
+    cannot be stored is dropped, leaving the result as the last page.
+    """
+    links = data.get("links")
+    for link in links if isinstance(links, list) else []:
+        if not isinstance(link, dict) or link.get("rel") != "next":
+            continue
+        href = _resolved_next_href(link.get("href"), response_url)
+        if href is None:
+            return None
+        if not same_origin(catalog_url, href):
+            logger.warning("STAC search: next link is off the submitted origin")
+            return None
+        # A cursor carried in headers cannot be replayed safely: echoing
+        # client-held headers to the catalog would be an injection and
+        # credential channel, so such a catalog offers no further pages.
+        if link.get("headers"):
+            return None
+        method = str(link.get("method") or "GET").upper()
+        if method not in ("GET", "POST"):
+            return None
+        body = link.get("body") if method == "POST" else None
+        if body is not None:
+            if not isinstance(body, dict):
+                return None
+            serialized = json.dumps(body)
+            if len(serialized) > MAX_NEXT_BODY_BYTES or carries_registered_credential(
+                serialized
+            ):
+                return None
+        return {
+            "method": method,
+            "href": href,
+            "body": body,
+            "merge": link.get("merge") is True,
+        }
+    return None
+
+
+def _follow_up_request(
+    next_page: dict[str, Any], base_body: dict[str, Any]
+) -> tuple[str, str, dict[str, Any] | None]:
+    """The ``(method, url, body)`` that fetches *next_page*, as advertised.
+
+    The link may be signed or opaque, so nothing is added to it: a merge
+    link's body overrides the original request's fields, any other body is
+    sent alone.
+    """
+    method = next_page["method"]
+    next_body = next_page.get("body")
+    if method == "GET":
+        return method, next_page["href"], None
+    if next_page.get("merge"):
+        return method, next_page["href"], {**base_body, **(next_body or {})}
+    return method, next_page["href"], next_body
+
+
+def _following_page(
+    data: dict[str, Any],
+    response_url: str,
+    catalog_url: str,
+    followed: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """The next link, unless it repeats the one just followed.
+
+    A catalog answering with the link already followed would loop the caller
+    on one page forever.
+    """
+    following = next_page_link(data, response_url, catalog_url)
+    return None if following == followed else following
 
 
 def _make_client(credential_header: str | None = None) -> httpx.AsyncClient:
@@ -371,10 +477,15 @@ async def search_stac_items(
     datetime_range: str | None = None,
     limit: int = 20,
     credential: ServiceCredential | None = None,
+    next_page: dict[str, Any] | None = None,
+    max_cloud_cover: float | None = None,
+    cloud_cover_mode: Literal["query", "filter"] | None = None,
 ) -> dict[str, Any]:
     """Search for items in a STAC API.
 
-    Returns a dict with items list and matched count.
+    Returns a dict with items list, matched count and the ``next_page`` link
+    (None on the last page). ``next_page`` is a link this function returned
+    earlier; the caller must have validated its href against the catalog.
 
     feat(#1764): carries the same credential the connect and collections
     reads carried, so search and import agree about what the catalog
@@ -390,8 +501,20 @@ async def search_stac_items(
         body["bbox"] = bbox
     if datetime_range:
         body["datetime"] = datetime_range
+    if max_cloud_cover is not None and cloud_cover_mode == "query":
+        body["query"] = {"eo:cloud_cover": {"lte": max_cloud_cover}}
+    elif max_cloud_cover is not None and cloud_cover_mode == "filter":
+        body["filter-lang"] = "cql2-json"
+        body["filter"] = {
+            "op": "<=",
+            "args": [{"property": "eo:cloud_cover"}, max_cloud_cover],
+        }
 
-    headers = {"Content-Type": "application/json"}
+    method = "POST"
+    if next_page is not None:
+        method, search_url, body = _follow_up_request(next_page, body)
+
+    headers = {"Content-Type": "application/json"} if body is not None else {}
     pair: tuple[str, str] | None = None
     if credential is not None:
         pair = build_credential_header(
@@ -403,7 +526,7 @@ async def search_stac_items(
         async with _make_client(None if pair is None else pair[0]) as client:
             raw, resp = await bounded_probe_exchange(
                 client,
-                "POST",
+                method,
                 search_url,
                 headers=headers,
                 accept=OGC_JSON_ACCEPT,
@@ -412,7 +535,10 @@ async def search_stac_items(
     data = json.loads(raw)
 
     features = data.get("features", [])
-    if len(features) > limit:
+    # Items past the limit are dropped, which leaves the catalog's cursor
+    # beyond them, so such a page ends paging rather than skipping items.
+    over_returned = len(features) > limit
+    if over_returned:
         logger.warning(
             "STAC search: server returned more items than requested",
             requested=limit,
@@ -493,4 +619,7 @@ async def search_stac_items(
         "items": items,
         "matched": matched,
         "returned": len(items),
+        "next_page": None
+        if over_returned
+        else _following_page(data, str(resp.url), url, next_page),
     }

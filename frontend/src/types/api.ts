@@ -2186,6 +2186,8 @@ export interface StacConnectResponse {
   title: string;
   description: string;
   stac_version: string;
+  /** Landing page conformance classes; absent from servers that predate the field. */
+  conforms_to?: string[];
 }
 
 export interface StacCollectionSummary {
@@ -2205,12 +2207,22 @@ export interface StacCollectionsResponse {
   collections: StacCollectionSummary[];
 }
 
+export interface StacNextPage {
+  /** Opaque, server-issued; echo it back unchanged. */
+  cursor?: string | null;
+}
+
 export interface StacSearchRequest {
   url: string;
   collections?: string[];
   bbox?: number[];
   datetime_range?: string;
   limit?: number;
+  /** The previous response's `next_page`, sent with the same filters. */
+  next_page?: StacNextPage;
+  /** Percent; sent together with `cloud_cover_mode`. */
+  max_cloud_cover?: number;
+  cloud_cover_mode?: 'query' | 'filter';
   // feat(#1764): a credential for a protected catalog, applied to this call.
   auth?: ServiceAuthRequest;
 }
@@ -2248,6 +2260,7 @@ export interface StacSearchResponse {
   items: StacItemSummary[];
   matched: number | null;
   returned: number;
+  next_page?: StacNextPage | null;
 }
 
 export interface StacImportItem {
