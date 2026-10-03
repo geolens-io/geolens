@@ -35,10 +35,10 @@ def _verify(**overrides):
         "staged_srid": 4326,
         "staged_coordinate_dimension": 2,
         "live": geometry_contract(
-            geometry_type="POINT", srid=4326, is_3d=False, n_dims=2
+            geometry_types=["POINT"], srid=4326, is_3d=False, n_dims=2
         ),
         "staged": geometry_contract(
-            geometry_type="POINT", srid=4326, is_3d=False, n_dims=2
+            geometry_types=["POINT"], srid=4326, is_3d=False, n_dims=2
         ),
     }
     kwargs.update(overrides)

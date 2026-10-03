@@ -12,13 +12,15 @@ from app.platform.refresh.verification import (
 
 
 def _contract(
-    geometry_type: str | None = "POLYGON",
+    geometry_types: str | list[str] | None = "POLYGON",
     srid: int | None = 2263,
     is_3d: bool | None = False,
     n_dims: int | None = 2,
 ) -> GeometryContract:
+    if isinstance(geometry_types, str):
+        geometry_types = [geometry_types]
     return geometry_contract(
-        geometry_type=geometry_type, srid=srid, is_3d=is_3d, n_dims=n_dims
+        geometry_types=geometry_types, srid=srid, is_3d=is_3d, n_dims=n_dims
     )
 
 
@@ -47,6 +49,16 @@ def _verify(live: GeometryContract, staged: GeometryContract, **extra):
     [
         (_contract("POLYGON"), _contract("POINT"), "geometry_type_changed"),
         (_contract("LINESTRING"), _contract("MULTIPOLYGON"), "geometry_type_changed"),
+        (
+            _contract("POLYGON"),
+            _contract(["POLYGON", "POINT"]),
+            "geometry_type_changed",
+        ),
+        (
+            _contract(["POLYGON", "POINT"]),
+            _contract("POLYGON"),
+            "geometry_type_changed",
+        ),
         (_contract(srid=2263), _contract(srid=4326), "srid_changed"),
         (
             _contract(is_3d=True, n_dims=3),
@@ -80,6 +92,11 @@ def test_a_geometry_change_blocks_with_its_one_reason(live, staged, reason) -> N
         (_contract(is_3d=False, n_dims=2), _contract(is_3d=True, n_dims=3)),
         (_contract(None, None, None, None), _contract("POINT", 4326, True, 3)),
         (_contract("POLYGON"), _contract("GEOMETRY")),
+        (_contract(["POLYGON", "POINT"]), _contract(["POINT", "POLYGON"])),
+        (
+            _contract(["POLYGON", "POINT"]),
+            _contract(["MULTIPOLYGON", "MULTIPOINT", "POINT"]),
+        ),
         (_contract(is_3d=False, n_dims=3), _contract(is_3d=True, n_dims=4)),
         (_contract(is_3d=False, n_dims=3), _contract(is_3d=None, n_dims=3)),
     ],
@@ -110,4 +127,4 @@ def test_the_evidence_records_what_was_compared() -> None:
     result = _verify(_contract(srid=None), _contract("POINT", 4326))
 
     assert result["geometry_contract"]["live"]["srid"] is None
-    assert result["geometry_contract"]["staged"]["family"] == "point"
+    assert result["geometry_contract"]["staged"]["families"] == ["point"]

@@ -944,7 +944,10 @@ class _ServiceReupload:
             raise IngestionError(str(exc)) from exc
 
     async def stage(self, session, job, dataset) -> Verdict:
-        from app.processing.ingest.metadata import compute_table_content_digest
+        from app.processing.ingest.metadata import (
+            compute_table_content_digest,
+            get_geometry_types,
+        )
 
         schema = _current_tenant_schema()
         staged = await _stage_service_table(
@@ -1009,13 +1012,17 @@ class _ServiceReupload:
             staged_srid=srid,
             staged_coordinate_dimension=coordinate_dimension,
             live=refresh_policy.geometry_contract(
-                geometry_type=dataset.geometry_type,
+                geometry_types=await get_geometry_types(
+                    session, dataset.table_name, schema=schema
+                ),
                 srid=dataset.srid,
                 is_3d=dataset.is_3d,
                 n_dims=dataset.n_dims,
             ),
             staged=refresh_policy.geometry_contract(
-                geometry_type=self.measurement.geometry_type,
+                geometry_types=await get_geometry_types(
+                    session, self.staging_table, schema=schema
+                ),
                 srid=self.measurement.metadata.get("srid"),
                 is_3d=self.measurement.three_d.get("is_3d"),
                 n_dims=self.measurement.three_d.get("n_dims"),

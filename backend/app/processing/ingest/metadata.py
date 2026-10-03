@@ -48,6 +48,7 @@ from app.processing.ingest.metadata_extent import (
     get_extent,  # noqa: F401
     get_feature_count,  # noqa: F401
     get_geometry_type,  # noqa: F401
+    get_geometry_types,  # noqa: F401
     get_sample_values,  # noqa: F401
     get_table_srid,  # noqa: F401
     promote_z_to_elev,  # noqa: F401
@@ -153,6 +154,7 @@ __all__ = [
     "get_extent",
     "get_feature_count",
     "get_geometry_type",
+    "get_geometry_types",
     "get_sample_values",
     "get_table_srid",
     "grant_reader_access",

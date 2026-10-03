@@ -153,6 +153,25 @@ async def get_geometry_type(
     return _normalize_geometry_type(value)
 
 
+async def get_geometry_types(
+    session: AsyncSession, table_name: str, *, schema: str = "data"
+) -> list[str]:
+    """Return every distinct geometry type in the table, normalized and sorted.
+
+    Empty when the table has no geometry column or no geometry rows.
+    """
+    if not await _table_has_geometry(session, table_name, schema=schema):
+        return []
+    result = await session.execute(
+        text(
+            # codeql[py/sql-injection] fix(#1615): identifiers validated by _qtable (metadata_sql.py)
+            f"SELECT DISTINCT GeometryType(geom) FROM "
+            f"{_qtable(table_name, schema=schema)} WHERE geom IS NOT NULL"
+        )
+    )
+    return sorted({_normalize_geometry_type(value) for value in result.scalars()})
+
+
 async def get_feature_count(
     session: AsyncSession, table_name: str, *, schema: str = "data"
 ) -> int:

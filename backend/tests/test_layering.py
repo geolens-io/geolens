@@ -1301,7 +1301,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/maps/schemas.py": 1397,
     # Metadata facade preserves the import and patch surface used by extensions and
     # callers.
-    "backend/app/processing/ingest/metadata.py": 167,
+    "backend/app/processing/ingest/metadata.py": 169,
     # Ingest API router debt; split upload, import and registration endpoints before
     # raising further. Each upload door branches once per 3D upload kind: a 3D
     # Tiles tileset and a COPC point cloud.
@@ -1317,7 +1317,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # replacement share.
     "backend/app/processing/ingest/tasks_common.py": 1803,
     # File and remote-source replacement strategies own retrieval, staging and verification.
-    "backend/app/processing/ingest/tasks_reupload.py": 1212,
+    "backend/app/processing/ingest/tasks_reupload.py": 1219,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection.
     "backend/app/modules/catalog/datasets/api/router_refresh.py": 1397,

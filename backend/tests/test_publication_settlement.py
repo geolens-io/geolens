@@ -30,6 +30,9 @@ pytestmark = pytest.mark.anyio
 _WFS = "https://services.example.test/wfs"
 _BINDING = {"service_type": "wfs", "url": _WFS, "layer_id": "roads"}
 
+_POLYGON = "POLYGON((0 0, 1 0, 1 1, 0 1, 0 0))"
+_POINT = "POINT(5 5)"
+
 # What each test's candidates left behind: (record id, job id, live table).
 _created: list[tuple[uuid.UUID, uuid.UUID, str]] = []
 
@@ -90,7 +93,7 @@ def _fetch(
     expected_feature_count: int | None,
     during=None,
     geometry: str = "Point",
-    wkt: str | None = None,
+    wkt: str | list[str] | None = None,
 ):
     """Stand in for the service fetch: one staged row, and the source's own count."""
 
@@ -103,14 +106,15 @@ def _fetch(
                     f"(id serial PRIMARY KEY, name text, geom geometry({geometry}, 4326))"
                 )
             )
-            await session.execute(
-                sa.text(
-                    f'INSERT INTO "{schema}"."{staging_table}" (name, geom) '
-                    "VALUES ('candidate', "
-                    + (f"ST_GeomFromText('{wkt}', 4326)" if wkt else "NULL")
-                    + ")"
+            for geom in [wkt] if isinstance(wkt, str) or wkt is None else wkt:
+                await session.execute(
+                    sa.text(
+                        f'INSERT INTO "{schema}"."{staging_table}" (name, geom) '
+                        "VALUES ('candidate', "
+                        + (f"ST_GeomFromText('{geom}', 4326)" if geom else "NULL")
+                        + ")"
+                    )
                 )
-            )
             await session.commit()
         if during is not None:
             await during()
@@ -261,6 +265,13 @@ async def test_a_refresh_that_changes_the_geometry_family_waits_for_review(
 ):
     """A polygon fetch over a point dataset is held and leaves the live data alone."""
     dataset, job, admin_id = await _candidate(test_db_session, refresh=True)
+    await test_db_session.execute(
+        sa.text(
+            f'UPDATE data."{dataset.table_name}" '
+            f"SET geom = ST_GeomFromText('{_POINT}', 4326)"
+        )
+    )
+    await test_db_session.commit()
     polygon = _fetch(1, geometry="Polygon", wkt="POLYGON((0 0, 1 0, 1 1, 0 1, 0 0))")
 
     await _reupload(dataset, job, admin_id, fetch=polygon)
@@ -277,6 +288,63 @@ async def test_a_refresh_that_changes_the_geometry_family_waits_for_review(
             dataset.current_version,
         )
     assert _sent(quiet) == []
+
+
+async def _polygon_dataset(session) -> tuple[Dataset, IngestJob, uuid.UUID]:
+    """A refreshable dataset whose live table holds one polygon."""
+    dataset, job, admin_id = await _candidate(session, refresh=True)
+    await session.execute(
+        sa.text(
+            f'ALTER TABLE data."{dataset.table_name}" '
+            "ALTER COLUMN geom TYPE geometry(Geometry, 4326)"
+        )
+    )
+    await session.execute(
+        sa.text(
+            f'UPDATE data."{dataset.table_name}" '
+            f"SET geom = ST_GeomFromText('{_POLYGON}', 4326)"
+        )
+    )
+    await session.execute(
+        sa.text("UPDATE catalog.datasets SET geometry_type = 'POLYGON' WHERE id = :id"),
+        {"id": dataset.id},
+    )
+    await session.commit()
+    return dataset, job, admin_id
+
+
+async def test_a_polygon_first_fetch_that_then_adds_points_waits_for_review(
+    test_db_session,
+):
+    """A later point row changes the staged families even when the first row is a polygon."""
+    dataset, job, admin_id = await _polygon_dataset(test_db_session)
+    mixed = _fetch(2, geometry="Geometry", wkt=[_POLYGON, _POINT])
+
+    await _reupload(dataset, job, admin_id, expected=2, fetch=mixed)
+
+    run = await _run(job.id)
+    assert run.status == "blocked"
+    assert run.verification["review_reasons"] == ["geometry_type_changed"]
+    assert await _live(dataset) == "original"
+
+
+async def test_a_mixed_fetch_in_another_row_order_matches_a_mixed_dataset(
+    test_db_session,
+):
+    """The same families in a different row order are not a geometry change."""
+    dataset, job, admin_id = await _polygon_dataset(test_db_session)
+    await test_db_session.execute(
+        sa.text(
+            f'INSERT INTO data."{dataset.table_name}" (name, geom) '
+            f"VALUES ('point', ST_GeomFromText('{_POINT}', 4326))"
+        )
+    )
+    await test_db_session.commit()
+    mixed = _fetch(2, geometry="Geometry", wkt=[_POINT, _POLYGON])
+
+    await _reupload(dataset, job, admin_id, expected=2, fetch=mixed)
+
+    assert (await _run(job.id)).status == "succeeded"
 
 
 async def test_a_refresh_that_swaps_m_for_z_waits_for_review(test_db_session):

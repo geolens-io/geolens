@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -22,7 +23,7 @@ _GEOMETRY_FAMILIES = {
 class GeometryContract:
     """The geometry facts a refresh is compared on; ``None`` means unknown."""
 
-    family: str | None
+    families: frozenset[str] | None
     srid: int | None
     is_3d: bool | None
     n_dims: int | None
@@ -30,14 +31,24 @@ class GeometryContract:
 
 def geometry_contract(
     *,
-    geometry_type: str | None,
+    geometry_types: Iterable[str] | None,
     srid: int | None,
     is_3d: bool | None,
     n_dims: int | None,
 ) -> GeometryContract:
-    """Fold a catalog geometry type into a family; generic types are unknown."""
-    family = _GEOMETRY_FAMILIES.get((geometry_type or "").upper())
-    return GeometryContract(family=family, srid=srid, is_3d=is_3d, n_dims=n_dims)
+    """Fold the distinct geometry types a table holds into a set of families.
+
+    Single and multi fold together and the generic type is dropped; no known
+    family means the contract has no families to compare.
+    """
+    families = frozenset(
+        family
+        for geometry_type in geometry_types or ()
+        if (family := _GEOMETRY_FAMILIES.get(geometry_type.upper()))
+    )
+    return GeometryContract(
+        families=families or None, srid=srid, is_3d=is_3d, n_dims=n_dims
+    )
 
 
 def _has_m(contract: GeometryContract) -> bool | None:
@@ -68,7 +79,7 @@ def review_reasons(
         reasons.append("empty_result")
     if schema_diff.get("columns_removed") or schema_diff.get("type_changes"):
         reasons.append("destructive_schema_change")
-    if live.family and staged.family and live.family != staged.family:
+    if live.families and staged.families and live.families != staged.families:
         reasons.append("geometry_type_changed")
     if live.srid is not None and staged.srid is not None and live.srid != staged.srid:
         reasons.append("srid_changed")
@@ -164,7 +175,10 @@ def verify_service_refresh(
     if strong_arcgis_policy and membership_status != "matched":
         reasons.append("arcgis_source_membership_changed")
 
-    geometry_evidence = {"live": asdict(live), "staged": asdict(staged)}
+    geometry_evidence = {
+        side: {**asdict(contract), "families": sorted(contract.families or ())}
+        for side, contract in (("live", live), ("staged", staged))
+    }
     fingerprint_payload = {
         "source_binding": source_binding,
         "schema_diff": schema_diff,
