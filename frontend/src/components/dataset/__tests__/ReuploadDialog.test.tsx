@@ -486,8 +486,8 @@ describe('ReuploadDialog', () => {
     await openFileSource(user);
     await dropFile();
     const reasons = await screen.findByRole('list', { name: 'Changes that need review' });
-    expect(reasons).toHaveTextContent('The refresh removes columns or changes their types.');
-    expect(reasons).toHaveTextContent('The refresh changes the geometry type.');
+    expect(reasons).toHaveTextContent('The new data removes columns or changes their types.');
+    expect(reasons).toHaveTextContent('The new data changes the geometry type.');
     await user.click(screen.getByRole('button', { name: 'Confirm Re-Upload' }));
 
     await waitFor(() => {

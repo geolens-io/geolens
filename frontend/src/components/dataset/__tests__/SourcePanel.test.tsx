@@ -1054,10 +1054,10 @@ describe('SourcePanel', () => {
     expect(screen.getByText('Source: 0 · fetched: 0')).toBeInTheDocument();
     expect(screen.getByText(/Scheduled for/)).toBeInTheDocument();
     expect(screen.getByText('Source used: https://example.com/wfs')).toBeInTheDocument();
-    expect(screen.getByText('The refresh changes the geometry type.')).toBeInTheDocument();
-    expect(screen.getByText('The refresh changes the coordinate system.')).toBeInTheDocument();
+    expect(screen.getByText('The new data changes the geometry type.')).toBeInTheDocument();
+    expect(screen.getByText('The new data changes the coordinate system.')).toBeInTheDocument();
     expect(
-      screen.getByText('The refresh drops coordinate dimensions such as elevation.'),
+      screen.getByText('The new data drops coordinate dimensions such as elevation.'),
     ).toBeInTheDocument();
     expect(
       screen.getByText('GeoLens could not verify ArcGIS object ID coverage.'),
@@ -1196,7 +1196,7 @@ describe('SourcePanel', () => {
       />,
     );
 
-    expect(screen.getByText('The refresh removes columns or changes their types.')).toBeInTheDocument();
+    expect(screen.getByText('The new data removes columns or changes their types.')).toBeInTheDocument();
     expect(screen.queryByText('Source count unavailable.')).not.toBeInTheDocument();
     expect(screen.queryByText('Record identities were not compared.')).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Review and retry' }));
