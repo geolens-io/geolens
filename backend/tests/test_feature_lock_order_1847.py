@@ -2453,9 +2453,7 @@ _CONDITIONAL_ACQUISITION = {
 }
 
 
-# Functions a caller reaches only after its own commit, which write only in
-# sessions they open, so none of their writes joins the caller's transaction.
-# Their own bodies are still scanned; only the edge into a caller is cut.
+# Callees whose writes join no caller transaction; only the edge into a caller is cut.
 _OWN_TRANSACTION_CALLEES = {
     "app.processing.ingest.publish_followups.run_publish_followups": "runs after its caller's commit, in sessions it opens",
 }
