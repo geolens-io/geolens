@@ -56,8 +56,12 @@ export async function releaseTerminalImportSession(source: StartAgainSource): Pr
       return false;
     }
   }
-  // The user may have started another import while the lookup was pending.
-  if (!ended || peek() !== session) return false;
+  if (!ended) return false;
+  // Already released (a concurrent lookup, as under StrictMode) counts as
+  // released; a different session means another import started mid-lookup.
+  const current = peek();
+  if (current === null) return true;
+  if (current !== session) return false;
   if (source === 'url') clearUrlImport();
   else clearServiceImport();
   return true;

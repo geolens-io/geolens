@@ -80,6 +80,23 @@ describe('releaseTerminalImportSession', () => {
     expect(clear).not.toHaveBeenCalled();
   });
 
+  it('releases for both of two concurrent lookups of the same ended session', async () => {
+    const session = { status: 'fulfilled', jobId: 'job-1' };
+    let current: typeof session | null = session;
+    vi.spyOn(serviceSession, 'peekServiceImport').mockImplementation(() => current as never);
+    vi.spyOn(serviceSession, 'clearServiceImport').mockImplementation(() => {
+      current = null;
+    });
+    mockGetJobStatus.mockResolvedValue({ status: 'failed' });
+
+    const results = await Promise.all([
+      releaseTerminalImportSession('service'),
+      releaseTerminalImportSession('service'),
+    ]);
+
+    expect(results).toEqual([true, true]);
+  });
+
   it('keeps the session when the lookup fails', async () => {
     const clear = retainSession('job-1', 'fulfilled');
     mockGetJobStatus.mockRejectedValue(new Error('network'));
