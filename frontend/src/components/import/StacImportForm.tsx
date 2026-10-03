@@ -395,7 +395,6 @@ export function StacImportForm() {
       return;
     }
     const gen = ++searchGenRef.current;
-    setNextPage(null);
     setFilterError(null);
     setFiltering(true);
     setLoadingMore(false);
@@ -1011,7 +1010,7 @@ export function StacImportForm() {
             </label>
             <Button
               size="sm"
-              disabled={selectedItems.size === 0}
+              disabled={selectedItems.size === 0 || filtering}
               onClick={() => setStep('confirm')}
             >
               {selectedItems.size > 0 ? t('stac.importItems', { count: selectedItems.size }) : t('stac.importLabel')}
@@ -1117,7 +1116,7 @@ export function StacImportForm() {
               type="button"
               variant="outline"
               size="sm"
-              disabled={loadingMore}
+              disabled={loadingMore || filtering}
               onClick={handleLoadMore}
             >
               {t('stac.loadMore')}

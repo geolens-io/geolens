@@ -327,26 +327,71 @@ describe('StacImportForm stale search responses', () => {
   });
 });
 
-describe('StacImportForm Load more while Apply is pending', () => {
+describe('StacImportForm while a filtered search is pending', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  test('the old cursor is withdrawn until the filtered search settles', async () => {
-    const link = { method: 'GET' as const, href: 'https://example.com/stac/search?t=2' };
-    const user = await driveToItemsStep(page(['a'], { next_page: link }));
+  const link = { method: 'GET' as const, href: 'https://example.com/stac/search?t=2' };
+
+  async function startPendingApply(user: ReturnType<typeof userEvent.setup>) {
     const applied = deferred<unknown>();
     mockSearchStacItems.mockReturnValueOnce(applied.promise);
     await user.type(screen.getByLabelText('stac.filterBbox'), '-10, -10, 10, 10');
     await user.click(screen.getByRole('button', { name: 'stac.filterApply' }));
+    return applied;
+  }
 
-    expect(screen.queryByRole('button', { name: 'stac.loadMore' })).not.toBeInTheDocument();
+  test('Load more is disabled until the filtered search settles', async () => {
+    const user = await driveToItemsStep(page(['a'], { next_page: link }));
+    const applied = await startPendingApply(user);
+
+    expect(screen.getByRole('button', { name: 'stac.loadMore' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'stac.loadMore' }));
     expect(mockSearchStacItems).toHaveBeenCalledTimes(2);
 
     applied.resolve(page(['filtered']));
     await waitFor(() => screen.getByText('filtered'));
     expect(screen.queryByText('a')).not.toBeInTheDocument();
     expect(mockSearchStacItems).toHaveBeenCalledTimes(2);
+  });
+
+  test('Import is disabled and the selection survives while it is pending', async () => {
+    const user = await driveToItemsStep(page(['a', 'b']));
+    await user.click(screen.getAllByRole('checkbox')[1]);
+    const importButton = screen.getByRole('button', { name: /stac.importItems/ });
+    expect(importButton).toBeEnabled();
+
+    const applied = await startPendingApply(user);
+
+    expect(screen.getByRole('button', { name: /stac.importItems/ })).toBeDisabled();
+    expect((screen.getAllByRole('checkbox')[1] as HTMLInputElement).checked).toBe(true);
+    applied.resolve(page(['filtered']));
+    await waitFor(() => screen.getByText('filtered'));
+  });
+
+  test('a failed filtered search keeps the loaded pages and Load more', async () => {
+    const second = { method: 'GET' as const, href: 'https://example.com/stac/search?t=3' };
+    const user = await driveToItemsStep(page(['a'], { next_page: link }));
+    mockSearchStacItems.mockResolvedValueOnce(page(['b'], { next_page: second }));
+    await user.click(screen.getByRole('button', { name: 'stac.loadMore' }));
+    await waitFor(() => screen.getByText('b'));
+
+    mockSearchStacItems.mockRejectedValueOnce(new Error('boom'));
+    await user.type(screen.getByLabelText('stac.filterBbox'), '-10, -10, 10, 10');
+    await user.click(screen.getByRole('button', { name: 'stac.filterApply' }));
+    await screen.findByTestId('stac-filter-error');
+
+    expect(screen.getByText('a')).toBeInTheDocument();
+    expect(screen.getByText('b')).toBeInTheDocument();
+    const more = screen.getByRole('button', { name: 'stac.loadMore' });
+    expect(more).toBeEnabled();
+
+    mockSearchStacItems.mockResolvedValueOnce(page(['c']));
+    await user.click(more);
+    await waitFor(() => screen.getByText('c'));
+    expect(mockSearchStacItems.mock.calls[3][0]).toMatchObject({ next_page: second });
+    expect(mockSearchStacItems.mock.calls[3][0]).not.toHaveProperty('bbox');
   });
 });
 
