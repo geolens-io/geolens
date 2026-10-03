@@ -22244,7 +22244,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description Service unavailable — the database could not serve the request */
+            /** @description Service unavailable — the configuration could not be applied */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -38853,6 +38853,15 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
+            /** @description Conflict — another embedding change holds the lock */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
             /** @description Validation error */
             422: {
                 headers: {
@@ -38882,7 +38891,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description Service unavailable — the database could not serve the request */
+            /** @description Service unavailable — the embedding vector column could not be rebuilt */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -40280,6 +40289,15 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
+            /** @description Conflict — another embedding change holds the lock */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
             /** @description Validation error */
             422: {
                 headers: {
@@ -40309,7 +40327,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description Service unavailable — the database could not serve the request */
+            /** @description Service unavailable — the embedding vector column could not be rebuilt */
             503: {
                 headers: {
                     [name: string]: unknown;

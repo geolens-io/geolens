@@ -164,6 +164,21 @@ QUEUE_UNAVAILABLE_RESPONSE = {
     "description": "Service unavailable — the background job queue could not be reached",
 }
 
+EMBEDDING_CHANGE_CONFLICT_RESPONSE = {
+    **PROBLEM_RESPONSE,
+    "description": "Conflict — another embedding change holds the lock",
+}
+
+EMBEDDING_REBUILD_UNAVAILABLE_RESPONSE = {
+    **PROBLEM_RESPONSE,
+    "description": "Service unavailable — the embedding vector column could not be rebuilt",
+}
+
+CONFIG_APPLY_UNAVAILABLE_RESPONSE = {
+    **PROBLEM_RESPONSE,
+    "description": "Service unavailable — the configuration could not be applied",
+}
+
 ERROR_RESPONSES_AUTH = {
     400: BAD_REQUEST_RESPONSE,
     401: {

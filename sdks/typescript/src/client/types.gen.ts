@@ -16795,7 +16795,7 @@ export type ImportConfigurationConfigOpsImportPostErrors = {
      */
     500: ProblemDetail;
     /**
-     * Service unavailable — the database could not serve the request
+     * Service unavailable — the configuration could not be applied
      */
     503: ProblemDetail;
 };
@@ -27052,6 +27052,10 @@ export type UpdateSettingsSettingsPutErrors = {
      */
     404: ProblemDetail;
     /**
+     * Conflict — another embedding change holds the lock
+     */
+    409: ProblemDetail;
+    /**
      * Validation error
      */
     422: ProblemDetail;
@@ -27064,7 +27068,7 @@ export type UpdateSettingsSettingsPutErrors = {
      */
     500: ProblemDetail;
     /**
-     * Service unavailable — the database could not serve the request
+     * Service unavailable — the embedding vector column could not be rebuilt
      */
     503: ProblemDetail;
 };
@@ -27898,6 +27902,10 @@ export type ResetSettingsSettingsResetPostErrors = {
      */
     404: ProblemDetail;
     /**
+     * Conflict — another embedding change holds the lock
+     */
+    409: ProblemDetail;
+    /**
      * Validation error
      */
     422: ProblemDetail;
@@ -27910,7 +27918,7 @@ export type ResetSettingsSettingsResetPostErrors = {
      */
     500: ProblemDetail;
     /**
-     * Service unavailable — the database could not serve the request
+     * Service unavailable — the embedding vector column could not be rebuilt
      */
     503: ProblemDetail;
 };

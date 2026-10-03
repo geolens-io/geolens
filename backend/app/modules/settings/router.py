@@ -59,7 +59,12 @@ from app.modules.settings.schemas import (
     SettingsUpdateRequest,
     TileConfigResponse,
 )
-from app.standards.ogc.errors import BAD_GATEWAY_RESPONSE, ERROR_RESPONSES_AUTH
+from app.standards.ogc.errors import (
+    BAD_GATEWAY_RESPONSE,
+    EMBEDDING_CHANGE_CONFLICT_RESPONSE,
+    EMBEDDING_REBUILD_UNAVAILABLE_RESPONSE,
+    ERROR_RESPONSES_AUTH,
+)
 from app.modules.settings.router_public import router as public_router
 
 # Phase 1229 Plan 03 — channel functions imported at module level so tests can
@@ -460,7 +465,14 @@ async def get_enterprise_only_tabs(
 # ROUTE-01 (Phase 1092): dual-shape decorator — see /all above. The empty
 # path "" registers PUT /settings (prefix-only, no trailing slash).
 @router.put("", response_model=SettingsAllResponse, include_in_schema=False)
-@router.put("/", response_model=SettingsAllResponse)
+@router.put(
+    "/",
+    response_model=SettingsAllResponse,
+    responses={
+        409: EMBEDDING_CHANGE_CONFLICT_RESPONSE,
+        503: EMBEDDING_REBUILD_UNAVAILABLE_RESPONSE,
+    },
+)
 @limiter.limit("30/minute")  # HARDEN-02: rate-limit settings mutations per client IP
 async def update_settings(
     body: SettingsUpdateRequest,
@@ -612,7 +624,14 @@ async def update_settings(
 
 # ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
 @router.post("/reset", response_model=SettingsAllResponse, include_in_schema=False)
-@router.post("/reset/", response_model=SettingsAllResponse)
+@router.post(
+    "/reset/",
+    response_model=SettingsAllResponse,
+    responses={
+        409: EMBEDDING_CHANGE_CONFLICT_RESPONSE,
+        503: EMBEDDING_REBUILD_UNAVAILABLE_RESPONSE,
+    },
+)
 @limiter.limit("30/minute")
 async def reset_settings(
     body: SettingsResetRequest,
