@@ -27,6 +27,7 @@ import io
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -1068,15 +1069,31 @@ class Api:
         return r.json().get("results", r.json())
 
 
+FETCH_ATTEMPTS = 3
+
+
 def fetch(url: str) -> bytes:
-    r = httpx.get(
-        url,
-        follow_redirects=True,
-        timeout=180.0,
-        headers={"User-Agent": "geolens-showcase-seeder/2.0"},
-    )
-    r.raise_for_status()
-    return r.content
+    """Download url, retrying connect errors and timeouts with backoff.
+
+    An HTTP error status is a real answer from the upstream and is raised at once.
+    """
+    for attempt in range(1, FETCH_ATTEMPTS + 1):
+        try:
+            r = httpx.get(
+                url,
+                follow_redirects=True,
+                timeout=180.0,
+                headers={"User-Agent": "geolens-showcase-seeder/2.0"},
+            )
+        except (httpx.ConnectError, httpx.TimeoutException) as e:
+            if attempt == FETCH_ATTEMPTS:
+                raise
+            delay = 5 * 2 ** (attempt - 1)
+            print(f"  ! {url}: {e!r}; retrying in {delay}s ({attempt}/{FETCH_ATTEMPTS})")
+            time.sleep(delay)
+        else:
+            r.raise_for_status()
+            return r.content
 
 
 def step_expr(column: str, breaks: list, colors: list) -> list:
@@ -6576,6 +6593,107 @@ def _backfill_thumbnails(base_url: str, username: str, password: str) -> None:
         )
 
 
+EMBEDDINGS_POLL_ATTEMPTS = 10
+EMBEDDINGS_POLL_INTERVAL = 5
+
+
+def _semantic_setting_source(api: Api) -> str | None:
+    r = api.client.get(f"{api.base}/api/settings/all/", headers=api.h)
+    r.raise_for_status()
+    return next(
+        (
+            item["source"]
+            for item in r.json()["tabs"].get("ai", [])
+            if item["key"] == "semantic_search_enabled"
+        ),
+        None,
+    )
+
+
+def _run_embedding_backfill(api: Api) -> dict | None:
+    """Queue the backfill and return its finished job; None when one is already running."""
+    r = api.client.post(f"{api.base}/api/admin/backfill-embeddings/", headers=api.h)
+    if r.status_code == 409:
+        return None
+    r.raise_for_status()
+    return api.poll(r.json()["job_id"], timeout=1800)
+
+
+def enable_semantic_search(api: Api) -> None:
+    """Embed the catalog and turn semantic search on when the deployment can
+    generate embeddings and nobody has chosen a value for the setting.
+
+    Embeddings need the OpenAI-compatible key, which is separate from the chat
+    provider's, so readiness comes from /settings/api-key-status/ and the AI
+    switch rather than ai-status `configured`. No key is read. The backfill
+    runs first and the setting is flipped only after it succeeds, so a failed
+    run leaves the next seed to retry. A value an admin or the environment
+    already set is left alone.
+    """
+    status = api.client.get(f"{api.base}/api/admin/ai-status/", headers=api.h)
+    status.raise_for_status()
+    ai = status.json()
+    keys = api.client.get(f"{api.base}/api/settings/api-key-status/", headers=api.h)
+    keys.raise_for_status()
+    if not ai.get("enabled") or not keys.json().get("openai_configured"):
+        print(
+            "  Semantic search stays off: it needs AI enabled and an "
+            "OpenAI-compatible embedding key (OPENAI_API_KEY; Anthropic has no "
+            "embedding API). Set them, then enable Semantic Search and run the "
+            "embedding backfill."
+        )
+        return
+    if ai.get("semantic_search_enabled"):
+        # Only records without embeddings are embedded, so a complete catalog is
+        # zero work and an earlier partial run gets its failures retried.
+        enable = False
+    else:
+        source = _semantic_setting_source(api)
+        if source != "default":
+            print(f"  Semantic search is off by choice (source: {source}); leaving it alone.")
+            return
+        enable = True
+    print("  Generating embeddings for semantic search...")
+    job = _run_embedding_backfill(api)
+    if job is None:
+        print("  An embedding backfill is already running; rerun the seed once it finishes.")
+        return
+    # A run that embedded only some rows still finishes as complete.
+    if job.get("rows_failed"):
+        print(
+            f"  {job['rows_failed']} record(s) failed to embed; semantic search "
+            "not enabled. Rerun the seed to retry."
+        )
+        return
+    # ai-status caches has_embeddings for 30 s, so a fast run can still read False.
+    for attempt in range(EMBEDDINGS_POLL_ATTEMPTS):
+        if attempt:
+            time.sleep(EMBEDDINGS_POLL_INTERVAL)
+        after = api.client.get(f"{api.base}/api/admin/ai-status/", headers=api.h)
+        after.raise_for_status()
+        if after.json().get("has_embeddings"):
+            break
+    else:
+        # A run whose embedding config did not resolve completes having done nothing.
+        print(
+            "  The backfill produced no embeddings; semantic search not enabled. "
+            "Check the embedding model settings."
+        )
+        return
+    if enable:
+        # The backfill can take a while; an admin may have chosen a value since.
+        if _semantic_setting_source(api) != "default":
+            print("  Semantic search was set while embeddings ran; leaving it alone.")
+            return
+        put = api.client.put(
+            f"{api.base}/api/settings/",
+            headers=api.h,
+            json={"settings": {"semantic_search_enabled": True}},
+        )
+        put.raise_for_status()
+    print("  Embeddings generated; semantic search is on.")
+
+
 def _print_pinned_summary(base_url: str, username: str, password: str) -> None:
     """Print each pinned map/dataset's current id, for the geolens-examples
     handoff. Best-effort: logs in fresh and never fails the seed.
@@ -6614,6 +6732,29 @@ def _print_pinned_summary(base_url: str, username: str, password: str) -> None:
         )
     except httpx.HTTPError as e:
         print(f"\nSkipped the pinned-ids summary: {e}")
+
+
+def _rerun_command(argv: list[str], bname: str) -> str:
+    """The original command line narrowed to one builder, without the password.
+
+    argparse accepts any unambiguous prefix of a long option, so `--pass x` and
+    `--passw=x` are the password flag too.
+    """
+
+    def is_flag(arg: str, option: str) -> bool:
+        name = arg.split("=", 1)[0]
+        return len(name) > 2 and option.startswith(name)
+
+    kept: list[str] = []
+    skip_value = False
+    for arg in argv:
+        if skip_value:
+            skip_value = False
+        elif is_flag(arg, "--only") or is_flag(arg, "--password"):
+            skip_value = "=" not in arg
+        else:
+            kept.append(arg)
+    return shlex.join(["python3", "scripts/seed-showcase.py", *kept, "--only", bname])
 
 
 def main() -> int:
@@ -6727,6 +6868,12 @@ def main() -> int:
         "--execute",
         action="store_true",
         help="with --prune-userdata, actually perform the deletions",
+    )
+    ap.add_argument(
+        "--no-semantic",
+        action="store_true",
+        help="skip enabling semantic search and the embedding backfill when an "
+        "AI provider is configured",
     )
     ap.add_argument(
         "--no-thumbnails",
@@ -6871,12 +7018,7 @@ def main() -> int:
             # pinned-map rule cannot be forgotten by a builder added later; the
             # two with no map of their own ignore force_pinned (fix(#1607)).
             result = fn(api, force=args.force, force_pinned=args.force_pinned)
-        except (
-            httpx.HTTPStatusError,
-            httpx.TimeoutException,
-            RuntimeError,
-            TimeoutError,
-        ) as e:
+        except (httpx.HTTPError, RuntimeError, TimeoutError) as e:
             print(f"\nERROR in [{bname}]: {e}", file=sys.stderr)
             if isinstance(e, httpx.HTTPStatusError):
                 print(e.response.text[:500], file=sys.stderr)
@@ -6954,7 +7096,17 @@ def main() -> int:
         print("\nFAILED builders (re-run each with --only when resolved):")
         for bname, msg in failed.items():
             print(f"  {bname}: {msg[:200]}", file=sys.stderr)
+        for bname in failed:
+            if bname in fns:
+                print(f"  rerun: {_rerun_command(sys.argv[1:], bname)}", file=sys.stderr)
         return 1
+
+    if not args.no_semantic and not args.expected_state:
+        print("\nChecking semantic search...")
+        try:
+            enable_semantic_search(api)
+        except (httpx.HTTPError, RuntimeError, TimeoutError) as e:
+            print(f"  WARNING: semantic search step failed: {e}", file=sys.stderr)
 
     if not args.no_thumbnails:
         _backfill_thumbnails(args.base_url, args.username, args.password)
