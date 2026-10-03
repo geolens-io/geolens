@@ -395,6 +395,7 @@ export function StacImportForm() {
       return;
     }
     const gen = ++searchGenRef.current;
+    setNextPage(null);
     setFilterError(null);
     setFiltering(true);
     setLoadingMore(false);
@@ -426,7 +427,7 @@ export function StacImportForm() {
   // Filters come from the last applied search, not the fields, which may
   // have been edited since: the next page belongs to that search.
   const handleLoadMore = async () => {
-    if (!selectedCollection || !catalogInfo || !nextPage) return;
+    if (!selectedCollection || !catalogInfo || !nextPage || filtering) return;
     const gen = searchGenRef.current;
     setLoadingMore(true);
     setError(null);

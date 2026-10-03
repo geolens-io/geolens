@@ -327,6 +327,29 @@ describe('StacImportForm stale search responses', () => {
   });
 });
 
+describe('StacImportForm Load more while Apply is pending', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  test('the old cursor is withdrawn until the filtered search settles', async () => {
+    const link = { method: 'GET' as const, href: 'https://example.com/stac/search?t=2' };
+    const user = await driveToItemsStep(page(['a'], { next_page: link }));
+    const applied = deferred<unknown>();
+    mockSearchStacItems.mockReturnValueOnce(applied.promise);
+    await user.type(screen.getByLabelText('stac.filterBbox'), '-10, -10, 10, 10');
+    await user.click(screen.getByRole('button', { name: 'stac.filterApply' }));
+
+    expect(screen.queryByRole('button', { name: 'stac.loadMore' })).not.toBeInTheDocument();
+    expect(mockSearchStacItems).toHaveBeenCalledTimes(2);
+
+    applied.resolve(page(['filtered']));
+    await waitFor(() => screen.getByText('filtered'));
+    expect(screen.queryByText('a')).not.toBeInTheDocument();
+    expect(mockSearchStacItems).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('StacImportForm stale Apply across collection navigation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
