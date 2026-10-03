@@ -346,6 +346,10 @@ class _GeoParquetWriter:
     def stop(self) -> None:
         self._stopping.set()
 
+    def declare(self, column_types: dict[str, pa.DataType]) -> None:
+        """Set the column types, before the first ``write``."""
+        self._column_types = column_types
+
     def write(self, geom: list[bytes | None], cols: dict[str, list]) -> None:
         table = build_geoparquet_table(
             geom, cols, self._attr_names, self._geom_col, self._column_types
@@ -646,16 +650,6 @@ async def export_parquet(
     )
     geom_idx = len(attr_names)
 
-    # Types are read under a lock held until the stream ends, because the route
-    # releases its connection after planning and a reupload that swaps the
-    # table needs ACCESS EXCLUSIVE.
-    await db.execute(
-        text(f"LOCK TABLE {_qtable(table_name, schema=schema)} IN ACCESS SHARE MODE")
-    )
-    column_types = await _declared_column_types(
-        db, table_name, schema, attr_names, json_columns
-    )
-
     exports_root = ensure_staging_ready(
         os.path.join(settings.upload_staging_dir, "exports")
     )
@@ -664,15 +658,30 @@ async def export_parquet(
     # One naming rule for both verbs; see export_descriptor.
     filename, _ = export_descriptor(dataset_name, "parquet")
     output_path = os.path.join(temp_dir, filename)
-    sink = _GeoParquetWriter(
-        output_path, attr_names, _geometry_column_name(attr_names), column_types
-    )
+    sink = _GeoParquetWriter(output_path, attr_names, _geometry_column_name(attr_names))
+
+    async def _declare_and_write() -> None:
+        # Types are read under a lock held until the stream ends, because the
+        # route releases its connection after planning and a reupload that swaps
+        # the table needs ACCESS EXCLUSIVE. The wait for the lock is bounded by
+        # the same budget as the stream.
+        await db.execute(
+            text(
+                f"LOCK TABLE {_qtable(table_name, schema=schema)} IN ACCESS SHARE MODE"
+            )
+        )
+        sink.declare(
+            await _declared_column_types(
+                db, table_name, schema, attr_names, json_columns
+            )
+        )
+        await _write_batches(sink, db, sql, params, attr_names, geom_idx)
 
     row_stream_timeout = export_subprocess_timeout_seconds(deadline)
     try:
         try:
             await asyncio.wait_for(
-                _write_batches(sink, db, sql, params, attr_names, geom_idx),
+                _declare_and_write(),
                 timeout=row_stream_timeout,
             )
         except asyncio.TimeoutError:

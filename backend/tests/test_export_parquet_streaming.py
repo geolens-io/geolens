@@ -27,6 +27,7 @@ import pytest
 from sqlalchemy import text
 
 from app.processing.export import parquet as export_parquet_module
+from app.processing.export.ogr import ExportError
 from app.processing.export.parquet import (
     ParquetExportPlan,
     _GeoParquetWriter,
@@ -943,6 +944,46 @@ class TestRealTable:
                 text(f"DROP TABLE IF EXISTS data.{table_name}")
             )
             await test_db_session.commit()
+
+    @pytest.mark.anyio
+    async def test_a_table_lock_wait_is_bounded_by_the_export_budget(
+        self, test_db_session, staging, monkeypatch
+    ):
+        """DDL holding ACCESS EXCLUSIVE must not keep the export waiting past
+        its budget."""
+        import app.core.db as db_module
+
+        monkeypatch.setattr(
+            export_parquet_module, "export_subprocess_timeout_seconds", lambda d: 0.5
+        )
+        table_name = f"exp_pqlock_{uuid.uuid4().hex[:12]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table_name} (gid serial PRIMARY KEY, "
+                "geom geometry(Point, 4326), geom_4326 geometry(Point, 4326))"
+            )
+        )
+        await test_db_session.commit()
+        plan = await plan_parquet_export(test_db_session, table_name, schema="data")
+        await test_db_session.rollback()
+        async with db_module.async_session() as holder:
+            try:
+                await holder.execute(
+                    text(f"LOCK TABLE data.{table_name} IN ACCESS EXCLUSIVE MODE")
+                )
+                started = time.monotonic()
+                with pytest.raises(ExportError, match="timed out"):
+                    await export_parquet(
+                        test_db_session, table_name, "Lock", schema="data", plan=plan
+                    )
+                assert time.monotonic() - started < 5
+            finally:
+                await holder.rollback()
+                await test_db_session.rollback()
+                await test_db_session.execute(
+                    text(f"DROP TABLE IF EXISTS data.{table_name}")
+                )
+                await test_db_session.commit()
 
 
 def test_a_value_the_declared_type_would_alter_falls_back_to_text():
