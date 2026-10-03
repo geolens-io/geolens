@@ -1068,15 +1068,31 @@ class Api:
         return r.json().get("results", r.json())
 
 
+FETCH_ATTEMPTS = 3
+
+
 def fetch(url: str) -> bytes:
-    r = httpx.get(
-        url,
-        follow_redirects=True,
-        timeout=180.0,
-        headers={"User-Agent": "geolens-showcase-seeder/2.0"},
-    )
-    r.raise_for_status()
-    return r.content
+    """Download url, retrying connect errors and timeouts with backoff.
+
+    An HTTP error status is a real answer from the upstream and is raised at once.
+    """
+    for attempt in range(1, FETCH_ATTEMPTS + 1):
+        try:
+            r = httpx.get(
+                url,
+                follow_redirects=True,
+                timeout=180.0,
+                headers={"User-Agent": "geolens-showcase-seeder/2.0"},
+            )
+        except (httpx.ConnectError, httpx.TimeoutException) as e:
+            if attempt == FETCH_ATTEMPTS:
+                raise
+            delay = 5 * 2 ** (attempt - 1)
+            print(f"  ! {url}: {e!r}; retrying in {delay}s ({attempt}/{FETCH_ATTEMPTS})")
+            time.sleep(delay)
+        else:
+            r.raise_for_status()
+            return r.content
 
 
 def step_expr(column: str, breaks: list, colors: list) -> list:
@@ -6576,6 +6592,54 @@ def _backfill_thumbnails(base_url: str, username: str, password: str) -> None:
         )
 
 
+def enable_semantic_search(api: Api) -> None:
+    """Turn semantic search on and embed the catalog when the deployment has a
+    provider key and nobody has chosen a value for the setting.
+
+    The key itself is never read: /admin/ai-status/ only reports whether one
+    exists. A value an admin or the environment already set is left alone.
+    """
+    status = api.client.get(f"{api.base}/api/admin/ai-status/", headers=api.h)
+    status.raise_for_status()
+    ai = status.json()
+    if not ai.get("configured"):
+        print(
+            "  Semantic search stays off: no AI provider key is configured, so "
+            "there is nothing to embed with. Add one in Settings > AI, then "
+            "enable Semantic Search and run the embedding backfill."
+        )
+        return
+    if ai.get("semantic_search_enabled"):
+        print("  Semantic search is already on; leaving it and its embeddings alone.")
+        return
+    all_settings = api.client.get(f"{api.base}/api/settings/all/", headers=api.h)
+    all_settings.raise_for_status()
+    source = next(
+        (
+            item["source"]
+            for item in all_settings.json()["tabs"].get("ai", [])
+            if item["key"] == "semantic_search_enabled"
+        ),
+        None,
+    )
+    if source != "default":
+        print(
+            f"  Semantic search is off by choice (source: {source}); leaving it alone."
+        )
+        return
+    put = api.client.put(
+        f"{api.base}/api/settings/",
+        headers=api.h,
+        json={"settings": {"semantic_search_enabled": True}},
+    )
+    put.raise_for_status()
+    print("  Semantic search enabled; queueing the embedding backfill...")
+    queued = api.client.post(f"{api.base}/api/admin/backfill-embeddings/", headers=api.h)
+    queued.raise_for_status()
+    api.poll(queued.json()["job_id"], timeout=1800)
+    print("  Embedding backfill complete.")
+
+
 def _print_pinned_summary(base_url: str, username: str, password: str) -> None:
     """Print each pinned map/dataset's current id, for the geolens-examples
     handoff. Best-effort: logs in fresh and never fails the seed.
@@ -6727,6 +6791,12 @@ def main() -> int:
         "--execute",
         action="store_true",
         help="with --prune-userdata, actually perform the deletions",
+    )
+    ap.add_argument(
+        "--no-semantic",
+        action="store_true",
+        help="skip enabling semantic search and the embedding backfill when an "
+        "AI provider is configured",
     )
     ap.add_argument(
         "--no-thumbnails",
@@ -6954,7 +7024,26 @@ def main() -> int:
         print("\nFAILED builders (re-run each with --only when resolved):")
         for bname, msg in failed.items():
             print(f"  {bname}: {msg[:200]}", file=sys.stderr)
+        for bname in failed:
+            if bname in fns:
+                print(
+                    f"  rerun: python3 scripts/seed-showcase.py "
+                    f"--base-url {args.base_url} --only {bname}",
+                    file=sys.stderr,
+                )
         return 1
+
+    if not args.no_semantic and not args.expected_state:
+        print("\nChecking semantic search...")
+        try:
+            enable_semantic_search(api)
+        except (
+            httpx.HTTPStatusError,
+            httpx.TimeoutException,
+            RuntimeError,
+            TimeoutError,
+        ) as e:
+            print(f"  WARNING: semantic search step failed: {e}", file=sys.stderr)
 
     if not args.no_thumbnails:
         _backfill_thumbnails(args.base_url, args.username, args.password)
