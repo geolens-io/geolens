@@ -538,16 +538,16 @@ async def search_stac_items(
     data = json.loads(raw)
 
     features = data.get("features", [])
-    # Items past the hard cap are dropped, which leaves the catalog's cursor
-    # beyond them; every other page is kept whole so the cursor stays valid.
-    over_returned = len(features) > MAX_SEARCH_ITEMS
-    if len(features) > limit:
+    # Items past the limit are dropped, which leaves the catalog's cursor
+    # beyond them, so such a page ends paging rather than skipping items.
+    over_returned = len(features) > limit
+    if over_returned:
         logger.warning(
             "STAC search: server returned more items than requested",
             requested=limit,
             returned=len(features),
         )
-        features = features[:MAX_SEARCH_ITEMS]
+        features = features[:limit]
     matched = data.get("numberMatched") or data.get("context", {}).get("matched")
 
     items = []

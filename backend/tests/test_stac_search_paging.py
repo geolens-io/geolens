@@ -230,8 +230,11 @@ class TestNextPageDerivation:
         _, sent = await _search({"features": []}, limit=50, next_page=next_page)
         assert str(sent[0].url) == href
 
-    async def test_over_returning_page_is_kept_whole_with_its_cursor(self):
-        features = [{"id": f"i{n}", "assets": {}} for n in range(80)]
+    @pytest.mark.parametrize("returned", [80, 101])
+    async def test_over_returning_page_is_cut_to_the_limit_and_ends_paging(
+        self, returned
+    ):
+        features = [{"id": f"i{n}", "assets": {}} for n in range(returned)]
         result, _ = await _search(
             {
                 "features": features,
@@ -239,19 +242,7 @@ class TestNextPageDerivation:
             },
             limit=50,
         )
-        assert result["returned"] == 80
-        assert result["next_page"] is not None
-
-    async def test_page_beyond_the_hard_maximum_is_cut_and_ends_paging(self):
-        features = [{"id": f"i{n}", "assets": {}} for n in range(101)]
-        result, _ = await _search(
-            {
-                "features": features,
-                "links": [{"rel": "next", "href": f"{CATALOG}/search?offset=101"}],
-            },
-            limit=50,
-        )
-        assert result["returned"] == 100
+        assert result["returned"] == 50
         assert result["next_page"] is None
 
     async def test_get_follow_up_is_a_bodyless_get_of_the_link(self):
