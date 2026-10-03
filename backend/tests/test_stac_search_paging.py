@@ -51,6 +51,39 @@ class TestSearchRequestBuilding:
         assert body["collections"] == ["c1"]
 
 
+class TestCloudCoverFilter:
+    async def test_query_extension_body(self):
+        _, sent = await _search(
+            {"features": []}, max_cloud_cover=20, cloud_cover_mode="query"
+        )
+        body = json.loads(sent[0].content)
+        assert body["query"] == {"eo:cloud_cover": {"lte": 20}}
+        assert "filter" not in body
+
+    async def test_cql2_filter_body(self):
+        _, sent = await _search(
+            {"features": []}, max_cloud_cover=20, cloud_cover_mode="filter"
+        )
+        body = json.loads(sent[0].content)
+        assert body["filter-lang"] == "cql2-json"
+        assert body["filter"] == {
+            "op": "<=",
+            "args": [{"property": "eo:cloud_cover"}, 20],
+        }
+        assert "query" not in body
+
+    async def test_zero_is_a_real_limit(self):
+        _, sent = await _search(
+            {"features": []}, max_cloud_cover=0, cloud_cover_mode="query"
+        )
+        assert json.loads(sent[0].content)["query"] == {"eo:cloud_cover": {"lte": 0}}
+
+    async def test_no_filter_without_a_limit(self):
+        _, sent = await _search({"features": []}, cloud_cover_mode="query")
+        body = json.loads(sent[0].content)
+        assert "query" not in body and "filter" not in body
+
+
 class TestNextPageDerivation:
     async def test_post_next_link_is_returned(self):
         result, _ = await _search(
@@ -225,3 +258,70 @@ class TestNextPageRoute:
         sent = search.call_args.kwargs["next_page"]
         assert sent["href"] == f"{CATALOG}/search"
         assert sent["body"] == {"next": "abc"}
+
+
+class TestCloudCoverRoute:
+    async def test_limit_without_a_mode_is_refused(
+        self, client: AsyncClient, admin_auth_header: dict, mock_search
+    ):
+        search, _ = mock_search
+        resp = await client.post(
+            "/services/stac/search",
+            json={"url": CATALOG, "max_cloud_cover": 10},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 422
+        search.assert_not_called()
+
+    async def test_limit_and_mode_reach_the_adapter(
+        self, client: AsyncClient, admin_auth_header: dict, mock_search
+    ):
+        search, _ = mock_search
+        resp = await client.post(
+            "/services/stac/search",
+            json={
+                "url": CATALOG,
+                "max_cloud_cover": 10,
+                "cloud_cover_mode": "filter",
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        assert search.call_args.kwargs["max_cloud_cover"] == 10
+        assert search.call_args.kwargs["cloud_cover_mode"] == "filter"
+
+
+class TestConnectConformance:
+    async def test_connect_returns_the_advertised_conformance_classes(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        landing = {
+            "id": "cat",
+            "title": "Cat",
+            "description": "",
+            "stac_version": "1.0.0",
+            "conforms_to": [
+                "https://api.stacspec.org/v1.0.0/item-search#query",
+                {"not": "a string"},
+            ],
+        }
+        with (
+            patch(
+                "app.modules.catalog.sources.stac_router.validate_url_for_ssrf",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.modules.catalog.sources.stac_router.connect_stac_api",
+                new_callable=AsyncMock,
+                return_value=landing,
+            ),
+        ):
+            resp = await client.post(
+                "/services/stac/connect",
+                json={"url": CATALOG},
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == 200
+        assert resp.json()["conforms_to"] == [
+            "https://api.stacspec.org/v1.0.0/item-search#query"
+        ]

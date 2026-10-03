@@ -250,7 +250,9 @@
     "filterApply": "Apply filters",
     "filterDateOrder": "The start date must not be after the end date.",
     "filterBboxInvalid": "Enter four numbers as west, south, east, north (longitude -180 to 180, latitude -90 to 90, south not above north).",
-    "loadMore": "Load more"
+    "loadMore": "Load more",
+    "filterCloud": "Max cloud cover (%)",
+    "filterCloudInvalid": "Enter a cloud cover between 0 and 100."
   },
   "serviceUrl": {
     "label": "Service URL",

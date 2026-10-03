@@ -2185,6 +2185,8 @@ export interface StacConnectResponse {
   title: string;
   description: string;
   stac_version: string;
+  /** Landing page conformance classes; absent from servers that predate the field. */
+  conforms_to?: string[];
 }
 
 export interface StacCollectionSummary {
@@ -2219,6 +2221,9 @@ export interface StacSearchRequest {
   limit?: number;
   /** The previous response's `next_page`, sent with the same filters. */
   next_page?: StacNextPage;
+  /** Percent; sent together with `cloud_cover_mode`. */
+  max_cloud_cover?: number;
+  cloud_cover_mode?: 'query' | 'filter';
   // feat(#1764): a credential for a protected catalog, applied to this call.
   auth?: ServiceAuthRequest;
 }

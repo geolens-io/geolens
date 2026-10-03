@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import replace
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict
 from urllib.parse import urljoin
 
 import httpx
@@ -440,6 +440,8 @@ async def search_stac_items(
     limit: int = 20,
     credential: ServiceCredential | None = None,
     next_page: dict[str, Any] | None = None,
+    max_cloud_cover: float | None = None,
+    cloud_cover_mode: Literal["query", "filter"] | None = None,
 ) -> dict[str, Any]:
     """Search for items in a STAC API.
 
@@ -461,6 +463,14 @@ async def search_stac_items(
         body["bbox"] = bbox
     if datetime_range:
         body["datetime"] = datetime_range
+    if max_cloud_cover is not None and cloud_cover_mode == "query":
+        body["query"] = {"eo:cloud_cover": {"lte": max_cloud_cover}}
+    elif max_cloud_cover is not None and cloud_cover_mode == "filter":
+        body["filter-lang"] = "cql2-json"
+        body["filter"] = {
+            "op": "<=",
+            "args": [{"property": "eo:cloud_cover"}, max_cloud_cover],
+        }
 
     method = "POST"
     if next_page is not None:

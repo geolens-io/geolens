@@ -105,6 +105,12 @@ async function driveToItemsStep(
   return user;
 }
 
+const QUERY = ['https://api.stacspec.org/v1.0.0/item-search#query'];
+const CQL = [
+  'https://api.stacspec.org/v1.0.0/item-search#filter',
+  'http://www.opengis.net/spec/cql2/1.0/conf/cql2-json',
+];
+
 const page = (ids: string[], extra: Record<string, unknown> = {}) => ({
   items: ids.map((id) => makeItem(id)),
   matched: 10,
@@ -207,5 +213,66 @@ describe('StacImportForm load more', () => {
   test('no Load more on the last page', async () => {
     await driveToItemsStep(page(['a']));
     expect(screen.queryByRole('button', { name: 'stac.loadMore' })).not.toBeInTheDocument();
+  });
+});
+
+describe('StacImportForm cloud cover filter', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const withCloud = (ids: string[]) => ({
+    items: ids.map((id) => makeItem(id, { cloud_cover: 12 })),
+    matched: ids.length,
+    returned: ids.length,
+  });
+
+  test('is sent through the query extension when the catalog advertises it', async () => {
+    const user = await driveToItemsStep(withCloud(['a']), QUERY);
+    mockSearchStacItems.mockResolvedValueOnce(withCloud(['b']));
+
+    await user.type(screen.getByLabelText('stac.filterCloud'), '15');
+    await user.click(screen.getByRole('button', { name: 'stac.filterApply' }));
+
+    await waitFor(() => expect(mockSearchStacItems).toHaveBeenCalledTimes(2));
+    expect(mockSearchStacItems.mock.calls[1][0]).toMatchObject({
+      max_cloud_cover: 15,
+      cloud_cover_mode: 'query',
+    });
+  });
+
+  test('falls back to CQL2 filter when only that is advertised', async () => {
+    const user = await driveToItemsStep(withCloud(['a']), CQL);
+    mockSearchStacItems.mockResolvedValueOnce(withCloud(['b']));
+
+    await user.type(screen.getByLabelText('stac.filterCloud'), '0');
+    await user.click(screen.getByRole('button', { name: 'stac.filterApply' }));
+
+    await waitFor(() => expect(mockSearchStacItems).toHaveBeenCalledTimes(2));
+    expect(mockSearchStacItems.mock.calls[1][0]).toMatchObject({
+      max_cloud_cover: 0,
+      cloud_cover_mode: 'filter',
+    });
+  });
+
+  test('is hidden when the items carry no cloud cover', async () => {
+    await driveToItemsStep(page(['a']), QUERY);
+    expect(screen.queryByLabelText('stac.filterCloud')).not.toBeInTheDocument();
+  });
+
+  test('is hidden when the catalog advertises neither extension', async () => {
+    await driveToItemsStep(withCloud(['a']), []);
+    expect(screen.queryByLabelText('stac.filterCloud')).not.toBeInTheDocument();
+  });
+
+  test('stays available when a limit empties the list', async () => {
+    const user = await driveToItemsStep(withCloud(['a']), QUERY);
+    mockSearchStacItems.mockResolvedValueOnce({ items: [], matched: 0, returned: 0 });
+
+    await user.type(screen.getByLabelText('stac.filterCloud'), '1');
+    await user.click(screen.getByRole('button', { name: 'stac.filterApply' }));
+
+    await waitFor(() => expect(screen.getByText('stac.noItems')).toBeInTheDocument());
+    expect(screen.getByLabelText('stac.filterCloud')).toBeInTheDocument();
   });
 });

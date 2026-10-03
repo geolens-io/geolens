@@ -52,6 +52,24 @@ import {
 // own note that converging the two is a follow-up.
 type StacCredentialMethod = 'none' | 'bearer' | 'basic' | 'header';
 
+type SearchFilters = Pick<
+  StacSearchRequest,
+  'bbox' | 'datetime_range' | 'max_cloud_cover' | 'cloud_cover_mode'
+>;
+
+// Which STAC extension the catalog advertises for filtering on cloud cover:
+// Query is the simpler one, CQL2 JSON the fallback. None means no filter.
+function cloudCoverMode(conformsTo: string[]): 'query' | 'filter' | null {
+  if (conformsTo.some((c) => c.includes('item-search#query'))) return 'query';
+  if (
+    conformsTo.some((c) => c.includes('item-search#filter')) &&
+    conformsTo.some((c) => c.includes('cql2-json'))
+  ) {
+    return 'filter';
+  }
+  return null;
+}
+
 type Step =
   | 'idle'
   | 'connecting'
@@ -141,9 +159,13 @@ export function StacImportForm() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [bboxText, setBboxText] = useState('');
+  const [maxCloud, setMaxCloud] = useState('');
+  // Latched once an item of this collection reports cloud cover, so a limit
+  // that empties the list does not take the control away.
+  const [cloudCoverSeen, setCloudCoverSeen] = useState(false);
   const [filtering, setFiltering] = useState(false);
   const [nextPage, setNextPage] = useState<StacNextPage | null>(null);
-  const [appliedFilters, setAppliedFilters] = useState<Pick<StacSearchRequest, 'bbox' | 'datetime_range'>>({});
+  const [appliedFilters, setAppliedFilters] = useState<SearchFilters>({});
   const [loadingMore, setLoadingMore] = useState(false);
   const [filterError, setFilterError] = useState<string | null>(null);
   const [importResult, setImportResult] = useState<{
@@ -168,8 +190,12 @@ export function StacImportForm() {
     };
   }, []);
 
+  const cloudMode = catalogInfo ? cloudCoverMode(catalogInfo.conforms_to ?? []) : null;
   const items = searchResult.items;
   const matchedCount = searchResult.matched;
+  useEffect(() => {
+    if (items.some((i) => i.cloud_cover != null)) setCloudCoverSeen(true);
+  }, [items]);
   const selectableItems = useMemo(
     () => items.filter((i) => assetAvailability(i).importable),
     [items],
@@ -229,6 +255,8 @@ export function StacImportForm() {
     setStartDate('');
     setEndDate('');
     setBboxText('');
+    setMaxCloud('');
+    setCloudCoverSeen(false);
     setFilterError(null);
     setNextPage(null);
     setAppliedFilters({});
@@ -281,6 +309,8 @@ export function StacImportForm() {
     setStartDate('');
     setEndDate('');
     setBboxText('');
+    setMaxCloud('');
+    setCloudCoverSeen(false);
     setFilterError(null);
     setAppliedFilters({});
     setStep('loading-items');
@@ -310,8 +340,8 @@ export function StacImportForm() {
 
   // The `bbox` and `datetime_range` the filter fields describe, or an error
   // message when a field is unusable. Blank fields mean no filter.
-  function buildSearchFilters(): { filters: Pick<StacSearchRequest, 'bbox' | 'datetime_range'> } | { error: string } {
-    const filters: Pick<StacSearchRequest, 'bbox' | 'datetime_range'> = {};
+  function buildSearchFilters(): { filters: SearchFilters } | { error: string } {
+    const filters: SearchFilters = {};
     if (startDate && endDate && startDate > endDate) {
       return { error: t('stac.filterDateOrder') };
     }
@@ -332,6 +362,14 @@ export function StacImportForm() {
         south <= north;
       if (!valid) return { error: t('stac.filterBboxInvalid') };
       filters.bbox = nums;
+    }
+    if (cloudMode && maxCloud.trim()) {
+      const value = Number(maxCloud);
+      if (!Number.isFinite(value) || value < 0 || value > 100) {
+        return { error: t('stac.filterCloudInvalid') };
+      }
+      filters.max_cloud_cover = value;
+      filters.cloud_cover_mode = cloudMode;
     }
     return { filters };
   }
@@ -903,6 +941,21 @@ export function StacImportForm() {
               aria-invalid={filterError ? true : undefined}
             />
           </div>
+          {cloudMode && cloudCoverSeen && (
+            <div className="w-32 space-y-1">
+              <Label htmlFor="stac-filter-cloud" className="text-xs">{t('stac.filterCloud')}</Label>
+              <Input
+                id="stac-filter-cloud"
+                type="number"
+                min={0}
+                max={100}
+                step="any"
+                inputMode="decimal"
+                value={maxCloud}
+                onChange={(e) => setMaxCloud(e.target.value)}
+              />
+            </div>
+          )}
           <Button type="submit" size="sm" disabled={filtering}>
             {t('stac.filterApply')}
           </Button>

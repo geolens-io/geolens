@@ -736,6 +736,9 @@ from .stac_next_page_method import StacNextPageMethod
 from .stac_search_body import StacSearchBody
 from .stac_search_body_intersects_type_0 import StacSearchBodyIntersectsType0
 from .stac_search_request import StacSearchRequest
+from .stac_search_request_cloud_cover_mode_type_0 import (
+    StacSearchRequestCloudCoverModeType0,
+)
 from .stac_search_response import StacSearchResponse
 from .stale_cleanup_response import StaleCleanupResponse
 from .status_update import StatusUpdate
@@ -1336,6 +1339,7 @@ __all__ = (
     "StacSearchBody",
     "StacSearchBodyIntersectsType0",
     "StacSearchRequest",
+    "StacSearchRequestCloudCoverModeType0",
     "StacSearchResponse",
     "StaleCleanupResponse",
     "StatusUpdate",

@@ -17097,6 +17097,14 @@
             "description": "STAC specification version.",
             "title": "Stac Version",
             "type": "string"
+          },
+          "conforms_to": {
+            "description": "Conformance classes from the landing page conformsTo, which tell a client which search extensions the catalog supports.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Conforms To",
+            "type": "array"
           }
         },
         "required": [
@@ -18220,6 +18228,36 @@
             "minimum": 1.0,
             "title": "Limit",
             "type": "integer"
+          },
+          "max_cloud_cover": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only items at or below this eo:cloud_cover percentage.",
+            "title": "Max Cloud Cover"
+          },
+          "cloud_cover_mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "query",
+                  "filter"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How to send max_cloud_cover: 'query' for the STAC Query extension, 'filter' for CQL2 JSON. Pick the one the catalog lists in its landing page conformsTo.",
+            "title": "Cloud Cover Mode"
           },
           "next_page": {
             "anyOf": [

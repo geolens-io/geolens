@@ -10008,6 +10008,12 @@ export type StacConnectResponse = {
      * STAC specification version.
      */
     stac_version: string;
+    /**
+     * Conforms To
+     *
+     * Conformance classes from the landing page conformsTo, which tell a client which search extensions the catalog supports.
+     */
+    conforms_to?: Array<string>;
 };
 
 /**
@@ -10640,6 +10646,18 @@ export type StacSearchRequest = {
      * Maximum items to return.
      */
     limit?: number;
+    /**
+     * Max Cloud Cover
+     *
+     * Only items at or below this eo:cloud_cover percentage.
+     */
+    max_cloud_cover?: number | null;
+    /**
+     * Cloud Cover Mode
+     *
+     * How to send max_cloud_cover: 'query' for the STAC Query extension, 'filter' for CQL2 JSON. Pick the one the catalog lists in its landing page conformsTo.
+     */
+    cloud_cover_mode?: 'query' | 'filter' | null;
     /**
      * The next_page of the previous response, to fetch the page after it. Send the same filters as the first request.
      */

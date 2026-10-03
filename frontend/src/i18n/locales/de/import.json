@@ -227,7 +227,9 @@
     "filterApply": "Filter anwenden",
     "filterDateOrder": "Das Startdatum darf nicht nach dem Enddatum liegen.",
     "filterBboxInvalid": "Geben Sie vier Zahlen ein: West, Süd, Ost, Nord (Längengrad -180 bis 180, Breitengrad -90 bis 90, Süd nicht nördlich von Nord).",
-    "loadMore": "Mehr laden"
+    "loadMore": "Mehr laden",
+    "filterCloud": "Max. Wolkenbedeckung (%)",
+    "filterCloudInvalid": "Geben Sie eine Wolkenbedeckung zwischen 0 und 100 ein."
   },
   "serviceUrl": {
     "label": "Service-URL",

@@ -180,6 +180,13 @@ class StacConnectResponse(BaseModel):
     title: str = Field(description="Catalog title.")
     description: str = Field(description="Catalog description.")
     stac_version: str = Field(description="STAC specification version.")
+    conforms_to: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Conformance classes from the landing page conformsTo, which "
+            "tell a client which search extensions the catalog supports."
+        ),
+    )
 
 
 class StacCollectionSummary(BaseModel):
@@ -262,6 +269,20 @@ class StacSearchRequest(BaseModel):
         le=100,
         description="Maximum items to return.",
     )
+    max_cloud_cover: float | None = Field(
+        default=None,
+        ge=0,
+        le=100,
+        description="Only items at or below this eo:cloud_cover percentage.",
+    )
+    cloud_cover_mode: Literal["query", "filter"] | None = Field(
+        default=None,
+        description=(
+            "How to send max_cloud_cover: 'query' for the STAC Query "
+            "extension, 'filter' for CQL2 JSON. Pick the one the catalog "
+            "lists in its landing page conformsTo."
+        ),
+    )
     next_page: StacNextPage | None = Field(
         default=None,
         description=(
@@ -277,6 +298,14 @@ class StacSearchRequest(BaseModel):
         default=None, description=SERVICE_AUTH_FIELD_DESCRIPTION
     )
     _reject_auth_conflict = model_validator(mode="after")(reject_service_auth_conflict)
+
+    @model_validator(mode="after")
+    def _cloud_cover_needs_a_mode(self) -> "StacSearchRequest":
+        if (self.max_cloud_cover is None) != (self.cloud_cover_mode is None):
+            raise ValueError(
+                "max_cloud_cover and cloud_cover_mode must be sent together"
+            )
+        return self
 
 
 class StacItemSummary(BaseModel):
@@ -536,7 +565,15 @@ async def stac_connect(
         title=result["title"],
         description=result["description"],
         stac_version=result["stac_version"],
+        conforms_to=_conformance_classes(result.get("conforms_to")),
     )
+
+
+def _conformance_classes(value: object) -> list[str]:
+    """The landing page's conformsTo as a bounded list of strings."""
+    if not isinstance(value, list):
+        return []
+    return [c for c in value if isinstance(c, str) and len(c) <= 512][:200]
 
 
 @router.post(
@@ -630,6 +667,8 @@ async def stac_search(
             limit=request.limit,
             credential=credential,
             next_page=next_page,
+            max_cloud_cover=request.max_cloud_cover,
+            cloud_cover_mode=request.cloud_cover_mode,
         )
     except Exception as exc:  # broad: STAC /search client/HTTP/parse can throw varied errors; map to 502 for the user
         logger.warning("STAC search failed", url=safe_url, error=str(exc))
