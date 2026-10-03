@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from functools import partial, wraps
 
 import structlog
-from sqlalchemy import select, text
+from sqlalchemy import exists, select, text
 
 from app.core.db.tenant_session import tenant_task
 from app.core.failure_reason import FixedReason
@@ -201,6 +201,35 @@ async def _detect_reupload_crs(
     return info, effective_srid
 
 
+async def _staged_input_needed_elsewhere(job_id: str, file_path: str) -> bool:
+    """Whether another job still needs this staged upload, such as a blocked run's.
+
+    True when that can't be read: an accepting attempt can fail before it has
+    read its own job, and its upload must outlive it for the next acceptance.
+    """
+    from app.core.db import async_session
+    from app.platform.jobs.models import IngestJob, needs_staged_input
+
+    try:
+        async with async_session() as session:
+            return bool(
+                await session.scalar(
+                    select(
+                        exists().where(
+                            IngestJob.file_path == file_path,
+                            IngestJob.id != uuid.UUID(job_id),
+                            needs_staged_input(),
+                        )
+                    )
+                )
+            )
+    except Exception:  # broad: an unreadable answer keeps the upload
+        structlog.get_logger().warning(
+            "reupload_staged_input_check_failed", job_id=job_id
+        )
+        return True
+
+
 class _FileReupload:
     """A browser upload's bytes, loaded by ogr2ogr into this attempt's table."""
 
@@ -218,7 +247,6 @@ class _FileReupload:
         self.refused = False
         self.owned_staging_key: str | None = None
         self.verification: dict | None = None
-        self.accepted_run_id: str | None = None
         # Kept while a person can still accept this upload's blocked run.
         self.held = False
 
@@ -484,9 +512,13 @@ class _FileReupload:
                 publication=publication,
                 failed=failed,
                 refused=self.refused,
-                # An accepting attempt that failed gives its acceptance back,
-                # so the upload stays for the next one.
-                held=self.held or (failed and self.accepted_run_id is not None),
+                held=self.held
+                or (
+                    failed
+                    and await _staged_input_needed_elsewhere(
+                        self.job_id, self.original_file_path
+                    )
+                ),
             )
 
     def _archive_name(self) -> str:

@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select, text
+from sqlalchemy.exc import OperationalError
 
 from app.core.config import settings
 from app.modules.catalog.datasets.domain.models import Dataset
@@ -136,7 +137,12 @@ class _Harness:
         )
         assert response.status_code == 202, response.text
 
-    async def run_worker(self, *, ogr2ogr_error: Exception | None = None) -> None:
+    async def run_worker(
+        self,
+        *,
+        ogr2ogr_error: Exception | None = None,
+        claim_error: Exception | None = None,
+    ) -> None:
         """Run the task the last request queued, reading a staged key from its local copy."""
         kwargs = self.task.defer_async.await_args.kwargs
         self.task.defer_async.reset_mock()
@@ -161,13 +167,22 @@ class _Harness:
                     new=AsyncMock(side_effect=ogr2ogr_error),
                 )
             )
+        if claim_error is not None:
+            patches.append(
+                patch(
+                    "app.processing.ingest.publication._claim",
+                    new=AsyncMock(side_effect=claim_error),
+                )
+            )
+        expected = tuple(
+            type(error) for error in (ogr2ogr_error, claim_error) if error is not None
+        )
         for active in patches:
             active.start()
         try:
             await reupload_file(**kwargs)
-        except IngestionError:
-            if ogr2ogr_error is None:
-                raise
+        except expected:
+            pass
         finally:
             for active in patches:
                 active.stop()
@@ -583,6 +598,30 @@ async def test_a_failed_accepting_attempt_gives_the_acceptance_back_and_keeps_th
     harness.storage.delete.assert_not_awaited()
     retry = await harness.accept(dataset, blocked.id)
     assert retry.status_code == 202, retry.text
+
+
+async def test_an_accepting_attempt_that_fails_before_reading_its_job_keeps_the_upload(
+    harness: _Harness,
+):
+    dataset, _job_id, blocked = await _blocked_dataset(harness)
+    response = await harness.accept(dataset, blocked.id)
+    assert response.status_code == 202, response.text
+    harness.storage.delete.reset_mock()
+
+    await harness.run_worker(
+        claim_error=OperationalError("SELECT", {}, ConnectionError("lost"))
+    )
+
+    failed = await harness.run_for(uuid.UUID(response.json()["job_id"]))
+    assert failed.status == "failed"
+    await harness.session.refresh(blocked)
+    assert "acceptance_consumed_by_run_id" not in blocked.verification
+    harness.storage.delete.assert_not_awaited()
+    retry = await harness.accept(dataset, blocked.id)
+    assert retry.status_code == 202, retry.text
+    await harness.run_worker()
+    accepted = await harness.run_for(uuid.UUID(retry.json()["job_id"]))
+    assert accepted.status == "succeeded"
 
 
 async def test_a_viewer_cannot_accept_a_blocked_upload_run(
