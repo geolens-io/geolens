@@ -459,6 +459,41 @@ async def test_seam_member_keeps_its_side_when_another_member_folds(
         assert expected == {"plus_edge"}
 
 
+@pytest.fixture
+async def seam_edge_items(client: AsyncClient, test_db_session) -> dict:
+    extents = {
+        "plus_edge": _wkt(_rect(178, 20, 180, 22)),
+        "minus_edge": _wkt(_rect(-180, 20, -178, 22)),
+    }
+    return await _create_items(test_db_session, "seamedge", extents)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("route", ["stac-GET", "stac-POST", "catalog-intersects"])
+@pytest.mark.parametrize(
+    "coordinates",
+    [
+        [[180, 21], [188, 0]],
+        [[180, 21], [-172, 0]],
+        [[-180, 21], [-172, 0]],
+        [[-180, 21], [-188, 0]],
+    ],
+    ids=["plus_wrapped", "plus_in_range", "minus_in_range", "minus_wrapped"],
+)
+async def test_point_on_the_seam_matches_both_sides_however_written(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    seam_edge_items: dict,
+    route: str,
+    coordinates: list,
+):
+    geometry = {"type": "MultiPoint", "coordinates": coordinates}
+
+    found = await _matches(client, admin_auth_header, seam_edge_items, route, geometry)
+
+    assert found == {"plus_edge", "minus_edge"}
+
+
 def _sloped_strip(west: float, east: float) -> dict:
     """A strip rising from lat 0 at ``west`` to lat 80 at ``east``."""
     return _poly([[west, 0], [east, 80], [east, 81], [west, 1], [west, 0]])
