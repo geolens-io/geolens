@@ -44,7 +44,8 @@ const IN_FLIGHT_STATUSES = new Set(['pending', 'running']);
  * false when the session is active or the lookup fails, and must keep the form.
  */
 export async function releaseTerminalImportSession(source: StartAgainSource): Promise<boolean> {
-  const session = source === 'url' ? peekUrlImport() : peekServiceImport();
+  const peek = source === 'url' ? peekUrlImport : peekServiceImport;
+  const session = peek();
   if (!session) return true;
   let ended = session.status === 'rejected';
   if (!ended && session.jobId) {
@@ -55,7 +56,8 @@ export async function releaseTerminalImportSession(source: StartAgainSource): Pr
       return false;
     }
   }
-  if (!ended) return false;
+  // The user may have started another import while the lookup was pending.
+  if (!ended || peek() !== session) return false;
   if (source === 'url') clearUrlImport();
   else clearServiceImport();
   return true;

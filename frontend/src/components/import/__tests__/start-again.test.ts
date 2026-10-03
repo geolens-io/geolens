@@ -64,6 +64,22 @@ describe('releaseTerminalImportSession', () => {
     expect(clear).not.toHaveBeenCalled();
   });
 
+  it('leaves a newer session alone when the user starts another import mid-lookup', async () => {
+    const first = { status: 'fulfilled', jobId: 'job-1' };
+    const second = { status: 'fulfilled', jobId: 'job-2' };
+    const peek = vi.spyOn(serviceSession, 'peekServiceImport').mockReturnValue(first as never);
+    const clear = vi.spyOn(serviceSession, 'clearServiceImport').mockImplementation(() => {});
+    let answer: (value: { status: string }) => void = () => {};
+    mockGetJobStatus.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+
+    const released = releaseTerminalImportSession('service');
+    peek.mockReturnValue(second as never);
+    answer({ status: 'failed' });
+
+    await expect(released).resolves.toBe(false);
+    expect(clear).not.toHaveBeenCalled();
+  });
+
   it('keeps the session when the lookup fails', async () => {
     const clear = retainSession('job-1', 'fulfilled');
     mockGetJobStatus.mockRejectedValue(new Error('network'));
