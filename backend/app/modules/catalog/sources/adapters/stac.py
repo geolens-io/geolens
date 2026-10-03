@@ -262,24 +262,21 @@ def next_page_link(
 
 
 def _follow_up_request(
-    next_page: dict[str, Any], base_body: dict[str, Any], limit: int
+    next_page: dict[str, Any], base_body: dict[str, Any]
 ) -> tuple[str, str, dict[str, Any] | None]:
-    """The ``(method, url, body)`` that fetches *next_page*.
+    """The ``(method, url, body)`` that fetches *next_page*, as advertised.
 
-    A POST body's page size is pinned to this request's *limit*. A GET href
-    is followed exactly as advertised, since it may be signed or opaque.
+    The link may be signed or opaque, so nothing is added to it: a merge
+    link's body overrides the original request's fields, any other body is
+    sent alone.
     """
     method = next_page["method"]
-    href = next_page["href"]
-    if method == "GET":
-        return method, href, None
     next_body = next_page.get("body")
+    if method == "GET":
+        return method, next_page["href"], None
     if next_page.get("merge"):
-        body = {**base_body, **(next_body or {})}
-    else:
-        body = dict(next_body or {})
-    body["limit"] = limit
-    return method, href, body
+        return method, next_page["href"], {**base_body, **(next_body or {})}
+    return method, next_page["href"], next_body
 
 
 def _following_page(
@@ -515,7 +512,7 @@ async def search_stac_items(
 
     method = "POST"
     if next_page is not None:
-        method, search_url, body = _follow_up_request(next_page, body, limit)
+        method, search_url, body = _follow_up_request(next_page, body)
 
     headers = {"Content-Type": "application/json"} if body is not None else {}
     pair: tuple[str, str] | None = None

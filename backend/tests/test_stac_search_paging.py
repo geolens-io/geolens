@@ -200,9 +200,9 @@ class TestNextPageDerivation:
         _, sent = await _search(
             {"features": []}, collections=["c1"], next_page=next_page
         )
-        assert json.loads(sent[0].content) == {"next": "abc", "limit": 20}
+        assert json.loads(sent[0].content) == {"next": "abc"}
 
-    async def test_post_follow_up_pins_the_page_size_to_the_request_limit(self):
+    async def test_unmerged_post_follow_up_body_is_sent_unchanged(self):
         next_page = {
             "method": "POST",
             "href": f"{CATALOG}/search",
@@ -210,17 +210,34 @@ class TestNextPageDerivation:
             "merge": False,
         }
         _, sent = await _search({"features": []}, limit=50, next_page=next_page)
-        assert json.loads(sent[0].content) == {"offset": 50, "limit": 50}
+        assert json.loads(sent[0].content) == {"offset": 50, "limit": 100}
 
-    async def test_merged_post_follow_up_also_pins_the_page_size(self):
+    async def test_merged_post_follow_up_lets_the_link_override_the_request(self):
         next_page = {
             "method": "POST",
             "href": f"{CATALOG}/search",
             "body": {"offset": 50, "limit": 100},
             "merge": True,
         }
-        _, sent = await _search({"features": []}, limit=50, next_page=next_page)
-        assert json.loads(sent[0].content)["limit"] == 50
+        _, sent = await _search(
+            {"features": []}, collections=["c1"], limit=50, next_page=next_page
+        )
+        assert json.loads(sent[0].content) == {
+            "collections": ["c1"],
+            "limit": 100,
+            "offset": 50,
+        }
+
+    async def test_post_follow_up_without_a_body_sends_none(self):
+        next_page = {
+            "method": "POST",
+            "href": f"{CATALOG}/search?c=1",
+            "body": None,
+            "merge": False,
+        }
+        _, sent = await _search({"features": []}, next_page=next_page)
+        assert sent[0].method == "POST"
+        assert sent[0].content == b""
 
     @pytest.mark.parametrize(
         "href", [f"{CATALOG}/search?offset=50&limit=100", f"{CATALOG}/search?sig=a%2Fb"]
