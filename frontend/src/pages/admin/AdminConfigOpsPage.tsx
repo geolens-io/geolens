@@ -352,7 +352,7 @@ function ImportSection() {
           if (fileInputRef.current) fileInputRef.current.value = '';
         },
         onError: () => {
-          if (mode === 'overwrite') setDryRunResult(null);
+          if (previewToken) setDryRunResult(null);
         },
       },
     );

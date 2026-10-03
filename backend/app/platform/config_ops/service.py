@@ -1187,15 +1187,27 @@ async def import_config(
             if _requires_preview(plan, mode):
                 _verify_preview_token(preview_token, plan, mode)
 
-            settings_no_change = len(plan.validated_settings) - len(
-                plan.settings_to_apply
+            # A width already stored but not matching the live column is still
+            # applied: the rebuild below reconciles it.
+            reconciles_width = EMBEDDING_DIMS.key in plan.validated_settings and (
+                EMBEDDING_DIMS.key not in plan.settings_to_apply
+                and any(
+                    change["key"] == EMBEDDING_DIMS.key
+                    and change.get("reason_code") == "embedding_width_changed"
+                    for change in plan.setting_changes
+                )
+            )
+            settings_no_change = (
+                len(plan.validated_settings)
+                - len(plan.settings_to_apply)
+                - int(reconciles_width)
             )
             settings_skipped = (
                 len(plan.skipped_unknown)
                 + len(plan.skipped_restricted)
                 + settings_no_change
             )
-            settings_applied = len(plan.settings_to_apply)
+            settings_applied = len(plan.settings_to_apply) + int(reconciles_width)
 
             # set()/reset() with commit=False defer their side effects (cache
             # invalidation, _on_change hooks, rate-limit warm): run before the

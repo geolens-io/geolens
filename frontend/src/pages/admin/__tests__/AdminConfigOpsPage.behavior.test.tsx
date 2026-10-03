@@ -290,4 +290,26 @@ describe('AdminConfigOpsPage import confirmation', () => {
       expect(screen.getByRole('button', { name: 'Apply Import' })).toBeEnabled(),
     );
   });
+
+  it('clears a token-bearing merge preview when its apply is rejected', async () => {
+    mocks.dryRunMutate.mockImplementation((_variables, options) => {
+      options?.onSuccess?.({ ...updatePreview, preview_token: 'stale-merge-token' });
+    });
+    mocks.importMutate.mockImplementation((_variables, options) => {
+      options?.onError?.(new Error('409'));
+    });
+    const user = userEvent.setup();
+    render(<AdminConfigOpsPage />);
+    await uploadConfig(user);
+
+    await user.click(screen.getByRole('button', { name: 'Preview Changes' }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Apply Import' })).toBeEnabled(),
+    );
+    await user.click(screen.getByRole('button', { name: 'Apply Import' }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Apply Import' })).toBeDisabled(),
+    );
+  });
 });

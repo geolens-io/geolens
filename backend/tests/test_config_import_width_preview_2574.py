@@ -160,4 +160,5 @@ async def test_a_merge_repairs_a_column_left_at_another_width_than_the_setting(
     )
 
     assert applied.status_code == 200, applied.text
+    assert applied.json()["settings_applied"] == 1
     assert await _column_dims(test_db_session) == live
