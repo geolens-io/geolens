@@ -973,8 +973,15 @@ class TestRealTable:
                 )
                 started = time.monotonic()
                 with pytest.raises(ExportError, match="timed out"):
-                    await export_parquet(
-                        test_db_session, table_name, "Lock", schema="data", plan=plan
+                    await asyncio.wait_for(
+                        export_parquet(
+                            test_db_session,
+                            table_name,
+                            "Lock",
+                            schema="data",
+                            plan=plan,
+                        ),
+                        10,
                     )
                 assert time.monotonic() - started < 5
             finally:
