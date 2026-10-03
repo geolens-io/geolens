@@ -74,40 +74,66 @@ def test_fetch_does_not_retry_an_http_error_status(monkeypatch):
 
 
 class FakeClient:
-    def __init__(self, ai: dict, source: str | None):
+    def __init__(
+        self, ai: dict, source: str | None, openai: bool, backfill_status: int
+    ):
         self.ai = ai
         self.source = source
+        self.openai = openai
+        self.backfill_status = backfill_status
         self.sent: list[tuple[str, str, dict | None]] = []
 
-    def _ok(self, payload):
-        return SimpleNamespace(raise_for_status=lambda: None, json=lambda: payload)
+    def _resp(self, payload, status=200):
+        def raise_for_status():
+            if status >= 400:
+                raise httpx.HTTPStatusError(
+                    "bad",
+                    request=httpx.Request("POST", "http://x"),
+                    response=httpx.Response(status),
+                )
+
+        return SimpleNamespace(
+            status_code=status, raise_for_status=raise_for_status, json=lambda: payload
+        )
 
     def get(self, url, **_kw):
         self.sent.append(("GET", url, None))
         if url.endswith("/api/admin/ai-status/"):
-            return self._ok(self.ai)
+            return self._resp(self.ai)
+        if url.endswith("/api/settings/api-key-status/"):
+            return self._resp(
+                {"anthropic_configured": True, "openai_configured": self.openai}
+            )
         items = (
             []
             if self.source is None
             else [{"key": "semantic_search_enabled", "source": self.source}]
         )
-        return self._ok({"tabs": {"ai": items}})
+        return self._resp({"tabs": {"ai": items}})
 
     def put(self, url, **kw):
         self.sent.append(("PUT", url, kw["json"]))
-        return self._ok({})
+        return self._resp({})
 
     def post(self, url, **_kw):
         self.sent.append(("POST", url, None))
-        return self._ok({"job_id": "job-1"})
+        return self._resp({"job_id": "job-1"}, self.backfill_status)
 
 
-def _api(ai: dict, source: str | None = "default"):
+READY = {"enabled": True, "configured": False, "semantic_search_enabled": False}
+
+
+def _api(
+    ai: dict,
+    source: str | None = "default",
+    openai: bool = True,
+    backfill_status: int = 200,
+):
     polled: list[str] = []
     api = SimpleNamespace(
         base="http://x",
         h={},
-        client=FakeClient(ai, source),
+        client=FakeClient(ai, source, openai, backfill_status),
         poll=lambda job_id, timeout=300: polled.append(job_id),
     )
     return api, polled
@@ -117,33 +143,64 @@ def _writes(api) -> list:
     return [m for m in api.client.sent if m[0] != "GET"]
 
 
-def test_semantic_enabled_and_backfilled_when_configured_and_unset():
-    api, polled = _api({"configured": True, "semantic_search_enabled": False})
+BACKFILL = ("POST", "http://x/api/admin/backfill-embeddings/", None)
+ENABLE = (
+    "PUT",
+    "http://x/api/settings/",
+    {"settings": {"semantic_search_enabled": True}},
+)
+
+
+def test_embedding_key_without_a_chat_provider_backfills_then_enables():
+    api, polled = _api(READY)
     seeder.enable_semantic_search(api)
-    assert _writes(api) == [
-        (
-            "PUT",
-            "http://x/api/settings/",
-            {"settings": {"semantic_search_enabled": True}},
-        ),
-        ("POST", "http://x/api/admin/backfill-embeddings/", None),
-    ]
+    assert _writes(api) == [BACKFILL, ENABLE]
     assert polled == ["job-1"]
 
 
-def test_semantic_stays_off_without_a_provider(capsys):
-    api, polled = _api({"configured": False, "semantic_search_enabled": False})
+def test_anthropic_only_stack_changes_nothing(capsys):
+    api, polled = _api({**READY, "configured": True}, openai=False)
     seeder.enable_semantic_search(api)
     assert _writes(api) == [] and polled == []
     assert "stays off" in capsys.readouterr().out
 
 
+def test_ai_disabled_changes_nothing():
+    api, _ = _api({**READY, "enabled": False})
+    seeder.enable_semantic_search(api)
+    assert _writes(api) == []
+
+
+def test_failed_backfill_leaves_the_setting_off_and_a_rerun_submits_again():
+    api, _ = _api(READY, backfill_status=503)
+    with pytest.raises(httpx.HTTPStatusError):
+        seeder.enable_semantic_search(api)
+    assert _writes(api) == [BACKFILL]
+    rerun, polled = _api(READY)
+    seeder.enable_semantic_search(rerun)
+    assert _writes(rerun) == [BACKFILL, ENABLE] and polled == ["job-1"]
+
+
+def test_backfill_already_running_is_not_a_failure_and_changes_no_setting():
+    api, polled = _api(READY, backfill_status=409)
+    seeder.enable_semantic_search(api)
+    assert _writes(api) == [BACKFILL] and polled == []
+
+
+def test_setting_on_without_embeddings_backfills_without_touching_the_setting():
+    api, polled = _api(
+        {**READY, "semantic_search_enabled": True, "has_embeddings": False}
+    )
+    seeder.enable_semantic_search(api)
+    assert _writes(api) == [BACKFILL] and polled == ["job-1"]
+
+
 @pytest.mark.parametrize(
     ("ai", "source"),
     [
-        ({"configured": True, "semantic_search_enabled": True}, "default"),
-        ({"configured": True, "semantic_search_enabled": False}, "overridden"),
-        ({"configured": True, "semantic_search_enabled": False}, "env_only"),
+        ({**READY, "semantic_search_enabled": True, "has_embeddings": True}, "default"),
+        (READY, "overridden"),
+        (READY, "env_only"),
     ],
 )
 def test_semantic_left_alone_when_already_set(ai, source):

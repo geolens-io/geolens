@@ -6592,52 +6592,76 @@ def _backfill_thumbnails(base_url: str, username: str, password: str) -> None:
         )
 
 
-def enable_semantic_search(api: Api) -> None:
-    """Turn semantic search on and embed the catalog when the deployment has a
-    provider key and nobody has chosen a value for the setting.
-
-    The key itself is never read: /admin/ai-status/ only reports whether one
-    exists. A value an admin or the environment already set is left alone.
-    """
-    status = api.client.get(f"{api.base}/api/admin/ai-status/", headers=api.h)
-    status.raise_for_status()
-    ai = status.json()
-    if not ai.get("configured"):
-        print(
-            "  Semantic search stays off: no AI provider key is configured, so "
-            "there is nothing to embed with. Add one in Settings > AI, then "
-            "enable Semantic Search and run the embedding backfill."
-        )
-        return
-    if ai.get("semantic_search_enabled"):
-        print("  Semantic search is already on; leaving it and its embeddings alone.")
-        return
-    all_settings = api.client.get(f"{api.base}/api/settings/all/", headers=api.h)
-    all_settings.raise_for_status()
-    source = next(
+def _semantic_setting_source(api: Api) -> str | None:
+    r = api.client.get(f"{api.base}/api/settings/all/", headers=api.h)
+    r.raise_for_status()
+    return next(
         (
             item["source"]
-            for item in all_settings.json()["tabs"].get("ai", [])
+            for item in r.json()["tabs"].get("ai", [])
             if item["key"] == "semantic_search_enabled"
         ),
         None,
     )
-    if source != "default":
+
+
+def _run_embedding_backfill(api: Api) -> bool:
+    """Queue the backfill and wait for it. False when one is already running."""
+    r = api.client.post(f"{api.base}/api/admin/backfill-embeddings/", headers=api.h)
+    if r.status_code == 409:
+        return False
+    r.raise_for_status()
+    api.poll(r.json()["job_id"], timeout=1800)
+    return True
+
+
+def enable_semantic_search(api: Api) -> None:
+    """Embed the catalog and turn semantic search on when the deployment can
+    generate embeddings and nobody has chosen a value for the setting.
+
+    Embeddings need the OpenAI-compatible key, which is separate from the chat
+    provider's, so readiness comes from /settings/api-key-status/ and the AI
+    switch rather than ai-status `configured`. No key is read. The backfill
+    runs first and the setting is flipped only after it succeeds, so a failed
+    run leaves the next seed to retry. A value an admin or the environment
+    already set is left alone.
+    """
+    status = api.client.get(f"{api.base}/api/admin/ai-status/", headers=api.h)
+    status.raise_for_status()
+    ai = status.json()
+    keys = api.client.get(f"{api.base}/api/settings/api-key-status/", headers=api.h)
+    keys.raise_for_status()
+    if not ai.get("enabled") or not keys.json().get("openai_configured"):
         print(
-            f"  Semantic search is off by choice (source: {source}); leaving it alone."
+            "  Semantic search stays off: it needs AI enabled and an "
+            "OpenAI-compatible embedding key (OPENAI_API_KEY; Anthropic has no "
+            "embedding API). Set them, then enable Semantic Search and run the "
+            "embedding backfill."
         )
         return
-    put = api.client.put(
-        f"{api.base}/api/settings/",
-        headers=api.h,
-        json={"settings": {"semantic_search_enabled": True}},
-    )
-    put.raise_for_status()
-    print("  Semantic search enabled; queueing the embedding backfill...")
-    queued = api.client.post(f"{api.base}/api/admin/backfill-embeddings/", headers=api.h)
-    queued.raise_for_status()
-    api.poll(queued.json()["job_id"], timeout=1800)
-    print("  Embedding backfill complete.")
+    if ai.get("semantic_search_enabled"):
+        if ai.get("has_embeddings"):
+            print("  Semantic search is already on with embeddings; leaving it alone.")
+            return
+        enable = False
+    else:
+        source = _semantic_setting_source(api)
+        if source != "default":
+            print(f"  Semantic search is off by choice (source: {source}); leaving it alone.")
+            return
+        enable = True
+    print("  Generating embeddings for semantic search...")
+    if not _run_embedding_backfill(api):
+        print("  An embedding backfill is already running; rerun the seed once it finishes.")
+        return
+    if enable:
+        put = api.client.put(
+            f"{api.base}/api/settings/",
+            headers=api.h,
+            json={"settings": {"semantic_search_enabled": True}},
+        )
+        put.raise_for_status()
+    print("  Embeddings generated; semantic search is on.")
 
 
 def _print_pinned_summary(base_url: str, username: str, password: str) -> None:

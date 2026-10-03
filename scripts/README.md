@@ -71,11 +71,11 @@ OpenStreetMap, swisstopo, Element84 Earth Search). Maps are skipped if they
 already exist (`--force` recreates them); builders are isolated, so one
 unreachable upstream fails only its own map. Downloads retry connect errors
 and timeouts twice with backoff, and a builder that still fails prints its
-`--only` rerun command. At the end of a successful seed, if an AI provider key
-is configured and Semantic Search was never set, the seed turns it on and runs
-the embedding backfill so the natural-language examples return results; with no
-key it prints that search stays off. It never reads or writes a key, and
-`--no-semantic` skips it. Two passes run after the builders
+`--only` rerun command. At the end of a successful seed, if AI is enabled and an OpenAI-compatible
+embedding key (`OPENAI_API_KEY`) is configured, and Semantic Search was never
+set, the seed runs the embedding backfill and then turns Semantic Search on, so
+the natural-language examples return results; otherwise it prints why search
+stays off. It never reads or writes a key, and `--no-semantic` skips it. Two passes run after the builders
 and cover whatever showcase content is present, so an instance seeded by an
 older revision picks them up: catalog metadata (license + keywords) and the
 globe projection. Map thumbnails/OG images are a separate post-step (headless
