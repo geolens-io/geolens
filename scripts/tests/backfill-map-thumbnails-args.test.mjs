@@ -21,6 +21,7 @@ test('parseArgs collects ids after --refresh and combines with --dry-run', () =>
 test('parseArgs rejects --refresh without ids and unknown flags', () => {
   assert.throws(() => parseArgs(['--refresh']), /at least one map id/);
   assert.throws(() => parseArgs(['--refresh', '--dry-run']), /at least one map id/);
+  assert.throws(() => parseArgs(['--refresh', 'a', '--refresh', '--dry-run']), /at least one map id/);
   assert.throws(() => parseArgs(['--bogus']), /unknown argument/);
 });
 

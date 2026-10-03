@@ -9,8 +9,9 @@ export function parseArgs(argv) {
     else if (arg === '--include-public') opts.includePublic = true;
     else if (arg === '--refresh') {
       // --refresh takes every following id up to the next flag.
+      const before = opts.refresh.length;
       while (i + 1 < argv.length && !argv[i + 1].startsWith('--')) opts.refresh.push(argv[++i]);
-      if (opts.refresh.length === 0) throw new Error('--refresh needs at least one map id');
+      if (opts.refresh.length === before) throw new Error('--refresh needs at least one map id');
     } else throw new Error(`unknown argument: ${arg}`);
   }
   return opts;
