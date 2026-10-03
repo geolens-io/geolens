@@ -33,6 +33,16 @@ from app.processing.export.ogr import ExportError
 from app.processing.export.parquet import ParquetExportPlan, export_parquet
 
 
+class _Db:
+    """Answers the lock and column-type reads; rows come from the patched stream."""
+
+    async def execute(self, statement):
+        return self
+
+    def all(self) -> list:
+        return []
+
+
 def _plan() -> ParquetExportPlan:
     return ParquetExportPlan(attr_names=["name"], where_sql="TRUE", params={})
 
@@ -67,7 +77,7 @@ class TestParquetRowStreamBudget:
 
         with pytest.raises(ExportError) as exc:
             await export_parquet(
-                db=None,
+                db=_Db(),
                 table_name="roads",
                 dataset_name="Roads",
                 schema="data",
@@ -98,7 +108,7 @@ class TestParquetRowStreamBudget:
         )
 
         file_path, filename, media_type = await export_parquet(
-            db=None,
+            db=_Db(),
             table_name="roads",
             dataset_name="Roads",
             schema="data",
@@ -139,7 +149,7 @@ class TestParquetRowStreamBudget:
         )
 
         file_path, _filename, _media_type = await export_parquet(
-            db=None,
+            db=_Db(),
             table_name="roads",
             dataset_name="Roads",
             schema="data",

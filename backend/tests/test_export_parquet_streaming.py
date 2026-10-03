@@ -27,10 +27,12 @@ import pytest
 from sqlalchemy import text
 
 from app.processing.export import parquet as export_parquet_module
+from app.processing.export.ogr import ExportError
 from app.processing.export.parquet import (
     ParquetExportPlan,
     _GeoParquetWriter,
     _stream_batches,
+    build_geoparquet_table,
     export_parquet,
     plan_parquet_export,
 )
@@ -51,9 +53,17 @@ class _Cursor:
         return rows
 
 
+class _NoRows:
+    def all(self) -> list:
+        return []
+
+
 class _FakeDb:
     def __init__(self, cursor: _Cursor):
         self.cursor = cursor
+
+    async def execute(self, statement):
+        return _NoRows()
 
     async def stream(self, statement):
         return self.cursor
@@ -680,3 +690,316 @@ class TestRealTable:
                 text(f"DROP TABLE IF EXISTS data.{table_name}")
             )
             await test_db_session.commit()
+
+    @pytest.mark.anyio
+    async def test_column_types_follow_the_table_across_batches(
+        self, test_db_session, monkeypatch, staging
+    ):
+        """Types come from the table, so a NULL-only first batch, whole-number
+        decimals and small integers keep their declared type in every batch;
+        unconstrained numeric is still inferred."""
+        monkeypatch.setattr(export_parquet_module, "_BATCH_MAX_ROWS", 10)
+        table_name = f"exp_pqtypes_{uuid.uuid4().hex[:12]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table_name} "
+                "(gid serial PRIMARY KEY, small smallint, late integer, "
+                "price numeric(10,3), loose numeric, ratio double precision, "
+                "geom geometry(Point, 4326), "
+                "geom_4326 geometry(Point, 4326))"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{table_name} "
+                "(small, late, price, loose, ratio, geom, geom_4326) "
+                "SELECT i, CASE WHEN i < 15 THEN NULL ELSE i END, "
+                "CASE WHEN i < 15 THEN 1 ELSE 1.125 END, i + 0.5, "
+                "CASE WHEN i < 15 THEN 2 ELSE 2.5 END, "
+                "ST_SetSRID(ST_MakePoint(i, i), 4326), "
+                "ST_SetSRID(ST_MakePoint(i, i), 4326) "
+                "FROM generate_series(0, 24) AS i"
+            )
+        )
+        await test_db_session.commit()
+        try:
+            plan = await plan_parquet_export(test_db_session, table_name, schema="data")
+            path, _filename, _media_type = await export_parquet(
+                test_db_session, table_name, "Types", schema="data", plan=plan
+            )
+
+            written = pq.ParquetFile(path)
+            schema = written.schema_arrow
+            assert written.metadata.num_row_groups == 3
+            assert schema.field("small").type == pa.int16()
+            assert schema.field("late").type == pa.int32()
+            assert schema.field("price").type == pa.decimal128(10, 3)
+            assert pa.types.is_decimal(schema.field("loose").type)
+            assert schema.field("ratio").type == pa.float64()
+            table = written.read().sort_by("small")
+            assert table.column("late").to_pylist()[15:] == list(range(15, 25))
+            assert table.column("price").to_pylist()[0] == Decimal("1.000")
+            assert table.column("loose").to_pylist()[1] == Decimal("1.5")
+        finally:
+            await test_db_session.rollback()
+            await test_db_session.execute(
+                text(f"DROP TABLE IF EXISTS data.{table_name}")
+            )
+            await test_db_session.commit()
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize("populated", [False, True], ids=["empty", "null-first"])
+    async def test_numeric_scales_arrow_cannot_hold_export_without_error(
+        self, test_db_session, staging, monkeypatch, populated
+    ):
+        """numeric(2,-3) and numeric(3,5) are valid in Postgres but not as Arrow
+        decimals; they must not break the file write."""
+        monkeypatch.setattr(export_parquet_module, "_BATCH_MAX_ROWS", 10)
+        table_name = f"exp_pqscale_{uuid.uuid4().hex[:12]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table_name} (gid serial PRIMARY KEY, "
+                "neg numeric(2,-3), big numeric(3,5), geom geometry(Point, 4326), "
+                "geom_4326 geometry(Point, 4326))"
+            )
+        )
+        if populated:
+            await test_db_session.execute(
+                text(
+                    f"INSERT INTO data.{table_name} (neg, big, geom_4326) "
+                    "SELECT NULL, NULL, ST_SetSRID(ST_MakePoint(i, i), 4326) "
+                    "FROM generate_series(0, 14) AS i"
+                )
+            )
+        await test_db_session.commit()
+        try:
+            plan = await plan_parquet_export(test_db_session, table_name, schema="data")
+            path, _filename, _media_type = await export_parquet(
+                test_db_session, table_name, "Scale", schema="data", plan=plan
+            )
+            assert pq.read_table(path).num_rows == (15 if populated else 0)
+        finally:
+            await test_db_session.rollback()
+            await test_db_session.execute(
+                text(f"DROP TABLE IF EXISTS data.{table_name}")
+            )
+            await test_db_session.commit()
+
+    @pytest.mark.anyio
+    async def test_a_two_dimensional_integer_array_exports_as_nested_lists(
+        self, test_db_session, staging
+    ):
+        """Postgres array types carry no dimensions, so the nesting is inferred."""
+        table_name = f"exp_pqarr_{uuid.uuid4().hex[:12]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table_name} (gid serial PRIMARY KEY, "
+                "grid integer[], geom geometry(Point, 4326), "
+                "geom_4326 geometry(Point, 4326))"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{table_name} (grid, geom_4326) VALUES "
+                "(ARRAY[[1,2],[3,4]], ST_SetSRID(ST_MakePoint(0, 0), 4326))"
+            )
+        )
+        await test_db_session.commit()
+        try:
+            plan = await plan_parquet_export(test_db_session, table_name, schema="data")
+            path, _filename, _media_type = await export_parquet(
+                test_db_session, table_name, "Arr", schema="data", plan=plan
+            )
+            table = pq.read_table(path)
+            assert table.schema.field("grid").type == pa.list_(pa.list_(pa.int64()))
+            assert table.column("grid").to_pylist() == [[[1, 2], [3, 4]]]
+        finally:
+            await test_db_session.rollback()
+            await test_db_session.execute(
+                text(f"DROP TABLE IF EXISTS data.{table_name}")
+            )
+            await test_db_session.commit()
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize("populated", [False, True], ids=["empty", "rows"])
+    async def test_domain_columns_take_their_base_type(
+        self, test_db_session, staging, monkeypatch, populated
+    ):
+        """A domain over a supported type is declared as that type, keeping the
+        numeric scale, rather than inferred."""
+        monkeypatch.setattr(export_parquet_module, "_BATCH_MAX_ROWS", 10)
+        suffix = uuid.uuid4().hex[:12]
+        table_name = f"exp_pqdom_{suffix}"
+        for statement in (
+            f"CREATE DOMAIN data.int_dom_{suffix} AS integer",
+            f"CREATE DOMAIN data.num_dom_{suffix} AS numeric(10,3)",
+            f"CREATE DOMAIN data.nested_dom_{suffix} AS data.int_dom_{suffix}",
+            f"CREATE TABLE data.{table_name} (gid serial PRIMARY KEY, "
+            f"n data.int_dom_{suffix}, p data.num_dom_{suffix}, "
+            f"q data.nested_dom_{suffix}, geom geometry(Point, 4326), "
+            "geom_4326 geometry(Point, 4326))",
+        ):
+            await test_db_session.execute(text(statement))
+        if populated:
+            await test_db_session.execute(
+                text(
+                    f"INSERT INTO data.{table_name} (n, p, q, geom_4326) "
+                    "SELECT CASE WHEN i < 15 THEN NULL ELSE i END, "
+                    "CASE WHEN i < 15 THEN 1 ELSE 1.125 END, NULL, "
+                    "ST_SetSRID(ST_MakePoint(i, i), 4326) "
+                    "FROM generate_series(0, 24) AS i"
+                )
+            )
+        await test_db_session.commit()
+        try:
+            plan = await plan_parquet_export(test_db_session, table_name, schema="data")
+            path, _filename, _media_type = await export_parquet(
+                test_db_session, table_name, "Dom", schema="data", plan=plan
+            )
+            schema = pq.ParquetFile(path).schema_arrow
+            assert schema.field("n").type == pa.int32()
+            assert schema.field("p").type == pa.decimal128(10, 3)
+            assert schema.field("q").type == pa.int32()
+        finally:
+            await test_db_session.rollback()
+            await test_db_session.execute(
+                text(f"DROP TABLE IF EXISTS data.{table_name}")
+            )
+            for domain in ("nested_dom", "num_dom", "int_dom"):
+                await test_db_session.execute(
+                    text(f"DROP DOMAIN IF EXISTS data.{domain}_{suffix}")
+                )
+            await test_db_session.commit()
+
+    @pytest.mark.anyio
+    async def test_a_user_type_named_like_a_builtin_is_not_declared(
+        self, test_db_session, staging
+    ):
+        """Only pg_catalog types map to Arrow; an enum named int4 elsewhere is
+        not an integer, whatever the table holds."""
+        table_name = f"exp_pqshadow_{uuid.uuid4().hex[:12]}"
+        await test_db_session.execute(text("CREATE TYPE data.int4 AS ENUM ('a')"))
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table_name} (gid serial PRIMARY KEY, "
+                "shadow data.int4, real_int integer, geom geometry(Point, 4326), "
+                "geom_4326 geometry(Point, 4326))"
+            )
+        )
+        await test_db_session.commit()
+        try:
+            plan = await plan_parquet_export(test_db_session, table_name, schema="data")
+            assert await export_parquet_module._declared_column_types(
+                test_db_session, table_name, "data", ["shadow", "real_int"], frozenset()
+            ) == {"real_int": pa.int32()}
+            path, _filename, _media_type = await export_parquet(
+                test_db_session, table_name, "Shadow", schema="data", plan=plan
+            )
+            assert pq.read_table(path).num_rows == 0
+        finally:
+            await test_db_session.rollback()
+            await test_db_session.execute(
+                text(f"DROP TABLE IF EXISTS data.{table_name}")
+            )
+            await test_db_session.execute(text("DROP TYPE IF EXISTS data.int4"))
+            await test_db_session.commit()
+
+    @pytest.mark.anyio
+    async def test_a_table_swapped_after_planning_keeps_its_new_values(
+        self, test_db_session, staging
+    ):
+        """The route releases its connection between planning and streaming, so
+        a reupload can replace the table. Types are read when streaming starts."""
+        table_name = f"exp_pqswap_{uuid.uuid4().hex[:12]}"
+        columns = "(gid serial PRIMARY KEY, v {}, geom geometry(Point, 4326), geom_4326 geometry(Point, 4326))"
+        await test_db_session.execute(
+            text(f"CREATE TABLE data.{table_name} {columns.format('integer')}")
+        )
+        await test_db_session.commit()
+        try:
+            plan = await plan_parquet_export(test_db_session, table_name, schema="data")
+            await test_db_session.rollback()
+            await test_db_session.execute(text(f"DROP TABLE data.{table_name}"))
+            await test_db_session.execute(
+                text(
+                    f"CREATE TABLE data.{table_name} {columns.format('numeric(10,2)')}"
+                )
+            )
+            await test_db_session.execute(
+                text(
+                    f"INSERT INTO data.{table_name} (v, geom_4326) "
+                    "VALUES (1.75, ST_SetSRID(ST_MakePoint(0, 0), 4326))"
+                )
+            )
+            await test_db_session.commit()
+
+            path, _filename, _media_type = await export_parquet(
+                test_db_session, table_name, "Swap", schema="data", plan=plan
+            )
+
+            assert pq.read_table(path).column("v").to_pylist() == [Decimal("1.75")]
+        finally:
+            await test_db_session.rollback()
+            await test_db_session.execute(
+                text(f"DROP TABLE IF EXISTS data.{table_name}")
+            )
+            await test_db_session.commit()
+
+    @pytest.mark.anyio
+    async def test_a_table_lock_wait_is_bounded_by_the_export_budget(
+        self, test_db_session, staging, monkeypatch
+    ):
+        """DDL holding ACCESS EXCLUSIVE must not keep the export waiting past
+        its budget."""
+        import app.core.db as db_module
+
+        monkeypatch.setattr(
+            export_parquet_module, "export_subprocess_timeout_seconds", lambda d: 0.5
+        )
+        table_name = f"exp_pqlock_{uuid.uuid4().hex[:12]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table_name} (gid serial PRIMARY KEY, "
+                "geom geometry(Point, 4326), geom_4326 geometry(Point, 4326))"
+            )
+        )
+        await test_db_session.commit()
+        plan = await plan_parquet_export(test_db_session, table_name, schema="data")
+        await test_db_session.rollback()
+        async with db_module.async_session() as holder:
+            try:
+                await holder.execute(
+                    text(f"LOCK TABLE data.{table_name} IN ACCESS EXCLUSIVE MODE")
+                )
+                started = time.monotonic()
+                with pytest.raises(ExportError, match="timed out"):
+                    await asyncio.wait_for(
+                        export_parquet(
+                            test_db_session,
+                            table_name,
+                            "Lock",
+                            schema="data",
+                            plan=plan,
+                        ),
+                        10,
+                    )
+                assert time.monotonic() - started < 5
+            finally:
+                await holder.rollback()
+                await test_db_session.rollback()
+                await test_db_session.execute(
+                    text(f"DROP TABLE IF EXISTS data.{table_name}")
+                )
+                await test_db_session.commit()
+
+
+def test_a_value_the_declared_type_would_alter_falls_back_to_text():
+    """A float under a declared integer type is kept as text, not truncated."""
+    table = build_geoparquet_table(
+        [b"\x01", b"\x01"],
+        {"n": [1, 1.75]},
+        ["n"],
+        column_types={"n": pa.int32()},
+    )
+
+    assert table.column("n").to_pylist() == ["1", "1.75"]
