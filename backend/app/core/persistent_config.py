@@ -674,7 +674,11 @@ class _ProviderModelConfig(PersistentConfig[str]):
             ext = get_ai_provider(provider)
         except ValueError:
             return llm_model_default(provider, light=self.light)
-        if type(ext) not in (DefaultAnthropicProvider, DefaultOpenAICompatibleProvider):
+        built_in_resolvers = (
+            DefaultAnthropicProvider.resolve_runtime_config,
+            DefaultOpenAICompatibleProvider.resolve_runtime_config,
+        )
+        if type(ext).resolve_runtime_config not in built_in_resolvers:
             # A stale endpoint must not stop the settings page or an import
             # that would repair it; the call-time check still rejects it.
             try:

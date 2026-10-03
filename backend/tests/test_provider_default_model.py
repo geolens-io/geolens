@@ -73,3 +73,26 @@ async def test_invalid_endpoint_does_not_break_default_model_lookup(monkeypatch,
     assert await cfg.default_for(None, "ext") == llm_model_default(
         "ext", light=cfg.light
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cfg", [LLM_MODEL, LLM_MODEL_LIGHT])
+@pytest.mark.parametrize("base", ["anthropic", "openai"])
+async def test_subclass_inheriting_the_resolver_keeps_community_defaults(
+    monkeypatch, cfg, base
+):
+    from app.platform.extensions.defaults_ai_anthropic import DefaultAnthropicProvider
+    from app.platform.extensions.defaults_ai_openai import (
+        DefaultOpenAICompatibleProvider,
+    )
+
+    parent, name = {
+        "anthropic": (DefaultAnthropicProvider, "anthropic"),
+        "openai": (DefaultOpenAICompatibleProvider, "openai_compatible"),
+    }[base]
+
+    class _Sub(parent):
+        pass
+
+    monkeypatch.setattr("app.platform.extensions.get_ai_provider", lambda n: _Sub())
+    assert await cfg.default_for(None, name) == llm_model_default(name, light=cfg.light)
