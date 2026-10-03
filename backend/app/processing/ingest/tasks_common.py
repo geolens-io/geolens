@@ -1249,9 +1249,9 @@ async def _finalize_ingest(ctx: IngestContext):
     Steps: normalize geometry column, clip to valid bounds, add 4326
     column; grant reader access; extract column info and sample values;
     create dataset record; compute quality score; commit job + dataset
-    atomically, owing the quicklook, the catalog cache purge, the embedding
-    and the completion notice in the job's follow-up record, which the
-    caller runs once its own work after the commit is done.
+    atomically, owing the quicklook, the catalog cache purge, the embedding,
+    the completion notice and the usage event in the job's follow-up record,
+    which the caller runs once its own work after the commit is done.
 
     ``ctx`` is an ``IngestContext`` bundle — see its dataclass docstring
     for field descriptions. Returns the created Dataset ORM instance.
@@ -1384,6 +1384,7 @@ async def _finalize_ingest(ctx: IngestContext):
             quicklook=table_name if has_geometry else None,
             embedding=True,
             notice="ingest_complete",
+            usage="ingest_jobs",
         ),
     }
     await ledger.complete(

@@ -142,6 +142,7 @@ def owed_followups(
     quicklook: str | None = None,
     embedding: bool = False,
     notice: str | None = None,
+    usage: str | None = None,
 ):
     """The job's ``user_metadata`` with this attempt's ``task`` follow-ups owed.
 
@@ -149,7 +150,8 @@ def owed_followups(
     follow-ups remove once that archive exists. ``sweep_waits`` holds the
     sweep off for one retry delay, for a task that archives the upload itself.
     The run-once items are the catalog cache purge, the tile cache purge and
-    the quicklook of a table, the embedding and a notice event. A record
+    the quicklook of a table, the embedding, a notice event and a usage
+    dimension, billed once under the job's id. A record
     naming any is written claimed, so its claim adds none, and leased, so the
     sweep leaves it to the writer's own call until the lease runs out.
     """
@@ -160,6 +162,7 @@ def owed_followups(
         _QUICKLOOK: quicklook,
         _EMBEDDING: embedding or None,
         _NOTICE: notice,
+        _USAGE: usage,
     }
     for item, value in run_once.items():
         if value is not None:

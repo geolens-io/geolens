@@ -33,7 +33,6 @@ from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
     _current_tenant_schema,
     _detect_and_override_geometry,
-    _emit_billing_event,
     _finalize_ingest,
     _job_phase_session,
     _resolve_effective_srid,
@@ -652,16 +651,6 @@ async def ingest_file(
                 file_path=file_path,
             )
 
-            # Billing is best-effort through the extension seam. Using job_id as
-            # event_id keeps task retries idempotent.
-            from app.core.db.tenant_session import current_tenant_var
-
-            await _emit_billing_event(
-                str(current_tenant_var.get()) if current_tenant_var.get() else None,
-                "ingest_jobs",
-                event_id=job_id,
-            )
-
             final_status = "complete"
 
     except (
@@ -1054,15 +1043,6 @@ async def ingest_service(
                         "auth_required": True if token else None,
                     },
                 )
-            )
-
-            # Emit ingest billable event.
-            from app.core.db.tenant_session import current_tenant_var
-
-            await _emit_billing_event(
-                str(current_tenant_var.get()) if current_tenant_var.get() else None,
-                "ingest_jobs",
-                event_id=job_id,
             )
 
     except Exception as exc:  # broad: PostGIS/DB ingest can fail at any step; mark job failed and re-raise

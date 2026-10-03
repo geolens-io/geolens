@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import structlog
@@ -25,6 +25,7 @@ from tests.test_publish_followups import _make_due
 from tests.test_replacement_post_commit import _archived, _upload_left
 from tests.test_replacement_post_commit import replace as replace
 from tests.test_replacement_post_commit import storage as storage
+from tests.test_service_reupload_3d import _BASE, _source
 from tests.test_vector_archive_dataset_delete import _Import
 from tests.test_vector_archive_dataset_delete import store as store
 
@@ -389,6 +390,7 @@ async def test_a_first_vector_import_dying_after_its_commit_leaves_its_steps_to_
             ("quicklook", table),
             ("embed",),
             ("notice", "ingest_complete"),
+            ("bill",),
         ]
         assert ran.notices[0]["dataset"] == table
         assert await _record(ingest.job_id) is None
@@ -582,3 +584,191 @@ async def test_a_quicklook_whose_upload_failed_is_drawn_again_once_due(
         async with db_module.async_session() as session:
             await session.execute(text(f'DROP TABLE IF EXISTS "data"."{table}"'))
             await session.commit()
+
+
+# --- The first vector import bills through its record ------------------------
+
+
+class _Meter:
+    """A billing extension that refuses usage events while ``down``."""
+
+    def __init__(self, *, down: bool) -> None:
+        self.down = down
+        self.events: list[str | None] = []
+
+    async def on_usage_event(self, *, event_id=None, **_kwargs) -> None:
+        if self.down:
+            raise ConnectionError("the meter is unreachable")
+        self.events.append(event_id)
+
+
+@pytest.fixture
+def meter(monkeypatch) -> _Meter:
+    """The one billing extension, billing a hosted tenant, up until a test takes it down."""
+    meter = _Meter(down=False)
+    monkeypatch.setattr(
+        "app.platform.extensions.get_billing_extensions", lambda: [meter]
+    )
+    monkeypatch.setattr(
+        "app.processing.ingest.publish_followups._usage_tenant", lambda: "tenant-a"
+    )
+    return meter
+
+
+async def _dies_after_the_commit(monkeypatch) -> None:
+    """Cancel the worker as the import's publish commit returns."""
+    from app.processing.ingest import tasks_vector
+
+    real = tasks_vector._finalize_ingest
+
+    async def _dies(ctx):
+        await real(ctx)
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(tasks_vector, "_finalize_ingest", _dies)
+
+
+async def _vector_import(
+    kind: str, session, tmp_path, monkeypatch, jobs: list[uuid.UUID]
+) -> None:
+    """Run a first vector import of ``kind`` by the admin, adding its job id to ``jobs`` first."""
+    from app.processing.ingest import tasks_vector
+
+    admin_id = await get_user_id(session, "admin")
+    if kind == "file":
+        source = tmp_path / "points.geojson"
+        source.write_bytes(
+            b'{"type":"FeatureCollection","features":[{"type":"Feature",'
+            b'"properties":{"name":"a"},"geometry":{"type":"Point","coordinates":[1,2]}}]}'
+        )
+        monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path))
+        job = IngestJob(
+            source_filename="points.geojson",
+            file_path=str(source),
+            created_by=admin_id,
+            status="pending",
+            user_metadata={"title": f"Billed {uuid.uuid4().hex[:8]}"},
+        )
+    else:
+        job = IngestJob(
+            source_filename="Wells",
+            source_url=_BASE,
+            source_layer="0",
+            created_by=admin_id,
+            status="pending",
+            user_metadata={
+                "title": f"Billed {uuid.uuid4().hex[:8]}",
+                "service_type": "ArcGIS FeatureServer",
+                "layer_id": "0",
+                "geometry_type": "Point",
+            },
+        )
+    session.add(job)
+    await session.commit()
+    jobs.append(job.id)
+    if kind == "file":
+        from tests.test_vector_archive_dataset_delete import _fake_ogr2ogr
+
+        ogrinfo = {
+            "srid": 4326,
+            "geometry_type": "Point",
+            "columns": [{"name": "name", "type": "String"}],
+        }
+        with (
+            patch(
+                "app.processing.ingest.ogr.run_ogrinfo", AsyncMock(return_value=ogrinfo)
+            ),
+            patch("app.processing.ingest.ogr.run_ogr2ogr", new=_fake_ogr2ogr),
+        ):
+            await tasks_vector.ingest_file.func(
+                job_id=str(job.id),
+                file_path=str(source),
+                user_id=str(admin_id),
+                attempt_id=str(job.attempt_id),
+            )
+    else:
+        with _source(monkeypatch, [(1.0, 2.0, None)]):
+            await tasks_vector.ingest_service.func(
+                job_id=str(job.id),
+                attempt_id=str(job.attempt_id),
+                source_url=_BASE,
+                source_layer="0",
+                user_id=str(admin_id),
+            )
+
+
+async def _drop_import(session, job_id) -> None:
+    """Delete the job, its dataset and the dataset's table."""
+    from app.modules.catalog.datasets.domain.models import Dataset
+
+    session.expire_all()
+    dataset = await session.scalar(
+        select(Dataset)
+        .join(IngestJob, IngestJob.dataset_id == Dataset.id)
+        .where(IngestJob.id == job_id)
+    )
+    await session.execute(delete(IngestJob).where(IngestJob.id == job_id))
+    if dataset is not None:
+        table, record_id = dataset.table_name, dataset.record_id
+        await session.execute(delete(Record).where(Record.id == record_id))
+        await session.execute(text(f'DROP TABLE IF EXISTS "data"."{table}"'))
+    await session.commit()
+
+
+@pytest.mark.parametrize("kind", ["file", "service"])
+async def test_a_vector_import_dying_after_its_commit_is_billed_once_by_the_sweep(
+    test_db_session, tmp_path, monkeypatch, store, meter, kind
+) -> None:
+    """The import's usage event is owed past a death after the commit and billed once."""
+    await _dies_after_the_commit(monkeypatch)
+    monkeypatch.setattr(
+        "app.processing.embeddings.helpers.defer_embedding",
+        AsyncMock(return_value=True),
+    )
+    jobs: list[uuid.UUID] = []
+    try:
+        with pytest.raises(asyncio.CancelledError):
+            await _vector_import(kind, test_db_session, tmp_path, monkeypatch, jobs)
+        [job_id] = jobs
+        assert (await _record(job_id))["usage"] == "ingest_jobs"
+        assert meter.events == []
+
+        await _make_due(job_id)
+        await run_owed_publish_followups()
+        await run_owed_publish_followups()
+
+        assert meter.events == [str(job_id)]
+        assert await _record(job_id) is None
+    finally:
+        for job_id in jobs:
+            await _drop_import(test_db_session, job_id)
+
+
+@pytest.mark.parametrize("kind", ["file", "service"])
+async def test_a_vector_import_the_meter_refused_is_billed_once_when_it_recovers(
+    test_db_session, tmp_path, monkeypatch, store, meter, kind
+) -> None:
+    """A billing extension that raises leaves only the usage event owed, and the retry bills it once."""
+    monkeypatch.setattr(
+        "app.processing.embeddings.helpers.defer_embedding",
+        AsyncMock(return_value=True),
+    )
+    meter.down = True
+    jobs: list[uuid.UUID] = []
+    try:
+        await _vector_import(kind, test_db_session, tmp_path, monkeypatch, jobs)
+        [job_id] = jobs
+        record = await _record(job_id)
+        owed = {"catalog_cache", "quicklook", "embedding", "notice", "usage"}
+        assert (owed & record.keys(), record["attempts"]) == ({"usage"}, 1)
+
+        meter.down = False
+        await _make_due(job_id)
+        await run_owed_publish_followups()
+        await run_owed_publish_followups()
+
+        assert meter.events == [str(job_id)]
+        assert await _record(job_id) is None
+    finally:
+        for job_id in jobs:
+            await _drop_import(test_db_session, job_id)
