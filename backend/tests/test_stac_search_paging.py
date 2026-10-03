@@ -128,6 +128,50 @@ class TestNextPageDerivation:
         )
         assert result["next_page"] is None
 
+    async def test_next_link_carrying_headers_offers_no_next_page(self):
+        result, _ = await _search(
+            {
+                "features": [],
+                "links": [
+                    {
+                        "rel": "next",
+                        "href": f"{CATALOG}/search",
+                        "headers": {"X-Cursor": "abc"},
+                    }
+                ],
+            }
+        )
+        assert result["next_page"] is None
+
+    async def test_next_link_repeating_the_one_just_followed_ends_paging(self):
+        link = {
+            "method": "POST",
+            "href": f"{CATALOG}/search",
+            "body": {"next": "abc"},
+            "merge": True,
+        }
+        result, _ = await _search(
+            {"features": [], "links": [{"rel": "next", **link}]},
+            next_page=link,
+        )
+        assert result["next_page"] is None
+
+    async def test_a_different_next_link_after_a_follow_up_is_kept(self):
+        followed = {
+            "method": "GET",
+            "href": f"{CATALOG}/search?t=1",
+            "body": None,
+            "merge": False,
+        }
+        result, _ = await _search(
+            {
+                "features": [],
+                "links": [{"rel": "next", "href": f"{CATALOG}/search?t=2"}],
+            },
+            next_page=followed,
+        )
+        assert result["next_page"]["href"] == f"{CATALOG}/search?t=2"
+
     async def test_merged_post_follow_up_keeps_the_original_filters(self):
         next_page = {
             "method": "POST",

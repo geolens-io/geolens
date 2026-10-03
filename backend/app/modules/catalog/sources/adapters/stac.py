@@ -235,6 +235,11 @@ def next_page_link(
         if not same_origin(catalog_url, href):
             logger.warning("STAC search: next link is off the submitted origin")
             return None
+        # A cursor carried in headers cannot be replayed safely: echoing
+        # client-held headers to the catalog would be an injection and
+        # credential channel, so such a catalog offers no further pages.
+        if link.get("headers"):
+            return None
         method = str(link.get("method") or "GET").upper()
         if method not in ("GET", "POST"):
             return None
@@ -254,6 +259,21 @@ def next_page_link(
             "merge": link.get("merge") is True,
         }
     return None
+
+
+def _following_page(
+    data: dict[str, Any],
+    response_url: str,
+    catalog_url: str,
+    followed: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """The next link, unless it repeats the one just followed.
+
+    A catalog answering with the link already followed would loop the caller
+    on one page forever.
+    """
+    following = next_page_link(data, response_url, catalog_url)
+    return None if following == followed else following
 
 
 def _make_client(credential_header: str | None = None) -> httpx.AsyncClient:
@@ -586,5 +606,5 @@ async def search_stac_items(
         "items": items,
         "matched": matched,
         "returned": len(items),
-        "next_page": next_page_link(data, str(resp.url), url),
+        "next_page": _following_page(data, str(resp.url), url, next_page),
     }
