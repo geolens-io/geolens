@@ -13404,6 +13404,11 @@ export interface components {
              * @default false
              */
             merge: boolean;
+            /**
+             * Signature
+             * @description Server-issued signature of this link for the catalog URL and collections it was issued for. Echo it back unchanged; a link without a matching signature is refused.
+             */
+            signature?: string | null;
         };
         /**
          * StacSearchBody

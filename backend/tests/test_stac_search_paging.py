@@ -8,6 +8,7 @@ import pytest
 from httpx import AsyncClient
 
 from app.modules.catalog.sources.adapters.stac import search_stac_items
+from app.modules.catalog.sources.stac_next_page import sign_next_page
 from app.platform.security import SSRFError
 
 CATALOG = "https://stac.example.com/v1"
@@ -296,11 +297,25 @@ def mock_search():
         yield search, ssrf
 
 
+def _descriptor(**overrides) -> dict:
+    return {
+        "method": "GET",
+        "href": f"{CATALOG}/search?t=1",
+        "body": None,
+        "merge": False,
+        **overrides,
+    }
+
+
+def _signed(descriptor: dict, url: str = CATALOG, collections=None) -> dict:
+    return {**descriptor, "signature": sign_next_page(url, collections, descriptor)}
+
+
 class TestNextPageRoute:
-    async def _post(self, client, headers, next_page):
+    async def _post(self, client, headers, next_page, **extra):
         return await client.post(
             "/services/stac/search",
-            json={"url": CATALOG, "next_page": next_page},
+            json={"url": CATALOG, "next_page": next_page, **extra},
             headers=headers,
         )
 
@@ -311,7 +326,7 @@ class TestNextPageRoute:
         resp = await self._post(
             client,
             admin_auth_header,
-            {"method": "GET", "href": "https://evil.example.net/search?t=1"},
+            _signed(_descriptor(href="https://evil.example.net/search?t=1")),
         )
         assert resp.status_code == 400
         search.assert_not_called()
@@ -323,7 +338,7 @@ class TestNextPageRoute:
         resp = await self._post(
             client,
             admin_auth_header,
-            {"method": "GET", "href": "https://stac.example.com:8443/v1/search"},
+            _signed(_descriptor(href="https://stac.example.com:8443/v1/search")),
         )
         assert resp.status_code == 400
         search.assert_not_called()
@@ -333,15 +348,11 @@ class TestNextPageRoute:
     ):
         search, ssrf = mock_search
         ssrf.side_effect = [None, SSRFError("blocked")]
-        resp = await self._post(
-            client,
-            admin_auth_header,
-            {"method": "GET", "href": f"{CATALOG}/search?t=1"},
-        )
+        resp = await self._post(client, admin_auth_header, _signed(_descriptor()))
         assert resp.status_code == 400
         search.assert_not_called()
 
-    async def test_same_origin_next_link_is_followed_and_returned(
+    async def test_signed_next_link_is_followed_and_the_next_one_is_signed(
         self, client: AsyncClient, admin_auth_header: dict, mock_search
     ):
         search, _ = mock_search
@@ -355,13 +366,122 @@ class TestNextPageRoute:
         resp = await self._post(
             client,
             admin_auth_header,
-            {"method": "POST", "href": f"{CATALOG}/search", "body": {"next": "abc"}},
+            _signed(
+                _descriptor(
+                    method="POST", href=f"{CATALOG}/search", body={"next": "abc"}
+                )
+            ),
         )
         assert resp.status_code == 200
-        assert resp.json()["next_page"] == following
+        assert resp.json()["next_page"] == _signed(following)
         sent = search.call_args.kwargs["next_page"]
         assert sent["href"] == f"{CATALOG}/search"
         assert sent["body"] == {"next": "abc"}
+        assert "signature" not in sent
+
+    @pytest.mark.parametrize(
+        "tamper",
+        [
+            {"href": "https://stac.example.com/v1/admin/users"},
+            {"method": "POST"},
+            {"body": {"next": "evil"}},
+            {"merge": True},
+        ],
+    )
+    async def test_an_edited_descriptor_is_refused(
+        self, client: AsyncClient, admin_auth_header: dict, mock_search, tamper
+    ):
+        search, ssrf = mock_search
+        signed = _signed(_descriptor())
+        resp = await self._post(client, admin_auth_header, {**signed, **tamper})
+        assert resp.status_code == 400
+        search.assert_not_called()
+        ssrf.assert_called_once_with(CATALOG)
+
+    async def test_a_descriptor_for_another_catalog_is_refused(
+        self, client: AsyncClient, admin_auth_header: dict, mock_search
+    ):
+        search, _ = mock_search
+        signed = _signed(_descriptor(), url="https://other.example.com/v1")
+        resp = await self._post(client, admin_auth_header, signed)
+        assert resp.status_code == 400
+        search.assert_not_called()
+
+    async def test_a_descriptor_for_other_collections_is_refused(
+        self, client: AsyncClient, admin_auth_header: dict, mock_search
+    ):
+        search, _ = mock_search
+        signed = _signed(_descriptor(), collections=["a"])
+        resp = await self._post(client, admin_auth_header, signed, collections=["b"])
+        assert resp.status_code == 400
+        search.assert_not_called()
+
+    async def test_a_missing_signature_is_refused(
+        self, client: AsyncClient, admin_auth_header: dict, mock_search
+    ):
+        search, _ = mock_search
+        resp = await self._post(client, admin_auth_header, _descriptor())
+        assert resp.status_code == 400
+        search.assert_not_called()
+
+
+class TestNextPageRoundTrip:
+    """A descriptor issued by a real first page pages, and an edit never reaches the wire."""
+
+    async def _page(self, client, headers, payload, sent, **body):
+        with (
+            patch(
+                "app.modules.catalog.sources.stac_router.validate_url_for_ssrf",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.modules.catalog.sources.adapters.stac._make_client",
+                return_value=_capturing_client(payload, sent),
+            ),
+        ):
+            return await client.post(
+                "/services/stac/search",
+                json={"url": CATALOG, "collections": ["c1"], **body},
+                headers=headers,
+            )
+
+    async def test_issued_descriptor_pages_and_an_edit_makes_no_request(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        first_sent: list[httpx.Request] = []
+        first = await self._page(
+            client,
+            admin_auth_header,
+            {
+                "features": [],
+                "links": [{"rel": "next", "href": f"{CATALOG}/search?t=2"}],
+            },
+            first_sent,
+        )
+        next_page = first.json()["next_page"]
+        assert next_page["signature"]
+
+        second_sent: list[httpx.Request] = []
+        second = await self._page(
+            client,
+            admin_auth_header,
+            {"features": []},
+            second_sent,
+            next_page=next_page,
+        )
+        assert second.status_code == 200
+        assert [str(r.url) for r in second_sent] == [f"{CATALOG}/search?t=2"]
+
+        edited_sent: list[httpx.Request] = []
+        edited = await self._page(
+            client,
+            admin_auth_header,
+            {"features": []},
+            edited_sent,
+            next_page={**next_page, "href": f"{CATALOG}/admin"},
+        )
+        assert edited.status_code == 400
+        assert edited_sent == []
 
 
 class TestCloudCoverRoute:

@@ -138,7 +138,7 @@ describe('StacImportForm item search filters', () => {
       expect.objectContaining({
         collections: ['test-col'],
         bbox: [-74.3, 40.5, -73.7, 40.9],
-        datetime_range: '2024-01-01T00:00:00Z/2024-02-01T23:59:59.999Z',
+        datetime_range: '2024-01-01T00:00:00Z/2024-02-01T23:59:59.999999Z',
       }),
     );
   });
@@ -201,7 +201,11 @@ describe('StacImportForm load more', () => {
     vi.clearAllMocks();
   });
 
-  const link = { method: 'GET' as const, href: 'https://example.com/stac/search?t=2' };
+  const link = {
+    method: 'GET' as const,
+    href: 'https://example.com/stac/search?t=2',
+    signature: 'issued-by-server',
+  };
 
   test('Load more sends the next link and appends the new items', async () => {
     const user = await driveToItemsStep(page(['a', 'b'], { next_page: link }));

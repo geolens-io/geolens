@@ -2211,6 +2211,8 @@ export interface StacNextPage {
   href: string;
   body?: Record<string, unknown> | null;
   merge?: boolean;
+  /** Server-issued; echo it back unchanged. */
+  signature?: string | null;
 }
 
 export interface StacSearchRequest {

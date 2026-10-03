@@ -359,7 +359,7 @@ export function StacImportForm() {
     }
     if (startDate || endDate) {
       const from = startDate ? `${startDate}T00:00:00Z` : '..';
-      const to = endDate ? `${endDate}T23:59:59.999Z` : '..';
+      const to = endDate ? `${endDate}T23:59:59.999999Z` : '..';
       filters.datetime_range = `${from}/${to}`;
     }
     if (bboxText.trim()) {

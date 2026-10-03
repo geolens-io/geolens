@@ -18059,6 +18059,19 @@
             "description": "Whether the body is merged into the original search body.",
             "title": "Merge",
             "type": "boolean"
+          },
+          "signature": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Server-issued signature of this link for the catalog URL and collections it was issued for. Echo it back unchanged; a link without a matching signature is refused.",
+            "title": "Signature"
           }
         },
         "required": [

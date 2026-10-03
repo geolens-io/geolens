@@ -10563,6 +10563,12 @@ export type StacNextPage = {
      * Whether the body is merged into the original search body.
      */
     merge?: boolean;
+    /**
+     * Signature
+     *
+     * Server-issued signature of this link for the catalog URL and collections it was issued for. Echo it back unchanged; a link without a matching signature is refused.
+     */
+    signature?: string | null;
 };
 
 /**

@@ -5,7 +5,6 @@ search items, and import selected items as raster datasets.
 """
 
 import asyncio
-import json
 import uuid
 from datetime import date, datetime, timezone
 from typing import Any, Literal
@@ -43,10 +42,14 @@ from app.platform.extensions import get_catalog_port
 from app.modules.catalog.sources.adapters.stac import (
     MAX_ASSET_KEY_CHARS,
     MAX_ASSET_MEDIA_TYPE_CHARS,
-    MAX_NEXT_BODY_BYTES,
     connect_stac_api,
     list_stac_collections,
     search_stac_items,
+)
+from app.modules.catalog.sources.stac_next_page import (
+    StacNextPage,
+    sign_next_page,
+    verify_next_page,
 )
 from app.modules.catalog.sources.cog_info import fetch_cog_info, reconcile_epsg
 from app.modules.catalog.sources.schemas import (
@@ -214,33 +217,6 @@ class StacCollectionsResponse(BaseModel):
     collections: list[StacCollectionSummary] = Field(
         description="Available collections."
     )
-
-
-class StacNextPage(BaseModel):
-    """A STAC ``rel="next"`` link, echoed back to fetch the following page."""
-
-    method: Literal["GET", "POST"] = Field(description="HTTP method of the link.")
-    href: str = Field(
-        max_length=4096,
-        description=(
-            "Absolute URL of the next page. It must share the origin of the "
-            "catalog URL it came from; any other origin is refused."
-        ),
-    )
-    body: dict[str, Any] | None = Field(
-        default=None, description="JSON body of a POST link."
-    )
-    merge: bool = Field(
-        default=False,
-        description="Whether the body is merged into the original search body.",
-    )
-
-    @field_validator("body")
-    @classmethod
-    def _bound_body(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
-        if value is not None and len(json.dumps(value)) > MAX_NEXT_BODY_BYTES:
-            raise ValueError("next page body is too large")
-        return value
 
 
 class StacSearchRequest(BaseModel):
@@ -611,6 +587,15 @@ async def stac_collections(
     )
 
 
+def _signed_next_page(
+    request: StacSearchRequest, next_page: dict[str, Any] | None
+) -> StacNextPage | None:
+    if next_page is None:
+        return None
+    signature = sign_next_page(request.url, request.collections, next_page)
+    return StacNextPage(**next_page, signature=signature)
+
+
 async def _validate_next_page_href(catalog_url: str, href: str) -> None:
     """Refuse a next-page URL that the catalog's own response could not have named.
 
@@ -655,7 +640,14 @@ async def stac_search(
 
     next_page = None
     if request.next_page is not None:
-        next_page = request.next_page.model_dump()
+        next_page = request.next_page.model_dump(exclude={"signature"})
+        if not verify_next_page(
+            request.url, request.collections, next_page, request.next_page.signature
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="The next page link is not valid for this search.",
+            )
         await _validate_next_page_href(request.url, request.next_page.href)
 
     try:
@@ -689,7 +681,7 @@ async def stac_search(
         ],
         matched=result["matched"],
         returned=result["returned"],
-        next_page=result.get("next_page"),
+        next_page=_signed_next_page(request, result.get("next_page")),
     )
 
 

@@ -29,12 +29,15 @@ class StacNextPage:
             origin is refused.
         body (None | StacNextPageBodyType0 | Unset): JSON body of a POST link.
         merge (bool | Unset): Whether the body is merged into the original search body. Default: False.
+        signature (None | str | Unset): Server-issued signature of this link for the catalog URL and collections it was
+            issued for. Echo it back unchanged; a link without a matching signature is refused.
     """
 
     method: StacNextPageMethod
     href: str
     body: None | StacNextPageBodyType0 | Unset = UNSET
     merge: bool | Unset = False
+    signature: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -54,6 +57,12 @@ class StacNextPage:
 
         merge = self.merge
 
+        signature: None | str | Unset
+        if isinstance(self.signature, Unset):
+            signature = UNSET
+        else:
+            signature = self.signature
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -66,6 +75,8 @@ class StacNextPage:
             field_dict["body"] = body
         if merge is not UNSET:
             field_dict["merge"] = merge
+        if signature is not UNSET:
+            field_dict["signature"] = signature
 
         return field_dict
 
@@ -97,11 +108,21 @@ class StacNextPage:
 
         merge = d.pop("merge", UNSET)
 
+        def _parse_signature(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        signature = _parse_signature(d.pop("signature", UNSET))
+
         stac_next_page = cls(
             method=method,
             href=href,
             body=body,
             merge=merge,
+            signature=signature,
         )
 
         stac_next_page.additional_properties = d
