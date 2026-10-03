@@ -138,7 +138,7 @@ describe('StacImportForm item search filters', () => {
       expect.objectContaining({
         collections: ['test-col'],
         bbox: [-74.3, 40.5, -73.7, 40.9],
-        datetime_range: '2024-01-01T00:00:00Z/2024-02-01T23:59:59Z',
+        datetime_range: '2024-01-01T00:00:00Z/2024-02-01T23:59:59.999Z',
       }),
     );
   });
@@ -155,6 +155,34 @@ describe('StacImportForm item search filters', () => {
       datetime_range: '2024-05-01T00:00:00Z/..',
     });
     expect(mockSearchStacItems.mock.calls[1][0]).not.toHaveProperty('bbox');
+  });
+
+  test.each([
+    '181, 0, 0, 1',
+    '-181, 0, 0, 1',
+    '0, 0, 181, 1',
+    '0, -91, 1, 0',
+    '0, 0, 1, 91',
+    '0, 5, 1, 4',
+  ])('an out-of-range area %s is refused without searching', async (area) => {
+    const user = await driveToItemsStep(page(['a']));
+
+    await user.type(screen.getByLabelText('stac.filterBbox'), area);
+    await user.click(screen.getByRole('button', { name: 'stac.filterApply' }));
+
+    expect(await screen.findByTestId('stac-filter-error')).toHaveTextContent('stac.filterBboxInvalid');
+    expect(mockSearchStacItems).toHaveBeenCalledTimes(1);
+  });
+
+  test('an area crossing the antimeridian is accepted', async () => {
+    const user = await driveToItemsStep(page(['a']));
+    mockSearchStacItems.mockResolvedValueOnce(page(['b']));
+
+    await user.type(screen.getByLabelText('stac.filterBbox'), '170, -10, -170, 10');
+    await user.click(screen.getByRole('button', { name: 'stac.filterApply' }));
+
+    await waitFor(() => expect(mockSearchStacItems).toHaveBeenCalledTimes(2));
+    expect(mockSearchStacItems.mock.calls[1][0]).toMatchObject({ bbox: [170, -10, -170, 10] });
   });
 
   test('an unusable area is refused without searching', async () => {

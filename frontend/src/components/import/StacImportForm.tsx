@@ -359,7 +359,7 @@ export function StacImportForm() {
     }
     if (startDate || endDate) {
       const from = startDate ? `${startDate}T00:00:00Z` : '..';
-      const to = endDate ? `${endDate}T23:59:59Z` : '..';
+      const to = endDate ? `${endDate}T23:59:59.999Z` : '..';
       filters.datetime_range = `${from}/${to}`;
     }
     if (bboxText.trim()) {
@@ -370,7 +370,8 @@ export function StacImportForm() {
         parts.length === 4 &&
         parts.every((p) => p !== '') &&
         nums.every(Number.isFinite) &&
-        west >= -180 && east <= 180 && south >= -90 && north <= 90 &&
+        [west, east].every((lon) => lon >= -180 && lon <= 180) &&
+        [south, north].every((lat) => lat >= -90 && lat <= 90) &&
         south <= north;
       if (!valid) return { error: t('stac.filterBboxInvalid') };
       filters.bbox = nums;
