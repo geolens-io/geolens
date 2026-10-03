@@ -26,6 +26,7 @@ import { useAllSettings, useConfigMode, useUpdateSettings, useResetSettings } fr
 import { useUnsavedGuard } from '@/hooks/use-unsaved-guard';
 import { useEdition } from '@/hooks/use-edition';
 import type { SettingItem } from '@/api/settings';
+import type { ResetHandler } from '@/components/admin/settings/useSettingsForm';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 
 // Exported for the App route-table guard (fix(#871)): a static
@@ -49,7 +50,7 @@ const TAB_COMPONENTS: Record<TabKey, React.ComponentType<{
   settings: SettingItem[];
   envOnly: boolean;
   onSave: (changes: Record<string, unknown>) => void;
-  onReset: (key: string) => void;
+  onReset: ResetHandler;
   isSaving: boolean;
   settingsUpdatedAt?: number;
   saveFailed?: boolean;
@@ -99,7 +100,10 @@ export function AdminSettingsPage() {
   }
 
   function handleReset(key: string) {
-    resetMutation.mutate([key]);
+    return resetMutation.mutateAsync([key]).then(
+      () => true,
+      () => false,
+    );
   }
 
   if (isLoading) {

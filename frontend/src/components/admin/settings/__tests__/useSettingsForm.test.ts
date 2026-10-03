@@ -134,11 +134,16 @@ describe('useSettingsForm', () => {
       { key: 'flag', defaultValue: false },
     ] as const;
 
-    type Props = { s: SettingItem[]; saving?: boolean; u?: number };
+    type Props = { s: SettingItem[]; saving?: boolean; u?: number; failed?: boolean };
+    let submitReset: (key: string) => Promise<boolean> = async () => true;
+    beforeEach(() => {
+      submitReset = async () => true;
+    });
 
     function renderWithSettings(settings: SettingItem[]) {
       return renderHook(
-        ({ s, saving, u }: Props) => useSettingsForm(s, fields, saving, u),
+        ({ s, saving, u, failed }: Props) =>
+          useSettingsForm(s, fields, saving, u, failed, (key) => submitReset(key)),
         { initialProps: { s: settings } as Props },
       );
     }
@@ -414,25 +419,53 @@ describe('useSettingsForm', () => {
       expect(result.current.dirty).toEqual({ name: 'Dave' });
     });
 
-    it('does not pin a later reset after two failed saves whose refetches failed', () => {
+    it('lets a successful reset win after a failed save and its completed error refetch', async () => {
       const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
       const { result, rerender } = renderWithSettings(initial);
 
       act(() => result.current.setters.name('Bob'));
       rerender({ s: initial, saving: true, u: 1 });
       act(() => result.current.setters.name('Carol'));
+      rerender({ s: initial, saving: false, u: 1, failed: true });
+      rerender({ s: initial, saving: false, u: 2, failed: true });
 
-      // The API is down: the save fails and so does every refetch, so the
-      // settings props never move. The retry fails the same way.
-      rerender({ s: initial, saving: false, u: 1 });
-      rerender({ s: initial, saving: true, u: 1 });
-      rerender({ s: initial, saving: false, u: 1 });
-
-      // Back online, a Reset refetch lands with the default.
-      rerender({ s: [makeSetting('name', 'Default'), makeSetting('flag', false)], saving: false, u: 2 });
+      act(() => result.current.setters.name('Dave'));
+      await act(async () => result.current.onReset('name'));
+      rerender({
+        s: [makeSetting('name', 'Default'), makeSetting('flag', false)],
+        saving: false,
+        u: 3,
+        failed: true,
+      });
 
       expect(result.current.values.name).toBe('Default');
       expect(result.current.hasDirty).toBe(false);
+    });
+
+    it('keeps an edit made after a reset was submitted', async () => {
+      const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
+      const { result, rerender } = renderWithSettings(initial);
+
+      act(() => result.current.setters.name('Bob'));
+      rerender({ s: initial, saving: true, u: 1 });
+      act(() => result.current.setters.name('Carol'));
+      rerender({ s: initial, saving: false, u: 1, failed: true });
+      rerender({ s: initial, saving: false, u: 2, failed: true });
+
+      let finishReset: (ok: boolean) => void = () => {};
+      submitReset = () => new Promise<boolean>((resolve) => (finishReset = resolve));
+      act(() => result.current.onReset('name'));
+      act(() => result.current.setters.name('Erin'));
+      await act(async () => finishReset(true));
+      rerender({
+        s: [makeSetting('name', 'Default'), makeSetting('flag', false)],
+        saving: false,
+        u: 3,
+        failed: true,
+      });
+
+      expect(result.current.values.name).toBe('Erin');
+      expect(result.current.dirty).toEqual({ name: 'Erin' });
     });
 
     it('keeps a draft whose save failed after an earlier save succeeded', () => {
@@ -531,7 +564,7 @@ describe('useSettingsForm', () => {
       expect(result.current.hasDirty).toBe(false);
     });
 
-    it('ends failed-save tracking on an unchanged refetch so a later reset wins', () => {
+    it('ends a successful save tracking on an unchanged refetch so a later reset wins', () => {
       const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
       const { result, rerender } = renderWithSettings(initial);
 
@@ -539,8 +572,8 @@ describe('useSettingsForm', () => {
       rerender({ s: initial, saving: true, u: 1 });
       act(() => result.current.setters.name('Carol'));
 
-      // The save fails; the error refetch returns identical data, so the
-      // settings object keeps its identity and only the fetch time moves.
+      // The refetch returns identical data, so the settings object keeps its
+      // identity and only the fetch time moves.
       rerender({ s: initial, saving: false, u: 1 });
       rerender({ s: initial, saving: false, u: 2 });
 

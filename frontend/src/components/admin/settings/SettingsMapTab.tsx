@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { SettingSourceBadge } from './SettingSourceBadge';
 import { findSetting } from './utils';
-import { useSettingsForm } from './useSettingsForm';
+import { useSettingsForm, type ResetHandler } from './useSettingsForm';
 import { getPlugins } from '@/components/map-plugins';
 import { isPmtilesArchiveUrl } from '@/lib/basemap-utils';
 import type { SettingItem, BasemapEntry } from '@/api/settings';
@@ -23,7 +23,7 @@ interface TabProps {
   settings: SettingItem[];
   envOnly: boolean;
   onSave: (changes: Record<string, unknown>) => void;
-  onReset: (key: string) => void;
+  onReset: ResetHandler;
   isSaving: boolean;
   settingsUpdatedAt?: number;
   saveFailed?: boolean;
@@ -136,9 +136,9 @@ const MAP_FIELDS = [
   { key: 'enabled_plugins', defaultValue: [] as string[], compare: 'json' as const, coerce: coerceEnabledPlugins },
 ] as const;
 
-export function SettingsMapTab({ settings, envOnly, onSave, onReset, isSaving, settingsUpdatedAt, saveFailed, onDirtyChange }: TabProps) {
+export function SettingsMapTab({ settings, envOnly, onSave, onReset: submitReset, isSaving, settingsUpdatedAt, saveFailed, onDirtyChange }: TabProps) {
   const { t } = useTranslation('admin');
-  const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, MAP_FIELDS, isSaving, settingsUpdatedAt, saveFailed);
+  const { values, setters, dirty, hasDirty, discard, onReset } = useSettingsForm(settings, MAP_FIELDS, isSaving, settingsUpdatedAt, saveFailed, submitReset);
   const [newName, setNewName] = useState('');
   const [newUrl, setNewUrl] = useState('');
   const [newAttribution, setNewAttribution] = useState('');

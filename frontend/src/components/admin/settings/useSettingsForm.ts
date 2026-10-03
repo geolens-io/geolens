@@ -12,6 +12,9 @@ type FieldDef = {
   compare?: 'strict' | 'json';
 };
 
+/** Starts a reset. A returned promise resolves true once the reset succeeded. */
+export type ResetHandler = (key: string) => void | Promise<boolean>;
+
 function isEqual(a: unknown, b: unknown, mode: 'strict' | 'json' = 'strict'): boolean {
   if (mode === 'json') return JSON.stringify(a) === JSON.stringify(b);
   return a === b;
@@ -42,6 +45,9 @@ export function useSettingsForm<K extends string>(
   /** The save mutation's error flag. A failed save does not acknowledge the
    *  drafts it submitted, so their edit markers outlive its error refetch. */
   saveFailed = false,
+  /** The tab's reset handler; the returned `onReset` wraps it so a
+   *  successful reset retires that field's edit markers. */
+  submitReset?: ResetHandler,
 ) {
   type Values = Record<K, unknown>;
 
@@ -82,6 +88,7 @@ export function useSettingsForm<K extends string>(
   const settledSaveRef = useRef(0);
   const reflectedSaveRef = useRef(0);
   const editMarkersRef = useRef(new Map<string, number>());
+  const editCountsRef = useRef(new Map<string, number>());
   const saveFailedRef = useRef(saveFailed);
   saveFailedRef.current = saveFailed;
   useEffect(() => {
@@ -172,6 +179,7 @@ export function useSettingsForm<K extends string>(
     const s: Record<string, (v: unknown) => void> = {};
     for (const f of fields) {
       s[f.key] = (v: unknown) => {
+        editCountsRef.current.set(f.key, (editCountsRef.current.get(f.key) ?? 0) + 1);
         if (startedSaveRef.current > reflectedSaveRef.current) {
           editMarkersRef.current.set(f.key, startedSaveRef.current);
         }
@@ -204,5 +212,19 @@ export function useSettingsForm<K extends string>(
 
   const hasDirty = Object.keys(dirty).length > 0;
 
-  return { values, setters, dirty, hasDirty, discard: syncFromSettings };
+  // A reset is acknowledged by its own refetch, which the save counters do
+  // not track, so a successful reset retires the field's markers directly.
+  // An edit made after the reset was submitted keeps its marker.
+  const submitResetRef = useRef(submitReset);
+  submitResetRef.current = submitReset;
+  const onReset = useCallback((key: string) => {
+    const submittedEdits = editCountsRef.current.get(key) ?? 0;
+    void Promise.resolve(submitResetRef.current?.(key)).then((succeeded) => {
+      if (succeeded === true && (editCountsRef.current.get(key) ?? 0) === submittedEdits) {
+        editMarkersRef.current.delete(key);
+      }
+    });
+  }, []);
+
+  return { values, setters, dirty, hasDirty, discard: syncFromSettings, onReset };
 }

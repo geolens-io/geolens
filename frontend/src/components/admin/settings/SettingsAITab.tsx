@@ -13,7 +13,7 @@ import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { SettingSourceBadge } from './SettingSourceBadge';
 import { findSetting } from './utils';
-import { useSettingsForm } from './useSettingsForm';
+import { useSettingsForm, type ResetHandler } from './useSettingsForm';
 import { useApiKeyStatus } from '@/hooks/use-settings';
 import {
   useEmbeddingStats,
@@ -31,7 +31,7 @@ interface TabProps {
   settings: SettingItem[];
   envOnly: boolean;
   onSave: (changes: Record<string, unknown>) => void;
-  onReset: (key: string) => void;
+  onReset: ResetHandler;
   isSaving: boolean;
   settingsUpdatedAt?: number;
   saveFailed?: boolean;
@@ -51,7 +51,7 @@ const AI_FIELDS = [
   { key: 'embedding_dims', defaultValue: '0', coerce: String },
 ] as const;
 
-export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, settingsUpdatedAt, saveFailed, onDirtyChange }: TabProps) {
+export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset, isSaving, settingsUpdatedAt, saveFailed, onDirtyChange }: TabProps) {
   const { t } = useTranslation('admin');
   const { can } = usePermissions();
   const canManageUsers = can('manage_users');
@@ -78,7 +78,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, se
     backfillJob.data?.status === 'running' ||
     Boolean(embeddingStats?.current_run);
 
-  const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, AI_FIELDS, isSaving, settingsUpdatedAt, saveFailed);
+  const { values, setters, dirty, hasDirty, discard, onReset } = useSettingsForm(settings, AI_FIELDS, isSaving, settingsUpdatedAt, saveFailed, submitReset);
   const [isDetecting, setIsDetecting] = useState(false);
   const [isProbing, setIsProbing] = useState(false);
   const [probe, setProbe] = useState<AIProbeReport | null>(null);
