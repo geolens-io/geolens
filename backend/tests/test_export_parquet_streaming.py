@@ -31,6 +31,7 @@ from app.processing.export.parquet import (
     ParquetExportPlan,
     _GeoParquetWriter,
     _stream_batches,
+    build_geoparquet_table,
     export_parquet,
     plan_parquet_export,
 )
@@ -51,9 +52,17 @@ class _Cursor:
         return rows
 
 
+class _NoRows:
+    def all(self) -> list:
+        return []
+
+
 class _FakeDb:
     def __init__(self, cursor: _Cursor):
         self.cursor = cursor
+
+    async def execute(self, statement):
+        return _NoRows()
 
     async def stream(self, statement):
         return self.cursor
@@ -879,7 +888,9 @@ class TestRealTable:
         await test_db_session.commit()
         try:
             plan = await plan_parquet_export(test_db_session, table_name, schema="data")
-            assert plan.column_types == {"real_int": pa.int32()}
+            assert await export_parquet_module._declared_column_types(
+                test_db_session, table_name, "data", ["shadow", "real_int"], frozenset()
+            ) == {"real_int": pa.int32()}
             path, _filename, _media_type = await export_parquet(
                 test_db_session, table_name, "Shadow", schema="data", plan=plan
             )
@@ -891,3 +902,56 @@ class TestRealTable:
             )
             await test_db_session.execute(text("DROP TYPE IF EXISTS data.int4"))
             await test_db_session.commit()
+
+    @pytest.mark.anyio
+    async def test_a_table_swapped_after_planning_keeps_its_new_values(
+        self, test_db_session, staging
+    ):
+        """The route releases its connection between planning and streaming, so
+        a reupload can replace the table. Types are read when streaming starts."""
+        table_name = f"exp_pqswap_{uuid.uuid4().hex[:12]}"
+        columns = "(gid serial PRIMARY KEY, v {}, geom geometry(Point, 4326), geom_4326 geometry(Point, 4326))"
+        await test_db_session.execute(
+            text(f"CREATE TABLE data.{table_name} {columns.format('integer')}")
+        )
+        await test_db_session.commit()
+        try:
+            plan = await plan_parquet_export(test_db_session, table_name, schema="data")
+            await test_db_session.rollback()
+            await test_db_session.execute(text(f"DROP TABLE data.{table_name}"))
+            await test_db_session.execute(
+                text(
+                    f"CREATE TABLE data.{table_name} {columns.format('numeric(10,2)')}"
+                )
+            )
+            await test_db_session.execute(
+                text(
+                    f"INSERT INTO data.{table_name} (v, geom_4326) "
+                    "VALUES (1.75, ST_SetSRID(ST_MakePoint(0, 0), 4326))"
+                )
+            )
+            await test_db_session.commit()
+
+            path, _filename, _media_type = await export_parquet(
+                test_db_session, table_name, "Swap", schema="data", plan=plan
+            )
+
+            assert pq.read_table(path).column("v").to_pylist() == [Decimal("1.75")]
+        finally:
+            await test_db_session.rollback()
+            await test_db_session.execute(
+                text(f"DROP TABLE IF EXISTS data.{table_name}")
+            )
+            await test_db_session.commit()
+
+
+def test_a_value_the_declared_type_would_alter_falls_back_to_text():
+    """A float under a declared integer type is kept as text, not truncated."""
+    table = build_geoparquet_table(
+        [b"\x01", b"\x01"],
+        {"n": [1, 1.75]},
+        ["n"],
+        column_types={"n": pa.int32()},
+    )
+
+    assert table.column("n").to_pylist() == ["1", "1.75"]

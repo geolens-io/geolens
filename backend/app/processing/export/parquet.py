@@ -234,8 +234,16 @@ def build_geoparquet_table(
             arrays[name] = _text(cols[name])
             continue
         try:
-            arrays[name] = pa.array(cols[name], type=declared)
-        except (pa.ArrowInvalid, pa.ArrowTypeError, OverflowError):
+            array = pa.array(cols[name])
+            # A safe cast raises on a value the declared type would alter, such
+            # as 1.75 into an integer; pa.array(type=) would truncate it.
+            arrays[name] = array if declared is None else array.cast(declared)
+        except (
+            pa.ArrowInvalid,
+            pa.ArrowTypeError,
+            pa.ArrowNotImplementedError,
+            OverflowError,
+        ):
             arrays[name] = _text(cols[name])
     arrays[geom_col] = pa.array(geom, type=pa.binary())
 
@@ -405,7 +413,6 @@ class ParquetExportPlan(NamedTuple):
     where_sql: str
     params: dict
     json_columns: frozenset[str] = frozenset()
-    column_types: dict[str, pa.DataType] = {}
 
 
 async def plan_parquet_export(
@@ -499,10 +506,7 @@ async def plan_parquet_export(
             "with a bbox or attribute filter."
         )
 
-    column_types = await _declared_column_types(
-        db, table_name, schema, attr_names, json_columns
-    )
-    return ParquetExportPlan(attr_names, where_sql, params, json_columns, column_types)
+    return ParquetExportPlan(attr_names, where_sql, params, json_columns)
 
 
 def _approx_bytes(value: object) -> int:
@@ -622,7 +626,7 @@ async def export_parquet(
         stream past the edge-proxy window with nothing else to stop it. None
         outside a request.
     """
-    attr_names, where_sql, params, json_columns, column_types = plan
+    attr_names, where_sql, params, json_columns = plan
 
     # Selects attribute columns directly (not via to_jsonb) so the async
     # driver returns native Python values and Arrow infers real types; json
@@ -641,6 +645,16 @@ async def export_parquet(
         f"FROM {_qtable(table_name, schema=schema)} t WHERE {where_sql}"
     )
     geom_idx = len(attr_names)
+
+    # Types are read under a lock held until the stream ends, because the route
+    # releases its connection after planning and a reupload that swaps the
+    # table needs ACCESS EXCLUSIVE.
+    await db.execute(
+        text(f"LOCK TABLE {_qtable(table_name, schema=schema)} IN ACCESS SHARE MODE")
+    )
+    column_types = await _declared_column_types(
+        db, table_name, schema, attr_names, json_columns
+    )
 
     exports_root = ensure_staging_ready(
         os.path.join(settings.upload_staging_dir, "exports")
