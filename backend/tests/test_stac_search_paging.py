@@ -273,7 +273,7 @@ class TestNextPageDerivation:
         }
         _, sent = await _search({"features": []}, next_page=next_page)
         assert sent[0].method == "GET"
-        assert str(sent[0].url) == f"{CATALOG}/search?token=t1"
+        assert str(sent[0].url) == f"{CATALOG}/search?token=t1&limit=20"
         assert sent[0].content == b""
 
 
