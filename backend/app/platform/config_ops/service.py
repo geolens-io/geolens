@@ -280,8 +280,8 @@ def _verify_preview_token(
     token: str | None, plan: ConfigImportPlan, mode: ImportMode
 ) -> None:
     message = (
-        "A current matching dry-run is required before overwrite; preview the "
-        "configuration again and retry."
+        "A current matching dry-run is required before applying this import; "
+        "preview the configuration again and retry."
     )
     if not token:
         raise ConfigPreviewError(message)
