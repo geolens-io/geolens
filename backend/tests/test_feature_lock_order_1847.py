@@ -2457,11 +2457,12 @@ _CONDITIONAL_ACQUISITION = {
 # sessions they open, so none of their writes joins the caller's transaction.
 # Their own bodies are still scanned; only the edge into a caller is cut.
 _OWN_TRANSACTION_CALLEES = {
-    "app.processing.ingest.publish_followups.run_publish_followups": (
-        "runs a job's follow-ups once its terminal commit has landed, each "
-        "write in a session of its own"
-    ),
+    "app.processing.ingest.publish_followups.run_publish_followups": "runs after its caller's commit, in sessions it opens",
 }
+
+# What a callee taking its caller's transaction would be handed.
+_CALLER_SESSION_NAMES = {"session", "db", "conn", "connection"}
+_CALLER_SESSION_TYPES = ("AsyncSession", "Session", "AsyncConnection", "Connection")
 
 
 ACQUIRERS = frozenset(
@@ -2907,10 +2908,36 @@ class TestEveryPairWriterTakesTheHouseOrder:
     acquires nothing inverts against every writer holding the dataset row.
     """
 
-    def test_every_own_transaction_callee_is_an_app_function(self):
-        """A stale entry cuts no edge, so each one names a function that exists."""
-        _writes, _calls, sites = _app_function_facts()
-        assert not _OWN_TRANSACTION_CALLEES.keys() - sites.keys()
+    def test_every_own_transaction_callee_opens_its_own_session(self):
+        """Each listed callee exists, takes no session from its caller and opens one itself."""
+        import ast
+
+        found = {}
+        for _rel, module, _bindings, fn in _walk_app_functions():
+            key = f"{module}.{fn.name}"
+            if key in _OWN_TRANSACTION_CALLEES:
+                found[key] = fn
+        assert found.keys() == _OWN_TRANSACTION_CALLEES.keys()
+        for key, fn in found.items():
+            params = fn.args.posonlyargs + fn.args.args + fn.args.kwonlyargs
+            for param in params:
+                annotation = ast.unparse(param.annotation) if param.annotation else ""
+                assert param.arg.lower() not in _CALLER_SESSION_NAMES, (
+                    f"{key} takes {param.arg!r} from its caller"
+                )
+                assert not any(t in annotation for t in _CALLER_SESSION_TYPES), (
+                    f"{key} takes a {annotation} from its caller"
+                )
+            opens = [
+                node
+                for node in ast.walk(fn)
+                if isinstance(node, ast.Call)
+                and (
+                    getattr(node.func, "attr", None) == "async_session"
+                    or getattr(node.func, "id", None) == "async_session"
+                )
+            ]
+            assert opens, f"{key} opens no session of its own"
 
     def test_every_pair_writer_acquires_or_is_exempt(self):
         writers = _pair_writer_report()
