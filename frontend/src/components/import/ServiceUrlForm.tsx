@@ -71,10 +71,10 @@ type ServiceCredentialMethod = 'none' | 'bearer' | 'basic' | 'header';
 // already decided to retire.
 const EXPIRY_MARGIN_MS = 30_000;
 
-export function ServiceUrlForm() {
+export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
   const { t } = useTranslation('import');
   const [step, setStep] = useState<ServiceStep>('idle');
-  const [url, setUrl] = useState('');
+  const [url, setUrl] = useState(initialUrl);
   const [token, setToken] = useState('');
   const [probeResult, setProbeResult] = useState<ProbeResponse | null>(null);
   const [previewData, setPreviewData] = useState<ServicePreviewResponse | null>(null);

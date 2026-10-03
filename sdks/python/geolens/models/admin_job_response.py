@@ -8,6 +8,12 @@ from attrs import field as _attrs_field
 
 from ..types import UNSET, Unset
 
+from ..models.admin_job_response_restart_source_type_0 import (
+    AdminJobResponseRestartSourceType0,
+)
+from ..models.admin_job_response_restart_source_type_0 import (
+    check_admin_job_response_restart_source_type_0,
+)
 from ..models.admin_job_response_status import AdminJobResponseStatus
 from ..models.admin_job_response_status import check_admin_job_response_status
 from dateutil.parser import isoparse
@@ -47,6 +53,10 @@ class AdminJobResponse:
         created_at (datetime.datetime): Timestamp when the job was queued.
         error_code (None | str | Unset): Stable code for a fixed failure reason, so a client can show it in the reader's
             language; `error_message` keeps its English text. Null when the reason is free text.
+        source_url (None | str | Unset): Service URL a service import was started from, with userinfo and credential
+            query values redacted. Null for every other job.
+        restart_source (AdminJobResponseRestartSourceType0 | None | Unset): Import tab a failed job whose retry is
+            refused can be started again from: 'url' for a file URL import, 'service' for a service import. Null otherwise.
     """
 
     id: UUID
@@ -63,6 +73,8 @@ class AdminJobResponse:
     completed_at: datetime.datetime | None
     created_at: datetime.datetime
     error_code: None | str | Unset = UNSET
+    source_url: None | str | Unset = UNSET
+    restart_source: AdminJobResponseRestartSourceType0 | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -126,6 +138,20 @@ class AdminJobResponse:
         else:
             error_code = self.error_code
 
+        source_url: None | str | Unset
+        if isinstance(self.source_url, Unset):
+            source_url = UNSET
+        else:
+            source_url = self.source_url
+
+        restart_source: None | str | Unset
+        if isinstance(self.restart_source, Unset):
+            restart_source = UNSET
+        elif isinstance(self.restart_source, str):
+            restart_source = self.restart_source
+        else:
+            restart_source = self.restart_source
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -147,6 +173,10 @@ class AdminJobResponse:
         )
         if error_code is not UNSET:
             field_dict["error_code"] = error_code
+        if source_url is not UNSET:
+            field_dict["source_url"] = source_url
+        if restart_source is not UNSET:
+            field_dict["restart_source"] = restart_source
 
         return field_dict
 
@@ -279,6 +309,36 @@ class AdminJobResponse:
 
         error_code = _parse_error_code(d.pop("error_code", UNSET))
 
+        def _parse_source_url(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        source_url = _parse_source_url(d.pop("source_url", UNSET))
+
+        def _parse_restart_source(
+            data: object,
+        ) -> AdminJobResponseRestartSourceType0 | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                restart_source_type_0 = check_admin_job_response_restart_source_type_0(
+                    data
+                )
+
+                return restart_source_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(AdminJobResponseRestartSourceType0 | None | Unset, data)
+
+        restart_source = _parse_restart_source(d.pop("restart_source", UNSET))
+
         admin_job_response = cls(
             id=id,
             status=status,
@@ -294,6 +354,8 @@ class AdminJobResponse:
             completed_at=completed_at,
             created_at=created_at,
             error_code=error_code,
+            source_url=source_url,
+            restart_source=restart_source,
         )
 
         admin_job_response.additional_properties = d

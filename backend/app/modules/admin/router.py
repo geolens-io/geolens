@@ -6,7 +6,7 @@ import io
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
-from typing import Any, NoReturn
+from typing import Any, Literal, NoReturn
 
 import anyio
 import structlog
@@ -52,6 +52,7 @@ from app.core.config import settings as app_settings
 from app.core.db.tenant_session import defer_async_with_tenant, tenant_job_context
 from app.core.csv_safety import escape_csv_formula
 from app.core.dependencies import get_client_ip, get_db
+from app.core.url_redaction import redact_url_credentials
 from app.modules.admin.router_operations import router as operations_router
 from app.platform.extensions import get_catalog_port
 from app.platform.jobs.defer_guard import (
@@ -60,8 +61,11 @@ from app.platform.jobs.defer_guard import (
     make_ingest_job_failed_rollback,
 )
 from app.platform.jobs.models import (
+    IngestJob,
     ACTIVE_BACKFILL_INDEX_NAME,
     EMBEDDING_BACKFILL_METADATA_KEY,
+    FAN_OUT_INTERRUPTED_METADATA_KEY,
+    URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY,
     public_job_metadata,
 )
 from app.platform.jobs.router import get_retry_capability
@@ -851,6 +855,10 @@ async def list_admin_jobs(
             error_code=job.error_code,
             can_retry=can_retry,
             retry_reason=retry_reason,
+            source_url=(
+                redact_url_credentials(job.source_url) if job.source_url else None
+            ),
+            restart_source=None if can_retry else _restart_source(job),
             user_metadata=public_job_metadata(job.user_metadata),
             created_by=job.created_by,
             username=username,
@@ -863,6 +871,29 @@ async def list_admin_jobs(
         )
     ]
     return AdminJobListResponse(jobs=jobs, total=total)
+
+
+# Jobs that write to an existing dataset or are not imports at all; starting one
+# again from the import page would create a second dataset.
+_NOT_NEW_DATASET_MARKERS = (
+    "reupload",
+    "refresh",
+    "manifest_key",
+    "analysis",
+    EMBEDDING_BACKFILL_METADATA_KEY,
+    FAN_OUT_INTERRUPTED_METADATA_KEY,
+)
+
+
+def _restart_source(job: IngestJob) -> Literal["url", "service"] | None:
+    metadata = job.user_metadata or {}
+    if job.status != "failed" or any(metadata.get(m) for m in _NOT_NEW_DATASET_MARKERS):
+        return None
+    if job.source_url and not job.file_path:
+        return "service"
+    if (job.user_metadata or {}).get(URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY):
+        return "url"
+    return None
 
 
 def _ai_status(

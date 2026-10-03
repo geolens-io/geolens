@@ -81,10 +81,10 @@ function isGoneError(err: unknown): boolean {
  * track. Single-file, single-dataset; multi-layer containers get a layer
  * picker before commit.
  */
-export function UrlImportForm() {
+export function UrlImportForm({ initialUrl = '' }: { initialUrl?: string }) {
   const { t } = useTranslation('import');
   const [step, setStep] = useState<UrlStep>('idle');
-  const [url, setUrl] = useState('');
+  const [url, setUrl] = useState(initialUrl);
   const [filename, setFilename] = useState('');
   const [jobId, setJobId] = useState<string | null>(null);
   const [previewData, setPreviewData] = useState<Awaited<ReturnType<typeof previewFile>> | null>(null);
