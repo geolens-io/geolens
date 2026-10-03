@@ -629,7 +629,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common:cancel')}</AlertDialogCancel>
             <AlertDialogAction variant="destructive" onClick={confirmEmbeddingChange}>
-              {t('ai.dimsConfirm.confirm')}
+              {t(pendingChangesWidth ? 'ai.dimsConfirm.confirm' : 'ai.dimsConfirm.confirmModel')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

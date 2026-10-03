@@ -268,6 +268,14 @@ def _issue_preview_token(plan: ConfigImportPlan, mode: ImportMode) -> str:
     return f"{_urlsafe_encode(payload)}.{_urlsafe_encode(signature)}"
 
 
+def _requires_preview(plan: ConfigImportPlan, mode: ImportMode) -> bool:
+    """Overwrite, and any import that would delete every stored embedding."""
+    return mode == "overwrite" or any(
+        change.get("reason_code") == "embedding_width_changed"
+        for change in plan.setting_changes
+    )
+
+
 def _verify_preview_token(
     token: str | None, plan: ConfigImportPlan, mode: ImportMode
 ) -> None:
@@ -998,7 +1006,7 @@ async def dry_run_import(
             "dependent_accounts_deleted": plan.oauth_accounts_deleted,
         },
         preview_token=(
-            _issue_preview_token(plan, mode) if mode == "overwrite" else None
+            _issue_preview_token(plan, mode) if _requires_preview(plan, mode) else None
         ),
     )
 
@@ -1122,8 +1130,9 @@ async def import_config(
     """Import configuration, applying settings and OAuth provider changes.
 
     Merge upserts settings and matches OAuth by slug; overwrite resets then
-    reapplies both. Preview and apply share the same preflight plan; overwrite
-    additionally requires the signed token from a matching, current dry-run.
+    reapplies both. Preview and apply share the same preflight plan; overwrite,
+    and any import that would delete the stored embeddings, additionally require
+    the signed token from a matching, current dry-run.
     """
     from app.core.persistent_config import (
         EMBEDDING_DIMS,
@@ -1148,7 +1157,7 @@ async def import_config(
     # whatever the lock state: the read-only preflight runs before the lock,
     # and again under the fence below, where its plan is the one applied.
     early_plan = await preflight_import(db, data, mode)
-    if mode == "overwrite":
+    if _requires_preview(early_plan, mode):
         _verify_preview_token(preview_token, early_plan, mode)
 
     # Taken before the settings fence and any write, so no request waits for
@@ -1171,7 +1180,7 @@ async def import_config(
                 mode,
                 lock_dependent_accounts=mode == "overwrite",
             )
-            if mode == "overwrite":
+            if _requires_preview(plan, mode):
                 _verify_preview_token(preview_token, plan, mode)
 
             settings_no_change = len(plan.validated_settings) - len(

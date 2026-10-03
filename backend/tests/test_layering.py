@@ -1323,7 +1323,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/datasets/api/router_refresh.py": 1397,
     # Config planning, signed dry runs, application and the embedding column
     # rebuild an applied width needs share one import workflow.
-    "backend/app/platform/config_ops/service.py": 1417,
+    "backend/app/platform/config_ops/service.py": 1426,
     # One settlement pass, its precheck and its reapers serve startup recovery, the
     # lifespan sweep, admin cleanup, the job status poll and manifest expiry.
     "backend/app/platform/jobs/sweep.py": 1793,

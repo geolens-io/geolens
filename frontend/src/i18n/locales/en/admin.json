@@ -357,6 +357,7 @@
       "title": "Change embedding width?",
       "titleModel": "Change embedding model?",
       "confirm": "Delete embeddings",
+      "confirmModel": "Change model",
       "description": "This deletes all stored embeddings. Semantic search returns nothing until you regenerate them with Generate Missing Embeddings on this tab.",
       "modelDescription": "Embeddings from the previous model stop being used. If the new model's width differs, all stored embeddings are deleted. Regenerate them with Generate Missing Embeddings on this tab."
     },

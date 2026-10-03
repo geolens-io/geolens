@@ -137,7 +137,7 @@ def sync_detailed(
     Args:
         mode (ImportConfigurationConfigOpsImportPostMode | Unset):  Default: 'merge'.
         x_config_preview_token (None | str | Unset): Signed token returned by the matching dry-
-            run. Required for overwrite mode.
+            run. Required for overwrite mode and for a merge that would delete the stored embeddings.
         body (ConfigImportRequest): Payload for importing configuration.
 
     Raises:
@@ -178,7 +178,7 @@ def sync(
     Args:
         mode (ImportConfigurationConfigOpsImportPostMode | Unset):  Default: 'merge'.
         x_config_preview_token (None | str | Unset): Signed token returned by the matching dry-
-            run. Required for overwrite mode.
+            run. Required for overwrite mode and for a merge that would delete the stored embeddings.
         body (ConfigImportRequest): Payload for importing configuration.
 
     Raises:
@@ -214,7 +214,7 @@ async def asyncio_detailed(
     Args:
         mode (ImportConfigurationConfigOpsImportPostMode | Unset):  Default: 'merge'.
         x_config_preview_token (None | str | Unset): Signed token returned by the matching dry-
-            run. Required for overwrite mode.
+            run. Required for overwrite mode and for a merge that would delete the stored embeddings.
         body (ConfigImportRequest): Payload for importing configuration.
 
     Raises:
@@ -253,7 +253,7 @@ async def asyncio(
     Args:
         mode (ImportConfigurationConfigOpsImportPostMode | Unset):  Default: 'merge'.
         x_config_preview_token (None | str | Unset): Signed token returned by the matching dry-
-            run. Required for overwrite mode.
+            run. Required for overwrite mode and for a merge that would delete the stored embeddings.
         body (ConfigImportRequest): Payload for importing configuration.
 
     Raises:

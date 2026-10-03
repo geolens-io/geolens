@@ -339,7 +339,7 @@ function ImportSection() {
 
   function runImport() {
     if (!fileData) return;
-    const previewToken = mode === 'overwrite' ? dryRunResult?.preview_token : null;
+    const previewToken = dryRunResult?.preview_token ?? null;
     if (mode === 'overwrite' && !previewToken) return;
     importMutation.mutate(
       { data: fileData, mode, previewToken },

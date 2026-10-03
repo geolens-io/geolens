@@ -241,4 +241,24 @@ describe('AdminConfigOpsPage import confirmation', () => {
     ).toBeInTheDocument();
     expect(screen.queryByText(/English from the backend/)).not.toBeInTheDocument();
   });
+
+  it('sends the preview token for a merge that carries one', async () => {
+    mocks.dryRunMutate.mockImplementation((_variables, options) => {
+      options?.onSuccess?.({ ...updatePreview, preview_token: 'merge-width-preview' });
+    });
+    const user = userEvent.setup();
+    render(<AdminConfigOpsPage />);
+    await uploadConfig(user);
+
+    await user.click(screen.getByRole('button', { name: 'Preview Changes' }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Apply Import' })).toBeEnabled(),
+    );
+    await user.click(screen.getByRole('button', { name: 'Apply Import' }));
+
+    expect(mocks.importMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: 'merge', previewToken: 'merge-width-preview' }),
+      expect.any(Object),
+    );
+  });
 });

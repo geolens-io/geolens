@@ -318,6 +318,7 @@
       "title": "Modifier la largeur des embeddings ?",
       "titleModel": "Modifier le modèle d'embeddings ?",
       "confirm": "Supprimer les embeddings",
+      "confirmModel": "Changer de modèle",
       "description": "Cette action supprime tous les embeddings stockés. La recherche sémantique ne renvoie rien tant que vous ne les avez pas régénérés avec Generer les embeddings manquants dans cet onglet.",
       "modelDescription": "Les embeddings de l'ancien modèle ne sont plus utilisés. Si la largeur du nouveau modèle diffère, tous les embeddings stockés sont supprimés. Régénérez-les avec Generer les embeddings manquants dans cet onglet."
     },

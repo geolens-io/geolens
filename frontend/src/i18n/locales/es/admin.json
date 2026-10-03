@@ -318,6 +318,7 @@
       "title": "¿Cambiar el ancho de los embeddings?",
       "titleModel": "¿Cambiar el modelo de embeddings?",
       "confirm": "Eliminar embeddings",
+      "confirmModel": "Cambiar modelo",
       "description": "Esto elimina todos los embeddings almacenados. La búsqueda semántica no devolverá resultados hasta que los regeneres con Generar embeddings faltantes en esta pestaña.",
       "modelDescription": "Los embeddings del modelo anterior dejan de usarse. Si el ancho del nuevo modelo es distinto, se eliminan todos los embeddings almacenados. Regéneralos con Generar embeddings faltantes en esta pestaña."
     },

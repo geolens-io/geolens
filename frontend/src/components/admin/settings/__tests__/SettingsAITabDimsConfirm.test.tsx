@@ -129,7 +129,7 @@ describe('SettingsAITab embedding width confirmation', () => {
 
     expect(screen.getByText('Change embedding model?')).toBeInTheDocument();
     expect(onSave).not.toHaveBeenCalled();
-    await user.click(screen.getByRole('button', { name: 'Delete embeddings' }));
+    await user.click(screen.getByRole('button', { name: 'Change model' }));
     expect(onSave).toHaveBeenCalledWith({ embedding_model: 'other-model' });
   });
 

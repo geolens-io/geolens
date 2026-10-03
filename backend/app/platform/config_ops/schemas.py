@@ -95,8 +95,9 @@ class DryRunResponse(BaseModel):
     preview_token: str | None = Field(
         default=None,
         description=(
-            "Short-lived signed confirmation token required to apply an overwrite. "
-            "Bound to the normalized payload, overwrite mode, and current configuration state."
+            "Short-lived signed confirmation token required to apply an overwrite, or a "
+            "merge that would delete the stored embeddings. Bound to the normalized "
+            "payload, mode, and current configuration state."
         ),
     )
 
