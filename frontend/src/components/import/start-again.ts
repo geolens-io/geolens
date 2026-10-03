@@ -1,6 +1,7 @@
 /** The server redacts credential query values to this marker. */
 const REDACTED_QUERY_VALUE = '<redacted>';
 
+import { ApiError } from '@/api/client';
 import { getJobStatus } from '@/api/ingest';
 import { clearServiceImport, peekServiceImport } from '@/api/service-url-session';
 import { clearUrlImport, peekUrlImport } from '@/api/url-import-session';
@@ -52,8 +53,11 @@ export async function releaseTerminalImportSession(source: StartAgainSource): Pr
     try {
       const { status } = await getJobStatus(session.jobId);
       ended = !IN_FLIGHT_STATUSES.has(status);
-    } catch {
-      return false;
+    } catch (err) {
+      // A job that expired or was deleted is gone for good; any other
+      // failure may be transient, so the session stays.
+      if (!(err instanceof ApiError && [404, 410].includes(err.status))) return false;
+      ended = true;
     }
   }
   if (!ended) return false;

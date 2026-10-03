@@ -1,3 +1,4 @@
+import { ApiError } from '@/api/client';
 import * as serviceSession from '@/api/service-url-session';
 const mockGetJobStatus = vi.hoisted(() => vi.fn());
 vi.mock('@/api/ingest', () => ({ getJobStatus: mockGetJobStatus }));
@@ -95,6 +96,22 @@ describe('releaseTerminalImportSession', () => {
     ]);
 
     expect(results).toEqual([true, true]);
+  });
+
+  it.each([404, 410])('releases a session whose job is gone (%i)', async (status) => {
+    const clear = retainSession('job-1', 'fulfilled');
+    mockGetJobStatus.mockRejectedValue(new ApiError('gone', status));
+
+    await expect(releaseTerminalImportSession('service')).resolves.toBe(true);
+    expect(clear).toHaveBeenCalled();
+  });
+
+  it('keeps the session on a server error', async () => {
+    const clear = retainSession('job-1', 'fulfilled');
+    mockGetJobStatus.mockRejectedValue(new ApiError('unavailable', 503));
+
+    await expect(releaseTerminalImportSession('service')).resolves.toBe(false);
+    expect(clear).not.toHaveBeenCalled();
   });
 
   it('keeps the session when the lookup fails', async () => {
