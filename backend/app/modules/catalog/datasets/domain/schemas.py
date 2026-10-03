@@ -1544,11 +1544,15 @@ class RefreshVerification(BaseModel):
     staged_geometry_type: str | None = None
     staged_srid: int | None = None
     staged_coordinate_dimension: int | None = None
+    geometry_contract: dict[str, Any] | None = None
     review_reasons: list[
         Literal[
             "source_count_unavailable",
             "empty_result",
             "destructive_schema_change",
+            "geometry_type_changed",
+            "srid_changed",
+            "coordinate_dimension_reduced",
             "arcgis_id_coverage_unavailable",
             "arcgis_source_membership_changed",
         ]

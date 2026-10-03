@@ -41,7 +41,11 @@ async def _candidate(
     admin_id = await get_user_id(session, "admin")
     live = f"publication_{uuid.uuid4().hex[:10]}"
     dataset = await create_dataset(
-        session, created_by=admin_id, table_name=live, source_format="wfs"
+        session,
+        created_by=admin_id,
+        table_name=live,
+        source_format="wfs",
+        geometry_type="Point",
     )
     set_dataset_origin(
         dataset, "service", uri=origin_url, **{**_BINDING, "url": origin_url}
@@ -82,7 +86,12 @@ async def _candidate(
     return dataset, job, admin_id
 
 
-def _fetch(expected_feature_count: int | None, during=None):
+def _fetch(
+    expected_feature_count: int | None,
+    during=None,
+    geometry: str = "Point",
+    wkt: str | None = None,
+):
     """Stand in for the service fetch: one staged row, and the source's own count."""
 
     async def _fake(*, staging_table: str, schema: str, on_spawn, **kwargs):
@@ -91,13 +100,15 @@ def _fetch(expected_feature_count: int | None, during=None):
             await session.execute(
                 sa.text(
                     f'CREATE TABLE "{schema}"."{staging_table}" '
-                    "(id serial PRIMARY KEY, name text, geom geometry(Point, 4326))"
+                    f"(id serial PRIMARY KEY, name text, geom geometry({geometry}, 4326))"
                 )
             )
             await session.execute(
                 sa.text(
-                    f'INSERT INTO "{schema}"."{staging_table}" (name) '
-                    "VALUES ('candidate')"
+                    f'INSERT INTO "{schema}"."{staging_table}" (name, geom) '
+                    "VALUES ('candidate', "
+                    + (f"ST_GeomFromText('{wkt}', 4326)" if wkt else "NULL")
+                    + ")"
                 )
             )
             await session.commit()
@@ -118,6 +129,7 @@ async def _reupload(
     token: str | None = None,
     credential_ref: str | None = None,
     patches: tuple = (),
+    fetch=None,
 ) -> None:
     with ExitStack() as stack:
         stack.enter_context(
@@ -126,7 +138,7 @@ async def _reupload(
         stack.enter_context(
             patch(
                 "app.processing.ingest.tasks_reupload._fetch_service_layer_with_paging_guard",
-                new=_fetch(expected, during),
+                new=fetch or _fetch(expected, during),
             )
         )
         for extra in patches:
@@ -242,6 +254,29 @@ async def test_verified_refresh_publishes_and_settles_its_run(test_db_session):
 
     assert (await _run(job.id)).status == "succeeded"
     assert await _live(dataset) == "candidate"
+
+
+async def test_a_refresh_that_changes_the_geometry_family_waits_for_review(
+    test_db_session, quiet
+):
+    """A polygon fetch over a point dataset is held and leaves the live data alone."""
+    dataset, job, admin_id = await _candidate(test_db_session, refresh=True)
+    polygon = _fetch(1, geometry="Polygon", wkt="POLYGON((0 0, 1 0, 1 1, 0 1, 0 0))")
+
+    await _reupload(dataset, job, admin_id, fetch=polygon)
+
+    run = await _run(job.id)
+    assert run.status == "blocked"
+    assert run.verification["review_reasons"] == ["geometry_type_changed"]
+    assert await _live(dataset) == "original"
+    async with db_module.async_session() as session:
+        row = await session.get(Dataset, dataset.id)
+        assert (row.geometry_type, row.tile_cache_version, row.current_version) == (
+            "Point",
+            dataset.tile_cache_version,
+            dataset.current_version,
+        )
+    assert _sent(quiet) == []
 
 
 async def test_a_published_refresh_stores_the_diff_taken_under_the_lock(

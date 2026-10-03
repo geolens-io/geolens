@@ -594,6 +594,9 @@ from .refresh_verification_arcgis_id_coverage_type_0 import (
 )
 from .refresh_verification_count_status import RefreshVerificationCountStatus
 from .refresh_verification_decision import RefreshVerificationDecision
+from .refresh_verification_geometry_contract_type_0 import (
+    RefreshVerificationGeometryContractType0,
+)
 from .refresh_verification_identity_check import RefreshVerificationIdentityCheck
 from .refresh_verification_review_reasons_item import (
     RefreshVerificationReviewReasonsItem,
@@ -1234,6 +1237,7 @@ __all__ = (
     "RefreshVerificationArcgisIdCoverageType0",
     "RefreshVerificationCountStatus",
     "RefreshVerificationDecision",
+    "RefreshVerificationGeometryContractType0",
     "RefreshVerificationIdentityCheck",
     "RefreshVerificationReviewReasonsItem",
     "RefreshVerificationSourceBinding",

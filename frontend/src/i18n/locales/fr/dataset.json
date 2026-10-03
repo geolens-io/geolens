@@ -941,6 +941,9 @@
           "source_count_unavailable": "GeoLens n’a pas pu comparer les lignes récupérées avec la source ; la publication doit être vérifiée.",
           "empty_result": "L’actualisation remplacerait un jeu de données non vide par un résultat vide.",
           "destructive_schema_change": "L’actualisation supprime des colonnes ou modifie leur type.",
+          "geometry_type_changed": "L’actualisation modifie le type de géométrie.",
+          "srid_changed": "L’actualisation modifie le système de coordonnées.",
+          "coordinate_dimension_reduced": "L’actualisation supprime des dimensions de coordonnées, comme l’altitude.",
           "arcgis_id_coverage_unavailable": "GeoLens n’a pas pu vérifier la couverture des identifiants d’objet ArcGIS.",
           "arcgis_source_membership_changed": "La source ArcGIS a changé pendant cette actualisation."
         },

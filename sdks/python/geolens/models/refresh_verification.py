@@ -33,6 +33,9 @@ if TYPE_CHECKING:
     from ..models.refresh_verification_arcgis_id_coverage_type_0 import (
         RefreshVerificationArcgisIdCoverageType0,
     )
+    from ..models.refresh_verification_geometry_contract_type_0 import (
+        RefreshVerificationGeometryContractType0,
+    )
     from ..models.refresh_verification_source_binding import (
         RefreshVerificationSourceBinding,
     )
@@ -60,6 +63,7 @@ class RefreshVerification:
         staged_geometry_type (None | str | Unset):
         staged_srid (int | None | Unset):
         staged_coordinate_dimension (int | None | Unset):
+        geometry_contract (None | RefreshVerificationGeometryContractType0 | Unset):
         acceptance_consumed_by_run_id (None | Unset | UUID):
     """
 
@@ -78,12 +82,16 @@ class RefreshVerification:
     staged_geometry_type: None | str | Unset = UNSET
     staged_srid: int | None | Unset = UNSET
     staged_coordinate_dimension: int | None | Unset = UNSET
+    geometry_contract: None | RefreshVerificationGeometryContractType0 | Unset = UNSET
     acceptance_consumed_by_run_id: None | Unset | UUID = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         from ..models.refresh_verification_arcgis_id_coverage_type_0 import (
             RefreshVerificationArcgisIdCoverageType0,
+        )
+        from ..models.refresh_verification_geometry_contract_type_0 import (
+            RefreshVerificationGeometryContractType0,
         )
 
         decision: str = self.decision
@@ -154,6 +162,16 @@ class RefreshVerification:
         else:
             staged_coordinate_dimension = self.staged_coordinate_dimension
 
+        geometry_contract: dict[str, Any] | None | Unset
+        if isinstance(self.geometry_contract, Unset):
+            geometry_contract = UNSET
+        elif isinstance(
+            self.geometry_contract, RefreshVerificationGeometryContractType0
+        ):
+            geometry_contract = self.geometry_contract.to_dict()
+        else:
+            geometry_contract = self.geometry_contract
+
         acceptance_consumed_by_run_id: None | str | Unset
         if isinstance(self.acceptance_consumed_by_run_id, Unset):
             acceptance_consumed_by_run_id = UNSET
@@ -189,6 +207,8 @@ class RefreshVerification:
             field_dict["staged_srid"] = staged_srid
         if staged_coordinate_dimension is not UNSET:
             field_dict["staged_coordinate_dimension"] = staged_coordinate_dimension
+        if geometry_contract is not UNSET:
+            field_dict["geometry_contract"] = geometry_contract
         if acceptance_consumed_by_run_id is not UNSET:
             field_dict["acceptance_consumed_by_run_id"] = acceptance_consumed_by_run_id
 
@@ -198,6 +218,9 @@ class RefreshVerification:
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.refresh_verification_arcgis_id_coverage_type_0 import (
             RefreshVerificationArcgisIdCoverageType0,
+        )
+        from ..models.refresh_verification_geometry_contract_type_0 import (
+            RefreshVerificationGeometryContractType0,
         )
         from ..models.refresh_verification_source_binding import (
             RefreshVerificationSourceBinding,
@@ -337,6 +360,27 @@ class RefreshVerification:
             d.pop("staged_coordinate_dimension", UNSET)
         )
 
+        def _parse_geometry_contract(
+            data: object,
+        ) -> None | RefreshVerificationGeometryContractType0 | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                geometry_contract_type_0 = (
+                    RefreshVerificationGeometryContractType0.from_dict(data)
+                )
+
+                return geometry_contract_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | RefreshVerificationGeometryContractType0 | Unset, data)
+
+        geometry_contract = _parse_geometry_contract(d.pop("geometry_contract", UNSET))
+
         def _parse_acceptance_consumed_by_run_id(data: object) -> None | Unset | UUID:
             if data is None:
                 return data
@@ -372,6 +416,7 @@ class RefreshVerification:
             staged_geometry_type=staged_geometry_type,
             staged_srid=staged_srid,
             staged_coordinate_dimension=staged_coordinate_dimension,
+            geometry_contract=geometry_contract,
             acceptance_consumed_by_run_id=acceptance_consumed_by_run_id,
         )
 

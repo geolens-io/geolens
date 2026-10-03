@@ -1008,6 +1008,18 @@ class _ServiceReupload:
             staged_geometry_type=geometry_type,
             staged_srid=srid,
             staged_coordinate_dimension=coordinate_dimension,
+            live=refresh_policy.geometry_contract(
+                geometry_type=dataset.geometry_type,
+                srid=dataset.srid,
+                is_3d=dataset.is_3d,
+                n_dims=dataset.n_dims,
+            ),
+            staged=refresh_policy.geometry_contract(
+                geometry_type=self.measurement.geometry_type,
+                srid=self.measurement.metadata.get("srid"),
+                is_3d=self.measurement.three_d.get("is_3d"),
+                n_dims=self.measurement.three_d.get("n_dims"),
+            ),
             accepted_fingerprint=self.accepted_fingerprint,
             accepted_run_id=self.accepted_run_id,
         )
