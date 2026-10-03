@@ -128,14 +128,19 @@ def _api(
     source: str | None = "default",
     openai: bool = True,
     backfill_status: int = 200,
+    job: dict | None = None,
+    source_after_poll: str | None = None,
 ):
     polled: list[str] = []
-    api = SimpleNamespace(
-        base="http://x",
-        h={},
-        client=FakeClient(ai, source, openai, backfill_status),
-        poll=lambda job_id, timeout=300: polled.append(job_id),
-    )
+    client = FakeClient(ai, source, openai, backfill_status)
+
+    def poll(job_id, timeout=300):
+        polled.append(job_id)
+        if source_after_poll is not None:
+            client.source = source_after_poll
+        return job or {}
+
+    api = SimpleNamespace(base="http://x", h={}, client=client, poll=poll)
     return api, polled
 
 
