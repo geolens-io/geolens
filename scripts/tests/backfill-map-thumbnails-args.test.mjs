@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { isThumbnailUploadOk, parseArgs, selectMaps } from '../lib/backfill-map-thumbnails-args.mjs';
+import { blankThumbnail, isThumbnailUploadOk, parseArgs, selectMaps } from '../lib/backfill-map-thumbnails-args.mjs';
 
 const maps = [
   { id: 'a', name: 'A', thumbnail_url: '/maps/a/thumbnail/' },
@@ -46,4 +46,11 @@ test('isThumbnailUploadOk skips a failed PUT so a retried success counts', () =>
   assert.equal(isThumbnailUploadOk('PUT', url, true, 'a'), true);
   assert.equal(isThumbnailUploadOk('GET', url, true, 'a'), false);
   assert.equal(isThumbnailUploadOk('PUT', url, true, 'b'), false);
+});
+
+test('blankThumbnail nulls thumbnail_url and returns null for non-JSON bodies', () => {
+  const out = JSON.parse(blankThumbnail('{"id":"a","thumbnail_url":"/x"}'));
+  assert.deepEqual(out, { id: 'a', thumbnail_url: null });
+  assert.equal(blankThumbnail('<html>502</html>'), null);
+  assert.equal(blankThumbnail('[1]'), null);
 });

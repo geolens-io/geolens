@@ -36,7 +36,7 @@
 
 import { chromium } from 'playwright';
 
-import { isThumbnailUploadOk, parseArgs, selectMaps } from './lib/backfill-map-thumbnails-args.mjs';
+import { blankThumbnail, isThumbnailUploadOk, parseArgs, selectMaps } from './lib/backfill-map-thumbnails-args.mjs';
 
 const BASE_URL = (process.env.GEOLENS_URL ?? 'http://localhost:8080').replace(/\/+$/, '');
 const USERNAME = process.env.GEOLENS_ADMIN_USERNAME ?? 'admin';
@@ -207,18 +207,31 @@ async function main() {
   const failed = [];
   for (const m of missing) {
     process.stdout.write(`  opening ${m.name} ... `);
+    let detail = null;
     try {
       // The builder only auto-captures when the map detail reports no
       // thumbnail, so a refresh serves it that view of the map and waits for
       // the capture's own PUT; the upload still goes through the app.
-      const detail = new RegExp(`/api/maps/${m.id}/?(\\?.*)?$`);
+      detail = new RegExp(`/api/maps/${m.id}/?(\\?.*)?$`);
       let uploaded = null;
+      let routeError = null;
       if (refreshing) {
         await page.route(detail, async (route) => {
           if (route.request().method() !== 'GET') return route.continue();
-          const res = await route.fetch();
-          const body = await res.json();
-          return route.fulfill({ response: res, json: { ...body, thumbnail_url: null } });
+          try {
+            const res = await route.fetch();
+            if (!res.ok()) return route.fulfill({ response: res });
+            const text = await res.text();
+            const blanked = blankThumbnail(text);
+            if (blanked === null) {
+              routeError = 'map detail was not JSON';
+              return route.fulfill({ response: res, body: text });
+            }
+            return route.fulfill({ response: res, body: blanked });
+          } catch (err) {
+            routeError = err?.message ?? String(err);
+            return route.continue().catch(() => {});
+          }
         });
         uploaded = page.waitForResponse(
           (r) => isThumbnailUploadOk(r.request().method(), r.url(), r.ok(), m.id),
@@ -235,7 +248,7 @@ async function main() {
       let ok = false;
       if (refreshing) {
         ok = await uploaded.then(() => true).catch(() => false);
-        await page.unroute(detail).catch(() => {});
+        if (routeError) throw new Error(routeError);
       } else {
         const deadline = Date.now() + CAPTURE_TIMEOUT_MS;
         while (Date.now() < deadline) {
@@ -248,6 +261,8 @@ async function main() {
     } catch (err) {
       failed.push(m.name);
       console.log(`ERROR ${err?.message ?? err}`);
+    } finally {
+      if (detail) await page.unroute(detail).catch(() => {});
     }
   }
 

@@ -35,3 +35,14 @@ export function selectMaps(maps, refresh) {
 export function isThumbnailUploadOk(method, url, ok, mapId) {
   return method === 'PUT' && url.includes(`/maps/${mapId}/thumbnail/`) && ok;
 }
+
+/** Map detail JSON text with thumbnail_url nulled; null when it is not a JSON object. */
+export function blankThumbnail(text) {
+  try {
+    const body = JSON.parse(text);
+    if (body === null || typeof body !== 'object' || Array.isArray(body)) return null;
+    return JSON.stringify({ ...body, thumbnail_url: null });
+  } catch {
+    return null;
+  }
+}
