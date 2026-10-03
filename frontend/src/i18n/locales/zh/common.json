@@ -283,6 +283,7 @@
     "jobFailureMissingCrsRaster": "缺少 CRS：栅格没有坐标参考系统。请在导入时提供 CRS 覆盖（EPSG 代码）。",
     "jobFailureMissingCrsReupload": "缺少 CRS：未检测到坐标系。请确保文件包含 CRS 信息（例如 Shapefile 的 .prj 文件），或提供 SRID 覆盖。",
     "jobFailureRefreshAbandoned": "刷新任务从未被工作进程接收，或工作进程在报告结果前已消失。",
+    "jobFailureReviewRequired": "此替换对数据集的更改需要审核，因此未发布。请在数据集的“来源”选项卡中查看这些更改并在那里接受。",
     "jobFailureScheduledClaimExpired": "计划刷新未在截止时间前被领取。",
     "jobFailureScheduledExecutionTimeout": "已准入的刷新超出了其执行时间限制。",
     "jobFailureScheduledJobMissing": "已准入的刷新任务已不存在。",

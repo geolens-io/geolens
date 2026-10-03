@@ -193,6 +193,7 @@ export function useReuploadCommit() {
       // fix(#1768): the origin the dialog captured when it staged the
       // replacement, so the commit door can refuse a mid-flow rebinding.
       expectedOriginKind,
+      reviewFingerprint,
     }: {
       datasetId: string;
       jobId: string;
@@ -200,7 +201,16 @@ export function useReuploadCommit() {
       token?: string;
       layerName?: string;
       expectedOriginKind?: DatasetOrigin | null;
-    }) => reuploadCommit(datasetId, jobId, sridOverride, token, layerName, expectedOriginKind),
+      reviewFingerprint?: string | null;
+    }) => reuploadCommit(
+      datasetId,
+      jobId,
+      sridOverride,
+      token,
+      layerName,
+      expectedOriginKind,
+      reviewFingerprint,
+    ),
     // REMED-01 (ingest-audit P2-06): invalidate the dataset-detail warnings
     // banner cache so it refetches the new ingest job's warnings. The
     // useDatasetJobStatus query uses `staleTime: Infinity` and would

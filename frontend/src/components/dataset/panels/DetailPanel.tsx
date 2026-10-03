@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { DatasetRefreshRequest, DatasetResponse } from '@/types/api';
+import type { DatasetResponse } from '@/types/api';
 import type { DatasetEditCapabilities } from '@/components/dataset/hooks/use-dataset-edit-capabilities';
 import type { PendingDraftField } from '@/components/dataset/hooks/use-draft-editing';
 import { useDatasetRefreshRuns, type DatasetRefreshWatch } from '@/components/dataset/hooks/use-dataset';
@@ -11,7 +11,7 @@ import { OverviewTab } from '../tabs/OverviewTab';
 import { MetadataTab } from '../tabs/MetadataTab';
 import { DataTab } from '../tabs/DataTab';
 import { StructureTab } from '../tabs/StructureTab';
-import { SourcePanel } from '../SourcePanel';
+import { SourcePanel, type BlockedRunToAccept } from '../SourcePanel';
 import { REFRESHABLE_ORIGINS, SourceRefreshAction } from '../SourceRefreshAction';
 import { datasetOrigin } from '../OriginBadge';
 import { AccessTab } from '../tabs/AccessTab';
@@ -72,7 +72,7 @@ export function DetailPanel(props: DetailPanelProps) {
   // dispatch table.
   const origin = dataset.origin ?? datasetOrigin(dataset);
   const canRefresh = origin != null && REFRESHABLE_ORIGINS.has(origin);
-  const [acceptBlockedRun, setAcceptBlockedRun] = useState<{ id: string; verificationPolicy?: DatasetRefreshRequest['verification_policy'] }>();
+  const [acceptBlockedRun, setAcceptBlockedRun] = useState<BlockedRunToAccept>();
   const { features } = useEdition();
   const scheduledSync = useDatasetSync(dataset.id, features.includes('scheduled_sync'));
   // This observer stays mounted while switching Sources and Data tabs. It shares
@@ -173,11 +173,14 @@ export function DetailPanel(props: DetailPanelProps) {
           onAcceptBlockedRun={setAcceptBlockedRun}
           onSyncRunDispatched={refreshWatch.trackDispatchedRun}
           actions={
-            canEdit && canRefresh
+            // A held-back file replacement can be accepted on any dataset,
+            // including one with no source to refresh from.
+            canEdit && (canRefresh || acceptBlockedRun?.upload)
               ? (
                 <SourceRefreshAction
                   dataset={dataset}
                   watch={refreshWatch}
+                  showTrigger={canRefresh}
                   acceptBlockedRun={acceptBlockedRun}
                   onAcceptHandled={() => setAcceptBlockedRun(undefined)}
                 />

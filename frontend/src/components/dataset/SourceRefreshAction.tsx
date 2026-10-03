@@ -23,8 +23,9 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
-import type { DatasetOrigin, DatasetResponse, DatasetRefreshRequest, ServiceAuthRequest } from '@/types/api';
+import type { DatasetOrigin, DatasetResponse, ServiceAuthRequest } from '@/types/api';
 import type { DatasetRefreshWatch } from '@/components/dataset/hooks/use-dataset';
+import type { BlockedRunToAccept } from '@/components/dataset/SourcePanel';
 
 // fix(#1285 codex round 1): refresh-door origins. router_refresh.py dispatches
 // by origin kind and routes everything it does not name through
@@ -60,10 +61,9 @@ interface SourceRefreshActionProps {
    * `latestRun`/`isBusy` back, rather than polling or tracking on its own.
    */
   watch: DatasetRefreshWatch;
-  acceptBlockedRun?: {
-    id: string;
-    verificationPolicy?: DatasetRefreshRequest['verification_policy'];
-  };
+  /** False renders only the dialog, for accepting a held-back file replacement. */
+  showTrigger?: boolean;
+  acceptBlockedRun?: BlockedRunToAccept;
   onAcceptHandled?: () => void;
 }
 
@@ -81,6 +81,7 @@ interface SourceRefreshActionProps {
 export function SourceRefreshAction({
   dataset,
   watch,
+  showTrigger = true,
   acceptBlockedRun,
   onAcceptHandled,
 }: SourceRefreshActionProps) {
@@ -114,7 +115,9 @@ export function SourceRefreshAction({
   // feat(#1764): a STAC origin joined the credential path — its refresh
   // re-reads the catalog over HTTP, so it takes the same four-way choice
   // WFS and OGC API Features take. A registered table still takes none.
-  const supportsToken = origin === 'service' || origin === 'stac';
+  // Publishing a kept upload contacts no source, so it takes no credential.
+  const acceptingUpload = Boolean(acceptBlockedRun?.upload);
+  const supportsToken = !acceptingUpload && (origin === 'service' || origin === 'stac');
   // fix(#1755 item 4, plan 3.7): the two service families that can hit this
   // refusal read differently -- ArcGIS was asked a probe question and lost,
   // so it gets the full sign-in taxonomy; WFS and OGC API Features were
@@ -215,8 +218,8 @@ export function SourceRefreshAction({
     try {
       const result = await refreshMutation.mutateAsync({
         datasetId: dataset.id,
-        token: isArcgisOrigin ? submittedToken : undefined,
-        auth: isArcgisOrigin ? undefined : submittedAuth,
+        token: supportsToken && isArcgisOrigin ? submittedToken : undefined,
+        auth: supportsToken && !isArcgisOrigin ? submittedAuth : undefined,
         acceptBlockedRunId,
         ...(acceptBlockedRun?.verificationPolicy
           ? { verificationPolicy: acceptBlockedRun.verificationPolicy }
@@ -230,7 +233,10 @@ export function SourceRefreshAction({
       setServiceAuth(undefined);
       setOpen(false);
       onAcceptHandled?.();
-      toast.success(t('sourcePanel.refresh.toastAccepted', { runId: result.run_id }));
+      toast.success(t(
+        acceptingUpload ? 'sourcePanel.refresh.uploadToastAccepted' : 'sourcePanel.refresh.toastAccepted',
+        { runId: result.run_id },
+      ));
     } catch (err) {
       // fix(#1755 item 4, plan 3.7): a 422 `service_token_required` gets its
       // own inline credential block below rather than the generic error
@@ -251,38 +257,44 @@ export function SourceRefreshAction({
 
   return (
     <>
-      <div className="flex flex-col items-end gap-1">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={isDisabled}
-          onClick={() => setOpen(true)}
-        >
-          <RefreshCw className="me-2 h-4 w-4" />
-          {t('sourcePanel.refresh.action')}
-        </Button>
-        {isBusy ? (
-          <p className="text-xs text-muted-foreground">{t('sourcePanel.refresh.busyHint')}</p>
-        ) : hasSelectedFeature ? (
-          <p className="text-xs text-muted-foreground">
-            {t('sourcePanel.refresh.featureEditBlockedHint')}
-          </p>
-        ) : null}
-      </div>
+      {showTrigger && (
+        <div className="flex flex-col items-end gap-1">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={isDisabled}
+            onClick={() => setOpen(true)}
+          >
+            <RefreshCw className="me-2 h-4 w-4" />
+            {t('sourcePanel.refresh.action')}
+          </Button>
+          {isBusy ? (
+            <p className="text-xs text-muted-foreground">{t('sourcePanel.refresh.busyHint')}</p>
+          ) : hasSelectedFeature ? (
+            <p className="text-xs text-muted-foreground">
+              {t('sourcePanel.refresh.featureEditBlockedHint')}
+            </p>
+          ) : null}
+        </div>
+      )}
 
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {t(acceptBlockedRunId
-                ? 'sourcePanel.refresh.reviewDialogTitle'
-                : 'sourcePanel.refresh.dialogTitle')}
+              {t(acceptingUpload
+                ? 'sourcePanel.refresh.uploadReviewDialogTitle'
+                : acceptBlockedRunId
+                  ? 'sourcePanel.refresh.reviewDialogTitle'
+                  : 'sourcePanel.refresh.dialogTitle')}
             </DialogTitle>
             <DialogDescription>
-              {t(acceptBlockedRunId
-                ? 'sourcePanel.refresh.reviewDialogDescription'
-                : 'sourcePanel.refresh.dialogDescription')}
+              {t(acceptingUpload
+                ? 'sourcePanel.refresh.uploadReviewDialogDescription'
+                : acceptBlockedRunId
+                  ? 'sourcePanel.refresh.reviewDialogDescription'
+                  : 'sourcePanel.refresh.dialogDescription')}
             </DialogDescription>
           </DialogHeader>
 
@@ -367,7 +379,7 @@ export function SourceRefreshAction({
             </Button>
             <Button type="button" onClick={() => void handleConfirm()} disabled={refreshMutation.isPending}>
               {refreshMutation.isPending && <Loader2 className="me-2 h-4 w-4 animate-spin" />}
-              {t('sourcePanel.refresh.confirm')}
+              {t(acceptingUpload ? 'sourcePanel.refresh.uploadConfirm' : 'sourcePanel.refresh.confirm')}
             </Button>
           </DialogFooter>
         </DialogContent>

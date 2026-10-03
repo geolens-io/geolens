@@ -1146,4 +1146,60 @@ describe('SourcePanel', () => {
     );
     expect(screen.queryByRole('button', { name: 'Review and retry' })).not.toBeInTheDocument();
   });
+
+  it('offers to publish a held-back file replacement, with no source count to show', async () => {
+    const onAcceptBlockedRun = vi.fn();
+    vi.mocked(useDatasetRefreshRuns).mockReturnValue({
+      data: {
+        runs: [{
+          id: 'run-upload-blocked',
+          dataset_id: 'dataset-1',
+          dataset_version_id: null,
+          ingest_job_id: 'job-1',
+          origin_kind: 'upload',
+          trigger: 'manual',
+          status: 'blocked',
+          triggered_by: 'user-1',
+          triggered_by_username: 'jdoe',
+          started_at: '2026-08-05T00:00:00Z',
+          claimed_at: '2026-08-05T00:00:01Z',
+          finished_at: '2026-08-05T00:01:00Z',
+          feature_count_before: 1200,
+          feature_count_after: 1200,
+          schema_diff: null,
+          verification: {
+            decision: 'blocked',
+            source_binding: { kind: 'upload', filename: 'roads.geojson', file_hash: 'abc' },
+            source_count: null,
+            fetched_count: 1200,
+            count_status: 'unavailable',
+            identity_check: 'unavailable',
+            review_reasons: ['destructive_schema_change'],
+            review_fingerprint: 'fingerprint',
+            review_acknowledged_by: null,
+            accepted_blocked_run_id: null,
+          },
+          error_code: 'review_required',
+          error_message: 'Review the detected changes before publication.',
+        }],
+        total: 1,
+      } satisfies { runs: DatasetRefreshRunResponse[]; total: number },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useDatasetRefreshRuns>);
+
+    render(
+      <SourcePanel
+        dataset={makeDataset({ origin: 'upload' })}
+        canEdit
+        onAcceptBlockedRun={onAcceptBlockedRun}
+      />,
+    );
+
+    expect(screen.getByText('The refresh removes columns or changes their types.')).toBeInTheDocument();
+    expect(screen.queryByText('Source count unavailable.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Record identities were not compared.')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Review and retry' }));
+    expect(onAcceptBlockedRun).toHaveBeenCalledWith({ id: 'run-upload-blocked', upload: true });
+  });
 });

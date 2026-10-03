@@ -155,6 +155,7 @@
     "jobFailureMissingCrsRaster": "Falta el CRS: el ráster no tiene sistema de referencia de coordenadas. Proporciona una anulación de CRS (código EPSG) al importar.",
     "jobFailureMissingCrsReupload": "Falta el CRS: no se detectó ningún sistema de coordenadas. Asegúrate de que el archivo incluya la información del CRS (por ejemplo, un archivo .prj para Shapefiles) o proporciona una anulación de SRID.",
     "jobFailureRefreshAbandoned": "La tarea de actualización nunca fue tomada por un proceso de trabajo, o este desapareció antes de registrar un resultado.",
+    "jobFailureReviewRequired": "Este reemplazo cambia el conjunto de datos de formas que requieren revisión, así que no se publicó. Revise los cambios en la pestaña Fuentes del conjunto de datos y acéptelos allí.",
     "jobFailureScheduledClaimExpired": "La actualización programada no se inició antes de su fecha límite.",
     "jobFailureScheduledExecutionTimeout": "La actualización admitida superó su tiempo máximo de ejecución.",
     "jobFailureScheduledJobMissing": "El trabajo de actualización admitida ya no existe.",

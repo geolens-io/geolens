@@ -496,6 +496,8 @@ export function ReuploadDialog({
         // live query result, so reading it here would re-read the very change
         // this condition exists to catch and always agree with the server.
         expectedOriginKind: stagedOriginKind,
+        // The changes this dialog showed, acknowledged by confirming.
+        reviewFingerprint: sourceType === 'file' ? preview?.review_fingerprint : undefined,
       });
       setStep('tracking');
     } catch (err) {
@@ -542,7 +544,7 @@ export function ReuploadDialog({
         }
       }
     }
-  }, [dataset.id, jobId, stagedOriginKind, sourceType, serviceToken, selectedFileLayer, commitMutation, queryClient, appendRetryGuidance, t]);
+  }, [dataset.id, jobId, stagedOriginKind, sourceType, preview, serviceToken, selectedFileLayer, commitMutation, queryClient, appendRetryGuidance, t]);
 
   const handleRetry = useCallback(() => {
     setError(null);
@@ -1052,6 +1054,16 @@ export function ReuploadDialog({
                   </div>
                 )}
                 <SchemaDiffView schemaDiff={preview.schema_diff} />
+                {(preview.review_reasons?.length ?? 0) > 0 && (
+                  <ul
+                    className="space-y-1 rounded-md border border-warning/30 bg-warning/10 p-3 text-sm"
+                    aria-label={t('reupload.reviewReasonsLabel')}
+                  >
+                    {preview.review_reasons?.map((reason) => (
+                      <li key={reason}>{t(`sourcePanel.refresh.history.reason.${reason}`)}</li>
+                    ))}
+                  </ul>
+                )}
                 {hasWarning && (
                   <p className="text-sm text-warning">
                     {t('reupload.warningSchemaChanges')}

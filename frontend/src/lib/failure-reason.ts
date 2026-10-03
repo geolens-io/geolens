@@ -30,6 +30,7 @@ const FIXED_FAILURE_CODE_KEYS: Record<string, `errors.${string}`> = {
   pointcloud_invalid: 'errors.uploadPointCloudInvalid',
   pointcloud_no_crs: 'errors.uploadPointCloudNoCrs',
   pointcloud_not_copc: 'errors.uploadPointCloudNotCopc',
+  review_required: 'errors.jobFailureReviewRequired',
   scheduled_claim_expired: 'errors.jobFailureScheduledClaimExpired',
   scheduled_execution_timeout: 'errors.jobFailureScheduledExecutionTimeout',
   scheduled_job_missing: 'errors.jobFailureScheduledJobMissing',

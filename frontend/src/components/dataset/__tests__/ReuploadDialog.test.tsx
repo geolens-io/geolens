@@ -472,6 +472,46 @@ describe('ReuploadDialog', () => {
     );
   });
 
+  it('lists the review reasons and sends the fingerprint of what it showed', async () => {
+    const user = userEvent.setup();
+    previewMutateAsync.mockResolvedValueOnce(
+      makePreviewResponse({
+        job_id: 'file-job',
+        review_reasons: ['destructive_schema_change', 'geometry_type_changed'],
+        review_fingerprint: 'a'.repeat(64),
+      }),
+    );
+    renderDialog();
+
+    await openFileSource(user);
+    await dropFile();
+    const reasons = await screen.findByRole('list', { name: 'Changes that need review' });
+    expect(reasons).toHaveTextContent('The refresh removes columns or changes their types.');
+    expect(reasons).toHaveTextContent('The refresh changes the geometry type.');
+    await user.click(screen.getByRole('button', { name: 'Confirm Re-Upload' }));
+
+    await waitFor(() => {
+      expect(commitMutateAsync).toHaveBeenCalled();
+    });
+    expect(commitMutateAsync.mock.calls[0][0].reviewFingerprint).toBe('a'.repeat(64));
+  });
+
+  it('sends no review fingerprint with a service-source commit', async () => {
+    const user = userEvent.setup();
+    servicePreviewMutateAsync.mockResolvedValueOnce(
+      makePreviewResponse({ job_id: 'service-job', review_fingerprint: 'b'.repeat(64) }),
+    );
+    renderDialog();
+
+    await openServicePreview(user);
+    await user.click(screen.getByRole('button', { name: 'Confirm Re-Upload' }));
+
+    await waitFor(() => {
+      expect(commitMutateAsync).toHaveBeenCalled();
+    });
+    expect(commitMutateAsync.mock.calls[0][0].reviewFingerprint).toBeUndefined();
+  });
+
   it('pre-fills service URL from dataset source_url', async () => {
     const user = userEvent.setup();
     const dataset = makeDataset();

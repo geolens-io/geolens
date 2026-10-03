@@ -1032,6 +1032,16 @@ export type ReuploadSourceType = 'file' | 'service_url';
 
 export type ReuploadServicePreviewRequest = ServicePreviewRequest;
 
+export type ReviewReason =
+  | 'source_count_unavailable'
+  | 'empty_result'
+  | 'destructive_schema_change'
+  | 'geometry_type_changed'
+  | 'srid_changed'
+  | 'coordinate_dimension_reduced'
+  | 'arcgis_id_coverage_unavailable'
+  | 'arcgis_source_membership_changed';
+
 export interface ReuploadPreviewResponse {
   job_id: string;
   source_filename: string | null;
@@ -1045,6 +1055,10 @@ export interface ReuploadPreviewResponse {
   // GPKG-01 Phase 1058: multi-layer support fields
   all_layers?: Array<{ name: string; feature_count: number; field_count: number }> | null;
   previous_source_layer?: string | null;
+  /** Changes that hold a file replacement for review; empty for a service. */
+  review_reasons?: ReviewReason[];
+  /** Sent back on the commit once a person has seen `review_reasons`. */
+  review_fingerprint?: string | null;
 }
 
 export interface ReuploadCommitResponse {
@@ -1065,6 +1079,8 @@ export interface ReuploadCommitRequest {
    *  upload/preview/confirm window is not silently rebound to an upload.
    *  Optional — omitting it is the pre-#1768 contract. */
   expected_origin_kind?: DatasetOrigin | null;
+  /** The preview's `review_fingerprint`, once a person has seen its changes. */
+  review_fingerprint?: string | null;
 }
 
 export interface DatasetVersionResponse {
@@ -1158,17 +1174,10 @@ export interface DatasetRefreshRunResponse {
     staged_srid?: number | null;
     staged_coordinate_dimension?: number | null;
     geometry_contract?: Record<string, unknown> | null;
-    review_reasons: Array<
-      | 'source_count_unavailable'
-      | 'empty_result'
-      | 'destructive_schema_change'
-      | 'geometry_type_changed'
-      | 'srid_changed'
-      | 'coordinate_dimension_reduced'
-      | 'arcgis_id_coverage_unavailable'
-      | 'arcgis_source_membership_changed'
-    >;
+    review_reasons: ReviewReason[];
     review_fingerprint: string | null;
+    /** Why a file replacement with review reasons published. */
+    review_acknowledged_by?: 'preview' | 'accepted_run' | null;
     accepted_blocked_run_id: string | null;
     acceptance_consumed_by_run_id?: string | null;
   } | null;

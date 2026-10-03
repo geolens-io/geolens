@@ -155,6 +155,7 @@
     "jobFailureMissingCrsRaster": "CRS fehlt: Das Raster hat kein Koordinatenreferenzsystem. Geben Sie beim Import eine CRS-Überschreibung (EPSG-Code) an.",
     "jobFailureMissingCrsReupload": "CRS fehlt: Es wurde kein Koordinatensystem erkannt. Stellen Sie sicher, dass die Datei CRS-Informationen enthält (z. B. eine .prj-Datei bei Shapefiles), oder geben Sie eine SRID-Überschreibung an.",
     "jobFailureRefreshAbandoned": "Die Aktualisierungsaufgabe wurde nie von einem Worker übernommen, oder der Worker ist verschwunden, bevor er ein Ergebnis melden konnte.",
+    "jobFailureReviewRequired": "Dieser Austausch ändert den Datensatz auf eine Weise, die geprüft werden muss, und wurde daher nicht veröffentlicht. Prüfen Sie die Änderungen auf der Registerkarte „Quellen“ des Datensatzes und akzeptieren Sie sie dort.",
     "jobFailureScheduledClaimExpired": "Die geplante Aktualisierung wurde nicht vor ihrer Frist übernommen.",
     "jobFailureScheduledExecutionTimeout": "Die zugelassene Aktualisierung hat ihr Ausführungszeitlimit überschritten.",
     "jobFailureScheduledJobMissing": "Der zugelassene Aktualisierungsauftrag existiert nicht mehr.",

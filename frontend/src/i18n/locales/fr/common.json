@@ -155,6 +155,7 @@
     "jobFailureMissingCrsRaster": "CRS manquant : le raster n'a pas de système de référence de coordonnées. Indiquez une substitution de CRS (code EPSG) à l'import.",
     "jobFailureMissingCrsReupload": "CRS manquant : aucun système de coordonnées détecté. Vérifiez que le fichier contient les informations de CRS (par exemple, un fichier .prj pour les Shapefiles) ou indiquez une substitution de SRID.",
     "jobFailureRefreshAbandoned": "La tâche d'actualisation n'a jamais été prise en charge par un processus de travail, ou celui-ci a disparu avant d'en signaler le résultat.",
+    "jobFailureReviewRequired": "Ce remplacement modifie le jeu de données d'une manière qui doit être vérifiée ; il n'a donc pas été publié. Vérifiez les modifications dans l'onglet Sources du jeu de données et acceptez-les depuis cet onglet.",
     "jobFailureScheduledClaimExpired": "L'actualisation planifiée n'a pas été prise en charge avant son échéance.",
     "jobFailureScheduledExecutionTimeout": "L'actualisation admise a dépassé sa durée d'exécution maximale.",
     "jobFailureScheduledJobMissing": "La tâche d'actualisation admise n'existe plus.",

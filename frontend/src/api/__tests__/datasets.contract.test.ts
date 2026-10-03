@@ -102,3 +102,35 @@ describe('reuploadCommit expected-origin condition', () => {
     },
   );
 });
+
+describe('reuploadCommit review fingerprint', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('carries the preview fingerprint in the commit body', async () => {
+    mockApiFetch.mockResolvedValueOnce({
+      job_id: 'job-1',
+      status: 'pending',
+      message: 'Re-upload queued',
+    } satisfies ReuploadCommitResponse);
+
+    await reuploadCommit('dataset-1', 'job-1', null, undefined, undefined, null, 'c'.repeat(64));
+
+    const [, options] = mockApiFetch.mock.calls[0];
+    expect(JSON.parse(String(options?.body))).toMatchObject({
+      review_fingerprint: 'c'.repeat(64),
+    });
+  });
+
+  it('omits the key when there is nothing to acknowledge', async () => {
+    mockApiFetch.mockResolvedValueOnce({
+      job_id: 'job-1',
+      status: 'pending',
+      message: 'Re-upload queued',
+    } satisfies ReuploadCommitResponse);
+
+    await reuploadCommit('dataset-1', 'job-1', null, undefined, undefined, null, null);
+
+    const [, options] = mockApiFetch.mock.calls[0];
+    expect(JSON.parse(String(options?.body))).not.toHaveProperty('review_fingerprint');
+  });
+});
