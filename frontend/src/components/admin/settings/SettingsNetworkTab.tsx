@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { SettingSourceBadge } from './SettingSourceBadge';
 import { SettingsFormActions } from './SettingsFormActions';
 import { findSetting } from './utils';
-import { useSettingsForm } from './useSettingsForm';
+import { useSettingsForm, type ResetHandler } from './useSettingsForm';
 import { useNotificationStatus, useSendTestNotification } from '@/hooks/use-settings';
 import type { SettingItem, NotificationTestChannelResult } from '@/api/settings';
 import { Textarea } from '@/components/ui/textarea';
@@ -16,9 +16,10 @@ interface TabProps {
   settings: SettingItem[];
   envOnly: boolean;
   onSave: (changes: Record<string, unknown>) => void;
-  onReset: (key: string) => void;
+  onReset: ResetHandler;
   isSaving: boolean;
   settingsUpdatedAt?: number;
+  saveFailed?: boolean;
   onDirtyChange?: (dirty: boolean) => void;
 }
 
@@ -57,9 +58,9 @@ function ChannelResult({ result }: { result: NotificationTestChannelResult }) {
   );
 }
 
-export function SettingsNetworkTab({ settings, envOnly, onSave, onReset, isSaving, settingsUpdatedAt, onDirtyChange }: TabProps) {
+export function SettingsNetworkTab({ settings, envOnly, onSave, onReset: submitReset, isSaving, settingsUpdatedAt, saveFailed, onDirtyChange }: TabProps) {
   const { t } = useTranslation('admin');
-  const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, FIELDS, isSaving, settingsUpdatedAt);
+  const { values, setters, dirty, hasDirty, discard, onReset } = useSettingsForm(settings, FIELDS, isSaving, settingsUpdatedAt, saveFailed, submitReset);
 
   // Phase 1229 Plan 03 — notification channel status + test-send (NOTIF-06).
   const { data: notifStatus, isLoading: notifLoading } = useNotificationStatus();

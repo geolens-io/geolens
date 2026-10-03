@@ -37,7 +37,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { SettingSourceBadge } from './SettingSourceBadge';
 import { SettingsFormActions } from './SettingsFormActions';
 import { findSetting } from './utils';
-import { useSettingsForm } from './useSettingsForm';
+import { useSettingsForm, type ResetHandler } from './useSettingsForm';
 import type { SettingItem, OAuthProviderConfig, OAuthProviderCreateData, OAuthProviderUpdateData } from '@/api/settings';
 import {
   listOAuthProviders,
@@ -56,9 +56,10 @@ interface TabProps {
   settings: SettingItem[];
   envOnly: boolean;
   onSave: (changes: Record<string, unknown>) => void;
-  onReset: (key: string) => void;
+  onReset: ResetHandler;
   isSaving: boolean;
   settingsUpdatedAt?: number;
+  saveFailed?: boolean;
   onDirtyChange?: (dirty: boolean) => void;
 }
 
@@ -759,9 +760,9 @@ const AUTH_FIELDS = [
   { key: 'email_verification_required', defaultValue: true },
 ] as const;
 
-export function SettingsAuthTab({ settings, envOnly, onSave, onReset, isSaving, settingsUpdatedAt, onDirtyChange }: TabProps) {
+export function SettingsAuthTab({ settings, envOnly, onSave, onReset: submitReset, isSaving, settingsUpdatedAt, saveFailed, onDirtyChange }: TabProps) {
   const { t } = useTranslation('admin');
-  const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, AUTH_FIELDS, isSaving, settingsUpdatedAt);
+  const { values, setters, dirty, hasDirty, discard, onReset } = useSettingsForm(settings, AUTH_FIELDS, isSaving, settingsUpdatedAt, saveFailed, submitReset);
 
   // Local input state for the domain allowlist add-input (not part of form state).
   const [domainInput, setDomainInput] = useState('');

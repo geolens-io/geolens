@@ -12,6 +12,9 @@ type FieldDef = {
   compare?: 'strict' | 'json';
 };
 
+/** Starts a reset. A returned promise resolves true once the reset succeeded. */
+export type ResetHandler = (key: string) => void | Promise<boolean>;
+
 function isEqual(a: unknown, b: unknown, mode: 'strict' | 'json' = 'strict'): boolean {
   if (mode === 'json') return JSON.stringify(a) === JSON.stringify(b);
   return a === b;
@@ -39,6 +42,12 @@ export function useSettingsForm<K extends string>(
    *  fetch, including one that returns identical data and so leaves
    *  `settings` the same object, which still has to reconcile the draft. */
   settingsUpdatedAt?: number,
+  /** The save mutation's error flag. A failed save does not acknowledge the
+   *  drafts it submitted, so their edit markers outlive its error refetch. */
+  saveFailed = false,
+  /** The tab's reset handler; the returned `onReset` wraps it so a
+   *  successful reset retires that field's edit markers. */
+  submitReset?: ResetHandler,
 ) {
   type Values = Record<K, unknown>;
 
@@ -67,37 +76,45 @@ export function useSettingsForm<K extends string>(
 
   const [values, setValues] = useState<Values>(initialValues);
 
-  // Track which fields the user edits once a save starts, so the save's own
-  // refetch can tell an acknowledged submission apart from an edit typed
-  // while the save was in flight (inputs stay enabled during isSaving).
-  // Recording setter calls rather than comparing values keeps a refetched
-  // server value from being mistaken for an edit, and catches an edit that
-  // lands back on the old value. Null means no save is being tracked.
-  const isSavingRef = useRef(isSaving);
-  isSavingRef.current = isSaving;
-  const editedDuringSaveRef = useRef<Set<string> | null>(null);
+  // Edits made once a save has started are recorded per field, tagged with
+  // the number of the latest started save, so a refetch can tell an edit the
+  // save acknowledged from one typed while it was in flight (inputs stay
+  // enabled during isSaving). Recording setter calls rather than comparing
+  // values keeps a refetched server value from being mistaken for an edit,
+  // and catches an edit that lands back on the old value. An edit tagged n
+  // was made after save n started, so it is submitted by save n + 1 and only
+  // a refetch reflecting that later save retires it.
+  const startedSaveRef = useRef(0);
+  const settledSaveRef = useRef(0);
+  const reflectedSaveRef = useRef(0);
+  const editMarkersRef = useRef(new Map<string, number>());
+  const editCountsRef = useRef(new Map<string, number>());
+  const saveFailedRef = useRef(saveFailed);
+  saveFailedRef.current = saveFailed;
   useEffect(() => {
-    if (!isSaving) return;
-    // A save started before the previous one's refetch landed still owes
-    // that refetch the edits recorded so far.
-    editedDuringSaveRef.current = new Set(editedDuringSaveRef.current);
+    if (isSaving) startedSaveRef.current += 1;
+    else if (!saveFailedRef.current) settledSaveRef.current = startedSaveRef.current;
   }, [isSaving]);
 
-  // Discarding drops the draft, so edits tracked so far must not pin the
-  // discarded value over the persisted one. Tracking stays armed, because a
+  // Discarding drops the draft, so edits recorded so far must not pin the
+  // discarded value over the persisted one. Recording stays armed, because a
   // save that has settled may not have refetched yet and a new edit made
   // before it lands still has to survive it.
   const syncFromSettings = useCallback(() => {
-    if (editedDuringSaveRef.current) editedDuringSaveRef.current = new Set();
+    editMarkersRef.current.clear();
     setValues(initialValues);
   }, [initialValues]);
 
   // Tracking lifetime rule: a settings save refetches whether it succeeds
   // or fails (a failure can follow a partial commit), and that refetch can
-  // land after isSaving settles — so tracking stays armed across the
-  // pending→settled edge and is consumed by the merge effect below, which
-  // also runs on a refetch that returns unchanged data. Until then an edited
-  // field stays dirty even when it equals the not-yet-refreshed server value.
+  // land after isSaving settles — so recording stays armed across the
+  // pending→settled edge until the merge effect below sees a refetch that
+  // reflects a later save, which also runs on a refetch that returns
+  // unchanged data. A refetch is taken to reflect every successful save that
+  // had settled when it landed; a failed save acknowledges nothing, so its
+  // markers last until a later successful save's refetch or a discard. Until
+  // then an edited field stays dirty even when it equals the not-yet-refreshed
+  // server value.
 
   // fix(#830): only sync untouched fields on refetch — a mid-edit query
   // invalidation (e.g. a background refetch) must not wipe drafts.
@@ -117,11 +134,22 @@ export function useSettingsForm<K extends string>(
     baselineRef.current = initialValues;
     const prevSources = sourcesBaselineRef.current;
     sourcesBaselineRef.current = serverSources;
-    const editedDuringSave = editedDuringSaveRef.current;
-    // Consume the tracking only once the save is no longer pending — an
-    // unrelated refetch racing an in-flight save must leave it for the
-    // save's own refetch.
-    if (!isSavingRef.current) editedDuringSaveRef.current = null;
+    const reflected = settledSaveRef.current;
+    const markers = editMarkersRef.current;
+    const editedDuringSave = new Set<string>();
+    for (const [key, tag] of markers) {
+      if (tag >= reflected) editedDuringSave.add(key);
+    }
+    // Later saves still owe their own refetch the edits recorded so far;
+    // an unrelated refetch racing an in-flight save leaves them in place.
+    if (startedSaveRef.current > reflected) {
+      for (const [key, tag] of markers) {
+        if (tag < reflected) markers.delete(key);
+      }
+    } else {
+      markers.clear();
+    }
+    reflectedSaveRef.current = Math.max(reflectedSaveRef.current, reflected);
     setValues((prev) => {
       const next: Record<string, unknown> = { ...initialValues };
       for (const f of fields) {
@@ -129,7 +157,7 @@ export function useSettingsForm<K extends string>(
         const mode = f.compare ?? 'strict';
         // An edit made during the save is newer than anything the save
         // acknowledged, even when it lands back on the old baseline.
-        if (editedDuringSave?.has(f.key)) {
+        if (editedDuringSave.has(f.key)) {
           next[f.key] = prev[key];
           continue;
         }
@@ -151,7 +179,10 @@ export function useSettingsForm<K extends string>(
     const s: Record<string, (v: unknown) => void> = {};
     for (const f of fields) {
       s[f.key] = (v: unknown) => {
-        editedDuringSaveRef.current?.add(f.key);
+        editCountsRef.current.set(f.key, (editCountsRef.current.get(f.key) ?? 0) + 1);
+        if (startedSaveRef.current > reflectedSaveRef.current) {
+          editMarkersRef.current.set(f.key, startedSaveRef.current);
+        }
         setValues((prev) => ({ ...prev, [f.key]: v }));
       };
     }
@@ -170,7 +201,7 @@ export function useSettingsForm<K extends string>(
       // lands, even when it equals the not-yet-refreshed server value, so
       // the navigation guard and Save still see it.
       if (
-        editedDuringSaveRef.current?.has(f.key) ||
+        editMarkersRef.current.has(f.key) ||
         !isEqual(localVal, serverVal, f.compare ?? 'strict')
       ) {
         changes[f.key] = localVal;
@@ -181,5 +212,19 @@ export function useSettingsForm<K extends string>(
 
   const hasDirty = Object.keys(dirty).length > 0;
 
-  return { values, setters, dirty, hasDirty, discard: syncFromSettings };
+  // A reset is acknowledged by its own refetch, which the save counters do
+  // not track, so a successful reset retires the field's markers directly.
+  // An edit made after the reset was submitted keeps its marker.
+  const submitResetRef = useRef(submitReset);
+  submitResetRef.current = submitReset;
+  const onReset = useCallback((key: string) => {
+    const submittedEdits = editCountsRef.current.get(key) ?? 0;
+    void Promise.resolve(submitResetRef.current?.(key)).then((succeeded) => {
+      if (succeeded === true && (editCountsRef.current.get(key) ?? 0) === submittedEdits) {
+        editMarkersRef.current.delete(key);
+      }
+    });
+  }, []);
+
+  return { values, setters, dirty, hasDirty, discard: syncFromSettings, onReset };
 }

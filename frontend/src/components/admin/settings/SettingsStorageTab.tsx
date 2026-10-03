@@ -6,16 +6,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { SettingSourceBadge } from './SettingSourceBadge';
 import { SettingsFormActions } from './SettingsFormActions';
 import { findSetting } from './utils';
-import { useSettingsForm } from './useSettingsForm';
+import { useSettingsForm, type ResetHandler } from './useSettingsForm';
 import type { SettingItem } from '@/api/settings';
 
 interface TabProps {
   settings: SettingItem[];
   envOnly: boolean;
   onSave: (changes: Record<string, unknown>) => void;
-  onReset: (key: string) => void;
+  onReset: ResetHandler;
   isSaving: boolean;
   settingsUpdatedAt?: number;
+  saveFailed?: boolean;
   onDirtyChange?: (dirty: boolean) => void;
 }
 
@@ -56,9 +57,9 @@ function storageBytes(quantity: string, unit: StorageUnit): number | null {
   return bytes <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(bytes) : null;
 }
 
-export function SettingsStorageTab({ settings, envOnly, onSave, onReset, isSaving, settingsUpdatedAt, onDirtyChange }: TabProps) {
+export function SettingsStorageTab({ settings, envOnly, onSave, onReset: submitReset, isSaving, settingsUpdatedAt, saveFailed, onDirtyChange }: TabProps) {
   const { t } = useTranslation('admin');
-  const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, FIELDS, isSaving, settingsUpdatedAt);
+  const { values, setters, dirty, hasDirty, discard, onReset } = useSettingsForm(settings, FIELDS, isSaving, settingsUpdatedAt, saveFailed, submitReset);
   const storedBytes = values.max_storage_bytes_per_user as number;
   const [storageUnit, setStorageUnit] = useState<StorageUnit>(() => storedBytes && storedBytes % GIB !== 0 ? 'bytes' : 'gib');
   const [storageQuantity, setStorageQuantity] = useState(() => displayStorage(storedBytes, storageUnit));
