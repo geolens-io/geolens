@@ -34,3 +34,27 @@ async def test_extension_provider_without_default_model_uses_community_default(
 ):
     _register(monkeypatch, config)
     assert await LLM_MODEL.default_for(None, "ext") == llm_model_default("ext")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cfg", [LLM_MODEL, LLM_MODEL_LIGHT])
+@pytest.mark.parametrize("base", ["anthropic", "openai"])
+async def test_subclass_of_a_built_in_provider_supplies_its_default_model(
+    monkeypatch, cfg, base
+):
+    from app.platform.extensions.defaults_ai_anthropic import DefaultAnthropicProvider
+    from app.platform.extensions.defaults_ai_openai import (
+        DefaultOpenAICompatibleProvider,
+    )
+
+    parent = {
+        "anthropic": DefaultAnthropicProvider,
+        "openai": DefaultOpenAICompatibleProvider,
+    }[base]
+
+    class _Sub(parent):
+        async def resolve_runtime_config(self, db):
+            return {"default_model": "sub-deployment"}
+
+    monkeypatch.setattr("app.platform.extensions.get_ai_provider", lambda n: _Sub())
+    assert await cfg.default_for(None, "anthropic") == "sub-deployment"

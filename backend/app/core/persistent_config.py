@@ -673,9 +673,7 @@ class _ProviderModelConfig(PersistentConfig[str]):
             ext = get_ai_provider(provider)
         except ValueError:
             return llm_model_default(provider, light=self.light)
-        if not isinstance(
-            ext, (DefaultAnthropicProvider, DefaultOpenAICompatibleProvider)
-        ):
+        if type(ext) not in (DefaultAnthropicProvider, DefaultOpenAICompatibleProvider):
             model = (await ext.resolve_runtime_config(db)).get("default_model")
             if isinstance(model, str) and model.strip():
                 return model
