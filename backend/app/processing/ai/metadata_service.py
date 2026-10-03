@@ -290,14 +290,14 @@ async def _generate_structured(
         if db is not None
         else ("anthropic" if settings.anthropic_api_key else "openai_compatible")
     )
-    model = (
-        await LLM_MODEL_LIGHT.for_provider(db, provider)
-        if db is not None
-        else llm_model_default(provider, light=True)
-    )
     provider_ext = get_ai_provider(provider)
     runtime_config = (
         await provider_ext.resolve_runtime_config(db) if db is not None else {}
+    )
+    model = (
+        await LLM_MODEL_LIGHT.for_provider(db, provider, runtime_config)
+        if db is not None
+        else llm_model_default(provider, light=True)
     )
     result, input_tokens, output_tokens = await provider_ext.structured_complete(
         model=model,

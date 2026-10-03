@@ -654,16 +654,52 @@ class _ProviderModelConfig(PersistentConfig[str]):
         )
         self.light = light
 
-    def default_for(self, provider: str) -> str:
+    async def default_for(
+        self,
+        db: AsyncSession,
+        provider: str,
+        runtime_config: dict[str, object] | None = None,
+    ) -> str:
         """The model ``provider`` uses when no admin override is set.
 
-        Extension providers, and overlays under a built-in name, take the
-        community default too and need a model override to use another.
+        A caller that already resolved the provider's runtime config passes it,
+        so the model and endpoint come from one snapshot.
+
+        An extension provider, or an overlay under a built-in name, supplies its
+        own ``default_model`` through ``resolve_runtime_config``; without one
+        it takes the community default.
         """
+        from app.core.ai_credentials import OpenAICredentialDestinationError
+        from app.platform.extensions import get_ai_provider
+        from app.platform.extensions.defaults import (
+            DefaultAnthropicProvider,
+            DefaultOpenAICompatibleProvider,
+        )
+
+        try:
+            ext = get_ai_provider(provider)
+        except ValueError:
+            return llm_model_default(provider, light=self.light)
+        built_in_resolvers = (
+            DefaultAnthropicProvider.resolve_runtime_config,
+            DefaultOpenAICompatibleProvider.resolve_runtime_config,
+        )
+        if type(ext).resolve_runtime_config not in built_in_resolvers:
+            # A stale endpoint must not stop the settings page or an import
+            # that would repair it; the call-time check still rejects it.
+            config = runtime_config
+            if config is None:
+                try:
+                    config = await ext.resolve_runtime_config(db)
+                except OpenAICredentialDestinationError:
+                    config = {}
+            model = config.get("default_model")
+            if isinstance(model, str) and model.strip():
+                return model
         return llm_model_default(provider, light=self.light)
 
     async def resolved_default(self, db: AsyncSession) -> str:
-        return self.default_for(await LLM_PROVIDER.get(db))
+        return await self.default_for(db, await LLM_PROVIDER.get(db))
 
     async def override(self, db: AsyncSession) -> str:
         """The admin's model, or ``""`` when none is set."""
@@ -674,11 +710,18 @@ class _ProviderModelConfig(PersistentConfig[str]):
         # get() lands here too, since this setting is uncached.
         return await self.override(db) or await self.resolved_default(db)
 
-    async def for_provider(self, db: AsyncSession, provider: str) -> str:
+    async def for_provider(
+        self,
+        db: AsyncSession,
+        provider: str,
+        runtime_config: dict[str, object] | None = None,
+    ) -> str:
         """The override, or ``provider``'s default, for a caller that has
         already chosen the provider, so a concurrent switch can't pair it with
         another provider's model."""
-        return await self.override(db) or self.default_for(provider)
+        return await self.override(db) or await self.default_for(
+            db, provider, runtime_config
+        )
 
     async def set(
         self,
@@ -885,8 +928,8 @@ async def get_all_registry_values(db: AsyncSession) -> dict[str, Any]:
     # A model without an override resolves against this snapshot's provider.
     for model in (LLM_MODEL, LLM_MODEL_LIGHT):
         if not settings_dict[model.key].strip():
-            settings_dict[model.key] = model.default_for(
-                settings_dict[LLM_PROVIDER.key]
+            settings_dict[model.key] = await model.default_for(
+                db, settings_dict[LLM_PROVIDER.key]
             )
     return settings_dict
 

@@ -1439,8 +1439,8 @@ async def test_blank_model_import_plans_and_applies_a_reset(
 async def test_an_overlay_under_a_built_in_name_chats_with_the_reported_model(
     client: AsyncClient, admin_auth_header: dict, _both_ai_keys
 ):
-    """Chat, the settings default and SQL agree on the community model for a
-    replaced built-in provider."""
+    """Chat, the settings default and SQL agree on the overlay's default model
+    for a replaced built-in provider."""
     from app.api.main import app
     from app.core.dependencies import get_db
     from app.core.persistent_config import LLM_MODEL, LLM_PROVIDER
@@ -1462,7 +1462,7 @@ async def test_an_overlay_under_a_built_in_name_chats_with_the_reported_model(
             assert chat_model == await LLM_MODEL.for_provider(
                 db, await LLM_PROVIDER.get(db)
             )
-            assert chat_model == "anthropic-chat-env"
+            assert chat_model == "overlay-deployment"
 
 
 @pytest.mark.anyio
