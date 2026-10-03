@@ -40,6 +40,17 @@ def geometry_contract(
     return GeometryContract(family=family, srid=srid, is_3d=is_3d, n_dims=n_dims)
 
 
+def _has_m(contract: GeometryContract) -> bool | None:
+    """Whether the contract carries M ordinates, or ``None`` when it can't tell."""
+    if contract.n_dims == 4:
+        return True
+    if contract.n_dims == 2:
+        return False
+    if contract.n_dims == 3 and contract.is_3d is not None:
+        return not contract.is_3d
+    return None
+
+
 def review_reasons(
     *,
     schema_diff: dict[str, Any],
@@ -67,7 +78,8 @@ def review_reasons(
         and staged.n_dims is not None
         and staged.n_dims < live.n_dims
     )
-    if lost_z or fewer_dims:
+    lost_m = _has_m(live) is True and _has_m(staged) is False
+    if lost_z or fewer_dims or lost_m:
         reasons.append("coordinate_dimension_reduced")
     return reasons
 

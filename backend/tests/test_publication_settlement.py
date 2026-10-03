@@ -279,6 +279,27 @@ async def test_a_refresh_that_changes_the_geometry_family_waits_for_review(
     assert _sent(quiet) == []
 
 
+async def test_a_refresh_that_swaps_m_for_z_waits_for_review(test_db_session):
+    """An XYM line dataset refreshed with XYZ lines loses its M values and is held."""
+    dataset, job, admin_id = await _candidate(test_db_session, refresh=True)
+    await test_db_session.execute(
+        sa.text(
+            "UPDATE catalog.datasets SET geometry_type = 'LINESTRING', "
+            "is_3d = false, n_dims = 3 WHERE id = :id"
+        ),
+        {"id": dataset.id},
+    )
+    await test_db_session.commit()
+    xyz = _fetch(1, geometry="LineStringZ", wkt="LINESTRING Z (0 0 1, 1 1 1)")
+
+    await _reupload(dataset, job, admin_id, fetch=xyz)
+
+    run = await _run(job.id)
+    assert run.status == "blocked"
+    assert run.verification["review_reasons"] == ["coordinate_dimension_reduced"]
+    assert await _live(dataset) == "original"
+
+
 async def test_a_published_refresh_stores_the_diff_taken_under_the_lock(
     test_db_session,
 ):

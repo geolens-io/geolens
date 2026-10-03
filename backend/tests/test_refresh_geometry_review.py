@@ -58,6 +58,11 @@ def _verify(live: GeometryContract, staged: GeometryContract, **extra):
             _contract(is_3d=None, n_dims=2),
             "coordinate_dimension_reduced",
         ),
+        (
+            _contract(is_3d=False, n_dims=3),
+            _contract(is_3d=True, n_dims=3),
+            "coordinate_dimension_reduced",
+        ),
     ],
 )
 def test_a_geometry_change_blocks_with_its_one_reason(live, staged, reason) -> None:
@@ -75,6 +80,8 @@ def test_a_geometry_change_blocks_with_its_one_reason(live, staged, reason) -> N
         (_contract(is_3d=False, n_dims=2), _contract(is_3d=True, n_dims=3)),
         (_contract(None, None, None, None), _contract("POINT", 4326, True, 3)),
         (_contract("POLYGON"), _contract("GEOMETRY")),
+        (_contract(is_3d=False, n_dims=3), _contract(is_3d=True, n_dims=4)),
+        (_contract(is_3d=False, n_dims=3), _contract(is_3d=None, n_dims=3)),
     ],
 )
 def test_normalizations_and_unknown_facts_stay_allowed(live, staged) -> None:
