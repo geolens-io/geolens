@@ -372,6 +372,69 @@ describe('useSettingsForm', () => {
       expect(result.current.dirty).toEqual({ name: 'Carol', flag: true });
     });
 
+    it('reads saved once the refetch for the last of two saves lands, with the server value', () => {
+      const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
+      const { result, rerender } = renderWithSettings(initial);
+
+      act(() => result.current.setters.name('Bob'));
+      rerender({ s: initial, saving: true, u: 1 });
+      act(() => result.current.setters.name('  Carol  '));
+      rerender({ s: initial, saving: false, u: 1 });
+
+      // The second save submits the draft before the first refetch lands.
+      rerender({ s: initial, saving: true, u: 1 });
+      const afterFirst = [makeSetting('name', 'Bob'), makeSetting('flag', false)];
+      rerender({ s: afterFirst, saving: true, u: 2 });
+      expect(result.current.values.name).toBe('  Carol  ');
+      rerender({ s: afterFirst, saving: false, u: 2 });
+
+      // The server trimmed the value; the refetch reflecting the last save
+      // retires the marker, so the stored value shows and nothing is dirty.
+      rerender({ s: [makeSetting('name', 'Carol'), makeSetting('flag', false)], saving: false, u: 3 });
+
+      expect(result.current.values.name).toBe('Carol');
+      expect(result.current.hasDirty).toBe(false);
+    });
+
+    it('keeps a draft edited after the second save started through that save refetch', () => {
+      const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
+      const { result, rerender } = renderWithSettings(initial);
+
+      act(() => result.current.setters.name('Bob'));
+      rerender({ s: initial, saving: true, u: 1 });
+      act(() => result.current.setters.name('Carol'));
+      rerender({ s: initial, saving: false, u: 1 });
+      rerender({ s: initial, saving: true, u: 1 });
+      act(() => result.current.setters.name('Dave'));
+      rerender({ s: initial, saving: false, u: 1 });
+
+      rerender({ s: [makeSetting('name', 'Carol'), makeSetting('flag', false)], saving: false, u: 2 });
+
+      expect(result.current.values.name).toBe('Dave');
+      expect(result.current.dirty).toEqual({ name: 'Dave' });
+    });
+
+    it('does not pin a later reset after two failed saves whose refetches failed', () => {
+      const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
+      const { result, rerender } = renderWithSettings(initial);
+
+      act(() => result.current.setters.name('Bob'));
+      rerender({ s: initial, saving: true, u: 1 });
+      act(() => result.current.setters.name('Carol'));
+
+      // The API is down: the save fails and so does every refetch, so the
+      // settings props never move. The retry fails the same way.
+      rerender({ s: initial, saving: false, u: 1 });
+      rerender({ s: initial, saving: true, u: 1 });
+      rerender({ s: initial, saving: false, u: 1 });
+
+      // Back online, a Reset refetch lands with the default.
+      rerender({ s: [makeSetting('name', 'Default'), makeSetting('flag', false)], saving: false, u: 2 });
+
+      expect(result.current.values.name).toBe('Default');
+      expect(result.current.hasDirty).toBe(false);
+    });
+
     it('keeps a post-submit edit even when an unrelated refetch races the save', () => {
       const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
       const { result, rerender } = renderWithSettings(initial);
