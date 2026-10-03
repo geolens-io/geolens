@@ -738,8 +738,8 @@ async def _load_oauth_account_rows(
     return list(result.all())
 
 
-async def _flag_embedding_width_deletion(
-    db: AsyncSession,
+def _flag_embedding_width_deletion(
+    live: int | None,
     setting_changes: list[dict[str, Any]],
     validated_settings: dict[str, Any],
     mode: ImportMode,
@@ -750,8 +750,6 @@ async def _flag_embedding_width_deletion(
     The apply step reconciles against the column's real width, which can differ
     from the saved setting, so the comparison uses storage and not the diff.
     """
-    from app.processing.embeddings.backfill import _live_column_dims
-
     cfg = registry_map["embedding_dims"]
     if cfg.key in validated_settings:
         effective = validated_settings[cfg.key]
@@ -759,7 +757,6 @@ async def _flag_embedding_width_deletion(
         effective = cfg.env_default
     else:
         return
-    live = await _live_column_dims(db)
     if live is None or int(effective) == live:
         return
     for change in setting_changes:
@@ -878,8 +875,11 @@ async def preflight_import(
                 ).model_dump()
             )
 
-    await _flag_embedding_width_deletion(
-        db, setting_changes, validated_settings, mode, registry_map
+    from app.processing.embeddings.backfill import _live_column_dims
+
+    live_column_width = await _live_column_dims(db)
+    _flag_embedding_width_deletion(
+        live_column_width, setting_changes, validated_settings, mode, registry_map
     )
 
     existing_providers = await oauth_service.list_providers(
@@ -934,6 +934,7 @@ async def preflight_import(
     state_digest = _canonical_digest(
         {
             "enterprise": caller_is_enterprise,
+            "embedding_column_width": live_column_width,
             "settings": [
                 {
                     "key": cfg.key,

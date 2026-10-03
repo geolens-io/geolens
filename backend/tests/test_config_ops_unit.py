@@ -647,3 +647,40 @@ async def test_dry_run_is_quiet_when_the_width_matches_the_live_column():
     changes = await _preview("merge", {"embedding_dims": str(default)}, default)
 
     assert "deleted" not in (changes["embedding_dims"]["reason"] or "")
+
+
+@pytest.mark.anyio
+async def test_a_preview_goes_stale_when_the_live_column_width_changes():
+    """A warning-free token is refused once a rebuild moves the column; an unmoved one applies."""
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from app.core.persistent_config import EMBEDDING_DIMS
+    from app.platform.config_ops.exceptions import ConfigPreviewError
+    from app.platform.config_ops.service import (
+        _issue_preview_token,
+        _verify_preview_token,
+        preflight_import,
+    )
+
+    mock_db = AsyncMock(spec=AsyncSession)
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = None
+    mock_result.scalars.return_value.all.return_value = []
+    mock_result.all.return_value = []
+    mock_db.execute = AsyncMock(return_value=mock_result)
+    default = int(EMBEDDING_DIMS.env_default)
+    payload = {"settings": {"embedding_dims": str(default)}}
+
+    async def _plan(live_width):
+        with patch(
+            "app.processing.embeddings.backfill._live_column_dims",
+            AsyncMock(return_value=live_width),
+        ):
+            return await preflight_import(mock_db, payload, "overwrite")
+
+    previewed = await _plan(default)
+    token = _issue_preview_token(previewed, "overwrite")
+
+    _verify_preview_token(token, await _plan(default), "overwrite")
+    with pytest.raises(ConfigPreviewError):
+        _verify_preview_token(token, await _plan(512), "overwrite")
