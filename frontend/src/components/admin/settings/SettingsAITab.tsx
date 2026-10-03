@@ -623,7 +623,13 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
               {t(pendingChangesWidth ? 'ai.dimsConfirm.title' : 'ai.dimsConfirm.titleModel')}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {t(pendingChangesWidth ? 'ai.dimsConfirm.description' : 'ai.dimsConfirm.modelDescription')}
+              {t(
+                pendingChangesWidth
+                  ? 'ai.dimsConfirm.description'
+                  : pending?.kind === 'reset'
+                    ? 'ai.dimsConfirm.resetModelDescription'
+                    : 'ai.dimsConfirm.modelDescription',
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

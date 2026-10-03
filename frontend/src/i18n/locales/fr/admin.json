@@ -320,7 +320,8 @@
       "confirm": "Supprimer les embeddings",
       "confirmModel": "Changer de modèle",
       "description": "Cette action supprime tous les embeddings stockés. La recherche sémantique ne renvoie rien tant que vous ne les avez pas régénérés avec Generer les embeddings manquants dans cet onglet.",
-      "modelDescription": "Les embeddings de l'ancien modèle ne sont plus utilisés. Si la largeur du nouveau modèle diffère, tous les embeddings stockés sont supprimés. Régénérez-les avec Generer les embeddings manquants dans cet onglet."
+      "modelDescription": "Les embeddings de l'ancien modèle ne sont plus utilisés. Si la largeur du nouveau modèle diffère, tous les embeddings stockés sont supprimés. Régénérez-les avec Generer les embeddings manquants dans cet onglet.",
+      "resetModelDescription": "Les embeddings de l'ancien modèle ne sont plus utilisés. Les embeddings stockés sont conservés. Régénérez-les avec Generer les embeddings manquants dans cet onglet."
     },
     "dimsDetectFailed": "Impossible de détecter les dimensions.",
     "dimsDetected": "{{dims}} dimensions détectées",

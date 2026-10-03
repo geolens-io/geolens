@@ -194,5 +194,21 @@ describe('SettingsAITab embedding width confirmation', () => {
 
       expect(onReset).toHaveBeenCalledWith('embedding_dims');
     });
+
+    it('does not warn of deletion when resetting only the model', async () => {
+      const user = userEvent.setup();
+      renderTab(
+        settings.map((item) =>
+          item.key === 'embedding_model' ? { ...item, source: 'overridden' as const } : { ...item, source: 'default' as const },
+        ),
+      );
+
+      await user.click(screen.getByRole('button', { name: /Reset/ }));
+      expect(screen.getByText(/Stored embeddings are kept/)).toBeInTheDocument();
+      expect(screen.queryByText(/deleted/)).not.toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Change model' }));
+
+      expect(onReset).toHaveBeenCalledWith('embedding_model');
+    });
   });
 });

@@ -320,7 +320,8 @@
       "confirm": "Eliminar embeddings",
       "confirmModel": "Cambiar modelo",
       "description": "Esto elimina todos los embeddings almacenados. La búsqueda semántica no devolverá resultados hasta que los regeneres con Generar embeddings faltantes en esta pestaña.",
-      "modelDescription": "Los embeddings del modelo anterior dejan de usarse. Si el ancho del nuevo modelo es distinto, se eliminan todos los embeddings almacenados. Regéneralos con Generar embeddings faltantes en esta pestaña."
+      "modelDescription": "Los embeddings del modelo anterior dejan de usarse. Si el ancho del nuevo modelo es distinto, se eliminan todos los embeddings almacenados. Regéneralos con Generar embeddings faltantes en esta pestaña.",
+      "resetModelDescription": "Los embeddings del modelo anterior dejan de usarse. Los embeddings almacenados se conservan. Regéneralos con Generar embeddings faltantes en esta pestaña."
     },
     "dimsDetectFailed": "No se pudieron detectar las dimensiones. Verifique que OPENAI_API_KEY esté configurado y el modelo de embedding sea válido.",
     "dimsDetected": "{{dims}} dimensiones detectadas",

@@ -359,7 +359,8 @@
       "confirm": "Delete embeddings",
       "confirmModel": "Change model",
       "description": "This deletes all stored embeddings. Semantic search returns nothing until you regenerate them with Generate Missing Embeddings on this tab.",
-      "modelDescription": "Embeddings from the previous model stop being used. If the new model's width differs, all stored embeddings are deleted. Regenerate them with Generate Missing Embeddings on this tab."
+      "modelDescription": "Embeddings from the previous model stop being used. If the new model's width differs, all stored embeddings are deleted. Regenerate them with Generate Missing Embeddings on this tab.",
+      "resetModelDescription": "Embeddings from the previous model stop being used. Stored embeddings are kept. Regenerate them with Generate Missing Embeddings on this tab."
     },
     "openaiKeyRequired": "OPENAI_API_KEY is not set. Embedding generation requires an OpenAI-compatible API key, even when using Anthropic for inference.",
     "keyConfigured": "configured",

@@ -320,7 +320,8 @@
       "confirm": "Embeddings löschen",
       "confirmModel": "Modell ändern",
       "description": "Dadurch werden alle gespeicherten Embeddings gelöscht. Die semantische Suche liefert keine Treffer, bis Sie sie in diesem Tab mit Fehlende Embeddings generieren neu erzeugen.",
-      "modelDescription": "Embeddings des bisherigen Modells werden nicht mehr verwendet. Weicht die Breite des neuen Modells ab, werden alle gespeicherten Embeddings gelöscht. Erzeugen Sie sie in diesem Tab mit Fehlende Embeddings generieren neu."
+      "modelDescription": "Embeddings des bisherigen Modells werden nicht mehr verwendet. Weicht die Breite des neuen Modells ab, werden alle gespeicherten Embeddings gelöscht. Erzeugen Sie sie in diesem Tab mit Fehlende Embeddings generieren neu.",
+      "resetModelDescription": "Embeddings des bisherigen Modells werden nicht mehr verwendet. Gespeicherte Embeddings bleiben erhalten. Erzeugen Sie sie in diesem Tab mit Fehlende Embeddings generieren neu."
     },
     "dimsDetectFailed": "Dimensionen konnten nicht erkannt werden.",
     "dimsDetected": "{{dims}} Dimensionen erkannt",
