@@ -122,64 +122,58 @@ describe('useAllTypesTotal', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useSearchStore.setState(initialState, true);
+    mockSearchDatasets.mockImplementation((async (params: Record<string, string>) => ({
+      numberMatched: params.record_type ? 3 : 12,
+      features: [],
+    })) as never);
   });
 
-  it('keeps All at the untyped total across All, a type, and back', async () => {
-    mockSearchDatasets.mockResolvedValue({ numberMatched: 12, features: [] } as never);
+  function useAll() {
+    const results = useSearchResults();
+    const total = results.data ? results.data.numberMatched : undefined;
+    return {
+      results,
+      all: useAllTypesTotal(total, results.isPlaceholderData),
+    };
+  }
 
-    useSearchStore.getState().setFilter('record_type', 'vector_dataset');
-    const { result, rerender } = renderHook(({ total }) => useAllTypesTotal(total), {
-      initialProps: { total: 10 as number | undefined },
-    });
+  it('keeps All at the cached untyped total across All, a type, and back without extra requests', async () => {
+    const { result } = renderHook(useAll);
+    await waitFor(() => expect(result.current.all).toBe(12));
 
-    await waitFor(() => expect(result.current).toBe(12));
-    const [params] = mockSearchDatasets.mock.calls[0];
-    expect(params).toMatchObject({ limit: '1' });
-    expect(params).not.toHaveProperty('record_type');
+    act(() => useSearchStore.getState().setFilter('record_type', 'vector_dataset'));
+    await waitFor(() => expect(result.current.results.data?.numberMatched).toBe(3));
+    expect(result.current.all).toBe(12);
 
     act(() => useSearchStore.getState().setFilter('record_type', ''));
-    rerender({ total: 12 });
-    expect(result.current).toBe(12);
+    expect(result.current.all).toBe(12);
+    await waitFor(() => expect(result.current.results.isPlaceholderData).toBe(false));
+    expect(result.current.all).toBe(12);
+
+    expect(mockSearchDatasets).toHaveBeenCalledTimes(2);
+    for (const [params] of mockSearchDatasets.mock.calls) {
+      expect(params).not.toHaveProperty('limit', '1');
+    }
   });
 
-  it('treats a zero untyped total as authoritative with and without a type', async () => {
-    mockSearchDatasets.mockResolvedValue({ numberMatched: 0, features: [] } as never);
-
+  it('is undefined when nothing is cached for the untyped params', async () => {
     useSearchStore.getState().setFilter('record_type', 'vector_dataset');
-    const { result, rerender } = renderHook(({ total }) => useAllTypesTotal(total), {
-      initialProps: { total: 0 as number | undefined },
-    });
+    const { result } = renderHook(useAll);
+    await waitFor(() => expect(result.current.results.data?.numberMatched).toBe(3));
 
-    await waitFor(() => expect(result.current).toBe(0));
-
-    act(() => useSearchStore.getState().setFilter('record_type', ''));
-    rerender({ total: 0 });
-    expect(result.current).toBe(0);
+    expect(result.current.all).toBeUndefined();
   });
 
-  it('uses the cached untyped total while the main results are still placeholder data', async () => {
-    mockSearchDatasets.mockResolvedValue({ numberMatched: 12, features: [] } as never);
+  it('treats a zero cached untyped total as authoritative', async () => {
+    mockSearchDatasets.mockImplementation((async (params: Record<string, string>) => ({
+      numberMatched: params.record_type ? 3 : 0,
+      features: [],
+    })) as never);
+    const { result } = renderHook(useAll);
+    await waitFor(() => expect(result.current.all).toBe(0));
 
-    useSearchStore.getState().setFilter('record_type', 'vector_dataset');
-    const { result, rerender } = renderHook(
-      ({ total, placeholder }) => useAllTypesTotal(total, placeholder),
-      { initialProps: { total: 3 as number | undefined, placeholder: false } },
-    );
-    await waitFor(() => expect(result.current).toBe(12));
-
-    act(() => useSearchStore.getState().setFilter('record_type', ''));
-    rerender({ total: 3, placeholder: true });
-    expect(result.current).toBe(12);
-    expect(mockSearchDatasets).toHaveBeenCalledTimes(1);
-
-    rerender({ total: 12, placeholder: false });
-    expect(result.current).toBe(12);
-  });
-
-  it('makes no request and returns the result total when no type is selected', () => {
-    const { result } = renderHook(() => useAllTypesTotal(12));
-
-    expect(result.current).toBe(12);
-    expect(mockSearchDatasets).not.toHaveBeenCalled();
+    act(() => useSearchStore.getState().setFilter('record_type', 'vector_dataset'));
+    await waitFor(() => expect(result.current.results.data?.numberMatched).toBe(3));
+    expect(result.current.all).toBe(0);
   });
 });

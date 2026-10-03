@@ -1,9 +1,10 @@
-import { useQuery, keepPreviousData } from '@tanstack/react-query';
+import { useQuery, keepPreviousData, skipToken } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
 import { useShallow } from 'zustand/react/shallow';
 import { useSearchStore } from '@/stores/search-store';
 import { searchDatasets, fetchCatalogSummary, fetchFacets } from '@/api/search';
 import { listMaps } from '@/api/maps';
+import type { SearchResponse } from '@/types/api';
 
 export function useSearchResults() {
   const params = useSearchStore(useShallow((s) => s.toParams()));
@@ -51,19 +52,21 @@ export function useCatalogSummary() {
   });
 }
 
-/** Total for the Type filter's All option: the result total without the selected type. */
+/**
+ * Total for the Type filter's All option: the result total without the selected
+ * type. It only reads the results already cached for the untyped params, so it
+ * issues no request; undefined means "not known" and callers fall back to the
+ * facet sum.
+ */
 export function useAllTypesTotal(totalResults: number | undefined, isPlaceholderData = false) {
   const params = useSearchStore(useShallow((s) => s.toParams()));
-  const { record_type, offset: _offset, ...untyped } = params;
-  void _offset;
-  const typed = !!record_type;
-  const { data } = useQuery({
-    queryKey: queryKeys.search.results({ ...untyped, limit: '1' }),
-    queryFn: () => searchDatasets({ ...untyped, limit: '1' }),
-    enabled: typed,
-    staleTime: 30_000,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { record_type, offset, ...untyped } = params;
+  const { data } = useQuery<SearchResponse>({
+    queryKey: queryKeys.search.results(untyped),
+    queryFn: skipToken,
   });
-  // While the main query still shows the previous (typed) results, the cached
-  // untyped total is the only correct one; reading it never triggers a fetch.
-  return typed || isPlaceholderData ? data?.numberMatched : totalResults;
+  // While the main query still shows the previous (typed) results, only the
+  // cached untyped total is correct.
+  return record_type || isPlaceholderData ? data?.numberMatched : totalResults;
 }
