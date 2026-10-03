@@ -70,6 +70,9 @@ function cloudCoverMode(conformsTo: string[]): 'query' | 'filter' | null {
   return null;
 }
 
+// StacImportRequest.items allows at most this many per call.
+const MAX_IMPORT_ITEMS = 50;
+
 type Step =
   | 'idle'
   | 'connecting'
@@ -167,6 +170,9 @@ export function StacImportForm() {
   const [nextPage, setNextPage] = useState<StacNextPage | null>(null);
   const [appliedFilters, setAppliedFilters] = useState<SearchFilters>({});
   const [loadingMore, setLoadingMore] = useState(false);
+  // Bumped whenever the result set is replaced or abandoned, so a response
+  // for an earlier search cannot append to, or overwrite, a newer one.
+  const searchGenRef = useRef(0);
   const [filterError, setFilterError] = useState<string | null>(null);
   const [importResult, setImportResult] = useState<{
     created: number;
@@ -244,6 +250,7 @@ export function StacImportForm() {
   }
 
   const reset = () => {
+    searchGenRef.current += 1;
     setStep('idle');
     setUrl('');
     clearCredential('none');
@@ -305,6 +312,9 @@ export function StacImportForm() {
 
   // ── Step 2: Select collection and search items ──
   const handleCollectionSelect = async (collection: StacCollectionSummary) => {
+    const gen = ++searchGenRef.current;
+    setFiltering(false);
+    setLoadingMore(false);
     setSelectedCollection(collection);
     setStartDate('');
     setEndDate('');
@@ -326,11 +336,13 @@ export function StacImportForm() {
         limit: 50,
         ...(auth ? { auth } : {}),
       });
+      if (gen !== searchGenRef.current) return;
       setSearchResult({ items: result.items, matched: result.matched });
       setNextPage(result.next_page ?? null);
       setSelectedItems(new Set());
       setStep('items');
     } catch (err) {
+      if (gen !== searchGenRef.current) return;
       const msg = err instanceof ApiError ? err.message : t('stac.searchItemsFailed');
       setError(msg);
       setStep('collections');
@@ -382,8 +394,10 @@ export function StacImportForm() {
       setFilterError(built.error);
       return;
     }
+    const gen = ++searchGenRef.current;
     setFilterError(null);
     setFiltering(true);
+    setLoadingMore(false);
     setError(null);
     try {
       const auth = buildStacAuth();
@@ -394,18 +408,18 @@ export function StacImportForm() {
         ...built.filters,
         ...(auth ? { auth } : {}),
       });
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || gen !== searchGenRef.current) return;
       setSearchResult({ items: result.items, matched: result.matched });
       setNextPage(result.next_page ?? null);
       setAppliedFilters(built.filters);
       setSelectedItems(new Set());
     } catch (err) {
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || gen !== searchGenRef.current) return;
       const msg = err instanceof ApiError ? err.message : t('stac.searchItemsFailed');
       setFilterError(msg);
       toast.error(msg);
     } finally {
-      if (mountedRef.current) setFiltering(false);
+      if (mountedRef.current && gen === searchGenRef.current) setFiltering(false);
     }
   };
 
@@ -413,6 +427,7 @@ export function StacImportForm() {
   // have been edited since: the next page belongs to that search.
   const handleLoadMore = async () => {
     if (!selectedCollection || !catalogInfo || !nextPage) return;
+    const gen = searchGenRef.current;
     setLoadingMore(true);
     setError(null);
     try {
@@ -425,7 +440,7 @@ export function StacImportForm() {
         next_page: nextPage,
         ...(auth ? { auth } : {}),
       });
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || gen !== searchGenRef.current) return;
       setSearchResult((prev) => {
         const seen = new Set(prev.items.map((i) => i.id));
         return {
@@ -435,12 +450,12 @@ export function StacImportForm() {
       });
       setNextPage(result.next_page ?? null);
     } catch (err) {
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || gen !== searchGenRef.current) return;
       const msg = err instanceof ApiError ? err.message : t('stac.searchItemsFailed');
       setError(msg);
       toast.error(msg);
     } finally {
-      if (mountedRef.current) setLoadingMore(false);
+      if (mountedRef.current && gen === searchGenRef.current) setLoadingMore(false);
     }
   };
 
@@ -449,16 +464,26 @@ export function StacImportForm() {
     setSelectedItems((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
-      else next.add(id);
+      else if (next.size < MAX_IMPORT_ITEMS) next.add(id);
       return next;
     });
   };
 
+  const atSelectionCap = selectedItems.size >= MAX_IMPORT_ITEMS;
+  const allSelectableSelected =
+    selectedItems.size > 0 &&
+    selectedItems.size >= Math.min(MAX_IMPORT_ITEMS, selectableItems.length);
+
   const toggleAll = () => {
-    if (selectedItems.size === selectableItems.length) {
+    if (allSelectableSelected) {
       setSelectedItems(new Set());
     } else {
-      setSelectedItems(new Set(selectableItems.map((i) => i.id)));
+      const next = new Set(selectedItems);
+      for (const item of selectableItems) {
+        if (next.size >= MAX_IMPORT_ITEMS) break;
+        next.add(item.id);
+      }
+      setSelectedItems(next);
     }
   };
 
@@ -884,14 +909,14 @@ export function StacImportForm() {
 
   // ── Items list with selection ──
   if (step === 'items' && selectedCollection && catalogInfo) {
-    const allSelected = selectableItems.length > 0 && selectedItems.size === selectableItems.length;
+    const allSelected = allSelectableSelected;
 
     return (
       <div className="space-y-4">
         {/* Breadcrumb */}
         <div className="flex items-center gap-2 text-sm">
           <button
-            onClick={() => { setStep('collections'); setSelectedCollection(null); }}
+            onClick={() => { searchGenRef.current += 1; setStep('collections'); setSelectedCollection(null); }}
             className="flex items-center gap-1 text-muted-foreground hover:text-foreground"
           >
             <ArrowLeft className="size-3.5 rtl-mirror" />
@@ -991,6 +1016,11 @@ export function StacImportForm() {
               {selectedItems.size > 0 ? t('stac.importItems', { count: selectedItems.size }) : t('stac.importLabel')}
             </Button>
           </div>
+          {atSelectionCap && selectableItems.length > MAX_IMPORT_ITEMS && (
+            <p data-testid="stac-selection-limit" className="mt-2 text-xs text-muted-foreground">
+              {t('stac.selectionLimit', { count: MAX_IMPORT_ITEMS })}
+            </p>
+          )}
           {/* A refused import lands back on this step (see handleImport's catch);
               shown here, beside the action that triggered it, rather than below
               a list that can run to 50 rows and push it out of view. */}
@@ -1028,7 +1058,7 @@ export function StacImportForm() {
                 <input
                   type="checkbox"
                   checked={isSelected}
-                  disabled={!availability.importable}
+                  disabled={!availability.importable || (atSelectionCap && !isSelected)}
                   aria-describedby={availability.importable ? undefined : reasonId}
                   onChange={() => toggleItem(item.id)}
                   className="rounded-sm border-border shrink-0"

@@ -229,7 +229,8 @@
     "filterBboxInvalid": "Geben Sie vier Zahlen ein: West, Süd, Ost, Nord (Längengrad -180 bis 180, Breitengrad -90 bis 90, Süd nicht nördlich von Nord).",
     "loadMore": "Mehr laden",
     "filterCloud": "Max. Wolkenbedeckung (%)",
-    "filterCloudInvalid": "Geben Sie eine Wolkenbedeckung zwischen 0 und 100 ein."
+    "filterCloudInvalid": "Geben Sie eine Wolkenbedeckung zwischen 0 und 100 ein.",
+    "selectionLimit": "Sie können höchstens {{count}} Elemente auf einmal importieren."
   },
   "serviceUrl": {
     "label": "Service-URL",

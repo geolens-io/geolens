@@ -229,7 +229,8 @@
     "filterBboxInvalid": "Saisissez quatre nombres : ouest, sud, est, nord (longitude de -180 à 180, latitude de -90 à 90, sud pas au-dessus du nord).",
     "loadMore": "Charger plus",
     "filterCloud": "Couverture nuageuse max. (%)",
-    "filterCloudInvalid": "Saisissez une couverture nuageuse entre 0 et 100."
+    "filterCloudInvalid": "Saisissez une couverture nuageuse entre 0 et 100.",
+    "selectionLimit": "Vous pouvez importer jusqu'à {{count}} éléments à la fois."
   },
   "serviceUrl": {
     "label": "URL de service",

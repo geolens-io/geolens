@@ -276,3 +276,110 @@ describe('StacImportForm cloud cover filter', () => {
     expect(screen.getByLabelText('stac.filterCloud')).toBeInTheDocument();
   });
 });
+
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
+describe('StacImportForm stale search responses', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const link = { method: 'GET' as const, href: 'https://example.com/stac/search?t=2' };
+
+  test('a Load more that resolves after Apply filters is dropped', async () => {
+    const user = await driveToItemsStep(page(['a'], { next_page: link }));
+    const more = deferred<unknown>();
+    mockSearchStacItems.mockReturnValueOnce(more.promise);
+    await user.click(screen.getByRole('button', { name: 'stac.loadMore' }));
+
+    mockSearchStacItems.mockResolvedValueOnce(page(['filtered']));
+    await user.type(screen.getByLabelText('stac.filterBbox'), '-10, -10, 10, 10');
+    await user.click(screen.getByRole('button', { name: 'stac.filterApply' }));
+    await waitFor(() => screen.getByText('filtered'));
+
+    more.resolve(page(['unfiltered'], { next_page: link }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(screen.queryByText('unfiltered')).not.toBeInTheDocument();
+    expect(screen.getByText('filtered')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'stac.loadMore' })).not.toBeInTheDocument();
+  });
+
+  test('a response that lands after leaving the collection is dropped', async () => {
+    const user = await driveToItemsStep(page(['a'], { next_page: link }));
+    const more = deferred<unknown>();
+    mockSearchStacItems.mockReturnValueOnce(more.promise);
+    await user.click(screen.getByRole('button', { name: 'stac.loadMore' }));
+
+    await user.click(screen.getByRole('button', { name: /stac.collections/ }));
+    await waitFor(() => screen.getByText('Test Collection'));
+    more.resolve(page(['late']));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(screen.queryByText('late')).not.toBeInTheDocument();
+    expect(screen.getByText('Test Collection')).toBeInTheDocument();
+  });
+});
+
+describe('StacImportForm stale Apply across collection navigation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  test('an Apply filters answered after re-entering the collection is dropped', async () => {
+    const user = await driveToItemsStep(page(['a']));
+    const applied = deferred<unknown>();
+    mockSearchStacItems.mockReturnValueOnce(applied.promise);
+    await user.type(screen.getByLabelText('stac.filterBbox'), '-10, -10, 10, 10');
+    await user.click(screen.getByRole('button', { name: 'stac.filterApply' }));
+
+    await user.click(screen.getByRole('button', { name: /stac.collections/ }));
+    mockSearchStacItems.mockResolvedValueOnce(page(['fresh']));
+    await user.click(await screen.findByText('Test Collection'));
+    await waitFor(() => screen.getByText('fresh'));
+
+    applied.resolve(page(['stale']));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(screen.queryByText('stale')).not.toBeInTheDocument();
+    expect(screen.getByText('fresh')).toBeInTheDocument();
+  });
+});
+
+describe('StacImportForm selection cap', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const ids = Array.from({ length: 60 }, (_, i) => `item-${i}`);
+
+  test('Select All stops at 50 and disables the rest, with a message', async () => {
+    const user = await driveToItemsStep(page(ids));
+
+    await user.click(screen.getAllByRole('checkbox')[0]);
+
+    const boxes = screen.getAllByRole('checkbox').slice(1);
+    expect(boxes.filter((b) => (b as HTMLInputElement).checked)).toHaveLength(50);
+    expect((boxes[55] as HTMLInputElement).disabled).toBe(true);
+    expect((boxes[0] as HTMLInputElement).disabled).toBe(false);
+    expect(screen.getByTestId('stac-selection-limit')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /stac.importItems/ })).toBeEnabled();
+  });
+
+  test('unchecking one at the cap frees a slot', async () => {
+    const user = await driveToItemsStep(page(ids));
+    await user.click(screen.getAllByRole('checkbox')[0]);
+
+    await user.click(screen.getAllByRole('checkbox')[1]);
+
+    const boxes = screen.getAllByRole('checkbox').slice(1);
+    expect(boxes.filter((b) => (b as HTMLInputElement).checked)).toHaveLength(49);
+    expect((boxes[55] as HTMLInputElement).disabled).toBe(false);
+  });
+});

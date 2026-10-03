@@ -229,7 +229,8 @@
     "filterBboxInvalid": "Introduzca cuatro números: oeste, sur, este, norte (longitud de -180 a 180, latitud de -90 a 90, sur no mayor que norte).",
     "loadMore": "Cargar más",
     "filterCloud": "Nubosidad máx. (%)",
-    "filterCloudInvalid": "Introduzca una nubosidad entre 0 y 100."
+    "filterCloudInvalid": "Introduzca una nubosidad entre 0 y 100.",
+    "selectionLimit": "Puede importar hasta {{count}} elementos a la vez."
   },
   "serviceUrl": {
     "label": "URL de servicio",
