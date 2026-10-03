@@ -436,9 +436,7 @@ async def _run_rrf_merge(
     """Merge FTS ranks with the vector arm through RRF and return one page.
 
     ``stmt`` is the vetted FTS statement (text clause only) and ``total`` the
-    count over the shared candidate set. Above the row gate a full vector
-    window reports one more than was counted so the router keeps emitting the
-    ``next`` link; a non-full window is the exact tail.
+    count over the shared candidate set.
     """
     page_end = filters.skip + filters.limit
     vector_ranks = semantic.ranks(page_end)
@@ -452,9 +450,6 @@ async def _run_rrf_merge(
     )
     fts_result = await session.execute(fts_stmt)
     fts_ids = [str(row[0]) for row in fts_result.all()]
-
-    if not semantic.exact and semantic.window_full:
-        total += 1
 
     rrf_ordered = _compute_rrf_scores(fts_ids, vector_ranks)
     page_ids = rrf_ordered[filters.skip : page_end]

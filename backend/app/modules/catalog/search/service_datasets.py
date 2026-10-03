@@ -18,6 +18,7 @@ from app.modules.catalog.datasets.domain.models import (
     RecordTranslation,
 )
 from app.modules.catalog.search.service_candidates import (
+    Candidates,
     select_candidates,
     vetting_filters,
 )
@@ -214,13 +215,18 @@ def _negotiated_title_expression(
     )
 
 
-async def count_datasets(
+async def _count_candidates(
     session: AsyncSession,
     user: Identity | None,
     user_roles: set[str],
     filters: SearchFilters,
-) -> int:
-    """Count the datasets ``search_datasets`` would match for ``filters``."""
+) -> tuple[Candidates, int]:
+    """Select the candidate set and count it as ``numberMatched`` reports it.
+
+    Above the semantic row gate a full vector window reports one more than was
+    counted so the router keeps emitting the ``next`` link; a non-full window
+    is the exact tail.
+    """
     candidates = await select_candidates(
         session,
         select(func.count())
@@ -230,9 +236,23 @@ async def count_datasets(
         user_roles,
         filters,
         search_only=True,
-        depth=1,
+        depth=filters.skip + filters.limit,
     )
-    return (await session.execute(candidates.stmt)).scalar_one()
+    total = (await session.execute(candidates.stmt)).scalar_one()
+    semantic = candidates.semantic
+    if semantic is not None and not semantic.exact and semantic.window_full:
+        total += 1
+    return candidates, total
+
+
+async def count_datasets(
+    session: AsyncSession,
+    user: Identity | None,
+    user_roles: set[str],
+    filters: SearchFilters,
+) -> int:
+    """Count the datasets ``search_datasets`` would match for ``filters``."""
+    return (await _count_candidates(session, user, user_roles, filters))[1]
 
 
 async def search_datasets(
@@ -250,18 +270,7 @@ async def search_datasets(
 
     Returns a tuple of (matching_datasets, total_count).
     """
-    candidates = await select_candidates(
-        session,
-        select(func.count())
-        .select_from(Dataset)
-        .join(Record, Dataset.record_id == Record.id),
-        user,
-        user_roles,
-        filters,
-        search_only=True,
-        depth=filters.skip + filters.limit,
-    )
-    total = (await session.execute(candidates.stmt)).scalar_one()
+    candidates, total = await _count_candidates(session, user, user_roles, filters)
 
     has_text_search = candidates.text_clause is not None
     rank_col = None
