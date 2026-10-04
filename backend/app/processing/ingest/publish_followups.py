@@ -987,10 +987,15 @@ async def _settle_notice(job_uuid: uuid.UUID, row, record, dataset) -> bool:
     notice again to a channel that delivered it. A channel no longer
     configured owes nothing, and one configured since was never owed.
     """
+    from app.platform.notifications.events import EventDelivery
+
     owed = record.get(_NOTICE_CHANNELS)
     channels = None if owed is None else frozenset(owed)
     sent = await _send_notice(record[_NOTICE], job_uuid, row, dataset, channels)
-    left = getattr(sent, "owed", frozenset() if sent is not False else None)
+    if isinstance(sent, EventDelivery):
+        left = sent.owed
+    else:
+        left = frozenset() if sent is not False else None
     if left == frozenset():
         return True
     if left is not None and left != channels:
