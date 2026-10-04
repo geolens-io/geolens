@@ -1194,3 +1194,107 @@ def test_basemap_map_service_sublayer_url_is_recorded(run):
             "zoning/3",
         ),
     ]
+
+
+@pytest.mark.parametrize(
+    ("kind", "url", "expected"),
+    [
+        (
+            "online",
+            "https://services-eu1.arcgis.com/Org/arcgis/rest/services/P/FeatureServer/0",
+            True,
+        ),
+        (
+            "online",
+            "https://tiles-eu1.arcgis.com/tiles/Org/arcgis/rest/services/T/MapServer",
+            True,
+        ),
+        (
+            "online",
+            "https://services7.arcgis.com/Org/arcgis/rest/services/P/FeatureServer/0",
+            True,
+        ),
+        (
+            "online",
+            "https://gis.example.gov/arcgis/rest/services/Roads/MapServer/2",
+            False,
+        ),
+        (
+            "enterprise",
+            "https://gisserver.example.com/server/rest/services/Roads/MapServer/2",
+            None,
+        ),
+        (
+            "enterprise",
+            "https://gisserver.example.com/server/rest/services/Hosted/Parcels/FeatureServer/0",
+            True,
+        ),
+    ],
+)
+def test_hosted_check_by_url(kind, url, expected):
+    """Regional Online hosts count as hosted; an Enterprise URL that can't prove it is unknown."""
+    portal = {"url": "https://gis.example.com/portal", "kind": kind}
+    assert inventory._hosted_by_url(url, portal) is expected
+
+
+def test_unknown_hosting_renders_as_unknown(run):
+    """On an Enterprise portal a non-Hosted service is unknown, and the summary says so."""
+    enterprise_self = {**load("portal_self.json"), "isPortal": True}
+    portal = FakePortal(portal_routes({"portals/self": enterprise_self}))
+    result, _ = run(portal, "--scope", "org")
+    report = _report(result)
+    roads = next(d for d in report["dependencies"] if d["layer_id"] == "roads_2")
+    assert roads["hosted"] is None
+    line = next(
+        text
+        for text in arcgis_report.render_markdown(report).splitlines()
+        if "Roads/MapServer/2" in text
+    )
+    assert "| unknown |" in line
+
+
+def test_failed_item_reads_do_not_retain_their_responses(monkeypatch):
+    """Peak memory stays flat when many items fail with oversized responses."""
+    monkeypatch.setattr(inventory, "MAX_RESPONSE_BYTES", 1024 * 1024)
+    oversized = b"x" * (2 * 1024 * 1024)
+    ids = [f"{n:032x}" for n in range(30)]
+    rows = [
+        {
+            "id": i,
+            "type": "Web Map",
+            "title": i,
+            "owner": USER,
+            "typeKeywords": [],
+            "access": "org",
+        }
+        for i in ids
+    ]
+    routes = portal_routes(
+        {
+            "search": {
+                "total": 30,
+                "start": 1,
+                "num": 100,
+                "nextStart": -1,
+                "results": rows,
+            }
+        }
+    )
+    routes.update({item_data_path(i): (200, oversized) for i in ids})
+    client = inventory.PortalClient(
+        PORTAL,
+        opener=FakePortal(routes),
+        redact=inventory.Redactor(),
+        token=TOKEN,
+        sleep=lambda seconds: None,
+    )
+    tracemalloc.start()
+    try:
+        inv = inventory.run_inventory(
+            client, auth_mode="token", scope="org", max_items=100, concurrency=1
+        )
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert len(inv.errors) == 30
+    assert peak < 12 * 1024 * 1024

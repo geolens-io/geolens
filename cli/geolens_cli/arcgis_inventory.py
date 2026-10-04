@@ -64,7 +64,9 @@ _TOKEN_REQUIRED = 499
 _TOKEN_INVALID = 498
 _TOKEN_CHARS = re.compile(r"[\x21-\x7e]+")
 _CREDENTIAL_PARAM = re.compile(r"((?:token|password)=)[^&\s\"']+", re.IGNORECASE)
-_ARCGIS_ONLINE_HOSTED = re.compile(r"(services|tiles)\d*\.arcgis\.com")
+# ArcGIS Online hosted services: services.arcgis.com, services1.arcgis.com,
+# services-eu1.arcgis.com, and the same forms for tiles.
+_ARCGIS_ONLINE_HOSTED = re.compile(r"(services|tiles)(-[a-z]+)?\d*\.arcgis\.com")
 
 SUPPORTED = "supported"
 PARTIAL = "partial"
@@ -842,14 +844,19 @@ def _list_items(
 
 
 def _hosted_by_url(url: str | None, portal: Mapping[str, Any]) -> bool | None:
+    """Whether a layer URL is the organization's hosted service, or None when
+    the URL can't tell.
+
+    ArcGIS Online hosts only on its own service hosts, so any other host is
+    external. An Enterprise hosting server can sit on any host; its services
+    live in the ``Hosted`` folder, and anything else is unknown.
+    """
     if not url:
         return None
     parts = urlsplit(url)
-    host = (parts.hostname or "").lower()
-    portal_host = (urlsplit(portal["url"]).hostname or "").lower()
     if portal["kind"] == "online":
-        return bool(_ARCGIS_ONLINE_HOSTED.fullmatch(host))
-    return host == portal_host and "/hosted/" in parts.path.lower()
+        return bool(_ARCGIS_ONLINE_HOSTED.fullmatch((parts.hostname or "").lower()))
+    return True if "/rest/services/hosted/" in parts.path.lower() else None
 
 
 def _dependency(
@@ -1096,6 +1103,17 @@ def _extract_dependencies(
     ]
 
 
+def _detach(exc: BaseException) -> None:
+    """Drop an error's traceback and chained errors.
+
+    Their frames hold the response bytes that failed, and the results keep
+    every item's error until the report is built.
+    """
+    exc.__traceback__ = None
+    exc.__context__ = None
+    exc.__cause__ = None
+
+
 def _collect_dependencies(
     client: PortalClient, inv: Inventory, concurrency: int
 ) -> None:
@@ -1117,6 +1135,7 @@ def _collect_dependencies(
         try:
             data = client.get_json(path)
         except PortalError as exc:
+            _detach(exc)
             if exc.kind == "auth":
                 stop.set()
                 return "not_fetched", [], exc
