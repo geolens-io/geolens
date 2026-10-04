@@ -1000,3 +1000,149 @@ async def test_a_second_delivery_of_the_writer_respects_the_lease_the_first_took
         assert await _record(job_id) is None
     finally:
         await _drop(test_db_session, job_id, record_id)
+
+
+# --- A notice owes each channel on its own -----------------------------------
+
+
+class _Channels:
+    """SMTP and webhook doubles behind the built-in sink, each down while named in ``down``."""
+
+    def __init__(self) -> None:
+        self.down: set[str] = set()
+        self.sent: dict[str, list[str]] = {"smtp": [], "webhook": []}
+
+    def channel(self, name: str):
+        async def _send(notification) -> None:
+            if name in self.down:
+                raise ConnectionError(f"the {name} channel is unreachable")
+            self.sent[name].append(notification.data["notification_id"])
+
+        return _send
+
+
+@pytest.fixture
+def channels(monkeypatch) -> _Channels:
+    """Both channels configured on the built-in sink, with the failure notice on."""
+    from app.platform.notifications import env_sink
+
+    doubles = _Channels()
+    monkeypatch.setattr(env_sink, "send_email", doubles.channel("smtp"))
+    monkeypatch.setattr(env_sink, "post_webhook", doubles.channel("webhook"))
+    monkeypatch.setattr(
+        "app.platform.notifications.get_notification_sinks",
+        lambda: [env_sink.EnvConfiguredNotificationSink()],
+    )
+    monkeypatch.setattr(settings, "notifications_enabled", True)
+    monkeypatch.setattr(settings, "notify_on_ingest_failed", True)
+    monkeypatch.setattr(settings, "smtp_host", "smtp.example.com")
+    monkeypatch.setattr(
+        settings, "notification_webhook_url", "https://hooks.example.com/geolens"
+    )
+    return doubles
+
+
+async def test_a_notice_one_channel_failed_is_retried_on_that_channel_alone(
+    test_db_session, channels
+) -> None:
+    """A webhook that failed while SMTP delivered gets the notice once due, and SMTP is not sent it again."""
+    channels.down = {"webhook"}
+    job_id, attempt_id, record_id = await _job(
+        test_db_session, task="reupload_file", status="failed", error_message="no"
+    )
+    notice_id = f"{job_id}:{attempt_id}:ingest_failed"
+    try:
+        await run_publish_followups(job_id)
+        record = await _record(job_id)
+        assert (record["notice"], record["notice_channels"]) == (
+            "ingest_failed",
+            ["webhook"],
+        )
+        assert channels.sent == {"smtp": [notice_id], "webhook": []}
+
+        await _make_due(job_id)
+        await run_owed_publish_followups()
+        assert channels.sent == {"smtp": [notice_id], "webhook": []}
+
+        channels.down = set()
+        await _make_due(job_id)
+        await run_owed_publish_followups()
+        assert channels.sent == {"smtp": [notice_id], "webhook": [notice_id]}
+        assert await _record(job_id) is None
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def test_a_notice_every_channel_failed_owes_both_until_they_deliver(
+    test_db_session, channels
+) -> None:
+    """Both channels stay owed while both fail, and each gets the notice once when they recover."""
+    channels.down = {"smtp", "webhook"}
+    job_id, attempt_id, record_id = await _job(
+        test_db_session, task="reupload_file", status="failed", error_message="no"
+    )
+    notice_id = f"{job_id}:{attempt_id}:ingest_failed"
+    try:
+        await run_publish_followups(job_id)
+        assert (await _record(job_id))["notice_channels"] == ["smtp", "webhook"]
+
+        channels.down = set()
+        await _make_due(job_id)
+        await run_owed_publish_followups()
+        assert channels.sent == {"smtp": [notice_id], "webhook": [notice_id]}
+        assert await _record(job_id) is None
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def test_a_channel_removed_after_it_failed_owes_nothing_and_one_added_is_not_owed(
+    test_db_session, channels, monkeypatch
+) -> None:
+    """A failed channel dropped from the configuration settles the notice, and a channel added since gets nothing."""
+    channels.down = {"webhook"}
+    monkeypatch.setattr(settings, "smtp_host", None)
+    job_id, attempt_id, record_id = await _job(
+        test_db_session, task="reupload_file", status="failed", error_message="no"
+    )
+    try:
+        await run_publish_followups(job_id)
+        assert (await _record(job_id))["notice_channels"] == ["webhook"]
+
+        monkeypatch.setattr(settings, "notification_webhook_url", None)
+        monkeypatch.setattr(settings, "smtp_host", "smtp.example.com")
+        await _make_due(job_id)
+        await run_owed_publish_followups()
+
+        assert channels.sent == {"smtp": [], "webhook": []}
+        assert await _record(job_id) is None
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def test_a_notice_abandoned_names_the_channels_it_still_owed(
+    test_db_session, channels
+) -> None:
+    """The give-up warning for a notice names the channels still owed."""
+    channels.down = {"webhook"}
+    job_id, _, record_id = await _job(
+        test_db_session,
+        task="reupload_file",
+        status="failed",
+        error_message="no",
+        claimed=True,
+        attempts=7,
+        notice="ingest_failed",
+        notice_channels=["webhook"],
+    )
+    try:
+        with structlog.testing.capture_logs() as logs:
+            await run_owed_publish_followups()
+
+        abandoned = [e for e in logs if e["event"] == "publish_followup_abandoned"]
+        assert [(e["items"], e["channels"]) for e in abandoned] == [
+            (["notice"], ["webhook"])
+        ]
+        assert channels.sent == {"smtp": [], "webhook": []}
+        assert await _record(job_id) is None
+    finally:
+        await _drop(test_db_session, job_id, record_id)

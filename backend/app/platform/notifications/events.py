@@ -11,6 +11,7 @@ the same reason. ``notify()`` takes no DB/session argument by design.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import structlog
@@ -24,7 +25,12 @@ if TYPE_CHECKING:
 
 logger = structlog.stdlib.get_logger(__name__)
 
-__all__ = ["build_event_notification", "emit_event_safe", "event_enabled"]
+__all__ = [
+    "EventDelivery",
+    "build_event_notification",
+    "emit_event_safe",
+    "event_enabled",
+]
 
 # Mapping from event_key -> Settings attribute name.
 _EVENT_KEY_TO_TOGGLE: dict[str, str] = {
@@ -101,11 +107,26 @@ def build_event_notification(
     )
 
 
+@dataclass(frozen=True)
+class EventDelivery:
+    """What an event notification left undelivered; true when nothing was.
+
+    ``owed`` names the channels that failed, or is None when the failure
+    can't be pinned to channels, as when the notification never got built.
+    """
+
+    owed: frozenset[str] | None
+
+    def __bool__(self) -> bool:
+        return self.owed == frozenset()
+
+
 async def emit_event_safe(
     *,
     event_key: str,
     build: "Callable[[], Notification]",
-) -> bool:
+    channels: frozenset[str] | None = None,
+) -> EventDelivery:
     """Defensive async wrapper for firing a single event notification.
 
     Returns immediately if ``event_enabled(event_key)`` is False — no
@@ -113,15 +134,19 @@ async def emit_event_safe(
     ``await notify(notification)`` inside one try/except that logs the
     exception type only (never payload/secrets) and swallows it, so a
     thrown *builder* — unlike ``notify()``'s own fail-safety — can never
-    escape to the caller (T-1230-01/T-1230-02). Returns False when the
-    build or any sink failed, and True otherwise, a disabled event included.
+    escape to the caller (T-1230-01/T-1230-02). With ``channels`` it sends
+    to those channels alone. The result is true when nothing failed, a
+    disabled event included.
     """
     if not event_enabled(event_key):
-        return True
+        return EventDelivery(frozenset())
 
     try:
         notification = build()
-        result = await notify(notification)
+        if channels is None:
+            result = await notify(notification)
+        else:
+            result = await notify(notification, channels=channels)
     except Exception as exc:  # noqa: BLE001 — notification must never break callers
         # Log only the exception type — never the notification body or any secret.
         logger.warning(
@@ -129,5 +154,8 @@ async def emit_event_safe(
             event_key=event_key,
             error_type=type(exc).__name__,
         )
-        return False
-    return not getattr(result, "errors", None)
+        return EventDelivery(None)
+    failed = frozenset(getattr(result, "failed_channels", ()) or ())
+    if failed or not getattr(result, "errors", None):
+        return EventDelivery(failed)
+    return EventDelivery(None)

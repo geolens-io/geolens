@@ -106,6 +106,9 @@ _TILE_CACHE = "tile_cache"
 _QUICKLOOK = "quicklook"
 _EMBEDDING = "embedding"
 _NOTICE = "notice"
+# The channels a notice still owes once others delivered it; without it, the
+# notice owes every channel configured when it is sent.
+_NOTICE_CHANNELS = "notice_channels"
 _USAGE = "usage"
 _PURGES = (_CATALOG_CACHE, _TILE_CACHE)
 _AFTER_STORAGE = (_QUICKLOOK, _EMBEDDING, _NOTICE, _USAGE)
@@ -937,10 +940,16 @@ def _completion_text(task: str, dataset) -> tuple[str, str, str]:
     )
 
 
-async def _send_notice(event: str, job_uuid: uuid.UUID, row, dataset) -> bool:
-    """Send the job's ``event`` notice, identified so a receiver can drop a repeat.
+async def _send_notice(
+    event: str,
+    job_uuid: uuid.UUID,
+    row,
+    dataset,
+    channels: frozenset[str] | None = None,
+):
+    """Send the job's ``event`` notice to ``channels``, or every channel, identified so a receiver can drop a repeat.
 
-    Returns False when any sink failed; the whole notice then goes again.
+    Returns what ``emit_event_safe`` does: which channels failed.
     """
     from app.platform.notifications.events import (
         build_event_notification,
@@ -948,12 +957,14 @@ async def _send_notice(event: str, job_uuid: uuid.UUID, row, dataset) -> bool:
     )
 
     notification_id = f"{job_uuid}:{row.owed_attempt}:{event}"
+    restrict = {} if channels is None else {"channels": channels}
     if event == "ingest_failed":
         return await notify_ingest_failed(
             job_uuid,
             task=row.task,
             reason=row.error_message or "",
             notification_id=notification_id,
+            **restrict,
         )
     subject, body, title = _completion_text(row.task, dataset)
     extra = {"job_id": str(job_uuid), "dataset": title}
@@ -965,7 +976,38 @@ async def _send_notice(event: str, job_uuid: uuid.UUID, row, dataset) -> bool:
             body=body,
             extra={**extra, "notification_id": notification_id},
         ),
+        **restrict,
     )
+
+
+async def _settle_notice(job_uuid: uuid.UUID, row, record, dataset) -> bool:
+    """Send ``record``'s notice to the channels it still owes; returns whether none is left.
+
+    The channels that failed stay owed alone, so a retry never sends the
+    notice again to a channel that delivered it. A channel no longer
+    configured owes nothing, and one configured since was never owed.
+    """
+    from app.platform.notifications.events import EventDelivery
+
+    owed = record.get(_NOTICE_CHANNELS)
+    channels = None if owed is None else frozenset(owed)
+    sent = await _send_notice(record[_NOTICE], job_uuid, row, dataset, channels)
+    if isinstance(sent, EventDelivery):
+        left = sent.owed
+    else:
+        left = frozenset() if sent is not False else None
+    if left == frozenset():
+        return True
+    if left is not None and left != channels:
+        path = literal([PUBLISH_OBLIGATIONS_FIELD, _NOTICE_CHANNELS], ARRAY(Text))
+        narrowed = func.jsonb_set(
+            IngestJob.user_metadata, path, literal(sorted(left), JSONB)
+        )
+        await _write_record(
+            job_uuid, row.owed_attempt, narrowed, PUBLISH_OBLIGATIONS_FIELD
+        )
+        record[_NOTICE_CHANNELS] = sorted(left)
+    return False
 
 
 async def _run_item(item: str, value, job_uuid: uuid.UUID, row, dataset) -> bool:
@@ -984,8 +1026,6 @@ async def _run_item(item: str, value, job_uuid: uuid.UUID, row, dataset) -> bool
         settled = await _redraw_quicklook(dataset.id, value)
     elif item == _EMBEDDING:
         settled = await defer_embedding(dataset)
-    elif item == _NOTICE:
-        settled = await _send_notice(value, job_uuid, row, dataset)
     else:
         settled = await _emit_billing_event(
             _usage_tenant(), value, event_id=str(job_uuid)
@@ -1016,6 +1056,8 @@ async def _settle_run_once_items(
         for item in owed
         if item != _USAGE and not (item == _NOTICE and record[item] == "ingest_failed")
     ]
+    # A notice's owed channels go with it.
+    extra = {_NOTICE: (_NOTICE_CHANNELS,)}
     dataset = await _published_dataset(row.dataset_id) if bound else None
     if bound and dataset is None:
         structlog.get_logger().info(
@@ -1025,7 +1067,12 @@ async def _settle_run_once_items(
     for item in owed:
         if dataset is not None or item not in bound:
             try:
-                settled = await _run_item(item, record[item], job_uuid, row, dataset)
+                if item == _NOTICE:
+                    settled = await _settle_notice(job_uuid, row, record, dataset)
+                else:
+                    settled = await _run_item(
+                        item, record[item], job_uuid, row, dataset
+                    )
             except Exception:  # broad: a run-once item that raised stays owed
                 structlog.get_logger().warning(
                     "publish_followup_failed",
@@ -1038,7 +1085,11 @@ async def _settle_run_once_items(
                 left.add(item)
                 continue
         await _confirm_owed_item(
-            job_uuid, row.owed_attempt, item, field=PUBLISH_OBLIGATIONS_FIELD
+            job_uuid,
+            row.owed_attempt,
+            item,
+            *extra.get(item, ()),
+            field=PUBLISH_OBLIGATIONS_FIELD,
         )
     return left
 
@@ -1049,18 +1100,22 @@ async def _settle_record(
     """Retry what the record in ``field`` still owes, ``left``, later, or remove it when nothing is.
 
     A run-once item still owed once the record's attempts reach
-    ``_GIVE_UP_ATTEMPTS`` is dropped and logged; a storage item never is.
+    ``_GIVE_UP_ATTEMPTS`` is dropped and logged, a notice with the channels
+    it still owed; a storage item never is.
     """
     attempts = int(record.get(_ATTEMPTS) or 0) + 1
     abandoned = sorted(left.intersection(_RUN_ONCE_ITEMS))
     if abandoned and attempts >= _GIVE_UP_ATTEMPTS:
+        channels = record.get(_NOTICE_CHANNELS, "all") if _NOTICE in left else None
         structlog.get_logger().warning(
             "publish_followup_abandoned",
             job_id=str(job_uuid),
             items=abandoned,
+            channels=channels,
             attempts=attempts,
         )
-        await _confirm_owed_item(job_uuid, attempt_id, *abandoned, field=field)
+        dropped = [*abandoned, _NOTICE_CHANNELS] if _NOTICE in left else abandoned
+        await _confirm_owed_item(job_uuid, attempt_id, *dropped, field=field)
         left = left.difference(abandoned)
     if left:
         await _schedule_retry(job_uuid, attempt_id, attempts, field)
@@ -1175,8 +1230,12 @@ async def notify_ingest_failed(
     task: str,
     reason: str | BaseException,
     notification_id: str | None = None,
-) -> bool:
-    """Send ``ingest_failed`` for ``job_id``, with ``reason`` redacted; returns False when a sink failed."""
+    channels: frozenset[str] | None = None,
+):
+    """Send ``ingest_failed`` for ``job_id``, with ``reason`` redacted, to ``channels`` or every channel.
+
+    Returns what ``emit_event_safe`` does: which channels failed.
+    """
     from app.platform.notifications.events import (
         build_event_notification,
         emit_event_safe,
@@ -1186,6 +1245,7 @@ async def notify_ingest_failed(
     extra = {"job_id": str(job_id), "task": task}
     if notification_id is not None:
         extra["notification_id"] = notification_id
+    restrict = {} if channels is None else {"channels": channels}
     return await emit_event_safe(
         event_key="ingest_failed",
         build=lambda: build_event_notification(
@@ -1195,6 +1255,7 @@ async def notify_ingest_failed(
             reason=message,
             extra=extra,
         ),
+        **restrict,
     )
 
 
