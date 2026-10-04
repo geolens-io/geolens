@@ -1,0 +1,36 @@
+{
+  "username": "gis_admin",
+  "total": 1,
+  "start": 1,
+  "num": 100,
+  "nextStart": -1,
+  "currentFolder": {
+    "username": "gis_admin",
+    "id": "f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0",
+    "title": "Apps",
+    "created": 1767225600000
+  },
+  "items": [
+    {
+      "id": "c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1",
+      "owner": "gis_admin",
+      "created": 1767225600000,
+      "modified": 1767312000000,
+      "title": "Parcel viewer (Web AppBuilder)",
+      "type": "Web Mapping Application",
+      "typeKeywords": [
+        "JavaScript",
+        "Map",
+        "Mapping Site",
+        "Online Map",
+        "Ready To Use",
+        "Web AppBuilder",
+        "WAB2D",
+        "Web Map"
+      ],
+      "url": null,
+      "access": "public",
+      "size": 8192
+    }
+  ]
+}

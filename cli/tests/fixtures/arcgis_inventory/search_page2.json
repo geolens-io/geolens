@@ -1,0 +1,119 @@
+{
+  "query": "orgid:ExAmPlEoRg0123",
+  "total": 15,
+  "start": 9,
+  "num": 100,
+  "nextStart": -1,
+  "results": [
+    {
+      "id": "c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2",
+      "owner": "gis_admin",
+      "created": 1767225600000,
+      "modified": 1767312000000,
+      "title": "Our county | a story",
+      "type": "Web Mapping Application",
+      "typeKeywords": [
+        "JavaScript",
+        "Map",
+        "Mapping Site",
+        "Online Map",
+        "Story Map",
+        "Story Maps",
+        "MapJournal"
+      ],
+      "url": null,
+      "access": "public",
+      "size": 6000
+    },
+    {
+      "id": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+      "owner": "gis_admin",
+      "created": 1767225600000,
+      "modified": 1767312000000,
+      "title": "Parcel dashboard",
+      "type": "Dashboard",
+      "typeKeywords": [
+        "Dashboard",
+        "Operations Dashboard"
+      ],
+      "url": null,
+      "access": "org",
+      "size": 3000
+    },
+    {
+      "id": "d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1",
+      "owner": "gis_admin",
+      "created": 1767225600000,
+      "modified": 1767312000000,
+      "title": "Elevation",
+      "type": "Image Service",
+      "typeKeywords": [
+        "Data",
+        "Service",
+        "Image Service",
+        "Hosted Service"
+      ],
+      "url": null,
+      "access": "org",
+      "size": 1073741824
+    },
+    {
+      "id": "d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2",
+      "owner": "gis_admin",
+      "created": 1767225600000,
+      "modified": 1767312000000,
+      "title": "State imagery WMS",
+      "type": "WMS",
+      "typeKeywords": [
+        "Data",
+        "Service",
+        "Web Map Service",
+        "OGC"
+      ],
+      "url": "https://wms.example.gov/service?SERVICE=WMS&REQUEST=GetCapabilities",
+      "access": "org",
+      "size": -1
+    },
+    {
+      "id": "d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3",
+      "owner": "gis_admin",
+      "created": 1767225600000,
+      "modified": 1767312000000,
+      "title": "Inspections",
+      "type": "CSV",
+      "typeKeywords": [
+        "CSV"
+      ],
+      "url": null,
+      "access": "private",
+      "size": 12345
+    },
+    {
+      "id": "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",
+      "owner": "gis_admin",
+      "created": 1767225600000,
+      "modified": 1767312000000,
+      "title": "Something new",
+      "type": "Quantum Widget",
+      "typeKeywords": [],
+      "url": null,
+      "access": "org",
+      "size": null
+    },
+    {
+      "id": "d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5",
+      "owner": "gis_admin",
+      "created": 1767225600000,
+      "modified": 1767312000000,
+      "title": "3D campus",
+      "type": "Web Scene",
+      "typeKeywords": [
+        "3D",
+        "Web Scene"
+      ],
+      "url": null,
+      "access": "org",
+      "size": 5000
+    }
+  ]
+}

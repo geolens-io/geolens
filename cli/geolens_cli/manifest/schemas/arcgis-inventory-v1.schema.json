@@ -1,0 +1,253 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.getgeolens.com/arcgis-inventory/v1/schema.json",
+  "title": "GeoLens ArcGIS inventory report v1",
+  "description": "Read-only inventory of an ArcGIS Online or Portal for ArcGIS organization, written by `geolens arcgis inventory`.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "tool_version",
+    "complete",
+    "abort_reason",
+    "truncated",
+    "truncation_reasons",
+    "max_items",
+    "portal",
+    "auth",
+    "scope",
+    "counts",
+    "retirements",
+    "items",
+    "dependencies",
+    "errors"
+  ],
+  "properties": {
+    "schema_version": {"const": "1"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "tool_version": {"type": "string"},
+    "complete": {
+      "type": "boolean",
+      "description": "False when the run stopped early (a rejected token or a failed listing); the report then holds what was read before the stop."
+    },
+    "abort_reason": {"type": ["string", "null"]},
+    "truncated": {
+      "type": "boolean",
+      "description": "True when the listing may be incomplete; truncation_reasons says why."
+    },
+    "truncation_reasons": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"enum": ["max_items", "search_ceiling"]},
+      "description": "max_items: the local --max-items cap stopped the listing. search_ceiling: an organization search reached the 10,000 results ArcGIS search returns, so more items may exist whatever the local cap."
+    },
+    "max_items": {"type": "integer", "minimum": 1},
+    "portal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "kind", "version", "org_id", "name"],
+      "properties": {
+        "url": {"type": "string"},
+        "kind": {"enum": ["online", "enterprise"]},
+        "version": {"type": ["string", "null"]},
+        "org_id": {"type": ["string", "null"]},
+        "name": {"type": ["string", "null"]}
+      }
+    },
+    "auth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "user"],
+      "properties": {
+        "mode": {"enum": ["token", "generateToken", "anonymous"]},
+        "user": {"type": ["string", "null"]}
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "owner", "org_id"],
+      "properties": {
+        "mode": {"enum": ["user", "org"]},
+        "owner": {"type": ["string", "null"]},
+        "org_id": {"type": ["string", "null"]}
+      }
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "by_class", "by_type", "retired", "failed"],
+      "properties": {
+        "total": {"type": "integer", "minimum": 0},
+        "by_class": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["supported", "partial", "unsupported"],
+          "properties": {
+            "supported": {"type": "integer", "minimum": 0},
+            "partial": {"type": "integer", "minimum": 0},
+            "unsupported": {"type": "integer", "minimum": 0}
+          }
+        },
+        "by_type": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "retired": {"type": "integer", "minimum": 0},
+        "failed": {"type": "integer", "minimum": 0}
+      }
+    },
+    "retirements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "status", "date", "note", "source_url", "item_count"],
+        "properties": {
+          "id": {"type": "string"},
+          "label": {"type": "string"},
+          "status": {"enum": ["retiring", "retired"]},
+          "date": {"$ref": "#/$defs/quarter"},
+          "note": {"type": "string"},
+          "source_url": {"type": "string"},
+          "item_count": {"type": "integer", "minimum": 1}
+        }
+      }
+    },
+    "items": {"type": "array", "items": {"$ref": "#/$defs/item"}},
+    "dependencies": {"type": "array", "items": {"$ref": "#/$defs/dependency"}},
+    "errors": {"type": "array", "items": {"$ref": "#/$defs/error"}}
+  },
+  "$defs": {
+    "quarter": {
+      "description": "Esri announces retirements by quarter; null when no dated source is known.",
+      "oneOf": [
+        {"type": "string", "pattern": "^[0-9]{4}-Q[1-4]$"},
+        {"type": "null"}
+      ]
+    },
+    "timestamp": {"type": ["string", "null"], "format": "date-time"},
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "type_keywords",
+        "title",
+        "owner",
+        "sharing",
+        "size_bytes",
+        "created",
+        "modified",
+        "url",
+        "class",
+        "reason",
+        "retirement",
+        "hosted",
+        "dependencies_status"
+      ],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "type": {"type": "string"},
+        "type_keywords": {"type": "array", "items": {"type": "string"}},
+        "title": {"type": "string"},
+        "owner": {"type": "string"},
+        "sharing": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["access", "groups"],
+          "properties": {
+            "access": {"type": "string"},
+            "groups": {
+              "description": "Not read in v1: listing groups costs one request per item.",
+              "type": ["array", "null"],
+              "items": {"type": "string"}
+            }
+          }
+        },
+        "size_bytes": {"type": ["integer", "null"], "minimum": 0},
+        "created": {"$ref": "#/$defs/timestamp"},
+        "modified": {"$ref": "#/$defs/timestamp"},
+        "url": {
+          "description": "Scheme, host and path only; query, fragment and userinfo are dropped.",
+          "type": ["string", "null"]
+        },
+        "class": {"enum": ["supported", "partial", "unsupported"]},
+        "reason": {"type": "string"},
+        "retirement": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "status", "date"],
+              "properties": {
+                "id": {"type": "string"},
+                "status": {"enum": ["retiring", "retired"]},
+                "date": {"$ref": "#/$defs/quarter"}
+              }
+            }
+          ]
+        },
+        "hosted": {"type": ["boolean", "null"]},
+        "dependencies_status": {
+          "enum": ["parsed", "unparsed", "error", "not_fetched", "not_applicable"]
+        }
+      }
+    },
+    "dependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from_id",
+        "to_id",
+        "to_url",
+        "role",
+        "layer_type",
+        "layer_id",
+        "title",
+        "order",
+        "hosted",
+        "resolved"
+      ],
+      "properties": {
+        "from_id": {"type": "string"},
+        "to_id": {"type": ["string", "null"]},
+        "to_url": {"type": ["string", "null"]},
+        "role": {
+          "description": "app_web_map: a map an app opens. app_data_source: a layer an app reads directly, such as a dashboard chart's dataset; layer_id holds its layer.",
+          "enum": ["operational_layer", "basemap", "table", "app_web_map", "app_data_source"]
+        },
+        "layer_type": {"type": ["string", "null"]},
+        "layer_id": {
+          "description": "The layer's id in the source item. A map or tiled map service sublayer with its own query service is \"<parent id>/<sublayer id>\".",
+          "type": ["string", "null"]
+        },
+        "title": {"type": ["string", "null"]},
+        "order": {
+          "description": "Position among the source item's references, in map order.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "hosted": {"type": ["boolean", "null"]},
+        "resolved": {
+          "description": "True when to_id is an item in this report.",
+          "type": "boolean"
+        }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["item_id", "phase", "http_status", "message"],
+      "properties": {
+        "item_id": {"type": "string"},
+        "phase": {"enum": ["item_data"]},
+        "http_status": {"type": ["integer", "null"]},
+        "message": {"type": "string"}
+      }
+    }
+  }
+}

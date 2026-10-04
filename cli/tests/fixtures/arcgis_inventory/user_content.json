@@ -1,0 +1,53 @@
+{
+  "username": "gis_admin",
+  "total": 2,
+  "start": 1,
+  "num": 100,
+  "nextStart": -1,
+  "currentFolder": null,
+  "items": [
+    {
+      "id": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+      "owner": "gis_admin",
+      "created": 1767225600000,
+      "modified": 1767312000000,
+      "title": "Parcels",
+      "type": "Feature Service",
+      "typeKeywords": [
+        "Data",
+        "Service",
+        "Feature Service",
+        "Hosted Service"
+      ],
+      "url": "https://services1.arcgis.com/ExAmPlEoRg0123/arcgis/rest/services/Parcels/FeatureServer",
+      "access": "org",
+      "size": 1048576
+    },
+    {
+      "id": "b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1",
+      "owner": "gis_admin",
+      "created": 1767225600000,
+      "modified": 1767312000000,
+      "title": "Parcels viewer map",
+      "type": "Web Map",
+      "typeKeywords": [
+        "ArcGIS Online",
+        "Explorer Web Map",
+        "Map",
+        "Online Map",
+        "Web Map"
+      ],
+      "url": null,
+      "access": "org",
+      "size": 4096
+    }
+  ],
+  "folders": [
+    {
+      "username": "gis_admin",
+      "id": "f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0",
+      "title": "Apps",
+      "created": 1767225600000
+    }
+  ]
+}
