@@ -708,6 +708,12 @@ def _cell(result: Mapping[str, Any], key: str) -> str:
     return str(value)
 
 
+def _message_key(result: Mapping[str, Any]) -> str:
+    """A failed or cancelled follow-up shows why in place of the queued message."""
+    failed = result.get("final_status") in {"failed", "cancelled"}
+    return "error_message" if failed and result.get("error_message") else "message"
+
+
 def render_apply_summary(
     console: Console,
     path: Path,
@@ -753,7 +759,7 @@ def render_apply_summary(
                         "dataset_id",
                         "job_id",
                         *(("final_status",) if waited else ()),
-                        "message",
+                        _message_key(result),
                     )
                 )
             )

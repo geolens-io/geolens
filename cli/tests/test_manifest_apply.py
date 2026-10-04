@@ -1433,6 +1433,23 @@ class TestApplyWait:
         ):
             assert 0 <= out.index(sentence) < accept
 
+    def test_a_failed_entry_shows_why_it_failed(self, runner, monkeypatch) -> None:
+        from geolens_cli import refresh as _refresh
+
+        self._setup(monkeypatch, {"roads": "succeeded", "parks": "failed"})
+
+        def failed(client, dataset_id, run_id, *, ingest_job_id, **_kw):
+            return _refresh.RefreshPollResult(
+                status="failed", error_message="gdalboom", run_id="run-x"
+            )
+
+        monkeypatch.setattr("geolens_cli.refresh.wait_for_refresh_run", failed)
+
+        result = runner.invoke(app, ["apply", "--wait", str(_remote_manifest_path())])
+
+        assert result.exit_code == 1, result.output
+        assert "gdalboom" in result.output
+
     def test_without_wait_nothing_is_polled(self, runner, monkeypatch) -> None:
         self._setup(monkeypatch, {"roads": "blocked", "parks": "blocked"})
 
