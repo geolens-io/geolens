@@ -98,15 +98,18 @@ export function SearchPage() {
   const catalogText = catalogEmpty
     ? t('empty.catalogResultsTitle')
     : t('catalogResults', { count: totalMatched });
-  const liveStatus: string = !data
+  // A failed catalog query with no cache still lets settled map results announce.
+  const liveStatus: string = !(data || error)
     ? ''
-    : isFetching
+    : data && isFetching
       ? t('updating')
       : catalogEmpty && isMapSearchPending
         ? '' // the map section announces its own pending state
-        : mapMatchText
-          ? `${catalogText}${catalogEmpty ? '.' : ','} ${mapMatchText}`
-          : catalogText;
+        : !data
+          ? mapMatchText
+          : mapMatchText
+            ? `${catalogText}${catalogEmpty ? '.' : ','} ${mapMatchText}`
+            : catalogText;
   const shouldShowMapSearch = hasMapTextQuery && (isMapSearchPending || !!mapsError || hasMapMatches);
 
   useUrlSearchSync();
