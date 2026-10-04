@@ -1069,12 +1069,10 @@ def _app_references(data: Mapping[str, Any]) -> list[_AppRef] | None:
 
 
 def _is_web_map(data: Mapping[str, Any]) -> bool:
-    """Whether *data* has a web map's layer keys, with the right types."""
-    layers, basemap = data.get("operationalLayers"), data.get("baseMap")
-    if layers is None and basemap is None:
-        return False
-    return (layers is None or isinstance(layers, list)) and (
-        basemap is None or isinstance(basemap, dict)
+    """Whether *data* has a web map's structure: ``baseMap`` is required by the spec."""
+    layers = data.get("operationalLayers")
+    return isinstance(data.get("baseMap"), dict) and (
+        layers is None or isinstance(layers, list)
     )
 
 

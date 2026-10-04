@@ -605,6 +605,7 @@ def test_dependency_collection_does_not_retain_item_configurations():
     """Peak memory stays flat however many large web map configurations are read."""
     payload = json.dumps(
         {
+            "baseMap": {"baseMapLayers": []},
             "operationalLayers": [
                 {"id": "l0", "itemId": A1, "layerType": "ArcGISFeatureLayer"}
             ],
@@ -888,6 +889,18 @@ def test_valid_web_map_without_layers_is_parsed(run):
     assert not [d for d in report["dependencies"] if d["from_id"] == B1]
 
 
+def test_web_map_without_basemap_is_an_item_error_and_fails_strict(run):
+    """A map with operational layers but no baseMap is an invalid item; --strict fails."""
+    routes = portal_routes({item_data_path(B1): {"operationalLayers": []}})
+    result, _ = run(FakePortal(routes), "--scope", "org", "--strict")
+    report = _report(result)
+    assert result.exit_code != 0
+    errors = {e["item_id"]: e["message"] for e in report["errors"]}
+    assert "not a web map configuration" in errors[B1]
+    assert _rows(report)[B1]["dependencies_status"] == "error"
+    assert _rows(report)[C1]["dependencies_status"] == "parsed"
+
+
 def test_app_without_data_stays_unparsed(run):
     """An app registered only by URL has an empty data body; that is not an error."""
     routes = portal_routes({item_data_path(C2): (200, b"")})
@@ -1130,6 +1143,7 @@ def test_tiled_service_sublayer_query_services_are_recorded(run):
     tiles = "https://tiles1.arcgis.com/tiles/ExAmPlEoRg0123/arcgis/rest/services/Parcels/MapServer"
     query = "https://services1.arcgis.com/ExAmPlEoRg0123/arcgis/rest/services/Parcels/FeatureServer/0"
     web_map = {
+        "baseMap": {"baseMapLayers": []},
         "operationalLayers": [
             {
                 "id": "parcel_tiles",
@@ -1146,7 +1160,7 @@ def test_tiled_service_sublayer_query_services_are_recorded(run):
                     {"id": 1, "name": "Labels"},
                 ],
             }
-        ]
+        ],
     }
     result, _ = run(
         FakePortal(portal_routes({item_data_path(B1): web_map})), "--scope", "org"
@@ -1304,6 +1318,7 @@ def test_registered_group_layer_keeps_its_own_reference(run):
     """A group layer with its own itemId gets a row before its children's rows."""
     group_item = "e7" * 16
     web_map = {
+        "baseMap": {"baseMapLayers": []},
         "operationalLayers": [
             {
                 "id": "parcels_group",
@@ -1318,7 +1333,7 @@ def test_registered_group_layer_keeps_its_own_reference(run):
                 "layerType": "GroupLayer",
                 "layers": [{"id": "view_0", "itemId": A2}],
             },
-        ]
+        ],
     }
     result, _ = run(
         FakePortal(portal_routes({item_data_path(B1): web_map})), "--scope", "org"
