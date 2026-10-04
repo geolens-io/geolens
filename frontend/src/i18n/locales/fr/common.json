@@ -510,6 +510,7 @@
     "loadFailed": "Échec du chargement des cartes : {{message}}",
     "noMapsYet": "Aucune carte",
     "noMapsMatch": "Aucune carte ne correspond aux filtres actuels.",
+    "noMatchingMaps": "Aucune carte correspondante",
     "noMapsDescription": "Créez une carte pour commencer à composer des couches à partir de votre catalogue.",
     "createFirstMap": "Créer votre première carte",
     "deleted": "Carte supprimée",

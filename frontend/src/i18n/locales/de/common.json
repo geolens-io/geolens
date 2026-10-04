@@ -510,6 +510,7 @@
     "loadFailed": "Karten konnten nicht geladen werden: {{message}}",
     "noMapsYet": "Noch keine Karten",
     "noMapsMatch": "Keine Karten entsprechen den aktuellen Filtern.",
+    "noMatchingMaps": "Keine passenden Karten",
     "noMapsDescription": "Erstellen Sie eine Karte, um Layer aus Ihrem Katalog zusammenzustellen.",
     "createFirstMap": "Erste Karte erstellen",
     "deleted": "Karte gelöscht",
