@@ -289,6 +289,7 @@
     "generating": "Generando...",
     "backfillQueued": "Relleno de embeddings en cola — esta página se actualizará cuando termine",
     "regenerationPending": "No se pudieron regenerar los embeddings automáticamente. Usa Generar embeddings faltantes para regenerarlos.",
+    "regenerationPendingAiOff": "Los embeddings no se regeneraron porque las funciones de IA están desactivadas. Activa la IA y usa Generar embeddings faltantes.",
     "backfillFinished": "Relleno de embeddings finalizado",
     "backfillFinishedWithErrors": "El relleno de embeddings terminó con {{errors}} registro(s) rechazado(s) — la cobertura tiene huecos",
     "backfillRunFailed": "La ejecución del relleno de embeddings falló — revise los registros del servidor",

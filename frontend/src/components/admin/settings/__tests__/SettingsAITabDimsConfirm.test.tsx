@@ -133,6 +133,37 @@ describe('SettingsAITab embedding width confirmation', () => {
     expect(screen.getByRole('alertdialog')).toHaveTextContent('regenerate them with Generate Missing Embeddings');
   });
 
+  it('queues nothing and says AI must be enabled when AI was already off', async () => {
+    const user = userEvent.setup();
+    const onSave = renderTab(
+      settings.map((item) => (item.key === 'ai_enabled' ? { ...item, value: false } : item)),
+    );
+
+    await changeWidth(user, '768');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(screen.queryByRole('checkbox', { name: 'Regenerate embeddings after saving' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Delete embeddings' }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(hoisted.backfillMutate).not.toHaveBeenCalled();
+    expect(await screen.findByText(/AI features are disabled/)).toBeInTheDocument();
+  });
+
+  it('queues nothing when the same save turns AI off', async () => {
+    const user = userEvent.setup();
+    const onSave = renderTab();
+
+    await user.click(screen.getByRole('switch', { name: 'AI Chat Enabled' }));
+    await changeWidth(user, '768');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await user.click(screen.getByRole('button', { name: 'Delete embeddings' }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0][0]).toMatchObject({ ai_enabled: false, embedding_dims: '768' });
+    expect(hoisted.backfillMutate).not.toHaveBeenCalled();
+    expect(await screen.findByText(/AI features are disabled/)).toBeInTheDocument();
+  });
+
   it('queues nothing when the regenerate option is cleared', async () => {
     const user = userEvent.setup();
     const onSave = renderTab();

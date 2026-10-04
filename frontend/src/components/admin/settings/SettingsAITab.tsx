@@ -122,7 +122,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
     backfill.mutate(force, {
       onSuccess: (data) => {
         setBackfillJobId(data.job_id);
-        setRegenPending(false);
+        setRegenPending(null);
         toast.info(t('ai.backfillQueued'));
       },
     });
@@ -133,7 +133,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
   const widthChangeWipesEmbeddings =
     Boolean(embeddingStats && embeddingStats.embedded_records > 0) && widthEdited;
   const [regenerate, setRegenerate] = useState(true);
-  const [regenPending, setRegenPending] = useState(false);
+  const [regenPending, setRegenPending] = useState<'queue' | 'ai' | null>(null);
   const [pending, setPending] = useState<
     { kind: 'save'; changes: Record<string, unknown> } | { kind: 'reset'; key: string } | null
   >(null);
@@ -156,22 +156,35 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
     onReset(key);
   };
 
+  // A save can toggle AI in the same request; a reset never does.
+  const aiEnabledAfter = (change: NonNullable<typeof pending>) => {
+    const next = change.kind === 'save' ? change.changes.ai_enabled : undefined;
+    return next === undefined ? findSetting(settings, 'ai_enabled')?.value !== false : next !== false;
+  };
+
   const confirmEmbeddingChange = async () => {
     if (!pending) return;
     const current = pending;
     const queueAfter = regenerate && canManageUsers;
+    const aiOff = !aiEnabledAfter(current);
     setPending(null);
     const saved = current.kind === 'save' ? await onSave(current.changes) : await onReset(current.key);
     if (saved === false || !queueAfter) return;
+    // With AI off the backfill skips every record yet finishes as a success,
+    // so queuing it would clear the warning and leave search empty.
+    if (aiOff) {
+      setRegenPending('ai');
+      return;
+    }
     // The save already succeeded; a run that cannot start leaves the
     // embeddings to regenerate by hand.
     backfill.mutate(false, {
       onSuccess: (data) => {
         setBackfillJobId(data.job_id);
-        setRegenPending(false);
+        setRegenPending(null);
         toast.info(t('ai.backfillQueued'));
       },
-      onError: () => setRegenPending(true),
+      onError: () => setRegenPending('queue'),
     });
   };
 
@@ -184,7 +197,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
     dimsSetting?.default_value !== undefined &&
     dimsSetting.default_value !== null &&
     String(dimsSetting.default_value) === String(dimsSetting.value);
-  const autoRegenerate = regenerate && canManageUsers;
+  const autoRegenerate = regenerate && canManageUsers && pending !== null && aiEnabledAfter(pending);
   const pendingChangesWidth =
     pending !== null &&
     (pending.kind === 'save' ? 'embedding_dims' in pending.changes : pending.key === 'embedding_dims');
@@ -477,10 +490,10 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
             </div>
           )}
 
-          {regenPending && (
+          {regenPending !== null && (
             <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 p-3 max-w-md">
               <AlertTriangle className="h-4 w-4 text-warning mt-0.5 flex-shrink-0" />
-              <p className="text-sm text-foreground">{t('ai.regenerationPending')}</p>
+              <p className="text-sm text-foreground">{t(regenPending === 'ai' ? 'ai.regenerationPendingAiOff' : 'ai.regenerationPending')}</p>
             </div>
           )}
 
@@ -675,7 +688,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          {canManageUsers && (
+          {canManageUsers && pending !== null && aiEnabledAfter(pending) && (
             <div className="flex items-center gap-2">
               <Checkbox
                 id="regenerate-after-save"

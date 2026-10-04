@@ -289,6 +289,7 @@
     "generating": "Generation...",
     "backfillQueued": "Remplissage des embeddings mis en file d'attente — cette page se mettra à jour à la fin",
     "regenerationPending": "Les embeddings n'ont pas pu être régénérés automatiquement. Utilisez Generer les embeddings manquants pour les régénérer.",
+    "regenerationPendingAiOff": "Les embeddings n'ont pas été régénérés car les fonctions d'IA sont désactivées. Activez l'IA, puis utilisez Generer les embeddings manquants.",
     "backfillFinished": "Remplissage des embeddings terminé",
     "backfillFinishedWithErrors": "Remplissage des embeddings terminé avec {{errors}} enregistrement(s) rejeté(s) — la couverture présente des lacunes",
     "backfillRunFailed": "L'exécution du remplissage des embeddings a échoué — consultez les journaux du serveur",
