@@ -230,6 +230,19 @@ describe('SearchPage', () => {
       await waitFor(() => expect(statusTexts()).toContain('No catalog results found'));
     });
 
+    it('re-announces when a different cached search has the same count', async () => {
+      setAnonymousUser();
+      setResults(populated, false);
+      render(<SearchPage />, { route: '/' });
+      await waitFor(() => expect(statusTexts()).toContain('12 catalog results'));
+
+      act(() => {
+        useSearchStore.getState().setQuery('other');
+      });
+      expect(statusTexts()).not.toContain('12 catalog results');
+      await waitFor(() => expect(statusTexts()).toContain('12 catalog results'));
+    });
+
     it('carries the empty outcome in exactly one live region', async () => {
       setAnonymousUser();
       act(() => {
