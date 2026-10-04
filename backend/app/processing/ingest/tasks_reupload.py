@@ -343,7 +343,10 @@ class _FileReupload:
     async def stage(self, session, job, dataset) -> Verdict:
         # Rename source columns that collide with GeoLens-internal names,
         # before the post-process steps so they cannot clash.
-        from app.processing.ingest.metadata import rename_reserved_columns
+        from app.processing.ingest.metadata import (
+            get_geometry_types,
+            rename_reserved_columns,
+        )
 
         reserved_renames = await rename_reserved_columns(
             session, self.staging_table, schema=_current_tenant_schema()
@@ -396,6 +399,10 @@ class _FileReupload:
         # Tell the user when the Web Mercator clamp destroyed geometry,
         # instead of leaving them to discover it downstream.
         _append_mercator_clip_warning(job, staging_result.mercator_clip)
+        # Read before the live table is locked: it scans only the staged rows.
+        self.staged_geometry_types = await get_geometry_types(
+            session, self.staging_table, schema=_current_tenant_schema()
+        )
         return Verdict(verify=self._verify)
 
     async def _verify(self, session, dataset) -> Verdict:
@@ -417,9 +424,7 @@ class _FileReupload:
                 n_dims=dataset.n_dims,
             ),
             staged=refresh_policy.geometry_contract(
-                geometry_types=await get_geometry_types(
-                    session, self.staging_table, schema=schema
-                ),
+                geometry_types=self.staged_geometry_types,
                 srid=self.measurement.metadata.get("srid"),
                 is_3d=self.measurement.three_d.get("is_3d"),
                 n_dims=self.measurement.three_d.get("n_dims"),
@@ -1094,7 +1099,6 @@ class _ServiceReupload:
             table=self.staging_table,
             schema=schema,
             staged=staged,
-            score=False,
         )
         # Verification compares this fetch, not the preview's: a live
         # service can have changed since the preview was taken.
@@ -1223,15 +1227,6 @@ class _ServiceReupload:
             )
 
     async def install(self, session, dataset) -> None:
-        # Scored once publication is allowed: the quality scan reads the
-        # whole staged table.
-        self.measurement = await catalog_projection.scored(
-            session,
-            dataset,
-            self.measurement,
-            table=self.staging_table,
-            schema=_current_tenant_schema(),
-        )
         await _install_reupload_table(
             session,
             dataset=dataset,

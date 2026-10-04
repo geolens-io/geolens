@@ -260,6 +260,41 @@ async def test_verified_refresh_publishes_and_settles_its_run(test_db_session):
     assert await _live(dataset) == "candidate"
 
 
+async def test_a_verified_refresh_scores_its_candidate_before_it_locks_the_live_table(
+    test_db_session,
+):
+    """Readers of the live table are not held behind the staged quality scan."""
+    from app.processing.ingest import metadata
+
+    dataset, job, admin_id = await _candidate(test_db_session, refresh=True)
+    real = metadata.score_quality
+    reads: list[int] = []
+
+    async def _score_while_reading_the_live_table(*args, **kwargs):
+        async with db_module.async_session() as reader:
+            await reader.execute(sa.text("SET LOCAL lock_timeout = '1s'"))
+            reads.append(
+                await reader.scalar(
+                    sa.text(f'SELECT count(*) FROM data."{dataset.table_name}"')
+                )
+            )
+        return await real(*args, **kwargs)
+
+    await _reupload(
+        dataset,
+        job,
+        admin_id,
+        patches=(
+            patch.object(
+                metadata, "score_quality", new=_score_while_reading_the_live_table
+            ),
+        ),
+    )
+
+    assert reads == [1]
+    assert (await _run(job.id)).status == "succeeded"
+
+
 async def test_a_refresh_that_changes_the_geometry_family_waits_for_review(
     test_db_session, quiet
 ):
