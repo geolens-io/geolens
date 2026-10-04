@@ -12,6 +12,7 @@
     "complete",
     "abort_reason",
     "truncated",
+    "truncation_reasons",
     "max_items",
     "portal",
     "auth",
@@ -33,7 +34,13 @@
     "abort_reason": {"type": ["string", "null"]},
     "truncated": {
       "type": "boolean",
-      "description": "True when more items existed than max_items allowed."
+      "description": "True when the listing may be incomplete; truncation_reasons says why."
+    },
+    "truncation_reasons": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"enum": ["max_items", "search_ceiling"]},
+      "description": "max_items: the local --max-items cap stopped the listing. search_ceiling: an organization search reached the 10,000 results ArcGIS search returns, so more items may exist whatever the local cap."
     },
     "max_items": {"type": "integer", "minimum": 1},
     "portal": {

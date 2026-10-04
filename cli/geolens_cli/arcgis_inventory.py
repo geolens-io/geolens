@@ -46,6 +46,8 @@ DEFAULT_PORTAL_URL = "https://www.arcgis.com"
 PAGE_SIZE = 100
 DEFAULT_MAX_ITEMS = 10_000
 MAX_CONCURRENCY = 4
+# ArcGIS search pages through only the first 10,000 results of a query.
+SEARCH_RESULT_CEILING = 10_000
 MIN_REQUEST_INTERVAL = 0.1
 SOCKET_TIMEOUT = 10.0
 REQUEST_DEADLINE = 30.0
@@ -238,6 +240,7 @@ class PortalClient:
         self._clock = clock
         self._on_request = on_request
         self._form_token = False
+        self._referer: str | None = None
         self._lock = threading.Lock()
         self._next_slot = 0.0
 
@@ -264,13 +267,18 @@ class PortalClient:
         return data
 
     def generate_token(self, username: str, password: str) -> str:
-        """Mint a 60-minute token. Never retried: ArcGIS locks an account
-        after five failed sign-ins in fifteen minutes."""
+        """Mint a 60-minute token bound to the portal origin as its referer.
+
+        Never retried: ArcGIS locks an account after five failed sign-ins in
+        fifteen minutes. Every later request sends that referer, since a
+        portal enforcing the binding rejects the token without it.
+        """
+        referer = _origin(self.root)
         fields = {
             "username": username,
             "password": password,
             "client": "referer",
-            "referer": _origin(self.root),
+            "referer": referer,
             "expiration": str(TOKEN_EXPIRATION_MINUTES),
             "f": "json",
         }
@@ -297,14 +305,19 @@ class PortalClient:
             )
         self._redact.add(token)
         self.token = token
+        self._referer = referer
         return token
 
     def _read(self, url: str, query: dict[str, Any]) -> dict:
+        headers = {"Referer": self._referer} if self._referer else {}
         if self.token and self._form_token:
             return self._exchange(
-                "POST", url, {**query, "token": self.token}, {}, attempts=GET_ATTEMPTS
+                "POST",
+                url,
+                {**query, "token": self.token},
+                headers,
+                attempts=GET_ATTEMPTS,
             )
-        headers = {}
         if self.token:
             headers[ESRI_AUTHORIZATION_HEADER] = f"Bearer {self.token}"
         return self._exchange(
@@ -568,6 +581,7 @@ class Inventory:
     dependencies: list[dict[str, Any]] = field(default_factory=list)
     errors: list[dict[str, Any]] = field(default_factory=list)
     truncated: bool = False
+    search_ceiling: bool = False
     abort: PortalError | None = None
 
 
@@ -588,6 +602,18 @@ def _pages(
 def _has_next(page: Mapping[str, Any]) -> bool:
     next_start = page.get("nextStart")
     return isinstance(next_start, int) and next_start > 0
+
+
+def _at_search_ceiling(page: Mapping[str, Any], rows: list[Any]) -> bool:
+    """Whether a search page reaches the server's result ceiling.
+
+    At the ceiling the last page still says ``nextStart: -1`` and ``total``
+    is capped, so neither proves the listing is complete.
+    """
+    total, start = page.get("total"), page.get("start")
+    if isinstance(total, int) and total >= SEARCH_RESULT_CEILING:
+        return True
+    return isinstance(start, int) and start + len(rows) - 1 >= SEARCH_RESULT_CEILING
 
 
 def _list_items(
@@ -614,6 +640,8 @@ def _list_items(
         path, params, key = listings[position]
         position += 1
         for rows, page in _pages(client, path, params, key):
+            if path == "search" and _at_search_ceiling(page, rows):
+                inv.search_ceiling = True
             folders = page.get("folders")
             if inv.scope["mode"] == "user" and len(listings) == 1:
                 if isinstance(folders, list):
@@ -764,33 +792,71 @@ def _app_references(data: Mapping[str, Any]) -> list[tuple[str, str]] | None:
     return list(unique.items())
 
 
+def _extract_dependencies(
+    row: Mapping[str, Any],
+    data: Mapping[str, Any],
+    index: Mapping[str, dict[str, Any]],
+    portal: Mapping[str, Any],
+) -> tuple[str, list[dict[str, Any]]]:
+    """(dependencies_status, dependency rows) for one item's data."""
+    if row["type"] == _WEB_MAP_TYPE:
+        return "parsed", web_map_dependencies(row["id"], data, index, portal)
+    refs = _app_references(data)
+    if refs is None:
+        return "unparsed", []
+    return "parsed", [
+        _dependency(
+            row["id"],
+            ref,
+            None,
+            role="app_web_map",
+            layer_type=kind,
+            layer_id=None,
+            title=None,
+            order=order,
+            index=index,
+            portal=portal,
+        )
+        for order, (ref, kind) in enumerate(refs)
+    ]
+
+
 def _collect_dependencies(
     client: PortalClient, inv: Inventory, concurrency: int
 ) -> None:
+    """Read each web map's and app's data and keep only its dependency rows.
+
+    Each worker reduces the item's configuration to rows before returning,
+    so at most *concurrency* full configurations are held at once.
+    """
     index = {row["id"]: row for row in inv.items}
     targets = [row for row in inv.items if row["dependencies_status"] == "pending"]
     stop = threading.Event()
 
-    def fetch(row: dict[str, Any]) -> tuple[dict | None, PortalError | None]:
+    def fetch(
+        row: dict[str, Any],
+    ) -> tuple[str, list[dict[str, Any]], PortalError | None]:
         if stop.is_set():
-            return None, None
+            return "not_fetched", [], None
         try:
             path = f"content/items/{quote(row['id'], safe='')}/data"
-            return client.get_json(path), None
+            data = client.get_json(path)
         except PortalError as exc:
             if exc.kind == "auth":
                 stop.set()
-            return None, exc
+                return "not_fetched", [], exc
+            return "error", [], exc
+        return (*_extract_dependencies(row, data, index, inv.portal), None)
 
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
         results = list(pool.map(fetch, targets))
 
-    for row, (data, exc) in zip(targets, results, strict=True):
+    for row, (status, dependencies, exc) in zip(targets, results, strict=True):
+        row["dependencies_status"] = status
+        inv.dependencies.extend(dependencies)
         if exc is not None and exc.kind == "auth":
             inv.abort = inv.abort or exc
-            row["dependencies_status"] = "not_fetched"
         elif exc is not None:
-            row["dependencies_status"] = "error"
             inv.errors.append(
                 {
                     "item_id": row["id"],
@@ -799,34 +865,6 @@ def _collect_dependencies(
                     "message": str(exc),
                 }
             )
-        elif data is None:
-            row["dependencies_status"] = "not_fetched"
-        elif row["type"] == _WEB_MAP_TYPE:
-            inv.dependencies.extend(
-                web_map_dependencies(row["id"], data, index, inv.portal)
-            )
-            row["dependencies_status"] = "parsed"
-        else:
-            refs = _app_references(data)
-            if refs is None:
-                row["dependencies_status"] = "unparsed"
-                continue
-            row["dependencies_status"] = "parsed"
-            for order, (ref, kind) in enumerate(refs):
-                inv.dependencies.append(
-                    _dependency(
-                        row["id"],
-                        ref,
-                        None,
-                        role="app_web_map",
-                        layer_type=kind,
-                        layer_id=None,
-                        title=None,
-                        order=order,
-                        index=index,
-                        portal=inv.portal,
-                    )
-                )
 
 
 def run_inventory(

@@ -129,16 +129,20 @@ they depend on.
 - Credentials: an existing token through `ARCGIS_TOKEN`, `--token-stdin` or
   `--token`, or `--username` for a built-in account. The password comes from
   `ARCGIS_PASSWORD`, `--password-stdin` or a prompt, and is used once to mint
-  a 60-minute token. SAML and OpenID Connect accounts need a token. The token
-  travels in the `X-Esri-Authorization` header, never in a URL, and is never
-  written to the report, the terminal or disk. Redirects are refused.
+  a 60-minute token bound to the portal URL as its referer; later requests
+  send that `Referer`. A token you bring is sent without a `Referer`. SAML and
+  OpenID Connect accounts need a token. The token travels in the
+  `X-Esri-Authorization` header, never in a URL, and is never written to the
+  report, the terminal or disk. Redirects are refused.
 - Output: Markdown on stdout, JSON with `--json`, or both files
   (`arcgis-inventory.json`, `arcgis-inventory.md`, mode 0600) with
   `-o/--output-dir`. The JSON schema ships in the package as
   `geolens_cli/manifest/schemas/arcgis-inventory-v1.schema.json`.
-- Limits: `--max-items` (default 10,000; ArcGIS search returns at most
-  10,000 results), `--concurrency` 1 to 4 for item reads, at most ten
-  requests a second, and retries with backoff on 429 and 502 to 504.
+- Limits: `--max-items` (default 10,000), `--concurrency` 1 to 4 for item
+  reads, at most ten requests a second, and retries with backoff on 429 and
+  502 to 504. ArcGIS search returns only the first 10,000 results of a query,
+  so a `--scope org` listing that reaches that limit is marked truncated
+  (`search_ceiling`) whatever `--max-items` is.
 - Exit codes: 0 when the report is complete, even if some items could not be
   read (they are listed under errors; `--strict` makes that exit 1); 2 for
   usage errors or a redirecting portal; 3 when the token is rejected; 4 for

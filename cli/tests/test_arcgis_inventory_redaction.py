@@ -301,3 +301,66 @@ def test_redirects_are_refused_with_the_real_opener(
         "/portal/sharing/rest/portals/self"
     ]
     _assert_no_secret(result.stdout + result.stderr)
+
+
+def _referer_enforcing(routes: dict) -> dict:
+    """Routes that answer 498 unless the Referer matches the token's binding."""
+
+    def guard(reply):
+        def handler(seen):
+            if seen.headers.get("referer") != PORTAL:
+                return {"error": {"code": 498, "message": "Invalid token."}}
+            return reply(seen) if callable(reply) else reply
+
+        return handler
+
+    return {
+        path: reply if path == "generateToken" else guard(reply)
+        for path, reply in routes.items()
+    }
+
+
+def test_generated_token_is_used_with_the_referer_it_was_bound_to(invoke):
+    """A portal enforcing the referer binding accepts every request after sign-in."""
+    minted = {**load("generate_token_ok.json"), "token": MINTED_TOKEN}
+    portal = FakePortal(_referer_enforcing(portal_routes({"generateToken": minted})))
+    result, texts = invoke(
+        portal, "--username", USER, env={"ARCGIS_PASSWORD": SECRET_PASSWORD}
+    )
+    assert result.exit_code == 0, result.output
+    assert portal.requests_to("generateToken")[0].params["referer"] == PORTAL
+    assert all(
+        s.headers.get("referer") == PORTAL
+        for s in portal.seen
+        if s.path != "generateToken"
+    )
+    _assert_no_secret(texts)
+
+
+def test_generated_token_fallback_post_carries_the_referer(invoke):
+    """The pre-10.5.1 form-field fallback keeps the Referer for a generated token."""
+    minted = {**load("generate_token_ok.json"), "token": MINTED_TOKEN}
+
+    def self_info(seen):
+        if seen.method == "GET":
+            return {"error": {"code": 499, "message": "Token Required"}}
+        return load("portal_self.json")
+
+    routes = _referer_enforcing(
+        portal_routes({"generateToken": minted, "portals/self": self_info})
+    )
+    portal = FakePortal(routes)
+    result, _ = invoke(
+        portal, "--username", USER, env={"ARCGIS_PASSWORD": SECRET_PASSWORD}
+    )
+    assert result.exit_code == 0, result.output
+    posts = [s for s in portal.seen if s.method == "POST" and s.path != "generateToken"]
+    assert posts and all(s.headers.get("referer") == PORTAL for s in posts)
+
+
+def test_supplied_token_sends_no_referer(invoke):
+    """A token the user brings is sent without a Referer, as before."""
+    portal = FakePortal(portal_routes())
+    result, _ = invoke(portal, "--token", SECRET_TOKEN)
+    assert result.exit_code == 0, result.output
+    assert all("referer" not in s.headers for s in portal.seen)

@@ -62,7 +62,15 @@ def build_report(
         "tool_version": tool_version,
         "complete": inv.abort is None,
         "abort_reason": str(inv.abort) if inv.abort is not None else None,
-        "truncated": inv.truncated,
+        "truncated": inv.truncated or inv.search_ceiling,
+        "truncation_reasons": [
+            reason
+            for reason, applies in (
+                ("max_items", inv.truncated),
+                ("search_ceiling", inv.search_ceiling),
+            )
+            if applies
+        ],
         "max_items": max_items,
         "portal": inv.portal,
         "auth": inv.auth,
@@ -150,10 +158,18 @@ def render_markdown(report: Mapping[str, Any]) -> str:
             f"> **Partial report.** The run stopped early: {md_escape(report['abort_reason'])}",
             "",
         ]
-    if report["truncated"]:
+    if "max_items" in report["truncation_reasons"]:
         lines += [
             f"> **Item cap reached.** Only the first {report['max_items']} items "
             "were listed; rerun with a higher `--max-items`.",
+            "",
+        ]
+    if "search_ceiling" in report["truncation_reasons"]:
+        lines += [
+            "> **Search limit reached.** ArcGIS search returns only the first "
+            "10,000 results of a query, so the organization may hold items this "
+            "report doesn't list. Raising `--max-items` can't get past this "
+            "server limit.",
             "",
         ]
 

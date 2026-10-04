@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import stat
+import tracemalloc
 from typing import Any
 
 import pytest
@@ -549,3 +550,96 @@ def test_oversized_item_data_is_an_error_row(run):
     assert result.exit_code == 0, result.output
     errors = {e["item_id"]: e["message"] for e in _report(result)["errors"]}
     assert "larger than 8 MiB" in errors[B1]
+
+
+def test_org_search_reaching_the_ceiling_is_flagged_truncated(run):
+    """A search that hits ArcGIS's 10,000-result ceiling is truncated, whatever --max-items says."""
+
+    def search(seen):
+        start = int(seen.params["start"])
+        rows = [
+            {
+                "id": f"{n:032x}",
+                "type": "CSV",
+                "title": f"File {n}",
+                "owner": USER,
+                "typeKeywords": [],
+                "access": "org",
+            }
+            for n in range(start, start + 100)
+        ]
+        next_start = (
+            start + 100 if start + 100 <= inventory.SEARCH_RESULT_CEILING else -1
+        )
+        return {
+            "total": inventory.SEARCH_RESULT_CEILING,
+            "start": start,
+            "num": 100,
+            "nextStart": next_start,
+            "results": rows,
+        }
+
+    portal = FakePortal(portal_routes({"search": search}))
+    result, _ = run(portal, "--scope", "org", "--max-items", "20000")
+    assert result.exit_code == 0, result.output
+    report = _report(result)
+    assert len(portal.requests_to("search")) == 100
+    assert report["counts"]["total"] == inventory.SEARCH_RESULT_CEILING
+    assert report["truncated"] is True
+    assert report["truncation_reasons"] == ["search_ceiling"]
+    markdown = arcgis_report.render_markdown(report)
+    assert "Search limit reached" in markdown
+    assert "can't get past this server limit" in markdown
+
+
+def test_dependency_collection_does_not_retain_item_configurations():
+    """Peak memory stays flat however many large web map configurations are read."""
+    payload = json.dumps(
+        {
+            "operationalLayers": [
+                {"id": "l0", "itemId": A1, "layerType": "ArcGISFeatureLayer"}
+            ],
+            "pad": "x" * (1024 * 1024),
+        }
+    ).encode()
+    ids = [f"{n:032x}" for n in range(40)]
+    rows = [
+        {
+            "id": i,
+            "type": "Web Map",
+            "title": i,
+            "owner": USER,
+            "typeKeywords": [],
+            "access": "org",
+        }
+        for i in ids
+    ]
+    routes = portal_routes(
+        {
+            "search": {
+                "total": 40,
+                "start": 1,
+                "num": 100,
+                "nextStart": -1,
+                "results": rows,
+            }
+        }
+    )
+    routes.update({item_data_path(i): (200, payload) for i in ids})
+    client = inventory.PortalClient(
+        PORTAL,
+        opener=FakePortal(routes),
+        redact=inventory.Redactor(),
+        token=TOKEN,
+        sleep=lambda seconds: None,
+    )
+    tracemalloc.start()
+    try:
+        inv = inventory.run_inventory(
+            client, auth_mode="token", scope="org", max_items=100, concurrency=1
+        )
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert len(inv.dependencies) == 40
+    assert peak < 12 * 1024 * 1024
