@@ -85,6 +85,8 @@ const CURRENT_AUDIT_ACTIONS = [
   'dataset.download_cog',
   'dataset.export',
   'dataset.pointcloud_read',
+  'dataset.previous_version_dropped',
+  'dataset.restore',
   'dataset.view',
   'embed_token.bulk_revoke',
   'embed_token.create',
