@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { act, render, screen } from '@/test/test-utils';
+import { changeTestLanguage } from '@/test/i18n';
 import { BboxMapPicker } from '../BboxMapPicker';
 
 // test(#828): region-label coverage. The map canvas cannot carry an aria-label
@@ -8,11 +9,11 @@ import { BboxMapPicker } from '../BboxMapPicker';
 // unlabeled region with no test noticing.
 
 vi.mock('@vis.gl/react-maplibre', () => ({
-  Map: ({ children, onLoad }: { children?: React.ReactNode; onLoad?: (e: { target: unknown }) => void }) => {
+  Map: ({ children, onLoad, locale }: { children?: React.ReactNode; onLoad?: (e: { target: unknown }) => void; locale?: Record<string, string> }) => {
     useEffect(() => {
       onLoad?.({ target: {} });
     }, [onLoad]);
-    return <div data-testid="mapgl">{children}</div>;
+    return <div data-testid="mapgl" data-locale={JSON.stringify(locale ?? null)}>{children}</div>;
   },
 }));
 
@@ -68,5 +69,18 @@ describe('BboxMapPicker — antimeridian', () => {
     render(<BboxMapPicker onBboxSelected={onBboxSelected} />);
     act(() => draw.finish?.('box'));
     expect(onBboxSelected).toHaveBeenCalledWith('172.45,9.82,-137.92,32.2');
+  });
+});
+
+describe('BboxMapPicker — map locale', () => {
+  afterEach(async () => {
+    await act(() => changeTestLanguage('en'));
+  });
+
+  it('gives the map control strings in the interface language', async () => {
+    await act(() => changeTestLanguage('fr'));
+    render(<BboxMapPicker onBboxSelected={vi.fn()} />);
+    const locale = JSON.parse(screen.getByTestId('mapgl').dataset.locale ?? 'null');
+    expect(locale['NavigationControl.ZoomIn']).toBe('Zoom avant');
   });
 });

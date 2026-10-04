@@ -25,6 +25,7 @@ import { useAuthStore } from '@/stores/auth-store';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
 import i18n from '@/i18n/i18n';
 import { useTranslation } from 'react-i18next';
+import { useMapLocale } from '@/hooks/use-map-locale';
 import { asFeatureCollection, fetchBoundedGeoJson } from '@/api/geojson-z';
 import { FeaturePopup, type FeatureInfo } from '@/components/map/FeaturePopup';
 import {
@@ -206,6 +207,7 @@ export const BuilderMap = memo(function BuilderMap({
   onFeatureSelect,
 }: BuilderMapProps) {
   const { t } = useTranslation('builder');
+  const mapLocale = useMapLocale();
   const mapRef = useRef<MaplibreMap | null>(null);
   const managedSourcesRef = useRef<Set<string>>(new Set());
   // feat(#845): mount-time projection for the MapGL prop, frozen because a
@@ -1427,6 +1429,7 @@ export const BuilderMap = memo(function BuilderMap({
         mapStyle={mapStyle}
         styleDiffing={false}
         // feat(#845): cold-mount projection, see ViewerMap's MapGL for rationale.
+        locale={mapLocale}
         projection={initialProjection}
         // PERF-08 (Phase 274): preserveDrawingBuffer dropped — captures use
         // map.triggerRepaint() + synchronous toDataURL() in use-builder-save.ts
