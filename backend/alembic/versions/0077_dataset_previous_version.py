@@ -77,17 +77,26 @@ def downgrade() -> None:
     # than leave rows that violate the constraint.
     _replace_origin_kinds(_BASE_ORIGIN_KINDS)
     # The earlier schema has no columns pointing at the retained tables, and
-    # its table discovery would list them as registerable, so they go too.
+    # its table discovery would list them as registerable, so they go too:
+    # only in the dataset's own data schema, and never a dataset's own table.
     op.execute(
         """
         DO $$
         DECLARE kept regclass;
         BEGIN
             FOR kept IN
-                SELECT c.oid::regclass FROM pg_class c
-                JOIN catalog.datasets d ON c.relname = left(d.table_name, 21)
-                    || '_previous_' || replace(d.id::text, '-', '')
-                WHERE c.relkind = 'r' AND d.previous_version_number IS NOT NULL
+                SELECT c.oid::regclass FROM catalog.datasets d
+                JOIN pg_namespace n ON n.nspname = CASE
+                    WHEN d.tenant_id IS NULL THEN 'data'
+                    ELSE 'data_t_' || replace(d.tenant_id::text, '-', '_') END
+                JOIN pg_class c ON c.relnamespace = n.oid AND c.relkind = 'r'
+                    AND c.relname = left(d.table_name, 21)
+                        || '_previous_' || replace(d.id::text, '-', '')
+                WHERE d.previous_version_number IS NOT NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM catalog.datasets o
+                      WHERE o.table_name = c.relname
+                  )
             LOOP
                 EXECUTE format('DROP TABLE IF EXISTS %s', kept);
             END LOOP;

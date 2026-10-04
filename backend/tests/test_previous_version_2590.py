@@ -881,3 +881,73 @@ async def test_repeated_restores_keep_each_versions_own_freshness(
         assert await _names(session, dataset.table_name) == ["New York"]
     finally:
         await _cleanup(session, dataset)
+
+
+async def test_a_delete_waiting_on_a_first_replacement_drops_what_it_kept(
+    client: AsyncClient, test_db_session, admin_auth_header
+) -> None:
+    """A delete that waited for a replacement's commit drops the previous version that replacement kept."""
+    import asyncio
+
+    import app.core.db as db_module
+
+    assert db_module.engine.url.database.startswith("geolens_test")
+    session = test_db_session
+    admin_id, dataset = await _seed(session)
+    previous = previous_version_table(dataset.table_name, dataset.id)
+    job = IngestJob(
+        dataset_id=dataset.id,
+        status="running",
+        attempt_id=uuid.uuid4(),
+        created_by=admin_id,
+        user_metadata={"reupload": True, "dataset_id": str(dataset.id)},
+    )
+    session.add(job)
+    await session.commit()
+    job_id = job.id
+
+    publication = db_module.async_session()
+    observer = db_module.async_session()
+    deleting = None
+    try:
+        # A first replacement's publishing transaction before its commit: its
+        # job row held, the replaced table kept, the dataset row stamped.
+        await publication.execute(
+            text("SELECT 1 FROM catalog.ingest_jobs WHERE id = :id FOR UPDATE"),
+            {"id": job_id},
+        )
+        await publication.execute(text(f'CREATE TABLE "data"."{previous}" (gid int)'))
+        await publication.execute(
+            text(
+                "UPDATE catalog.datasets SET previous_version_number = 1 WHERE id = :id"
+            ),
+            {"id": dataset.id},
+        )
+
+        deleting = asyncio.create_task(
+            client.request(
+                "DELETE",
+                f"/api/datasets/{dataset.id}",
+                json={"confirm_title": "Test Dataset"},
+                headers=admin_auth_header,
+            )
+        )
+        for _ in range(200):
+            if await _admission_waits_on_a_lock(observer):
+                break
+            assert not deleting.done(), "the delete did not wait on the job row"
+            await asyncio.sleep(0.05)
+        else:
+            pytest.fail("the delete never waited on the replacement")
+        await publication.commit()
+
+        deleted = await asyncio.wait_for(deleting, timeout=30)
+        assert deleted.status_code == 204, deleted.text
+        assert not await _relation_exists(session, previous)
+    finally:
+        if deleting is not None and not deleting.done():
+            deleting.cancel()
+        for opened in (publication, observer):
+            await opened.rollback()
+            await opened.close()
+        await _cleanup(session, dataset)

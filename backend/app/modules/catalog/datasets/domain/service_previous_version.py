@@ -153,9 +153,13 @@ async def drop_recorded_previous_version(
 ) -> None:
     """Drop the previous-version table this dataset recorded; never commits.
 
-    The name is predictable, so a table under it that another dataset uses,
-    or that this dataset never recorded, is left in place.
+    Call holding the dataset's job rows. The name is predictable, so a table
+    under it that another dataset uses, or that this dataset never recorded,
+    is left in place.
     """
+    # Read again under the job rows: a replacement that committed while the
+    # caller waited for them recorded a previous version its loaded row lacks.
+    await db.refresh(dataset, ["previous_version_number"])
     name = previous_version_table(dataset.table_name, dataset.id)
     if await previous_version_name_claimed(db, name):
         logger.warning("previous_version_drop_skipped", dataset_id=str(dataset.id))
