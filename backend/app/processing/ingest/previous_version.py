@@ -13,11 +13,10 @@ import structlog
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.platform.relations import dependent_relations, relation_present
 from app.platform.jobs.heartbeat import (
-    dependent_relations,
     previous_version_name_claimed,
     previous_version_table,
-    relation_present,
 )
 from app.processing.ingest.metadata import _qtable
 from app.processing.ingest.tasks_common import _current_tenant_schema

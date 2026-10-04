@@ -18,11 +18,10 @@ from app.core.record_types import capabilities
 from app.modules.catalog.datasets.domain._sql_safety import _safe_table_ref
 from app.modules.catalog.datasets.domain.schemas import PreviousVersionResponse
 from app.platform.jobs import ledger
+from app.platform.relations import dependent_relations, relation_present
 from app.platform.jobs.heartbeat import (
-    dependent_relations,
     previous_version_name_claimed,
     previous_version_table,
-    relation_present,
 )
 from app.platform.jobs.models import EXPECTED_PREVIOUS_VERSION_KEY, IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
