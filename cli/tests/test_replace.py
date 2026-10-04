@@ -1302,6 +1302,22 @@ class TestReplaceReviewBeforeConfirm:
             assert expected in out
             assert out.index(expected) < prompt
 
+    def test_quiet_still_prints_the_reasons_before_the_fingerprint_is_sent(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        from geolens_cli.main import app
+
+        captured = self._prepare(monkeypatch, mock_keyring)
+
+        result = runner.invoke(
+            app, ["--quiet", "replace", str(DATASET_ID), str(sample_geojson)], input="y\n"
+        )
+
+        assert result.exit_code == 0, result.output
+        assert captured["body"].review_fingerprint == "fp-reviewed"
+        assert "Columns would be removed or change type." in result.output
+        assert "Removed column: lanes (integer)" in result.output
+
     def test_json_carries_the_diff_and_reasons(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
     ) -> None:

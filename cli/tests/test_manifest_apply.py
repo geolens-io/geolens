@@ -1413,3 +1413,63 @@ class TestApplyWait:
 
         assert result.exit_code == 0, result.output
         assert "STATUS" not in result.output
+
+    @pytest.mark.parametrize(("outcome", "expected"), [("failed", 1), ("blocked", 6)])
+    def test_a_skip_that_names_a_job_is_followed(
+        self, runner, monkeypatch, outcome, expected
+    ) -> None:
+        self._setup(
+            monkeypatch,
+            {"roads": "succeeded", "parks": outcome},
+        )
+        # parks was an idempotent retry: the server answered skip with the job.
+        sdk_response = FakeResponse(
+            200,
+            _apply_response(
+                results=[
+                    {
+                        "dataset_key": "parks",
+                        "action": "skip",
+                        "job_id": "00000000-0000-0000-0000-0000000000b2",
+                        "dataset_id": self.DATASETS["parks"],
+                        "message": "already queued",
+                        "errors": [],
+                    }
+                ]
+            ),
+        )
+        sdk = _install_fake_sdk(monkeypatch, sdk_response)
+        sdk.client.credential_kind = "bearer"
+        sdk.credential_kind = "bearer"
+        sdk.credential_provenance = None
+
+        result = runner.invoke(app, ["apply", "--wait", str(_remote_manifest_path())])
+
+        assert result.exit_code == expected, result.output
+
+    def test_a_skip_without_a_job_is_unchanged(self, runner, monkeypatch) -> None:
+        self._setup(monkeypatch, {"roads": "blocked", "parks": "blocked"})
+        sdk = _install_fake_sdk(
+            monkeypatch,
+            FakeResponse(
+                200,
+                _apply_response(
+                    results=[
+                        {
+                            "dataset_key": "roads",
+                            "action": "skip",
+                            "job_id": None,
+                            "dataset_id": self.DATASETS["roads"],
+                            "message": "unchanged",
+                            "errors": [],
+                        }
+                    ]
+                ),
+            ),
+        )
+        sdk.credential_kind = "bearer"
+        sdk.credential_provenance = None
+
+        result = runner.invoke(app, ["apply", "--wait", str(_remote_manifest_path())])
+
+        assert result.exit_code == 0, result.output

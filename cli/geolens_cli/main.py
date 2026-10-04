@@ -1554,8 +1554,10 @@ def replace(
                 f"Layer '{summary['layer_name']}': {summary['feature_count']} "
                 f"features, SRID {summary['srid'] if summary['srid'] is not None else 'unknown'}"
             )
-            for line in _replace.review_lines(summary):
-                state.output.info(line)
+            # The prompt can acknowledge these reasons, so --quiet must not hide them.
+            if not state.json_mode and (summary["review_reasons"] or not state.quiet):
+                for line in _replace.review_lines(summary):
+                    state.output.console_stdout.print(line, soft_wrap=True)
 
         # --yes only skips the prompt. The fingerprint acknowledges the
         # preview's review reasons, so only a person reading them sends it.

@@ -596,7 +596,8 @@ def wait_for_apply_jobs(
 ) -> dict[str, Any]:
     """Follow every queued job to its end and stamp each result with the outcome.
 
-    An update runs under a refresh run, found through the job that queued it.
+    A skip that names a job is an identical manifest already queued or finished,
+    so its job is followed too. An update runs under a refresh run, found through the job that queued it.
     A job with no run (a first import) is followed through the job itself.
     ``final_status`` is one of complete, failed, blocked or cancelled.
     """
@@ -611,7 +612,7 @@ def wait_for_apply_jobs(
     for result in results:
         if not (
             isinstance(result, dict)
-            and result.get("action") in {"create", "update"}
+            and result.get("action") in {"create", "update", "skip"}
             and result.get("job_id")
         ):
             continue
