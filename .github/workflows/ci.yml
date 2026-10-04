@@ -1399,17 +1399,24 @@ jobs:
         run: docker compose down
 
   backend-test:
-    name: Backend Tests
+    name: Backend Tests (${{ matrix.shard }}/4)
     needs: changes
     # Alembic-only changes must run the suite too — this condition absorbed the
     # deleted pytest-parallel-isolation job's trigger when that job folded in.
     if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.alembic == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
     runs-on: ubuntu-26.04
-    timeout-minutes: 60
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        # scripts/ci_backend_shards.py deals the test files across SHARD_COUNT
+        # shards; keep the matrix and SHARD_COUNT in step.
+        shard: [1, 2, 3, 4]
     defaults:
       run:
         working-directory: backend
     env:
+      SHARD_COUNT: 4
       POSTGRES_USER: geolens
       POSTGRES_PASSWORD: geolens_test
       POSTGRES_HOST: localhost
@@ -1423,6 +1430,9 @@ jobs:
       # PEP 669 sys.monitoring coverage core (Python 3.12+, coverage >= 7.4):
       # far cheaper than the default C-trace and combines correctly under xdist.
       COVERAGE_CORE: sysmon
+      # Visible (non-dot) name so upload-artifact ships it; pytest-cov combines
+      # the xdist workers' data into this file.
+      COVERAGE_FILE: coverage.shard-${{ matrix.shard }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -1557,6 +1567,9 @@ jobs:
         run: uv run alembic check
 
       - name: Manifest backend apply contract tests
+        # These also run inside whichever shard owns each file; one shard is
+        # enough for the standalone pass.
+        if: matrix.shard == 1
         run: |
           uv run pytest -v \
             tests/test_manifest_apply_api.py \
@@ -1565,26 +1578,32 @@ jobs:
             tests/test_manifest_apply_roundtrip.py \
             tests/test_layering.py
 
-      - name: Run tests with coverage
-        # --cov-fail-under=80 is the CI floor, aligned with pyproject's
-        # fail_under. The #561 -n4 run measured 85.49% actual, so 80 gates a real
-        # regression with a ~5.5 pt buffer (the old 58.5 caught nothing). Ratchet
-        # upward per the pyproject note; never lower without a CHANGELOG rationale.
+      - name: List this shard's tests
+        # Compared with the full collection by the coverage job, so a test file
+        # no shard picks up (or two shards both pick up) fails the build.
+        run: |
+          mapfile -t FILES < <(python3 ../scripts/ci_backend_shards.py "$SHARD_COUNT" "${{ matrix.shard }}")
+          echo "shard ${{ matrix.shard }}/$SHARD_COUNT: ${#FILES[@]} files"
+          uv run pytest --collect-only -q -m 'not perf' "${FILES[@]}" \
+            | grep -E '^tests/[^ ]+\.py::' | sort > "collected-shard-${{ matrix.shard }}.txt"
+          wc -l "collected-shard-${{ matrix.shard }}.txt"
+
+      - name: Run shard tests with coverage
+        # Each shard records coverage data only; the Backend Coverage job
+        # combines them and enforces the 80% floor (aligned with pyproject's
+        # fail_under; never lower it without a CHANGELOG rationale). The
+        # per-shard --cov-fail-under=0 overrides that pyproject value, which a
+        # single shard cannot meet alone.
         #
-        # This is the ONLY full-suite run. The former pytest-parallel-isolation
-        # job became a duplicate the day this job went xdist (#561): both ran the
-        # same suite `-n 4 --dist loadgroup`, differing only by coverage flags
-        # and the 4 `lifecycle` tests — folded in here via `-m 'not perf'`. Any
-        # fixture-isolation regression that job guarded against fails this run
-        # identically. pytest-cov auto-combines each worker's data, so
-        # --cov-fail-under still gates on the full total; --dist loadgroup
-        # (pyproject addopts) co-locates the global-state tenancy tests.
-        #
-        # -n 4 matches the runner's 4 vCPUs. -n 6 was benchmarked in #673 and
-        # measured slightly SLOWER (605s vs 585s pytest step): the suite keeps
-        # the cores saturated, so oversubscribing past core count buys nothing.
-        # --durations=25 keeps the slowest-test tail visible in every run.
-        run: uv run pytest -n 4 -v --tb=short --durations=25 -m 'not perf' --cov=app --cov-report=term-missing --cov-report=html:htmlcov --cov-report=xml:coverage.xml --cov-fail-under=80
+        # -n 4 matches the runner's 4 vCPUs; -n 6 measured slightly slower
+        # because the suite already saturates the cores. --dist loadgroup
+        # (pyproject addopts) co-locates the global-state tenancy tests on one
+        # worker. -m 'not perf' folds in the lifecycle tests. --durations=25
+        # keeps the slowest-test tail visible in every run.
+        run: |
+          mapfile -t FILES < <(python3 ../scripts/ci_backend_shards.py "$SHARD_COUNT" "${{ matrix.shard }}")
+          uv run pytest -n 4 -v --tb=short --durations=25 -m 'not perf' \
+            --cov=app --cov-report= --cov-fail-under=0 "${FILES[@]}"
 
       - name: Verify SAML fixtures unchanged after pytest
         run: |
@@ -1601,13 +1620,16 @@ jobs:
             exit 1
           fi
 
-      - name: Upload backend coverage report
+      - name: Upload shard coverage data
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
         with:
-          name: backend-coverage
-          path: backend/htmlcov/
-          retention-days: 14
+          name: backend-coverage-shard-${{ matrix.shard }}
+          path: |
+            backend/coverage.shard-${{ matrix.shard }}
+            backend/collected-shard-${{ matrix.shard }}.txt
+          if-no-files-found: error
+          retention-days: 1
 
       # fix(#1633): the gpkg byte-determinism gate
       # (test_export_artifact_cache_1532.py::test_every_export_format_is_byte_deterministic)
@@ -1625,9 +1647,95 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
         with:
-          name: determinism-evidence
+          name: determinism-evidence-${{ matrix.shard }}
           path: backend/test-artifacts/determinism/
           if-no-files-found: ignore
+          retention-days: 14
+
+  # Combines the shards' coverage data and gates the total. Skipped when
+  # Backend Tests skipped; blocked (not run) when any shard failed, which CI OK
+  # reports through backend-test itself.
+  backend-coverage:
+    name: Backend Coverage
+    needs: backend-test
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      POSTGRES_USER: geolens
+      POSTGRES_PASSWORD: geolens_test
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: postgres
+      JWT_SECRET_KEY: test-secret-key-for-ci-padding-32chars
+      GEOLENS_ADMIN_USERNAME: admin
+      GEOLENS_ADMIN_PASSWORD: geolens-ci-admin-password
+      PYTHONPATH: .
+      SHARD_COUNT: 4
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+        with:
+          version: "0.10.2"
+          enable-cache: true
+          cache-dependency-glob: "backend/uv.lock"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.14"
+
+      - name: Install Python dependencies
+        run: uv sync --locked --dev
+
+      - name: Download shard coverage data
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
+        with:
+          pattern: backend-coverage-shard-*
+          merge-multiple: true
+          path: backend
+
+      - name: Every test runs in exactly one shard
+        run: |
+          [ "$(ls collected-shard-*.txt | wc -l)" -eq "$SHARD_COUNT" ] \
+            || { echo "::error::expected $SHARD_COUNT shard collections"; ls; exit 1; }
+          [ "$(ls coverage.shard-* | wc -l)" -eq "$SHARD_COUNT" ] \
+            || { echo "::error::expected $SHARD_COUNT coverage data files"; ls; exit 1; }
+          uv run pytest --collect-only -q -m 'not perf' \
+            | grep -E '^tests/[^ ]+\.py::' | sort > collected-full.txt
+          cat collected-shard-*.txt | sort > collected-union.txt
+          DUPES=$(uniq -d collected-union.txt)
+          if [ -n "$DUPES" ]; then
+            echo "::error::tests collected by more than one shard"
+            echo "$DUPES" | head -20
+            exit 1
+          fi
+          if ! diff collected-full.txt collected-union.txt > collected.diff; then
+            echo "::error::the shards' tests differ from the full collection"
+            head -40 collected.diff
+            exit 1
+          fi
+          echo "$(wc -l < collected-full.txt) tests, each in exactly one shard"
+
+      - name: Combine coverage and report
+        run: |
+          uv run coverage combine coverage.shard-*
+          uv run coverage html -d htmlcov
+          uv run coverage xml -o coverage.xml
+          # fail_under comes from pyproject ([tool.coverage.report]); pass it
+          # explicitly so the floor is visible here too.
+          uv run coverage report --show-missing --fail-under=80
+
+      - name: Upload backend coverage report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        with:
+          name: backend-coverage
+          path: |
+            backend/htmlcov/
+            backend/coverage.xml
           retention-days: 14
 
   # ---------- alembic clean-DB upgrade smoke ----------
@@ -1920,6 +2028,7 @@ jobs:
       # step below counts skipped as pass.
       - backend-lint
       - backend-test
+      - backend-coverage
       - installer-test
       - backup-roundtrip
       - openapi-snapshot
