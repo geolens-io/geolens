@@ -469,13 +469,15 @@ async def _until_a_session_waits_on_a_lock() -> None:
     raise AssertionError("the replacement never waited on a lock")
 
 
+@pytest.mark.parametrize("held_first", [False, True], ids=["inserted", "held_table"])
 async def test_a_feature_inserted_while_the_replacement_publishes_holds_it_for_review(
-    harness: _Harness,
+    harness: _Harness, held_first: bool
 ):
-    """An insert in flight when publication begins is counted before the swap."""
+    """A feature write in flight when publication begins is counted before the swap."""
     import app.core.db as db_module
     from sqlalchemy.orm import joinedload
 
+    from app.modules.catalog.features.idempotency import held_table_oid
     from app.modules.catalog.features.service import (
         effective_geometry_type,
         insert_feature,
@@ -502,18 +504,30 @@ async def test_a_feature_inserted_while_the_replacement_publishes_holds_it_for_r
                 .where(Dataset.id == dataset.id)
             )
         ).scalar_one()
-        await insert_feature(
-            writer,
-            live.table_name,
-            {"type": "Point", "coordinates": [-73.97, 40.76]},
-            {"name": "late"},
-            live.column_info or [],
-            await effective_geometry_type(writer, live),
-            dataset_srid=live.srid,
-        )
-        await refresh_dataset_metadata(writer, live)
+        geometry_type = await effective_geometry_type(writer, live)
+
+        async def _write() -> None:
+            await insert_feature(
+                writer,
+                live.table_name,
+                {"type": "Point", "coordinates": [-73.97, 40.76]},
+                {"name": "late"},
+                live.column_info or [],
+                geometry_type,
+                dataset_srid=live.srid,
+            )
+            await refresh_dataset_metadata(writer, live)
+
+        # A feature write holds the table before its DML; resumed while
+        # publication waits, it must neither deadlock nor be dropped.
+        if held_first:
+            await held_table_oid(writer, live.table_name)
+        else:
+            await _write()
         worker = asyncio.create_task(harness.run_worker())
         await _until_a_session_waits_on_a_lock()
+        if held_first:
+            await _write()
         await writer.commit()
     await worker
 

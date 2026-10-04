@@ -204,9 +204,10 @@ async def _detect_reupload_crs(
 async def _hold_live_table(session, dataset, *, schema: str) -> None:
     """Hold the live table still and re-read the dataset row that describes it.
 
-    Column edits and feature writes change the table before the dataset row,
-    so this lock waits for those in flight and keeps new ones out until the
-    swap. It conflicts with itself, so two publishers never share it.
+    Column edits and feature writes take the table before the dataset row, so
+    this waits for those in flight and keeps new ones out until the swap. It is
+    the swap's own lock, taken once: a feature write that already holds the
+    table can't then wait on an upgrade.
     """
     from app.platform.catalog_locks import worker_lock_budget
     from app.processing.ingest.metadata import _qtable
@@ -216,9 +217,9 @@ async def _hold_live_table(session, dataset, *, schema: str) -> None:
         text("SELECT to_regclass(:live) IS NOT NULL"), {"live": live}
     ):
         async with worker_lock_budget(session):
-            # codeql[py/sql-injection] identifiers validated by _qtable (metadata_sql.py)
             await session.execute(
-                text(f"LOCK TABLE {live} IN SHARE ROW EXCLUSIVE MODE")
+                # codeql[py/sql-injection] identifiers validated by _qtable (metadata_sql.py)
+                text(f"LOCK TABLE {live} IN ACCESS EXCLUSIVE MODE")
             )
     await session.refresh(
         dataset,
