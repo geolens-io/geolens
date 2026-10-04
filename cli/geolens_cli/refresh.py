@@ -270,6 +270,20 @@ def _problem_detail(parsed: Any) -> tuple[str | None, str | None]:
     )
 
 
+def require_run_polling_sdk() -> None:
+    """Refuse up front when the installed SDK cannot follow a run to its end."""
+    try:
+        from geolens.api.admin import get_job_status_jobs_job_id_get  # noqa: F401
+        from geolens.api.datasets import (  # noqa: F401
+            list_dataset_refresh_runs_datasets_dataset_id_refresh_runs_get,
+        )
+    except ImportError as exc:
+        raise RefreshRequestError(
+            "The installed geolens SDK is too old for --wait. "
+            "Upgrade it with `pip install -U geolens geolens-cli`."
+        ) from exc
+
+
 def wait_for_refresh(
     client: Any,
     job_id: str | UUID,

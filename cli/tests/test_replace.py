@@ -1535,3 +1535,71 @@ class TestReplaceWithAnOlderSdk:
 
         assert result.exit_code == 1, result.output
         assert "Upgrade" in result.output
+
+
+
+def _drop_run_history_endpoint(monkeypatch) -> None:
+    """Make the installed SDK look like one without the refresh-history endpoint."""
+    import sys
+
+    import geolens.api.datasets as datasets_pkg
+
+    name = "list_dataset_refresh_runs_datasets_dataset_id_refresh_runs_get"
+    monkeypatch.delattr(datasets_pkg, name, raising=False)
+    monkeypatch.setitem(sys.modules, f"geolens.api.datasets.{name}", None)
+
+
+class TestReplaceRendersServerStringsLiterally:
+    def test_bracketed_column_names_print_and_reach_the_prompt(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login(mock_keyring)
+        diff = SimpleNamespace(
+            columns_removed=[SimpleNamespace(name="value[/unit]", type_="integer")],
+            type_changes=[],
+            columns_added=[SimpleNamespace(name="[bold]x", type_="text")],
+            row_count_old=1,
+            row_count_new=1,
+            row_count_delta=0,
+        )
+        _patch_dataset(monkeypatch, _ok_dataset())
+        _patch_upload(monkeypatch, _ok_upload())
+        _patch_preview(
+            monkeypatch,
+            _ok_preview(
+                schema_diff=diff,
+                review_reasons=["destructive_schema_change"],
+                review_fingerprint="fp",
+            ),
+        )
+        _capture_commit(monkeypatch, _ok_commit())
+
+        result = runner.invoke(
+            app, ["replace", str(DATASET_ID), str(sample_geojson)], input="y\n"
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "Removed column: value[/unit] (integer)" in result.output
+        assert "Added column: [bold]x (text)" in result.output
+
+    def test_wait_without_the_run_history_endpoint_refuses_before_uploading(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login(mock_keyring)
+        _drop_run_history_endpoint(monkeypatch)
+
+        def must_not_upload(*a, **k):  # pragma: no cover - guard
+            raise AssertionError("nothing may be uploaded")
+
+        monkeypatch.setattr("geolens_cli.replace.upload_file", must_not_upload)
+
+        result = runner.invoke(
+            app, ["replace", str(DATASET_ID), str(sample_geojson), "--yes", "--wait"]
+        )
+
+        assert result.exit_code == 1, result.output
+        assert "Upgrade" in result.output

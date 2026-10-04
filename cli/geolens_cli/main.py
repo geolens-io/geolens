@@ -320,6 +320,15 @@ def print_manifest_schema(
     typer.echo(str(output))
 
 
+def _require_wait_sdk(state: "AppState") -> None:
+    """Refuse a --wait command before it submits anything an old SDK cannot follow."""
+    try:
+        _refresh.require_run_polling_sdk()
+    except _refresh.RefreshRequestError as exc:
+        state.output.error(exc.message)
+        raise typer.Exit(exc.exit_code)
+
+
 @app.command("apply")
 def apply_manifest_command(
     ctx: typer.Context,
@@ -445,6 +454,8 @@ def apply_manifest_command(
         state.output.error(str(exc))
         raise typer.Exit(EXIT_USAGE)
 
+    if wait and not dry_run:
+        _require_wait_sdk(state)
     sdk = state.sdk()
     payload = _manifest_apply.build_apply_payload(document, dry_run=dry_run)
     try:
@@ -1339,6 +1350,8 @@ def refresh(
         state.output.error(str(exc))
         raise typer.Exit(EXIT_USAGE)
 
+    if wait:
+        _require_wait_sdk(state)
     sdk = state.sdk()
     active_client = sdk.client
 
@@ -1478,6 +1491,8 @@ def replace(
         state.output.error("--json requires --yes to confirm a replace.")
         raise typer.Exit(EXIT_USAGE)
 
+    if wait:
+        _require_wait_sdk(state)
     sdk = state.sdk()
 
     from geolens.api.datasets_reupload import (
@@ -1562,7 +1577,7 @@ def replace(
             # The prompt can acknowledge these reasons, so --quiet must not hide them.
             if not state.json_mode and (summary["review_reasons"] or not state.quiet):
                 for line in _replace.review_lines(summary):
-                    state.output.console_stdout.print(line, soft_wrap=True)
+                    state.output.console_stdout.print(line, soft_wrap=True, markup=False)
 
         # --yes only skips the prompt. The fingerprint acknowledges the
         # preview's review reasons, so only a person reading them sends it.

@@ -1645,3 +1645,57 @@ class TestApplyWaitKeepsRefreshedCredentials:
 
         assert result.exit_code == 0, result.output
         assert json.loads(result.output)["results"][0]["final_status"] == "complete"
+
+
+
+def _drop_run_history_endpoint(monkeypatch) -> None:
+    """Make the installed SDK look like one without the refresh-history endpoint."""
+    import sys
+
+    import geolens.api.datasets as datasets_pkg
+
+    name = "list_dataset_refresh_runs_datasets_dataset_id_refresh_runs_get"
+    monkeypatch.delattr(datasets_pkg, name, raising=False)
+    monkeypatch.setitem(sys.modules, f"geolens.api.datasets.{name}", None)
+
+
+class TestApplyWaitSdkAndMarkup:
+    def test_an_sdk_without_run_history_refuses_before_the_request(
+        self, runner, monkeypatch
+    ) -> None:
+        sdk = _install_fake_sdk(monkeypatch, FakeResponse(200, _apply_response()))
+        _drop_run_history_endpoint(monkeypatch)
+
+        result = runner.invoke(app, ["apply", "--wait", str(_remote_manifest_path())])
+
+        assert result.exit_code == 1, result.output
+        assert "Upgrade" in result.output
+        assert sdk.client.httpx_client.calls == []
+
+    def test_bracketed_names_render_literally_in_the_table(
+        self, runner, monkeypatch
+    ) -> None:
+        _install_fake_sdk(
+            monkeypatch,
+            FakeResponse(
+                200,
+                _apply_response(
+                    results=[
+                        {
+                            "dataset_key": "[bold]x[/unit]",
+                            "action": "skip",
+                            "job_id": None,
+                            "dataset_id": None,
+                            "message": "see [/unit]",
+                            "errors": [],
+                        }
+                    ]
+                ),
+            ),
+        )
+
+        result = runner.invoke(app, ["apply", str(_remote_manifest_path())])
+
+        assert result.exit_code == 0, result.output
+        assert "[bold]x[/unit]" in result.output
+        assert "see [/unit]" in result.output

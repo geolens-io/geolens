@@ -14,6 +14,7 @@ from urllib.parse import urlsplit
 import typer
 from rich.console import Console
 from rich.table import Table
+from rich.text import Text
 
 from ._sdk_helpers import (
     EXIT_AUTH,
@@ -718,6 +719,7 @@ def render_apply_summary(
             f"skip={counts['skip']}, error={counts['error']})"
         ),
         soft_wrap=True,
+        markup=False,
     )
 
     table = Table(title="Manifest apply results")
@@ -738,12 +740,17 @@ def render_apply_summary(
             if not isinstance(result, Mapping):
                 continue
             table.add_row(
-                _cell(result, "dataset_key"),
-                _cell(result, "action"),
-                _cell(result, "dataset_id"),
-                _cell(result, "job_id"),
-                *((_cell(result, "final_status"),) if waited else ()),
-                _cell(result, "message"),
+                *(
+                    Text(_cell(result, key))
+                    for key in (
+                        "dataset_key",
+                        "action",
+                        "dataset_id",
+                        "job_id",
+                        *(("final_status",) if waited else ()),
+                        "message",
+                    )
+                )
             )
 
     console.print(table)
