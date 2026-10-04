@@ -1,0 +1,11 @@
+{
+  "id": "ExAmPlEoRg0123",
+  "name": "Example County GIS",
+  "isPortal": false,
+  "currentVersion": "2026.1",
+  "urlKey": "examplecounty",
+  "user": {
+    "username": "gis_admin",
+    "role": "org_admin"
+  }
+}

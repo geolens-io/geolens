@@ -1,0 +1,149 @@
+{
+  "query": "orgid:ExAmPlEoRg0123",
+  "total": 15,
+  "start": 1,
+  "num": 100,
+  "nextStart": 9,
+  "results": [
+    {
+      "id": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+      "owner": "gis_admin",
+      "created": 1767225600000,
+      "modified": 1767312000000,
+      "title": "Parcels",
+      "type": "Feature Service",
+      "typeKeywords": [
+        "Data",
+        "Service",
+        "Feature Service",
+        "Hosted Service"
+      ],
+      "url": "https://services1.arcgis.com/ExAmPlEoRg0123/arcgis/rest/services/Parcels/FeatureServer",
+      "access": "org",
+      "size": 1048576
+    },
+    {
+      "id": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+      "owner": "gis_admin",
+      "created": 1767225600000,
+      "modified": 1767312000000,
+      "title": "Parcels (public view)",
+      "type": "Feature Service",
+      "typeKeywords": [
+        "Data",
+        "Service",
+        "Feature Service",
+        "Hosted Service",
+        "View Service"
+      ],
+      "url": "https://services1.arcgis.com/ExAmPlEoRg0123/arcgis/rest/services/Parcels_view/FeatureServer",
+      "access": "public",
+      "size": 0
+    },
+    {
+      "id": "a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3",
+      "owner": "gis_admin",
+      "created": 1767225600000,
+      "modified": 1767312000000,
+      "title": "County roads",
+      "type": "Feature Service",
+      "typeKeywords": [
+        "Data",
+        "Service",
+        "Feature Service",
+        "ArcGIS Server"
+      ],
+      "url": "https://gis.example.gov/arcgis/rest/services/Roads/FeatureServer?token=stored-in-item-url-not-a-real-token",
+      "access": "org",
+      "size": -1
+    },
+    {
+      "id": "a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4",
+      "owner": "gis_admin",
+      "created": 1767225600000,
+      "modified": 1767312000000,
+      "title": "Aerial tiles 2025",
+      "type": "Map Service",
+      "typeKeywords": [
+        "Data",
+        "Service",
+        "Map Service",
+        "Hosted Service",
+        "Tiled"
+      ],
+      "url": "https://tiles1.arcgis.com/tiles/ExAmPlEoRg0123/arcgis/rest/services/Aerial_2025/MapServer",
+      "access": "org",
+      "size": 524288000
+    },
+    {
+      "id": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5",
+      "owner": "gis_admin",
+      "created": 1767225600000,
+      "modified": 1767312000000,
+      "title": "Zoning",
+      "type": "Map Service",
+      "typeKeywords": [
+        "Data",
+        "Service",
+        "Map Service",
+        "ArcGIS Server"
+      ],
+      "url": "https://gis.example.gov/arcgis/rest/services/Zoning/MapServer",
+      "access": "org",
+      "size": -1
+    },
+    {
+      "id": "b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1",
+      "owner": "gis_admin",
+      "created": 1767225600000,
+      "modified": 1767312000000,
+      "title": "Parcels viewer map",
+      "type": "Web Map",
+      "typeKeywords": [
+        "ArcGIS Online",
+        "Explorer Web Map",
+        "Map",
+        "Online Map",
+        "Web Map"
+      ],
+      "url": null,
+      "access": "org",
+      "size": 4096
+    },
+    {
+      "id": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+      "owner": "gis_admin",
+      "created": 1767225600000,
+      "modified": 1767312000000,
+      "title": "Broken map",
+      "type": "Web Map",
+      "typeKeywords": [
+        "Web Map"
+      ],
+      "url": null,
+      "access": "private",
+      "size": 1024
+    },
+    {
+      "id": "c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1",
+      "owner": "gis_admin",
+      "created": 1767225600000,
+      "modified": 1767312000000,
+      "title": "Parcel viewer (Web AppBuilder)",
+      "type": "Web Mapping Application",
+      "typeKeywords": [
+        "JavaScript",
+        "Map",
+        "Mapping Site",
+        "Online Map",
+        "Ready To Use",
+        "Web AppBuilder",
+        "WAB2D",
+        "Web Map"
+      ],
+      "url": null,
+      "access": "public",
+      "size": 8192
+    }
+  ]
+}

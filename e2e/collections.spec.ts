@@ -257,7 +257,7 @@ test.describe.serial('Collections', () => {
     await expect(page.getByText('Dataset added to collection')).toBeVisible({
       timeout: 10_000,
     });
-    await expect(page.getByText('No datasets in this collection')).toHaveCount(0);
+    await expect(page.getByText('No datasets in this collection', { exact: true })).toHaveCount(0);
     await expect(page.getByTitle('Remove from collection').first()).toBeVisible();
   });
 
@@ -273,7 +273,7 @@ test.describe.serial('Collections', () => {
     await expect(
       page.getByText('Dataset removed from collection'),
     ).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText('No datasets in this collection')).toBeVisible();
+    await expect(page.getByText('No datasets in this collection', { exact: true })).toBeVisible();
   });
 
   test('delete collection', async ({ page }) => {

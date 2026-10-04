@@ -140,6 +140,7 @@ export function CollectionsPage() {
           icon={Search}
           title={t('search.empty')}
           description={t('search.emptyHint')}
+          announceTrigger={searchQuery.trim().toLowerCase()}
         />
       )}
 

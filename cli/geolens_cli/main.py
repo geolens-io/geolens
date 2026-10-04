@@ -21,6 +21,7 @@ from keyring.errors import KeyringError
 from rich.table import Table
 
 from . import analysis as _analysis
+from . import arcgis_inventory as _arcgis_inventory
 from . import auth as _auth
 from . import config as _config
 from . import export_stac as _export_stac
@@ -47,6 +48,10 @@ export_app = typer.Typer(no_args_is_help=True, help="Export commands")
 app.add_typer(export_app, name="export")
 analysis_app = typer.Typer(no_args_is_help=True, help="Analysis commands")
 app.add_typer(analysis_app, name="analysis")
+arcgis_app = typer.Typer(
+    no_args_is_help=True, help="ArcGIS Online and Portal for ArcGIS commands"
+)
+app.add_typer(arcgis_app, name="arcgis")
 
 
 @dataclass
@@ -2003,3 +2008,98 @@ def analysis_materialize(
             state.output.success(url)
     if materialize_failure:
         raise typer.Exit(materialize_exit_code)
+
+
+@arcgis_app.command("inventory")
+def arcgis_inventory(
+    ctx: typer.Context,
+    portal_url: Annotated[
+        str,
+        typer.Option(
+            "--portal-url",
+            help="ArcGIS Online organization URL, or https://<host>/portal for ArcGIS Enterprise",
+        ),
+    ] = _arcgis_inventory.DEFAULT_PORTAL_URL,
+    token: Annotated[
+        Optional[str],
+        typer.Option(
+            "--token",
+            envvar="ARCGIS_TOKEN",
+            show_envvar=True,
+            help="Existing ArcGIS token (prefer ARCGIS_TOKEN or --token-stdin)",
+        ),
+    ] = None,
+    token_stdin: Annotated[
+        bool, typer.Option("--token-stdin", help="Read the ArcGIS token from stdin")
+    ] = False,
+    username: Annotated[
+        Optional[str],
+        typer.Option(
+            "--username",
+            help="Built-in ArcGIS account; the password comes from ARCGIS_PASSWORD, "
+            "--password-stdin or a prompt",
+        ),
+    ] = None,
+    password_stdin: Annotated[
+        bool,
+        typer.Option("--password-stdin", help="Read the ArcGIS password from stdin"),
+    ] = False,
+    scope: Annotated[
+        _arcgis_inventory.InventoryScope,
+        typer.Option(
+            "--scope",
+            help="user: the signed-in user's items; org: every item the user can see",
+        ),
+    ] = _arcgis_inventory.InventoryScope.user,
+    max_items: Annotated[
+        int, typer.Option("--max-items", help="Stop listing after this many items")
+    ] = _arcgis_inventory.DEFAULT_MAX_ITEMS,
+    concurrency: Annotated[
+        int,
+        typer.Option(
+            "--concurrency", help="Parallel item reads (1-4) for web maps and apps"
+        ),
+    ] = 1,
+    output_dir: Annotated[
+        Optional[Path],
+        typer.Option(
+            "-o",
+            "--output-dir",
+            help="Write arcgis-inventory.json and arcgis-inventory.md here (mode 0600)",
+        ),
+    ] = None,
+    strict: Annotated[
+        bool, typer.Option("--strict", help="Exit 1 when any item could not be read")
+    ] = False,
+    allow_insecure_http: Annotated[
+        bool,
+        typer.Option(
+            "--allow-insecure-http", help="Allow an http:// portal URL (test portals)"
+        ),
+    ] = False,
+) -> None:
+    """Read-only inventory of an ArcGIS organization's content.
+
+    Lists items, classifies what GeoLens can import, flags item types Esri is
+    retiring, and records web map and app dependencies. Prints Markdown, or
+    JSON with --json. Nothing on the portal or in GeoLens is changed, and no
+    GeoLens sign-in is needed.
+    """
+    state: AppState = ctx.obj
+    options = _arcgis_inventory.InventoryOptions(
+        portal_url=portal_url,
+        token=token,
+        token_stdin=token_stdin,
+        username=username,
+        password_stdin=password_stdin,
+        scope=scope.value,
+        max_items=max_items,
+        concurrency=concurrency,
+        output_dir=output_dir,
+        strict=strict,
+        allow_insecure_http=allow_insecure_http,
+        json_mode=state.json_mode,
+    )
+    code = _arcgis_inventory.run_cli(state.output, options)
+    if code:
+        raise typer.Exit(code)

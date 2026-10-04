@@ -1,5 +1,5 @@
 import userEvent from '@testing-library/user-event';
-import { render, screen } from '@/test/test-utils';
+import { act, fireEvent, render, screen, waitFor } from '@/test/test-utils';
 import { CollectionsPage } from '@/pages/CollectionsPage';
 import { useCollections } from '@/components/collections/hooks/use-collections';
 import { useAuthStore } from '@/stores/auth-store';
@@ -89,5 +89,20 @@ describe('CollectionsPage', () => {
     await user.click(screen.getByRole('button', { name: 'newCollection' }));
 
     expect(screen.getByTestId('collection-create-dialog')).toHaveTextContent('open');
+  });
+
+  it('re-announces when a second search also matches nothing', async () => {
+    render(<CollectionsPage />, { route: '/collections' });
+    const input = screen.getByPlaceholderText('search.placeholder');
+    const emptyStatus = () => screen.getAllByRole('status').find((n) => n.textContent?.includes('search.empty'));
+
+    fireEvent.change(input, { target: { value: 'zzz' } });
+    await waitFor(() => expect(emptyStatus()).toBeTruthy());
+
+    act(() => {
+      fireEvent.change(input, { target: { value: 'yyy' } });
+    });
+    expect(emptyStatus()).toBeUndefined();
+    await waitFor(() => expect(emptyStatus()).toBeTruthy());
   });
 });

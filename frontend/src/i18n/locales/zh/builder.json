@@ -691,6 +691,7 @@
     "expiration90Days": "90 天",
     "expirationCustom": "自定义日期…",
     "iframePreviewTitle": "地图嵌入预览",
+    "embedTitleFallback": "嵌入的 GeoLens 地图",
     "iframePreviewToggle": "预览",
     "iframeErrorTitle": "预览不可用",
     "iframeErrorBody": "请检查嵌入地图访问令牌是否有效、共享链接是否处于活动状态。重新加载以重试。",

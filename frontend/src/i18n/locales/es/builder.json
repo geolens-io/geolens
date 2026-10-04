@@ -691,6 +691,7 @@
     "expiration90Days": "90 días",
     "expirationCustom": "Fecha personalizada…",
     "iframePreviewTitle": "Vista previa del mapa incrustado",
+    "embedTitleFallback": "Mapa de GeoLens incrustado",
     "iframePreviewToggle": "Vista previa",
     "iframeErrorTitle": "Vista previa no disponible",
     "iframeErrorBody": "Verifique que el token de incrustación sea válido y que el enlace compartido esté activo. Recargue para reintentar.",

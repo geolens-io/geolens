@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { SharedLayerResponse } from '@/types/api';
 import { AccessibleMapDataPanel } from '../AccessibleMapDataPanel';
@@ -120,5 +120,42 @@ describe('AccessibleMapDataPanel', () => {
 
     expect(screen.getByRole('heading', { name: 'Feature cluster 1', level: 4 })).toBeInTheDocument();
     expect(screen.getByText('Cluster containing 42 features')).toBeInTheDocument();
+  });
+
+  it('announces the result summary once the map settles, not on every refresh', () => {
+    vi.useFakeTimers();
+    try {
+      const panel = (total: number) => (
+        <AccessibleMapDataPanel
+          layers={[LAYER]}
+          visibleLayers={new Set(['layer-1'])}
+          featureResult={{ ...RESULT, total }}
+          open
+          onOpenChange={vi.fn()}
+          onRefresh={vi.fn()}
+        />
+      );
+      const { rerender } = render(panel(1));
+      const live = screen.getByRole('status');
+      // Opened with a summary already available: the region must start empty.
+      expect(live).toBeEmptyDOMElement();
+
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(live.textContent).toContain('1');
+
+      const settled = live.textContent;
+      rerender(panel(2));
+      rerender(panel(3));
+      expect(live.textContent).toBe(settled);
+
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(live.textContent).toContain('3');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

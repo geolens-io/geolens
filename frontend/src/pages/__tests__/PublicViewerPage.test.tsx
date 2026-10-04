@@ -1,11 +1,12 @@
 import type { ReactNode } from 'react';
 import { Route, Routes } from 'react-router';
-import { act, render, screen } from '@/test/test-utils';
+import { act, render, screen, within } from '@/test/test-utils';
 import { PublicViewerPage } from '../PublicViewerPage';
 import { useSharedMap } from '@/hooks/use-maps';
 import { useViewerLayers } from '@/components/viewer/hooks/use-viewer-layers';
 import { useEdition } from '@/hooks/use-edition';
 import { useBranding } from '@/hooks/use-settings';
+import { useDocumentTitle } from '@/hooks/use-document-title';
 import { ApiError } from '@/api/client';
 import type { ViewerMap } from '@/components/viewer/ViewerMap';
 import type { LayerLegend } from '@/components/viewer/LayerLegend';
@@ -159,6 +160,45 @@ describe('PublicViewerPage', () => {
     mockedUseBranding.mockReturnValue({
       data: { show_badge: false, privacy_url: null },
     } as ReturnType<typeof useBranding>);
+  });
+
+  it('titles the document with the shared map name', () => {
+    renderPage();
+    expect(vi.mocked(useDocumentTitle)).toHaveBeenLastCalledWith('Shared map');
+  });
+
+  it('falls back to the generic title while the map is unresolved', () => {
+    mockedUseSharedMap.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+      isError: false,
+      error: null,
+    } as ReturnType<typeof useSharedMap>);
+    renderPage();
+    expect(vi.mocked(useDocumentTitle)).toHaveBeenLastCalledWith('Shared Map');
+  });
+
+  it('wraps the loading branch in a main landmark', () => {
+    mockedUseSharedMap.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+      isError: false,
+      error: null,
+    } as ReturnType<typeof useSharedMap>);
+    renderPage();
+    expect(screen.getByRole('main')).toBeInTheDocument();
+  });
+
+  it('wraps the error branch in a main landmark and announces it as an alert', () => {
+    mockedUseSharedMap.mockReturnValue({
+      data: null,
+      isLoading: false,
+      isError: false,
+      error: null,
+    } as unknown as ReturnType<typeof useSharedMap>);
+    renderPage();
+    const main = screen.getByRole('main');
+    expect(within(main).getByRole('alert')).toHaveTextContent(/map not found/i);
   });
 
   it('renders footer links on shared-map pages even when enterprise branding is disabled', () => {
