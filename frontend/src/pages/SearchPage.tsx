@@ -198,6 +198,7 @@ export function SearchPage() {
               // A positive total with an empty page means the current offset is out of range.
               hasActiveSearch || totalMatched > 0 ? (
                 <EmptyState
+                  announce={false}
                   icon={SearchX}
                   title={t('empty.catalogResultsTitle')}
                   description={t('empty.catalogResultsDescription')}
@@ -210,6 +211,7 @@ export function SearchPage() {
                 />
               ) : (
                 <EmptyState
+                  announce={false}
                   icon={Database}
                   title={t('empty.catalogTitle', { defaultValue: 'Your catalog is empty' })}
                   description={t('empty.catalogDescription', {

@@ -230,6 +230,16 @@ describe('SearchPage', () => {
       await waitFor(() => expect(statusTexts()).toContain('No catalog results found'));
     });
 
+    it('carries the empty outcome in exactly one live region', async () => {
+      setAnonymousUser();
+      setResults(empty, false);
+      render(<SearchPage />, { route: '/' });
+      await waitFor(() => expect(statusTexts()).toContain('No catalog results found'));
+      // Let any second announcer finish filling before counting.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(statusTexts().filter((text) => text?.includes('No catalog results found'))).toHaveLength(1);
+    });
+
     it('still announces after a second empty search', async () => {
       setAnonymousUser();
       setResults(empty, false);

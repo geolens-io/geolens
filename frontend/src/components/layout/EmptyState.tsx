@@ -8,9 +8,11 @@ interface EmptyStateProps {
   description?: string;
   action?: ReactNode;
   className?: string;
+  /** Set false when an enclosing live region already announces the same outcome. */
+  announce?: boolean;
 }
 
-export function EmptyState({ icon: Icon, title, description, action, className }: EmptyStateProps) {
+export function EmptyState({ icon: Icon, title, description, action, className, announce = true }: EmptyStateProps) {
   return (
     <div className={cn('flex flex-col items-center justify-center py-16 gap-4 graticule rounded-lg border border-dashed border-border', className)}>
       <Icon className="size-10 text-muted-foreground/40" aria-hidden="true" />
@@ -18,7 +20,7 @@ export function EmptyState({ icon: Icon, title, description, action, className }
         <p className="text-lg font-medium text-foreground">{title}</p>
         {description && <p className="text-sm text-muted-foreground max-w-md">{description}</p>}
       </div>
-      <LiveAnnouncement text={description ? `${title}. ${description}` : title} />
+      {announce && <LiveAnnouncement text={description ? `${title}. ${description}` : title} />}
       {action && <div className="mt-2">{action}</div>}
     </div>
   );
