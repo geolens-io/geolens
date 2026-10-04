@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import shutil
 import subprocess
@@ -449,6 +450,82 @@ async def test_a_column_added_while_the_replacement_stages_holds_it_for_review(
         )
     )
     assert kept == 3
+
+
+async def _until_a_session_waits_on_a_lock() -> None:
+    import app.core.db as db_module
+
+    for _ in range(300):
+        async with db_module.async_session() as probe:
+            waiting = await probe.scalar(
+                text(
+                    "SELECT count(*) FROM pg_stat_activity "
+                    "WHERE wait_event_type = 'Lock' AND datname = current_database()"
+                )
+            )
+        if waiting:
+            return
+        await asyncio.sleep(0.1)
+    raise AssertionError("the replacement never waited on a lock")
+
+
+async def test_a_feature_inserted_while_the_replacement_publishes_holds_it_for_review(
+    harness: _Harness,
+):
+    """An insert in flight when publication begins is counted before the swap."""
+    import app.core.db as db_module
+    from sqlalchemy.orm import joinedload
+
+    from app.modules.catalog.features.service import (
+        effective_geometry_type,
+        insert_feature,
+        refresh_dataset_metadata,
+    )
+
+    source = _geojson(harness.tmp_path / "source.geojson", _BASE)
+    dataset = await harness.dataset()
+    await harness.replace(
+        dataset, _ogr2ogr(harness.tmp_path / "e1.gpkg", source, "-where", "1 = 0")
+    )
+    job_id = await harness.upload_job(
+        dataset,
+        str(_ogr2ogr(harness.tmp_path / "e2.gpkg", source, "-where", "1 = 0")),
+        "e2.gpkg",
+    )
+    await harness.commit(dataset, job_id)
+
+    async with db_module.async_session() as writer:
+        live = (
+            await writer.execute(
+                select(Dataset)
+                .options(joinedload(Dataset.record))
+                .where(Dataset.id == dataset.id)
+            )
+        ).scalar_one()
+        await insert_feature(
+            writer,
+            live.table_name,
+            {"type": "Point", "coordinates": [-73.97, 40.76]},
+            {"name": "late"},
+            live.column_info or [],
+            await effective_geometry_type(writer, live),
+            dataset_srid=live.srid,
+        )
+        await refresh_dataset_metadata(writer, live)
+        worker = asyncio.create_task(harness.run_worker())
+        await _until_a_session_waits_on_a_lock()
+        await writer.commit()
+    await worker
+
+    run = await harness.run_for(job_id)
+    assert run.status == "blocked", run.verification
+    assert run.verification["review_reasons"] == ["empty_result"]
+    kept = await harness.session.scalar(
+        text(
+            f'SELECT count(*) FROM "data"."{dataset.table_name}" WHERE name = \'late\''
+        )
+    )
+    assert kept == 1
 
 
 # 7: the preview and the worker fingerprint the same subject

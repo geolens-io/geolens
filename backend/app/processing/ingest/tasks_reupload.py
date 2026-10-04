@@ -201,11 +201,12 @@ async def _detect_reupload_crs(
     return info, effective_srid
 
 
-async def _hold_live_schema(session, dataset, *, schema: str) -> None:
-    """Hold the live table's columns still and re-read the dataset row they describe.
+async def _hold_live_table(session, dataset, *, schema: str) -> None:
+    """Hold the live table still and re-read the dataset row that describes it.
 
-    A column edit alters the live table before it writes the dataset row, so
-    with this lock held the row's columns are the table's until the commit.
+    Column edits and feature writes change the table before the dataset row,
+    so this lock waits for those in flight and keeps new ones out until the
+    swap. It conflicts with itself, so two publishers never share it.
     """
     from app.platform.catalog_locks import worker_lock_budget
     from app.processing.ingest.metadata import _qtable
@@ -216,7 +217,9 @@ async def _hold_live_schema(session, dataset, *, schema: str) -> None:
     ):
         async with worker_lock_budget(session):
             # codeql[py/sql-injection] identifiers validated by _qtable (metadata_sql.py)
-            await session.execute(text(f"LOCK TABLE {live} IN ACCESS SHARE MODE"))
+            await session.execute(
+                text(f"LOCK TABLE {live} IN SHARE ROW EXCLUSIVE MODE")
+            )
     await session.refresh(
         dataset,
         attribute_names=["column_info", "feature_count", "srid", "is_3d", "n_dims"],
@@ -398,7 +401,7 @@ class _FileReupload:
         from app.processing.ingest.metadata import get_geometry_types
 
         schema = _current_tenant_schema()
-        await _hold_live_schema(session, dataset, schema=schema)
+        await _hold_live_table(session, dataset, schema=schema)
         # The function and transaction `project()` diffs with after the swap.
         self.schema_diff = catalog_projection.schema_diff(dataset, self.measurement)
         self.verification = refresh_policy.verify_file_replacement(
@@ -1144,7 +1147,7 @@ class _ServiceReupload:
         from app.processing.ingest.metadata import get_geometry_types
 
         schema = _current_tenant_schema()
-        await _hold_live_schema(session, dataset, schema=schema)
+        await _hold_live_table(session, dataset, schema=schema)
         self.measured_schema_diff = catalog_projection.schema_diff(
             dataset, self.measurement
         )
