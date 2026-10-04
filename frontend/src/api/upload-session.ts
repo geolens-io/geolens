@@ -3,7 +3,7 @@ import { commitFanOut } from './datasets';
 import { ApiError } from './client';
 import { useAuthStore } from '@/stores/auth-store';
 import { randomId } from '@/lib/random-id';
-import { inferImportedKind, isFilePreview, stripExtension } from '@/lib/import-preview';
+import { detectedGeometryRequest, inferImportedKind, isFilePreview, stripExtension } from '@/lib/import-preview';
 import type {
   CommitImportRequest,
   DataKind,
@@ -299,6 +299,9 @@ export async function commitUploadEntries(
   if (autoOpenVrt && current) current.autoOpenVrt = true;
   await Promise.all(entries.map((entry) => commitEntry(entry.id, {
     title: stripExtension(entry.previewData?.source_filename ?? entry.fileName) || 'Untitled',
+    ...(entry.previewData && isFilePreview(entry.previewData)
+      ? detectedGeometryRequest(entry.previewData)
+      : {}),
   }, 'all')));
 }
 

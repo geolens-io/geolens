@@ -157,7 +157,8 @@
       "fileInvalidType": "文件类型必须是以下之一：{{types}}",
       "fileTooLarge": "文件超过 {{size}} MB 的限制",
       "fileTooSmall": "文件小于最小大小",
-      "tooManyFiles": "每批最多 {{max}} 个文件"
+      "tooManyFiles": "每批最多 {{max}} 个文件",
+      "kindOnly": "此模式不导入 {{ext}} 文件。请改选“{{mode}}”"
     },
     "sizeLimit": "每个文件最大 500 MB",
     "sizeLimitDynamic": "每个文件最大 {{size}} MB",

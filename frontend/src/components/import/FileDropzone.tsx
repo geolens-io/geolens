@@ -24,6 +24,12 @@ export function effectiveBatchLimit(remainingQuota: number | null | undefined): 
     : MAX_BATCH_FILES;
 }
 
+// Extensions the geospatial-files mode never takes, and the mode that does.
+const KIND_ONLY_MODES = [
+  { ext: '.3tz', modeKey: 'upload.kindTileset' },
+  { ext: '.laz', modeKey: 'upload.kindPointCloud' },
+];
+
 interface FileDropzoneProps {
   onFilesAccepted: (files: File[]) => void;
   allowedExtensions?: string[];
@@ -101,7 +107,12 @@ export function FileDropzone({ onFilesAccepted, allowedExtensions, maxSizeMb, re
 
   const onDropRejected = useCallback((rejections: FileRejection[]) => {
     for (const { file, errors } of rejections) {
-      const reason = errors.map(rejectionReason).join(', ');
+      const kindOnly = !tileset && !pointcloud && errors.some((e) => e.code === ErrorCode.FileInvalidType)
+        ? KIND_ONLY_MODES.find(({ ext }) => file.name.toLowerCase().endsWith(ext))
+        : undefined;
+      const reason = kindOnly
+        ? t('dropzone.rejectionReason.kindOnly', { ext: kindOnly.ext, mode: t(kindOnly.modeKey) })
+        : errors.map(rejectionReason).join(', ');
       toast.error(t('dropzone.fileRejected', { filename: file.name, reason }));
     }
   }, [t, rejectionReason]);

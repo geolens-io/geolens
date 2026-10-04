@@ -49,3 +49,16 @@ export function inferImportedKind(
 
   return 'table';
 }
+
+/** Geometry columns the single-file form submits unchanged: its auto mode. */
+export function detectedGeometryRequest(
+  preview: FilePreviewResponse,
+): Pick<CommitImportRequest, 'x_column' | 'y_column' | 'geom_column'> {
+  const detected = preview.detected_geometry_columns;
+  if (preview.geometry_type || !detected) return {};
+  if (detected.x_column && detected.y_column) {
+    return { x_column: detected.x_column, y_column: detected.y_column };
+  }
+  if (detected.wkt_column) return { geom_column: detected.wkt_column };
+  return {};
+}

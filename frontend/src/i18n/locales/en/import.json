@@ -157,7 +157,8 @@
       "fileInvalidType": "File type must be one of: {{types}}",
       "fileTooLarge": "File is larger than the {{size}} MB limit",
       "fileTooSmall": "File is smaller than the minimum size",
-      "tooManyFiles": "Up to {{max}} files per batch"
+      "tooManyFiles": "Up to {{max}} files per batch",
+      "kindOnly": "{{ext}} files are not imported in this mode. Choose \"{{mode}}\" instead"
     },
     "sizeLimit": "Max 500 MB per file",
     "sizeLimitDynamic": "Max {{size}} MB per file",

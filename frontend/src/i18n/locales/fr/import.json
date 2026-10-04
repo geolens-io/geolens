@@ -131,7 +131,8 @@
       "fileInvalidType": "Le type de fichier doit être l'un des suivants : {{types}}",
       "fileTooLarge": "Le fichier dépasse la limite de {{size}} Mo",
       "fileTooSmall": "Le fichier est plus petit que la taille minimale",
-      "tooManyFiles": "Jusqu'à {{max}} fichiers par lot"
+      "tooManyFiles": "Jusqu'à {{max}} fichiers par lot",
+      "kindOnly": "Les fichiers {{ext}} ne s'importent pas dans ce mode. Choisissez « {{mode}} »"
     },
     "sizeLimit": "500 Mo maximum par fichier",
     "sizeLimitDynamic": "{{size}} Mo maximum par fichier",
