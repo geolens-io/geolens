@@ -18,7 +18,7 @@ from sqlalchemy import select
 from app.core.db.tenant_session import tenant_task
 from app.core.record_types import capabilities
 from app.platform.catalog_locks import CATALOG_LOCK_CONFLICT_CODE, CatalogLockConflict
-from app.platform.dataset_origin import build_origin_ref, classify_origin
+from app.platform.dataset_origin import classify_origin, set_dataset_origin
 from app.platform.jobs.models import EXPECTED_PREVIOUS_VERSION_KEY
 from app.platform.jobs.heartbeat import (
     attempt_scoped_staging_table,
@@ -49,26 +49,22 @@ _NOT_APPLICABLE = "restore_not_applicable"
 
 
 def _reinstate_upload_source(dataset, source) -> None:
-    """Point an upload dataset's source fields back at the kept version's file.
+    """Point the dataset's source fields back at the kept version's upload.
 
-    A service or registered origin keeps its binding, a kept version that did
-    not come from an upload is not described by upload fields, and a first
-    import has no version row to read, so all three are left as they are.
+    A kept version that did not come from an upload is not described by upload
+    fields, and a first import has no version row to read, so both leave the
+    dataset's binding as it is.
     """
-    ref = dataset.origin_ref
     if (
         source is None
-        or not isinstance(ref, dict)
-        or ref.get("kind") != "upload"
         or not source.source_format
         or classify_origin(source.source_format) != "upload"
     ):
         return
     dataset.source_filename = source.source_filename
     dataset.source_format = source.source_format
-    # A new dict, so the JSONB change is seen.
-    dataset.origin_ref = build_origin_ref(
-        "upload", filename=source.source_filename, file_hash=source.file_hash
+    set_dataset_origin(
+        dataset, "upload", filename=source.source_filename, file_hash=source.file_hash
     )
 
 

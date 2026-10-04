@@ -1381,3 +1381,52 @@ async def test_a_restore_of_service_data_leaves_the_upload_binding_alone(
         assert (row.source_filename, row.source_format) == ("c.gpkg", "gpkg")
     finally:
         await _cleanup(session, dataset)
+
+
+async def test_a_restore_of_an_upload_replaces_a_service_binding(
+    client: AsyncClient, test_db_session, admin_auth_header
+) -> None:
+    """The kept upload's file, not the service that replaced it, is what the dataset names."""
+    session = test_db_session
+    admin_id, dataset = await _seed(session)
+    try:
+        await _replace(
+            session,
+            dataset,
+            admin_id,
+            ["paris"],
+            filename="b.gpkg",
+            source_format="gpkg",
+        )
+        await _replace(session, dataset, admin_id, ["london"], filename="c.gpkg")
+        await session.execute(
+            text(
+                "UPDATE catalog.datasets SET source_format = 'wfs', "
+                "source_filename = 'roads', "
+                "origin_uri = 'https://svc.example/wfs', "
+                "origin_ref = CAST(:ref AS jsonb) WHERE id = :id"
+            ),
+            {
+                "ref": '{"kind": "service", "service_type": "wfs", '
+                '"url": "https://svc.example/wfs"}',
+                "id": dataset.id,
+            },
+        )
+        await session.commit()
+
+        await _restore(client, admin_auth_header, session, dataset, 2)
+
+        row = (
+            await session.execute(
+                text(
+                    "SELECT source_filename, source_format, origin_uri, origin_ref "
+                    "FROM catalog.datasets WHERE id = :id"
+                ),
+                {"id": dataset.id},
+            )
+        ).one()
+        assert (row.source_filename, row.source_format) == ("b.gpkg", "gpkg")
+        assert row.origin_uri is None
+        assert row.origin_ref["kind"] == "upload"
+    finally:
+        await _cleanup(session, dataset)
