@@ -65,6 +65,7 @@ from app.platform.refresh.credentials import (
 )
 from app.platform.refresh import verification as refresh_policy
 from app.platform.refresh.service import DatasetBusyError, create_pending_run
+from app.platform.column_names import stored_column_names
 from app.platform.dataset_origin import classify_origin
 from app.platform.extensions import get_catalog_port
 from app.core.persistent_config import UPLOAD_MAX_SIZE_MB, get_allowed_extensions_list
@@ -603,14 +604,11 @@ def _diffable_columns(columns: list[dict], *, file_path: str) -> list[dict]:
     against the stored column would report a type change for nearly every
     CSV re-upload. Every other format's import keeps the preview's type.
     """
-    port = get_catalog_port()
     csv = file_path.lower().endswith(".csv")
+    stored = stored_column_names([c["name"] for c in columns])
     return [
-        {
-            **({"name": c["name"], "type": "String"} if csv else c),
-            "name": port.stored_column_name(c["name"]),
-        }
-        for c in columns
+        {**({"name": c["name"], "type": "String"} if csv else c), "name": name}
+        for c, name in zip(columns, stored, strict=True)
     ]
 
 

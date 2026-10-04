@@ -546,15 +546,6 @@ LAT_PATTERNS = {"lat", "latitude", "y", "lat_dd", "ycoord"}
 LNG_PATTERNS = {"lon", "lng", "long", "longitude", "x", "lon_dd", "xcoord"}
 WKT_PATTERNS = {"wkt", "geom", "geometry", "the_geom", "shape"}
 
-# Column names that collide with GeoLens-internal PostGIS columns created
-# during ingestion. If a source file has an attribute with any of these
-# names, the ingest pipeline auto-renames it to `src_<name>` before the
-# remaining post-ingest steps run. See metadata_geometry.py
-# rename_reserved_columns.
-RESERVED_COLUMN_NAMES: frozenset[str] = frozenset(
-    {"gid", "geom", "geometry", "geom_4326", "fid", "ogc_fid"}
-)
-
 
 def detect_geometry_columns(columns: list[dict]) -> dict:
     """Detect potential geometry columns from column metadata.

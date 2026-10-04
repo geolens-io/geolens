@@ -11,13 +11,16 @@ go wrong — shapefile DBF truncates to 10 characters — and is reported to
 the user rather than repaired.
 """
 
-import re
-
 import structlog
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.platform.column_names import (
+    RESERVED_COLUMN_NAMES,
+    free_name,
+    reserved_rename_base,
+)
 from app.processing.ingest.metadata_sql import (
     _TABLE_NAME_RE,
     _qtable,
@@ -265,42 +268,6 @@ async def ensure_geom_column(
     return True
 
 
-def _reserved_rename_base(col_name: str) -> str:
-    """The name ``rename_reserved_columns`` gives a column, before any collision suffix."""
-    from app.processing.ingest.ogr import RESERVED_COLUMN_NAMES
-
-    if ":" not in col_name:
-        return f"src_{col_name}"
-    # fix(#640): launder to a safe name; must start with a letter or the
-    # identifier validator rejects it (":id" -> "id", not "_id").
-    base = re.sub(r"[^A-Za-z0-9_]", "_", col_name).strip("_")
-    if not base or not base[0].isalpha():
-        base = f"col_{base}" if base else "col"
-    # A laundered name may hit an internal one (":geom" -> "geom") — apply
-    # the reserved-name rule so staging's own geometry columns stay
-    # uncontested.
-    if base in RESERVED_COLUMN_NAMES:
-        base = f"src_{base}"
-    return base[:63]
-
-
-def stored_column_name(source_name: str) -> str:
-    """The column name a source field is stored under once a file is loaded.
-
-    ogr2ogr's PostgreSQL laundering (ASCII lowercase; ``'``, ``-`` and ``#``
-    become ``_``), then the reserved-name rename. A rename that collides with
-    another column gets a suffix this does not predict.
-    """
-    from app.processing.ingest.ogr import RESERVED_COLUMN_NAMES
-
-    laundered = "".join(
-        "_" if ch in "'-#" else ch.lower() if ch.isascii() else ch for ch in source_name
-    )
-    if laundered in RESERVED_COLUMN_NAMES or ":" in laundered:
-        return _reserved_rename_base(laundered)
-    return laundered
-
-
 async def rename_reserved_columns(
     session: AsyncSession,
     table_name: str,
@@ -328,8 +295,6 @@ async def rename_reserved_columns(
     Returns rename records (``{"original": ..., "renamed": ...}``) for
     ``job.user_metadata['warnings']``.
     """
-    from app.processing.ingest.ogr import RESERVED_COLUMN_NAMES
-
     _validate_table_name(table_name)
     _validate_table_name(schema)
 
@@ -381,13 +346,9 @@ async def rename_reserved_columns(
                         if data_type == "USER-DEFINED" and udt_name == "geometry":
                             continue
 
-                base = _reserved_rename_base(col_name)
+                base = reserved_rename_base(col_name)
 
-                target = base
-                suffix = 2
-                while target in all_column_names:
-                    target = f"{base[:60]}_{suffix}"
-                    suffix += 1
+                target = free_name(base, all_column_names)
 
                 q_orig = _sql_quote_ident(col_name)
                 q_target = _sql_quote_ident(target)
