@@ -33,6 +33,7 @@ import {
   vrtGenerationColors,
 } from '@/lib/status-colors';
 import { useAuthStore } from '@/stores/auth-store';
+import { useDrawingStore } from '@/stores/drawing-store';
 import type {
   DatasetOrigin,
   DatasetRefreshRequest,
@@ -339,6 +340,10 @@ function RefreshRunHistory({
   const refreshRunQuery = skip > 0 ? { skip, limit } : { limit };
   const { data, isLoading, isError, isFetching } = useDatasetRefreshRuns(dataset.id, refreshRunQuery);
   const cancelRefreshJob = useCancelRefreshJob();
+  // The refresh action refuses while a feature of this dataset is selected.
+  const hasSelectedFeature = useDrawingStore(
+    (s) => s.targetDatasetId === dataset.id && s.selectedFeature !== null,
+  );
   const runs = useMemo(() => data?.runs ?? [], [data?.runs]);
   const targetRunId = typeof window !== 'undefined' && window.location.hash.startsWith('#refresh-run-')
     ? window.location.hash.slice(1)
@@ -518,24 +523,29 @@ function RefreshRunHistory({
                     && run.verification.review_fingerprint
                     && !run.verification.acceptance_consumed_by_run_id
                     && onAcceptBlockedRun && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={refreshBusy}
-                      onClick={() => {
-                        const sourcePolicy = run.verification?.source_binding.verification_policy;
-                        const verificationPolicy = sourcePolicy === 'arcgis_id_set_v1'
-                          ? sourcePolicy
-                          : run.verification?.verification_policy === 'arcgis_id_set_v1'
-                            ? run.verification.verification_policy
-                            : undefined;
-                        onAcceptBlockedRun(run.origin_kind === 'upload'
-                          ? { id: run.id, upload: true }
-                          : { id: run.id, verificationPolicy });
-                      }}
-                    >
-                      {t('sourcePanel.refresh.history.reviewAndRetry')}
-                    </Button>
+                    <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={refreshBusy || hasSelectedFeature}
+                        onClick={() => {
+                          const sourcePolicy = run.verification?.source_binding.verification_policy;
+                          const verificationPolicy = sourcePolicy === 'arcgis_id_set_v1'
+                            ? sourcePolicy
+                            : run.verification?.verification_policy === 'arcgis_id_set_v1'
+                              ? run.verification.verification_policy
+                              : undefined;
+                          onAcceptBlockedRun(run.origin_kind === 'upload'
+                            ? { id: run.id, upload: true }
+                            : { id: run.id, verificationPolicy });
+                        }}
+                      >
+                        {t('sourcePanel.refresh.history.reviewAndRetry')}
+                      </Button>
+                      {hasSelectedFeature && (
+                        <p>{t('sourcePanel.refresh.featureEditBlockedHint')}</p>
+                      )}
+                    </>
                   )}
                 </div>
               )}
