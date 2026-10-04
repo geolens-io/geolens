@@ -823,6 +823,41 @@ async def test_refresh_small_layer_keeps_single_fetch(
     assert [r.status for r in runs] == ["succeeded"]
 
 
+@pytest.mark.anyio
+async def test_refresh_single_fetch_orders_by_the_layers_own_oid_field(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+):
+    """The unpaged fetch orders by the layer's declared OID, not the stored hint."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
+    test_db_session.add(
+        IngestJob(
+            dataset_id=dataset.id,
+            source_filename="Big",
+            source_url=_ARCGIS_BASE,
+            source_layer="0",
+            created_by=admin_id,
+            status="complete",
+            completed_at=datetime.now(timezone.utc),
+            user_metadata={"object_id_field": "OBJECTID"},
+        )
+    )
+    await test_db_session.commit()
+
+    async def _fake_page_info(source_url, layer_id, token):
+        return 251, 2000, True, "FID"
+
+    monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)
+
+    calls: list[dict] = []
+    task_kwargs = await _dispatch_refresh(client, admin_auth_header, dataset.id)
+    await _execute_with_fake(task_kwargs, _fake_ogr2ogr(calls, lambda i: 251))
+
+    assert len(calls) == 1, calls
+    query = parse_qs(urlparse(calls[0]["source"].split(":", 1)[1]).query)
+    assert query["orderByFields"] == ["FID ASC"], calls[0]["source"]
+
+
 def _arcgis_id_plan(ids: tuple[int, ...]) -> ArcGISIDPlan:
     from hashlib import sha256
     import json

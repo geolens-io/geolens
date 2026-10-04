@@ -947,7 +947,7 @@ async def ingest_service(
                 layer_name,
                 layer_id,
                 token=token,
-                order_field=object_id_field,
+                order_field=pagination_order_field or object_id_field,
             )
             await run_ogr2ogr_service(
                 _src,

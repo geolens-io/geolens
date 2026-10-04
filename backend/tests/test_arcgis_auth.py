@@ -243,8 +243,8 @@ async def test_arcgis_object_id_field_extraction():
 
 
 @pytest.mark.asyncio
-async def test_arcgis_object_id_field_default():
-    """When no objectIdField in metadata, default to OBJECTID."""
+async def test_arcgis_object_id_field_unknown_when_root_omits_it():
+    """A root without objectIdField leaves the layer's OID field unknown."""
 
     def handle(request: httpx.Request) -> httpx.Response:
         return _streaming_json_response(
@@ -260,7 +260,7 @@ async def test_arcgis_object_id_field_default():
             "https://services.arcgis.com/svc/FeatureServer", client
         )
     assert result is not None
-    assert result["layers"][0]["object_id_field"] == "OBJECTID"
+    assert result["layers"][0]["object_id_field"] is None
 
 
 def test_build_gdal_source_custom_oid():

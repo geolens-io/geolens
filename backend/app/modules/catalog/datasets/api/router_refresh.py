@@ -903,9 +903,9 @@ async def _prior_service_ingest_settings(
 
     Neither belongs in ``origin_ref`` — the allowlist there is deliberately
     the pointer and nothing else — but both change what a refresh produces.
-    ``object_id_field`` is the ArcGIS paging order key, and a service whose
-    key is not ``OBJECTID`` pages incorrectly without it; ``source_filename``
-    is what the version row and the dataset's display name carry forward.
+    ``object_id_field`` is the ArcGIS order key the worker falls back to
+    when it can't read the layer's own JSON; ``source_filename`` is what the
+    version row and the dataset's display name carry forward.
     Reading them from the previous job keeps a refresh reproducing the last
     good ingest rather than a default that happened to work for most
     services. Absent for a dataset whose jobs have aged out of retention, in

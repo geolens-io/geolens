@@ -529,6 +529,8 @@ async def _probe_arcgis_service_within_deadline(
 
     layers = []
 
+    # Root layer lists usually omit objectIdField, and a guessed name makes
+    # the server reject the query; the worker reads the layer's own JSON.
     service_oid = data.get("objectIdField")
 
     for layer in data.get("layers", []):
@@ -539,9 +541,7 @@ async def _probe_arcgis_service_within_deadline(
                 "title": layer.get("title"),
                 "geometry_type": _normalize_esri_geom_type(layer.get("geometryType")),
                 "type": "layer",
-                "object_id_field": layer.get("objectIdField")
-                or service_oid
-                or "OBJECTID",
+                "object_id_field": layer.get("objectIdField") or service_oid,
             }
         )
 

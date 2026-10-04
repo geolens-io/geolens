@@ -793,7 +793,7 @@ async def _fetch_service_layer_with_paging_guard(
         layer_name,
         layer_id,
         token=token,
-        order_field=fallback_order_field,
+        order_field=pagination_order_field or fallback_order_field,
     )
     await run_ogr2ogr_service(
         gdal_source,
