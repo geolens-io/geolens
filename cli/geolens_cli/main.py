@@ -33,6 +33,7 @@ from . import replace as _replace
 from . import scan as _scan
 from ._sdk_helpers import (
     EXIT_AUTH,
+    EXIT_BLOCKED,
     EXIT_GENERIC,
     EXIT_NETWORK,
     EXIT_USAGE,
@@ -319,6 +320,15 @@ def print_manifest_schema(
     typer.echo(str(output))
 
 
+def _require_wait_sdk(state: "AppState") -> None:
+    """Refuse a --wait command before it submits anything an old SDK cannot follow."""
+    try:
+        _refresh.require_run_polling_sdk()
+    except _refresh.RefreshRequestError as exc:
+        state.output.error(exc.message)
+        raise typer.Exit(exc.exit_code)
+
+
 @app.command("apply")
 def apply_manifest_command(
     ctx: typer.Context,
@@ -348,6 +358,16 @@ def apply_manifest_command(
             ),
         ),
     ] = None,
+    wait: Annotated[
+        bool,
+        typer.Option(
+            "--wait/--no-wait",
+            help=(
+                "Follow each queued job to its end and report its outcome. "
+                "Exits 1 if any entry failed, else 6 if any is blocked for review."
+            ),
+        ),
+    ] = False,
 ) -> None:
     """Apply a geolens.yaml manifest through the configured GeoLens API.
 
@@ -434,6 +454,8 @@ def apply_manifest_command(
         state.output.error(str(exc))
         raise typer.Exit(EXIT_USAGE)
 
+    if wait and not dry_run:
+        _require_wait_sdk(state)
     sdk = state.sdk()
     payload = _manifest_apply.build_apply_payload(document, dry_run=dry_run)
     try:
@@ -481,6 +503,15 @@ def apply_manifest_command(
         state.output.error(exc.message)
         raise typer.Exit(exc.exit_code)
 
+    if wait and not dry_run and response.get("accepted", False):
+        response = _manifest_apply.wait_for_apply_jobs(
+            sdk.client,
+            response,
+            instance=state.active_instance(),
+            credential_kind=sdk.credential_kind,
+            credential_provenance=sdk.credential_provenance,
+        )
+
     report = _manifest_apply.apply_report_payload(path, response)
     if state.json_mode:
         state.output.json(report)
@@ -494,7 +525,27 @@ def apply_manifest_command(
     if not response.get("accepted", False):
         state.output.error("Manifest apply response had accepted=false.")
         raise typer.Exit(EXIT_GENERIC)
-    if _manifest_apply.has_apply_errors(response):
+    if wait:
+        for result in response.get("results", []):
+            if (
+                not state.json_mode
+                and isinstance(result, dict)
+                and result.get("final_status") == "blocked"
+                and result.get("run_id")
+            ):
+                state.output.error(
+                    f"{result.get('dataset_key')} is blocked for review; nothing was published."
+                )
+                for reason in result.get("review_reasons", []):
+                    state.output.info(_refresh.review_reason_sentence(reason))
+                state.output.info(
+                    f"Accept with: geolens refresh {result.get('dataset_id')} "
+                    f"--accept-blocked-run {result.get('run_id')}"
+                )
+        code = _manifest_apply.apply_wait_exit_code(response)
+        if code:
+            raise typer.Exit(code)
+    elif _manifest_apply.has_apply_errors(response):
         raise typer.Exit(EXIT_GENERIC)
 
 
@@ -1299,6 +1350,8 @@ def refresh(
         state.output.error(str(exc))
         raise typer.Exit(EXIT_USAGE)
 
+    if wait:
+        _require_wait_sdk(state)
     sdk = state.sdk()
     active_client = sdk.client
 
@@ -1355,12 +1408,16 @@ def refresh(
             f"Refresh complete for dataset {payload['dataset_id']} "
             f"(job {payload['job_id']}, run {payload['run_id']})"
         )
+    elif poll.status == "blocked":
+        state.output.error("Refresh is blocked for review; nothing was published.")
+        for line in _refresh.blocked_guidance(dataset_uuid, poll):
+            state.output.info(line)
     else:
         message = poll.error_message or f"Refresh job ended with status {poll.status}."
         state.output.error(message)
 
     if poll is not None and not poll.succeeded:
-        raise typer.Exit(EXIT_GENERIC)
+        raise typer.Exit(EXIT_BLOCKED if poll.status == "blocked" else EXIT_GENERIC)
 
 
 @app.command()
@@ -1434,6 +1491,8 @@ def replace(
         state.output.error("--json requires --yes to confirm a replace.")
         raise typer.Exit(EXIT_USAGE)
 
+    if wait:
+        _require_wait_sdk(state)
     sdk = state.sdk()
 
     from geolens.api.datasets_reupload import (
@@ -1464,6 +1523,9 @@ def replace(
         if is_raster and layer is not None:
             state.output.error("--layer does not apply to raster datasets.")
             raise typer.Exit(EXIT_USAGE)
+
+        # Built before the upload so an SDK too old for --srid refuses early.
+        preview_body = None if is_raster else _replace.build_preview_request(layer, srid)
 
         # Stage 1: Upload (multipart workaround).
         # fix(#1739): route through call_sdk so a network failure during
@@ -1496,7 +1558,7 @@ def replace(
                     dataset_id=dataset_uuid,
                     job_id=job_id,
                     client=sdk.client,
-                    body=_replace.build_preview_request(layer),
+                    body=preview_body,
                 )
             preview = _replace.unwrap_or_raise(
                 preview_resp, expected=_replace.PREVIEW_OK_STATUS
@@ -1512,12 +1574,22 @@ def replace(
                 f"Layer '{summary['layer_name']}': {summary['feature_count']} "
                 f"features, SRID {summary['srid'] if summary['srid'] is not None else 'unknown'}"
             )
+            # The prompt can acknowledge these reasons, so --quiet must not hide them.
+            if not state.json_mode and (summary["review_reasons"] or not state.quiet):
+                for line in _replace.review_lines(summary):
+                    state.output.console_stdout.print(line, soft_wrap=True, markup=False)
 
-        if not yes and not typer.confirm(
-            f"Replace dataset {dataset_uuid}'s data with {file}?", err=True
-        ):
-            state.output.error("Replace cancelled; no changes were made.")
-            raise typer.Exit(EXIT_GENERIC)
+        # --yes only skips the prompt. The fingerprint acknowledges the
+        # preview's review reasons, so only a person reading them sends it.
+        review_fingerprint = None
+        if not yes:
+            if not typer.confirm(
+                f"Replace dataset {dataset_uuid}'s data with {file}?", err=True
+            ):
+                state.output.error("Replace cancelled; no changes were made.")
+                raise typer.Exit(EXIT_GENERIC)
+            if not is_raster:
+                review_fingerprint = _replace.preview_review_fingerprint(preview)
 
         # Stage 3: Commit.
         commit_resp = call_sdk(
@@ -1529,6 +1601,7 @@ def replace(
                 layer_name=layer,
                 srid_override=srid,
                 expected_origin_kind=expected_origin_kind,
+                review_fingerprint=review_fingerprint,
             ),
         )
         commit = _replace.unwrap_or_raise(commit_resp, expected=_replace.COMMIT_OK_STATUS)
@@ -1550,10 +1623,27 @@ def replace(
             state.output.success(f"Replace queued for dataset {dataset_uuid} (job {job_id})")
         return
 
-    poll = _refresh.wait_for_refresh(sdk.client, job_id)
+    try:
+        poll = _refresh.wait_for_refresh_run(
+            sdk.client,
+            dataset_uuid,
+            None,
+            ingest_job_id=job_id,
+            instance=state.active_instance(),
+            credential_kind=sdk.credential_kind,
+            credential_provenance=sdk.credential_provenance,
+        )
+    except _refresh.RefreshRequestError as exc:
+        state.output.error(exc.message)
+        raise typer.Exit(exc.exit_code)
     payload["status"] = poll.status
+    if poll.run_id is not None:
+        payload["run_id"] = poll.run_id
     if poll.error_message:
         payload["error_message"] = poll.error_message
+    blocked = poll.status == "blocked"
+    if blocked:
+        payload["review_reasons"] = _refresh.blocked_review_reasons(poll)
 
     if state.json_mode:
         state.output.json(payload)
@@ -1561,13 +1651,17 @@ def replace(
         state.output.success(
             f"Replace complete for dataset {dataset_uuid} (job {job_id})"
         )
+    elif blocked:
+        state.output.error("Replace is blocked for review; nothing was published.")
+        for line in _refresh.blocked_guidance(dataset_uuid, poll):
+            state.output.info(line)
     else:
         state.output.error(
             poll.error_message or f"Replace job ended with status {poll.status}."
         )
 
     if not poll.succeeded:
-        raise typer.Exit(EXIT_GENERIC)
+        raise typer.Exit(EXIT_BLOCKED if blocked else EXIT_GENERIC)
 
 
 @export_app.command("stac")

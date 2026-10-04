@@ -55,10 +55,15 @@ Replace raster data by creating a new raster dataset instead.
 
 `geolens replace <dataset-id> <file>` replaces this dataset's data from a
 local file, the CLI equivalent of the Re-upload dialog in the web app. It
-prints the preview (layer, feature count, detected SRID) before committing
-and asks for confirmation once; pass `--yes` to skip the prompt for scripted
-use, and `--wait` to poll the job to a terminal state and fail loudly on a
-bad import. A file with more than one layer needs `--layer`, since omitting
+prints the preview (layer, feature count, detected SRID) and what the
+replacement would change (columns removed, retyped and added, old and new row
+counts, and each reason it needs review) before committing, then asks for
+confirmation once. `--srid` applies to the preview as well as the commit. Pass
+`--yes` to skip the prompt; it does not acknowledge the review reasons, so a
+replacement that needs review still stops as a blocked run. Confirming at the
+prompt does acknowledge them. `--wait` follows the run to its end and fails
+loudly on a bad import. A blocked run prints its reasons and
+`geolens refresh <dataset-id> --accept-blocked-run <run-id>`, and exits 6. A file with more than one layer needs `--layer`, since omitting
 it would otherwise commit the first layer without telling you. A raster
 dataset has no layer to preview, so `replace` uploads and commits it directly
 and `--layer` is rejected. `replace` only accepts a local file. A dataset
@@ -68,8 +73,10 @@ table, cannot be replaced this way; use `geolens refresh` for that instead.
 
 `geolens refresh <dataset-id>` re-pulls data from the origin binding stored by
 GeoLens. It does not accept a URL, layer, or client-selected trigger. Add
-`--wait` to poll the durable refresh run; pass `--timeout` when automation needs
-a finite bound. JSON output includes the verification result. Use `apply` when
+`--wait` to poll the durable refresh run; pass `--timeout` when you need a
+finite bound. JSON output includes the verification result. A refresh that ends
+blocked for review exits 6 and prints the accept command. Unattended refresh is
+not supported: a blocked run waits for a person to review it. Use `apply` when
 the declared source configuration itself changes.
 
 Service refresh compares the staged row count with the source count when the
@@ -98,6 +105,22 @@ health. GeoLens does not store the credential in the dataset binding.
 `geolens status <dataset-id>` reports the catalog status together with source
 origin, freshness, health, and the last successful refresh time. Use `--json`
 before the command for a machine-readable status payload.
+
+`geolens apply --wait` follows each queued job to its end and adds a STATUS
+column (`complete`, `failed`, `blocked`, `cancelled`). With `--json`, each
+result gains `final_status` and `run_id`.
+
+### Exit codes
+
+| Code | Meaning |
+|---|---|
+| 0 | Success |
+| 1 | Generic failure, including a failed or cancelled run |
+| 2 | Usage error |
+| 3 | Authentication or permission error |
+| 4 | Network error or timeout |
+| 5 | Server error |
+| 6 | Blocked for review: `replace --wait`, `refresh --wait` or `apply --wait` ended with a run waiting for review. For `apply --wait`, a failure in any entry takes precedence and exits 1. |
 
 ## ArcGIS migration inventory
 

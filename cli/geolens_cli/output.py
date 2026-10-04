@@ -15,6 +15,7 @@ from typing import Any
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 
 
 @dataclass
@@ -56,13 +57,15 @@ class Formatter:
             typer.echo(_json.dumps({"ok": True, "message": message}))
             return
         if not self.quiet:
-            self._stdout.print(message, soft_wrap=True)
+            self._stdout.print(message, soft_wrap=True, markup=False)
 
     def error(self, message: str) -> None:
         if self.json_mode:
             typer.echo(_json.dumps({"ok": False, "error": message}), err=True)
             return
-        self._stderr.print(f"Error: {message}", style="red", soft_wrap=True)
+        self._stderr.print(
+            f"Error: {message}", style="red", soft_wrap=True, markup=False
+        )
 
     def warn(self, message: str) -> None:
         # Non-fatal advisory. Silent in --json/--quiet so machine-readable stdout
@@ -70,7 +73,9 @@ class Formatter:
         # on stderr.
         if self.json_mode or self.quiet:
             return
-        self._stderr.print(f"Warning: {message}", style="yellow", soft_wrap=True)
+        self._stderr.print(
+            f"Warning: {message}", style="yellow", soft_wrap=True, markup=False
+        )
 
     def json(self, payload: Any) -> None:
         typer.echo(
@@ -82,8 +87,8 @@ class Formatter:
     def info(self, message: str) -> None:
         if self.json_mode or self.quiet:
             return
-        self._stdout.print(message)
+        self._stdout.print(message, soft_wrap=True, markup=False)
 
     def debug(self, message: str) -> None:
         if self.verbose and not self.json_mode:
-            self._stderr.print(f"[dim]debug:[/dim] {message}")
+            self._stderr.print(f"[dim]debug:[/dim] {escape(message)}")

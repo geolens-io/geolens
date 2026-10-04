@@ -39,6 +39,7 @@ EXIT_USAGE = 2
 EXIT_AUTH = 3
 EXIT_NETWORK = 4
 EXIT_SERVER = 5
+EXIT_BLOCKED = 6
 
 #: fix(#1778): the SDK builds its httpx client with timeout=None (no limit
 #: at all, not httpx's 5s default — see main.py's AppState.sdk()), so

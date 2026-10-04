@@ -97,6 +97,7 @@ class TestPreviewSummary:
             "feature_count": 42,
             "srid": 4326,
             "geometry_type": "LineString",
+            "review_reasons": [],
         }
 
 
@@ -416,6 +417,9 @@ def _ok_preview(
     crs: int | None = 4326,
     geometry_type: str | None = "LineString",
     all_layers=None,
+    schema_diff=None,
+    review_reasons=(),
+    review_fingerprint: str | None = None,
 ) -> SimpleNamespace:
     from geolens_cli import replace as _replace
 
@@ -428,7 +432,21 @@ def _ok_preview(
             crs=crs,
             geometry_type=geometry_type,
             all_layers=all_layers,
+            schema_diff=schema_diff,
+            review_reasons=list(review_reasons),
+            review_fingerprint=review_fingerprint,
         ),
+    )
+
+
+def _blocking_diff() -> SimpleNamespace:
+    return SimpleNamespace(
+        columns_removed=[SimpleNamespace(name="lanes", type_="integer")],
+        type_changes=[SimpleNamespace(name="name", old_type="text", new_type="integer")],
+        columns_added=[SimpleNamespace(name="surface", type_="text")],
+        row_count_old=100,
+        row_count_new=40,
+        row_count_delta=-60,
     )
 
 
@@ -468,12 +486,34 @@ def _patch_commit(monkeypatch, commit) -> None:
     )
 
 
-def _patch_job_status(monkeypatch, *, status: str, error_message: str | None = None) -> None:
+RUN_ID = UUID("00000000-0000-0000-0000-000000000203")
+
+
+def _patch_job_status(
+    monkeypatch,
+    *,
+    status: str,
+    error_message: str | None = None,
+    verification: dict | None = None,
+) -> None:
+    """Patch the dataset's run list so the run queued by JOB_ID ends as ``status``."""
+    run_status = "succeeded" if status == "complete" else status
     monkeypatch.setattr(
-        "geolens.api.admin.get_job_status_jobs_job_id_get.sync_detailed",
+        "geolens.api.datasets."
+        "list_dataset_refresh_runs_datasets_dataset_id_refresh_runs_get.sync_detailed",
         lambda **kw: SimpleNamespace(
             status_code=HTTPStatus.OK,
-            parsed=SimpleNamespace(status=status, error_message=error_message),
+            parsed=SimpleNamespace(
+                runs=[
+                    SimpleNamespace(
+                        id=RUN_ID,
+                        ingest_job_id=JOB_ID,
+                        status=run_status,
+                        error_message=error_message,
+                        verification=verification,
+                    )
+                ]
+            ),
         ),
     )
 
@@ -1205,3 +1245,396 @@ class TestBuildCommitRequestOrigin:
             layer_name=None, srid_override=None, expected_origin_kind=kind
         )
         assert req.expected_origin_kind is UNSET
+
+
+def _capture_commit(monkeypatch, commit) -> dict:
+    captured: dict = {}
+
+    def fake(**kw):
+        captured.update(kw)
+        return commit
+
+    monkeypatch.setattr(
+        "geolens.api.datasets_reupload."
+        "reupload_commit_datasets_dataset_id_reupload_job_id_commit_post.sync_detailed",
+        fake,
+    )
+    return captured
+
+
+def _blocking_preview() -> SimpleNamespace:
+    return _ok_preview(
+        schema_diff=_blocking_diff(),
+        review_reasons=["destructive_schema_change"],
+        review_fingerprint="fp-reviewed",
+    )
+
+
+class TestReplaceReviewBeforeConfirm:
+    def _prepare(self, monkeypatch, mock_keyring) -> dict:
+        _seed_login(mock_keyring)
+        _patch_dataset(monkeypatch, _ok_dataset())
+        _patch_upload(monkeypatch, _ok_upload())
+        _patch_preview(monkeypatch, _blocking_preview())
+        return _capture_commit(monkeypatch, _ok_commit())
+
+    def test_diff_and_reasons_print_before_the_prompt(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        from geolens_cli.main import app
+
+        self._prepare(monkeypatch, mock_keyring)
+
+        result = runner.invoke(
+            app, ["replace", str(DATASET_ID), str(sample_geojson)], input="y\n"
+        )
+
+        assert result.exit_code == 0, result.output
+        out = result.output
+        prompt = out.index("Replace dataset")
+        for expected in (
+            "Removed column: lanes (integer)",
+            "Retyped column: name (text -> integer)",
+            "Added column: surface (text)",
+            "Rows: 100 now, 40 in the file",
+            "Columns would be removed or change type.",
+        ):
+            assert expected in out
+            assert out.index(expected) < prompt
+
+    def test_quiet_still_prints_the_reasons_before_the_fingerprint_is_sent(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        from geolens_cli.main import app
+
+        captured = self._prepare(monkeypatch, mock_keyring)
+
+        result = runner.invoke(
+            app, ["--quiet", "replace", str(DATASET_ID), str(sample_geojson)], input="y\n"
+        )
+
+        assert result.exit_code == 0, result.output
+        assert captured["body"].review_fingerprint == "fp-reviewed"
+        assert "Columns would be removed or change type." in result.output
+        assert "Removed column: lanes (integer)" in result.output
+
+    def test_json_carries_the_diff_and_reasons(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        from geolens_cli.main import app
+
+        self._prepare(monkeypatch, mock_keyring)
+
+        result = runner.invoke(
+            app, ["--json", "replace", str(DATASET_ID), str(sample_geojson), "--yes"]
+        )
+
+        preview = json.loads(result.output)["preview"]
+        assert preview["schema_diff"]["columns_removed"] == [
+            {"name": "lanes", "type": "integer"}
+        ]
+        assert preview["schema_diff"]["rows_new"] == 40
+        assert preview["review_reasons"][0]["code"] == "destructive_schema_change"
+
+    def test_yes_sends_no_fingerprint(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        from geolens.types import UNSET
+        from geolens_cli.main import app
+
+        captured = self._prepare(monkeypatch, mock_keyring)
+
+        result = runner.invoke(
+            app, ["replace", str(DATASET_ID), str(sample_geojson), "--yes"]
+        )
+
+        assert result.exit_code == 0, result.output
+        assert captured["body"].review_fingerprint is UNSET
+
+    def test_interactive_yes_sends_the_previews_fingerprint(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        from geolens_cli.main import app
+
+        captured = self._prepare(monkeypatch, mock_keyring)
+
+        result = runner.invoke(
+            app, ["replace", str(DATASET_ID), str(sample_geojson)], input="y\n"
+        )
+
+        assert result.exit_code == 0, result.output
+        assert captured["body"].review_fingerprint == "fp-reviewed"
+
+    def test_srid_reaches_the_preview_request(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login(mock_keyring)
+        _patch_dataset(monkeypatch, _ok_dataset())
+        _patch_upload(monkeypatch, _ok_upload())
+        _capture_commit(monkeypatch, _ok_commit())
+        seen: dict = {}
+
+        def fake_preview(**kw):
+            seen.update(kw)
+            return _ok_preview()
+
+        monkeypatch.setattr(
+            "geolens.api.datasets_reupload."
+            "reupload_preview_datasets_dataset_id_reupload_job_id_preview_post.sync_detailed",
+            fake_preview,
+        )
+
+        result = runner.invoke(
+            app,
+            ["replace", str(DATASET_ID), str(sample_geojson), "--srid", "3857", "--yes"],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert seen["body"].srid_override == 3857
+
+
+class TestReplaceWaitBlocked:
+    def test_blocked_run_exits_6_with_the_accept_hint(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login(mock_keyring)
+        _patch_dataset(monkeypatch, _ok_dataset())
+        _patch_upload(monkeypatch, _ok_upload())
+        _patch_preview(monkeypatch, _blocking_preview())
+        _patch_commit(monkeypatch, _ok_commit())
+        _patch_job_status(
+            monkeypatch,
+            status="blocked",
+            verification={"review_reasons": ["destructive_schema_change"]},
+        )
+
+        result = runner.invoke(
+            app, ["replace", str(DATASET_ID), str(sample_geojson), "--yes", "--wait"]
+        )
+
+        assert result.exit_code == 6, result.output
+        assert "Columns would be removed or change type." in result.output
+        assert (
+            f"Accept with: geolens refresh {DATASET_ID} "
+            f"--accept-blocked-run {RUN_ID}"
+        ) in result.output
+
+    def test_json_reports_the_blocked_run(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login(mock_keyring)
+        _patch_dataset(monkeypatch, _ok_dataset())
+        _patch_upload(monkeypatch, _ok_upload())
+        _patch_preview(monkeypatch, _blocking_preview())
+        _patch_commit(monkeypatch, _ok_commit())
+        _patch_job_status(
+            monkeypatch,
+            status="blocked",
+            verification={"review_reasons": ["srid_changed"]},
+        )
+
+        result = runner.invoke(
+            app,
+            ["--json", "replace", str(DATASET_ID), str(sample_geojson), "--yes", "--wait"],
+        )
+
+        assert result.exit_code == 6
+        payload = json.loads(result.output)
+        assert payload["status"] == "blocked"
+        assert payload["run_id"] == str(RUN_ID)
+        assert payload["review_reasons"] == ["srid_changed"]
+
+
+class TestReplaceWithAnOlderSdk:
+    """An SDK whose request models predate the review fields still replaces."""
+
+    @staticmethod
+    def _old_models(monkeypatch) -> None:
+        import geolens.models.reupload_commit_request as commit_mod
+        import geolens.models.reupload_preview_request as preview_mod
+
+        class OldCommit:
+            def __init__(self, layer_name=None, srid_override=None, expected_origin_kind=None):
+                self.layer_name = layer_name
+
+        class OldPreview:
+            def __init__(self, layer_name=None):
+                self.layer_name = layer_name
+
+        monkeypatch.setattr(commit_mod, "ReuploadCommitRequest", OldCommit)
+        monkeypatch.setattr(preview_mod, "ReuploadPreviewRequest", OldPreview)
+
+    def test_a_replacement_that_needs_no_fingerprint_works(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login(mock_keyring)
+        self._old_models(monkeypatch)
+        _patch_dataset(monkeypatch, _ok_dataset())
+        _patch_upload(monkeypatch, _ok_upload())
+        _patch_preview(monkeypatch, _ok_preview())
+        _patch_commit(monkeypatch, _ok_commit())
+
+        result = runner.invoke(
+            app, ["replace", str(DATASET_ID), str(sample_geojson), "--yes"]
+        )
+
+        assert result.exit_code == 0, result.output
+
+    def test_a_needed_fingerprint_refuses_before_committing(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login(mock_keyring)
+        self._old_models(monkeypatch)
+        _patch_dataset(monkeypatch, _ok_dataset())
+        _patch_upload(monkeypatch, _ok_upload())
+        _patch_preview(monkeypatch, _blocking_preview())
+
+        def must_not_commit(**kw):  # pragma: no cover - guard
+            raise AssertionError("an unacknowledged commit must not be sent")
+
+        monkeypatch.setattr(
+            "geolens.api.datasets_reupload."
+            "reupload_commit_datasets_dataset_id_reupload_job_id_commit_post.sync_detailed",
+            must_not_commit,
+        )
+
+        result = runner.invoke(
+            app, ["replace", str(DATASET_ID), str(sample_geojson)], input="y\n"
+        )
+
+        assert result.exit_code == 1, result.output
+        assert "Upgrade" in result.output
+
+    def test_a_fingerprint_kept_as_an_extra_still_triggers_the_refusal(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login(mock_keyring)
+        self._old_models(monkeypatch)
+        _patch_dataset(monkeypatch, _ok_dataset())
+        _patch_upload(monkeypatch, _ok_upload())
+        preview = _ok_preview()
+        preview.parsed.review_fingerprint = None
+        preview.parsed.review_reasons = []
+        preview.parsed.additional_properties = {
+            "review_fingerprint": "fp-extra",
+            "review_reasons": ["srid_changed"],
+        }
+        _patch_preview(monkeypatch, preview)
+
+        def must_not_commit(**kw):  # pragma: no cover - guard
+            raise AssertionError("an unacknowledged commit must not be sent")
+
+        monkeypatch.setattr(
+            "geolens.api.datasets_reupload."
+            "reupload_commit_datasets_dataset_id_reupload_job_id_commit_post.sync_detailed",
+            must_not_commit,
+        )
+
+        result = runner.invoke(
+            app, ["replace", str(DATASET_ID), str(sample_geojson)], input="y\n"
+        )
+
+        assert result.exit_code == 1, result.output
+        assert "Upgrade" in result.output
+        assert "coordinate reference system" in result.output
+
+    def test_srid_refuses_before_uploading(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login(mock_keyring)
+        self._old_models(monkeypatch)
+        _patch_dataset(monkeypatch, _ok_dataset())
+
+        def must_not_upload(*a, **k):  # pragma: no cover - guard
+            raise AssertionError("nothing may be uploaded")
+
+        monkeypatch.setattr("geolens_cli.replace.upload_file", must_not_upload)
+
+        result = runner.invoke(
+            app, ["replace", str(DATASET_ID), str(sample_geojson), "--srid", "3857", "--yes"]
+        )
+
+        assert result.exit_code == 1, result.output
+        assert "Upgrade" in result.output
+
+
+
+def _drop_run_history_endpoint(monkeypatch) -> None:
+    """Make the installed SDK look like one without the refresh-history endpoint."""
+    import sys
+
+    import geolens.api.datasets as datasets_pkg
+
+    name = "list_dataset_refresh_runs_datasets_dataset_id_refresh_runs_get"
+    monkeypatch.delattr(datasets_pkg, name, raising=False)
+    monkeypatch.setitem(sys.modules, f"geolens.api.datasets.{name}", None)
+
+
+class TestReplaceRendersServerStringsLiterally:
+    def test_bracketed_column_names_print_and_reach_the_prompt(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login(mock_keyring)
+        diff = SimpleNamespace(
+            columns_removed=[SimpleNamespace(name="value[/unit]", type_="integer")],
+            type_changes=[],
+            columns_added=[SimpleNamespace(name="[bold]x", type_="text")],
+            row_count_old=1,
+            row_count_new=1,
+            row_count_delta=0,
+        )
+        _patch_dataset(monkeypatch, _ok_dataset())
+        _patch_upload(monkeypatch, _ok_upload())
+        _patch_preview(
+            monkeypatch,
+            _ok_preview(
+                schema_diff=diff,
+                review_reasons=["destructive_schema_change"],
+                review_fingerprint="fp",
+            ),
+        )
+        _capture_commit(monkeypatch, _ok_commit())
+
+        result = runner.invoke(
+            app, ["replace", str(DATASET_ID), str(sample_geojson)], input="y\n"
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "Removed column: value[/unit] (integer)" in result.output
+        assert "Added column: [bold]x (text)" in result.output
+
+    def test_wait_without_the_run_history_endpoint_refuses_before_uploading(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login(mock_keyring)
+        _drop_run_history_endpoint(monkeypatch)
+
+        def must_not_upload(*a, **k):  # pragma: no cover - guard
+            raise AssertionError("nothing may be uploaded")
+
+        monkeypatch.setattr("geolens_cli.replace.upload_file", must_not_upload)
+
+        result = runner.invoke(
+            app, ["replace", str(DATASET_ID), str(sample_geojson), "--yes", "--wait"]
+        )
+
+        assert result.exit_code == 1, result.output
+        assert "Upgrade" in result.output

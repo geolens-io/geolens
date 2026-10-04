@@ -47,10 +47,49 @@ class RefreshPollResult:
     status: str
     error_message: str | None = None
     verification: dict[str, Any] | None = None
+    run_id: str | None = None
 
     @property
     def succeeded(self) -> bool:
         return self.status in {"complete", "succeeded"}
+
+
+REVIEW_REASON_SENTENCES: dict[str, str] = {
+    "arcgis_id_coverage_unavailable": (
+        "The ArcGIS service did not report which feature ids it holds, so the "
+        "result could not be checked for gaps."
+    ),
+    "arcgis_source_membership_changed": (
+        "The ArcGIS service's feature membership changed since the last refresh."
+    ),
+    "coordinate_dimension_reduced": "The geometries lose a coordinate dimension.",
+    "destructive_schema_change": "Columns would be removed or change type.",
+    "empty_result": "The replacement has no rows but the dataset does.",
+    "geometry_type_changed": "The geometry type changes.",
+    "source_count_unavailable": "The source did not report a row count to compare against.",
+    "srid_changed": "The coordinate reference system (SRID) changes.",
+}
+
+
+def review_reason_sentence(reason: str) -> str:
+    """One reason code as a sentence; an unknown code reads as its own words."""
+    return REVIEW_REASON_SENTENCES.get(reason, reason.replace("_", " ").capitalize() + ".")
+
+
+def blocked_review_reasons(poll: RefreshPollResult) -> list[str]:
+    """Review reason codes recorded on a blocked run's verification."""
+    reasons = (poll.verification or {}).get("review_reasons") or []
+    return [str(reason) for reason in reasons]
+
+
+def blocked_guidance(dataset_id: UUID, poll: RefreshPollResult) -> list[str]:
+    """Lines telling the user why a run is blocked and how to accept it."""
+    lines = [review_reason_sentence(reason) for reason in blocked_review_reasons(poll)]
+    if poll.run_id is not None:
+        lines.append(
+            f"Accept with: geolens refresh {dataset_id} --accept-blocked-run {poll.run_id}"
+        )
+    return lines
 
 
 _REFUSAL_MESSAGES: dict[str, str] = {
@@ -231,6 +270,20 @@ def _problem_detail(parsed: Any) -> tuple[str | None, str | None]:
     )
 
 
+def require_run_polling_sdk() -> None:
+    """Refuse up front when the installed SDK cannot follow a run to its end."""
+    try:
+        from geolens.api.admin import get_job_status_jobs_job_id_get  # noqa: F401
+        from geolens.api.datasets import (  # noqa: F401
+            list_dataset_refresh_runs_datasets_dataset_id_refresh_runs_get,
+        )
+    except ImportError as exc:
+        raise RefreshRequestError(
+            "The installed geolens SDK is too old for --wait. "
+            "Upgrade it with `pip install -U geolens geolens-cli`."
+        ) from exc
+
+
 def wait_for_refresh(
     client: Any,
     job_id: str | UUID,
@@ -240,9 +293,44 @@ def wait_for_refresh(
     timeout: float | None = None,
     sleep: Callable[[float], None] = time.sleep,
     monotonic: Callable[[], float] = time.monotonic,
+    instance: str | None = None,
+    credential_kind: str | None = None,
+    credential_provenance: str | None = None,
+    on_reauthenticated: Callable[[Any], None] | None = None,
 ) -> RefreshPollResult:
-    """Poll until terminal, or until an explicitly supplied timeout expires."""
+    """Poll until terminal, or until an explicitly supplied timeout expires.
+
+    With ``instance`` and ``credential_kind`` a stored bearer that expires
+    mid-wait is refreshed once; ``on_reauthenticated`` receives the new client.
+    """
     from geolens.api.admin import get_job_status_jobs_job_id_get
+
+    active_client = client
+
+    def replace_client(replacement: Any) -> None:
+        nonlocal active_client
+        active_client = replacement
+        if on_reauthenticated is not None:
+            on_reauthenticated(replacement)
+
+    def fetch_job() -> Any:
+        if instance is not None and credential_kind is not None:
+            return call_sdk_with_reauth(
+                get_job_status_jobs_job_id_get.sync_detailed,
+                instance=instance,
+                credential_kind=credential_kind,
+                credential_provenance=credential_provenance,
+                on_reauthenticated=replace_client,
+                job_id=uuid_arg,
+                client=active_client,
+                reraise_timeout=True,
+            )
+        return call_sdk(
+            get_job_status_jobs_job_id_get.sync_detailed,
+            job_id=uuid_arg,
+            client=active_client,
+            reraise_timeout=True,
+        )
 
     uuid_arg = job_id if isinstance(job_id, UUID) else UUID(str(job_id))
     deadline = monotonic() + timeout if timeout is not None else None
@@ -267,12 +355,7 @@ def wait_for_refresh(
                 transport.timeout = remaining
             try:
                 response = poll_until(
-                    lambda: call_sdk(
-                        get_job_status_jobs_job_id_get.sync_detailed,
-                        job_id=uuid_arg,
-                        client=client,
-                        reraise_timeout=True,
-                    ),
+                    fetch_job,
                     deadline=poll_deadline,
                     interval=interval,
                     sleep=sleep,
@@ -324,7 +407,7 @@ def wait_for_refresh(
 def wait_for_refresh_run(
     client: Any,
     dataset_id: UUID,
-    run_id: UUID,
+    run_id: UUID | None,
     *,
     instance: str,
     credential_kind: str,
@@ -334,8 +417,14 @@ def wait_for_refresh_run(
     timeout: float | None = None,
     sleep: Callable[[float], None] = time.sleep,
     monotonic: Callable[[], float] = time.monotonic,
+    ingest_job_id: UUID | None = None,
+    on_reauthenticated: Callable[[Any], None] | None = None,
 ) -> RefreshPollResult:
-    """Poll until the run is terminal or the optional timeout expires."""
+    """Poll until the run is terminal or the optional timeout expires.
+
+    The run is found by ``run_id``, or by the ``ingest_job_id`` that queued it
+    when the caller only holds the job (replace and manifest apply).
+    """
     from geolens.api.datasets import (
         list_dataset_refresh_runs_datasets_dataset_id_refresh_runs_get,
     )
@@ -343,10 +432,13 @@ def wait_for_refresh_run(
     active_client = client
     deadline = monotonic() + timeout if timeout is not None else None
     status = "pending"
+    label = run_id if run_id is not None else f"for job {ingest_job_id}"
 
     def replace_client(replacement: Any) -> None:
         nonlocal active_client
         active_client = replacement
+        if on_reauthenticated is not None:
+            on_reauthenticated(replacement)
 
     def fetch() -> Any:
         bounded: list[tuple[Any, Any]] = []
@@ -385,7 +477,7 @@ def wait_for_refresh_run(
         if deadline is not None and monotonic() >= deadline:
             return RefreshPollResult(
                 status="timed_out",
-                error_message=f"Refresh run {run_id} is still {status}; check it later.",
+                error_message=f"Refresh run {label} is still {status}; check it later.",
             )
         poll_deadline = deadline if deadline is not None else float("inf")
         try:
@@ -399,14 +491,26 @@ def wait_for_refresh_run(
         except PollDeadlineExceeded:
             return RefreshPollResult(
                 status="timed_out",
-                error_message=f"Refresh run {run_id} is still {status}; check it later.",
+                error_message=f"Refresh run {label} is still {status}; check it later.",
             )
         page = unwrap(response, expected=REFRESH_RUNS_STATUS_OK)
-        run = next((candidate for candidate in page.runs if candidate.id == run_id), None)
+        run = next(
+            (
+                candidate
+                for candidate in page.runs
+                if (
+                    candidate.id == run_id
+                    if run_id is not None
+                    else _value(getattr(candidate, "ingest_job_id", None)) == ingest_job_id
+                )
+            ),
+            None,
+        )
         if run is None:
             raise RefreshRequestError(
-                f"Refresh run {run_id} was not found in this dataset's history."
+                f"Refresh run {label} was not found in this dataset's history."
             )
+        found_run_id = str(run.id)
         status = str(run.status)
         verification_value = _value(getattr(run, "verification", None))
         verification = (
@@ -417,7 +521,9 @@ def wait_for_refresh_run(
             else None
         )
         if status == "succeeded":
-            return RefreshPollResult(status=status, verification=verification)
+            return RefreshPollResult(
+                status=status, verification=verification, run_id=found_run_id
+            )
         if status in {"failed", "cancelled", "blocked"}:
             error = _value(getattr(run, "error_message", None))
             return RefreshPollResult(
@@ -428,6 +534,7 @@ def wait_for_refresh_run(
                     else None
                 ),
                 verification=verification,
+                run_id=found_run_id,
             )
         if deadline is None:
             sleep(interval)
@@ -436,7 +543,7 @@ def wait_for_refresh_run(
         if remaining <= 0:
             return RefreshPollResult(
                 status="timed_out",
-                error_message=f"Refresh run {run_id} is still {status}; check it later.",
+                error_message=f"Refresh run {label} is still {status}; check it later.",
             )
         sleep(min(interval, remaining))
 
