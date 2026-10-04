@@ -771,5 +771,17 @@
   "mapViewerGate": {
     "accessCheckFailed": "Ihr Zugriff auf diese Karte konnte nicht geprüft werden. Versuchen Sie es erneut."
   },
-  "visibilityPublicAdminOnly": "Nur Administratoren können Inhalte auf dieser Instanz öffentlich machen."
+  "visibilityPublicAdminOnly": "Nur Administratoren können Inhalte auf dieser Instanz öffentlich machen.",
+  "mapControls": {
+    "attributionToggle": "Quellenangabe ein- oder ausblenden",
+    "attributionFeedback": "Feedback zur Karte",
+    "fullscreenEnter": "Vollbild",
+    "fullscreenExit": "Vollbild beenden",
+    "resetBearing": "Ziehen, um die Karte zu drehen, klicken, um nach Norden auszurichten",
+    "zoomIn": "Vergrößern",
+    "zoomOut": "Verkleinern",
+    "terrainEnable": "3D-Gelände aktivieren",
+    "terrainDisable": "3D-Gelände deaktivieren",
+    "title": "Karte"
+  }
 }

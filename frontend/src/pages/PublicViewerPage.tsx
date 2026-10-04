@@ -156,7 +156,7 @@ export function PublicViewerPage() {
   return (
     // fix(#553): flex column so the banner takes height from the map viewport
     // instead of pushing it below the fold; embeds never show the host banner
-    <div className="flex h-dvh flex-col">
+    <div className="relative flex h-dvh flex-col">
       {!isEmbed && <SiteBanner />}
       <main id="map-viewport" className="w-full min-h-0 flex-1 relative overflow-hidden">
       {/* Full-viewport map */}
@@ -204,14 +204,16 @@ export function PublicViewerPage() {
         />
       )}
 
+      </main>
+
+      {/* Its own row below 400px so wrapped links never cover map controls. */}
       {!isEmbed && (
         <AppFooter
           showBranding={showFooterBranding}
-          className="pointer-events-none absolute inset-x-0 bottom-0 z-10 hidden min-[400px]:block px-3 pb-2 text-2xs text-muted-foreground"
-          navClassName="pointer-events-auto mx-auto inline-flex max-w-full rounded-full border border-border/50 bg-background/75 px-3 py-1.5 shadow-sm backdrop-blur-sm"
+          className="px-3 pb-2 text-2xs text-muted-foreground min-[400px]:pointer-events-none min-[400px]:absolute min-[400px]:inset-x-0 min-[400px]:bottom-0 min-[400px]:z-10"
+          navClassName="mx-auto inline-flex max-w-full rounded-full border border-border/50 bg-background/75 px-3 py-1.5 shadow-sm backdrop-blur-sm min-[400px]:pointer-events-auto"
         />
       )}
-      </main>
     </div>
   );
 }

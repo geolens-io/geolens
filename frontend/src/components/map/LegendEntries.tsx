@@ -111,12 +111,15 @@ interface ClassListProps {
 function ColorClassList({ items, breaks, geometryType, style: s, otherLabel }: ClassListProps) {
   return (
     <ul className="space-y-0.5">
-      {items.map((item, i) => (
-        <li key={i} className="flex items-center gap-1.5">
-          <GeometrySwatch geometryType={geometryType} color={item.color} style={s} />
-          <span className="text-muted-foreground truncate">{item.label ?? (item.other ? otherLabel : breakLabel(i, breaks))}</span>
-        </li>
-      ))}
+      {items.map((item, i) => {
+        const label = item.label ?? (item.other ? otherLabel : breakLabel(i, breaks));
+        return (
+          <li key={i} className="flex items-center gap-1.5">
+            <GeometrySwatch geometryType={geometryType} color={item.color} style={s} />
+            <span className="text-muted-foreground min-w-0 break-words" title={label}>{label}</span>
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -137,7 +140,7 @@ function RadiusClassList({ items, breaks, style: s }: ClassListProps) {
               {...ringProps(s)}
             />
           </svg>
-          <span className="text-muted-foreground truncate">{breakLabel(i, breaks)}</span>
+          <span className="text-muted-foreground min-w-0 break-words" title={breakLabel(i, breaks)}>{breakLabel(i, breaks)}</span>
         </li>
       ))}
     </ul>
@@ -154,7 +157,7 @@ function WidthClassList({ items, breaks, style: s }: ClassListProps) {
           <svg width="24" height="16" className="shrink-0" style={opacityStyle}>
             <line x1="0" y1="8" x2="24" y2="8" stroke={item.color} strokeOpacity={s?.fillOpacity} strokeWidth={Math.min(item.size ?? 0, 8)} strokeLinecap="round" />
           </svg>
-          <span className="text-muted-foreground truncate">{breakLabel(i, breaks)}</span>
+          <span className="text-muted-foreground min-w-0 break-words" title={breakLabel(i, breaks)}>{breakLabel(i, breaks)}</span>
         </li>
       ))}
     </ul>

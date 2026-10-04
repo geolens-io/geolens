@@ -21,6 +21,7 @@ import {
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { useTheme } from '@/components/theme-provider';
 import { useBasemaps } from '@/hooks/use-settings';
+import { useMapLocale } from '@/hooks/use-map-locale';
 import {
   getThemeBasemap,
   toMaplibreStyle,
@@ -148,6 +149,7 @@ export function SpatialFilterPanel({
   initialPredicate,
 }: SpatialFilterPanelProps) {
   const { t } = useTranslation('search');
+  const mapLocale = useMapLocale();
   const { resolvedTheme } = useTheme();
   const { data: basemaps } = useBasemaps();
 
@@ -434,6 +436,7 @@ export function SpatialFilterPanel({
                 initialViewState={savedViewport}
                 style={{ width: '100%', height: 300 }}
                 mapStyle={basemapStyle as string}
+                locale={mapLocale}
                 onLoad={handleMapLoad}
                 onMoveEnd={(e) => {
                   const { lng, lat } = e.target.getCenter();

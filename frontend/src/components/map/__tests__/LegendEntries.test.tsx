@@ -34,6 +34,21 @@ describe('LegendClassesList', () => {
     expect(screen.queryByText('01')).not.toBeInTheDocument();
   });
 
+  it('wraps long class labels instead of truncating them', () => {
+    const long = 'Mixed residential and commercial use with ground-floor retail';
+    render(
+      <LegendClassesList
+        geometryType="Polygon"
+        classes={[categories([{ value: '02', label: long, color: '#ffb000' }])]}
+      />,
+    );
+
+    const label = screen.getByText(long);
+    expect(label).toHaveClass('break-words');
+    expect(label).not.toHaveClass('truncate');
+    expect(label).toHaveAttribute('title', long);
+  });
+
   it('labels graduated classes by break range and titles only a following colour classification', () => {
     const { container } = render(
       <LegendClassesList

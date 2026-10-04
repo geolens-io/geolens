@@ -771,5 +771,17 @@
   "mapViewerGate": {
     "accessCheckFailed": "我们无法检查您对此地图的访问权限。请重试。"
   },
-  "visibilityPublicAdminOnly": "在此实例上，只有管理员才能将内容设为公开。"
+  "visibilityPublicAdminOnly": "在此实例上，只有管理员才能将内容设为公开。",
+  "mapControls": {
+    "attributionToggle": "切换版权信息",
+    "attributionFeedback": "地图反馈",
+    "fullscreenEnter": "进入全屏",
+    "fullscreenExit": "退出全屏",
+    "resetBearing": "拖动以旋转地图，点击以重置为正北",
+    "zoomIn": "放大",
+    "zoomOut": "缩小",
+    "terrainEnable": "启用 3D 地形",
+    "terrainDisable": "停用 3D 地形",
+    "title": "地图"
+  }
 }

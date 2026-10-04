@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Map as MapGL, Source, Layer, NavigationControl } from '@vis.gl/react-maplibre';
 import { useTheme } from '@/components/theme-provider';
 import { useBasemaps, useMapDefaults, useTileConfig } from '@/hooks/use-settings';
+import { useMapLocale } from '@/hooks/use-map-locale';
 import {
   getThemeBasemap,
   makeStyleImageMissingResolver,
@@ -184,6 +185,7 @@ export const DatasetMap = memo(function DatasetMap({
   shortcutsEnabled = true,
 }: DatasetMapProps) {
   const { t } = useTranslation(['dataset', 'common']);
+  const mapLocale = useMapLocale();
   const { resolvedTheme } = useTheme();
   const { data: basemaps } = useBasemaps();
   const { data: mapDefaults } = useMapDefaults();
@@ -1212,6 +1214,7 @@ export const DatasetMap = memo(function DatasetMap({
         mapStyle={initialBasemapStyle.current ?? ''}
         style={{ width: '100%', height: '100%' }}
         cursor={cursor}
+        locale={mapLocale}
         interactive
         scrollZoom={isFullscreen}
         onLoad={handleLoad}
