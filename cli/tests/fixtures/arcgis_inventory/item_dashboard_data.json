@@ -1,0 +1,16 @@
+{
+  "version": 27,
+  "widgets": [
+    {
+      "type": "mapWidget",
+      "id": "w1",
+      "itemId": "b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1",
+      "name": "Map"
+    },
+    {
+      "type": "indicatorWidget",
+      "id": "w2",
+      "name": "Open parcels"
+    }
+  ]
+}

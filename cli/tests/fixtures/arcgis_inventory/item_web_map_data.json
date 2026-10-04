@@ -1,0 +1,63 @@
+{
+  "operationalLayers": [
+    {
+      "id": "parcels_0",
+      "title": "Parcels",
+      "itemId": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+      "url": "https://services1.arcgis.com/ExAmPlEoRg0123/arcgis/rest/services/Parcels/FeatureServer/0",
+      "layerType": "ArcGISFeatureLayer",
+      "popupInfo": {
+        "title": "{PARCEL_ID}"
+      }
+    },
+    {
+      "id": "roads_2",
+      "title": "County roads",
+      "url": "https://gis.example.gov/arcgis/rest/services/Roads/MapServer/2?token=stored-in-web-map-not-a-real-token",
+      "layerType": "ArcGISMapServiceLayer"
+    },
+    {
+      "id": "views",
+      "title": "Views",
+      "layerType": "GroupLayer",
+      "layers": [
+        {
+          "id": "view_0",
+          "title": "Parcels (public view)",
+          "itemId": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+          "url": "https://services1.arcgis.com/ExAmPlEoRg0123/arcgis/rest/services/Parcels_view/FeatureServer/0",
+          "layerType": "ArcGISFeatureLayer"
+        }
+      ]
+    },
+    {
+      "id": "hydrants_0",
+      "title": "Hydrants",
+      "itemId": "e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9",
+      "url": "https://services9.arcgis.com/OtherOrg/arcgis/rest/services/Hydrants/FeatureServer/0",
+      "layerType": "ArcGISFeatureLayer"
+    }
+  ],
+  "baseMap": {
+    "title": "Hillshade",
+    "baseMapLayers": [
+      {
+        "id": "World_Hillshade",
+        "layerType": "ArcGISTiledMapServiceLayer",
+        "url": "https://services.arcgisonline.com/arcgis/rest/services/Elevation/World_Hillshade/MapServer"
+      }
+    ]
+  },
+  "tables": [
+    {
+      "id": "owners_1",
+      "title": "Owners",
+      "itemId": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+      "url": "https://services1.arcgis.com/ExAmPlEoRg0123/arcgis/rest/services/Parcels/FeatureServer/1"
+    }
+  ],
+  "spatialReference": {
+    "wkid": 102100
+  },
+  "version": "2.31"
+}

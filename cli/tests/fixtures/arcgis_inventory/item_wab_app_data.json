@@ -1,0 +1,15 @@
+{
+  "theme": {
+    "name": "FoldableTheme"
+  },
+  "portalUrl": "https://examplecounty.maps.arcgis.com",
+  "map": {
+    "3D": false,
+    "2D": true,
+    "itemId": "b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1",
+    "mapOptions": {}
+  },
+  "widgetPool": {
+    "widgets": []
+  }
+}

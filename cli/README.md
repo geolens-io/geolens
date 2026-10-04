@@ -24,6 +24,7 @@ geolens refresh <dataset-id> --wait
 geolens analysis preview <dataset-id> --operation buffer --distance 500 > ring.geojson
 geolens analysis materialize <dataset-id> --operation buffer --distance 500 --title "500 m ring"  # waits for the job; --timeout to bound it
 geolens export stac <dataset-id> -o cities.stac.json
+geolens arcgis inventory --portal-url https://<org>.maps.arcgis.com -o ./inventory
 ```
 
 For a one-command quickstart, run `geolens publish examples/manifests/first-catalog/city-parks.geojson` against a running stack. See the full walkthrough at [docs.getgeolens.com](https://docs.getgeolens.com/).
@@ -97,6 +98,53 @@ health. GeoLens does not store the credential in the dataset binding.
 `geolens status <dataset-id>` reports the catalog status together with source
 origin, freshness, health, and the last successful refresh time. Use `--json`
 before the command for a machine-readable status payload.
+
+## ArcGIS migration inventory
+
+`geolens arcgis inventory` lists an ArcGIS Online or Portal for ArcGIS
+organization's content and reports what would carry over to GeoLens. It is
+read-only: it changes nothing on the portal, needs no GeoLens instance or
+sign-in, and talks only to the portal URL you give it. It never contacts the
+services an item points at.
+
+```bash
+export ARCGIS_TOKEN=...   # or --token-stdin, or --username with a password prompt
+geolens arcgis inventory --portal-url https://<org>.maps.arcgis.com -o ./inventory
+geolens arcgis inventory --portal-url https://gis.example.com/portal --scope org
+geolens --json arcgis inventory --portal-url https://<org>.maps.arcgis.com > inventory.json
+```
+
+Each item is classified as `supported` (hosted feature layers and views,
+feature and map services GeoLens can reach), `partial` (web maps, whose layers
+import but whose styling and popups need translation; hosted tile layers; OGC
+services; data files) or `unsupported` (apps, dashboards, StoryMaps, scenes,
+image and vector tile services, and anything the CLI doesn't recognize).
+Web AppBuilder apps and classic Esri Story Maps are flagged with Esri's
+retirement dates. Web maps and apps are read to record which layers and maps
+they depend on.
+
+- `--scope user` (the default) lists the signed-in user's folders;
+  `--scope org` lists every organization item the account can see. Without
+  credentials only `--scope org` works, and it lists public items.
+- Credentials: an existing token through `ARCGIS_TOKEN`, `--token-stdin` or
+  `--token`, or `--username` for a built-in account. The password comes from
+  `ARCGIS_PASSWORD`, `--password-stdin` or a prompt, and is used once to mint
+  a 60-minute token. SAML and OpenID Connect accounts need a token. The token
+  travels in the `X-Esri-Authorization` header, never in a URL, and is never
+  written to the report, the terminal or disk. Redirects are refused.
+- Output: Markdown on stdout, JSON with `--json`, or both files
+  (`arcgis-inventory.json`, `arcgis-inventory.md`, mode 0600) with
+  `-o/--output-dir`. The JSON schema ships in the package as
+  `geolens_cli/manifest/schemas/arcgis-inventory-v1.schema.json`.
+- Limits: `--max-items` (default 10,000; ArcGIS search returns at most
+  10,000 results), `--concurrency` 1 to 4 for item reads, at most ten
+  requests a second, and retries with backoff on 429 and 502 to 504.
+- Exit codes: 0 when the report is complete, even if some items could not be
+  read (they are listed under errors; `--strict` makes that exit 1); 2 for
+  usage errors or a redirecting portal; 3 when the token is rejected; 4 for
+  network errors; 5 for portal server errors. If the token expires mid-run,
+  the partial report is still written, marked `"complete": false`; rerun with
+  a fresh token.
 
 ## Manifest schema distribution
 
