@@ -948,3 +948,47 @@ async def test_a_usage_event_still_owed_when_its_dataset_goes_is_billed_once(
     finally:
         for job_id in jobs:
             await _drop_import(test_db_session, job_id)
+
+
+async def test_a_second_delivery_of_the_writer_respects_the_lease_the_first_took(
+    test_db_session, ran, monkeypatch
+) -> None:
+    """A repeat call from the writing attempt, after the first took the record, runs nothing under the lease."""
+    job_id, attempt_id, record_id = await _job(test_db_session, task="ingest_raster")
+    repeats: list[bool] = []
+    try:
+        async with db_module.async_session() as session:
+            await session.execute(
+                update(IngestJob)
+                .where(IngestJob.id == job_id)
+                .values(
+                    user_metadata=owed_followups(
+                        attempt_id,
+                        "ingest_raster",
+                        catalog_cache=True,
+                        embedding=True,
+                        notice="ingest_complete",
+                    )
+                )
+            )
+            await session.commit()
+        notice = ran.step
+
+        async def _repeat_during_the_first(*, event_key, build):
+            # The first call has committed its take and released the row.
+            if not repeats:
+                repeats.append(None)
+                repeats[0] = await run_publish_followups(job_id, attempt_id=attempt_id)
+            notice(("notice", event_key), build().data)
+
+        monkeypatch.setattr(
+            "app.platform.notifications.events.emit_event_safe",
+            _repeat_during_the_first,
+        )
+        await run_publish_followups(job_id, attempt_id=attempt_id)
+
+        assert repeats == [False]
+        assert ran == [("cache",), ("embed",), ("notice", "ingest_complete")]
+        assert await _record(job_id) is None
+    finally:
+        await _drop(test_db_session, job_id, record_id)

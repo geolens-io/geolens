@@ -122,6 +122,8 @@ _RETRY_CAP = timedelta(hours=4)
 _GIVE_UP_ATTEMPTS = 8
 # Set once the record holds every run-once item it owes.
 _CLAIMED = "claimed"
+# The attempt whose record a take has leased, so its writer bypasses the lease once.
+_TAKEN_FOR = "taken_for"
 # How long the sweep leaves a claimed record to its claimer, well past a notice's
 # bounded network calls.
 _CLAIM_LEASE = timedelta(minutes=10)
@@ -828,6 +830,7 @@ def _taken(items: dict[str, object], *, source: str):
     for item, value in items.items():
         fields += [item, literal(value, JSONB)]
     fields += [_CLAIMED, true(), _NEXT_ATTEMPT_AT, func.now() + _CLAIM_LEASE]
+    fields += [_TAKEN_FOR, IngestJob.user_metadata[source]["attempt_id"]]
     record = IngestJob.user_metadata[source].op("||")(func.jsonb_build_object(*fields))
     path = literal([PUBLISH_FOLLOWUPS_FIELD], ARRAY(Text))
     return func.jsonb_set(metadata, path, record)
@@ -1019,8 +1022,9 @@ async def run_publish_followups(
     none. Then runs every item it owes in order, removing each one that
     lands, and the record once none is left; an item that does not land is
     retried later. Only a due record is taken, unless ``attempt_id`` is the
-    attempt that wrote it and nothing has run it yet, so the writer runs it at
-    once while the sweep waits out the lease. A row another caller has locked,
+    attempt that wrote it and no take has leased it yet, so the writer runs it
+    at once while the sweep, and a repeat call from the writer, wait out the
+    lease. A row another caller has locked,
     or a job neither complete nor failed, runs nothing. Only a complete job
     runs its storage items. A record an earlier attempt wrote is cleared and
     runs nothing. A record an earlier release wrote under its legacy field is
@@ -1036,7 +1040,8 @@ async def run_publish_followups(
     may_take = _is_due(owed)
     if attempt_id is not None:
         writes = owed["attempt_id"].astext == str(attempt_id)
-        may_take = or_(may_take, and_(writes, not_(owed.has_key(_ATTEMPTS))))
+        taken = owed[_TAKEN_FOR].astext == str(attempt_id)
+        may_take = or_(may_take, and_(writes, not_(func.coalesce(taken, False))))
     async with db_module.async_session() as session:
         row = (
             await session.execute(
