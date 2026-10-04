@@ -228,7 +228,14 @@ async def _hold_live_table(session, dataset, *, schema: str) -> None:
             )
     await session.refresh(
         dataset,
-        attribute_names=["column_info", "feature_count", "srid", "is_3d", "n_dims"],
+        attribute_names=[
+            "column_info",
+            "feature_count",
+            "srid",
+            "is_3d",
+            "n_dims",
+            "current_version",
+        ],
     )
 
 
@@ -310,6 +317,7 @@ class _FileReupload:
             "accepted_refresh_fingerprint"
         )
         self.accepted_run_id = self.user_metadata.get("accepted_refresh_run_id")
+        self.accepted_version = self.user_metadata.get("accepted_dataset_version")
         self.prior_record_type = dataset.record.record_type
         self.prior_geometry_type = dataset.geometry_type
         # The user-chosen layer of a multi-layer file.
@@ -432,6 +440,13 @@ class _FileReupload:
     async def _verify(self, session, dataset) -> Verdict:
         schema = _current_tenant_schema()
         await _hold_live_table(session, dataset, schema=schema)
+        if (
+            self.accepted_run_id is not None
+            and dataset.current_version != self.accepted_version
+        ):
+            raise RefreshPublicationFenceError(
+                "review_superseded", refresh_policy.REVIEW_SUPERSEDED
+            )
         # The function and transaction `project()` diffs with after the swap.
         self.schema_diff = catalog_projection.schema_diff(dataset, self.measurement)
         self.verification = refresh_policy.verify_file_replacement(
@@ -458,6 +473,8 @@ class _FileReupload:
             accepted_fingerprint=self.accepted_fingerprint,
             accepted_run_id=self.accepted_run_id,
         )
+        # What an acceptance of this run must still find live.
+        self.verification["live_version"] = dataset.current_version
         if self.verification["decision"] == "allowed":
             return PUBLISH
         self.held = True
@@ -622,6 +639,8 @@ def _file_refresh_error_code(exc: BaseException) -> str:
     """
     if isinstance(exc, CatalogLockConflict):
         return CATALOG_LOCK_CONFLICT_CODE
+    if isinstance(exc, RefreshPublicationFenceError):
+        return exc.code
     return "file_refresh_failed"
 
 

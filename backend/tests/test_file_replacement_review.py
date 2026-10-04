@@ -23,6 +23,7 @@ from app.platform.jobs.models import IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
 from app.processing.ingest.ogr import IngestionError
 from app.processing.ingest.tasks import reupload_file
+from app.processing.ingest.tasks_reupload import RefreshPublicationFenceError
 from tests.factories import create_dataset, get_user_id
 
 pytestmark = [
@@ -847,6 +848,92 @@ async def test_accepting_after_the_upload_is_gone_answers_upload_unavailable(
     assert response.json()["detail"]["code"] == "upload_unavailable"
     await harness.session.refresh(blocked)
     assert "acceptance_consumed_by_run_id" not in blocked.verification
+
+
+async def _live_names(harness: _Harness, dataset: Dataset) -> list[str]:
+    return list(
+        (
+            await harness.session.execute(
+                text(f'SELECT name FROM "data"."{dataset.table_name}" ORDER BY name')
+            )
+        ).scalars()
+    )
+
+
+async def _bump_version_elsewhere(dataset: Dataset) -> None:
+    """Commit a version bump from another connection, as a publication would."""
+    import app.core.db as db_module
+
+    async with db_module.async_session() as other:
+        await other.execute(
+            text(
+                "UPDATE catalog.datasets SET current_version = current_version + 1 "
+                "WHERE id = :id"
+            ),
+            {"id": dataset.id},
+        )
+        await other.commit()
+
+
+async def test_accepting_after_a_newer_replacement_published_answers_review_superseded(
+    harness: _Harness,
+):
+    """A held upload never publishes over a newer replacement with the same schema."""
+    dataset, _job_id, blocked = await _blocked_dataset(harness)
+    newer = _geojson(
+        harness.tmp_path / "c.geojson", {"name": "m", "population": 200, "legacy": "z"}
+    )
+    _preview, run = await harness.replace(dataset, newer)
+    assert run.status == "succeeded", (run.error_code, run.verification)
+    version = (await harness.reload(dataset)).current_version
+
+    response = await harness.accept(dataset, blocked.id)
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["code"] == "review_superseded"
+    harness.task.defer_async.assert_not_awaited()
+    assert await _live_names(harness, dataset) == ["m0", "m1", "m2"]
+    assert (await harness.reload(dataset)).current_version == version
+    await harness.session.refresh(blocked)
+    assert "acceptance_consumed_by_run_id" not in blocked.verification
+
+
+async def test_a_publication_landing_as_the_acceptance_is_admitted_answers_review_superseded(
+    harness: _Harness,
+):
+    from app.modules.catalog.datasets.api import refresh_acceptance
+
+    dataset, _job_id, blocked = await _blocked_dataset(harness)
+    admit = refresh_acceptance.create_pending_run
+
+    async def _published_first(db, **kwargs):
+        await _bump_version_elsewhere(dataset)
+        return await admit(db, **kwargs)
+
+    with patch.object(refresh_acceptance, "create_pending_run", _published_first):
+        response = await harness.accept(dataset, blocked.id)
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["code"] == "review_superseded"
+    harness.task.defer_async.assert_not_awaited()
+    await harness.session.refresh(blocked)
+    assert "acceptance_consumed_by_run_id" not in blocked.verification
+
+
+async def test_an_accepted_run_refuses_to_publish_once_newer_data_has_landed(
+    harness: _Harness,
+):
+    dataset, _job_id, blocked = await _blocked_dataset(harness)
+    response = await harness.accept(dataset, blocked.id)
+    assert response.status_code == 202, response.text
+    await _bump_version_elsewhere(dataset)
+
+    with pytest.raises(RefreshPublicationFenceError):
+        await harness.run_worker()
+
+    accepted = await harness.run_for(uuid.UUID(response.json()["job_id"]))
+    assert (accepted.status, accepted.error_code) == ("failed", "review_superseded")
+    assert "legacy" in await harness.live_columns(dataset)
 
 
 async def test_a_failed_accepting_attempt_gives_the_acceptance_back_and_keeps_the_upload(

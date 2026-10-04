@@ -324,6 +324,7 @@
     "embedDomainLockUnenforceable": "此部署尚无法强制执行域名锁定：其公开应用 URL 设置为 {{resolved}}，而您是通过 {{origin}} 访问的。嵌入地图会经由 GeoLens 本身加载，因此该锁定会拦截所有查看者。请将 PUBLIC_APP_URL 设置为 {{origin}}，然后再创建令牌。",
     "duplicateSource": "来自此数据源的数据集已注册（{{title}}）。",
     "refreshDatasetBusy": "此数据集已有刷新任务正在运行。请等待其完成后再试。",
+    "refreshReviewSuperseded": "此替换被暂缓后，数据集已发生变化。请重新上传文件。",
     "refreshOriginChanged": "在此刷新排队期间，该数据集的数据源发生了变化。请检查数据源后重试。",
     "refreshOriginUnavailable": "此数据集的数据源绑定不完整，因此无法自动刷新。请重新导入或重新注册数据源以修复此问题。",
     "refreshNotApplicable": "此数据集的来源类型不支持从数据源刷新。",

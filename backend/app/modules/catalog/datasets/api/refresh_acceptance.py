@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.tenant_session import defer_async_with_tenant
 from app.core.identity import Identity
+from app.modules.catalog.datasets.domain.models import Dataset
 from app.modules.catalog.datasets.domain.schemas import DatasetRefreshResponse
 from app.platform.extensions import get_catalog_port
 from app.platform.jobs import ledger
@@ -24,6 +25,7 @@ from app.platform.jobs.defer_guard import (
 )
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
+from app.platform.refresh.verification import REVIEW_SUPERSEDED
 from app.platform.refresh.service import DatasetBusyError, create_pending_run
 
 # What a manifest apply wrote on its job, so an accepted run publishes the
@@ -132,6 +134,7 @@ def _accepted_upload_metadata(
     dataset_id: uuid.UUID,
     run_id: uuid.UUID,
     fingerprint: str,
+    held_version: int | None,
 ) -> dict:
     blocked = blocked_job.user_metadata or {}
     carried = {
@@ -148,6 +151,7 @@ def _accepted_upload_metadata(
         "accepted_refresh_fingerprint": fingerprint,
         "accepted_refresh_run_id": str(run_id),
         "accepted_from_job_id": str(blocked_job.id),
+        "accepted_dataset_version": held_version,
     }
 
 
@@ -164,6 +168,8 @@ async def dispatch_upload_acceptance(
 
     The run is accepted once: the acceptance is consumed in the transaction
     that admits the new run, and a failed or cancelled attempt gives it back.
+    Refuses with 409 ``review_superseded`` when the dataset's data was
+    replaced after the run was held.
     """
     if token:
         raise HTTPException(
@@ -179,6 +185,8 @@ async def dispatch_upload_acceptance(
     fingerprint = await accepted_refresh_fingerprint(
         db, dataset_id=dataset_id, run_id=run_id
     )
+    blocked_run = await db.get(DatasetRefreshRun, run_id)
+    held_version = (blocked_run.verification or {}).get("live_version")
     blocked_job = await db.scalar(
         select(IngestJob)
         .join(DatasetRefreshRun, DatasetRefreshRun.ingest_job_id == IngestJob.id)
@@ -205,7 +213,11 @@ async def dispatch_upload_acceptance(
         file_path=blocked_job.file_path,
         source_layer=blocked_job.source_layer,
         user_metadata=_accepted_upload_metadata(
-            blocked_job, dataset_id=dataset_id, run_id=run_id, fingerprint=fingerprint
+            blocked_job,
+            dataset_id=dataset_id,
+            run_id=run_id,
+            fingerprint=fingerprint,
+            held_version=held_version,
         ),
     )
     await db.flush()
@@ -231,6 +243,17 @@ async def dispatch_upload_acceptance(
                 ),
             },
         ) from exc
+    # Read after the run is admitted: a replacement that published first is
+    # visible here, and one that comes later waits behind this run.
+    current_version = await db.scalar(
+        select(Dataset.current_version).where(Dataset.id == dataset_id)
+    )
+    if held_version is None or current_version != held_version:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "review_superseded", "message": REVIEW_SUPERSEDED},
+        )
     await consume_blocked_refresh_acceptance(
         db,
         dataset_id=dataset_id,

@@ -196,6 +196,7 @@
     "embedDomainLockUnenforceable": "Esta instalación aún no puede aplicar un bloqueo de dominio: su URL pública está configurada como {{resolved}}, pero has accedido desde {{origin}}. Un embebido carga el mapa a través de GeoLens, así que el bloqueo impediría el acceso a todos los visitantes. Configura PUBLIC_APP_URL como {{origin}} y crea el token de nuevo.",
     "duplicateSource": "Ya hay un conjunto de datos registrado desde esta fuente ({{title}}).",
     "refreshDatasetBusy": "Ya hay una actualización en curso para este conjunto de datos. Espera a que termine e inténtalo de nuevo.",
+    "refreshReviewSuperseded": "El conjunto de datos cambió después de que se retuviera este reemplazo. Vuelve a subir el archivo.",
     "refreshOriginChanged": "La fuente de este conjunto de datos cambió mientras la actualización estaba en cola. Revisa la fuente e inténtalo de nuevo.",
     "refreshOriginUnavailable": "El origen registrado de este conjunto de datos está incompleto, por lo que no se puede actualizar automáticamente. Vuelve a importar o registrar la fuente para solucionarlo.",
     "refreshNotApplicable": "El origen de este conjunto de datos no admite actualización desde la fuente.",

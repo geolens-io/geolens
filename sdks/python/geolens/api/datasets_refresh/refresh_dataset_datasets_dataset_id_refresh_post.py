@@ -145,7 +145,8 @@ def sync_detailed(
     it accepts. A blocked file replacement (an ``upload`` run) is replaced
     again from the upload that run kept, and publishes only if its review
     reasons and changes match. That answers 422 ``upload_unavailable`` once
-    the upload is gone. A review fingerprint is an acknowledgement, not a
+    the upload is gone, and 409 ``review_superseded`` once newer data has
+    replaced what the run was compared with. A review fingerprint is an acknowledgement, not a
     secret: it keeps a replacement nobody reviewed from publishing, and any
     caller with write access can still publish deliberately.
 
@@ -208,7 +209,8 @@ def sync(
     it accepts. A blocked file replacement (an ``upload`` run) is replaced
     again from the upload that run kept, and publishes only if its review
     reasons and changes match. That answers 422 ``upload_unavailable`` once
-    the upload is gone. A review fingerprint is an acknowledgement, not a
+    the upload is gone, and 409 ``review_superseded`` once newer data has
+    replaced what the run was compared with. A review fingerprint is an acknowledgement, not a
     secret: it keeps a replacement nobody reviewed from publishing, and any
     caller with write access can still publish deliberately.
 
@@ -266,7 +268,8 @@ async def asyncio_detailed(
     it accepts. A blocked file replacement (an ``upload`` run) is replaced
     again from the upload that run kept, and publishes only if its review
     reasons and changes match. That answers 422 ``upload_unavailable`` once
-    the upload is gone. A review fingerprint is an acknowledgement, not a
+    the upload is gone, and 409 ``review_superseded`` once newer data has
+    replaced what the run was compared with. A review fingerprint is an acknowledgement, not a
     secret: it keeps a replacement nobody reviewed from publishing, and any
     caller with write access can still publish deliberately.
 
@@ -327,7 +330,8 @@ async def asyncio(
     it accepts. A blocked file replacement (an ``upload`` run) is replaced
     again from the upload that run kept, and publishes only if its review
     reasons and changes match. That answers 422 ``upload_unavailable`` once
-    the upload is gone. A review fingerprint is an acknowledgement, not a
+    the upload is gone, and 409 ``review_superseded`` once newer data has
+    replaced what the run was compared with. A review fingerprint is an acknowledgement, not a
     secret: it keeps a replacement nobody reviewed from publishing, and any
     caller with write access can still publish deliberately.
 

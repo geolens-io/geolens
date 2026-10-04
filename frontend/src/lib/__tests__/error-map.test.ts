@@ -109,6 +109,16 @@ describe('API error localization boundary', () => {
         409,
       ),
     ).toEqual({ key: 'errors.refreshDatasetBusy' });
+
+    expect(
+      classifyApiError(
+        {
+          code: 'review_superseded',
+          message: 'The dataset changed after this replacement was held. Upload the file again.',
+        },
+        409,
+      ),
+    ).toEqual({ key: 'errors.refreshReviewSuperseded' });
   });
 
   // fix(#1768): the re-upload commit door returns the SAME `origin_changed`

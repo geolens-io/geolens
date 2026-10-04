@@ -8,6 +8,12 @@ from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from typing import Any
 
+# Why a held file replacement can no longer be accepted: its acceptance would
+# publish an upload over data that replaced what the run was compared with.
+REVIEW_SUPERSEDED = (
+    "The dataset changed after this replacement was held. Upload the file again."
+)
+
 _GEOMETRY_FAMILIES = {
     "POINT": "point",
     "MULTIPOINT": "point",
