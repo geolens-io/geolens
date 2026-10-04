@@ -1649,6 +1649,34 @@ describe('ReuploadDialog raster reupload', () => {
   // fix(#1953): ADR-002 Decision 3 stores `internal_error` in place of a
   // failure the server did not compose, so the dialog is the surface that
   // has to turn that code into something a reader understands.
+  it('refetches the run history when a replacement is held for review', async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
+    });
+    mockUseJobStatus.mockReturnValue({
+      data: {
+        status: 'failed',
+        error_code: 'review_required',
+        error_message: 'Review the detected changes before publication.',
+      },
+    } as unknown as ReturnType<typeof useJobStatus>);
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ReuploadDialog dataset={makeDataset()} open onOpenChange={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    await openFileSource(user);
+    await dropFile();
+    await user.click(await screen.findByRole('button', { name: 'Confirm Re-Upload' }));
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({
+      queryKey: queryKeys.datasets.refreshRunsPrefix('dataset-1'),
+    }));
+  });
+
   it('renders the localized line for the coded internal failure', async () => {
     const user = userEvent.setup();
     mockUseJobStatus.mockReturnValue({

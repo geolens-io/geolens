@@ -223,6 +223,13 @@ export function ReuploadDialog({
   useEffect(() => {
     if (step !== 'tracking' || !jobData) return;
 
+    // The run ended too, possibly blocked for review, and run history is not polled.
+    if (['complete', 'failed', 'cancelled'].includes(jobData.status)) {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.datasets.refreshRunsPrefix(dataset.id),
+      });
+    }
+
     if (jobData.status === 'complete') {
       // fix(#1362 codex r3): the await below leaves this continuation
       // in flight across a render where `step`/`jobId` can change under it —

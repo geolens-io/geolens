@@ -217,6 +217,8 @@ export function useReuploadCommit() {
     // otherwise hold the prior job's value until a hard refresh.
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.ingest.jobStatusByDataset(variables.datasetId) });
+      // The commit admitted a run; an open Sources tab shows it.
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.refreshRunsPrefix(variables.datasetId) });
     },
   });
 }

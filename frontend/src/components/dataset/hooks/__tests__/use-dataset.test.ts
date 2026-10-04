@@ -174,6 +174,18 @@ describe('useReuploadCommit', () => {
     });
   });
 
+  it('invalidates the refresh run history on success', async () => {
+    mockReuploadCommit.mockResolvedValueOnce({ message: 'ok' } as never);
+    const { result, qc } = renderWithClient();
+    const spy = vi.spyOn(qc, 'invalidateQueries');
+
+    await result.current.mutateAsync({ datasetId: 'ds-1', jobId: 'j1' });
+
+    expect(spy).toHaveBeenCalledWith({
+      queryKey: queryKeys.datasets.refreshRunsPrefix('ds-1'),
+    });
+  });
+
   // fix(#1768): expectedOriginKind joined the positional tail.
   it('passes datasetId, jobId, sridOverride, token, layerName, expectedOriginKind, reviewFingerprint through to reuploadCommit', async () => {
     mockReuploadCommit.mockResolvedValueOnce({ message: 'ok' } as never);
