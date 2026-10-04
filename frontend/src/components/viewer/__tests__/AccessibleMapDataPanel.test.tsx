@@ -137,16 +137,22 @@ describe('AccessibleMapDataPanel', () => {
       );
       const { rerender } = render(panel(1));
       const live = screen.getByRole('status');
-      const initial = live.textContent;
-
-      rerender(panel(2));
-      rerender(panel(3));
-      expect(live.textContent).toBe(initial);
+      // Opened with a summary already available: the region must start empty.
+      expect(live).toBeEmptyDOMElement();
 
       act(() => {
         vi.advanceTimersByTime(1000);
       });
-      expect(live.textContent).not.toBe(initial);
+      expect(live.textContent).toContain('1');
+
+      const settled = live.textContent;
+      rerender(panel(2));
+      rerender(panel(3));
+      expect(live.textContent).toBe(settled);
+
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
       expect(live.textContent).toContain('3');
     } finally {
       vi.useRealTimers();

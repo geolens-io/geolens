@@ -1,7 +1,7 @@
 /* eslint-disable jsx-a11y/no-noninteractive-tabindex -- the named overflow region must be keyboard-scrollable */
+import { useEffect, useState } from 'react';
 import { RefreshCw, TableProperties } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useDebouncedValue } from '@/hooks/use-debounce';
 import { Button } from '@/components/ui/button';
 import {
   Sheet,
@@ -27,6 +27,21 @@ interface AccessibleMapDataPanelProps {
 }
 
 const SUMMARY_ANNOUNCE_DELAY_MS = 1000;
+
+/** Mounts with the sheet and starts empty, so the first summary is an insertion
+ *  readers announce; the map refreshes on every idle, hence the debounce. */
+function AnnouncedSummary({ summary }: { summary: string }) {
+  const [announced, setAnnounced] = useState('');
+  useEffect(() => {
+    const timer = setTimeout(() => setAnnounced(summary), SUMMARY_ANNOUNCE_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [summary]);
+  return (
+    <p className="sr-only" role="status" aria-live="polite">
+      {announced}
+    </p>
+  );
+}
 
 function humanizeKey(key: string): string {
   return key
@@ -63,8 +78,6 @@ export function AccessibleMapDataPanel({
         total: featureResult.total,
       })
     : t('viewer.data.resultSummary', { count: featureResult.total });
-  // The map refreshes this result on every idle; announcing each one is noise.
-  const announcedSummary = useDebouncedValue(resultSummary, SUMMARY_ANNOUNCE_DELAY_MS);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -141,9 +154,7 @@ export function AccessibleMapDataPanel({
                 {t('viewer.data.featuresHeading')}
               </h3>
               <p className="text-xs text-muted-foreground" aria-hidden="true">{resultSummary}</p>
-              <p className="sr-only" role="status" aria-live="polite">
-                {announcedSummary}
-              </p>
+              <AnnouncedSummary summary={resultSummary} />
             </div>
 
             {featureResult.features.length === 0 ? (
