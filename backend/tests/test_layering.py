@@ -602,7 +602,8 @@ def test_no_external_imports_of_dataset_domain_submodules() -> None:
     # _safe_table_ref through the service.py façade re-export, not directly.
     pattern = (
         r"from app\.modules\.catalog\.datasets\.domain\."
-        r"(service_(analysis|create|query|lifecycle|metadata|relationships)"
+        r"(service_(analysis|create|query|lifecycle|metadata|relationships"
+        r"|previous_version)"
         r"|_sql_safety)"
     )
 
@@ -620,6 +621,7 @@ def test_no_external_imports_of_dataset_domain_submodules() -> None:
         "backend/app/modules/catalog/datasets/domain/service_lifecycle.py",
         "backend/app/modules/catalog/datasets/domain/service_metadata.py",
         "backend/app/modules/catalog/datasets/domain/service_relationships.py",
+        "backend/app/modules/catalog/datasets/domain/service_previous_version.py",
         "backend/app/modules/catalog/datasets/domain/_sql_safety.py",
     }
 

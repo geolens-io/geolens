@@ -15,7 +15,6 @@ from typing import Any
 from sqlalchemy import select
 
 from app.core.db.tenant_session import tenant_task
-from app.core.failure_reason import FixedReason
 from app.core.record_types import capabilities
 from app.platform.catalog_locks import CATALOG_LOCK_CONFLICT_CODE, CatalogLockConflict
 from app.platform.jobs.models import EXPECTED_PREVIOUS_VERSION_KEY
@@ -173,7 +172,7 @@ class _RestorePreviousVersion:
 
     def classify(self, exc: BaseException) -> Failure:
         if isinstance(exc, RestoreRefused):
-            return Failure(exc.code, reason=FixedReason(str(exc), code=exc.code))
+            return Failure(exc.code)
         if isinstance(exc, CatalogLockConflict):
             return Failure(CATALOG_LOCK_CONFLICT_CODE)
         return Failure("restore_failed")

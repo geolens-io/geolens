@@ -16,11 +16,11 @@ from app.modules.catalog.datasets.domain.schemas import (
     RestorePreviousVersionRequest,
     RestorePreviousVersionResponse,
 )
-from app.modules.catalog.datasets.domain.service import get_dataset
-from app.modules.catalog.datasets.domain.service_previous_version import (
+from app.modules.catalog.datasets.domain.service import (
     PreviousVersionRefused,
     admit_restore,
     drop_previous_version,
+    get_dataset,
 )
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.extensions import get_catalog_port

@@ -38,6 +38,11 @@ from app.modules.catalog.datasets.domain.service_metadata import (
     update_attribute,
     update_user_metadata,
 )
+from app.modules.catalog.datasets.domain.service_previous_version import (
+    PreviousVersionRefused,
+    admit_restore,
+    drop_previous_version,
+)
 from app.modules.catalog.datasets.domain.service_query import (
     get_dataset,
     get_dataset_detail,
@@ -64,6 +69,8 @@ __all__ = [
     "DatasetTitleMismatchError",
     "DependentVrtError",
     "PREVIEW_FEATURE_CAP",
+    "PreviousVersionRefused",
+    "admit_restore",
     "auto_detect_relationships",
     "build_preview_sql",
     "compute_schema_diff",
@@ -73,6 +80,7 @@ __all__ = [
     "defer_metadata_embedding",
     "delete_dataset",
     "delete_relationship",
+    "drop_previous_version",
     "get_attribute",
     "get_dataset",
     "get_dataset_detail",

@@ -2,6 +2,7 @@
 
 import contextlib
 import uuid
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -607,3 +608,169 @@ async def test_the_detail_and_versions_name_the_previous_version(
         assert restored == {2: None, 3: None, 4: 2}
     finally:
         await _cleanup(session, dataset)
+
+
+async def _admission_waits_on_a_lock(observer) -> bool:
+    waiting = await observer.scalar(
+        text(
+            "SELECT count(*) FROM pg_stat_activity "
+            "WHERE datname = current_database() AND pid <> pg_backend_pid() "
+            "AND state = 'active' AND wait_event_type = 'Lock'"
+        )
+    )
+    # Activity is snapshotted per transaction, so each poll needs a new one.
+    await observer.rollback()
+    return waiting > 0
+
+
+async def test_a_scheduled_admission_waiting_on_a_restore_sees_its_hold(
+    test_db_session,
+) -> None:
+    """An admission that read no hold before a restore committed refuses once the run is reserved."""
+    import asyncio
+
+    import app.core.db as db_module
+    from app.platform.refresh.execution import (
+        RefreshAdmissionRequest,
+        ScheduledRefreshHeld,
+        prepare_admitted_refresh,
+    )
+
+    assert db_module.engine.url.database.startswith("geolens_test")
+    session = test_db_session
+    admin_id, dataset = await _seed(session)
+    restore_job = await _queue(
+        session, dataset, admin_id, origin_kind="restore", metadata={"refresh": True}
+    )
+    await session.execute(
+        text(
+            "UPDATE catalog.dataset_refresh_runs SET status = 'running' "
+            "WHERE ingest_job_id = :id"
+        ),
+        {"id": restore_job.id},
+    )
+    await session.commit()
+
+    publication = db_module.async_session()
+    admission = db_module.async_session()
+    observer = db_module.async_session()
+    scheduler = None
+    try:
+        # The restore's publishing transaction, as the seam leaves it before
+        # its commit: the dataset row held, the hold set, the run ended.
+        await publication.execute(
+            text("SELECT 1 FROM catalog.datasets WHERE id = :id FOR UPDATE"),
+            {"id": dataset.id},
+        )
+        await publication.execute(
+            text(
+                "UPDATE catalog.datasets SET scheduled_refresh_hold = 'restored' "
+                "WHERE id = :id"
+            ),
+            {"id": dataset.id},
+        )
+        await publication.execute(
+            text(
+                "UPDATE catalog.dataset_refresh_runs SET status = 'succeeded', "
+                "finished_at = now() WHERE ingest_job_id = :id"
+            ),
+            {"id": restore_job.id},
+        )
+
+        async def _admit():
+            try:
+                return await prepare_admitted_refresh(
+                    admission,
+                    dataset=dataset,
+                    actor=SimpleNamespace(id=admin_id),
+                    request=RefreshAdmissionRequest(
+                        source_binding_fingerprint="fp",
+                        local_edit_baseline=None,
+                        origin_kind="service",
+                    ),
+                    trigger="scheduled",
+                    scheduled_for=datetime.now(timezone.utc),
+                    occurrence_key=f"occ-{uuid.uuid4().hex}",
+                )
+            finally:
+                await admission.commit()
+
+        scheduler = asyncio.create_task(_admit())
+        for _ in range(200):
+            if await _admission_waits_on_a_lock(observer):
+                break
+            assert not scheduler.done(), "the admission did not wait on the restore"
+            await asyncio.sleep(0.05)
+        else:
+            pytest.fail("the admission never waited on the restore")
+        await publication.commit()
+
+        with pytest.raises(ScheduledRefreshHeld):
+            await asyncio.wait_for(scheduler, timeout=30)
+
+        pending = await session.scalar(
+            text(
+                "SELECT count(*) FROM catalog.dataset_refresh_runs "
+                "WHERE dataset_id = :id AND status IN ('pending', 'running')"
+            ),
+            {"id": dataset.id},
+        )
+        jobs = await session.scalar(
+            text("SELECT count(*) FROM catalog.ingest_jobs WHERE dataset_id = :id"),
+            {"id": dataset.id},
+        )
+        assert (pending, jobs) == (0, 1)
+    finally:
+        if scheduler is not None and not scheduler.done():
+            scheduler.cancel()
+        for opened in (publication, admission, observer):
+            await opened.rollback()
+            await opened.close()
+        await _cleanup(session, dataset)
+
+
+async def test_a_held_dataset_refuses_an_admitted_scheduled_run_at_execution(
+    test_db_session,
+) -> None:
+    """A scheduled run already admitted fails before its task runs once the dataset is held."""
+    from app.platform.refresh.execution import execute_admitted_refresh
+    from tests.test_scheduled_refresh_execution import _scheduled_run
+
+    session = test_db_session
+    run, job = await _scheduled_run(session)
+    run_id, job_id, key = run.id, job.id, run.execution_key
+    await session.execute(
+        text(
+            "UPDATE catalog.datasets SET scheduled_refresh_hold = 'restored' "
+            "WHERE id = :id"
+        ),
+        {"id": run.dataset_id},
+    )
+    await session.commit()
+
+    task = AsyncMock()
+    with patch(
+        "app.platform.extensions.get_catalog_port",
+        return_value=SimpleNamespace(
+            verified_refresh_service_task=lambda: SimpleNamespace(func=task)
+        ),
+    ):
+        result = await execute_admitted_refresh(job_id, str(key))
+
+    assert result.status == "rejected"
+    task.assert_not_called()
+    settled = (
+        await session.execute(
+            text(
+                "SELECT r.status, r.error_code, j.status AS job_status "
+                "FROM catalog.dataset_refresh_runs r "
+                "JOIN catalog.ingest_jobs j ON j.id = r.ingest_job_id WHERE r.id = :id"
+            ),
+            {"id": run_id},
+        )
+    ).one()
+    assert (settled.status, settled.error_code, settled.job_status) == (
+        "failed",
+        "scheduled_refresh_held",
+        "failed",
+    )
