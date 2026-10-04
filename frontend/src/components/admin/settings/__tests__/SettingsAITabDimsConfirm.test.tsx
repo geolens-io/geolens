@@ -235,6 +235,33 @@ describe('SettingsAITab embedding width confirmation', () => {
       expect(onReset).toHaveBeenCalledWith('embedding_dims');
     });
 
+    it('queues the backfill only after the reset resolves', async () => {
+      let finish: (ok: boolean) => void = () => {};
+      onReset.mockReturnValueOnce(new Promise<boolean>((resolve) => { finish = resolve; }));
+      const user = userEvent.setup();
+      renderTab(overridden);
+
+      await user.click(screen.getByRole('button', { name: /Reset/ }));
+      await user.click(screen.getByRole('button', { name: 'Delete embeddings' }));
+      expect(hoisted.backfillMutate).not.toHaveBeenCalled();
+
+      finish(true);
+      await waitFor(() => expect(hoisted.backfillMutate).toHaveBeenCalledWith(false, expect.anything()));
+    });
+
+    it('queues nothing when the reset fails', async () => {
+      onReset.mockResolvedValueOnce(false);
+      const user = userEvent.setup();
+      renderTab(overridden);
+
+      await user.click(screen.getByRole('button', { name: /Reset/ }));
+      await user.click(screen.getByRole('button', { name: 'Delete embeddings' }));
+
+      await waitFor(() => expect(onReset).toHaveBeenCalledTimes(1));
+      await new Promise((r) => setTimeout(r, 20));
+      expect(hoisted.backfillMutate).not.toHaveBeenCalled();
+    });
+
     it('still confirms a reset when the stats report zero embeddings', async () => {
       hoisted.embedded = 0;
       const user = userEvent.setup();
