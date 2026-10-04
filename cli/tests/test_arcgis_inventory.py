@@ -682,12 +682,15 @@ def test_dashboard_chart_datasets_are_data_source_dependencies(run):
 
 
 @pytest.mark.parametrize("blank_start", ["1", "9"])
-def test_blank_listing_page_is_a_partial_failure(run, blank_start):
-    """A blank search page stops the run non-zero instead of ending the listing as complete."""
+@pytest.mark.parametrize(
+    ("body", "reason"), [(b"", "empty body"), (b"{}", "no 'results' list")]
+)
+def test_blank_listing_page_is_a_partial_failure(run, blank_start, body, reason):
+    """A blank or itemless search page stops the run non-zero instead of ending the listing as complete."""
 
     def search(seen):
         if seen.params["start"] == blank_start:
-            return (200, b"")
+            return (200, body)
         return load(
             "search_page1.json" if seen.params["start"] == "1" else "search_page2.json"
         )
@@ -697,7 +700,7 @@ def test_blank_listing_page_is_a_partial_failure(run, blank_start):
     report = _report(result)
     assert report["complete"] is False
     assert report["counts"]["total"] == (0 if blank_start == "1" else 8)
-    assert "no 'results' list" in report["abort_reason"]
+    assert reason in report["abort_reason"]
 
 
 class _TricklingResponse:
@@ -836,3 +839,48 @@ def test_http_499_during_search_tries_the_form_field_then_fails(run):
     assert report["complete"] is False
     assert "HTTP 499" in report["abort_reason"]
     assert [s.method for s in portal.requests_to("search")] == ["GET", "POST"]
+
+
+def test_empty_web_map_body_is_an_item_error(run):
+    """An empty web map configuration is a failed read: an error row, and --strict fails."""
+    routes = portal_routes({item_data_path(B1): (200, b"")})
+    result, _ = run(FakePortal(routes), "--scope", "org", "--strict")
+    assert result.exit_code == 1
+    report = _report(result)
+    assert report["complete"] is True
+    assert report["counts"]["total"] == 15
+    errors = {e["item_id"]: e["message"] for e in report["errors"]}
+    assert "empty body" in errors[B1]
+    assert _rows(report)[B1]["dependencies_status"] == "error"
+    assert not [d for d in report["dependencies"] if d["from_id"] == B1]
+    assert _rows(report)[C1]["dependencies_status"] == "parsed"
+
+
+def test_web_map_without_layer_keys_is_an_item_error(run):
+    """A JSON object with no web map structure is not recorded as a map without dependencies."""
+    routes = portal_routes({item_data_path(B1): {"version": "2.31"}})
+    result, _ = run(FakePortal(routes), "--scope", "org")
+    report = _report(result)
+    errors = {e["item_id"]: e["message"] for e in report["errors"]}
+    assert "not a web map configuration" in errors[B1]
+    assert _rows(report)[B1]["dependencies_status"] == "error"
+
+
+def test_valid_web_map_without_layers_is_parsed(run):
+    """A well-formed web map with no layers is parsed with no dependencies, not an error."""
+    empty_map = {"operationalLayers": [], "baseMap": {"baseMapLayers": []}}
+    routes = portal_routes({item_data_path(B1): empty_map})
+    result, _ = run(FakePortal(routes), "--scope", "org", "--strict")
+    report = _report(result)
+    assert B1 not in {e["item_id"] for e in report["errors"]}
+    assert _rows(report)[B1]["dependencies_status"] == "parsed"
+    assert not [d for d in report["dependencies"] if d["from_id"] == B1]
+
+
+def test_app_without_data_stays_unparsed(run):
+    """An app registered only by URL has an empty data body; that is not an error."""
+    routes = portal_routes({item_data_path(C2): (200, b"")})
+    result, _ = run(FakePortal(routes), "--scope", "org")
+    report = _report(result)
+    assert C2 not in {e["item_id"] for e in report["errors"]}
+    assert _rows(report)[C2]["dependencies_status"] == "unparsed"

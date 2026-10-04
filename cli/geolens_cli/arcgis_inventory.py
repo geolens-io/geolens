@@ -447,7 +447,7 @@ class PortalClient:
 
     def _parse(self, raw: bytes, path: str) -> dict:
         if not raw.strip():
-            return {}
+            raise self._error(f"{path} returned an empty body", kind="empty")
         try:
             data = json.loads(raw)
         except (ValueError, RecursionError):
@@ -881,6 +881,16 @@ def _app_references(
     return list(unique.values())
 
 
+def _is_web_map(data: Mapping[str, Any]) -> bool:
+    """Whether *data* has a web map's layer keys, with the right types."""
+    layers, basemap = data.get("operationalLayers"), data.get("baseMap")
+    if layers is None and basemap is None:
+        return False
+    return (layers is None or isinstance(layers, list)) and (
+        basemap is None or isinstance(basemap, dict)
+    )
+
+
 def _extract_dependencies(
     row: Mapping[str, Any],
     data: Mapping[str, Any],
@@ -927,14 +937,21 @@ def _collect_dependencies(
     ) -> tuple[str, list[dict[str, Any]], PortalError | None]:
         if stop.is_set():
             return "not_fetched", [], None
+        path = f"content/items/{quote(row['id'], safe='')}/data"
         try:
-            path = f"content/items/{quote(row['id'], safe='')}/data"
             data = client.get_json(path)
         except PortalError as exc:
             if exc.kind == "auth":
                 stop.set()
                 return "not_fetched", [], exc
+            # An app registered only by URL has no data; a web map always has
+            # a configuration, so an empty one is a failed read.
+            if exc.kind == "empty" and row["type"] != _WEB_MAP_TYPE:
+                return "unparsed", [], None
             return "error", [], exc
+        if row["type"] == _WEB_MAP_TYPE and not _is_web_map(data):
+            message = f"{path} is not a web map configuration"
+            return "error", [], PortalError(message, kind="invalid")
         return (*_extract_dependencies(row, data, index, inv.portal), None)
 
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
