@@ -1111,3 +1111,50 @@ async def test_a_replacement_does_not_keep_a_partitioned_table(test_db_session) 
         assert (await _dataset_row(session, dataset.id)).previous_version_number is None
     finally:
         await _cleanup(session, dataset)
+
+
+async def test_restoring_an_empty_generic_layer_keeps_it_open_to_any_geometry(
+    client: AsyncClient, test_db_session, admin_auth_header
+) -> None:
+    """An empty generic table restored over typed data takes no type from the data it replaced."""
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    table = f"prev2590_{uuid.uuid4().hex[:10]}"
+    created = await create_dataset(
+        session,
+        created_by=admin_id,
+        table_name=table,
+        geometry_type="GEOMETRY",
+        feature_count=0,
+        column_info=[{"name": "name", "type": "text"}],
+    )
+    dataset = SimpleNamespace(id=created.id, table_name=table)
+    await session.execute(
+        text(
+            f'CREATE TABLE "data"."{table}" (gid serial PRIMARY KEY, '
+            "geom geometry(Geometry, 4326), geom_4326 geometry(Geometry, 4326), "
+            "name text)"
+        )
+    )
+    await session.commit()
+    try:
+        await _replace(session, dataset, admin_id, ["paris"])
+        await _restore(client, admin_auth_header, session, dataset, 1)
+
+        assert (
+            await session.scalar(
+                text("SELECT geometry_type FROM catalog.datasets WHERE id = :id"),
+                {"id": dataset.id},
+            )
+        ) == "GEOMETRY"
+        line = await client.post(
+            f"/api/datasets/{dataset.id}/features/",
+            json={
+                "geometry": {"type": "LineString", "coordinates": [[0, 0], [1, 1]]},
+                "properties": {"name": "Road"},
+            },
+            headers=admin_auth_header,
+        )
+        assert line.status_code == 201, line.text
+    finally:
+        await _cleanup(session, dataset)

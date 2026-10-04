@@ -10,6 +10,7 @@ the previous version in turn.
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 from typing import Any
 
 from sqlalchemy import select
@@ -90,8 +91,23 @@ class _RestorePreviousVersion:
         # rows before dropping the table never waits on this read.
         await self._require_previous(session, dataset)
         schema = _current_tenant_schema()
+        # An empty or generic kept table falls back to what its own version
+        # recorded, never to the data it replaces.
+        from app.platform.extensions import get_processing_port
+
+        DatasetVersion = get_processing_port().get_dataset_version_orm_class()
+        kept_type = await session.scalar(
+            select(DatasetVersion.geometry_type).where(
+                DatasetVersion.dataset_id == dataset.id,
+                DatasetVersion.version_number == self.expected,
+            )
+        )
         self.measurement = await catalog_projection.measure(
-            session, dataset, table=self.previous, schema=schema
+            session,
+            dataset,
+            table=self.previous,
+            schema=schema,
+            stored=SimpleNamespace(geometry_type=kept_type, is_3d=None, n_dims=None),
         )
         await install_candidate_table(
             session,
