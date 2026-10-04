@@ -14,6 +14,7 @@ import http.client
 import json
 import os
 import re
+import socket
 import sys
 import threading
 import time
@@ -209,13 +210,76 @@ class _RefuseRedirects(urllib.request.HTTPRedirectHandler):
         return None
 
 
+class _Watchdog:
+    """Shuts a request's socket down when its deadline passes."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._sock: socket.socket | None = None
+        self.fired = False
+
+    def attach(self, sock: socket.socket) -> socket.socket:
+        with self._lock:
+            self._sock = sock
+            if self.fired:
+                _shut(sock)
+        return sock
+
+    def fire(self) -> None:
+        with self._lock:
+            self.fired = True
+            if self._sock is not None:
+                _shut(self._sock)
+
+
+def _shut(sock: socket.socket) -> None:
+    for step in (lambda: sock.shutdown(socket.SHUT_RDWR), sock.close):
+        try:
+            step()
+        except OSError:
+            pass
+
+
+class _WatchedConnections:
+    """Hands each new connection's socket to the request's watchdog.
+
+    http.client opens the socket through the connection's
+    ``_create_connection`` attribute, so wrapping it covers the TLS
+    handshake, status line, headers, chunk framing and body alike.
+    """
+
+    def do_open(self, http_class, req, **kwargs):
+        watchdog = getattr(req, "watchdog", None)
+
+        def connection(host, **conn_kwargs):
+            conn = http_class(host, **conn_kwargs)
+            if watchdog is not None:
+                create = conn._create_connection
+                conn._create_connection = lambda *a, **k: watchdog.attach(
+                    create(*a, **k)
+                )
+            return conn
+
+        return super().do_open(connection, req, **kwargs)
+
+
+class _WatchedHTTPHandler(_WatchedConnections, urllib.request.HTTPHandler):
+    pass
+
+
+class _WatchedHTTPSHandler(_WatchedConnections, urllib.request.HTTPSHandler):
+    pass
+
+
 def build_opener() -> urllib.request.OpenerDirector:
-    """An opener that turns every redirect into an HTTPError.
+    """An opener that refuses redirects and honors per-request deadlines.
 
     A redirect would carry the credential header to wherever the portal
     points, so none is followed.
     """
-    return urllib.request.build_opener(_RefuseRedirects())
+    return urllib.request.build_opener(
+        _RefuseRedirects(), _WatchedHTTPHandler(), _WatchedHTTPSHandler()
+    )
 
 
 class PortalClient:
@@ -382,7 +446,40 @@ class PortalClient:
             self._sleep(wait)
 
     def _open_once(self, request: urllib.request.Request, path: str) -> bytes:
+        """One request, bounded end to end by ``REQUEST_DEADLINE``.
+
+        A timer shuts the socket down at the deadline, so a server that
+        trickles any part of the response can't hold the request open.
+        """
         deadline = self._clock() + REQUEST_DEADLINE
+        watchdog = _Watchdog()
+        request.watchdog = watchdog
+        timer = threading.Timer(REQUEST_DEADLINE, watchdog.fire)
+        timer.daemon = True
+        timer.start()
+        try:
+            raw = self._open_and_read(request, path, deadline)
+        except Exception:  # broad: a shut socket can surface as any I/O error
+            if watchdog.fired:
+                raise self._deadline_error(path) from None
+            raise
+        finally:
+            timer.cancel()
+        # A shut socket also reads as a clean end of body, cutting it short.
+        if watchdog.fired:
+            raise self._deadline_error(path)
+        return raw
+
+    def _deadline_error(self, path: str) -> PortalError:
+        return self._error(
+            f"{path} took longer than {REQUEST_DEADLINE:g} s",
+            kind="network",
+            retryable=True,
+        )
+
+    def _open_and_read(
+        self, request: urllib.request.Request, path: str, deadline: float
+    ) -> bytes:
         try:
             with self._opener.open(request, timeout=SOCKET_TIMEOUT) as response:
                 return self._read_capped(response, path, deadline)
@@ -421,16 +518,10 @@ class PortalClient:
         chunks: list[bytes] = []
         total = 0
         while True:
-            remaining = deadline - self._clock()
-            if remaining <= 0:
-                raise self._error(
-                    f"{path} took longer than {REQUEST_DEADLINE:.0f} s",
-                    kind="network",
-                    retryable=True,
-                )
-            _limit_socket_wait(response, remaining)
+            if self._clock() > deadline:
+                raise self._deadline_error(path)
             # read1 returns after one socket read; read(n) would keep reading
-            # until n bytes arrive, so a trickling server never hit the check.
+            # until n bytes arrive.
             chunk = response.read1(64 * 1024)
             if not chunk:
                 return b"".join(chunks)
@@ -493,17 +584,6 @@ def _envelope_message(data: Mapping[str, Any], redact: Redactor) -> str:
     return redact(" ".join(p for p in parts if p))[:500]
 
 
-def _limit_socket_wait(response: Any, seconds: float) -> None:
-    """Cap the next blocking socket read at *seconds*.
-
-    http.client exposes no public handle on the socket, so this reaches
-    through the buffered reader and does nothing when the shape differs.
-    """
-    sock = getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None)
-    if sock is not None:
-        sock.settimeout(min(SOCKET_TIMEOUT, max(seconds, 0.001)))
-
-
 def _retry_after(headers: Any) -> float | None:
     value = headers.get("Retry-After") if headers is not None else None
     if value and value.strip().isdigit():
@@ -524,15 +604,14 @@ def sanitize_url(url: Any) -> str | None:
     try:
         parts = urlsplit(url)
         host = parts.hostname
-        port = parts.port
+        parts.port  # raises ValueError for a malformed port
     except ValueError:
         return None
     if parts.scheme not in ("http", "https") or not host:
         return None
-    netloc = f"[{host}]" if ":" in host else host
-    if port is not None:
-        netloc = f"{netloc}:{port}"
-    return f"{parts.scheme}://{netloc}{parts.path}"
+    # netloc rather than hostname keeps template placeholders like
+    # {subDomain} intact; only the userinfo is dropped.
+    return f"{parts.scheme}://{parts.netloc.rpartition('@')[2]}{parts.path}"
 
 
 def classify(item: Mapping[str, Any]) -> dict[str, Any]:
@@ -757,6 +836,17 @@ def _dependency(
     }
 
 
+def _layer_url(layer: Mapping[str, Any]) -> Any:
+    """The layer's service, style, tile template or WMTS URL, first found."""
+    wmts = layer.get("wmtsInfo")
+    return (
+        layer.get("url")
+        or layer.get("styleUrl")
+        or layer.get("templateUrl")
+        or (wmts.get("url") if isinstance(wmts, dict) else None)
+    )
+
+
 def web_map_dependencies(
     item_id: str,
     data: Mapping[str, Any],
@@ -781,7 +871,7 @@ def web_map_dependencies(
                 _dependency(
                     item_id,
                     layer.get("itemId"),
-                    layer.get("url") or layer.get("styleUrl"),
+                    _layer_url(layer),
                     role=role,
                     layer_type=layer.get("layerType"),
                     layer_id=layer.get("id"),

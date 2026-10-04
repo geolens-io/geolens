@@ -890,3 +890,100 @@ def test_app_without_data_stays_unparsed(run):
     report = _report(result)
     assert C2 not in {e["item_id"] for e in report["errors"]}
     assert _rows(report)[C2]["dependencies_status"] == "unparsed"
+
+
+@pytest.mark.parametrize(
+    ("layer", "expected"),
+    [
+        (
+            {
+                "templateUrl": "https://{subDomain}.tiles.example.com/{level}/{col}/{row}.png?key=k"
+            },
+            "https://{subDomain}.tiles.example.com/{level}/{col}/{row}.png",
+        ),
+        (
+            {
+                "wmtsInfo": {
+                    "url": "https://wmts.example.com/wmts?token=t",
+                    "layerIdentifier": "base",
+                }
+            },
+            "https://wmts.example.com/wmts",
+        ),
+    ],
+)
+def test_tiled_basemap_urls_are_recorded(run, layer, expected):
+    """WebTiledLayer basemaps keep their template or WMTS URL, without its query."""
+    web_map = {
+        "operationalLayers": [],
+        "baseMap": {
+            "baseMapLayers": [{"id": "tiles", "layerType": "WebTiledLayer", **layer}]
+        },
+    }
+    result, _ = run(
+        FakePortal(portal_routes({item_data_path(B1): web_map})), "--scope", "org"
+    )
+    assert result.exit_code == 0, result.output
+    deps = [d for d in _report(result)["dependencies"] if d["from_id"] == B1]
+    assert [(d["role"], d["to_id"], d["to_url"]) for d in deps] == [
+        ("basemap", None, expected)
+    ]
+
+
+class _TricklingPortal(http.server.BaseHTTPRequestHandler):
+    """Sends ``prefix``, then one byte every 0.1 s for 5 s; the line never ends."""
+
+    prefix = b""
+    release = threading.Event()
+
+    def do_GET(self) -> None:  # noqa: N802
+        try:
+            self.wfile.write(self.prefix)
+            self.wfile.flush()
+            for _ in range(50):
+                if type(self).release.wait(0.1):
+                    return
+                self.wfile.write(b"0")
+                self.wfile.flush()
+        except OSError:
+            return
+
+    def log_message(self, *args: object) -> None:
+        return None
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        pytest.param(b"HTTP/1.1 200 OK\r\nX-Slow: ", id="headers"),
+        pytest.param(
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n", id="chunk-framing"
+        ),
+    ],
+)
+def test_trickled_headers_and_chunk_framing_stop_at_the_deadline(monkeypatch, prefix):
+    """A response trickled anywhere, not just in the body, gives up at the request deadline."""
+    monkeypatch.setattr(inventory, "GET_ATTEMPTS", 1)
+    monkeypatch.setattr(inventory, "REQUEST_DEADLINE", 0.5)
+    monkeypatch.setattr(inventory, "SOCKET_TIMEOUT", 5.0)
+    monkeypatch.setenv("NO_PROXY", "*")
+    handler = type(
+        "Handler", (_TricklingPortal,), {"prefix": prefix, "release": threading.Event()}
+    )
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        client = inventory.PortalClient(
+            f"http://127.0.0.1:{server.server_address[1]}/portal",
+            opener=inventory.build_opener(),
+            redact=inventory.Redactor(),
+            sleep=lambda seconds: None,
+        )
+        began = time.monotonic()
+        with pytest.raises(inventory.PortalError, match="took longer than 0.5 s"):
+            client.get_json("portals/self")
+        assert time.monotonic() - began < 1.5
+    finally:
+        handler.release.set()
+        server.shutdown()
+        server.server_close()
