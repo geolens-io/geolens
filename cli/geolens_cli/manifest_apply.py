@@ -597,8 +597,8 @@ def wait_for_apply_jobs(
     """Follow every queued job to its end and stamp each result with the outcome.
 
     A skip that names a job is an identical manifest already queued or finished,
-    so its job is followed too. An update runs under a refresh run, found through the job that queued it.
-    A job with no run (a first import) is followed through the job itself.
+    so its job is followed too. An update runs under a refresh run, found through
+    the job that queued it. A job with no run (a first import) is followed through the job itself.
     ``final_status`` is one of complete, failed, blocked or cancelled.
     """
     from uuid import UUID
@@ -617,10 +617,11 @@ def wait_for_apply_jobs(
         ):
             continue
         job_id = UUID(str(result["job_id"]))
-        poll = None
-        if result.get("dataset_id"):
+        def follow_run(job_id=job_id, result=result):
+            if not result.get("dataset_id"):
+                return None
             try:
-                poll = _refresh.wait_for_refresh_run(
+                return _refresh.wait_for_refresh_run(
                     client,
                     UUID(str(result["dataset_id"])),
                     None,
@@ -630,9 +631,14 @@ def wait_for_apply_jobs(
                     credential_provenance=credential_provenance,
                 )
             except _refresh.RefreshRequestError:
-                poll = None
+                return None
+
+        poll = follow_run()
         if poll is None:
             poll = _refresh.wait_for_refresh(client, job_id)
+            # The job can end before its run exists (a retry racing the original
+            # request); a review hold shows only on the run, so look again.
+            poll = follow_run() or poll
         result["final_status"] = "complete" if poll.succeeded else poll.status
         result["run_id"] = poll.run_id
         if poll.error_message:

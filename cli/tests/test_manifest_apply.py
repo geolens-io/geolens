@@ -1473,3 +1473,55 @@ class TestApplyWait:
         result = runner.invoke(app, ["apply", "--wait", str(_remote_manifest_path())])
 
         assert result.exit_code == 0, result.output
+
+    def test_a_skip_whose_run_appears_after_the_job_ended_is_blocked(
+        self, runner, monkeypatch
+    ) -> None:
+        from geolens_cli import refresh as _refresh
+
+        sdk = _install_fake_sdk(
+            monkeypatch,
+            FakeResponse(
+                200,
+                _apply_response(
+                    results=[
+                        {
+                            "dataset_key": "parks",
+                            "action": "skip",
+                            "job_id": "00000000-0000-0000-0000-0000000000b2",
+                            "dataset_id": self.DATASETS["parks"],
+                            "message": "already queued",
+                            "errors": [],
+                        }
+                    ]
+                ),
+            ),
+        )
+        sdk.credential_kind = "bearer"
+        sdk.credential_provenance = None
+        monkeypatch.setattr(AppState, "active_instance", lambda _self: "https://x.example.com")
+        lookups = []
+
+        def run_appears_late(client, dataset_id, run_id, **_kw):
+            lookups.append(1)
+            if len(lookups) == 1:
+                raise _refresh.RefreshRequestError("run not found")
+            return _refresh.RefreshPollResult(
+                status="blocked",
+                run_id="run-parks",
+                verification={"review_reasons": ["srid_changed"]},
+            )
+
+        monkeypatch.setattr("geolens_cli.refresh.wait_for_refresh_run", run_appears_late)
+        monkeypatch.setattr(
+            "geolens_cli.refresh.wait_for_refresh",
+            lambda client, job_id: _refresh.RefreshPollResult(status="failed"),
+        )
+
+        result = runner.invoke(app, ["--json", "apply", "--wait", str(_remote_manifest_path())])
+
+        assert result.exit_code == 6, result.output
+        row = json.loads(result.output)["results"][0]
+        assert row["final_status"] == "blocked"
+        assert row["run_id"] == "run-parks"
+        assert row["review_reasons"] == ["srid_changed"]
