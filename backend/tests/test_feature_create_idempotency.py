@@ -18,7 +18,11 @@ from sqlalchemy.exc import DBAPIError
 from app.api.middleware.cors import DynamicCORSMiddleware
 from app.core.db.sqlstate import is_lock_conflict
 from app.modules.catalog.features import router as features_router
-from app.modules.catalog.features.idempotency import IDEMPOTENCY_KEY_MAX_LENGTH
+from app.modules.catalog.features.idempotency import (
+    IDEMPOTENCY_KEY_MAX_LENGTH,
+    _retention_cutoff,
+    _prune_expired,
+)
 
 from tests.conftest import _create_test_user
 from tests.factories import create_dataset, get_user_id
@@ -1064,3 +1068,32 @@ async def test_the_table_lookups_bind_a_tenant_role_holding_their_privilege(
         f'SET LOCAL ROLE "geolens_reader_t_{suffix}"',
         f'SET LOCAL ROLE "geolens_writer_t_{suffix}"',
     ]
+
+
+async def test_a_prune_planned_as_a_nested_loop_still_stops_at_its_batch(
+    test_db_session, admin_dataset
+):
+    """Stale statistics and a nested-loop plan must not widen the prune."""
+    session = test_db_session
+    await session.execute(text("TRUNCATE catalog.feature_create_keys"))
+    await session.execute(text("ANALYZE catalog.feature_create_keys"))
+    admin_id = await get_user_id(session, "admin")
+    await session.execute(
+        text(
+            "INSERT INTO catalog.feature_create_keys "
+            "(dataset_id, user_id, key, gid, table_oid, attempt, row_xmin, created_at) "
+            "SELECT CAST(:dataset_id AS uuid), CAST(:user_id AS uuid), "
+            "'old-' || n, 1, 1, 1, 1, now() - interval '25 hours' "
+            "FROM generate_series(1, 105) AS n"
+        ),
+        {"dataset_id": admin_dataset.id, "user_id": admin_id},
+    )
+    for flag in ("hashjoin", "mergejoin", "hashagg", "material", "sort"):
+        await session.execute(text(f"SET LOCAL enable_{flag} = off"))
+
+    await _prune_expired(session, _retention_cutoff())
+
+    left = await session.scalar(
+        text("SELECT count(*) FROM catalog.feature_create_keys")
+    )
+    assert left == 5
