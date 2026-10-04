@@ -40,12 +40,17 @@ const tabsListVariants = cva(
 
 function TabsList({
   className,
+  wrapperClassName,
   variant = "default",
   ...props
 }: React.ComponentProps<typeof TabsPrimitive.List> &
-  VariantProps<typeof tabsListVariants>) {
+  VariantProps<typeof tabsListVariants> & {
+    /** Classes for the scroll wrapper; sticky positioning must live here, since
+     *  the wrapper's overflow would otherwise be the list's scroll container. */
+    wrapperClassName?: string
+  }) {
   return (
-    <div data-slot="tabs-list-scroll" className="relative overflow-x-auto">
+    <div data-slot="tabs-list-scroll" className={cn("relative overflow-x-auto", wrapperClassName)}>
       <TabsPrimitive.List
         data-slot="tabs-list"
         data-variant={variant}
