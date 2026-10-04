@@ -18,6 +18,7 @@ from sqlalchemy import select
 from app.core.db.tenant_session import tenant_task
 from app.core.record_types import capabilities
 from app.platform.catalog_locks import CATALOG_LOCK_CONFLICT_CODE, CatalogLockConflict
+from app.platform.dataset_origin import build_origin_ref
 from app.platform.jobs.models import EXPECTED_PREVIOUS_VERSION_KEY
 from app.platform.jobs.heartbeat import (
     attempt_scoped_staging_table,
@@ -45,6 +46,22 @@ RESTORED_HOLD = "restored"
 
 _CHANGED = "previous_version_changed"
 _NOT_APPLICABLE = "restore_not_applicable"
+
+
+def _reinstate_upload_source(dataset, source) -> None:
+    """Point an upload dataset's source fields back at the kept version's file.
+
+    A service or registered origin keeps its binding, and a first import has no
+    version row to read, so both are left as they are.
+    """
+    ref = dataset.origin_ref
+    if source is None or not isinstance(ref, dict) or ref.get("kind") != "upload":
+        return
+    dataset.source_filename = source.source_filename
+    # A new dict, so the JSONB change is seen.
+    dataset.origin_ref = build_origin_ref(
+        "upload", filename=source.source_filename, file_hash=source.file_hash
+    )
 
 
 class RestoreRefused(Exception):
@@ -152,6 +169,7 @@ class _RestorePreviousVersion:
         # Freshness describes the data that is live again, as the swap that
         # kept it recorded.
         dataset.last_refreshed_at = restored_refreshed_at
+        _reinstate_upload_source(dataset, source)
 
         version = DatasetVersion(
             dataset_id=dataset.id,
