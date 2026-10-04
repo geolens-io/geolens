@@ -173,10 +173,10 @@ async def test_the_sweep_runs_every_owed_followup(test_db_session, followups) ->
         await _drop(test_db_session, second[0], second[2])
 
 
-async def test_a_deleted_dataset_clears_the_record_and_runs_nothing(
+async def test_a_deleted_dataset_clears_the_record_and_only_bills(
     test_db_session, followups
 ) -> None:
-    """The sweep clears a record whose dataset is gone, runs nothing, and never retries it."""
+    """The sweep clears a record whose dataset is gone, running only its usage event, and never retries it."""
     job_id, dataset_id, record_id = await _owed_job(test_db_session)
     try:
         await test_db_session.execute(delete(Dataset).where(Dataset.id == dataset_id))
@@ -184,7 +184,8 @@ async def test_a_deleted_dataset_clears_the_record_and_runs_nothing(
         await test_db_session.commit()
 
         assert await run_owed_publish_followups() >= 1
-        assert followups == []
+        assert followups == [("bill", "ingest_jobs")]
+        assert followups.billing == [str(job_id)]
         assert not await _owes(job_id)
         assert await run_publish_followups(job_id) is False
     finally:

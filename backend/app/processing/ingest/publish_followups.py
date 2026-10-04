@@ -939,13 +939,14 @@ async def _settle_run_once_items(
 ) -> set[str]:
     """Run those of ``items`` that ``record`` owes, in order; returns those still owed.
 
-    With the dataset gone, every item but a failure notice settles as a no-op.
+    With the dataset gone, its dataset-bound items settle as no-ops. A failure
+    notice and the usage event need only the job, so they still run.
     """
     owed = [item for item in items if item in record]
     bound = [
         item
         for item in owed
-        if not (item == _NOTICE and record[item] == "ingest_failed")
+        if item != _USAGE and not (item == _NOTICE and record[item] == "ingest_failed")
     ]
     dataset = await _published_dataset(row.dataset_id) if bound else None
     if bound and dataset is None:

@@ -772,3 +772,44 @@ async def test_a_vector_import_the_meter_refused_is_billed_once_when_it_recovers
     finally:
         for job_id in jobs:
             await _drop_import(test_db_session, job_id)
+
+
+async def test_a_usage_event_still_owed_when_its_dataset_goes_is_billed_once(
+    test_db_session, tmp_path, monkeypatch, store, meter
+) -> None:
+    """Billing needs only the job and its tenant, so a deleted dataset still gets billed once."""
+    from app.modules.catalog.datasets.domain.models import Dataset
+
+    monkeypatch.setattr(
+        "app.processing.embeddings.helpers.defer_embedding",
+        AsyncMock(return_value=True),
+    )
+    meter.down = True
+    jobs: list[uuid.UUID] = []
+    try:
+        await _vector_import("file", test_db_session, tmp_path, monkeypatch, jobs)
+        [job_id] = jobs
+        assert (await _record(job_id))["usage"] == "ingest_jobs"
+        test_db_session.expire_all()
+        dataset = await test_db_session.scalar(
+            select(Dataset)
+            .join(IngestJob, IngestJob.dataset_id == Dataset.id)
+            .where(IngestJob.id == job_id)
+        )
+        table = dataset.table_name
+        await test_db_session.execute(
+            delete(Record).where(Record.id == dataset.record_id)
+        )
+        await test_db_session.execute(text(f'DROP TABLE IF EXISTS "data"."{table}"'))
+        await test_db_session.commit()
+
+        meter.down = False
+        await _make_due(job_id)
+        await run_owed_publish_followups()
+        await run_owed_publish_followups()
+
+        assert meter.events == [str(job_id)]
+        assert await _record(job_id) is None
+    finally:
+        for job_id in jobs:
+            await _drop_import(test_db_session, job_id)
