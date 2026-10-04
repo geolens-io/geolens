@@ -303,9 +303,17 @@ def _set(value: Any) -> Any:
     return None if isinstance(value, Unset) else value
 
 
+def _preview_field(preview: Any, name: str) -> Any:
+    """A preview field, also when an SDK that predates it kept it as an extra."""
+    value = _set(getattr(preview, name, None))
+    if not value:
+        value = (getattr(preview, "additional_properties", None) or {}).get(name) or value
+    return value
+
+
 def preview_review_fingerprint(preview: Any) -> Optional[str]:
     """The fingerprint to send once a person confirmed this preview."""
-    return _set(getattr(preview, "review_fingerprint", None)) or None
+    return _preview_field(preview, "review_fingerprint") or None
 
 
 def _schema_diff_summary(diff: Any) -> dict[str, Any]:
@@ -337,7 +345,7 @@ def preview_summary(preview: Any) -> dict[str, Any]:
     diff = _set(getattr(preview, "schema_diff", None))
     if hasattr(diff, "columns_removed"):
         summary["schema_diff"] = _schema_diff_summary(diff)
-    reasons = _set(getattr(preview, "review_reasons", None)) or []
+    reasons = _preview_field(preview, "review_reasons") or []
     summary["review_reasons"] = [
         {"code": str(code), "message": review_reason_sentence(str(code))} for code in reasons
     ]

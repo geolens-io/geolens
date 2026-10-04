@@ -1515,6 +1515,41 @@ class TestReplaceWithAnOlderSdk:
         assert result.exit_code == 1, result.output
         assert "Upgrade" in result.output
 
+    def test_a_fingerprint_kept_as_an_extra_still_triggers_the_refusal(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login(mock_keyring)
+        self._old_models(monkeypatch)
+        _patch_dataset(monkeypatch, _ok_dataset())
+        _patch_upload(monkeypatch, _ok_upload())
+        preview = _ok_preview()
+        preview.parsed.review_fingerprint = None
+        preview.parsed.review_reasons = []
+        preview.parsed.additional_properties = {
+            "review_fingerprint": "fp-extra",
+            "review_reasons": ["srid_changed"],
+        }
+        _patch_preview(monkeypatch, preview)
+
+        def must_not_commit(**kw):  # pragma: no cover - guard
+            raise AssertionError("an unacknowledged commit must not be sent")
+
+        monkeypatch.setattr(
+            "geolens.api.datasets_reupload."
+            "reupload_commit_datasets_dataset_id_reupload_job_id_commit_post.sync_detailed",
+            must_not_commit,
+        )
+
+        result = runner.invoke(
+            app, ["replace", str(DATASET_ID), str(sample_geojson)], input="y\n"
+        )
+
+        assert result.exit_code == 1, result.output
+        assert "Upgrade" in result.output
+        assert "coordinate reference system" in result.output
+
     def test_srid_refuses_before_uploading(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
     ) -> None:
