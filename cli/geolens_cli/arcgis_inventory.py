@@ -927,6 +927,29 @@ def web_map_dependencies(
                     portal=portal,
                 )
             )
+            sublayers = layer.get("layers")
+            for sub in sublayers if isinstance(sublayers, list) else []:
+                # A map or tiled map service sublayer can name its own query
+                # service; layer_id "<parent>/<sublayer>" ties it to the parent.
+                if not isinstance(sub, dict) or not (
+                    sub.get("layerItemId") or sub.get("layerUrl")
+                ):
+                    continue
+                ids = (layer.get("id"), sub.get("id"))
+                rows.append(
+                    _dependency(
+                        item_id,
+                        sub.get("layerItemId"),
+                        sub.get("layerUrl"),
+                        role=role,
+                        layer_type=layer.get("layerType"),
+                        layer_id="/".join(str(i) for i in ids if i is not None) or None,
+                        title=sub.get("name") or sub.get("title"),
+                        order=len(rows),
+                        index=index,
+                        portal=portal,
+                    )
+                )
 
     walk(data.get("operationalLayers"), "operational_layer")
     basemap = data.get("baseMap")

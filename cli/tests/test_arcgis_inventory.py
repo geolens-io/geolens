@@ -1123,3 +1123,74 @@ def test_malformed_app_config_is_an_item_error_not_a_lost_report(run, bad_type):
     assert _rows(report)[C3]["dependencies_status"] == "error"
     assert _rows(report)[B1]["dependencies_status"] == "parsed"
     assert _rows(report)[C1]["dependencies_status"] == "parsed"
+
+
+def test_tiled_service_sublayer_query_services_are_recorded(run):
+    """A tiled map service keeps its own row, plus one per sublayer query service."""
+    tiles = "https://tiles1.arcgis.com/tiles/ExAmPlEoRg0123/arcgis/rest/services/Parcels/MapServer"
+    query = "https://services1.arcgis.com/ExAmPlEoRg0123/arcgis/rest/services/Parcels/FeatureServer/0"
+    web_map = {
+        "operationalLayers": [
+            {
+                "id": "parcel_tiles",
+                "layerType": "ArcGISTiledMapServiceLayer",
+                "itemId": A4,
+                "url": tiles,
+                "layers": [
+                    {
+                        "id": 0,
+                        "name": "Parcels",
+                        "layerItemId": A1,
+                        "layerUrl": f"{query}?token=stored",
+                    },
+                    {"id": 1, "name": "Labels"},
+                ],
+            }
+        ]
+    }
+    result, _ = run(
+        FakePortal(portal_routes({item_data_path(B1): web_map})), "--scope", "org"
+    )
+    assert result.exit_code == 0, result.output
+    deps = [d for d in _report(result)["dependencies"] if d["from_id"] == B1]
+    assert [
+        (d["role"], d["to_id"], d["to_url"], d["layer_id"], d["resolved"]) for d in deps
+    ] == [
+        ("operational_layer", A4, tiles, "parcel_tiles", True),
+        ("operational_layer", A1, query, "parcel_tiles/0", True),
+    ]
+
+
+def test_basemap_map_service_sublayer_url_is_recorded(run):
+    """A map service sublayer named only by layerUrl is recorded, in a basemap too."""
+    zoning = "https://gis.example.gov/arcgis/rest/services/Zoning/MapServer"
+    web_map = {
+        "baseMap": {
+            "baseMapLayers": [
+                {
+                    "id": "zoning",
+                    "layerType": "ArcGISMapServiceLayer",
+                    "url": zoning,
+                    "layers": [
+                        {
+                            "id": 3,
+                            "layerUrl": f"{zoning.replace('MapServer', 'FeatureServer')}/3",
+                        }
+                    ],
+                }
+            ]
+        }
+    }
+    result, _ = run(
+        FakePortal(portal_routes({item_data_path(B1): web_map})), "--scope", "org"
+    )
+    deps = [d for d in _report(result)["dependencies"] if d["from_id"] == B1]
+    assert [(d["role"], d["to_id"], d["to_url"], d["layer_id"]) for d in deps] == [
+        ("basemap", None, zoning, "zoning"),
+        (
+            "basemap",
+            None,
+            f"{zoning.replace('MapServer', 'FeatureServer')}/3",
+            "zoning/3",
+        ),
+    ]
