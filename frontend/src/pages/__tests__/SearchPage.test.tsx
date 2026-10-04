@@ -1,5 +1,7 @@
 import { act } from 'react';
-import { fireEvent, render, screen } from '@/test/test-utils';
+import { fireEvent, render, screen, waitFor } from '@/test/test-utils';
+
+const statusTexts = () => screen.queryAllByRole('status').map((node) => node.textContent);
 import { SearchPage } from '@/pages/SearchPage';
 import { useSearchResults, useMapSearchResults } from '@/components/search/hooks/use-search';
 import { useSearchStore } from '@/stores/search-store';
@@ -181,7 +183,7 @@ describe('SearchPage', () => {
     });
   });
 
-  it('keeps one live region mounted and announces the count, then the refetch', () => {
+  it('mounts the live region empty, then announces the count and the refetch', async () => {
     setAnonymousUser();
     const base = {
       data: {
@@ -195,14 +197,13 @@ describe('SearchPage', () => {
     };
     mockUseSearchResults.mockReturnValue({ ...base, isFetching: false } as ReturnType<typeof useSearchResults>);
     const { rerender } = render(<SearchPage />, { route: '/' });
-    const live = screen.getByTestId('search-live-status');
-    expect(live).toHaveAttribute('role', 'status');
-    expect(live).toHaveTextContent('12 catalog results');
+    // Cached data is present on the first render; the region must still start empty.
+    expect(statusTexts()).not.toContain('12 catalog results');
+    await waitFor(() => expect(statusTexts()).toContain('12 catalog results'));
 
     mockUseSearchResults.mockReturnValue({ ...base, isFetching: true } as ReturnType<typeof useSearchResults>);
     rerender(<SearchPage />);
-    expect(screen.getByTestId('search-live-status')).toBe(live);
-    expect(live).toHaveTextContent('Updating results');
+    await waitFor(() => expect(statusTexts()).toContain('Updating results...'));
   });
 
   describe('live status for empty responses', () => {
@@ -218,7 +219,7 @@ describe('SearchPage', () => {
         data, isLoading: false, error: null, isFetching,
       } as unknown as ReturnType<typeof useSearchResults>);
 
-    it('announces an empty result after a populated one', () => {
+    it('announces an empty result after a populated one', async () => {
       setAnonymousUser();
       setResults(populated, false);
       const { rerender } = render(<SearchPage />, { route: '/' });
@@ -226,34 +227,36 @@ describe('SearchPage', () => {
       rerender(<SearchPage />);
       setResults(empty, false);
       rerender(<SearchPage />);
-      expect(screen.getByTestId('search-live-status')).toHaveTextContent('No catalog results found');
+      await waitFor(() => expect(statusTexts()).toContain('No catalog results found'));
     });
 
-    it('still announces after a second empty search', () => {
+    it('still announces after a second empty search', async () => {
       setAnonymousUser();
       setResults(empty, false);
       const { rerender } = render(<SearchPage />, { route: '/' });
-      expect(screen.getByTestId('search-live-status')).toHaveTextContent('No catalog results found');
+      await waitFor(() => expect(statusTexts()).toContain('No catalog results found'));
       setResults(empty, true);
       rerender(<SearchPage />);
-      expect(screen.getByTestId('search-live-status')).toHaveTextContent('Updating results');
+      await waitFor(() => expect(statusTexts()).toContain('Updating results...'));
       setResults(empty, false);
       rerender(<SearchPage />);
-      expect(screen.getByTestId('search-live-status')).toHaveTextContent('No catalog results found');
+      await waitFor(() => expect(statusTexts()).toContain('No catalog results found'));
     });
 
-    it('includes the map match count when only maps matched', () => {
+    it('announces the total map matches, not the page size', async () => {
       setAnonymousUser();
       act(() => {
         useSearchStore.getState().setQuery('Matterhorn');
       });
       setResults(empty, false);
       mockUseMapSearchResults.mockReturnValue({
-        data: { maps: [{ id: 'm1', name: 'Alps' }, { id: 'm2', name: 'Alps 2' }], total: 2 },
+        data: { maps: [{ id: 'm1', name: 'Alps' }, { id: 'm2', name: 'Alps 2' }], total: 10 },
         isLoading: false, isFetching: false, error: null,
       } as unknown as ReturnType<typeof useMapSearchResults>);
       render(<SearchPage />, { route: '/' });
-      expect(screen.getByTestId('search-live-status')).toHaveTextContent('No catalog results found. 2 matching maps');
+      await waitFor(() =>
+        expect(statusTexts()).toContain('No catalog results found. 10 matching maps'),
+      );
     });
   });
 

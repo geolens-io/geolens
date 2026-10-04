@@ -1,5 +1,6 @@
 import type { ReactNode, ElementType } from 'react';
 import { cn } from '@/lib/utils';
+import { LiveAnnouncement } from '@/components/ui/live-announcement';
 
 interface EmptyStateProps {
   icon: ElementType;
@@ -11,12 +12,13 @@ interface EmptyStateProps {
 
 export function EmptyState({ icon: Icon, title, description, action, className }: EmptyStateProps) {
   return (
-    <div role="status" className={cn('flex flex-col items-center justify-center py-16 gap-4 graticule rounded-lg border border-dashed border-border', className)}>
+    <div className={cn('flex flex-col items-center justify-center py-16 gap-4 graticule rounded-lg border border-dashed border-border', className)}>
       <Icon className="size-10 text-muted-foreground/40" aria-hidden="true" />
       <div className="flex flex-col items-center gap-1 text-center">
         <p className="text-lg font-medium text-foreground">{title}</p>
         {description && <p className="text-sm text-muted-foreground max-w-md">{description}</p>}
       </div>
+      <LiveAnnouncement text={description ? `${title}. ${description}` : title} />
       {action && <div className="mt-2">{action}</div>}
     </div>
   );

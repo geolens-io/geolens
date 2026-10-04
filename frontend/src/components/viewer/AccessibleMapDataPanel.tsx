@@ -1,8 +1,8 @@
 /* eslint-disable jsx-a11y/no-noninteractive-tabindex -- the named overflow region must be keyboard-scrollable */
-import { useEffect, useState } from 'react';
 import { RefreshCw, TableProperties } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
+import { LiveAnnouncement } from '@/components/ui/live-announcement';
 import {
   Sheet,
   SheetContent,
@@ -27,21 +27,6 @@ interface AccessibleMapDataPanelProps {
 }
 
 const SUMMARY_ANNOUNCE_DELAY_MS = 1000;
-
-/** Mounts with the sheet and starts empty, so the first summary is an insertion
- *  readers announce; the map refreshes on every idle, hence the debounce. */
-function AnnouncedSummary({ summary }: { summary: string }) {
-  const [announced, setAnnounced] = useState('');
-  useEffect(() => {
-    const timer = setTimeout(() => setAnnounced(summary), SUMMARY_ANNOUNCE_DELAY_MS);
-    return () => clearTimeout(timer);
-  }, [summary]);
-  return (
-    <p className="sr-only" role="status" aria-live="polite">
-      {announced}
-    </p>
-  );
-}
 
 function humanizeKey(key: string): string {
   return key
@@ -154,7 +139,8 @@ export function AccessibleMapDataPanel({
                 {t('viewer.data.featuresHeading')}
               </h3>
               <p className="text-xs text-muted-foreground" aria-hidden="true">{resultSummary}</p>
-              <AnnouncedSummary summary={resultSummary} />
+              {/* The map refreshes this on every idle; the delay debounces the announcement. */}
+              <LiveAnnouncement text={resultSummary} delayMs={SUMMARY_ANNOUNCE_DELAY_MS} />
             </div>
 
             {featureResult.features.length === 0 ? (

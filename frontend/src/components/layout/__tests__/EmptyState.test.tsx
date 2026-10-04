@@ -1,4 +1,4 @@
-import { render, screen } from '@/test/test-utils';
+import { render, screen, waitFor } from '@/test/test-utils';
 import { FolderOpen } from 'lucide-react';
 import { EmptyState } from '../EmptyState';
 
@@ -17,7 +17,7 @@ describe('EmptyState', () => {
 
   it('does not render description when omitted', () => {
     const { container } = render(<EmptyState icon={FolderOpen} title="No items found" />);
-    const paragraphs = container.querySelectorAll('p');
+    const paragraphs = container.querySelectorAll('p:not([role="status"])');
     // Only the title paragraph should exist
     expect(paragraphs).toHaveLength(1);
   });
@@ -36,8 +36,10 @@ describe('EmptyState', () => {
     expect(container.firstChild).toHaveClass('py-8');
   });
 
-  it('is a status region so assistive tech announces the empty result', () => {
-    render(<EmptyState icon={FolderOpen} title="No items found" />);
-    expect(screen.getByRole('status')).toHaveTextContent('No items found');
+  it('mounts an empty status region, then fills it so the empty result is announced', async () => {
+    render(<EmptyState icon={FolderOpen} title="No items found" description="Try again." />);
+    const status = screen.getByRole('status');
+    expect(status).toBeEmptyDOMElement();
+    await waitFor(() => expect(status).toHaveTextContent('No items found. Try again.'));
   });
 });

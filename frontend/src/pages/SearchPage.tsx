@@ -5,6 +5,7 @@ import { Link } from 'react-router';
 import { PageShell } from '@/components/layout/PageShell';
 import { ErrorState } from '@/components/layout/ErrorState';
 import { EmptyState } from '@/components/layout/EmptyState';
+import { LiveAnnouncement } from '@/components/ui/live-announcement';
 import { Button } from '@/components/ui/button';
 import { SearchBar } from '@/components/search/SearchBar';
 import { SavedSearches } from '@/components/search/SavedSearches';
@@ -99,7 +100,7 @@ export function SearchPage() {
         : isMapSearchPending
           ? '' // the map section announces its own pending state
           : hasMapMatches
-            ? `${t('empty.catalogResultsTitle')}. ${t('mapMatchCount', { count: mapResults?.maps.length ?? 0 })}`
+            ? `${t('empty.catalogResultsTitle')}. ${t('mapMatchCount', { count: mapResults?.total ?? 0 })}`
             : t('empty.catalogResultsTitle');
   const shouldShowMapSearch = hasMapTextQuery && (isMapSearchPending || !!mapsError || hasMapMatches);
 
@@ -135,11 +136,7 @@ export function SearchPage() {
               </SearchControls>
             </section>
 
-            {/* Mounted before its text changes so readers announce updates; a status
-                that mounts with its content is often skipped. */}
-            <p role="status" aria-live="polite" className="sr-only" data-testid="search-live-status">
-              {liveStatus}
-            </p>
+            <LiveAnnouncement text={liveStatus} />
 
             {isFetching && data && (
               <div aria-hidden="true" className="inline-flex items-center gap-2 rounded-md border bg-card px-3 py-1.5 text-sm text-muted-foreground shadow-sm">
