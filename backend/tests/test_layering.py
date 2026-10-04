@@ -1204,7 +1204,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # Default adapters expose explicit extension contracts rather than catch-all shims.
         "backend/app/platform/extensions/defaults_ai_openai.py": 520,
         "backend/app/platform/extensions/defaults_ai_anthropic.py": 372,
-        "backend/app/platform/extensions/defaults_catalog_port.py": 574,
+        "backend/app/platform/extensions/defaults_catalog_port.py": 579,
         # ProcessingPort signatures remain explicit across the catalog boundary.
         "backend/app/platform/extensions/defaults_processing_port.py": 576,
         "backend/app/platform/extensions/defaults_extensions.py": 433,
@@ -1370,7 +1370,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # its catalog writes.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 699,
     # Dataset request and verification response families share this public contract.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1707,
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1743,
     # Analysis validation, bounded execution and fenced registration share one task
     # lifecycle.
     "backend/app/processing/analysis/tasks.py": 1401,

@@ -39,7 +39,7 @@ async def _seed(session, *, visibility: str = "public"):
         record_type="vector_dataset",
         geometry_type="Point",
         feature_count=1,
-        column_info=[{"name": "name", "type": "character varying"}],
+        column_info=[{"name": "name", "type": "text"}],
     )
     # Plain values: the commits below expire the ORM instance.
     dataset = SimpleNamespace(id=dataset.id, table_name=table)
