@@ -184,11 +184,11 @@ def quiet():
     sent = AsyncMock()
     with (
         patch(
-            "app.processing.ingest.publication.invalidate_catalog_cache",
+            "app.processing.ingest.publish_followups.invalidate_catalog_cache",
             new=AsyncMock(),
         ),
         patch(
-            "app.processing.ingest.publication.invalidate_tile_cache_for_table",
+            "app.processing.ingest.publish_followups.invalidate_tile_cache_for_table",
             new=AsyncMock(),
         ),
         patch("app.processing.embeddings.helpers.defer_embedding", new=AsyncMock()),
@@ -429,7 +429,7 @@ async def test_a_blocked_verdict_settles_blocked_when_its_cache_purge_fails(
         expected=None,
         patches=(
             patch(
-                "app.processing.ingest.publication.invalidate_catalog_cache",
+                "app.processing.ingest.publish_followups.invalidate_catalog_cache",
                 new=AsyncMock(side_effect=RuntimeError("cache unavailable")),
             ),
         ),

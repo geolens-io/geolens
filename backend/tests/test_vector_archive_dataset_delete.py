@@ -34,6 +34,17 @@ from tests.factories import create_dataset, get_user_id
 
 pytestmark = pytest.mark.anyio
 
+
+@pytest.fixture(autouse=True)
+def _embedding_defers(monkeypatch) -> None:
+    """The embedding defer lands, as it does with the task queue open."""
+
+    async def _deferred(dataset) -> bool:
+        return True
+
+    monkeypatch.setattr("app.processing.embeddings.helpers.defer_embedding", _deferred)
+
+
 # What a job's metadata keeps while its archive is owed or has failed.
 _ARCHIVE_OWED_KEYS = {
     ARCHIVE_PENDING_METADATA_KEY,
@@ -107,10 +118,14 @@ class _Import:
         await self.session.commit()
         self.job_id = job.id
 
-        async def published(dataset) -> None:
+        from app.processing.ingest.tasks_vector import _finalize_ingest
+
+        async def published(ctx):
+            dataset = await _finalize_ingest(ctx)
             self.dataset_id = dataset.id
             if after_publish is not None:
                 await after_publish(dataset)
+            return dataset
 
         ogrinfo = {
             "srid": 4326,
@@ -129,14 +144,12 @@ class _Import:
             patch("app.processing.ingest.ogr.run_ogr2ogr", new=_fake_ogr2ogr),
             patch("app.processing.ingest.metadata.grant_reader_access", AsyncMock()),
             patch(
-                "app.processing.ingest.tasks_common.invalidate_catalog_cache",
+                "app.processing.ingest.publish_followups.invalidate_catalog_cache",
                 AsyncMock(),
             ),
-            # The last step before the task archives the original.
-            patch(
-                "app.processing.ingest.tasks_common.defer_embedding",
-                AsyncMock(side_effect=published),
-            ),
+            patch("app.processing.embeddings.helpers.defer_embedding", AsyncMock()),
+            # The publish commit, the last step before the task archives the original.
+            patch("app.processing.ingest.tasks_vector._finalize_ingest", published),
         ):
             await ingest_file.func(
                 job_id=str(job.id),

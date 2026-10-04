@@ -224,6 +224,7 @@ class _FileReupload:
             job.id, job.user_metadata, job.file_path
         )
         self.staging_table = staging_table
+        self.attempt_id = job.attempt_id
         self.source_filename = job.source_filename
         self.user_metadata = job.user_metadata or {}
         self.prior_record_type = dataset.record.record_type
@@ -402,7 +403,9 @@ class _FileReupload:
             if publication is not None and publication.confirmed:
                 async with cleanup_step("reupload_file follow-ups", job_id=self.job_id):
                     await run_publish_followups(
-                        uuid.UUID(self.job_id), local_copy=self.file_path
+                        uuid.UUID(self.job_id),
+                        attempt_id=self.attempt_id,
+                        local_copy=self.file_path,
                     )
         finally:
             await UploadedSource(

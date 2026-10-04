@@ -103,10 +103,13 @@ ARCHIVE_REVIEW_METADATA_KEY = "archive_review"
 # retention purge keeps a row while any of them is set.
 UNPUBLISHED_STORAGE_KEYS_FIELD = "unpublished_storage_keys"
 ANALYSIS_OUTPUT_TABLE_FIELD = "analysis_out_table"
-# The follow-ups a landed terminal commit still owes: the task (a complete job's
-# first ingest, or a failed job's replacement) and the attempt that wrote it,
-# since a retry keeps the row and its metadata.
+# The follow-ups a landed terminal commit still owes, each record naming the
+# task and the attempt that wrote it, since a retry keeps the row and its
+# metadata. The storage items stay in the layout an earlier release reads,
+# marked claimed so it runs them alone, and the run-once steps go in a record
+# of their own it never reads.
 PUBLISH_FOLLOWUPS_FIELD = "publish_followups"
+PUBLISH_OBLIGATIONS_FIELD = "publish_obligations"
 # The owed follow-up item naming the COG a raster replacement superseded.
 SUPERSEDED_COG_ITEM = "superseded_cog"
 UNREAPED_ARTIFACT_FIELDS = (
@@ -114,6 +117,7 @@ UNREAPED_ARTIFACT_FIELDS = (
     ANALYSIS_OUTPUT_TABLE_FIELD,
     UNPUBLISHED_TILESET_ATTEMPTS_FIELD,
     PUBLISH_FOLLOWUPS_FIELD,
+    PUBLISH_OBLIGATIONS_FIELD,
 )
 
 # The user_metadata keys the admin job list shows: what the user supplied at

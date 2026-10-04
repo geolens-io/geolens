@@ -404,11 +404,13 @@ async def get_nearest_record_ids(
     return [row[0] for row in nn_result.all()]
 
 
-async def defer_embedding(dataset) -> None:
-    """Defer an embedding generation task for a dataset. Non-fatal on failure."""
+async def defer_embedding(dataset) -> bool:
+    """Defer an embedding generation task for a dataset; returns whether the defer landed, never raises."""
     try:
         from app.processing.embeddings.tasks import embed_record
 
         await defer_async_with_tenant(embed_record, record_id=str(dataset.record.id))
     except Exception:  # broad: defer is non-fatal; any job-runner/DB error should not block the parent flow
         logger.warning("Failed to defer embedding task", dataset_id=str(dataset.id))
+        return False
+    return True

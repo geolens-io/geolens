@@ -73,10 +73,11 @@ class InMemoryCacheProvider:
         for key in keys:
             self._store.pop(key, None)
 
-    async def delete_pattern(self, pattern: str) -> None:
+    async def delete_pattern(self, pattern: str) -> bool:
         keys_to_delete = [k for k in self._store if fnmatch.fnmatch(k, pattern)]
         for k in keys_to_delete:
             self._store.pop(k, None)
+        return True
 
     async def health_check(self) -> None:
         """In-memory cache is always healthy."""

@@ -2453,6 +2453,16 @@ _CONDITIONAL_ACQUISITION = {
 }
 
 
+# Callees whose writes join no caller transaction; only the edge into a caller is cut.
+_OWN_TRANSACTION_CALLEES = {
+    "app.processing.ingest.publish_followups.run_publish_followups": "runs after its caller's commit, in sessions it opens",
+}
+
+# What a callee taking its caller's transaction would be handed.
+_CALLER_SESSION_NAMES = {"session", "db", "conn", "connection"}
+_CALLER_SESSION_TYPES = ("AsyncSession", "Session", "AsyncConnection", "Connection")
+
+
 ACQUIRERS = frozenset(
     {
         "app.platform.catalog_locks.lock_catalog_rows",
@@ -2676,7 +2686,10 @@ def _app_function_facts():
     for rel, module, bindings, fn in _walk_app_functions():
         key = f"{module}.{fn.name}"
         writes.setdefault(key, set()).update(_direct_writes(fn))
-        calls.setdefault(key, set()).update(_called_targets(fn, bindings, module))
+        callees = (
+            _called_targets(fn, bindings, module) - _OWN_TRANSACTION_CALLEES.keys()
+        )
+        calls.setdefault(key, set()).update(callees)
         sites.setdefault(key, f"{rel}:{fn.lineno}")
     return writes, calls, sites
 
@@ -2820,7 +2833,10 @@ def _write_predicate(bindings, module, is_acq, reaches_write):
             return False
         if not isinstance(node.func, ast.Name):
             return False  # unresolvable attribute call; do not guess
-        reached = reaches_write.get(_resolve(node.func.id, bindings, module)) or set()
+        callee = _resolve(node.func.id, bindings, module)
+        if callee in _OWN_TRANSACTION_CALLEES:
+            return False
+        reached = reaches_write.get(callee) or set()
         return bool(reached & {"record", "dataset"})
 
     return is_write
@@ -2889,6 +2905,37 @@ class TestEveryPairWriterTakesTheHouseOrder:
     SQLAlchemy flushes catalog.records before catalog.datasets, so one that
     acquires nothing inverts against every writer holding the dataset row.
     """
+
+    def test_every_own_transaction_callee_opens_its_own_session(self):
+        """Each listed callee exists, takes no session from its caller and opens one itself."""
+        import ast
+
+        found = {}
+        for _rel, module, _bindings, fn in _walk_app_functions():
+            key = f"{module}.{fn.name}"
+            if key in _OWN_TRANSACTION_CALLEES:
+                found[key] = fn
+        assert found.keys() == _OWN_TRANSACTION_CALLEES.keys()
+        for key, fn in found.items():
+            params = fn.args.posonlyargs + fn.args.args + fn.args.kwonlyargs
+            for param in params:
+                annotation = ast.unparse(param.annotation) if param.annotation else ""
+                assert param.arg.lower() not in _CALLER_SESSION_NAMES, (
+                    f"{key} takes {param.arg!r} from its caller"
+                )
+                assert not any(t in annotation for t in _CALLER_SESSION_TYPES), (
+                    f"{key} takes a {annotation} from its caller"
+                )
+            opens = [
+                node
+                for node in ast.walk(fn)
+                if isinstance(node, ast.Call)
+                and (
+                    getattr(node.func, "attr", None) == "async_session"
+                    or getattr(node.func, "id", None) == "async_session"
+                )
+            ]
+            assert opens, f"{key} opens no session of its own"
 
     def test_every_pair_writer_acquires_or_is_exempt(self):
         writers = _pair_writer_report()

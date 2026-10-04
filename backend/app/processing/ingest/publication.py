@@ -24,7 +24,6 @@ from sqlalchemy.orm import joinedload
 
 from app.core.db.sqlstate import is_lock_conflict
 from app.core.failure_reason import FixedReason
-from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.catalog_locks import (
     CatalogLockConflict,
     bump_tile_cache_version_on,
@@ -55,9 +54,7 @@ from app.processing.ingest.publish_followups import (
 )
 from app.processing.ingest.tasks_common import (
     _current_tenant_schema,
-    _generate_quicklook,
     cleanup_step,
-    invalidate_tile_cache_for_table,
 )
 from app.processing.ingest.tasks_raster_common import (
     PublishObservation,
@@ -304,12 +301,14 @@ async def _fail(
     reason: str | BaseException,
     linked: Linked,
     owes: str | None = None,
+    **items: Any,
 ) -> bool:
     """Move this attempt's job from pending or running to failed, settling ``linked`` in the same SAVEPOINT.
 
     ``reason`` is stored redacted. ``owes`` names a task whose follow-ups the
-    end owes, recorded in this same write. Returns whether the write landed; a
-    miss writes nothing. Does not commit.
+    end owes, with any run-once ``items`` ``owed_followups`` takes, recorded
+    in this same write. Returns whether the write landed; a miss writes
+    nothing. Does not commit.
     """
     return await ledger.fail(
         session,
@@ -319,7 +318,7 @@ async def _fail(
         expect=ACTIVE_STATUSES,
         values=None
         if owes is None
-        else {"user_metadata": owed_followups(attempt_id, owes)},
+        else {"user_metadata": owed_followups(attempt_id, owes, **items)},
         linked=linked,
     )
 
@@ -336,11 +335,6 @@ class _Attempt:
     # Set as the publishing commit returns, before anything else can raise or
     # be cancelled, so cleanup never reaps what the commit published.
     publication: PublicationCommit | None = None
-    reembed: bool = True
-    # The publish recorded follow-ups for its staged upload or what it superseded.
-    owes_followups: bool = False
-    # The published feature table whose quicklook is drawn again.
-    quicklook_table: str | None = None
 
 
 async def settle_replacement(
@@ -390,17 +384,11 @@ async def settle_replacement(
             await _drop_staging_table(attempt.staging_table)
         await strategy.release(publication=attempt.publication, failed=failed)
 
-    # Follow-ups the release didn't run itself, such as a raster's upload
-    # delete; a record the release already claimed or retries isn't due here.
-    if attempt.owes_followups:
+    # Follow-ups the release didn't run itself; a record the release already
+    # ran is gone or waits out its retry delay.
+    if attempt.publication is not None:
         async with cleanup_step(f"{strategy.task} follow-ups", job_id=job_id):
-            await run_publish_followups(attempt.job_id)
-    if attempt.publication is not None and attempt.reembed:
-        async with cleanup_step(f"{strategy.task} embedding", job_id=job_id):
-            await _defer_embedding(attempt.dataset_id)
-    if attempt.quicklook_table is not None:
-        async with cleanup_step(f"{strategy.task} quicklook", job_id=job_id):
-            await _redraw_quicklook(attempt.dataset_id, attempt.quicklook_table)
+            await run_publish_followups(attempt.job_id, attempt_id=attempt.attempt_id)
 
 
 async def _claim(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
@@ -510,9 +498,10 @@ async def _publish(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
                 attempt_id,
                 reason=verdict.reason,
                 linked=verdict.settle,
-                owes=strategy.task if verdict.notify else None,
+                owes=strategy.task,
+                catalog_cache=True,
+                notice="ingest_failed" if verdict.notify else None,
             )
-            owes_notice = landed and verdict.notify
             await commit_publication(
                 session,
                 job_id=job_id,
@@ -520,39 +509,32 @@ async def _publish(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
                 task=strategy.task,
                 ended="failed",
             )
-            async with cleanup_step(
-                f"{strategy.task} catalog cache", job_id=str(job_id)
-            ):
-                await invalidate_catalog_cache()
-            if owes_notice:
+            if landed:
                 async with cleanup_step(
-                    f"{strategy.task} failure notice", job_id=str(job_id)
+                    f"{strategy.task} follow-ups", job_id=str(job_id)
                 ):
-                    await run_publish_followups(job_id)
+                    await run_publish_followups(job_id, attempt_id=attempt_id)
             return True
 
         await strategy.install(session, dataset)
         await _take_catalog_rows(session, strategy, dataset)
         published = await strategy.write(session, dataset)
-        attempt.reembed = published.reembed
         if published.tiles_changed:
             await bump_tile_cache_version_on(session, dataset)
         values = dict(published.job_values or {})
-        owes_followups = (
-            published.reaps_staged_upload
-            or bool(published.superseded_keys)
-            or published.superseded_cog is not None
+        values["user_metadata"] = owed_followups(
+            attempt_id,
+            strategy.task,
+            reaps_staged_upload=published.reaps_staged_upload,
+            archive_key=published.upload_archive_key,
+            superseded_keys=published.superseded_keys,
+            superseded_cog=published.superseded_cog,
+            superseded_cog_bytes=published.superseded_cog_bytes,
+            catalog_cache=True,
+            tile_cache=published.live_table,
+            quicklook=published.quicklook_table,
+            embedding=published.reembed,
         )
-        if owes_followups:
-            values["user_metadata"] = owed_followups(
-                attempt_id,
-                strategy.task,
-                reaps_staged_upload=published.reaps_staged_upload,
-                archive_key=published.upload_archive_key,
-                superseded_keys=published.superseded_keys,
-                superseded_cog=published.superseded_cog,
-                superseded_cog_bytes=published.superseded_cog_bytes,
-            )
         await _complete(
             session,
             job_id,
@@ -572,16 +554,6 @@ async def _publish(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
         attempt.publication = await commit_publication(
             session, job_id=job_id, attempt_id=attempt_id, task=strategy.task
         )
-        attempt.owes_followups = owes_followups
-        attempt.quicklook_table = published.quicklook_table
-
-        # Published, so each step below logs its own failure instead of
-        # failing the replacement.
-        async with cleanup_step(f"{strategy.task} catalog cache", job_id=str(job_id)):
-            await invalidate_catalog_cache()
-        if published.live_table is not None:
-            async with cleanup_step(f"{strategy.task} tile cache", job_id=str(job_id)):
-                await invalidate_tile_cache_for_table(published.live_table)
     return False
 
 
@@ -642,18 +614,25 @@ async def _record_failure(
 ) -> None:
     """End the attempt's job and run as failed in one bounded transaction.
 
-    Never raises: the task's own failure is what the caller re-raises. Owes
-    ``ingest_failed`` when the job's end lands and ``failure.notify`` is set,
-    sent through the job's follow-up record once the end is visible.
+    Never raises: the task's own failure is what the caller re-raises. When
+    the job's end lands it owes ``ingest_failed`` if ``failure.notify`` is
+    set, and a catalog cache purge if the attempt contacted its origin, which
+    may have stamped the dataset. Both run from the job's follow-up record
+    once the end is visible, the purge first, so the notice never reads a
+    stale origin stamp.
     """
     from app.core.db import async_session
 
     reason = failure.reason or exc
-    stamped = False
-    owes_notice = False
+    stamps = failure.contacted is not None
+    owes = failure.notify or stamps
+    owes_followups = False
+    # A record naming no item gets its notice at the claim; one naming the
+    # purge names its notice too.
+    notice = "ingest_failed" if failure.notify else None
+    items = {"catalog_cache": True, "notice": notice} if stamps else {}
 
     async def _settle(session: AsyncSession) -> None:
-        nonlocal stamped
         await record_refresh_failure(
             session,
             ingest_job_id=attempt.job_id,
@@ -664,7 +643,7 @@ async def _record_failure(
             verification=failure.verification,
         )
         if failure.contacted is not None:
-            stamped = await _stamp_contact(
+            await _stamp_contact(
                 session, attempt.dataset_id, failure.contacted, failure.health
             )
 
@@ -683,9 +662,10 @@ async def _record_failure(
                 attempt.attempt_id,
                 reason=reason,
                 linked=_settle,
-                owes=task if failure.notify else None,
+                owes=task if owes else None,
+                **items,
             )
-            owes_notice = landed and failure.notify
+            owes_followups = landed and owes
             await session.commit()
     except Exception as write_failure:  # broad: must not replace the task's failure
         log_job_error_write_failure(
@@ -693,19 +673,13 @@ async def _record_failure(
         )
         return
     finally:
-        # The purge goes first, so the notice never reads a stale origin stamp.
-        # It runs even when the commit raised, since that commit may have landed.
-        if stamped:
-            async with cleanup_step(
-                f"{task} catalog cache", job_id=str(attempt.job_id)
-            ):
-                await invalidate_catalog_cache()
-        # Whatever the commit raised: the claim sends only an end that landed.
-        if owes_notice:
-            async with cleanup_step(
-                f"{task} failure notice", job_id=str(attempt.job_id)
-            ):
-                await run_publish_followups(attempt.job_id)
+        # Whatever the commit raised, since it may have landed: the follow-ups
+        # run only an end that did.
+        if owes_followups:
+            async with cleanup_step(f"{task} follow-ups", job_id=str(attempt.job_id)):
+                await run_publish_followups(
+                    attempt.job_id, attempt_id=attempt.attempt_id
+                )
 
 
 # A keyed refresh whose attempt ran past its execution limit.
@@ -819,28 +793,3 @@ async def _drop_staging_table(staging_table: str) -> None:
         logger.warning(
             "attempt_staging_cleanup_failed", staging_table=staging_table, exc_info=True
         )
-
-
-async def _redraw_quicklook(dataset_id: uuid.UUID, table_name: str) -> None:
-    """Draw the published table's quicklook again, on a session of its own."""
-    from app.core.db import async_session
-
-    async with async_session() as session:
-        await _generate_quicklook(session, dataset_id, table_name)
-
-
-async def _defer_embedding(dataset_id: uuid.UUID) -> None:
-    """Queue the published dataset's embedding, built from what it now holds."""
-    from app.core.db import async_session
-    from app.platform.extensions import get_processing_port
-    from app.processing.embeddings.helpers import defer_embedding
-
-    Dataset = get_processing_port().get_dataset_orm_class()
-    async with async_session() as session:
-        dataset = await session.scalar(
-            select(Dataset)
-            .options(joinedload(Dataset.record))
-            .where(Dataset.id == dataset_id)
-        )
-        if dataset is not None:
-            await defer_embedding(dataset)

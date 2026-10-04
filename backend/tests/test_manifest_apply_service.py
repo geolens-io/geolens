@@ -1618,11 +1618,11 @@ class TestManifestMetadataPropagation:
         try:
             with (
                 patch(
-                    "app.processing.ingest.tasks_common.invalidate_catalog_cache",
+                    "app.processing.ingest.publish_followups.invalidate_catalog_cache",
                     new=AsyncMock(),
                 ),
                 patch(
-                    "app.processing.ingest.tasks_common.defer_embedding",
+                    "app.processing.embeddings.helpers.defer_embedding",
                     new=AsyncMock(),
                 ),
             ):
@@ -1682,11 +1682,11 @@ class TestManifestMetadataPropagation:
         try:
             with (
                 patch(
-                    "app.processing.ingest.tasks_common.invalidate_catalog_cache",
+                    "app.processing.ingest.publish_followups.invalidate_catalog_cache",
                     new=AsyncMock(),
                 ),
                 patch(
-                    "app.processing.ingest.tasks_common.defer_embedding",
+                    "app.processing.embeddings.helpers.defer_embedding",
                     new=AsyncMock(),
                 ),
             ):

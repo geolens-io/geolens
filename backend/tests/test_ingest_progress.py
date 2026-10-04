@@ -541,7 +541,10 @@ async def test_service_worker_chunks_large_arcgis_imports(test_db_session, monke
         _fake_rename_reserved_columns,
     )
     monkeypatch.setattr(tasks_vector, "_finalize_ingest", _fake_finalize_ingest)
-    monkeypatch.setattr(tasks_vector, "_emit_billing_event", _fake_emit_billing_event)
+    monkeypatch.setattr(
+        "app.processing.ingest.publish_followups._emit_billing_event",
+        _fake_emit_billing_event,
+    )
 
     await tasks_vector.ingest_service.func(
         job_id=str(job_id),
@@ -723,7 +726,10 @@ async def test_service_worker_skips_arcgis_chunking_without_pagination_support(
         _fake_rename_reserved_columns,
     )
     monkeypatch.setattr(tasks_vector, "_finalize_ingest", _fake_finalize_ingest)
-    monkeypatch.setattr(tasks_vector, "_emit_billing_event", _fake_emit_billing_event)
+    monkeypatch.setattr(
+        "app.processing.ingest.publish_followups._emit_billing_event",
+        _fake_emit_billing_event,
+    )
 
     await tasks_vector.ingest_service.func(
         job_id=str(job_id),
@@ -863,7 +869,10 @@ async def test_service_worker_skips_arcgis_chunking_without_order_field(
         _fake_rename_reserved_columns,
     )
     monkeypatch.setattr(tasks_vector, "_finalize_ingest", _fake_finalize_ingest)
-    monkeypatch.setattr(tasks_vector, "_emit_billing_event", _fake_emit_billing_event)
+    monkeypatch.setattr(
+        "app.processing.ingest.publish_followups._emit_billing_event",
+        _fake_emit_billing_event,
+    )
 
     await tasks_vector.ingest_service.func(
         job_id=str(job_id),

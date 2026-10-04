@@ -663,9 +663,9 @@ async def test_a_lost_acknowledgement_that_landed_deletes_the_staged_file(
     key = pointcloud_attempt_key(job.dataset_id, job.attempt_id)
     assert await pointcloud_objects(job.dataset_id) == [key]
     assert followups == [
-        ("notice", "ingest_complete"),
         ("cache",),
         ("embed",),
+        ("notice", "ingest_complete"),
         ("bill", "ingest_jobs"),
     ]
     assert not Path(staged).exists(), "the staged upload outlived a landed publish"

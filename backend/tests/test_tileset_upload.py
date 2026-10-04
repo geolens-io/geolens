@@ -861,9 +861,9 @@ async def test_a_lost_acknowledgement_that_landed_still_runs_the_followups(
 
     assert fired["count"] == 1, "the publishing commit never fired"
     assert followups == [
-        ("notice", "ingest_complete"),
         ("cache",),
         ("embed",),
+        ("notice", "ingest_complete"),
         ("bill", "ingest_jobs"),
     ]
     assert followups.billing == [job_id]

@@ -2671,11 +2671,11 @@ class TestArchiveRunsAfterTheSwapCommit:
             put_side_effect=_recording_put,
             extra_patches=(
                 patch(
-                    "app.processing.ingest.publication.invalidate_catalog_cache",
+                    "app.processing.ingest.publish_followups.invalidate_catalog_cache",
                     new=AsyncMock(side_effect=_recording_catalog_invalidate),
                 ),
                 patch(
-                    "app.processing.ingest.publication.invalidate_tile_cache_for_table",
+                    "app.processing.ingest.publish_followups.invalidate_tile_cache_for_table",
                     new=AsyncMock(side_effect=_recording_tile_invalidate),
                 ),
             ),

@@ -34,6 +34,7 @@ ARTIFACT_RECORDS = {
     "unpublished_tileset_attempts": [f"tiles3d/{uuid.uuid4()}/{uuid.uuid4()}/"],
     "analysis_out_table": ["analysis_out_1"],
     "publish_followups": {"task": "ingest_raster", "attempt_id": str(uuid.uuid4())},
+    "publish_obligations": {"task": "ingest_raster", "attempt_id": str(uuid.uuid4())},
 }
 # Every key the code writes as door or worker state, with a sample value. The
 # written-key scan below requires each key it finds to be here or public.
