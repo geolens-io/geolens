@@ -410,6 +410,47 @@ async def test_a_replacement_with_nothing_to_review_publishes_without_a_fingerpr
     assert run.verification["review_acknowledged_by"] is None
 
 
+async def test_a_column_added_while_the_replacement_stages_holds_it_for_review(
+    harness: _Harness,
+):
+    """The verdict compares the live columns as they are when publication begins."""
+    import app.core.db as db_module
+    from app.modules.catalog.layers.service import add_column
+    from app.processing.ingest import catalog_projection
+
+    dataset = await _published(harness, _geojson(harness.tmp_path / "a.geojson", _BASE))
+    real_measure = catalog_projection.measure
+
+    async def _measure_after_a_column_edit(*args, **kwargs):
+        async with db_module.async_session() as other:
+            live = await other.get(Dataset, dataset.id)
+            await add_column(other, live, "added_late", "text")
+            await other.execute(
+                text(f'UPDATE "data"."{live.table_name}" SET added_late = \'kept\'')
+            )
+            await other.commit()
+        return await real_measure(*args, **kwargs)
+
+    with patch.object(
+        catalog_projection, "measure", side_effect=_measure_after_a_column_edit
+    ):
+        _preview, run = await harness.replace(
+            dataset, _geojson(harness.tmp_path / "b.geojson", _BASE)
+        )
+
+    assert run.status == "blocked", run.verification
+    assert run.schema_diff["columns_removed"] == [
+        {"name": "added_late", "type": "text"}
+    ]
+    assert "added_late" in await harness.live_columns(dataset)
+    kept = await harness.session.scalar(
+        text(
+            f'SELECT count(*) FROM "data"."{dataset.table_name}" WHERE added_late = \'kept\''
+        )
+    )
+    assert kept == 3
+
+
 # 7: the preview and the worker fingerprint the same subject
 
 

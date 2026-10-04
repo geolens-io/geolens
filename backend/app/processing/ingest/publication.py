@@ -80,13 +80,15 @@ class Verdict:
     A verdict that holds the candidate back ends the job ``failed`` with
     ``reason``. Its ``settle``, which it must have, writes what the hold-back
     records, under the catalog rows and only when the job's end lands, and
-    ``notify`` sends ``ingest_failed``.
+    ``notify`` sends ``ingest_failed``. ``verify`` defers the decision to the
+    verdict it returns, once the job row is held and before ``install``.
     """
 
     publish: bool = True
     reason: str = ""
     settle: Linked | None = None
     notify: bool = False
+    verify: Callable[[AsyncSession, Any], Awaitable[Verdict]] | None = None
 
     def __post_init__(self) -> None:
         if not self.publish and self.settle is None:
@@ -489,6 +491,8 @@ async def _publish(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
         )
         if present is None:
             raise DatasetDeleted
+        if verdict.verify is not None:
+            verdict = await verdict.verify(session, dataset)
 
         if not verdict.publish:
             await _take_catalog_rows(session, strategy, dataset)

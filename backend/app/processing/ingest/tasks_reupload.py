@@ -201,6 +201,28 @@ async def _detect_reupload_crs(
     return info, effective_srid
 
 
+async def _hold_live_schema(session, dataset, *, schema: str) -> None:
+    """Hold the live table's columns still and re-read the dataset row they describe.
+
+    A column edit alters the live table before it writes the dataset row, so
+    with this lock held the row's columns are the table's until the commit.
+    """
+    from app.platform.catalog_locks import worker_lock_budget
+    from app.processing.ingest.metadata import _qtable
+
+    live = _qtable(dataset.table_name, schema=schema)
+    if await session.scalar(
+        text("SELECT to_regclass(:live) IS NOT NULL"), {"live": live}
+    ):
+        async with worker_lock_budget(session):
+            # codeql[py/sql-injection] identifiers validated by _qtable (metadata_sql.py)
+            await session.execute(text(f"LOCK TABLE {live} IN ACCESS SHARE MODE"))
+    await session.refresh(
+        dataset,
+        attribute_names=["column_info", "feature_count", "srid", "is_3d", "n_dims"],
+    )
+
+
 async def _staged_input_needed_elsewhere(job_id: str, file_path: str) -> bool:
     """Whether another job still needs this staged upload, such as a blocked run's.
 
@@ -370,12 +392,13 @@ class _FileReupload:
         # Tell the user when the Web Mercator clamp destroyed geometry,
         # instead of leaving them to discover it downstream.
         _append_mercator_clip_warning(job, staging_result.mercator_clip)
-        return await self._verify(session, dataset)
+        return Verdict(verify=self._verify)
 
     async def _verify(self, session, dataset) -> Verdict:
         from app.processing.ingest.metadata import get_geometry_types
 
         schema = _current_tenant_schema()
+        await _hold_live_schema(session, dataset, schema=schema)
         # The function and transaction `project()` diffs with after the swap.
         self.schema_diff = catalog_projection.schema_diff(dataset, self.measurement)
         self.verification = refresh_policy.verify_file_replacement(
@@ -1078,11 +1101,11 @@ class _ServiceReupload:
         if not self.is_refresh:
             return PUBLISH
 
-        geometry_type, srid, coordinate_dimension = await _staged_geometry_contract(
+        self.staged_geometry = await _staged_geometry_contract(
             session, schema=schema, table=self.staging_table
         )
         credential_version = self.options.get("credential_version")
-        source_binding = {
+        self.source_binding = {
             "service_type": self.source_format,
             "url": self.source_url_value,
             "layer_id": service_layer_identity(
@@ -1104,17 +1127,34 @@ class _ServiceReupload:
                 token=self.token,
             ),
         }
+        self.content_digest = await compute_table_content_digest(
+            session, self.staging_table, schema=schema, has_geometry=staged.has_geometry
+        )
+        self.staged_contract = refresh_policy.geometry_contract(
+            geometry_types=await get_geometry_types(
+                session, self.staging_table, schema=schema
+            ),
+            srid=self.measurement.metadata.get("srid"),
+            is_3d=self.measurement.three_d.get("is_3d"),
+            n_dims=self.measurement.three_d.get("n_dims"),
+        )
+        return Verdict(verify=self._verify)
+
+    async def _verify(self, session, dataset) -> Verdict:
+        from app.processing.ingest.metadata import get_geometry_types
+
+        schema = _current_tenant_schema()
+        await _hold_live_schema(session, dataset, schema=schema)
+        self.measured_schema_diff = catalog_projection.schema_diff(
+            dataset, self.measurement
+        )
+        geometry_type, srid, coordinate_dimension = self.staged_geometry
         self.verification = refresh_policy.verify_service_refresh(
-            source_binding=source_binding,
+            source_binding=self.source_binding,
             schema_diff=self.measured_schema_diff,
             expected_feature_count=self.expected_feature_count,
             fetched_feature_count=self.measured_feature_count,
-            content_digest=await compute_table_content_digest(
-                session,
-                self.staging_table,
-                schema=schema,
-                has_geometry=staged.has_geometry,
-            ),
+            content_digest=self.content_digest,
             staged_geometry_type=geometry_type,
             staged_srid=srid,
             staged_coordinate_dimension=coordinate_dimension,
@@ -1126,14 +1166,7 @@ class _ServiceReupload:
                 is_3d=dataset.is_3d,
                 n_dims=dataset.n_dims,
             ),
-            staged=refresh_policy.geometry_contract(
-                geometry_types=await get_geometry_types(
-                    session, self.staging_table, schema=schema
-                ),
-                srid=self.measurement.metadata.get("srid"),
-                is_3d=self.measurement.three_d.get("is_3d"),
-                n_dims=self.measurement.three_d.get("n_dims"),
-            ),
+            staged=self.staged_contract,
             accepted_fingerprint=self.accepted_fingerprint,
             accepted_run_id=self.accepted_run_id,
         )
