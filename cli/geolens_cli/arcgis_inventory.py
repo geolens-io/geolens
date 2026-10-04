@@ -9,6 +9,7 @@ one run and are never written anywhere.
 
 from __future__ import annotations
 
+import email.utils
 import getpass
 import http.client
 import json
@@ -361,11 +362,17 @@ class PortalClient:
         return True
 
     def _get_json_once(self, path: str, url: str, query: dict[str, Any]) -> dict:
-        data = self._read(url, query)
-        code = _envelope_code(data)
-        if code is not None:
-            raise self._envelope_error(path, data, code)
-        return data
+        """One read, retrying a transient error envelope like an HTTP status."""
+        for attempt in range(1, GET_ATTEMPTS + 1):
+            data = self._read(url, query)
+            code = _envelope_code(data)
+            if code is None:
+                return data
+            error = self._envelope_error(path, data, code)
+            if not error.retryable or attempt == GET_ATTEMPTS:
+                raise error
+            self._sleep(0.5 * 2 ** (attempt - 1))
+        raise AssertionError("unreachable")
 
     def generate_token(self, username: str, password: str) -> str:
         """Mint a 60-minute token bound to the portal origin as its referer.
@@ -579,7 +586,10 @@ class PortalClient:
         else:
             kind = "refused"
         return self._error(
-            f"{path} returned error {code}: {message}", kind=kind, http_status=code
+            f"{path} returned error {code}: {message}",
+            kind=kind,
+            http_status=code,
+            retryable=code in _RETRYABLE_STATUSES,
         )
 
 
@@ -608,10 +618,23 @@ def _envelope_message(data: Mapping[str, Any], redact: Redactor) -> str:
 
 
 def _retry_after(headers: Any) -> float | None:
+    """Seconds to wait from ``Retry-After`` (delay-seconds or HTTP-date),
+    capped at ``MAX_RETRY_AFTER``; None when absent or unreadable."""
     value = headers.get("Retry-After") if headers is not None else None
-    if value and value.strip().isdigit():
-        return min(float(value.strip()), MAX_RETRY_AFTER)
-    return None
+    if not value:
+        return None
+    value = value.strip()
+    if value.isdigit():
+        seconds = float(value)
+    else:
+        try:
+            when = email.utils.parsedate_to_datetime(value)
+        except (TypeError, ValueError):
+            return None
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=UTC)
+        seconds = (when - datetime.now(tz=UTC)).total_seconds()
+    return min(max(seconds, 0.0), MAX_RETRY_AFTER)
 
 
 def _origin(url: str) -> str:

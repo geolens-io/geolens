@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import email.utils
 import http.client
 import http.server
 import json
@@ -12,6 +13,7 @@ import subprocess
 import threading
 import time
 import tracemalloc
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -1055,3 +1057,45 @@ def test_url_only_data_sources_are_recorded(run):
         ("app_data_source", None, roads, False),
         ("app_data_source", None, roads.replace("/0", "/1"), False),
     ]
+
+
+def test_transient_error_envelope_is_retried(run):
+    """A 503 error envelope inside an HTTP 200 is retried like the HTTP status."""
+    busy = {"error": {"code": 503, "message": "Service busy"}}
+    portal = FakePortal(
+        portal_routes({item_data_path(B1): [busy, load("item_web_map_data.json")]})
+    )
+    result, sleeps = run(portal, "--scope", "org")
+    assert result.exit_code == 0, result.output
+    report = _report(result)
+    assert B1 not in {e["item_id"] for e in report["errors"]}
+    assert _rows(report)[B1]["dependencies_status"] == "parsed"
+    assert len(portal.requests_to(item_data_path(B1))) == 2
+    assert 0.5 in sleeps
+
+
+def _http_date(seconds_from_now: float) -> str:
+    when = datetime.now(tz=UTC) + timedelta(seconds=seconds_from_now)
+    return email.utils.format_datetime(when, usegmt=True)
+
+
+def test_retry_after_http_date_is_honoured_and_clamped(run):
+    """A Retry-After HTTP-date an hour away waits the 60 s maximum."""
+    routes = portal_routes(
+        {
+            "portals/self": [
+                (429, {}, {"Retry-After": _http_date(3600)}),
+                load("portal_self.json"),
+            ]
+        }
+    )
+    result, sleeps = run(FakePortal(routes))
+    assert result.exit_code == 0, result.output
+    assert inventory.MAX_RETRY_AFTER in sleeps
+
+
+@pytest.mark.parametrize(("offset", "expected"), [(10, 10.0), (-30, 0.0)])
+def test_retry_after_http_date_gives_the_time_until_that_date(offset, expected):
+    """An HTTP-date Retry-After becomes the seconds until that date, never negative."""
+    wait = inventory._retry_after({"Retry-After": _http_date(offset)})
+    assert wait == pytest.approx(expected, abs=1.5)
