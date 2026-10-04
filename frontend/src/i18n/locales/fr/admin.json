@@ -316,6 +316,9 @@
     "detectDims": "Détecter",
     "dimsChangeWarning": "Changer les dimensions rendra {{count}} embedding(s) existant(s) incompatible(s).",
     "dimsConfirm": {
+      "titleReset": "Réinitialiser la largeur des embeddings ?",
+      "resetSameWidthDescription": "La réinitialisation devrait conserver les embeddings stockés. Si la largeur a changé depuis le chargement de cette page, ils seront supprimés puis régénérés.",
+      "confirmReset": "Réinitialiser la largeur",
       "regenerate": "Régénérer les embeddings après l'enregistrement",
       "title": "Modifier la largeur des embeddings ?",
       "titleModel": "Modifier le modèle d'embeddings ?",

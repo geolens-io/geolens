@@ -148,17 +148,6 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
   };
 
   const handleReset = (key: string) => {
-    const dims = findSetting(settings, 'embedding_dims');
-    // Dropping an override equal to the default leaves the live width alone.
-    const resetKeepsWidth =
-      key === 'embedding_dims' &&
-      dims?.default_value !== undefined &&
-      dims.default_value !== null &&
-      String(dims.default_value) === String(dims.value);
-    if (resetKeepsWidth) {
-      onReset(key);
-      return;
-    }
     if (key === 'embedding_dims' || key === 'embedding_model') {
       setRegenerate(true);
       setPending({ kind: 'reset', key });
@@ -186,6 +175,15 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
     });
   };
 
+  const dimsSetting = findSetting(settings, 'embedding_dims');
+  // The backend rebuilds against live storage, which may have moved since this
+  // page loaded, so the dialog always opens; only its wording softens.
+  const resetKeepsWidth =
+    pending?.kind === 'reset' &&
+    pending.key === 'embedding_dims' &&
+    dimsSetting?.default_value !== undefined &&
+    dimsSetting.default_value !== null &&
+    String(dimsSetting.default_value) === String(dimsSetting.value);
   const pendingChangesWidth =
     pending !== null &&
     (pending.kind === 'save' ? 'embedding_dims' in pending.changes : pending.key === 'embedding_dims');
@@ -655,11 +653,19 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {t(pendingChangesWidth ? 'ai.dimsConfirm.title' : 'ai.dimsConfirm.titleModel')}
+              {t(
+                resetKeepsWidth
+                  ? 'ai.dimsConfirm.titleReset'
+                  : pendingChangesWidth
+                    ? 'ai.dimsConfirm.title'
+                    : 'ai.dimsConfirm.titleModel',
+              )}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {t(
-                pendingChangesWidth
+                resetKeepsWidth
+                  ? 'ai.dimsConfirm.resetSameWidthDescription'
+                  : pendingChangesWidth
                   ? 'ai.dimsConfirm.description'
                   : pending?.kind === 'reset'
                     ? 'ai.dimsConfirm.resetModelDescription'
@@ -679,8 +685,14 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
           )}
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common:cancel')}</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={confirmEmbeddingChange}>
-              {t(pendingChangesWidth ? 'ai.dimsConfirm.confirm' : 'ai.dimsConfirm.confirmModel')}
+            <AlertDialogAction variant={resetKeepsWidth ? 'default' : 'destructive'} onClick={confirmEmbeddingChange}>
+              {t(
+                resetKeepsWidth
+                  ? 'ai.dimsConfirm.confirmReset'
+                  : pendingChangesWidth
+                    ? 'ai.dimsConfirm.confirm'
+                    : 'ai.dimsConfirm.confirmModel',
+              )}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

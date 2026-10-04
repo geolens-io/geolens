@@ -355,6 +355,9 @@
     "dimsDetectFailed": "无法检测维度。请检查 OPENAI_API_KEY 是否已设置、嵌入模型是否有效。",
     "dimsChangeWarning": "更改维度将导致 {{count}} 个现有嵌入不兼容。保存后需要重新生成所有嵌入。",
     "dimsConfirm": {
+      "titleReset": "重置嵌入维度？",
+      "resetSameWidthDescription": "重置应当保留已存储的嵌入。如果自本页面加载以来维度已更改，这些嵌入将被删除并重新生成。",
+      "confirmReset": "重置维度",
       "regenerate": "保存后重新生成嵌入",
       "title": "更改向量维度？",
       "titleModel": "更改向量模型？",

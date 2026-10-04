@@ -355,6 +355,9 @@
     "dimsDetectFailed": "Could not detect dimensions. Check that OPENAI_API_KEY is set and the embedding model is valid.",
     "dimsChangeWarning": "Changing dimensions will make {{count}} existing embedding(s) incompatible. You will need to regenerate all embeddings after saving.",
     "dimsConfirm": {
+      "titleReset": "Reset embedding width?",
+      "resetSameWidthDescription": "Resetting should keep stored embeddings. If the width has changed since this page loaded, they will be deleted and regenerated.",
+      "confirmReset": "Reset width",
       "regenerate": "Regenerate embeddings after saving",
       "title": "Change embedding width?",
       "titleModel": "Change embedding model?",

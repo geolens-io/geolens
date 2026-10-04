@@ -316,6 +316,9 @@
     "detectDims": "Detectar",
     "dimsChangeWarning": "Cambiar las dimensiones hará que {{count}} embedding(s) existente(s) sean incompatibles. Necesitará regenerar todos los embeddings después de guardar.",
     "dimsConfirm": {
+      "titleReset": "¿Restablecer el ancho de los embeddings?",
+      "resetSameWidthDescription": "Al restablecer, los embeddings almacenados deberían conservarse. Si el ancho ha cambiado desde que se cargó esta página, se eliminarán y se regenerarán.",
+      "confirmReset": "Restablecer ancho",
       "regenerate": "Regenerar los embeddings después de guardar",
       "title": "¿Cambiar el ancho de los embeddings?",
       "titleModel": "¿Cambiar el modelo de embeddings?",

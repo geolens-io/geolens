@@ -221,7 +221,7 @@ describe('SettingsAITab embedding width confirmation', () => {
       expect(onReset).toHaveBeenCalledWith('embedding_dims');
     });
 
-    it('resets without the deletion prompt when the override equals the default width', async () => {
+    it('softens the dialog when the override equals the default width, and still regenerates', async () => {
       const user = userEvent.setup();
       renderTab(
         overridden.map((item) =>
@@ -231,8 +231,14 @@ describe('SettingsAITab embedding width confirmation', () => {
 
       await user.click(screen.getByRole('button', { name: /Reset/ }));
 
-      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+      expect(screen.getByText('Reset embedding width?')).toBeInTheDocument();
+      expect(screen.getByText(/Resetting should keep stored embeddings/)).toBeInTheDocument();
+      expect(screen.queryByText(/deletes all stored embeddings/)).not.toBeInTheDocument();
+      expect(onReset).not.toHaveBeenCalled();
+      await user.click(screen.getByRole('button', { name: 'Reset width' }));
+
       expect(onReset).toHaveBeenCalledWith('embedding_dims');
+      await waitFor(() => expect(hoisted.backfillMutate).toHaveBeenCalledWith(false, expect.anything()));
     });
 
     it('queues the backfill only after the reset resolves', async () => {

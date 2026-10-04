@@ -316,6 +316,9 @@
     "detectDims": "Erkennen",
     "dimsChangeWarning": "Das Ändern der Dimensionen macht {{count}} vorhandene(s) Embedding(s) inkompatibel.",
     "dimsConfirm": {
+      "titleReset": "Embedding-Breite zurücksetzen?",
+      "resetSameWidthDescription": "Das Zurücksetzen sollte die gespeicherten Embeddings beibehalten. Hat sich die Breite seit dem Laden dieser Seite geändert, werden sie gelöscht und neu erzeugt.",
+      "confirmReset": "Breite zurücksetzen",
       "regenerate": "Embeddings nach dem Speichern neu erzeugen",
       "title": "Embedding-Breite ändern?",
       "titleModel": "Embedding-Modell ändern?",
