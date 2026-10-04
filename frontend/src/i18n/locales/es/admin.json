@@ -316,6 +316,9 @@
     "detectDims": "Detectar",
     "dimsChangeWarning": "Cambiar las dimensiones hará que {{count}} embedding(s) existente(s) sean incompatibles. Necesitará regenerar todos los embeddings después de guardar.",
     "dimsConfirm": {
+      "descriptionAuto": "Esto elimina todos los embeddings almacenados y los regenera automáticamente después de guardar. La búsqueda semántica no devolverá resultados hasta que termine.",
+      "modelDescriptionAuto": "Los embeddings del modelo anterior dejan de usarse. Si el ancho del nuevo modelo es distinto, se eliminan todos los embeddings almacenados. Se regeneran automáticamente después de guardar.",
+      "resetModelDescriptionAuto": "Los embeddings del modelo anterior dejan de usarse. Los embeddings almacenados se conservan. Se regeneran automáticamente después de guardar.",
       "titleReset": "¿Restablecer el ancho de los embeddings?",
       "resetSameWidthDescription": "Al restablecer, los embeddings almacenados deberían conservarse. Si el ancho ha cambiado desde que se cargó esta página, se eliminarán y se regenerarán.",
       "confirmReset": "Restablecer ancho",

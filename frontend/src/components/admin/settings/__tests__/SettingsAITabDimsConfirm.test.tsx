@@ -107,6 +107,32 @@ describe('SettingsAITab embedding width confirmation', () => {
     await waitFor(() => expect(hoisted.backfillMutate).toHaveBeenCalledWith(false, expect.anything()));
   });
 
+  it('keeps the pending warning visible when the stats are unavailable', async () => {
+    hoisted.statsAvailable = false;
+    hoisted.backfillMutate.mockImplementation((_force, opts) => opts.onError(new Error('no provider')));
+    const user = userEvent.setup();
+    renderTab();
+
+    await changeWidth(user, '768');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await user.click(screen.getByRole('button', { name: 'Delete embeddings' }));
+
+    expect(await screen.findByText(/could not be regenerated automatically/)).toBeInTheDocument();
+  });
+
+  it('describes automatic regeneration while the option is checked, and the manual step once cleared', async () => {
+    const user = userEvent.setup();
+    renderTab();
+
+    await changeWidth(user, '768');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(screen.getByText(/regenerates them automatically after saving/)).toBeInTheDocument();
+    expect(screen.getByRole('alertdialog')).not.toHaveTextContent('Generate Missing Embeddings');
+
+    await user.click(screen.getByRole('checkbox', { name: 'Regenerate embeddings after saving' }));
+    expect(screen.getByRole('alertdialog')).toHaveTextContent('regenerate them with Generate Missing Embeddings');
+  });
+
   it('queues nothing when the regenerate option is cleared', async () => {
     const user = userEvent.setup();
     const onSave = renderTab();

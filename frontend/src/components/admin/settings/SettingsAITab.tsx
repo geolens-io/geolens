@@ -184,6 +184,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
     dimsSetting?.default_value !== undefined &&
     dimsSetting.default_value !== null &&
     String(dimsSetting.default_value) === String(dimsSetting.value);
+  const autoRegenerate = regenerate && canManageUsers;
   const pendingChangesWidth =
     pending !== null &&
     (pending.kind === 'save' ? 'embedding_dims' in pending.changes : pending.key === 'embedding_dims');
@@ -476,6 +477,13 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
             </div>
           )}
 
+          {regenPending && (
+            <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 p-3 max-w-md">
+              <AlertTriangle className="h-4 w-4 text-warning mt-0.5 flex-shrink-0" />
+              <p className="text-sm text-foreground">{t('ai.regenerationPending')}</p>
+            </div>
+          )}
+
           {/* Embedding coverage */}
           {canManageUsers && embeddingStats && (
             <div className="rounded-lg border p-4 max-w-md space-y-3">
@@ -536,12 +544,6 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
                   </Button>
                 )}
               </div>
-              {regenPending && (
-                <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 p-3">
-                  <AlertTriangle className="h-4 w-4 text-warning mt-0.5 flex-shrink-0" />
-                  <p className="text-sm text-foreground">{t('ai.regenerationPending')}</p>
-                </div>
-              )}
               {embeddingStats.stale_records > 0 && (
                 <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 p-3">
                   <AlertTriangle className="h-4 w-4 text-warning mt-0.5 flex-shrink-0" />
@@ -666,10 +668,10 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
                 resetKeepsWidth
                   ? 'ai.dimsConfirm.resetSameWidthDescription'
                   : pendingChangesWidth
-                  ? 'ai.dimsConfirm.description'
-                  : pending?.kind === 'reset'
-                    ? 'ai.dimsConfirm.resetModelDescription'
-                    : 'ai.dimsConfirm.modelDescription',
+                    ? `ai.dimsConfirm.description${autoRegenerate ? 'Auto' : ''}`
+                    : pending?.kind === 'reset'
+                      ? `ai.dimsConfirm.resetModelDescription${autoRegenerate ? 'Auto' : ''}`
+                      : `ai.dimsConfirm.modelDescription${autoRegenerate ? 'Auto' : ''}`,
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>

@@ -316,6 +316,9 @@
     "detectDims": "Erkennen",
     "dimsChangeWarning": "Das Ändern der Dimensionen macht {{count}} vorhandene(s) Embedding(s) inkompatibel.",
     "dimsConfirm": {
+      "descriptionAuto": "Dadurch werden alle gespeicherten Embeddings gelöscht und nach dem Speichern automatisch neu erzeugt. Die semantische Suche liefert keine Treffer, bis dies abgeschlossen ist.",
+      "modelDescriptionAuto": "Embeddings des bisherigen Modells werden nicht mehr verwendet. Weicht die Breite des neuen Modells ab, werden alle gespeicherten Embeddings gelöscht. Sie werden nach dem Speichern automatisch neu erzeugt.",
+      "resetModelDescriptionAuto": "Embeddings des bisherigen Modells werden nicht mehr verwendet. Gespeicherte Embeddings bleiben erhalten. Sie werden nach dem Speichern automatisch neu erzeugt.",
       "titleReset": "Embedding-Breite zurücksetzen?",
       "resetSameWidthDescription": "Das Zurücksetzen sollte die gespeicherten Embeddings beibehalten. Hat sich die Breite seit dem Laden dieser Seite geändert, werden sie gelöscht und neu erzeugt.",
       "confirmReset": "Breite zurücksetzen",
