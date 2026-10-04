@@ -189,6 +189,21 @@ def captured_origin_kind(dataset: Any) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 
+def _build_model(model: Any, kwargs: dict[str, Any], needs: str) -> Any:
+    """Build a request model, refusing clearly when an old SDK lacks a field.
+
+    A field is passed only when it has a value, so an older SDK that predates
+    it still works for a replacement that does not need it.
+    """
+    try:
+        return model(**kwargs)
+    except TypeError as exc:
+        raise ReplaceRequestError(
+            f"The installed geolens SDK is too old for {needs}. "
+            "Upgrade it with `pip install -U geolens geolens-cli`."
+        ) from exc
+
+
 def build_preview_request(
     layer_name: Optional[str], srid_override: Optional[int] = None
 ) -> Any:
@@ -198,10 +213,12 @@ def build_preview_request(
 
     if layer_name is None and srid_override is None:
         return UNSET
-    return ReuploadPreviewRequest(
-        layer_name=layer_name if layer_name is not None else UNSET,
-        srid_override=srid_override if srid_override is not None else UNSET,
-    )
+    kwargs: dict[str, Any] = {}
+    if layer_name is not None:
+        kwargs["layer_name"] = layer_name
+    if srid_override is not None:
+        kwargs["srid_override"] = srid_override
+    return _build_model(ReuploadPreviewRequest, kwargs, "--srid")
 
 
 def build_commit_request(
@@ -230,14 +247,16 @@ def build_commit_request(
     from geolens.models.reupload_commit_request import ReuploadCommitRequest
     from geolens.types import UNSET
 
-    return ReuploadCommitRequest(
-        layer_name=layer_name if layer_name is not None else UNSET,
-        srid_override=srid_override if srid_override is not None else UNSET,
-        expected_origin_kind=(
+    kwargs: dict[str, Any] = {
+        "layer_name": layer_name if layer_name is not None else UNSET,
+        "srid_override": srid_override if srid_override is not None else UNSET,
+        "expected_origin_kind": (
             expected_origin_kind if expected_origin_kind in KNOWN_ORIGIN_KINDS else UNSET
         ),
-        review_fingerprint=review_fingerprint or UNSET,
-    )
+    }
+    if review_fingerprint:
+        kwargs["review_fingerprint"] = review_fingerprint
+    return _build_model(ReuploadCommitRequest, kwargs, "confirming a reviewed replacement")
 
 
 # ---------------------------------------------------------------------------

@@ -279,9 +279,44 @@ def wait_for_refresh(
     timeout: float | None = None,
     sleep: Callable[[float], None] = time.sleep,
     monotonic: Callable[[], float] = time.monotonic,
+    instance: str | None = None,
+    credential_kind: str | None = None,
+    credential_provenance: str | None = None,
+    on_reauthenticated: Callable[[Any], None] | None = None,
 ) -> RefreshPollResult:
-    """Poll until terminal, or until an explicitly supplied timeout expires."""
+    """Poll until terminal, or until an explicitly supplied timeout expires.
+
+    With ``instance`` and ``credential_kind`` a stored bearer that expires
+    mid-wait is refreshed once; ``on_reauthenticated`` receives the new client.
+    """
     from geolens.api.admin import get_job_status_jobs_job_id_get
+
+    active_client = client
+
+    def replace_client(replacement: Any) -> None:
+        nonlocal active_client
+        active_client = replacement
+        if on_reauthenticated is not None:
+            on_reauthenticated(replacement)
+
+    def fetch_job() -> Any:
+        if instance is not None and credential_kind is not None:
+            return call_sdk_with_reauth(
+                get_job_status_jobs_job_id_get.sync_detailed,
+                instance=instance,
+                credential_kind=credential_kind,
+                credential_provenance=credential_provenance,
+                on_reauthenticated=replace_client,
+                job_id=uuid_arg,
+                client=active_client,
+                reraise_timeout=True,
+            )
+        return call_sdk(
+            get_job_status_jobs_job_id_get.sync_detailed,
+            job_id=uuid_arg,
+            client=active_client,
+            reraise_timeout=True,
+        )
 
     uuid_arg = job_id if isinstance(job_id, UUID) else UUID(str(job_id))
     deadline = monotonic() + timeout if timeout is not None else None
@@ -306,12 +341,7 @@ def wait_for_refresh(
                 transport.timeout = remaining
             try:
                 response = poll_until(
-                    lambda: call_sdk(
-                        get_job_status_jobs_job_id_get.sync_detailed,
-                        job_id=uuid_arg,
-                        client=client,
-                        reraise_timeout=True,
-                    ),
+                    fetch_job,
                     deadline=poll_deadline,
                     interval=interval,
                     sleep=sleep,
@@ -374,6 +404,7 @@ def wait_for_refresh_run(
     sleep: Callable[[float], None] = time.sleep,
     monotonic: Callable[[], float] = time.monotonic,
     ingest_job_id: UUID | None = None,
+    on_reauthenticated: Callable[[Any], None] | None = None,
 ) -> RefreshPollResult:
     """Poll until the run is terminal or the optional timeout expires.
 
@@ -392,6 +423,8 @@ def wait_for_refresh_run(
     def replace_client(replacement: Any) -> None:
         nonlocal active_client
         active_client = replacement
+        if on_reauthenticated is not None:
+            on_reauthenticated(replacement)
 
     def fetch() -> Any:
         bounded: list[tuple[Any, Any]] = []

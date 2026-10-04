@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import copy
 import json
+from http import HTTPStatus
 from pathlib import Path
+from types import SimpleNamespace
+from uuid import UUID
 from typing import Any
 
 import httpx
@@ -1515,7 +1518,7 @@ class TestApplyWait:
         monkeypatch.setattr("geolens_cli.refresh.wait_for_refresh_run", run_appears_late)
         monkeypatch.setattr(
             "geolens_cli.refresh.wait_for_refresh",
-            lambda client, job_id: _refresh.RefreshPollResult(status="failed"),
+            lambda client, job_id, **_kw: _refresh.RefreshPollResult(status="failed"),
         )
 
         result = runner.invoke(app, ["--json", "apply", "--wait", str(_remote_manifest_path())])
@@ -1525,3 +1528,92 @@ class TestApplyWait:
         assert row["final_status"] == "blocked"
         assert row["run_id"] == "run-parks"
         assert row["review_reasons"] == ["srid_changed"]
+
+
+class TestApplyWaitKeepsRefreshedCredentials:
+    DATASET = "00000000-0000-0000-0000-0000000000a1"
+
+    def _install(self, monkeypatch, results):
+        sdk = _install_fake_sdk(
+            monkeypatch, FakeResponse(200, _apply_response(results=results))
+        )
+        sdk.credential_kind = "bearer"
+        sdk.credential_provenance = "stored-bearer"
+        monkeypatch.setattr(AppState, "active_instance", lambda _self: "https://x.example.com")
+        return sdk
+
+    @staticmethod
+    def _result(key, action, job, dataset_id):
+        return {
+            "dataset_key": key,
+            "action": action,
+            "job_id": job,
+            "dataset_id": dataset_id,
+            "message": "queued",
+            "errors": [],
+        }
+
+    def _fake_reauth(self, monkeypatch, sdk, expire_on):
+        """Expire the bearer on the first call of kind ``expire_on``."""
+        replacement = object()
+        calls: list[tuple[str, object]] = []
+        expired = []
+
+        def fake(fn, **kwargs):
+            kind = "job" if "job_id" in kwargs else "runs"
+            calls.append((kind, kwargs["client"]))
+            if kind == expire_on and not expired:
+                expired.append(True)
+                kwargs["on_reauthenticated"](replacement)
+            if kind == "job":
+                parsed = SimpleNamespace(status="complete", error_message=None)
+            else:
+                parsed = SimpleNamespace(
+                    runs=[
+                        SimpleNamespace(
+                            id=UUID(int=9),
+                            ingest_job_id=UUID("00000000-0000-0000-0000-0000000000b1"),
+                            status="succeeded",
+                            error_message=None,
+                            verification=None,
+                        )
+                    ]
+                )
+            return SimpleNamespace(status_code=HTTPStatus.OK, parsed=parsed)
+
+        monkeypatch.setattr("geolens_cli.refresh.call_sdk_with_reauth", fake)
+        return replacement, calls
+
+    def test_a_later_job_uses_the_client_refreshed_during_an_earlier_run(
+        self, runner, monkeypatch
+    ) -> None:
+        sdk = self._install(
+            monkeypatch,
+            [
+                self._result("roads", "update", "00000000-0000-0000-0000-0000000000b1", self.DATASET),
+                self._result("parks", "create", "00000000-0000-0000-0000-0000000000b2", None),
+            ],
+        )
+        replacement, calls = self._fake_reauth(monkeypatch, sdk, expire_on="runs")
+
+        result = runner.invoke(app, ["apply", "--wait", str(_remote_manifest_path())])
+
+        assert result.exit_code == 0, result.output
+        assert ("job", replacement) in calls
+        assert all(client is replacement for kind, client in calls if kind == "job")
+
+    def test_a_token_expiring_during_a_first_import_wait_reauthenticates(
+        self, runner, monkeypatch
+    ) -> None:
+        sdk = self._install(
+            monkeypatch,
+            [self._result("parks", "create", "00000000-0000-0000-0000-0000000000b2", None)],
+        )
+        self._fake_reauth(monkeypatch, sdk, expire_on="job")
+
+        result = runner.invoke(
+            app, ["--json", "apply", "--wait", str(_remote_manifest_path())]
+        )
+
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.output)["results"][0]["final_status"] == "complete"

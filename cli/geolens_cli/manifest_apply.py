@@ -605,6 +605,12 @@ def wait_for_apply_jobs(
 
     from . import refresh as _refresh
 
+    active_client = client
+
+    def replace_client(replacement: Any) -> None:
+        nonlocal active_client
+        active_client = replacement
+
     waited = copy.deepcopy(dict(response))
     results = waited.get("results")
     if not isinstance(results, list):
@@ -622,20 +628,28 @@ def wait_for_apply_jobs(
                 return None
             try:
                 return _refresh.wait_for_refresh_run(
-                    client,
+                    active_client,
                     UUID(str(result["dataset_id"])),
                     None,
                     ingest_job_id=job_id,
                     instance=instance,
                     credential_kind=credential_kind,
                     credential_provenance=credential_provenance,
+                    on_reauthenticated=replace_client,
                 )
             except _refresh.RefreshRequestError:
                 return None
 
         poll = follow_run()
         if poll is None:
-            poll = _refresh.wait_for_refresh(client, job_id)
+            poll = _refresh.wait_for_refresh(
+                active_client,
+                job_id,
+                instance=instance,
+                credential_kind=credential_kind,
+                credential_provenance=credential_provenance,
+                on_reauthenticated=replace_client,
+            )
             # The job can end before its run exists (a retry racing the original
             # request); a review hold shows only on the run, so look again.
             poll = follow_run() or poll

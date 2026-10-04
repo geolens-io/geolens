@@ -1507,6 +1507,9 @@ def replace(
             state.output.error("--layer does not apply to raster datasets.")
             raise typer.Exit(EXIT_USAGE)
 
+        # Built before the upload so an SDK too old for --srid refuses early.
+        preview_body = None if is_raster else _replace.build_preview_request(layer, srid)
+
         # Stage 1: Upload (multipart workaround).
         # fix(#1739): route through call_sdk so a network failure during
         # upload maps to EXIT_NETWORK instead of a raw traceback.
@@ -1538,7 +1541,7 @@ def replace(
                     dataset_id=dataset_uuid,
                     job_id=job_id,
                     client=sdk.client,
-                    body=_replace.build_preview_request(layer, srid),
+                    body=preview_body,
                 )
             preview = _replace.unwrap_or_raise(
                 preview_resp, expected=_replace.PREVIEW_OK_STATUS

@@ -1449,3 +1449,89 @@ class TestReplaceWaitBlocked:
         assert payload["status"] == "blocked"
         assert payload["run_id"] == str(RUN_ID)
         assert payload["review_reasons"] == ["srid_changed"]
+
+
+class TestReplaceWithAnOlderSdk:
+    """An SDK whose request models predate the review fields still replaces."""
+
+    @staticmethod
+    def _old_models(monkeypatch) -> None:
+        import geolens.models.reupload_commit_request as commit_mod
+        import geolens.models.reupload_preview_request as preview_mod
+
+        class OldCommit:
+            def __init__(self, layer_name=None, srid_override=None, expected_origin_kind=None):
+                self.layer_name = layer_name
+
+        class OldPreview:
+            def __init__(self, layer_name=None):
+                self.layer_name = layer_name
+
+        monkeypatch.setattr(commit_mod, "ReuploadCommitRequest", OldCommit)
+        monkeypatch.setattr(preview_mod, "ReuploadPreviewRequest", OldPreview)
+
+    def test_a_replacement_that_needs_no_fingerprint_works(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login(mock_keyring)
+        self._old_models(monkeypatch)
+        _patch_dataset(monkeypatch, _ok_dataset())
+        _patch_upload(monkeypatch, _ok_upload())
+        _patch_preview(monkeypatch, _ok_preview())
+        _patch_commit(monkeypatch, _ok_commit())
+
+        result = runner.invoke(
+            app, ["replace", str(DATASET_ID), str(sample_geojson), "--yes"]
+        )
+
+        assert result.exit_code == 0, result.output
+
+    def test_a_needed_fingerprint_refuses_before_committing(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login(mock_keyring)
+        self._old_models(monkeypatch)
+        _patch_dataset(monkeypatch, _ok_dataset())
+        _patch_upload(monkeypatch, _ok_upload())
+        _patch_preview(monkeypatch, _blocking_preview())
+
+        def must_not_commit(**kw):  # pragma: no cover - guard
+            raise AssertionError("an unacknowledged commit must not be sent")
+
+        monkeypatch.setattr(
+            "geolens.api.datasets_reupload."
+            "reupload_commit_datasets_dataset_id_reupload_job_id_commit_post.sync_detailed",
+            must_not_commit,
+        )
+
+        result = runner.invoke(
+            app, ["replace", str(DATASET_ID), str(sample_geojson)], input="y\n"
+        )
+
+        assert result.exit_code == 1, result.output
+        assert "Upgrade" in result.output
+
+    def test_srid_refuses_before_uploading(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login(mock_keyring)
+        self._old_models(monkeypatch)
+        _patch_dataset(monkeypatch, _ok_dataset())
+
+        def must_not_upload(*a, **k):  # pragma: no cover - guard
+            raise AssertionError("nothing may be uploaded")
+
+        monkeypatch.setattr("geolens_cli.replace.upload_file", must_not_upload)
+
+        result = runner.invoke(
+            app, ["replace", str(DATASET_ID), str(sample_geojson), "--srid", "3857", "--yes"]
+        )
+
+        assert result.exit_code == 1, result.output
+        assert "Upgrade" in result.output
