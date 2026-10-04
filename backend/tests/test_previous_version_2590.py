@@ -124,6 +124,7 @@ async def _replace(
     *,
     filename: str = "update.geojson",
     file_hash: str = "f" * 64,
+    source_format: str = "geojson",
 ) -> IngestJob:
     """Run a file replacement of the dataset with ``cities`` through the worker."""
     from app.processing.ingest.tasks import reupload_file
@@ -166,7 +167,7 @@ async def _replace(
             ),
             (
                 "app.processing.ingest.tasks_reupload.derive_source_format",
-                lambda path: "geojson",
+                lambda path: source_format,
             ),
             (
                 "app.processing.ingest.tasks_reupload.UploadedSource."
@@ -1290,8 +1291,9 @@ async def test_a_restore_points_the_source_fields_at_the_kept_file(
             dataset,
             admin_id,
             ["paris"],
-            filename="b.geojson",
+            filename="b.gpkg",
             file_hash="b" * 64,
+            source_format="gpkg",
         )
         await _replace(
             session,
@@ -1307,16 +1309,17 @@ async def test_a_restore_points_the_source_fields_at_the_kept_file(
         row = (
             await session.execute(
                 text(
-                    "SELECT source_filename, origin_ref FROM catalog.datasets "
+                    "SELECT source_filename, source_format, origin_ref FROM catalog.datasets "
                     "WHERE id = :id"
                 ),
                 {"id": dataset.id},
             )
         ).one()
-        assert row.source_filename == "b.geojson"
+        assert row.source_filename == "b.gpkg"
+        assert row.source_format == "gpkg"
         assert row.origin_ref == {
             "kind": "upload",
-            "filename": "b.geojson",
+            "filename": "b.gpkg",
             "file_hash": "b" * 64,
         }
     finally:

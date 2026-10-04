@@ -58,6 +58,8 @@ def _reinstate_upload_source(dataset, source) -> None:
     if source is None or not isinstance(ref, dict) or ref.get("kind") != "upload":
         return
     dataset.source_filename = source.source_filename
+    if source.source_format is not None:
+        dataset.source_format = source.source_format
     # A new dict, so the JSONB change is seen.
     dataset.origin_ref = build_origin_ref(
         "upload", filename=source.source_filename, file_hash=source.file_hash
