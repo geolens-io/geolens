@@ -87,6 +87,9 @@ def downgrade() -> None:
                 DO $$
                 BEGIN
                   PERFORM set_config('lock_timeout', '5s', true);
+                  -- Held from the check through the replacement, so no restore
+                  -- run can land between them.
+                  LOCK TABLE catalog.dataset_refresh_runs IN ACCESS EXCLUSIVE MODE;
                   IF EXISTS (
                     SELECT 1 FROM catalog.dataset_refresh_runs
                     WHERE origin_kind = 'restore'
