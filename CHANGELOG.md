@@ -44,8 +44,9 @@ and releases use semantic versioning.
   until the hold is released; manual refresh still works. A replacement or
   restore is refused with the objects named when a view, foreign key or
   similar object depends on the live table, because it would keep serving
-  the old rows. Rasters, mosaics, tilesets and point clouds have no
-  previous version. The restore screen follows in a later release. (#2630)
+  the old rows. Rasters, mosaics, tilesets, point clouds, partitioned
+  tables and registered PostGIS refreshes keep no previous version, so keep
+  backups for those. The restore screen follows in a later release. (#2630)
 - `geolens arcgis inventory` reads an ArcGIS Online organization or Portal
   for ArcGIS and reports which items import, which partly import, which have
   no GeoLens equivalent and which Esri is retiring. It runs on your machine,
