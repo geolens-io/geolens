@@ -61,6 +61,9 @@ class _Response:
     def read(self, size: int = -1) -> bytes:
         return self._buffer.read(size)
 
+    def read1(self, size: int = -1) -> bytes:
+        return self._buffer.read1(size)
+
     def __enter__(self) -> _Response:
         return self
 

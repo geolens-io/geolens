@@ -291,7 +291,7 @@ class PortalClient:
             data = {}
         token = data.get("token")
         if _envelope_code(data) is not None or not isinstance(token, str) or not token:
-            detail = _envelope_message(data) or "no token in the response"
+            detail = _envelope_message(data, self._redact) or "no token in the response"
             raise self._error(
                 f"sign-in failed: {detail}. Accounts that sign in through SAML "
                 "or OpenID Connect cannot use a password here; pass a token "
@@ -403,13 +403,17 @@ class PortalClient:
         chunks: list[bytes] = []
         total = 0
         while True:
-            if self._clock() > deadline:
+            remaining = deadline - self._clock()
+            if remaining <= 0:
                 raise self._error(
                     f"{path} took longer than {REQUEST_DEADLINE:.0f} s",
                     kind="network",
                     retryable=True,
                 )
-            chunk = response.read(64 * 1024)
+            _limit_socket_wait(response, remaining)
+            # read1 returns after one socket read; read(n) would keep reading
+            # until n bytes arrive, so a trickling server never hit the check.
+            chunk = response.read1(64 * 1024)
             if not chunk:
                 return b"".join(chunks)
             total += len(chunk)
@@ -435,7 +439,7 @@ class PortalClient:
         return data
 
     def _envelope_error(self, path: str, data: dict, code: int) -> PortalError:
-        message = _envelope_message(data) or "no message"
+        message = _envelope_message(data, self._redact) or "no message"
         if code in (_TOKEN_INVALID, _TOKEN_REQUIRED):
             kind = "auth"
         elif code >= 500:
@@ -455,7 +459,12 @@ def _envelope_code(data: Mapping[str, Any]) -> int | None:
     return code if isinstance(code, int) and not isinstance(code, bool) else 0
 
 
-def _envelope_message(data: Mapping[str, Any]) -> str:
+def _envelope_message(data: Mapping[str, Any], redact: Redactor) -> str:
+    """The envelope's message and details, redacted and then shortened.
+
+    Redacting first matters: a cut through a secret leaves a prefix that no
+    longer matches it.
+    """
     error = data.get("error")
     if not isinstance(error, dict):
         return ""
@@ -463,7 +472,18 @@ def _envelope_message(data: Mapping[str, Any]) -> str:
     details = error.get("details")
     if isinstance(details, list):
         parts.extend(str(d) for d in details if d)
-    return " ".join(p for p in parts if p)[:500]
+    return redact(" ".join(p for p in parts if p))[:500]
+
+
+def _limit_socket_wait(response: Any, seconds: float) -> None:
+    """Cap the next blocking socket read at *seconds*.
+
+    http.client exposes no public handle on the socket, so this reaches
+    through the buffered reader and does nothing when the shape differs.
+    """
+    sock = getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None)
+    if sock is not None:
+        sock.settimeout(min(SOCKET_TIMEOUT, max(seconds, 0.001)))
 
 
 def _retry_after(headers: Any) -> float | None:
@@ -592,9 +612,22 @@ def _pages(
     while True:
         page = client.get_json(path, {**params, "num": PAGE_SIZE, "start": start})
         rows = page.get(key)
-        yield (rows if isinstance(rows, list) else []), page
         next_start = page.get("nextStart")
-        if not isinstance(next_start, int) or next_start <= start:
+        if not isinstance(rows, list):
+            raise PortalError(
+                f"{path} returned no '{key}' list at start={start}", kind="invalid"
+            )
+        if (
+            not isinstance(next_start, int)
+            or isinstance(next_start, bool)
+            or (next_start != -1 and next_start <= start)
+        ):
+            raise PortalError(
+                f"{path} returned no usable 'nextStart' at start={start}",
+                kind="invalid",
+            )
+        yield rows, page
+        if next_start == -1:
             return
         start = next_start
 
@@ -749,23 +782,41 @@ def web_map_dependencies(
     return rows
 
 
-def _app_references(data: Mapping[str, Any]) -> list[tuple[str, str]] | None:
-    """(item id, kind) pairs from the documented app config keys, or None if
-    none of those keys is present."""
-    found: list[tuple[str, str]] = []
+_APP_MAP_SOURCE_TYPES = frozenset({"WEB_MAP", "WEB_SCENE"})
+
+
+def _app_references(
+    data: Mapping[str, Any],
+) -> list[tuple[str, str, str, str | None]] | None:
+    """(item id, kind, role, layer id) from the documented app config keys, or
+    None if none of those keys is present.
+
+    Maps an app opens are ``app_web_map``; layers it reads directly, such as a
+    dashboard chart's dataset or an Experience Builder feature layer source,
+    are ``app_data_source`` with their layer id.
+    """
+    found: list[tuple[str, str, str, str | None]] = []
     recognized = False
+
+    def add(ref: Any, kind: Any, role: str, layer_id: Any = None) -> None:
+        if isinstance(ref, str) and ref:
+            layer = (
+                None
+                if layer_id is None or isinstance(layer_id, bool)
+                else str(layer_id)
+            )
+            found.append((ref, str(kind or ""), role, layer))
+
     values = data.get("values")
     if isinstance(values, dict) and "webmap" in values:
         recognized = True
         webmaps = values["webmap"]
         for ref in webmaps if isinstance(webmaps, list) else [webmaps]:
-            if isinstance(ref, str) and ref:
-                found.append((ref, "webmap"))
+            add(ref, "webmap", "app_web_map")
     app_map = data.get("map")
     if isinstance(app_map, dict) and "itemId" in app_map:
         recognized = True
-        if isinstance(app_map["itemId"], str) and app_map["itemId"]:
-            found.append((app_map["itemId"], "webmap"))
+        add(app_map["itemId"], "webmap", "app_web_map")
     sources = data.get("dataSources")
     nested = data.get("dataSource")
     if not isinstance(sources, dict) and isinstance(nested, dict):
@@ -773,8 +824,15 @@ def _app_references(data: Mapping[str, Any]) -> list[tuple[str, str]] | None:
     if isinstance(sources, dict):
         recognized = True
         for source in sources.values():
-            if isinstance(source, dict) and isinstance(source.get("itemId"), str):
-                found.append((source["itemId"], str(source.get("type") or "")))
+            if not isinstance(source, dict):
+                continue
+            kind = source.get("type")
+            if kind in _APP_MAP_SOURCE_TYPES:
+                add(source.get("itemId"), kind, "app_web_map")
+            else:
+                add(
+                    source.get("itemId"), kind, "app_data_source", source.get("layerId")
+                )
     widgets = data.get("widgets")
     desktop = data.get("desktopView")
     if not isinstance(widgets, list) and isinstance(desktop, dict):
@@ -782,14 +840,27 @@ def _app_references(data: Mapping[str, Any]) -> list[tuple[str, str]] | None:
     if isinstance(widgets, list):
         recognized = True
         for widget in widgets:
-            if isinstance(widget, dict) and isinstance(widget.get("itemId"), str):
-                found.append((widget["itemId"], str(widget.get("type") or "")))
+            if not isinstance(widget, dict):
+                continue
+            add(widget.get("itemId"), widget.get("type"), "app_web_map")
+            datasets = widget.get("datasets")
+            for dataset in datasets if isinstance(datasets, list) else []:
+                source = (
+                    dataset.get("dataSource") if isinstance(dataset, dict) else None
+                )
+                if isinstance(source, dict):
+                    add(
+                        source.get("itemId"),
+                        source.get("type"),
+                        "app_data_source",
+                        source.get("layerId"),
+                    )
     if not recognized:
         return None
-    unique: dict[str, str] = {}
-    for ref, kind in found:
-        unique.setdefault(ref, kind)
-    return list(unique.items())
+    unique: dict[tuple[str, str, str | None], tuple[str, str, str, str | None]] = {}
+    for ref in found:
+        unique.setdefault((ref[0], ref[2], ref[3]), ref)
+    return list(unique.values())
 
 
 def _extract_dependencies(
@@ -809,15 +880,15 @@ def _extract_dependencies(
             row["id"],
             ref,
             None,
-            role="app_web_map",
+            role=role,
             layer_type=kind,
-            layer_id=None,
+            layer_id=layer_id,
             title=None,
             order=order,
             index=index,
             portal=portal,
         )
-        for order, (ref, kind) in enumerate(refs)
+        for order, (ref, kind, role, layer_id) in enumerate(refs)
     ]
 
 

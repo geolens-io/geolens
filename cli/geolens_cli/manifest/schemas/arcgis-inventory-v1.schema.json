@@ -216,7 +216,10 @@
         "from_id": {"type": "string"},
         "to_id": {"type": ["string", "null"]},
         "to_url": {"type": ["string", "null"]},
-        "role": {"enum": ["operational_layer", "basemap", "table", "app_web_map"]},
+        "role": {
+          "description": "app_web_map: a map an app opens. app_data_source: a layer an app reads directly, such as a dashboard chart's dataset; layer_id holds its layer.",
+          "enum": ["operational_layer", "basemap", "table", "app_web_map", "app_data_source"]
+        },
         "layer_type": {"type": ["string", "null"]},
         "layer_id": {"type": ["string", "null"]},
         "title": {"type": ["string", "null"]},

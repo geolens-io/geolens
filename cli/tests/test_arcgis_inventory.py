@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import http.client
+import http.server
 import json
 import stat
+import threading
+import time
 import tracemalloc
 from typing import Any
 
@@ -643,3 +647,142 @@ def test_dependency_collection_does_not_retain_item_configurations():
         tracemalloc.stop()
     assert len(inv.dependencies) == 40
     assert peak < 12 * 1024 * 1024
+
+
+def test_dashboard_chart_datasets_are_data_source_dependencies(run):
+    """A dashboard whose only reference is a chart's dataset records that layer."""
+    chart_only = {
+        "widgets": [
+            {
+                "type": "serialChartWidget",
+                "id": "w3",
+                "datasets": [
+                    {
+                        "type": "serviceDataset",
+                        "dataSource": {
+                            "type": "featureServiceDataSource",
+                            "itemId": A1,
+                            "layerId": 0,
+                        },
+                    }
+                ],
+            }
+        ]
+    }
+    result, _ = run(
+        FakePortal(portal_routes({item_data_path(C3): chart_only})), "--scope", "org"
+    )
+    assert result.exit_code == 0, result.output
+    report = _report(result)
+    deps = [d for d in report["dependencies"] if d["from_id"] == C3]
+    assert [(d["role"], d["to_id"], d["layer_id"], d["resolved"]) for d in deps] == [
+        ("app_data_source", A1, "0", True)
+    ]
+    assert _rows(report)[C3]["dependencies_status"] == "parsed"
+
+
+@pytest.mark.parametrize("blank_start", ["1", "9"])
+def test_blank_listing_page_is_a_partial_failure(run, blank_start):
+    """A blank search page stops the run non-zero instead of ending the listing as complete."""
+
+    def search(seen):
+        if seen.params["start"] == blank_start:
+            return (200, b"")
+        return load(
+            "search_page1.json" if seen.params["start"] == "1" else "search_page2.json"
+        )
+
+    result, _ = run(FakePortal(portal_routes({"search": search})), "--scope", "org")
+    assert result.exit_code == 1
+    report = _report(result)
+    assert report["complete"] is False
+    assert report["counts"]["total"] == (0 if blank_start == "1" else 8)
+    assert "no 'results' list" in report["abort_reason"]
+
+
+class _TricklingResponse:
+    """A body that yields one byte every 3 s; read(n) blocks until n bytes, like a buffered reader."""
+
+    def __init__(self, clock: FakeClock) -> None:
+        self.clock = clock
+        self.headers = http.client.HTTPMessage()
+
+    def _byte(self) -> bytes:
+        self.clock.now += 3.0
+        return b" "
+
+    def read(self, size: int = -1) -> bytes:
+        return b"".join(self._byte() for _ in range(size))
+
+    def read1(self, size: int = -1) -> bytes:
+        return self._byte()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        return None
+
+
+def test_trickling_response_is_cut_off_at_the_deadline(monkeypatch):
+    """A server trickling bytes under the socket timeout still hits the request deadline."""
+    monkeypatch.setattr(inventory, "GET_ATTEMPTS", 1)
+    clock = FakeClock()
+
+    class Opener:
+        def open(self, request, timeout=None):
+            return _TricklingResponse(clock)
+
+    client = inventory.PortalClient(
+        PORTAL,
+        opener=Opener(),
+        redact=inventory.Redactor(),
+        sleep=clock.sleep,
+        clock=clock,
+    )
+    began = clock.now
+    with pytest.raises(inventory.PortalError, match="took longer") as caught:
+        client.get_json("portals/self")
+    assert caught.value.kind == "network"
+    assert clock.now - began <= inventory.REQUEST_DEADLINE + 3.0
+
+
+class _StallingPortal(http.server.BaseHTTPRequestHandler):
+    release = threading.Event()
+
+    def do_GET(self) -> None:  # noqa: N802
+        self.send_response(200)
+        self.send_header("Content-Length", "100")
+        self.end_headers()
+        self.wfile.write(b"{")
+        self.wfile.flush()
+        type(self).release.wait(10)
+
+    def log_message(self, *args: object) -> None:
+        return None
+
+
+def test_stalled_body_read_is_bounded_by_the_remaining_deadline(monkeypatch):
+    """A body that stops arriving times out at the deadline, not the longer socket timeout."""
+    monkeypatch.setattr(inventory, "GET_ATTEMPTS", 1)
+    monkeypatch.setattr(inventory, "REQUEST_DEADLINE", 0.5)
+    monkeypatch.setattr(inventory, "SOCKET_TIMEOUT", 5.0)
+    monkeypatch.setenv("NO_PROXY", "*")
+    _StallingPortal.release = threading.Event()
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _StallingPortal)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        client = inventory.PortalClient(
+            f"http://127.0.0.1:{server.server_address[1]}/portal",
+            opener=inventory.build_opener(),
+            redact=inventory.Redactor(),
+            sleep=lambda seconds: None,
+        )
+        began = time.monotonic()
+        with pytest.raises(inventory.PortalError):
+            client.get_json("portals/self")
+        assert time.monotonic() - began < 2.5
+    finally:
+        _StallingPortal.release.set()
+        server.shutdown()
+        server.server_close()

@@ -364,3 +364,26 @@ def test_supplied_token_sends_no_referer(invoke):
     result, _ = invoke(portal, "--token", SECRET_TOKEN)
     assert result.exit_code == 0, result.output
     assert all("referer" not in s.headers for s in portal.seen)
+
+
+def test_token_crossing_the_message_cut_is_redacted(invoke):
+    """A token straddling the 500-character message limit leaves no prefix behind."""
+    echo = {"error": {"code": 498, "message": "a" * 490 + SECRET_TOKEN}}
+    portal = FakePortal(portal_routes({"portals/self": echo}))
+    result, texts = invoke(portal, "--token", SECRET_TOKEN)
+    assert result.exit_code == 3
+    assert SECRET_TOKEN[:10] not in texts
+    _assert_no_secret(texts)
+
+
+def test_password_crossing_the_message_cut_is_redacted(invoke):
+    """A password echoed across the message limit by a failed sign-in leaves no prefix behind."""
+    fail = load("generate_token_fail.json")
+    fail["error"]["details"] = ["b" * 464 + SECRET_PASSWORD]
+    portal = FakePortal(portal_routes({"generateToken": fail}))
+    result, texts = invoke(
+        portal, "--username", USER, env={"ARCGIS_PASSWORD": SECRET_PASSWORD}
+    )
+    assert result.exit_code == 3
+    assert SECRET_PASSWORD[:10] not in texts
+    _assert_no_secret(texts)
