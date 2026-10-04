@@ -112,9 +112,13 @@ export function FileDropzone({ onFilesAccepted, allowedExtensions, maxSizeMb, re
       const kindOnly = !tileset && !pointcloud && errors.some((e) => e.code === ErrorCode.FileInvalidType)
         ? KIND_ONLY_MODES.find(({ ext }) => file.name.toLowerCase().endsWith(ext) && enabledKindOnlyExtensions.includes(ext))
         : undefined;
-      const reason = kindOnly
-        ? t('dropzone.rejectionReason.kindOnly', { ext: kindOnly.ext, mode: t(kindOnly.modeKey) })
-        : errors.map(rejectionReason).join(', ');
+      const reason = (kindOnly
+        ? [
+            t('dropzone.rejectionReason.kindOnly', { ext: kindOnly.ext, mode: t(kindOnly.modeKey) }),
+            ...errors.filter((e) => e.code !== ErrorCode.FileInvalidType).map(rejectionReason),
+          ]
+        : errors.map(rejectionReason)
+      ).join(', ');
       toast.error(t('dropzone.fileRejected', { filename: file.name, reason }));
     }
   }, [t, rejectionReason, tileset, pointcloud, enabledKindOnlyExtensions]);
