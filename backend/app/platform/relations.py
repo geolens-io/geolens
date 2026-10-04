@@ -3,9 +3,11 @@
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# Views (through their rewrite rules), SQL-standard routine bodies and foreign
-# keys elsewhere that hold a table, or a partition under it, by oid. A rename
-# leaves them reading the renamed table.
+# Every object outside the table, or a partition under it, that records an
+# ordinary dependency on it by oid: views, routine bodies, foreign keys and
+# row-security policies among them. A rename leaves each reading the renamed
+# table. The table's own rules, constraints, policies and triggers, and its
+# indexes and owned sequences (auto dependencies), move with it.
 _DEPENDENT_RELATIONS = text(
     """
     WITH target AS (
@@ -20,28 +22,26 @@ _DEPENDENT_RELATIONS = text(
         UNION
         SELECT p.relid FROM target CROSS JOIN LATERAL pg_partition_tree(target.oid) p
     )
-    SELECT format('%I.%I', dn.nspname, dc.relname)
+    SELECT DISTINCT pg_describe_object(d.classid, d.objid, 0)
     FROM tree
     JOIN pg_depend d
       ON d.refobjid = tree.oid AND d.refclassid = 'pg_class'::regclass
-     AND d.classid = 'pg_rewrite'::regclass
-    JOIN pg_rewrite r ON r.oid = d.objid
-    JOIN pg_class dc ON dc.oid = r.ev_class
-    JOIN pg_namespace dn ON dn.oid = dc.relnamespace
-    WHERE dc.oid NOT IN (SELECT oid FROM tree)
-    UNION
-    SELECT d.objid::regprocedure::text
-    FROM tree
-    JOIN pg_depend d
-      ON d.refobjid = tree.oid AND d.refclassid = 'pg_class'::regclass
-     AND d.classid = 'pg_proc'::regclass
-    UNION
-    SELECT format('%I.%I', cn.nspname, cc.relname)
-    FROM tree
-    JOIN pg_constraint con ON con.confrelid = tree.oid AND con.contype = 'f'
-    JOIN pg_class cc ON cc.oid = con.conrelid
-    JOIN pg_namespace cn ON cn.oid = cc.relnamespace
-    WHERE cc.oid NOT IN (SELECT oid FROM tree)
+     AND d.deptype = 'n'
+    WHERE NOT (
+        (d.classid = 'pg_class'::regclass AND d.objid IN (SELECT oid FROM tree))
+        OR (d.classid = 'pg_rewrite'::regclass AND EXISTS (
+            SELECT 1 FROM pg_rewrite r
+            WHERE r.oid = d.objid AND r.ev_class IN (SELECT oid FROM tree)))
+        OR (d.classid = 'pg_constraint'::regclass AND EXISTS (
+            SELECT 1 FROM pg_constraint c
+            WHERE c.oid = d.objid AND c.conrelid IN (SELECT oid FROM tree)))
+        OR (d.classid = 'pg_policy'::regclass AND EXISTS (
+            SELECT 1 FROM pg_policy p
+            WHERE p.oid = d.objid AND p.polrelid IN (SELECT oid FROM tree)))
+        OR (d.classid = 'pg_trigger'::regclass AND EXISTS (
+            SELECT 1 FROM pg_trigger g
+            WHERE g.oid = d.objid AND g.tgrelid IN (SELECT oid FROM tree)))
+    )
     ORDER BY 1
     """
 )
@@ -63,7 +63,7 @@ async def relation_present(session: AsyncSession, schema: str, name: str) -> boo
 async def dependent_relations(
     session: AsyncSession, schema: str, table: str
 ) -> list[str]:
-    """Other relations and routines that depend on *table*, schema-qualified and sorted."""
+    """Descriptions of the objects outside *table* that depend on it, sorted."""
     rows = await session.execute(
         _DEPENDENT_RELATIONS, {"schema": schema, "table": table}
     )

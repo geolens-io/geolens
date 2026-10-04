@@ -1186,3 +1186,35 @@ async def test_a_routine_reading_the_live_table_refuses_the_replacement(
         await session.execute(text(f'DROP FUNCTION IF EXISTS "data"."{routine}"()'))
         await session.commit()
         await _cleanup(session, dataset)
+
+
+async def test_a_policy_reading_the_live_table_refuses_the_replacement(
+    test_db_session,
+) -> None:
+    """A row-security policy elsewhere that reads the live table blocks the swap, naming the policy."""
+    from app.processing.ingest.previous_version import DependentRelationsBlockSwap
+
+    session = test_db_session
+    admin_id, dataset = await _seed(session)
+    other = f"grants_{uuid.uuid4().hex[:10]}"
+    await session.execute(text(f'CREATE TABLE "data"."{other}" (gid int)'))
+    await session.execute(
+        text(f'ALTER TABLE "data"."{other}" ENABLE ROW LEVEL SECURITY')
+    )
+    await session.execute(
+        text(
+            f'CREATE POLICY "{other}_read" ON "data"."{other}" USING '
+            f'(gid IN (SELECT gid FROM "data"."{dataset.table_name}"))'
+        )
+    )
+    await session.commit()
+    try:
+        with pytest.raises(DependentRelationsBlockSwap, match=f"{other}_read"):
+            await _replace(session, dataset, admin_id, ["paris"])
+
+        assert await _names(session, dataset.table_name) == ["New York"]
+    finally:
+        await session.rollback()
+        await session.execute(text(f'DROP TABLE IF EXISTS "data"."{other}"'))
+        await session.commit()
+        await _cleanup(session, dataset)
