@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Check } from 'lucide-react';
 import { useBasemaps } from '@/hooks/use-settings';
 import { basemapThumbnail } from '@/lib/basemap-utils';
@@ -41,34 +41,28 @@ export function BasemapToggle({ value, onChange, title = 'Change basemap', class
     return () => document.removeEventListener('mousedown', handleMouseDown);
   }, [open]);
 
-  // The control holding focus owns Escape: handled on the container and consumed
-  // there, before FeaturePopup's document listener can see it.
-  function handleContainerKeyDown(e: ReactKeyboardEvent<HTMLDivElement>) {
-    if (e.key !== 'Escape' || !open) return;
-    e.preventDefault();
-    e.stopPropagation();
-    closeAndReturnFocus();
-  }
-
-  // Fallback for Escape pressed while focus is elsewhere; an Escape another
-  // handler already consumed is left alone.
+  // Capture phase: the open picker is the topmost control, so it takes Escape
+  // before FeaturePopup's bubble-phase document listener, wherever focus is.
   useEffect(() => {
     if (!open) return;
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape' && !e.defaultPrevented) {
-        e.stopPropagation();
-        closeAndReturnFocus();
-      }
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopPropagation();
+      const active = document.activeElement;
+      const focusIsHere =
+        !active || active === document.body || !!containerRef.current?.contains(active);
+      if (focusIsHere) closeAndReturnFocus();
+      else setOpen(false);
     }
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
+    document.addEventListener('keydown', handleKeyDown, true);
+    return () => document.removeEventListener('keydown', handleKeyDown, true);
   }, [open]);
 
   if (enabled.length <= 1) return null;
 
   return (
-    // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- Escape from any control inside closes the picker
-    <div ref={containerRef} onKeyDown={handleContainerKeyDown} className={cn('relative', className)}>
+    <div ref={containerRef} className={cn('relative', className)}>
       {/* Trigger: shows current basemap thumbnail */}
       <button
         ref={triggerRef}
