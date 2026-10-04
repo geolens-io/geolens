@@ -167,7 +167,7 @@ export function UserList() {
   }
 
   const skip = page * PAGE_SIZE;
-  const { data, isLoading, error, refetch } = useUserList({
+  const { data, isLoading, isFetching, error, refetch } = useUserList({
     skip,
     limit: PAGE_SIZE,
     status: statusFilter || undefined,
@@ -364,6 +364,9 @@ export function UserList() {
                       icon={Users}
                       title={hasFilters ? t('users.empty.noResults') : t('users.empty.noUsers')}
                       description={hasFilters ? t('users.empty.noResultsHint') : undefined}
+                      // keepPreviousData holds the old empty page while a new query loads.
+                      announce={!isFetching}
+                      announceTrigger={`${searchQuery}|${statusFilter}|${roleFilter}`}
                       className="border-0 py-12"
                       action={
                         hasFilters ? (

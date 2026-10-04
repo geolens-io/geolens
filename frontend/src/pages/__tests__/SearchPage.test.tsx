@@ -259,6 +259,22 @@ describe('SearchPage', () => {
       );
     });
 
+    it('announces the map count when the catalog query failed with no cache', async () => {
+      setAnonymousUser();
+      act(() => {
+        useSearchStore.getState().setQuery('Matterhorn');
+      });
+      mockUseSearchResults.mockReturnValue({
+        data: undefined, isLoading: false, error: new Error('Catalog unreachable'), isFetching: false,
+      } as unknown as ReturnType<typeof useSearchResults>);
+      mockUseMapSearchResults.mockReturnValue({
+        data: { maps: [{ id: 'm1', name: 'Alps' }], total: 2 },
+        isLoading: false, isFetching: false, error: null,
+      } as unknown as ReturnType<typeof useMapSearchResults>);
+      render(<SearchPage />, { route: '/' });
+      await waitFor(() => expect(statusTexts()).toContain('2 matching maps'));
+    });
+
     it('carries the empty outcome in exactly one live region', async () => {
       setAnonymousUser();
       act(() => {
