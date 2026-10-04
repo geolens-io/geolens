@@ -7,6 +7,182 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- A file replacement that needs review is held until a person has seen it,
+  the same as a service refresh. When the new file would empty the dataset,
+  drop or retype columns, or change the geometry type, SRID or coordinate
+  dimension, the run ends `blocked` with `review_required`, the live data
+  stays as it was, and the upload is kept. The re-upload dialog lists the
+  reasons under the schema diff and releases the replacement when you
+  confirm. A blocked run shows "Review and retry" on the Sources tab, which
+  publishes the reviewed replacement without asking for a credential. The
+  preview now names columns as the database will store them, so a source
+  column called `geom` no longer shows as a removed and added pair. API
+  clients that commit without a `review_fingerprint` from the preview are
+  held when there is anything to review, and a manifest apply that removes a
+  column ends `blocked`. (#2607)
+- `geolens replace` prints the columns removed, retyped and added, the old
+  and new row counts and each review reason before it asks. `replace`,
+  `refresh` and `apply` accept `--wait` to follow a blocked run to its end,
+  print why it is blocked with the `geolens refresh <dataset>
+  --accept-blocked-run <run-id>` command that accepts it, and exit 6.
+  `--yes` skips the prompt but acknowledges nothing, so a replacement that
+  needs review still ends blocked. `geolens apply --wait` is new and adds a
+  STATUS column; its `--json` results gain `final_status` and `run_id`.
+  (#2629)
+- GeoLens keeps the data a refresh or file replacement replaced. One
+  previous version is kept per vector dataset, next to the live table.
+  `POST /datasets/{id}/previous-version/restore` publishes it again as a new
+  version through the normal replacement path, and the data it replaces
+  becomes the new previous version, so a restore can be undone until the
+  next replacement. `DELETE /datasets/{id}/previous-version` frees it. The
+  dataset detail response gains `previous_version`, and a version records
+  `restored_from_version`. A restore holds scheduled sync for that dataset
+  until the hold is released; manual refresh still works. A replacement or
+  restore is refused with the objects named when a view, foreign key or
+  similar object depends on the live table, because it would keep serving
+  the old rows. Rasters, mosaics, tilesets and point clouds have no
+  previous version. The restore screen follows in a later release. (#2630)
+- `geolens arcgis inventory` reads an ArcGIS Online organization or Portal
+  for ArcGIS and reports which items import, which partly import, which have
+  no GeoLens equivalent and which Esri is retiring. It runs on your machine,
+  talks only to the portal URL you give it, needs no GeoLens instance and
+  changes nothing. (#2614)
+- Vector tiles of a non-public dataset load in desktop GIS clients such as
+  QGIS with an API key (`X-Api-Key` or `?api_key=`) or a bearer token,
+  when that user can see the dataset. A request with no credential still
+  gets 403, a key without access gets 404, and a key or token that does not
+  resolve gets 401 instead of being read as anonymous. (#2619)
+- Settings changes to the embedding width or model ask for confirmation
+  first, naming how many stored embeddings the change deletes, and a
+  configuration import preview shows the same reasons. The confirmation can
+  queue regeneration of the embeddings, on by default. A merge import that
+  would delete embeddings needs a preview token. (#2575, #2598)
+- The STAC import filters items by date range, area and, where the catalog
+  supports it, maximum cloud cover, and a Load more control pages through
+  the results. (#2581)
+- A failed URL or service import that cannot be retried shows a Start again
+  link that opens the import page on the matching tab, with a service URL
+  prefilled and credentials never filled in. (#2582)
+- `scripts/backfill-map-thumbnails.mjs --refresh <map-id>...` recaptures the
+  thumbnails of the named maps even when one exists. (#2580)
+
+### Changed
+
+- Publish follow-ups are no longer lost when a worker dies at the wrong
+  moment. The completion or failure notice, cache purges, quicklook, search
+  embedding and usage event are recorded in the same transaction that ends
+  the job and removed only once each has landed. A step that fails is
+  retried by the stale-job sweep or worker recovery with a growing delay.
+  (#2600)
+- The extension API version is now 16, up from 14. Version 15 adds the
+  required `CatalogPort.get_geometry_types` and
+  `CatalogPort.stored_column_name` methods, and version 16 adds the required
+  `CatalogPort.restore_previous_version_task`. An extension that replaces
+  the `catalog_port` slot must implement all three before it re-pins.
+  (#2607, #2630)
+- Every file replacement now queues the `reupload_verified_file` task. A
+  worker still running the previous release fails such a job as an unknown
+  task without publishing it. `reupload_file` stays registered and runs the
+  same verified path for jobs queued before the upgrade. (#2607)
+- A service refresh is held for review when it changes the geometry family,
+  SRID or coordinate dimension, not only attribute columns. A gain of
+  dimensions never holds. (#2595)
+- Dataset deletion and table discovery know about previous-version tables:
+  deleting a dataset drops its kept table, and `<table>_previous_<id>` names
+  are hidden from discovery and refused at registration. (#2630)
+- The seed script retries transient download failures, prints the rerun
+  command for a builder that still fails, and turns Semantic Search on after
+  backfilling embeddings when nothing else has set it. (#2584)
+- A blank LLM model resolves to the extension provider's own default model
+  when the provider publishes one. (#2579)
+- The 409 and 503 answers of `PUT /settings/`, `POST /settings/reset/` and
+  `POST /config-ops/import/` are documented in OpenAPI. (#2571)
+- The search page's Type filter shows the total that choosing All returns,
+  collections included, through the new `numberMatchedAllTypes` field of
+  `/search/datasets/`. (#2573)
+
+### Fixed
+
+- The idempotency key prune on `POST /datasets/{id}/features/` deleted every
+  expired key instead of at most 100 per create when the planner chose a
+  nested loop and re-ran its batch subquery for each candidate row, which
+  stale table statistics trigger. The batch is now selected once, so a
+  create trims one batch. (#2601, #2625)
+- A feature added while a replacement is staging, or a column added to the
+  dataset, is now seen by the review. The live table is held for the check
+  and the swap, so such a change blocks the run instead of being dropped.
+  A geometry type added to the live table in that window is compared too,
+  and holds a point-only replacement for `geometry_type_changed`. (#2607,
+  #2628)
+- Accepting a blocked upload run no longer races the retention purge, which
+  could delete the kept upload and leave the accepted replacement with no
+  source. The acceptance now answers 422 `upload_unavailable` if the purge
+  won. (#2631)
+- Confirming the replacement preview now releases a replacement whose source
+  columns collide after renaming, such as `geom` and `src_geom`, because the
+  preview and the worker name stored columns the same way. (#2632)
+- A publish notice that reached some channels and failed on others is
+  retried on the failed channels only, with the same `notification_id`, so
+  nobody is emailed twice. (#2608)
+- GeoParquet exports keep the column types the table declares instead of
+  widening integers to floats or decimals to the widest scale. (#2572)
+- A search point or line exactly on longitude 180 or -180 matches the same
+  items however its longitude is written. (#2576)
+- An admin settings field no longer stays marked unsaved after the server
+  accepts a normalized value. (#2578)
+- `geolens arcgis inventory` reports a web map with no `baseMap` as an
+  invalid item instead of a complete map. (#2623)
+- `/maps` says "No matching maps" when a filter matches nothing. (#2617)
+- Accessibility fixes from the WCAG 2.1 AA review of the public pages:
+  status messages and landmarks, page titles on the shared map and embed,
+  Escape and focus handling in the legend, a list structure and labeled
+  pagination for search results, a visible focus ring on result cards, a
+  sticky dataset tab bar with a correct scroll offset, reflow of the shared
+  map at 320 px, wrapping legend labels, translated map controls, and
+  screen reader announcements for map results after a catalog failure and
+  for repeated empty user filters. (#2609, #2618, #2620, #2624)
+
+### Upgrade notes
+
+- Migration 0077 runs on upgrade. It adds nullable columns for the previous
+  version and the scheduled refresh hold, `restored_from_version` on dataset
+  versions, and widens the refresh run origin check to allow `restore`. It
+  needs no backfill and can be rerun after an interruption.
+- Rolling back past 1.22 can leave storage objects behind. The previous
+  release's retention purge does not recognize the new follow-up record, so
+  it can delete a job past retention (30 days by default) that still owes
+  cleanup, and a superseded storage object such as a replaced COG or archive
+  is then never deleted. No live dataset data is affected. After a rollback,
+  run a storage orphan sweep to find and remove those objects. GeoLens does
+  not ship one for this, so use your storage provider's tooling or an
+  inventory diff against the catalog. (#2599)
+- Rolling back across migration 0077 drops the kept previous-version tables,
+  and the downgrade fails while a restore run exists.
+- Custom clients that commit a file replacement without a `review_fingerprint`
+  now end with a blocked run whenever the replacement needs review. Send the
+  fingerprint from the preview response after a person has seen it.
+
+### Known limitations
+
+- A CDN that honors origin cache headers can keep serving a public vector
+  tile for up to `max-age` after its dataset turns private. (#2611)
+- A refresh of a dataset with a generic geometry column blocks tile and
+  feature readers while it rescans geometry types under the publication
+  lock. (#2627)
+- Restoring the previous version of a layer created in GeoLens leaves it
+  typed for edits, so a layer that took lines and polygons before the
+  replacement now refuses them. (#2633)
+- Restoring an empty, unconstrained previous version shows `is_3d` and
+  `n_dims` as null even when the kept data was 3D. (#2634)
+- The 0077 downgrade's ownership check is not scoped to the tenant, so a
+  same-named table in another tenant can make it keep a retained table, which
+  then shows up as registerable. Nothing is dropped that should not be.
+  (#2636)
+- Two extension sync test files never run in CI because they need a
+  dedicated database.
+
 ## [1.21.1] - 2026-10-02
 
 ### Added
