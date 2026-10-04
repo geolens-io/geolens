@@ -44,9 +44,9 @@ from tests.test_raster_replace_1221 import raster_storage as raster_storage
 pytestmark = pytest.mark.anyio
 
 _RASTER = [
-    ("notice", "ingest_complete"),
     ("cache",),
     ("embed",),
+    ("notice", "ingest_complete"),
     ("bill", "ingest_jobs"),
 ]
 
@@ -59,6 +59,23 @@ class _Ran(list):
         self.billing: list[str | None] = []
 
 
+@pytest.fixture(autouse=True)
+async def _only_this_tests_followups(test_db_session, monkeypatch) -> None:
+    """Leave the run-once items of jobs earlier tests left due unrun, so a sweep's doubles see only this test's jobs."""
+    import app.processing.ingest.publish_followups as publish_followups
+
+    earlier = set(await test_db_session.scalars(select(IngestJob.id)))
+    await test_db_session.rollback()
+    real = publish_followups._run_item
+
+    async def _run_item(item, value, job_uuid, row, dataset):
+        if job_uuid in earlier:
+            return False
+        return await real(item, value, job_uuid, row, dataset)
+
+    monkeypatch.setattr(publish_followups, "_run_item", _run_item)
+
+
 @pytest.fixture
 def followups(monkeypatch) -> _Ran:
     """Each follow-up a publish runs, in order."""
@@ -69,9 +86,11 @@ def followups(monkeypatch) -> _Ran:
 
     async def _cache():
         ran.append(("cache",))
+        return True
 
     async def _embed(dataset):
         ran.append(("embed",))
+        return True
 
     async def _bill(tenant_id, dimension, value=1, *, event_id=None, table_name=None):
         ran.append(("bill", dimension))
@@ -171,10 +190,10 @@ async def test_the_sweep_runs_every_owed_followup(test_db_session, followups) ->
         await _drop(test_db_session, second[0], second[2])
 
 
-async def test_a_deleted_dataset_clears_the_record_and_runs_nothing(
+async def test_a_deleted_dataset_clears_the_record_and_only_bills(
     test_db_session, followups
 ) -> None:
-    """The sweep clears a record whose dataset is gone, runs nothing, and never retries it."""
+    """The sweep clears a record whose dataset is gone, running only its usage event, and never retries it."""
     job_id, dataset_id, record_id = await _owed_job(test_db_session)
     try:
         await test_db_session.execute(delete(Dataset).where(Dataset.id == dataset_id))
@@ -182,7 +201,8 @@ async def test_a_deleted_dataset_clears_the_record_and_runs_nothing(
         await test_db_session.commit()
 
         assert await run_owed_publish_followups() >= 1
-        assert followups == []
+        assert followups == [("bill", "ingest_jobs")]
+        assert followups.billing == [str(job_id)]
         assert not await _owes(job_id)
         assert await run_publish_followups(job_id) is False
     finally:
@@ -563,7 +583,7 @@ async def test_a_hosted_staging_key_never_reads_as_a_local_file(
 async def test_a_delete_cut_short_leaves_the_record_for_the_next_run(
     test_db_session, raster_storage, followups, monkeypatch
 ) -> None:
-    """A run stopped inside the upload's delete keeps the record, and the next run deletes the upload."""
+    """A run stopped inside the upload's delete keeps the record, and the run after its lease deletes the upload."""
     import app.processing.ingest.publish_followups as publish_followups
 
     real_reap = publish_followups.reap_presigned_staging_object
@@ -585,7 +605,10 @@ async def test_a_delete_cut_short_leaves_the_record_for_the_next_run(
             await run_publish_followups(job_id)
         assert await _owes(job_id), "the record went before the upload did"
         assert await left(), "precondition: the delete stopped before the unlink"
+        await run_owed_publish_followups()
+        assert await left(), "the sweep took a record still under its lease"
 
+        await _make_due(job_id)
         await run_owed_publish_followups()
         assert await left() == []
         assert not await _owes(job_id)
@@ -802,7 +825,7 @@ async def _make_due(job_id) -> None:
         await session.execute(
             text(
                 "UPDATE catalog.ingest_jobs SET user_metadata = jsonb_set("
-                "user_metadata, '{publish_followups,next_attempt_at}', "
+                "user_metadata, '{publish_obligations,next_attempt_at}', "
                 "to_jsonb(now() - interval '1 minute')) WHERE id = :id"
             ),
             {"id": job_id},
@@ -1152,7 +1175,7 @@ async def test_an_owed_archive_is_retried_at_the_cap_until_storage_recovers(
                 wait = await session.scalar(
                     text(
                         "SELECT (user_metadata #>> "
-                        "'{publish_followups,next_attempt_at}')::timestamptz - now() "
+                        "'{publish_obligations,next_attempt_at}')::timestamptz - now() "
                         "FROM catalog.ingest_jobs WHERE id = :id"
                     ),
                     {"id": job_id},
@@ -1175,7 +1198,7 @@ async def test_an_owed_archive_is_retried_at_the_cap_until_storage_recovers(
             await session.execute(
                 text(
                     "UPDATE catalog.ingest_jobs SET user_metadata = jsonb_set("
-                    "user_metadata, '{publish_followups,attempts}', '1000') "
+                    "user_metadata, '{publish_obligations,attempts}', '1000') "
                     "WHERE id = :id"
                 ),
                 {"id": job_id},
@@ -1449,7 +1472,10 @@ async def test_a_failure_racing_a_confirmed_archive_restores_nothing(
 
         async def _race() -> None:
             race["running"] = True
-            race["won"] = await run_publish_followups(job_id)
+            # The other run takes the record once this run's lease has run out.
+            await _make_due(job_id)
+            await run_publish_followups(job_id)
+            race["won"] = True
 
         async def _read(src, dest):
             if fails_in == "read" and src == upload and not race["running"]:

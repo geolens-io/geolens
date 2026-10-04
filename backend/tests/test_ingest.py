@@ -1791,7 +1791,9 @@ class TestServiceImportAuthRequiredMarker:
         monkeypatch.setattr(
             tasks_vector, "_run_service_import_with_wfs_fallback", _fake_import
         )
-        monkeypatch.setattr(tasks_vector, "_emit_billing_event", _noop)
+        monkeypatch.setattr(
+            "app.processing.ingest.publish_followups._emit_billing_event", _noop
+        )
 
         with (
             patch(

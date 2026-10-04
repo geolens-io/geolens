@@ -221,7 +221,10 @@ async def test_arcgis_service_import_lands_every_attribute_column(
     monkeypatch.setattr(
         "app.processing.ingest.ogr.run_ogr2ogr_service", _fake_run_ogr2ogr_service
     )
-    monkeypatch.setattr(tasks_vector, "_emit_billing_event", _fake_emit_billing_event)
+    monkeypatch.setattr(
+        "app.processing.ingest.publish_followups._emit_billing_event",
+        _fake_emit_billing_event,
+    )
 
     try:
         await tasks_vector.ingest_service.func(
@@ -357,7 +360,7 @@ async def test_service_refresh_repopulates_wrong_stored_column_info(
                 new=_fake_run_ogr2ogr_service,
             ),
             patch(
-                "app.processing.ingest.publication.invalidate_catalog_cache",
+                "app.processing.ingest.publish_followups.invalidate_catalog_cache",
                 new_callable=AsyncMock,
             ),
         ):

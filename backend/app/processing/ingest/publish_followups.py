@@ -1,19 +1,21 @@
 """The follow-ups a job owes once its terminal commit has landed.
 
 A first ingest or a VRT regeneration owes its completion follow-ups, and a
-rejected replacement its failure notice. A publish that consumed a staged
-upload also owes items: the upload's archive and then its deletion. A raster
-replacement owes deleting the objects it superseded, apart from a COG a VRT
-may still read, which stays charged to the dataset for the stale-job sweep to
-reclaim. The terminal transaction records them on the job row, so the record
-exists exactly when the commit does. The task runs them after its commit, or
-the stale-job sweep when the task could not. The rest runs once, at the first
-claim, without waiting on the items. Each item is confirmed on its own and
-retried, after a doubling delay capped at a few hours, until it is; the record
-goes once it is claimed and no item is left. A job that holds an unarchived
-original but owes no archive, as one flagged before archives were owed does,
-has its archive owed again when its row establishes it, and is marked for
-review otherwise.
+failed job its failure notice. A publish that consumed a staged upload also
+owes its archive and then its deletion. A raster replacement owes deleting
+the objects it superseded, apart from a COG a VRT may still read, which stays
+charged to the dataset for the stale-job sweep to reclaim. A replacement owes
+its cache purges, quicklook and embedding. The terminal transaction records
+them on the job row, so the record exists exactly when the commit does. A
+record that names no run-once item gets the ones its job's status and task
+imply at its first claim, in the claim's own write. The task runs the record
+after its commit, or the stale-job sweep once its lease runs out. Each item
+is confirmed on its own and retried, after a doubling delay capped at a few
+hours, until it is: a best-effort item for a few attempts, a storage item for
+as long as it takes. The record goes once no item is left. A job that holds
+an unarchived original but owes no archive, as one flagged before archives
+were owed does, has its archive owed again when its row establishes it, and
+is marked for review otherwise.
 """
 
 from __future__ import annotations
@@ -49,13 +51,20 @@ from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.jobs.models import (
     ARCHIVE_PENDING_METADATA_KEY,
     ARCHIVE_REVIEW_METADATA_KEY,
+    LEGACY_PUBLISH_FOLLOWUPS_FIELD,
     PUBLISH_FOLLOWUPS_FIELD,
     SUPERSEDED_COG_ITEM,
     IngestJob,
     holds_unarchived_original,
+    owed_publish_record,
     owned_presigned_staging_key,
 )
-from app.processing.ingest.tasks_common import _emit_billing_event, cleanup_step
+from app.processing.ingest.tasks_common import (
+    _emit_billing_event,
+    _generate_quicklook,
+    cleanup_step,
+    invalidate_tile_cache_for_table,
+)
 from app.processing.ingest.tasks_staging import (
     _archive_original_file,
     original_archive_key,
@@ -80,27 +89,42 @@ _LABELS: dict[str, str | None] = {
 
 _SWEEP_BATCH = 50
 
-# A replacement or a vector import runs its own completion steps, so its
-# record owes only its items.
+# A record of these tasks that names no run-once item owes none.
 _ITEMS_ONLY = frozenset({"reupload_file", "reupload_raster", "ingest_file"})
 
 # The items a record can owe, each a key in the record that is removed alone
-# once it is confirmed.
+# once it is confirmed. The purges run first, so no reader of a completed job
+# meets the replaced data while a slow archive runs, and the notice never
+# reads a cache the purge has yet to clear; the storage items come next.
 _ARCHIVE_KEY = "archive_key"
 _REAPS_STAGED_UPLOAD = "reaps_staged_upload"
 _SUPERSEDED_KEYS = "superseded_keys"
 _SUPERSEDED_COG = SUPERSEDED_COG_ITEM
-_ITEMS = (_ARCHIVE_KEY, _REAPS_STAGED_UPLOAD, _SUPERSEDED_KEYS, _SUPERSEDED_COG)
+_STORAGE_ITEMS = (_ARCHIVE_KEY, _REAPS_STAGED_UPLOAD, _SUPERSEDED_KEYS, _SUPERSEDED_COG)
+_CATALOG_CACHE = "catalog_cache"
+_TILE_CACHE = "tile_cache"
+_QUICKLOOK = "quicklook"
+_EMBEDDING = "embedding"
+_NOTICE = "notice"
+_USAGE = "usage"
+_PURGES = (_CATALOG_CACHE, _TILE_CACHE)
+_AFTER_STORAGE = (_QUICKLOOK, _EMBEDDING, _NOTICE, _USAGE)
+_RUN_ONCE_ITEMS = _PURGES + _AFTER_STORAGE
 
-# Retry state kept in the record. An owed item has no last attempt, since
+# Retry state kept in the record. A storage item has no last attempt, since
 # nothing else is sure to archive or delete a published upload; the sweep
 # keeps trying it at the capped delay.
 _ATTEMPTS = "attempts"
 _NEXT_ATTEMPT_AT = "next_attempt_at"
 _RETRY_BASE = timedelta(minutes=5)
 _RETRY_CAP = timedelta(hours=4)
-# Set once the run-once follow-ups have run, while items are still owed.
+# A run-once item still owed after this many attempts, about nine hours, is dropped.
+_GIVE_UP_ATTEMPTS = 8
+# Set once the record holds every run-once item it owes.
 _CLAIMED = "claimed"
+# How long the sweep leaves a claimed record to its claimer, well past a notice's
+# bounded network calls.
+_CLAIM_LEASE = timedelta(minutes=10)
 # A job that ended more recently may still have its own archive or cleanup in flight.
 _UNOWED_ARCHIVE_MIN_AGE = timedelta(days=1)
 
@@ -115,14 +139,36 @@ def owed_followups(
     superseded_cog: str | None = None,
     superseded_cog_bytes: int = 0,
     sweep_waits: bool = False,
+    catalog_cache: bool = False,
+    tile_cache: str | None = None,
+    quicklook: str | None = None,
+    embedding: bool = False,
+    notice: str | None = None,
+    usage: str | None = None,
 ):
     """The job's ``user_metadata`` with this attempt's ``task`` follow-ups owed.
 
     With ``archive_key`` it also marks the upload's archive pending, which the
     follow-ups remove once that archive exists. ``sweep_waits`` holds the
     sweep off for one retry delay, for a task that archives the upload itself.
+    The run-once items are the catalog cache purge, the tile cache purge and
+    the quicklook of a table, the embedding, a notice event and a usage
+    dimension, billed once under the job's id. A record
+    naming any is written claimed, so its claim adds none, and leased, so the
+    sweep leaves it to the writer's own call until the lease runs out.
     """
     fields = ["task", task, "attempt_id", str(attempt_uuid)]
+    run_once = {
+        _CATALOG_CACHE: catalog_cache or None,
+        _TILE_CACHE: tile_cache,
+        _QUICKLOOK: quicklook,
+        _EMBEDDING: embedding or None,
+        _NOTICE: notice,
+        _USAGE: usage,
+    }
+    for item, value in run_once.items():
+        if value is not None:
+            fields += [item, literal(value, JSONB)]
     marks = []
     if reaps_staged_upload:
         fields += [_REAPS_STAGED_UPLOAD, true()]
@@ -134,7 +180,9 @@ def owed_followups(
     if superseded_cog is not None:
         cog = {"key": superseded_cog, "bytes": superseded_cog_bytes}
         fields += [_SUPERSEDED_COG, literal(cog, JSONB)]
-    if sweep_waits:
+    if any(value is not None for value in run_once.values()):
+        fields += [_CLAIMED, true(), _NEXT_ATTEMPT_AT, func.now() + _CLAIM_LEASE]
+    elif sweep_waits:
         fields += [_NEXT_ATTEMPT_AT, func.now() + _RETRY_BASE]
     owed = func.jsonb_build_object(
         PUBLISH_FOLLOWUPS_FIELD, func.jsonb_build_object(*fields), *marks
@@ -391,10 +439,14 @@ async def _write_record(job_uuid: uuid.UUID, attempt_id: str, metadata) -> None:
         await session.commit()
 
 
-async def _confirm_owed_item(job_uuid: uuid.UUID, attempt_id: str, item: str) -> None:
-    """Take ``item`` alone off the record ``attempt_id`` wrote; every other item stays owed."""
-    path = literal([PUBLISH_FOLLOWUPS_FIELD, item], ARRAY(Text))
-    await _write_record(job_uuid, attempt_id, IngestJob.user_metadata.op("#-")(path))
+async def _confirm_owed_item(job_uuid: uuid.UUID, attempt_id: str, *items: str) -> None:
+    """Take ``items`` alone off the record ``attempt_id`` wrote; every other item stays owed."""
+    metadata = IngestJob.user_metadata
+    for item in items:
+        metadata = metadata.op("#-")(
+            literal([PUBLISH_FOLLOWUPS_FIELD, item], ARRAY(Text))
+        )
+    await _write_record(job_uuid, attempt_id, metadata)
 
 
 async def _delete_orphaned_archive(job_uuid: uuid.UUID, archive_key: str) -> bool:
@@ -644,10 +696,10 @@ async def _schedule_retry(job_uuid: uuid.UUID, attempt_id: str, attempts: int) -
     await _write_record(job_uuid, attempt_id, scheduled)
 
 
-async def _settle_owed_items(
-    job_uuid: uuid.UUID, row, *, local_copy: str | None = None
-) -> None:
-    """Run the items a published job's record owes, confirming each one that lands.
+async def _settle_storage_items(
+    job_uuid: uuid.UUID, row, record, *, local_copy: str | None = None
+) -> set[str]:
+    """Run the storage items a published job's ``record`` owes; returns those still owed.
 
     The client's presigned key goes whatever the archive does, since the
     archive reads only ``file_path``. A job naming no ``file_path`` may hold
@@ -660,13 +712,10 @@ async def _settle_owed_items(
     storage already holds its archive.
     The delete is confirmed only once nothing it should remove is left. What a
     raster replacement superseded is deleted unless a live catalog row names
-    it, or, for its COG, a VRT may read it. An item left over is tried again
-    after a doubling delay capped at ``_RETRY_CAP``, however many attempts it
-    takes.
+    it, or, for its COG, a VRT may read it.
     """
     attempt_id = row.owed_attempt
-    record = row.user_metadata[PUBLISH_FOLLOWUPS_FIELD]
-    left = {item for item in _ITEMS if item in record}
+    left = {item for item in _STORAGE_ITEMS if item in record}
     file_path = row.file_path
     failed_before = row.user_metadata.get("archive_failed") is not None
     if _ARCHIVE_KEY in left and row.dataset_id is None:
@@ -718,18 +767,7 @@ async def _settle_owed_items(
         ):
             await _confirm_owed_item(job_uuid, attempt_id, _SUPERSEDED_COG)
             left.discard(_SUPERSEDED_COG)
-    if left:
-        await _schedule_retry(job_uuid, attempt_id, int(record.get(_ATTEMPTS) or 0) + 1)
-
-
-def _owes_items(row) -> bool:
-    """Whether a job's record owes items, for the attempt that ended the job complete."""
-    record = row.user_metadata[PUBLISH_FOLLOWUPS_FIELD]
-    return (
-        row.status == "complete"
-        and row.owed_attempt == str(row.attempt_id)
-        and any(item in record for item in _ITEMS)
-    )
+    return left
 
 
 def _next_attempt_at(record):
@@ -765,157 +803,330 @@ def _due_at(record):
     )
 
 
-async def run_publish_followups(
-    job_uuid: uuid.UUID, *, local_copy: str | None = None
-) -> bool:
-    """Run a job's owed follow-ups once its terminal commit is visible.
-
-    A complete job's due items run first, before the claim and holding no
-    lock; an item that doesn't land stays in the record for a later attempt,
-    so a caller stopped short leaves it for the next one. The claim then runs
-    the rest exactly once, without waiting on the items: it marks the record
-    claimed while items are left, and removes it once none are. The job's
-    status chooses what runs: a complete first ingest's or VRT regeneration's
-    follow-ups, or a failed job's ``ingest_failed`` notice. A replacement or a
-    vector import owes nothing past its items. A job in neither status runs
-    nothing, and a row another caller has locked nothing past the items. A
-    record an earlier attempt wrote is cleared and runs nothing, and a deleted
-    dataset skips the rest. Returns whether this call ran the rest.
-
-    ``local_copy`` is a copy of the upload the caller holds and keeps; the
-    archive reads it instead of downloading the upload again.
-    """
-    import app.core.db as db_module
-    from app.core.db.tenant_session import current_tenant_var
-    from app.core.tenancy import is_multi_tenant
-    from app.platform.extensions import get_processing_port
-    from app.platform.notifications.events import (
-        build_event_notification,
-        emit_event_safe,
-    )
-    from app.processing.embeddings.helpers import defer_embedding
-
-    owed = IngestJob.user_metadata[PUBLISH_FOLLOWUPS_FIELD]
-    owed_row = select(
-        IngestJob.status,
-        IngestJob.dataset_id,
-        IngestJob.error_message,
-        IngestJob.attempt_id,
-        owed["task"].astext.label("task"),
-        owed["attempt_id"].astext.label("owed_attempt"),
-        IngestJob.file_path,
-        IngestJob.user_metadata,
-    ).where(
-        IngestJob.id == job_uuid,
-        IngestJob.status.in_(("complete", "failed")),
-        owed.is_not(None),
-    )
-    async with db_module.async_session() as session:
-        pending = (await session.execute(owed_row.where(_is_due(owed)))).one_or_none()
-    if pending is not None and _owes_items(pending):
-        await _settle_owed_items(job_uuid, pending, local_copy=local_copy)
-
-    async with db_module.async_session() as session:
-        claim = (
-            await session.execute(owed_row.with_for_update(skip_locked=True))
-        ).one_or_none()
-        if claim is None:
-            return False
-        first = not claim.user_metadata[PUBLISH_FOLLOWUPS_FIELD].get(_CLAIMED)
-        if not _owes_items(claim):
-            metadata = IngestJob.user_metadata.op("-")(
-                literal(PUBLISH_FOLLOWUPS_FIELD, Text)
-            )
-        elif first:
-            metadata = func.jsonb_set(
-                IngestJob.user_metadata,
-                literal([PUBLISH_FOLLOWUPS_FIELD, _CLAIMED], ARRAY(Text)),
-                text("'true'::jsonb"),
-            )
-        else:
-            return False
-        await session.execute(
-            update(IngestJob)
-            .where(IngestJob.id == job_uuid)
-            .values(user_metadata=metadata)
-            .execution_options(synchronize_session=False)
-        )
-        await session.commit()
-    if not first:
-        return False
-
-    task = claim.task
-    job_id = str(job_uuid)
-    log = structlog.get_logger().bind(job_id=job_id, task=task)
-    if claim.owed_attempt != str(claim.attempt_id):
-        log.info("publish_followups_from_an_earlier_attempt")
-        return True
-    if claim.status == "failed":
-        async with cleanup_step("failure notice", job_id=job_id):
-            await notify_ingest_failed(
-                job_uuid, task=task, reason=claim.error_message or ""
-            )
-        return True
-    if task in _ITEMS_ONLY:
-        return True
+def _run_once_items(status: str, task: str) -> dict[str, object]:
+    """The run-once items a record naming none owes, for its job's ``status`` and ``task``."""
+    if status == "failed":
+        return {_NOTICE: "ingest_failed"}
     if task not in _LABELS:
-        log.warning("publish_followups_unknown_task")
-        return True
+        return {}
+    items: dict[str, object] = {_CATALOG_CACHE: True, _EMBEDDING: True}
+    if _LABELS[task] is not None:
+        items |= {_NOTICE: "ingest_complete", _USAGE: "ingest_jobs"}
+    return items
+
+
+def _taken(items: dict[str, object], *, source: str):
+    """The job's ``user_metadata`` with its record, read from ``source``, claimed, owing ``items`` too, and leased.
+
+    The record is written under ``PUBLISH_FOLLOWUPS_FIELD`` whatever field it
+    was read from, and a legacy field it was read from goes.
+    """
+    metadata = IngestJob.user_metadata
+    if source != PUBLISH_FOLLOWUPS_FIELD:
+        metadata = metadata.op("-")(literal(source, Text))
+    fields: list = []
+    for item, value in items.items():
+        fields += [item, literal(value, JSONB)]
+    fields += [_CLAIMED, true(), _NEXT_ATTEMPT_AT, func.now() + _CLAIM_LEASE]
+    record = IngestJob.user_metadata[source].op("||")(func.jsonb_build_object(*fields))
+    path = literal([PUBLISH_FOLLOWUPS_FIELD], ARRAY(Text))
+    return func.jsonb_set(metadata, path, record)
+
+
+async def _published_dataset(dataset_id: uuid.UUID | None):
+    """The job's dataset with its record loaded, or None once either is gone."""
+    import app.core.db as db_module
+    from app.platform.extensions import get_processing_port
+
+    if dataset_id is None:
+        return None
     Dataset = get_processing_port().get_dataset_orm_class()
     async with db_module.async_session() as session:
         dataset = await session.scalar(
             select(Dataset)
             .options(joinedload(Dataset.record))
-            .where(Dataset.id == claim.dataset_id)
+            .where(Dataset.id == dataset_id)
         )
-    if dataset is None or dataset.record is None:
-        log.info("publish_followups_dataset_gone")
-        return True
+    return None if dataset is None or dataset.record is None else dataset
 
-    label = _LABELS[task]
-    title = dataset.record.title
-    if label is not None:
-        async with cleanup_step("publish completion notice", job_id=job_id):
-            await emit_event_safe(
-                event_key="ingest_complete",
-                build=lambda: build_event_notification(
-                    "ingest_complete",
-                    subject=f"{label} ingest complete: {title}",
-                    body=f"{label} dataset '{title}' has been successfully ingested.",
-                    extra={"job_id": job_id, "dataset": title},
-                ),
+
+async def _redraw_quicklook(dataset_id: uuid.UUID, table_name: str) -> bool:
+    """Draw the published table's quicklook again, on a session of its own; returns whether it landed."""
+    import app.core.db as db_module
+
+    async with db_module.async_session() as session:
+        return await _generate_quicklook(session, dataset_id, table_name)
+
+
+def _completion_text(task: str, dataset) -> tuple[str, str, str]:
+    """The completion notice's (subject, body, title); a vector import keeps its own wording."""
+    label = _LABELS.get(task)
+    if label:
+        title = dataset.record.title
+        return (
+            f"{label} ingest complete: {title}",
+            f"{label} dataset '{title}' has been successfully ingested.",
+            title,
+        )
+    title = getattr(dataset, "title", None) or dataset.table_name
+    return (
+        f"Ingest complete: {title}",
+        f"Vector dataset '{title}' has been successfully ingested.",
+        title,
+    )
+
+
+async def _send_notice(event: str, job_uuid: uuid.UUID, row, dataset) -> bool:
+    """Send the job's ``event`` notice, identified so a receiver can drop a repeat.
+
+    Returns False when any sink failed; the whole notice then goes again.
+    """
+    from app.platform.notifications.events import (
+        build_event_notification,
+        emit_event_safe,
+    )
+
+    notification_id = f"{job_uuid}:{row.owed_attempt}:{event}"
+    if event == "ingest_failed":
+        return await notify_ingest_failed(
+            job_uuid,
+            task=row.task,
+            reason=row.error_message or "",
+            notification_id=notification_id,
+        )
+    subject, body, title = _completion_text(row.task, dataset)
+    extra = {"job_id": str(job_uuid), "dataset": title}
+    return await emit_event_safe(
+        event_key=event,
+        build=lambda: build_event_notification(
+            event,
+            subject=subject,
+            body=body,
+            extra={**extra, "notification_id": notification_id},
+        ),
+    )
+
+
+async def _run_item(item: str, value, job_uuid: uuid.UUID, row, dataset) -> bool:
+    """Run one run-once item; returns False when it did not land.
+
+    Each runner reports its own transient failure, which it also logs, and
+    counts a deliberate no-op, such as a disabled event, as landed.
+    """
+    from app.processing.embeddings.helpers import defer_embedding
+
+    if item == _CATALOG_CACHE:
+        settled = await invalidate_catalog_cache()
+    elif item == _TILE_CACHE:
+        settled = await invalidate_tile_cache_for_table(value)
+    elif item == _QUICKLOOK:
+        settled = await _redraw_quicklook(dataset.id, value)
+    elif item == _EMBEDDING:
+        settled = await defer_embedding(dataset)
+    elif item == _NOTICE:
+        settled = await _send_notice(value, job_uuid, row, dataset)
+    else:
+        settled = await _emit_billing_event(
+            _usage_tenant(), value, event_id=str(job_uuid)
+        )
+    return settled is not False
+
+
+def _usage_tenant() -> str | None:
+    """The tenant a usage event is billed to, or None outside a hosted install."""
+    from app.core.db.tenant_session import current_tenant_var
+    from app.core.tenancy import is_multi_tenant
+
+    tenant_id = current_tenant_var.get() if is_multi_tenant() else None
+    return str(tenant_id) if tenant_id else None
+
+
+async def _settle_run_once_items(
+    job_uuid: uuid.UUID, row, record, items: tuple[str, ...]
+) -> set[str]:
+    """Run those of ``items`` that ``record`` owes, in order; returns those still owed.
+
+    With the dataset gone, its dataset-bound items settle as no-ops. A failure
+    notice and the usage event need only the job, so they still run.
+    """
+    owed = [item for item in items if item in record]
+    bound = [
+        item
+        for item in owed
+        if item != _USAGE and not (item == _NOTICE and record[item] == "ingest_failed")
+    ]
+    dataset = await _published_dataset(row.dataset_id) if bound else None
+    if bound and dataset is None:
+        structlog.get_logger().info(
+            "publish_followups_dataset_gone", job_id=str(job_uuid), task=row.task
+        )
+    left: set[str] = set()
+    for item in owed:
+        if dataset is not None or item not in bound:
+            try:
+                settled = await _run_item(item, record[item], job_uuid, row, dataset)
+            except Exception:  # broad: a run-once item that raised stays owed
+                structlog.get_logger().warning(
+                    "publish_followup_failed",
+                    job_id=str(job_uuid),
+                    item=item,
+                    exc_info=True,
+                )
+                settled = False
+            if not settled:
+                left.add(item)
+                continue
+        await _confirm_owed_item(job_uuid, row.owed_attempt, item)
+    return left
+
+
+async def _settle_record(
+    job_uuid: uuid.UUID, attempt_id: str, record, left: set[str]
+) -> None:
+    """Retry what ``record`` still owes, ``left``, later, or remove the record when nothing is.
+
+    A run-once item still owed once the record's attempts reach
+    ``_GIVE_UP_ATTEMPTS`` is dropped and logged.
+    """
+    attempts = int(record.get(_ATTEMPTS) or 0) + 1
+    abandoned = sorted(left.intersection(_RUN_ONCE_ITEMS))
+    if abandoned and attempts >= _GIVE_UP_ATTEMPTS:
+        structlog.get_logger().warning(
+            "publish_followup_abandoned",
+            job_id=str(job_uuid),
+            items=abandoned,
+            attempts=attempts,
+        )
+        await _confirm_owed_item(job_uuid, attempt_id, *abandoned)
+        left = left.difference(abandoned)
+    if left:
+        await _schedule_retry(job_uuid, attempt_id, attempts)
+        return
+    cleared = IngestJob.user_metadata.op("-")(literal(PUBLISH_FOLLOWUPS_FIELD, Text))
+    await _write_record(job_uuid, attempt_id, cleared)
+
+
+async def run_publish_followups(
+    job_uuid: uuid.UUID,
+    *,
+    attempt_id: uuid.UUID | str | None = None,
+    local_copy: str | None = None,
+) -> bool:
+    """Run a job's owed follow-ups once its terminal commit is visible.
+
+    Takes the record, leasing it in one write that, at its first claim, also
+    adds the run-once items its job's status and task imply when it names
+    none. Then runs every item it owes in order, removing each one that
+    lands, and the record once none is left; an item that does not land is
+    retried later. Only a due record is taken, unless ``attempt_id`` is the
+    attempt that wrote it and nothing has run it yet, so the writer runs it at
+    once while the sweep waits out the lease. A row another caller has locked,
+    or a job neither complete nor failed, runs nothing. Only a complete job
+    runs its storage items. A record an earlier attempt wrote is cleared and
+    runs nothing. A record an earlier release wrote under its legacy field is
+    taken the same way and moved to the current one. Returns whether this call
+    claimed the record.
+
+    ``local_copy`` is a copy of the upload the caller holds and keeps; the
+    archive reads it instead of downloading the upload again.
+    """
+    import app.core.db as db_module
+
+    owed = owed_publish_record()
+    may_take = _is_due(owed)
+    if attempt_id is not None:
+        writes = owed["attempt_id"].astext == str(attempt_id)
+        may_take = or_(may_take, and_(writes, not_(owed.has_key(_ATTEMPTS))))
+    async with db_module.async_session() as session:
+        row = (
+            await session.execute(
+                select(
+                    IngestJob.status,
+                    IngestJob.dataset_id,
+                    IngestJob.error_message,
+                    IngestJob.attempt_id,
+                    owed["task"].astext.label("task"),
+                    owed["attempt_id"].astext.label("owed_attempt"),
+                    IngestJob.file_path,
+                    IngestJob.user_metadata,
+                )
+                .where(
+                    IngestJob.id == job_uuid,
+                    IngestJob.status.in_(("complete", "failed")),
+                    owed.is_not(None),
+                    may_take,
+                )
+                .with_for_update(skip_locked=True)
             )
-    async with cleanup_step("publish catalog cache", job_id=job_id):
-        await invalidate_catalog_cache()
-    async with cleanup_step("publish embedding", job_id=job_id):
-        await defer_embedding(dataset)
-    if label is not None:
-        tenant_id = current_tenant_var.get() if is_multi_tenant() else None
-        async with cleanup_step("publish usage event", job_id=job_id):
-            await _emit_billing_event(
-                str(tenant_id) if tenant_id else None, "ingest_jobs", event_id=job_id
+        ).one_or_none()
+        if row is None:
+            return False
+        source = (
+            PUBLISH_FOLLOWUPS_FIELD
+            if PUBLISH_FOLLOWUPS_FIELD in row.user_metadata
+            else LEGACY_PUBLISH_FOLLOWUPS_FIELD
+        )
+        first = not row.user_metadata[source].get(_CLAIMED)
+        current = row.owed_attempt == str(row.attempt_id)
+        if current:
+            items = _run_once_items(row.status, row.task) if first else {}
+            metadata = _taken(items, source=source)
+        else:
+            metadata = IngestJob.user_metadata.op("-")(literal(source, Text))
+        stored = (
+            await session.execute(
+                update(IngestJob)
+                .where(IngestJob.id == job_uuid)
+                .values(user_metadata=metadata)
+                .returning(IngestJob.user_metadata)
+                .execution_options(synchronize_session=False)
             )
-    return True
+        ).scalar_one()
+        await session.commit()
+
+    log = structlog.get_logger().bind(job_id=str(job_uuid), task=row.task)
+    if not current:
+        log.info("publish_followups_from_an_earlier_attempt")
+        return True
+    known = row.task in _LABELS or row.task in _ITEMS_ONLY
+    if first and row.status == "complete" and not known:
+        log.warning("publish_followups_unknown_task")
+    record = stored[PUBLISH_FOLLOWUPS_FIELD]
+    left = await _settle_run_once_items(job_uuid, row, record, _PURGES)
+    if row.status == "complete":
+        left |= await _settle_storage_items(
+            job_uuid, row, record, local_copy=local_copy
+        )
+    left |= await _settle_run_once_items(job_uuid, row, record, _AFTER_STORAGE)
+    await _settle_record(job_uuid, row.owed_attempt, record, left)
+    return first
 
 
 async def notify_ingest_failed(
-    job_id: uuid.UUID, *, task: str, reason: str | BaseException
-) -> None:
-    """Send ``ingest_failed`` for ``job_id``, with ``reason`` redacted."""
+    job_id: uuid.UUID,
+    *,
+    task: str,
+    reason: str | BaseException,
+    notification_id: str | None = None,
+) -> bool:
+    """Send ``ingest_failed`` for ``job_id``, with ``reason`` redacted; returns False when a sink failed."""
     from app.platform.notifications.events import (
         build_event_notification,
         emit_event_safe,
     )
 
     message = redact_failure_reason(reason)
-    await emit_event_safe(
+    extra = {"job_id": str(job_id), "task": task}
+    if notification_id is not None:
+        extra["notification_id"] = notification_id
+    return await emit_event_safe(
         event_key="ingest_failed",
         build=lambda: build_event_notification(
             "ingest_failed",
             subject=f"Ingest failed: {task}",
             body=f"Ingest job (task={task}) failed.",
             reason=message,
-            extra={"job_id": str(job_id), "task": task},
+            extra=extra,
         ),
     )
 
@@ -926,7 +1137,7 @@ def _unowed_archive():
     ended = func.coalesce(IngestJob.completed_at, IngestJob.created_at)
     return and_(
         holds_unarchived_original(),
-        metadata[PUBLISH_FOLLOWUPS_FIELD].is_(None),
+        owed_publish_record().is_(None),
         not_(metadata.has_key(ARCHIVE_REVIEW_METADATA_KEY)),
         ended < func.now() - _UNOWED_ARCHIVE_MIN_AGE,
     )
@@ -1058,7 +1269,7 @@ async def run_owed_publish_followups() -> int:
     import app.core.db as db_module
 
     log = structlog.get_logger()
-    record = IngestJob.user_metadata[PUBLISH_FOLLOWUPS_FIELD]
+    record = owed_publish_record()
     try:
         async with db_module.async_session() as session:
             owed = (

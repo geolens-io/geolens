@@ -51,6 +51,17 @@ from tests.test_raster_replace_1221 import raster_storage as raster_storage
 
 pytestmark = pytest.mark.anyio
 
+
+@pytest.fixture(autouse=True)
+def _embedding_defers(monkeypatch) -> None:
+    """The embedding defer lands, as it does with the task queue open."""
+
+    async def _deferred(dataset) -> bool:
+        return True
+
+    monkeypatch.setattr("app.processing.embeddings.helpers.defer_embedding", _deferred)
+
+
 OLD_BYTES = 1000
 
 

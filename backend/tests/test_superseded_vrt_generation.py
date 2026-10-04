@@ -42,6 +42,16 @@ from tests.test_replacement_post_commit import (
 pytestmark = pytest.mark.anyio
 
 
+@pytest.fixture(autouse=True)
+def _embedding_defers(monkeypatch) -> None:
+    """The embedding defer lands, as it does with the task queue open."""
+
+    async def _deferred(dataset) -> bool:
+        return True
+
+    monkeypatch.setattr("app.processing.embeddings.helpers.defer_embedding", _deferred)
+
+
 async def _admin_id(session) -> uuid.UUID:
     return (
         await session.execute(select(User.id).where(User.username == "admin"))
@@ -146,15 +156,19 @@ async def _owed(job_id) -> dict | None:
 
 
 @contextmanager
-def _completion_steps():
-    """Record each catalog cache purge and embedding refresh the follow-ups run, in order."""
+def _completion_steps(vrt_id):
+    """Record each catalog cache purge, and each refresh of ``vrt_id``'s embedding, the follow-ups run, in order.
+
+    A sweep also runs records other tests left due, so only this VRT's embedding counts.
+    """
     steps: list[str] = []
 
     async def _cache() -> None:
         steps.append("cache")
 
     async def _embedding(dataset) -> None:
-        steps.append("embedding")
+        if dataset.id == vrt_id:
+            steps.append("embedding")
 
     with (
         patch.object(publish_followups, "invalidate_catalog_cache", _cache),
@@ -210,7 +224,7 @@ async def test_a_confirmed_regeneration_purges_the_cache_and_refreshes_the_embed
     lost = _LostAcknowledgement(job.id, ConnectionResetError("dropped"))
     try:
         with ExitStack() as stack:
-            steps = stack.enter_context(_completion_steps())
+            steps = stack.enter_context(_completion_steps(ids[0]))
             if publish == "observed":
                 stack.enter_context(lost.installed())
                 stack.enter_context(_observed(PublishObservation.LANDED))
@@ -236,7 +250,7 @@ async def test_a_regeneration_that_landed_unseen_gets_its_completion_steps_from_
     )
     lost = _LostAcknowledgement(job.id, ConnectionResetError("dropped"))
     try:
-        with _completion_steps() as steps:
+        with _completion_steps(ids[0]) as steps:
             with lost.installed(), _observed(PublishObservation.UNKNOWN):
                 await _regenerate(job, generation_id, ids[0])
             assert lost.fired == 1
@@ -350,7 +364,7 @@ async def test_a_followups_failure_leaves_the_completion_steps_to_the_sweep(
         test_db_session, vrt_id=ids[0], user_id=admin_id
     )
     try:
-        with _completion_steps() as steps:
+        with _completion_steps(ids[0]) as steps:
             with patch.object(
                 tasks_vrt,
                 "run_publish_followups",
@@ -374,31 +388,32 @@ async def test_a_followups_failure_leaves_the_completion_steps_to_the_sweep(
         await _purge_vrt(test_db_session, ids=ids)
 
 
-async def test_a_crash_between_the_reap_and_the_claim_leaves_the_completion_steps_to_the_sweep(
+async def test_a_crash_between_the_reap_and_the_completion_steps_leaves_them_to_the_sweep(
     test_db_session, raster_storage
 ) -> None:
-    """The prior generation goes before the claim, and the sweep still runs each step once."""
+    """The purge and the prior generation's delete land first, and the sweep runs the rest once after the lease."""
     admin_id, ids, prior = await _vrt_with_quicklooks(test_db_session, raster_storage)
     job, generation_id = await _queue_regeneration(
         test_db_session, vrt_id=ids[0], user_id=admin_id
     )
-    settle = publish_followups._settle_owed_items
+    settle = publish_followups._settle_storage_items
 
     async def _crash_once_settled(*args, **kwargs):
         await settle(*args, **kwargs)
-        raise ConnectionResetError("the worker died before the claim")
+        raise ConnectionResetError("the worker died after the reap")
 
     try:
-        with _completion_steps() as steps:
+        with _completion_steps(ids[0]) as steps:
             with patch.object(
-                publish_followups, "_settle_owed_items", _crash_once_settled
+                publish_followups, "_settle_storage_items", _crash_once_settled
             ):
                 await _regenerate(job, generation_id, ids[0])
 
-            assert steps == []
+            assert steps == ["cache"]
             assert await _left(raster_storage, prior) == []
             assert "superseded_keys" not in await _owed(job.id)
 
+            await _make_due(job.id)
             await run_owed_publish_followups()
             assert steps == ["cache", "embedding"]
 

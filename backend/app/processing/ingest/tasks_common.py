@@ -22,12 +22,10 @@ import structlog
 
 from procrastinate import App, PsycopgConnector
 
-from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.dataset_origin import classify_origin, set_dataset_origin
 from app.core.config import settings
 from app.core.service_tokens import reset_registered_credential_secrets
 from app.core.url_redaction import redact_exception_text
-from app.processing.embeddings.helpers import defer_embedding
 from app.platform.storage import get_storage
 
 if TYPE_CHECKING:
@@ -130,7 +128,7 @@ async def _emit_billing_event(
     *,
     event_id: str | None = None,
     table_name: str | None = None,
-) -> None:
+) -> bool:
     """Dispatch a billable usage event to registered BillingExtensions (METER-01).
 
     Imports ONLY ``get_billing_extensions`` from ``app.platform.extensions`` —
@@ -149,14 +147,17 @@ async def _emit_billing_event(
             idempotent at the DB layer.
         table_name: workers leave this None; the tile/OGC request path
             passes it to drive the METER-03 last_accessed_at signal.
+
+    Returns False when an extension raised, and True otherwise.
     """
     if not tenant_id:
-        return  # single_tenant no-op: no ledger, no billing (byte-identical OSS)
+        return True  # single_tenant no-op: no ledger, no billing (byte-identical OSS)
 
     # Billing-import-free: only import the extension accessor, never billing symbols
     from app.platform.extensions import get_billing_extensions
 
     _log = structlog.get_logger()
+    emitted = True
     for ext in get_billing_extensions():
         if not hasattr(ext, "on_usage_event"):
             continue  # DefaultBillingExtension + other extensions without the hook
@@ -178,6 +179,8 @@ async def _emit_billing_event(
                 ext=type(ext).__name__,
                 exc_info=True,
             )
+            emitted = False
+    return emitted
 
 
 @dataclass
@@ -1075,7 +1078,7 @@ async def load_job_for_error_write(
 _QUICKLOOK_DRAWS = 3
 
 
-async def _generate_quicklook(session, dataset_id: uuid.UUID, table_name: str) -> None:
+async def _generate_quicklook(session, dataset_id: uuid.UUID, table_name: str) -> bool:
     """Draw ``table_name``'s quicklook and point the dataset at it (non-fatal).
 
     Runs after the commit that published the table, so a connection-killing
@@ -1097,6 +1100,7 @@ async def _generate_quicklook(session, dataset_id: uuid.UUID, table_name: str) -
     The draw holds only the caller's session, one pooled connection.
 
     The caller's view of ``quicklook_256_uri`` is stale after this returns.
+    Returns whether the last draw landed, or True when the dataset is gone.
     """
     from sqlalchemy import select
 
@@ -1104,22 +1108,25 @@ async def _generate_quicklook(session, dataset_id: uuid.UUID, table_name: str) -
 
     Dataset = get_processing_port().get_dataset_orm_class()
     content_version = select(Dataset.tile_cache_version).where(Dataset.id == dataset_id)
+    landed = False
     try:
         for _ in range(_QUICKLOOK_DRAWS):
             drawn = await session.scalar(content_version)
-            await _draw_quicklook(session, dataset_id, table_name)
+            landed = await _draw_quicklook(session, dataset_id, table_name)
             # A draw that failed can leave its transaction aborted.
             await session.rollback()
             if await session.scalar(content_version) == drawn:
-                return
+                return landed
     except Exception as exc:  # broad: the dataset is already published
         structlog.get_logger().warning(
             "quicklook_failed", phase="version", table=table_name, error=str(exc)
         )
+        return False
+    return landed
 
 
-async def _draw_quicklook(session, dataset_id: uuid.UUID, table_name: str) -> None:
-    """Draw, upload and record the quicklook once; :func:`_generate_quicklook` repeats it."""
+async def _draw_quicklook(session, dataset_id: uuid.UUID, table_name: str) -> bool:
+    """Draw, upload and record the quicklook once; returns whether it landed or the dataset is gone."""
     import io as _io
 
     from sqlalchemy import select, update
@@ -1156,7 +1163,7 @@ async def _draw_quicklook(session, dataset_id: uuid.UUID, table_name: str) -> No
             table=table_name,
             error=str(_ql_exc),
         )
-        return
+        return False
 
     # The write is IO that can raise on a dead connection, and the dataset is
     # already published, so its failure is only logged.
@@ -1186,7 +1193,7 @@ async def _draw_quicklook(session, dataset_id: uuid.UUID, table_name: str) -> No
             table=table_name,
             error=str(_ql_recovery_exc)[:500],
         )
-        return
+        return False
 
     if gone:
         # A delete that reaped vectors/{id}/ before this upload left it unowned.
@@ -1195,7 +1202,7 @@ async def _draw_quicklook(session, dataset_id: uuid.UUID, table_name: str) -> No
             await ql_storage.delete(stored_key)
         except Exception as exc:  # broad: an orphaned image only costs storage
             _ql_log.warning("quicklook_reap_failed", table=table_name, error=str(exc))
-        return
+        return True
 
     try:
         await session.commit()
@@ -1209,6 +1216,8 @@ async def _draw_quicklook(session, dataset_id: uuid.UUID, table_name: str) -> No
             table=table_name,
             error=str(_ql_commit_exc),
         )
+        return False
+    return True
 
 
 async def _detect_3d_and_promote_elev(
@@ -1240,8 +1249,9 @@ async def _finalize_ingest(ctx: IngestContext):
     Steps: normalize geometry column, clip to valid bounds, add 4326
     column; grant reader access; extract column info and sample values;
     create dataset record; compute quality score; commit job + dataset
-    atomically; generate quicklook thumbnail (non-fatal); invalidate
-    caches and backfill embedding.
+    atomically, owing the quicklook, the catalog cache purge, the embedding,
+    the completion notice and the usage event in the job's follow-up record,
+    which the caller runs once its own work after the commit is done.
 
     ``ctx`` is an ``IngestContext`` bundle — see its dataclass docstring
     for field descriptions. Returns the created Dataset ORM instance.
@@ -1350,69 +1360,37 @@ async def _finalize_ingest(ctx: IngestContext):
     # ``extract_metadata`` above; raster ingests (which do not call this
     # helper) leave the column NULL — see tasks_raster.ingest_raster.
     from app.platform.jobs import ledger
+    from app.processing.ingest.publish_followups import owed_followups
 
+    archive = {}
+    if ctx.archive_from is not None:
+        from app.processing.ingest.tasks_staging import original_archive_key
+
+        # A fan-out layer shares its upload with its siblings, so it never deletes it.
+        archive = {
+            "reaps_staged_upload": not user_metadata.get("fan_out_parent_id"),
+            "archive_key": original_archive_key(dataset.id, ctx.archive_from),
+        }
     completed = {
         "dataset_id": dataset.id,
         "current_step": "complete",
         "progress": 1.0,
         "rows_processed": metadata.get("feature_count"),
-    }
-    if ctx.archive_from is not None:
-        from app.processing.ingest.publish_followups import owed_followups
-        from app.processing.ingest.tasks_staging import original_archive_key
-
-        # A fan-out layer shares its upload with its siblings, so it never deletes it.
-        completed["user_metadata"] = owed_followups(
+        "user_metadata": owed_followups(
             ctx.attempt_id or job.attempt_id,
-            "ingest_file",
-            reaps_staged_upload=not user_metadata.get("fan_out_parent_id"),
-            archive_key=original_archive_key(dataset.id, ctx.archive_from),
-            sweep_waits=True,
-        )
+            "ingest_file" if ctx.archive_from is not None else "ingest_service",
+            **archive,
+            catalog_cache=True,
+            quicklook=table_name if has_geometry else None,
+            embedding=True,
+            notice="ingest_complete",
+            usage="ingest_jobs",
+        ),
+    }
     await ledger.complete(
         session, job.id, ctx.attempt_id or job.attempt_id, values=completed
     )
     await session.commit()
-
-    # EVENT-02: notify on ingest complete (non-fatal, after commit — deferred import discipline).
-    # Placed here: status="complete" is already committed above so a notification
-    # error can never roll back or alter the terminal job write (T-1230-09 / fail-safe).
-    from app.platform.notifications.events import (
-        build_event_notification,
-        emit_event_safe,
-    )
-
-    _dataset_title = getattr(dataset, "title", None) or table_name
-    _job_id_str = str(job.id)
-    await emit_event_safe(
-        event_key="ingest_complete",
-        build=lambda: build_event_notification(
-            "ingest_complete",
-            subject=f"Ingest complete: {_dataset_title}",
-            body=f"Vector dataset '{_dataset_title}' has been successfully ingested.",
-            extra={"job_id": _job_id_str, "dataset": _dataset_title},
-        ),
-    )
-
-    # Generate vector quicklook thumbnail (non-fatal, after commit).
-    # INGEST-01 / Phase 1091-02: opens its OWN session so a cancellation
-    # inside quicklook generation can't poison `session` and trip
-    # `MissingGreenlet` on the outer `dataset.record` — see
-    # `_generate_quicklook`'s docstring.
-    if has_geometry:
-        async with _job_phase_session(job.id, phase="quicklook") as (
-            ql_session,
-            _ql_job,
-        ):
-            await _generate_quicklook(ql_session, dataset.id, table_name)
-
-    # Invalidate caches after successful ingest
-    await invalidate_catalog_cache()
-
-    # Generate embedding (non-fatal)
-
-    await defer_embedding(dataset)
-
     return dataset
 
 
@@ -1531,7 +1509,7 @@ async def _run_service_import_with_wfs_fallback(
             raise
 
 
-async def invalidate_tile_cache_for_table(table_name: str) -> None:
+async def invalidate_tile_cache_for_table(table_name: str) -> bool:
     """Best-effort MVT tile-cache purge after a table's contents change.
 
     Tile keys carry the dataset's ``tile_cache_version``, so an API process
@@ -1539,13 +1517,15 @@ async def invalidate_tile_cache_for_table(table_name: str) -> None:
     makes the new rows visible sooner wherever it can reach the cache: a
     process still holding the old version re-renders from the swapped table.
     Call AFTER the owning transaction commits, so a concurrent tile request
-    can't re-cache pre-swap rows. Never raises.
+    can't re-cache pre-swap rows. Returns whether the purge landed, or True
+    with no tile cache; never raises.
     """
     from app.platform.cache.provider import get_tile_cache
 
     tile_cache = get_tile_cache()
-    if tile_cache is not None:
-        await tile_cache.invalidate_table(table_name)
+    if tile_cache is None:
+        return True
+    return await tile_cache.invalidate_table(table_name)
 
 
 # The AccessExclusiveLock budget the reupload swap DDL spends: first attempt,

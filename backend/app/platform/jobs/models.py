@@ -106,7 +106,11 @@ ANALYSIS_OUTPUT_TABLE_FIELD = "analysis_out_table"
 # The follow-ups a landed terminal commit still owes: the task (a complete job's
 # first ingest, or a failed job's replacement) and the attempt that wrote it,
 # since a retry keeps the row and its metadata.
-PUBLISH_FOLLOWUPS_FIELD = "publish_followups"
+PUBLISH_FOLLOWUPS_FIELD = "publish_obligations"
+# The record an earlier release wrote, whose runner takes a claimed record to
+# owe its storage items alone. It is read and moved to the field above, never
+# written, so that runner never meets a record it would drop unrun.
+LEGACY_PUBLISH_FOLLOWUPS_FIELD = "publish_followups"
 # The owed follow-up item naming the COG a raster replacement superseded.
 SUPERSEDED_COG_ITEM = "superseded_cog"
 UNREAPED_ARTIFACT_FIELDS = (
@@ -114,6 +118,7 @@ UNREAPED_ARTIFACT_FIELDS = (
     ANALYSIS_OUTPUT_TABLE_FIELD,
     UNPUBLISHED_TILESET_ATTEMPTS_FIELD,
     PUBLISH_FOLLOWUPS_FIELD,
+    LEGACY_PUBLISH_FOLLOWUPS_FIELD,
 )
 
 # The user_metadata keys the admin job list shows: what the user supplied at
@@ -288,6 +293,16 @@ class IngestJob(Base):
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
+    )
+
+
+def owed_publish_record():
+    """The job's owed follow-up record, or the one an earlier release wrote, or NULL."""
+    metadata = IngestJob.user_metadata
+    return func.coalesce(
+        metadata[PUBLISH_FOLLOWUPS_FIELD],
+        metadata[LEGACY_PUBLISH_FOLLOWUPS_FIELD],
+        type_=JSONB,
     )
 
 

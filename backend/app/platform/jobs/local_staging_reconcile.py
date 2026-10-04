@@ -45,9 +45,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.async_io import run_in_thread_draining
 from app.core.config import settings
 from app.platform.jobs.models import (
-    PUBLISH_FOLLOWUPS_FIELD,
     IngestJob,
     needs_staged_input,
+    owed_publish_record,
 )
 
 log = structlog.get_logger()
@@ -116,7 +116,7 @@ def _still_needed(cutoff: datetime):
     )
     return or_(
         and_(needs_staged_input(), not_(unbound_failure)),
-        IngestJob.user_metadata[PUBLISH_FOLLOWUPS_FIELD].is_not(None),
+        owed_publish_record().is_not(None),
         func.coalesce(IngestJob.completed_at, IngestJob.created_at) >= cutoff,
     )
 
