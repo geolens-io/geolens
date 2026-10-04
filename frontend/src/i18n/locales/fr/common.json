@@ -770,5 +770,17 @@
   "mapViewerGate": {
     "accessCheckFailed": "Impossible de vérifier votre accès à cette carte. Réessayez."
   },
-  "visibilityPublicAdminOnly": "Seuls les administrateurs peuvent rendre le contenu public sur cette instance."
+  "visibilityPublicAdminOnly": "Seuls les administrateurs peuvent rendre le contenu public sur cette instance.",
+  "mapControls": {
+    "attributionToggle": "Afficher ou masquer l'attribution",
+    "attributionFeedback": "Commentaires sur la carte",
+    "fullscreenEnter": "Plein écran",
+    "fullscreenExit": "Quitter le plein écran",
+    "resetBearing": "Réinitialiser l'orientation vers le nord",
+    "zoomIn": "Zoom avant",
+    "zoomOut": "Zoom arrière",
+    "terrainEnable": "Activer le terrain 3D",
+    "terrainDisable": "Désactiver le terrain 3D",
+    "title": "Carte"
+  }
 }

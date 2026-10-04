@@ -770,5 +770,17 @@
   "mapViewerGate": {
     "accessCheckFailed": "We could not check your access to this map. Try again."
   },
-  "visibilityPublicAdminOnly": "Only administrators can make content public on this instance."
+  "visibilityPublicAdminOnly": "Only administrators can make content public on this instance.",
+  "mapControls": {
+    "attributionToggle": "Toggle attribution",
+    "attributionFeedback": "Map feedback",
+    "fullscreenEnter": "Enter fullscreen",
+    "fullscreenExit": "Exit fullscreen",
+    "resetBearing": "Reset bearing to north",
+    "zoomIn": "Zoom in",
+    "zoomOut": "Zoom out",
+    "terrainEnable": "Enable 3D terrain",
+    "terrainDisable": "Disable 3D terrain",
+    "title": "Map"
+  }
 }

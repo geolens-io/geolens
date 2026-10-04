@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { Map as MapGL, NavigationControl, ScaleControl, FullscreenControl, AttributionControl, TerrainControl } from '@vis.gl/react-maplibre';
 import { useBasemaps, useBranding, useTileConfig } from '@/hooks/use-settings';
 import { useEdition } from '@/hooks/use-edition';
+import { useMapLocale } from '@/hooks/use-map-locale';
 import {
   findBasemapById,
   makeStyleImageMissingResolver,
@@ -152,6 +153,7 @@ export const ViewerMap = memo(function ViewerMap({
   onDrawnChange,
 }: ViewerMapProps) {
   const { t } = useTranslation('common');
+  const mapLocale = useMapLocale();
   const { isEnterprise } = useEdition();
   const { data: branding } = useBranding();
   // Gate on branding !== undefined so enterprise users with show_badge:false do
@@ -1083,6 +1085,7 @@ export const ViewerMap = memo(function ViewerMap({
         initialViewState={defaultView}
         mapStyle={mapStyle}
         styleDiffing={false}
+        locale={mapLocale}
         // feat(#845): the prop covers the cold-mount window — react-maplibre
         // applies it on the initial style.load, before our onLoad-captured
         // appearance sync can run. Frozen at mount: a CHANGED projection prop

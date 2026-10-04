@@ -207,6 +207,8 @@ describe('PublicViewerPage', () => {
     const footer = screen.getByRole('contentinfo');
     expect(footer).toBeInTheDocument();
     expect(footer).not.toHaveTextContent('Powered by GeoLens');
+    // Hidden under 400px would take the links away from narrow screens.
+    expect(footer.className).not.toMatch(/(^|\s)hidden(\s|$)/);
     expect(screen.getByRole('link', { name: /^github$/i })).toHaveAttribute(
       'href',
       'https://github.com/geolens-io/geolens',

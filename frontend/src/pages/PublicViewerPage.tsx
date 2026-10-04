@@ -200,14 +200,14 @@ export function PublicViewerPage() {
           value={basemapId ?? data.basemap_style}
           onChange={setBasemapId}
           title={t('viewer.changeBasemap')}
-          className="absolute bottom-8 start-3 z-10"
+          className="absolute bottom-14 min-[400px]:bottom-8 start-3 z-10"
         />
       )}
 
       {!isEmbed && (
         <AppFooter
           showBranding={showFooterBranding}
-          className="pointer-events-none absolute inset-x-0 bottom-0 z-10 hidden min-[400px]:block px-3 pb-2 text-2xs text-muted-foreground"
+          className="pointer-events-none absolute inset-x-0 bottom-0 z-10 px-3 pb-2 text-2xs text-muted-foreground"
           navClassName="pointer-events-auto mx-auto inline-flex max-w-full rounded-full border border-border/50 bg-background/75 px-3 py-1.5 shadow-sm backdrop-blur-sm"
         />
       )}
