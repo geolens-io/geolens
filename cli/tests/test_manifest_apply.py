@@ -1404,6 +1404,34 @@ class TestApplyWait:
             "--accept-blocked-run run-parks"
         ) in result.output.replace("\n", " ").replace("  ", " ")
 
+    def test_blocked_entry_lists_its_reasons_before_the_accept_line(
+        self, runner, monkeypatch
+    ) -> None:
+        from geolens_cli import refresh as _refresh
+
+        self._setup(monkeypatch, {"roads": "succeeded", "parks": "blocked"})
+
+        def blocked(client, dataset_id, run_id, *, ingest_job_id, **_kw):
+            return _refresh.RefreshPollResult(
+                status="blocked",
+                run_id="run-x",
+                verification={
+                    "review_reasons": ["destructive_schema_change", "empty_result"]
+                },
+            )
+
+        monkeypatch.setattr("geolens_cli.refresh.wait_for_refresh_run", blocked)
+
+        result = runner.invoke(app, ["apply", "--wait", str(_remote_manifest_path())])
+
+        out = result.output
+        accept = out.index("Accept with:")
+        for sentence in (
+            "Columns would be removed or change type.",
+            "The replacement has no rows but the dataset does.",
+        ):
+            assert 0 <= out.index(sentence) < accept
+
     def test_without_wait_nothing_is_polled(self, runner, monkeypatch) -> None:
         self._setup(monkeypatch, {"roads": "blocked", "parks": "blocked"})
 

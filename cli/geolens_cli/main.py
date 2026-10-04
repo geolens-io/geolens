@@ -525,6 +525,8 @@ def apply_manifest_command(
                 state.output.error(
                     f"{result.get('dataset_key')} is blocked for review; nothing was published."
                 )
+                for reason in result.get("review_reasons", []):
+                    state.output.info(_refresh.review_reason_sentence(reason))
                 state.output.info(
                     f"Accept with: geolens refresh {result.get('dataset_id')} "
                     f"--accept-blocked-run {result.get('run_id')}"
