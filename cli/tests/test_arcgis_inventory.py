@@ -1099,3 +1099,27 @@ def test_retry_after_http_date_gives_the_time_until_that_date(offset, expected):
     """An HTTP-date Retry-After becomes the seconds until that date, never negative."""
     wait = inventory._retry_after({"Retry-After": _http_date(offset)})
     assert wait == pytest.approx(expected, abs=1.5)
+
+
+@pytest.mark.parametrize("bad_type", [[], {}])
+def test_malformed_app_config_is_an_item_error_not_a_lost_report(run, bad_type):
+    """A data source with a non-string type fails that item only; the report survives."""
+    routes = portal_routes(
+        {
+            item_data_path(C3): {
+                "dataSources": {"ds": {"type": bad_type, "itemId": A1}}
+            },
+            item_data_path(B2): load("item_web_map_data.json"),
+        }
+    )
+    result, _ = run(FakePortal(routes), "--scope", "org", "--strict")
+    assert result.exit_code == 1
+    report = _report(result)
+    assert report["complete"] is True
+    assert report["counts"]["total"] == 15
+    errors = {e["item_id"]: e["message"] for e in report["errors"]}
+    assert list(errors) == [C3]
+    assert "malformed configuration" in errors[C3]
+    assert _rows(report)[C3]["dependencies_status"] == "error"
+    assert _rows(report)[B1]["dependencies_status"] == "parsed"
+    assert _rows(report)[C1]["dependencies_status"] == "parsed"

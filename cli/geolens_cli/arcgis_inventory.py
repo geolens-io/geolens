@@ -939,6 +939,15 @@ def web_map_dependencies(
 _APP_MAP_SOURCE_TYPES = frozenset({"WEB_MAP", "WEB_SCENE"})
 
 
+def _config_text(value: Any, field: str) -> str:
+    """A config string field, "" when absent; any other type is malformed."""
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ValueError(f"'{field}' is a {type(value).__name__}, not a string")
+    return value
+
+
 _AppRef = tuple[str | None, str | None, str, str, str | None]
 
 
@@ -964,7 +973,7 @@ def _app_references(data: Mapping[str, Any]) -> list[_AppRef] | None:
         layer = (
             None if layer_id is None or isinstance(layer_id, bool) else str(layer_id)
         )
-        found.append((item_id, clean_url, str(kind or ""), role, layer))
+        found.append((item_id, clean_url, _config_text(kind, "type"), role, layer))
 
     def add_source(source: Mapping[str, Any]) -> None:
         add(
@@ -994,7 +1003,7 @@ def _app_references(data: Mapping[str, Any]) -> list[_AppRef] | None:
         for source in sources.values():
             if not isinstance(source, dict):
                 continue
-            if source.get("type") in _APP_MAP_SOURCE_TYPES:
+            if _config_text(source.get("type"), "type") in _APP_MAP_SOURCE_TYPES:
                 add(source.get("itemId"), source.get("type"), "app_web_map")
             else:
                 add_source(source)
@@ -1096,7 +1105,15 @@ def _collect_dependencies(
         if row["type"] == _WEB_MAP_TYPE and not _is_web_map(data):
             message = f"{path} is not a web map configuration"
             return "error", [], PortalError(message, kind="invalid")
-        return (*_extract_dependencies(row, data, index, inv.portal), None)
+        try:
+            status, dependencies = _extract_dependencies(row, data, index, inv.portal)
+        except (TypeError, ValueError, AttributeError, KeyError, IndexError) as exc:
+            # One corrupt configuration must not sink the whole inventory.
+            message = (
+                f"{path} has a malformed configuration: {type(exc).__name__}: {exc}"
+            )
+            return "error", [], client._error(message, kind="invalid")
+        return status, dependencies, None
 
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
         results = list(pool.map(fetch, targets))
