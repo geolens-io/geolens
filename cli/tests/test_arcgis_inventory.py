@@ -786,3 +786,53 @@ def test_stalled_body_read_is_bounded_by_the_remaining_deadline(monkeypatch):
         _StallingPortal.release.set()
         server.shutdown()
         server.server_close()
+
+
+def test_token_ignored_by_the_portal_fails_instead_of_listing_public_items(run):
+    """A portal that answers anonymously despite a token fails auth and writes no report."""
+    anonymous_self = {k: v for k, v in load("portal_self.json").items() if k != "user"}
+    portal = FakePortal(portal_routes({"portals/self": anonymous_self}))
+    result, _ = run(portal, "--scope", "org")
+    assert result.exit_code == 3
+    assert result.stdout.strip() == ""
+    assert "without a signed-in user" in result.stderr
+    assert portal.requests_to("search") == []
+    assert [s.method for s in portal.requests_to("portals/self")] == ["GET", "POST"]
+
+
+def test_token_ignored_in_the_header_but_read_from_the_form_proceeds(run):
+    """An anonymous answer to the header gets one form-field retry, which can sign in."""
+
+    def self_info(seen):
+        info = load("portal_self.json")
+        if seen.method == "GET":
+            info.pop("user")
+        return info
+
+    portal = FakePortal(portal_routes({"portals/self": self_info}))
+    result, _ = run(portal, "--scope", "org")
+    assert result.exit_code == 0, result.output
+    assert _report(result)["auth"] == {"mode": "token", "user": USER}
+    assert all(s.method == "POST" for s in portal.seen[1:])
+
+
+def test_http_498_during_item_data_stops_the_run(run):
+    """A 498 transport status on item data is a rejected token, not an item error."""
+    routes = portal_routes({item_data_path(B1): (498, load("error_498.json"))})
+    result, _ = run(FakePortal(routes), "--scope", "org")
+    assert result.exit_code == 3
+    report = _report(result)
+    assert report["complete"] is False
+    assert "HTTP 498" in report["abort_reason"]
+    assert report["errors"] == []
+
+
+def test_http_499_during_search_tries_the_form_field_then_fails(run):
+    """A 499 transport status gets the form-field fallback once, then fails auth."""
+    portal = FakePortal(portal_routes({"search": (499, {"error": {"code": 499}})}))
+    result, _ = run(portal, "--scope", "org")
+    assert result.exit_code == 3
+    report = _report(result)
+    assert report["complete"] is False
+    assert "HTTP 499" in report["abort_reason"]
+    assert [s.method for s in portal.requests_to("search")] == ["GET", "POST"]

@@ -251,17 +251,32 @@ class PortalClient:
         """GET ``/sharing/rest/<path>`` as JSON, retrying transient failures.
 
         An error envelope in a 200 body raises ``PortalError``. A 499 "token
-        required" with the header present means a pre-10.5.1 server ignored
-        it; from then on the token goes in a POST form field, never the URL.
+        required", as an envelope or an HTTP status, with the header present
+        means a pre-10.5.1 server ignored it; from then on the token goes in a
+        POST form field, never the URL.
         """
         query = {**(params or {}), "f": "json"}
         url = f"{self.root}/sharing/rest/{path}"
+        sent_as_form = self._form_token
+        try:
+            return self._get_json_once(path, url, query)
+        except PortalError as exc:
+            if exc.http_status != _TOKEN_REQUIRED or not self.token or sent_as_form:
+                raise
+        self._form_token = True
+        return self._get_json_once(path, url, query)
+
+    def switch_to_form_token(self) -> bool:
+        """Send the token as a POST form field from now on; False if it
+        already was, or there is no token."""
+        if not self.token or self._form_token:
+            return False
+        self._form_token = True
+        return True
+
+    def _get_json_once(self, path: str, url: str, query: dict[str, Any]) -> dict:
         data = self._read(url, query)
         code = _envelope_code(data)
-        if code == _TOKEN_REQUIRED and self.token and not self._form_token:
-            self._form_token = True
-            data = self._read(url, query)
-            code = _envelope_code(data)
         if code is not None:
             raise self._envelope_error(path, data, code)
         return data
@@ -382,7 +397,10 @@ class PortalClient:
                     kind="redirect",
                     http_status=status,
                 ) from None
-            kind = "auth" if status == 401 else "server" if status >= 500 else "refused"
+            if status in (401, _TOKEN_INVALID, _TOKEN_REQUIRED):
+                kind = "auth"
+            else:
+                kind = "server" if status >= 500 else "refused"
             raise self._error(
                 f"HTTP {status} from {path}",
                 kind=kind,
@@ -938,6 +956,12 @@ def _collect_dependencies(
             )
 
 
+def _signed_in_user(info: Mapping[str, Any]) -> str | None:
+    user = info.get("user")
+    name = user.get("username") if isinstance(user, dict) else None
+    return name if isinstance(name, str) and name else None
+
+
 def run_inventory(
     client: PortalClient,
     *,
@@ -954,8 +978,13 @@ def run_inventory(
     kept for a partial report.
     """
     info = client.get_json("portals/self")
-    user = info.get("user") if isinstance(info.get("user"), dict) else {}
-    username = user.get("username") if isinstance(user.get("username"), str) else None
+    username = _signed_in_user(info)
+    # A server or web tier that ignores the header answers anonymously
+    # rather than with a 499, so a token without an identity gets one
+    # form-field retry before it counts as rejected.
+    if auth_mode != "anonymous" and not username and client.switch_to_form_token():
+        info = client.get_json("portals/self")
+        username = _signed_in_user(info)
     org_id = info.get("id") if isinstance(info.get("id"), str) else None
     portal = {
         "url": client.root,
@@ -964,10 +993,11 @@ def run_inventory(
         "org_id": org_id,
         "name": str(info["name"]) if info.get("name") else None,
     }
-    if scope == "user" and not username:
+    if auth_mode != "anonymous" and not username:
         raise PortalError(
-            "the portal did not report a signed-in user, so --scope user has "
-            "nothing to list. Check the token, or use --scope org.",
+            "the portal answered without a signed-in user, so the credentials "
+            "were ignored or rejected. Nothing was listed, so no public-only "
+            "report is written; check the token or sign-in.",
             kind="auth",
         )
     if scope == "org" and not org_id:
