@@ -350,9 +350,9 @@ class DefaultCatalogPort:
         return await get_column_info(session, table_name, schema=schema)
 
     def stored_column_name(self, source_name: str) -> str:
-        from app.processing.ingest.metadata_geometry import stored_column_name
+        from app.platform.column_names import stored_column_names
 
-        return stored_column_name(source_name)
+        return stored_column_names([source_name])[0]
 
     async def get_geometry_types(self, session, table_name, *, schema=None):  # type: ignore[no-untyped-def]
         from app.processing.ingest.metadata import get_geometry_types

@@ -768,6 +768,9 @@ def _feet(tmp: Path, name: str, columns: dict[str, object]) -> Path:
 # Stored as src_geom, road_name and "mixed case".
 _LAUNDERED = {"geom": "g", "Road-Name": "r", "Mixed Case": "m"}
 
+# ``geom`` moves to src_geom_2 because src_geom is taken.
+_COLLIDING = {"geom": "g", "src_geom": "s"}
+
 _ROUND_TRIPS = {
     "csv": (
         lambda tmp: _csv(tmp / "a.csv", ["name", "code", "legacy"]),
@@ -796,6 +799,12 @@ _ROUND_TRIPS = {
     "laundered_and_reserved_names": (
         lambda tmp: _geojson(tmp / "a.geojson", {**_BASE, **_LAUNDERED}),
         lambda tmp: _geojson(tmp / "b.geojson", {**_DROPPED, **_LAUNDERED}),
+        {},
+        {},
+    ),
+    "colliding_reserved_names": (
+        lambda tmp: _geojson(tmp / "a.geojson", {**_BASE, **_COLLIDING}),
+        lambda tmp: _geojson(tmp / "b.geojson", {**_DROPPED, **_COLLIDING, "geom": 5}),
         {},
         {},
     ),
