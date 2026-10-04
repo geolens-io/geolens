@@ -305,8 +305,9 @@ describe('DatasetPage editable affordance integration', () => {
     expect(screen.queryByTestId('pending-edits-bar')).not.toBeInTheDocument();
 
     // DetailPanel is React.lazy (Phase 276 CODE-06) — wait for the chunk
-    // to resolve before querying its child fields synchronously.
-    await user.click(await screen.findByText('Original summary'));
+    // to resolve before querying its child fields synchronously. Under
+    // coverage load the chunk can take longer than findBy's 1s default.
+    await user.click(await screen.findByText('Original summary', undefined, { timeout: 10_000 }));
 
     const summaryInput = screen.getByDisplayValue('Original summary');
     await user.clear(summaryInput);
@@ -329,7 +330,7 @@ describe('DatasetPage editable affordance integration', () => {
       expect(screen.queryByTestId('pending-edits-bar')).not.toBeInTheDocument();
     });
 
-    await user.click(screen.getByText('Original summary'));
+    await user.click(await screen.findByText('Original summary'));
 
     const secondEditInput = screen.getByDisplayValue('Original summary');
     await user.clear(secondEditInput);
@@ -344,7 +345,7 @@ describe('DatasetPage editable affordance integration', () => {
       expect(screen.queryByTestId('pending-edits-bar')).not.toBeInTheDocument();
     });
 
-    expect(screen.getByText('Original summary')).toBeInTheDocument();
+    expect(await screen.findByText('Original summary')).toBeInTheDocument();
   });
 
   it('lifts the Ask AI dock above the pending-edits bar only while edits are pending', { timeout: 15_000 }, async () => {
