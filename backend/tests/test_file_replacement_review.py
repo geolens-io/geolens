@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import OperationalError
 
 from app.core.config import settings
@@ -788,6 +788,43 @@ async def test_an_accepting_attempt_that_fails_before_reading_its_job_keeps_the_
     await harness.run_worker()
     accepted = await harness.run_for(uuid.UUID(retry.json()["job_id"]))
     assert accepted.status == "succeeded"
+
+
+async def test_a_blocked_replacement_is_not_offered_or_taken_by_generic_retry(
+    harness: _Harness,
+):
+    """A held replacement proceeds only through acceptance, never as a new import."""
+    dataset, job_id, blocked = await _blocked_dataset(harness)
+    jobs_before = await harness.session.scalar(select(func.count(IngestJob.id)))
+
+    status = await harness.client.get(f"/jobs/{job_id}", headers=harness.headers)
+    retry = await harness.client.post(f"/jobs/{job_id}/retry", headers=harness.headers)
+
+    assert status.status_code == 200, status.text
+    assert status.json()["can_retry"] is False
+    assert retry.status_code == 400, retry.text
+    assert (await harness.job(job_id)).status == "failed"
+    assert await harness.session.scalar(select(func.count(IngestJob.id))) == jobs_before
+    harness.storage.delete.assert_not_awaited()
+
+
+async def test_a_failed_accepting_attempt_is_not_offered_or_taken_by_generic_retry(
+    harness: _Harness,
+):
+    """A re-upload that failed for another reason, with its upload kept, is not replayed either."""
+    dataset, _job_id, blocked = await _blocked_dataset(harness)
+    response = await harness.accept(dataset, blocked.id)
+    assert response.status_code == 202, response.text
+    await harness.run_worker(ogr2ogr_error=IngestionError("ogr2ogr failed"))
+    job_id = response.json()["job_id"]
+    jobs_before = await harness.session.scalar(select(func.count(IngestJob.id)))
+
+    status = await harness.client.get(f"/jobs/{job_id}", headers=harness.headers)
+    retry = await harness.client.post(f"/jobs/{job_id}/retry", headers=harness.headers)
+
+    assert status.json()["can_retry"] is False
+    assert retry.status_code == 400, retry.text
+    assert await harness.session.scalar(select(func.count(IngestJob.id))) == jobs_before
 
 
 async def test_a_viewer_cannot_accept_a_blocked_upload_run(
