@@ -183,6 +183,9 @@ and releases use semantic versioning.
   same-named table in another tenant can make it keep a retained table, which
   then shows up as registerable. Nothing is dropped that should not be.
   (#2636)
+- After a restore, the dataset's Source panel still names the replaced file
+  and its fingerprint. The restored data and the version history are
+  correct. (#2639)
 
 ## [1.21.1] - 2026-10-02
 
