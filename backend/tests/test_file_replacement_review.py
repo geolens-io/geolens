@@ -415,6 +415,63 @@ async def test_a_file_whose_geometries_are_all_null_is_blocked(harness: _Harness
     assert located == 3
 
 
+def _features(path: Path, geometries: list[dict]) -> Path:
+    path.write_text(
+        json.dumps(
+            {
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "properties": {
+                            "name": f"n{i}",
+                            "population": 100 + i,
+                            "legacy": f"l{i}",
+                        },
+                        "geometry": geometry,
+                    }
+                    for i, geometry in enumerate(geometries)
+                ],
+            }
+        )
+    )
+    return path
+
+
+@pytest.mark.parametrize(
+    "geometry",
+    [
+        {"type": "MultiPoint", "coordinates": []},
+        # Past Web Mercator's latitude limit, so the staging clip empties it.
+        {"type": "Point", "coordinates": [-73.98, 89.5]},
+    ],
+    ids=["empty", "clipped_away"],
+)
+async def test_a_file_whose_geometries_are_all_empty_is_blocked(
+    harness: _Harness, geometry: dict
+):
+    """Rows whose geometries are all empty wait for review, as all-null ones do."""
+    dataset = await _published(harness, _geojson(harness.tmp_path / "a.geojson", _BASE))
+    version_before = dataset.current_version
+
+    _preview, run = await harness.replace(
+        dataset,
+        _features(harness.tmp_path / "b.geojson", [geometry] * 3),
+        reviewed=False,
+    )
+
+    assert run.status == "blocked", run.verification
+    assert run.verification["review_reasons"] == ["geometry_type_changed"]
+    assert (await harness.reload(dataset)).current_version == version_before
+    located = await harness.session.scalar(
+        text(
+            f'SELECT count(*) FROM "data"."{dataset.table_name}" '
+            "WHERE NOT ST_IsEmpty(geom)"
+        )
+    )
+    assert located == 3
+
+
 async def test_a_replacement_with_nothing_to_review_publishes_without_a_fingerprint(
     harness: _Harness,
 ):

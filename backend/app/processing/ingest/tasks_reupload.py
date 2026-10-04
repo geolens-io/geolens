@@ -213,8 +213,13 @@ async def _hold_live_table(session, dataset, *, schema: str) -> None:
     from app.processing.ingest.metadata import _qtable
 
     live = _qtable(dataset.table_name, schema=schema)
+    # Bound as `schema`, so the tenant binder reads it under the tenant's role.
     if await session.scalar(
-        text("SELECT to_regclass(:live) IS NOT NULL"), {"live": live}
+        text(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema = :schema AND table_name = :table)"
+        ),
+        {"schema": schema, "table": dataset.table_name},
     ):
         async with worker_lock_budget(session):
             await session.execute(
