@@ -180,8 +180,6 @@ and releases use semantic versioning.
   same-named table in another tenant can make it keep a retained table, which
   then shows up as registerable. Nothing is dropped that should not be.
   (#2636)
-- Two extension sync test files never run in CI because they need a
-  dedicated database.
 
 ## [1.21.1] - 2026-10-02
 
