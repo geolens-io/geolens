@@ -331,28 +331,16 @@ export function FilterPanel({
   const renderDesktopLocationFilter = (fullWidth = false) => {
     if (bbox) {
       return (
-        <div
-          className="cursor-pointer"
-          onClick={() => setSpatialPanelOpen(true)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') {
-              event.preventDefault();
-              setSpatialPanelOpen(true);
-            }
+        <FilterChip
+          label={t('filters.areaSelected', { defaultValue: 'Area selected' })}
+          onSelect={() => setSpatialPanelOpen(true)}
+          onRemove={() => {
+            const store = useSearchStore.getState();
+            store.setFilter('bbox', '');
+            store.setFilter('geometry', '');
+            store.setFilter('spatial_predicate', 'intersects');
           }}
-          role="button"
-          tabIndex={0}
-        >
-          <FilterChip
-            label={t('filters.areaSelected', { defaultValue: 'Area selected' })}
-            onRemove={() => {
-              const store = useSearchStore.getState();
-              store.setFilter('bbox', '');
-              store.setFilter('geometry', '');
-              store.setFilter('spatial_predicate', 'intersects');
-            }}
-          />
-        </div>
+        />
       );
     }
 

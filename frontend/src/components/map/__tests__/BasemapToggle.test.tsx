@@ -1,4 +1,4 @@
-import { render, screen } from '@/test/test-utils';
+import { act, render, screen } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { BasemapToggle } from '../BasemapToggle';
 
@@ -134,6 +134,20 @@ describe('BasemapToggle — disclosure semantics (GLUX-008)', () => {
 
     // Options should be gone
     expect(screen.queryByText('Dark')).not.toBeInTheDocument();
+  });
+
+  it('ignores an Escape another handler already consumed', async () => {
+    const user = userEvent.setup();
+    render(<BasemapToggle value="positron" onChange={vi.fn()} />);
+    await user.click(screen.getByRole('button', { name: 'Change basemap' }));
+
+    const handled = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true, bubbles: true });
+    handled.preventDefault();
+    act(() => {
+      document.dispatchEvent(handled);
+    });
+
+    expect(screen.getByText('Dark')).toBeInTheDocument();
   });
 
   it('Escape closes popover and returns focus to trigger', async () => {

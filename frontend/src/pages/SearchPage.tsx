@@ -259,10 +259,14 @@ export function SearchPage() {
                     {t('catalogResults', { count: totalMatched })}
                   </h2>
                 </div>
-                <section className="space-y-3" aria-label={t('results', { defaultValue: 'Search results' })}>
-                  {data.features.map((feature) => (
-                    <SearchResultCard key={feature.id} feature={feature} />
-                  ))}
+                <section aria-label={t('results', { defaultValue: 'Search results' })}>
+                  <ul className="space-y-3">
+                    {data.features.map((feature) => (
+                      <li key={feature.id}>
+                        <SearchResultCard feature={feature} />
+                      </li>
+                    ))}
+                  </ul>
                 </section>
               </div>
             )}

@@ -106,6 +106,7 @@
     "change": "更改语言"
   },
   "pagination": {
+    "label": "分页",
     "showing": "正在显示 {{start}}-{{end}} 项，共 {{total}} 项",
     "previous": "上一页",
     "next": "下一页",

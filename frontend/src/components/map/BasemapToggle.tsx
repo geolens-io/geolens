@@ -45,7 +45,7 @@ export function BasemapToggle({ value, onChange, title = 'Change basemap', class
   useEffect(() => {
     if (!open) return;
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && !e.defaultPrevented) {
         e.stopPropagation();
         closeAndReturnFocus();
       }

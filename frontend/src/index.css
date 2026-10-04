@@ -516,6 +516,10 @@
 
 /* ── Base Layer ─────────────────────────────────────── */
 @layer base {
+  /* Anchor jumps and focus scrolling clear the fixed navbar (h-14 + safe area). */
+  html {
+    scroll-padding-top: calc(3.5rem + env(safe-area-inset-top));
+  }
   * {
     @apply border-border outline-ring/50;
   }

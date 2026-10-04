@@ -21,7 +21,7 @@ export function Pagination({ total, offset, limit, onPageChange }: PaginationPro
   const hasNext = offset + limit < total;
 
   return (
-    <div className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+    <nav aria-label={t('pagination.label')} className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
       <span className="text-sm text-muted-foreground">
         {t('pagination.showing', { start, end, total })}
       </span>
@@ -53,6 +53,6 @@ export function Pagination({ total, offset, limit, onPageChange }: PaginationPro
           <ChevronRight className="size-4 rtl-mirror" />
         </Button>
       </div>
-    </div>
+    </nav>
   );
 }

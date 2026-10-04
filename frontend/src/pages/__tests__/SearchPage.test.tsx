@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { fireEvent, render, screen, waitFor } from '@/test/test-utils';
+import { fireEvent, render, screen, waitFor, within } from '@/test/test-utils';
 
 const statusTexts = () => screen.queryAllByRole('status').map((node) => node.textContent);
 import { SearchPage } from '@/pages/SearchPage';
@@ -300,6 +300,15 @@ describe('SearchPage', () => {
         expect(statusTexts()).toContain('No catalog results found. 10 matching maps'),
       );
     });
+  });
+
+  it('lists the results as a list of items', () => {
+    setAnonymousUser();
+    render(<SearchPage />, { route: '/' });
+
+    const list = screen.getByRole('region', { name: 'Search results' }).querySelector('ul');
+    expect(list).not.toBeNull();
+    expect(within(list as HTMLElement).getAllByRole('listitem')).toHaveLength(2);
   });
 
   it('renders skeletons while loading with no cached data', () => {
