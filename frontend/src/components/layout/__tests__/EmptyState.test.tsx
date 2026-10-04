@@ -42,4 +42,14 @@ describe('EmptyState', () => {
     expect(status).toBeEmptyDOMElement();
     await waitFor(() => expect(status).toHaveTextContent('No items found. Try again.'));
   });
+
+  it('announces again when the trigger changes but the text does not', async () => {
+    const { rerender } = render(<EmptyState icon={FolderOpen} title="No items found" announceTrigger="a" />);
+    const status = screen.getByRole('status');
+    await waitFor(() => expect(status).toHaveTextContent('No items found'));
+
+    rerender(<EmptyState icon={FolderOpen} title="No items found" announceTrigger="b" />);
+    expect(status).toBeEmptyDOMElement();
+    await waitFor(() => expect(status).toHaveTextContent('No items found'));
+  });
 });

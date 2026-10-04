@@ -204,6 +204,7 @@ export function MapsPage() {
         <EmptyState
           icon={MapIcon}
           title={t('maps.noMapsYet')}
+          announceTrigger={`${debouncedSearch}|${visibility}`}
           description={
             debouncedSearch || visibility !== 'all'
               ? t('maps.noMapsMatch')
