@@ -313,6 +313,30 @@ class DerivedFromResponse(BaseModel):
     created_at: datetime
 
 
+class PreviousVersionResponse(BaseModel):
+    """The data a replacement or restore replaced, kept until the next one."""
+
+    version_number: int = Field(description="The version whose data is kept")
+    retained_at: datetime | None = None
+    size_bytes: int | None = Field(
+        default=None, description="Its table's size; not counted toward quota"
+    )
+    feature_count: int | None = Field(
+        default=None, description="As recorded on that version"
+    )
+
+
+class RestorePreviousVersionRequest(BaseModel):
+    expected_version_number: int = Field(
+        description="The previous version the caller confirmed restoring"
+    )
+
+
+class RestorePreviousVersionResponse(BaseModel):
+    job_id: uuid.UUID
+    run_id: uuid.UUID
+
+
 class DatasetResponse(BaseModel):
     id: uuid.UUID
     record_id: uuid.UUID = Field(description="Parent catalog record UUID")
@@ -561,6 +585,14 @@ class DatasetResponse(BaseModel):
             "visibility or status change exposing keywords inherited from an "
             "analysis source the new audience cannot open. Only "
             "ever set on the PATCH response; the change has already applied."
+        ),
+    )
+    previous_version: PreviousVersionResponse | None = Field(
+        default=None,
+        description=(
+            "The data the last replacement or restore replaced, which "
+            "POST /previous-version/restore publishes again. Set on the "
+            "detail endpoint only; null elsewhere and when there is none."
         ),
     )
 
@@ -1032,6 +1064,9 @@ class DatasetVersionResponse(BaseModel):
     file_hash: str | None
     uploaded_by: uuid.UUID | None
     uploaded_at: datetime
+    restored_from_version: int | None = Field(
+        default=None, description="The version a restore published again as this one"
+    )
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -1643,7 +1678,8 @@ class DatasetRefreshRunResponse(BaseModel):
     origin_kind: str = Field(
         description=(
             "The run's execution door, not the dataset's origin: upload, "
-            "postgis, service, stac, or raster. The two can visibly "
+            "postgis, service, stac, raster, or restore (the previous "
+            "version published again). The two can visibly "
             "diverge; for example a STAC-imported raster's pending or "
             "failed replace run is recorded 'upload' while the dataset's "
             "origin stays 'stac' until the replace succeeds. 'raster' "

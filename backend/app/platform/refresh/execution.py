@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.failure_reason import FixedReason, coded_failure_reason
@@ -80,6 +80,27 @@ class RefreshExecutionResult:
     status: Literal["completed", "rejected", "already_settled"]
 
 
+class ScheduledRefreshHeld(Exception):
+    """A hold on the dataset refuses scheduled refreshes; ``reason`` says why."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"Scheduled refresh is held: {reason}")
+        self.reason = reason
+
+
+async def release_scheduled_refresh_hold(
+    session: AsyncSession, dataset_id: UUID
+) -> None:
+    """Let scheduled refreshes of the dataset be admitted again; never commits."""
+    await session.execute(
+        text(
+            "UPDATE catalog.datasets SET scheduled_refresh_hold = NULL "
+            "WHERE id = :dataset_id AND scheduled_refresh_hold IS NOT NULL"
+        ),
+        {"dataset_id": dataset_id},
+    )
+
+
 CredentialResolver = Callable[[str, str | None], Awaitable[str]]
 ScheduledRefreshTaskExecutor = Callable[[str, str, str | None], Awaitable[None]]
 _REJECTION_CODE_CHARACTERS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789_")
@@ -123,7 +144,8 @@ async def prepare_admitted_refresh(
 
     Authorization belongs to the caller's domain guard. This facade requires
     a user-bound actor and refuses malformed identities before writing. It never
-    commits, defers queue work, or accepts a credential value.
+    commits, defers queue work, or accepts a credential value. A scheduled
+    admission of a dataset under a hold raises ``ScheduledRefreshHeld``.
     """
     dataset_id = getattr(dataset, "id", None)
     actor_id = getattr(actor, "id", None)
@@ -137,6 +159,15 @@ async def prepare_admitted_refresh(
         raise ValueError(
             "scheduled admission requires scheduled_for and occurrence_key"
         )
+
+    if trigger == "scheduled":
+        # Read from the row, not the caller's instance, which may predate a restore.
+        hold = await session.scalar(
+            text("SELECT scheduled_refresh_hold FROM catalog.datasets WHERE id = :id"),
+            {"id": dataset_id},
+        )
+        if hold is not None:
+            raise ScheduledRefreshHeld(hold)
 
     execution_key = uuid.uuid4()
     job = ledger.create(

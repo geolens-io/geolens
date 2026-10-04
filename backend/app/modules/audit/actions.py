@@ -48,6 +48,10 @@ AUDIT_ACTIONS: frozenset[str] = frozenset(
         "dataset.download_cog",
         "dataset.export",
         "dataset.pointcloud_read",
+        # A dataset's retained previous version: dropped on request, or
+        # published again as its live data.
+        "dataset.previous_version_dropped",
+        "dataset.restore",
         "dataset.view",
         "embed_token.bulk_revoke",
         "embed_token.create",

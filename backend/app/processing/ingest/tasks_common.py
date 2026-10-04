@@ -1541,19 +1541,46 @@ async def _install_reupload_table(
 ) -> None:
     """Rename the staging table over the dataset's live table, in the caller's transaction.
 
-    The renames run on their own lock budget and the transaction's
-    ``lock_timeout`` is restored afterwards. The caller takes the catalog rows
-    next, then calls :func:`_write_reupload_catalog`.
+    The replaced table is kept as the dataset's previous version. The caller
+    takes the catalog rows next, then calls :func:`_write_reupload_catalog`.
+    """
+    await install_candidate_table(
+        session, dataset=dataset, candidate=staging_table, measurement=measurement
+    )
+
+
+async def install_candidate_table(
+    session,
+    *,
+    dataset,
+    candidate: str,
+    measurement: "Measurement",
+    holding: str | None = None,
+) -> None:
+    """Make ``candidate`` the dataset's live table and keep the live one as its previous version.
+
+    Any older previous version is dropped. When ``candidate`` is the previous
+    version itself, the live table waits under ``holding`` until it can take
+    that name. The renames run on their own lock budget in the caller's
+    transaction, which keeps its ``lock_timeout`` afterwards.
     """
     from sqlalchemy import text
 
-    table_name = dataset.table_name
-
+    from app.platform.jobs.heartbeat import previous_version_table
     from app.processing.ingest.metadata import _qtable
 
-    # Tenant schema for this ingest: same schema for staging, live, and _old tables
-    # (T-1209-07: staging→live RENAME must stay intra-schema so it is atomic DDL).
+    table_name = dataset.table_name
+    previous = previous_version_table(table_name, dataset.id)
+    keep = previous if candidate != previous else holding
+    if keep is None:
+        raise ValueError("Restoring the previous version needs a holding name")
+
+    # Tenant schema for this ingest: same schema for every table renamed
+    # (T-1209-07: the RENAMEs must stay intra-schema so they are atomic DDL).
     _tenant_schema = _current_tenant_schema()
+
+    def _q(name: str) -> str:
+        return _qtable(name, schema=_tenant_schema)
 
     # Resolve live_exists once — independent of lock contention; this
     # SELECT does not need the AccessExclusiveLock we're about to acquire.
@@ -1571,42 +1598,34 @@ async def _install_reupload_table(
     # collide with the 5s default; bumping to 15s on retry plus a 200ms
     # sleep gives the autovacuum a chance to clear without surfacing the
     # failure to the user. Beyond this single retry we surface the error
-    # so ops can investigate. See:
-    #   .planning/audits/INGEST-AUDIT-2026-05-21.md (P2-08)
-    #   .planning/phases/1076-backend-ingest-p2-closure/1076-04-PLAN.md
+    # so ops can investigate.
 
     async def _swap_with_timeout(timeout_str: str) -> None:
-        """Run SET LOCAL lock_timeout + the 3 ALTER TABLE swap statements.
-
-        All three references (live, staging, _old) use the SAME _tenant_schema
-        so the RENAME operations are intra-schema (T-1209-07).
+        """Run SET LOCAL lock_timeout and the swap's DDL.
 
         The ``SET LOCAL`` outlives a released savepoint, so the caller restores
-        the previous value once the swap is done.
+        the previous value once the swap is done. Each table's primary key is
+        renamed as the table is, since the next rename needs the name it held.
         """
         await session.execute(text(f"SET LOCAL lock_timeout = '{timeout_str}'"))
+        if candidate != previous:
+            # Without a live table there is nothing to keep, and an older
+            # previous version left in place would be stamped as this one's.
+            await session.execute(text(f"DROP TABLE IF EXISTS {_q(previous)}"))
         if live_exists:
             await session.execute(
-                text(
-                    f"ALTER TABLE {_qtable(table_name, schema=_tenant_schema)} "
-                    f'RENAME TO "{table_name}_old"'
-                )
+                text(f'ALTER TABLE {_q(table_name)} RENAME TO "{keep}"')
             )
+            await rename_pkey_to_match_table(session, keep)
         await session.execute(
-            text(
-                f"ALTER TABLE {_qtable(staging_table, schema=_tenant_schema)} "
-                f'RENAME TO "{table_name}"'
-            )
+            text(f'ALTER TABLE {_q(candidate)} RENAME TO "{table_name}"')
         )
-        if live_exists:
-            await session.execute(
-                text(
-                    f"DROP TABLE IF EXISTS {_qtable(table_name + '_old', schema=_tenant_schema)}"
-                )
-            )
-        # After the _old table (and its identically-named pkey index) is gone,
-        # give the new live table's PK its final name.
         await rename_pkey_to_match_table(session, table_name)
+        if live_exists and keep != previous:
+            await session.execute(
+                text(f'ALTER TABLE {_q(keep)} RENAME TO "{previous}"')
+            )
+            await rename_pkey_to_match_table(session, previous)
 
     # fix(#1917): a `SET LOCAL` survives RELEASE SAVEPOINT, so the DDL budget
     # below outlives its savepoint and would clamp every later wait in this
@@ -1667,6 +1686,30 @@ async def _install_reupload_table(
         await ensure_geom_4326_gist_index(session, table_name, schema=_tenant_schema)
 
 
+async def stamp_previous_version(session, dataset, version_number: int) -> None:
+    """Record that the previous-version table holds ``version_number``, or that none exists.
+
+    Call after the swap, in its transaction, holding the catalog rows.
+    """
+    from sqlalchemy import text
+
+    from app.platform.jobs.heartbeat import previous_version_table
+    from app.processing.ingest.metadata import _qtable
+
+    previous = _qtable(
+        previous_version_table(dataset.table_name, dataset.id),
+        schema=_current_tenant_schema(),
+    )
+    size = await session.scalar(
+        text("SELECT pg_total_relation_size(to_regclass(:previous))"),
+        {"previous": previous},
+    )
+    kept = size is not None
+    dataset.previous_version_number = version_number if kept else None
+    dataset.previous_version_retained_at = datetime.now(timezone.utc) if kept else None
+    dataset.previous_version_bytes = size
+
+
 async def _write_reupload_catalog(
     session,
     *,
@@ -1708,6 +1751,7 @@ async def _write_reupload_catalog(
     new_version = dataset.current_version + 1
 
     schema_diff = await project(session, dataset, measurement)
+    await stamp_previous_version(session, dataset, dataset.current_version)
 
     dataset.source_format = source_format
     dataset.source_filename = source_filename

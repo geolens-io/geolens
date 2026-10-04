@@ -269,6 +269,11 @@ class DefaultCatalogPort:
 
         return refresh_postgis
 
+    def restore_previous_version_task(self):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.tasks import restore_previous_version
+
+        return restore_previous_version
+
     def refresh_stac_task(self):  # type: ignore[no-untyped-def]
         from app.processing.ingest.tasks import refresh_stac
 

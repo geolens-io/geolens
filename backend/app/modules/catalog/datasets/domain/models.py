@@ -544,6 +544,20 @@ class Dataset(Base):
     # Version tracking
     current_version: Mapped[int] = mapped_column(Integer, server_default="1", default=1)
 
+    # The data a replacement or restore replaced, kept in the table named by
+    # `previous_version_table`. NULL number: there is none.
+    previous_version_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    previous_version_retained_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    previous_version_bytes: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True
+    )
+    # Why scheduled refreshes are refused until released: 'restored'.
+    scheduled_refresh_hold: Mapped[str | None] = mapped_column(
+        String(32), nullable=True
+    )
+
     # fix(#525): URL-keyed tile cache-buster. current_version only bumps on
     # reupload, so non-versioning content mutations (feature edits, column
     # DDL) bump this instead, rolling CDN/browser caches the Valkey purge

@@ -1194,7 +1194,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 657,
         "backend/app/modules/catalog/datasets/domain/service_metadata.py": 553,
         # Internal pointer reads sit beside the detail query that shares them.
-        "backend/app/modules/catalog/datasets/domain/service_query.py": 434,
+        "backend/app/modules/catalog/datasets/domain/service_query.py": 439,
         "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 513,
         # Chat splits retain tool execution and result-serialization workflows.
         "backend/app/processing/ai/chat_actions.py": 587,
@@ -1314,9 +1314,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # that owe no follow-up.
     "backend/app/processing/ingest/publish_followups.py": 1430,
     # Shared ingest finalization carries verification, manifest record fields, bounded
-    # ArcGIS requests, lifecycle context and the quicklook draw that ingest and
-    # replacement share.
-    "backend/app/processing/ingest/tasks_common.py": 1784,
+    # ArcGIS requests, lifecycle context, the quicklook draw that ingest and
+    # replacement share, and the swap that keeps the replaced table.
+    "backend/app/processing/ingest/tasks_common.py": 1828,
     # File and remote-source replacement strategies own retrieval, staging and verification.
     "backend/app/processing/ingest/tasks_reupload.py": 1411,
     # Refresh strategies share access, admission and dispatch rules at this API
@@ -1330,7 +1330,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/platform/jobs/sweep.py": 1793,
     # Refresh admission, claim fencing, terminal transitions and the job-scoped
     # abandoned-run sweep stay domain-neutral.
-    "backend/app/platform/refresh/service.py": 1160,
+    "backend/app/platform/refresh/service.py": 1161,
     # Central settings and boot-validation debt; split by configuration domain before
     # raising.
     "backend/app/core/config.py": 1502,
@@ -1363,7 +1363,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/admin/service.py": 1022,
     # Ingest admission, staging, job settlement and table registration share one
     # orchestration boundary.
-    "backend/app/processing/ingest/service.py": 1572,
+    "backend/app/processing/ingest/service.py": 1582,
     # The PostGIS strategy: geometry and gid repair, the snapshot measurement and
     # its catalog writes.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 699,

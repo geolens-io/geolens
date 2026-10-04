@@ -2414,6 +2414,64 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/datasets/{dataset_id}/previous-version": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Previous Version
+         * @description Delete the dataset's previous version, so it can no longer be restored.
+         *
+         *     Refuses with 404 ``no_previous_version`` when there is none, 409
+         *     ``previous_version_changed`` when it is not ``expected_version_number``,
+         *     and 409 ``dataset_busy`` while a refresh, replacement or restore is
+         *     active.
+         */
+        delete: operations["delete_previous_version_datasets__dataset_id__previous_version_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/datasets/{dataset_id}/previous-version/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore Previous Version
+         * @description Publish the dataset's previous version as its live data again.
+         *
+         *     The previous version is the data the last replacement or restore
+         *     replaced. The restore runs as a job and a refresh run with origin kind
+         *     ``restore``, and publishes a new version that names the restored one in
+         *     ``restored_from_version``. The data it replaces, including any feature
+         *     edits made since, becomes the previous version in turn. Scheduled
+         *     refreshes of the dataset are held afterwards.
+         *
+         *     Refuses with 422 ``restore_not_applicable`` for a dataset without a
+         *     feature table, 404 ``no_previous_version`` when there is none, 409
+         *     ``previous_version_changed`` when it is not ``expected_version_number``,
+         *     and 409 ``dataset_busy`` while another refresh, replacement or restore is
+         *     active.
+         */
+        post: operations["restore_previous_version_datasets__dataset_id__previous_version_restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/datasets/{dataset_id}/quicklook": {
         parameters: {
             query?: never;
@@ -7962,7 +8020,7 @@ export interface components {
             ingest_job_id?: string | null;
             /**
              * Origin Kind
-             * @description The run's execution door, not the dataset's origin: upload, postgis, service, stac, or raster. The two can visibly diverge; for example a STAC-imported raster's pending or failed replace run is recorded 'upload' while the dataset's origin stays 'stac' until the replace succeeds. 'raster' itself is reserved for a future, distinct raster-replace door label, with today's raster-replace runs recorded 'upload'.
+             * @description The run's execution door, not the dataset's origin: upload, postgis, service, stac, raster, or restore (the previous version published again). The two can visibly diverge; for example a STAC-imported raster's pending or failed replace run is recorded 'upload' while the dataset's origin stays 'stac' until the replace succeeds. 'raster' itself is reserved for a future, distinct raster-replace door label, with today's raster-replace runs recorded 'upload'.
              */
             origin_kind: string;
             /**
@@ -8354,6 +8412,8 @@ export interface components {
              * @description Advisory warnings produced by a metadata update — e.g. a visibility or status change exposing keywords inherited from an analysis source the new audience cannot open. Only ever set on the PATCH response; the change has already applied.
              */
             metadata_warnings?: string[] | null;
+            /** @description The data the last replacement or restore replaced, which POST /previous-version/restore publishes again. Set on the detail endpoint only; null elsewhere and when there is none. */
+            previous_version?: components["schemas"]["PreviousVersionResponse"] | null;
         };
         /** DatasetRowsResponse */
         DatasetRowsResponse: {
@@ -8421,6 +8481,11 @@ export interface components {
              * Format: date-time
              */
             uploaded_at: string;
+            /**
+             * Restored From Version
+             * @description The version a restore published again as this one
+             */
+            restored_from_version?: number | null;
         };
         /** DbfTruncationCollisionWarning */
         DbfTruncationCollisionWarning: {
@@ -11472,6 +11537,29 @@ export interface components {
                 [key: string]: unknown;
             } | null;
         };
+        /**
+         * PreviousVersionResponse
+         * @description The data a replacement or restore replaced, kept until the next one.
+         */
+        PreviousVersionResponse: {
+            /**
+             * Version Number
+             * @description The version whose data is kept
+             */
+            version_number: number;
+            /** Retained At */
+            retained_at?: string | null;
+            /**
+             * Size Bytes
+             * @description Its table's size; not counted toward quota
+             */
+            size_bytes?: number | null;
+            /**
+             * Feature Count
+             * @description As recorded on that version
+             */
+            feature_count?: number | null;
+        };
         /** ProbeRequest */
         ProbeRequest: {
             /**
@@ -11988,6 +12076,27 @@ export interface components {
             kind: "reserved_rename";
             /** Details */
             details: components["schemas"]["ReservedRenameDetail"][];
+        };
+        /** RestorePreviousVersionRequest */
+        RestorePreviousVersionRequest: {
+            /**
+             * Expected Version Number
+             * @description The previous version the caller confirmed restoring
+             */
+            expected_version_number: number;
+        };
+        /** RestorePreviousVersionResponse */
+        RestorePreviousVersionResponse: {
+            /**
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
         };
         /** ReuploadCommitRequest */
         ReuploadCommitRequest: {
@@ -26719,6 +26828,221 @@ export interface operations {
                 };
             };
             /** @description Forbidden — caller lacks access to this resource */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    delete_previous_version_datasets__dataset_id__previous_version_delete: {
+        parameters: {
+            query: {
+                /** @description The previous version the caller confirmed deleting */
+                expected_version_number: number;
+            };
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    restore_previous_version_datasets__dataset_id__previous_version_restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RestorePreviousVersionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RestorePreviousVersionResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
             403: {
                 headers: {
                     [name: string]: unknown;

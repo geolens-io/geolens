@@ -5482,7 +5482,7 @@
             "title": "Ingest Job Id"
           },
           "origin_kind": {
-            "description": "The run's execution door, not the dataset's origin: upload, postgis, service, stac, or raster. The two can visibly diverge; for example a STAC-imported raster's pending or failed replace run is recorded 'upload' while the dataset's origin stays 'stac' until the replace succeeds. 'raster' itself is reserved for a future, distinct raster-replace door label, with today's raster-replace runs recorded 'upload'.",
+            "description": "The run's execution door, not the dataset's origin: upload, postgis, service, stac, raster, or restore (the previous version published again). The two can visibly diverge; for example a STAC-imported raster's pending or failed replace run is recorded 'upload' while the dataset's origin stays 'stac' until the replace succeeds. 'raster' itself is reserved for a future, distinct raster-replace door label, with today's raster-replace runs recorded 'upload'.",
             "title": "Origin Kind",
             "type": "string"
           },
@@ -6468,6 +6468,17 @@
             ],
             "description": "Advisory warnings produced by a metadata update \u2014 e.g. a visibility or status change exposing keywords inherited from an analysis source the new audience cannot open. Only ever set on the PATCH response; the change has already applied.",
             "title": "Metadata Warnings"
+          },
+          "previous_version": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PreviousVersionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The data the last replacement or restore replaced, which POST /previous-version/restore publishes again. Set on the detail endpoint only; null elsewhere and when there is none."
           }
         },
         "required": [
@@ -6650,6 +6661,18 @@
             "format": "date-time",
             "title": "Uploaded At",
             "type": "string"
+          },
+          "restored_from_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The version a restore published again as this one",
+            "title": "Restored From Version"
           }
         },
         "required": [
@@ -13780,6 +13803,57 @@
         "title": "PreviewResponse",
         "type": "object"
       },
+      "PreviousVersionResponse": {
+        "description": "The data a replacement or restore replaced, kept until the next one.",
+        "properties": {
+          "version_number": {
+            "description": "The version whose data is kept",
+            "title": "Version Number",
+            "type": "integer"
+          },
+          "retained_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retained At"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its table's size; not counted toward quota",
+            "title": "Size Bytes"
+          },
+          "feature_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "As recorded on that version",
+            "title": "Feature Count"
+          }
+        },
+        "required": [
+          "version_number"
+        ],
+        "title": "PreviousVersionResponse",
+        "type": "object"
+      },
       "ProbeRequest": {
         "properties": {
           "url": {
@@ -15032,6 +15106,40 @@
           "details"
         ],
         "title": "ReservedRenameWarning",
+        "type": "object"
+      },
+      "RestorePreviousVersionRequest": {
+        "properties": {
+          "expected_version_number": {
+            "description": "The previous version the caller confirmed restoring",
+            "title": "Expected Version Number",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_version_number"
+        ],
+        "title": "RestorePreviousVersionRequest",
+        "type": "object"
+      },
+      "RestorePreviousVersionResponse": {
+        "properties": {
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "run_id"
+        ],
+        "title": "RestorePreviousVersionResponse",
         "type": "object"
       },
       "ReuploadCommitRequest": {
@@ -39284,6 +39392,308 @@
         "summary": "Dataset Maps",
         "tags": [
           "Datasets - Data"
+        ]
+      }
+    },
+    "/datasets/{dataset_id}/previous-version": {
+      "delete": {
+        "description": "Delete the dataset's previous version, so it can no longer be restored.\n\nRefuses with 404 ``no_previous_version`` when there is none, 409\n``previous_version_changed`` when it is not ``expected_version_number``,\nand 409 ``dataset_busy`` while a refresh, replacement or restore is\nactive.",
+        "operationId": "delete_previous_version_datasets__dataset_id__previous_version_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The previous version the caller confirmed deleting",
+            "in": "query",
+            "name": "expected_version_number",
+            "required": true,
+            "schema": {
+              "description": "The previous version the caller confirmed deleting",
+              "title": "Expected Version Number",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad request \u2014 invalid payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Forbidden \u2014 caller lacks write access"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Conflict \u2014 resource state prevents the operation"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many requests \u2014 retry after the advertised interval",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the request may be retried",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Internal server error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Service unavailable \u2014 the database could not serve the request"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          },
+          {
+            "ApiKeyHeader": []
+          },
+          {
+            "ApiKeyQuery": []
+          }
+        ],
+        "summary": "Delete Previous Version",
+        "tags": [
+          "Datasets - Refresh"
+        ]
+      }
+    },
+    "/datasets/{dataset_id}/previous-version/restore": {
+      "post": {
+        "description": "Publish the dataset's previous version as its live data again.\n\nThe previous version is the data the last replacement or restore\nreplaced. The restore runs as a job and a refresh run with origin kind\n``restore``, and publishes a new version that names the restored one in\n``restored_from_version``. The data it replaces, including any feature\nedits made since, becomes the previous version in turn. Scheduled\nrefreshes of the dataset are held afterwards.\n\nRefuses with 422 ``restore_not_applicable`` for a dataset without a\nfeature table, 404 ``no_previous_version`` when there is none, 409\n``previous_version_changed`` when it is not ``expected_version_number``,\nand 409 ``dataset_busy`` while another refresh, replacement or restore is\nactive.",
+        "operationId": "restore_previous_version_datasets__dataset_id__previous_version_restore_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestorePreviousVersionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestorePreviousVersionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad request \u2014 invalid payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Forbidden \u2014 caller lacks write access"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Conflict \u2014 resource state prevents the operation"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many requests \u2014 retry after the advertised interval",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the request may be retried",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Internal server error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Service unavailable \u2014 the database could not serve the request"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          },
+          {
+            "ApiKeyHeader": []
+          },
+          {
+            "ApiKeyQuery": []
+          }
+        ],
+        "summary": "Restore Previous Version",
+        "tags": [
+          "Datasets - Refresh"
         ]
       }
     },

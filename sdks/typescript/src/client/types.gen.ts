@@ -3302,7 +3302,7 @@ export type DatasetRefreshRunResponse = {
     /**
      * Origin Kind
      *
-     * The run's execution door, not the dataset's origin: upload, postgis, service, stac, or raster. The two can visibly diverge; for example a STAC-imported raster's pending or failed replace run is recorded 'upload' while the dataset's origin stays 'stac' until the replace succeeds. 'raster' itself is reserved for a future, distinct raster-replace door label, with today's raster-replace runs recorded 'upload'.
+     * The run's execution door, not the dataset's origin: upload, postgis, service, stac, raster, or restore (the previous version published again). The two can visibly diverge; for example a STAC-imported raster's pending or failed replace run is recorded 'upload' while the dataset's origin stays 'stac' until the replace succeeds. 'raster' itself is reserved for a future, distinct raster-replace door label, with today's raster-replace runs recorded 'upload'.
      */
     origin_kind: string;
     /**
@@ -3812,6 +3812,10 @@ export type DatasetResponse = {
      * Advisory warnings produced by a metadata update — e.g. a visibility or status change exposing keywords inherited from an analysis source the new audience cannot open. Only ever set on the PATCH response; the change has already applied.
      */
     metadata_warnings?: Array<string> | null;
+    /**
+     * The data the last replacement or restore replaced, which POST /previous-version/restore publishes again. Set on the detail endpoint only; null elsewhere and when there is none.
+     */
+    previous_version?: PreviousVersionResponse | null;
 };
 
 /**
@@ -3910,6 +3914,12 @@ export type DatasetVersionResponse = {
      * Uploaded At
      */
     uploaded_at: string;
+    /**
+     * Restored From Version
+     *
+     * The version a restore published again as this one
+     */
+    restored_from_version?: number | null;
 };
 
 /**
@@ -8011,6 +8021,36 @@ export type PreviewResponse = {
 };
 
 /**
+ * PreviousVersionResponse
+ *
+ * The data a replacement or restore replaced, kept until the next one.
+ */
+export type PreviousVersionResponse = {
+    /**
+     * Version Number
+     *
+     * The version whose data is kept
+     */
+    version_number: number;
+    /**
+     * Retained At
+     */
+    retained_at?: string | null;
+    /**
+     * Size Bytes
+     *
+     * Its table's size; not counted toward quota
+     */
+    size_bytes?: number | null;
+    /**
+     * Feature Count
+     *
+     * As recorded on that version
+     */
+    feature_count?: number | null;
+};
+
+/**
  * ProbeRequest
  */
 export type ProbeRequest = {
@@ -8718,6 +8758,32 @@ export type ReservedRenameWarning = {
      * Details
      */
     details: Array<ReservedRenameDetail>;
+};
+
+/**
+ * RestorePreviousVersionRequest
+ */
+export type RestorePreviousVersionRequest = {
+    /**
+     * Expected Version Number
+     *
+     * The previous version the caller confirmed restoring
+     */
+    expected_version_number: number;
+};
+
+/**
+ * RestorePreviousVersionResponse
+ */
+export type RestorePreviousVersionResponse = {
+    /**
+     * Job Id
+     */
+    job_id: string;
+    /**
+     * Run Id
+     */
+    run_id: string;
 };
 
 /**
@@ -19818,6 +19884,137 @@ export type DatasetMapsDatasetsDatasetIdMapsGetResponses = {
 };
 
 export type DatasetMapsDatasetsDatasetIdMapsGetResponse = DatasetMapsDatasetsDatasetIdMapsGetResponses[keyof DatasetMapsDatasetsDatasetIdMapsGetResponses];
+
+export type DeletePreviousVersionDatasetsDatasetIdPreviousVersionDeleteData = {
+    body?: never;
+    path: {
+        /**
+         * Dataset Id
+         */
+        dataset_id: string;
+    };
+    query: {
+        /**
+         * Expected Version Number
+         *
+         * The previous version the caller confirmed deleting
+         */
+        expected_version_number: number;
+    };
+    url: '/datasets/{dataset_id}/previous-version';
+};
+
+export type DeletePreviousVersionDatasetsDatasetIdPreviousVersionDeleteErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type DeletePreviousVersionDatasetsDatasetIdPreviousVersionDeleteError = DeletePreviousVersionDatasetsDatasetIdPreviousVersionDeleteErrors[keyof DeletePreviousVersionDatasetsDatasetIdPreviousVersionDeleteErrors];
+
+export type DeletePreviousVersionDatasetsDatasetIdPreviousVersionDeleteResponses = {
+    /**
+     * Successful Response
+     */
+    204: void;
+};
+
+export type DeletePreviousVersionDatasetsDatasetIdPreviousVersionDeleteResponse = DeletePreviousVersionDatasetsDatasetIdPreviousVersionDeleteResponses[keyof DeletePreviousVersionDatasetsDatasetIdPreviousVersionDeleteResponses];
+
+export type RestorePreviousVersionDatasetsDatasetIdPreviousVersionRestorePostData = {
+    body: RestorePreviousVersionRequest;
+    path: {
+        /**
+         * Dataset Id
+         */
+        dataset_id: string;
+    };
+    query?: never;
+    url: '/datasets/{dataset_id}/previous-version/restore';
+};
+
+export type RestorePreviousVersionDatasetsDatasetIdPreviousVersionRestorePostErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type RestorePreviousVersionDatasetsDatasetIdPreviousVersionRestorePostError = RestorePreviousVersionDatasetsDatasetIdPreviousVersionRestorePostErrors[keyof RestorePreviousVersionDatasetsDatasetIdPreviousVersionRestorePostErrors];
+
+export type RestorePreviousVersionDatasetsDatasetIdPreviousVersionRestorePostResponses = {
+    /**
+     * Successful Response
+     */
+    202: RestorePreviousVersionResponse;
+};
+
+export type RestorePreviousVersionDatasetsDatasetIdPreviousVersionRestorePostResponse = RestorePreviousVersionDatasetsDatasetIdPreviousVersionRestorePostResponses[keyof RestorePreviousVersionDatasetsDatasetIdPreviousVersionRestorePostResponses];
 
 export type GetQuicklookDatasetsDatasetIdQuicklookGetData = {
     body?: never;

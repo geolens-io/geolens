@@ -211,6 +211,9 @@ async def get_dataset_detail(
         dataset_to_response,
     )
     from app.modules.catalog.datasets.domain.schemas import StacAsset
+    from app.modules.catalog.datasets.domain.service_previous_version import (
+        previous_version_summary,
+    )
 
     if dataset is None:
         dataset = await get_dataset(db, dataset_id)
@@ -304,6 +307,8 @@ async def get_dataset_detail(
         response.has_generic_geometry = await dataset_geom_is_generic(
             db, dataset.table_name
         )
+    if response is not None:
+        response.previous_version = await previous_version_summary(db, dataset)
     return response
 
 

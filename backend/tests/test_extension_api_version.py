@@ -119,11 +119,14 @@ class TestExtensionApiVersionConstant:
         an overlay that replaces the ``catalog_port`` key without them answers
         AttributeError on every file re-upload preview.
 
+        v16 adds the required ``restore_previous_version_task`` method to
+        ``CatalogPort``, which the previous-version restore route defers.
+
         Update this pin, and the note above it, whenever the constant moves.
         """
         from app.platform.extensions.version import EXTENSION_API_VERSION
 
-        assert EXTENSION_API_VERSION == 15
+        assert EXTENSION_API_VERSION == 16
 
 
 class TestCheckExtensionApiVersion:
