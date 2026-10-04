@@ -130,7 +130,13 @@ logger = logging.getLogger(__name__)
 # only keywords of records that caller may read, because AI keyword
 # suggestions send both to the model. An overlay on the old signatures fails
 # every keyword suggestion request.
-EXTENSION_API_VERSION: int = 14
+#
+# 14 -> 15: CatalogPort gained the required ``stored_column_name`` and
+# ``get_geometry_types`` methods. The file re-upload preview diffs its columns
+# under their stored names and reads the live geometry types to judge review
+# reasons, so an overlay replacing the ``catalog_port`` slot without them
+# fails every file re-upload preview.
+EXTENSION_API_VERSION: int = 15
 
 
 def check_extension_api_version(name: str, declared_version: int | None) -> None:

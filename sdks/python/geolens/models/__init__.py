@@ -598,6 +598,9 @@ from .refresh_verification_geometry_contract_type_0 import (
     RefreshVerificationGeometryContractType0,
 )
 from .refresh_verification_identity_check import RefreshVerificationIdentityCheck
+from .refresh_verification_review_acknowledged_by_type_0 import (
+    RefreshVerificationReviewAcknowledgedByType0,
+)
 from .refresh_verification_review_reasons_item import (
     RefreshVerificationReviewReasonsItem,
 )
@@ -642,6 +645,9 @@ from .reupload_preview_request import ReuploadPreviewRequest
 from .reupload_preview_response import ReuploadPreviewResponse
 from .reupload_preview_response_all_layers_type_0_item import (
     ReuploadPreviewResponseAllLayersType0Item,
+)
+from .reupload_preview_response_review_reasons_item import (
+    ReuploadPreviewResponseReviewReasonsItem,
 )
 from .reupload_preview_response_sample_rows_item import (
     ReuploadPreviewResponseSampleRowsItem,
@@ -1239,6 +1245,7 @@ __all__ = (
     "RefreshVerificationDecision",
     "RefreshVerificationGeometryContractType0",
     "RefreshVerificationIdentityCheck",
+    "RefreshVerificationReviewAcknowledgedByType0",
     "RefreshVerificationReviewReasonsItem",
     "RefreshVerificationSourceBinding",
     "RegisterRequest",
@@ -1264,6 +1271,7 @@ __all__ = (
     "ReuploadPreviewRequest",
     "ReuploadPreviewResponse",
     "ReuploadPreviewResponseAllLayersType0Item",
+    "ReuploadPreviewResponseReviewReasonsItem",
     "ReuploadPreviewResponseSampleRowsItem",
     "ReuploadResponse",
     "ReuploadServicePreviewRequest",

@@ -2466,6 +2466,16 @@ export interface paths {
          *     Refuses with 409 ``dataset_busy`` while another refresh or re-upload is
          *     active for this dataset. A partial unique index prevents simultaneous
          *     requests from both being admitted.
+         *
+         *     ``accept_blocked_run_id`` accepts a blocked run once. A blocked service
+         *     refresh is fetched again and publishes only if the result matches the run
+         *     it accepts. A blocked file replacement (an ``upload`` run) is replaced
+         *     again from the upload that run kept, and publishes only if its review
+         *     reasons and changes match. That answers 422 ``upload_unavailable`` once
+         *     the upload is gone, and 409 ``review_superseded`` once newer data has
+         *     replaced what the run was compared with. A review fingerprint is an acknowledgement, not a
+         *     secret: it keeps a replacement nobody reviewed from publishing, and any
+         *     caller with write access can still publish deliberately.
          */
         post: operations["refresh_dataset_datasets__dataset_id__refresh_post"];
         delete?: never;
@@ -7864,7 +7874,7 @@ export interface components {
             verification_policy: "standard" | "arcgis_id_set_v1";
             /**
              * Accept Blocked Run Id
-             * @description A blocked run whose reviewed source and staged content may be accepted. The refresh that uses the acceptance holds it until it ends, and a cancelled or failed refresh gives it back. A different result blocks again.
+             * @description A blocked run whose reviewed source and staged content may be accepted. The refresh that uses the acceptance holds it until it ends, and a cancelled or failed refresh gives it back. A different result blocks again. A blocked file replacement is accepted from the upload its run kept.
              */
             accept_blocked_run_id?: string | null;
             /** @description Structured credential for a protected service. Mutually exclusive with the token field. */
@@ -11868,8 +11878,16 @@ export interface components {
             } | null;
             /** Review Reasons */
             review_reasons: ("source_count_unavailable" | "empty_result" | "destructive_schema_change" | "geometry_type_changed" | "srid_changed" | "coordinate_dimension_reduced" | "arcgis_id_coverage_unavailable" | "arcgis_source_membership_changed")[];
-            /** Review Fingerprint */
+            /**
+             * Review Fingerprint
+             * @description Identifies what a blocked run asks a person to accept. A service refresh fingerprints all of its evidence, so its acceptance must fetch the same data again. A file replacement fingerprints only its review reasons, removed columns, type changes and, for a geometry reason, the geometry facts, which is what its preview shows.
+             */
             review_fingerprint: string | null;
+            /**
+             * Review Acknowledged By
+             * @description Why a file replacement with review reasons published: its commit carried the preview's fingerprint, or a person accepted a blocked run with the same changes.
+             */
+            review_acknowledged_by?: ("preview" | "accepted_run") | null;
             /** Accepted Blocked Run Id */
             accepted_blocked_run_id: string | null;
             /** Acceptance Consumed By Run Id */
@@ -11989,6 +12007,11 @@ export interface components {
             layer_name?: string | null;
             /** @description Structured credential for a protected service. Mutually exclusive with the token field. */
             auth?: components["schemas"]["ServiceAuthRequest"] | null;
+            /**
+             * Review Fingerprint
+             * @description The preview's `review_fingerprint`, sent once a person has seen the changes it describes. A file replacement with review reasons publishes only when the worker's own fingerprint matches; otherwise its run ends `blocked`. Service re-uploads ignore it.
+             */
+            review_fingerprint?: string | null;
         };
         /** ReuploadCommitResponse */
         ReuploadCommitResponse: {
@@ -12006,6 +12029,11 @@ export interface components {
         ReuploadPreviewRequest: {
             /** Layer Name */
             layer_name?: string | null;
+            /**
+             * Srid Override
+             * @description The SRID override the commit will send, so the preview judges the coordinate system the replacement will be stored in.
+             */
+            srid_override?: number | null;
         };
         /** ReuploadPreviewResponse */
         ReuploadPreviewResponse: {
@@ -12037,6 +12065,16 @@ export interface components {
             }[] | null;
             /** Previous Source Layer */
             previous_source_layer?: string | null;
+            /**
+             * Review Reasons
+             * @description Changes in this file replacement that hold it for review. Empty for a service re-upload, which is not judged at preview.
+             */
+            review_reasons?: ("source_count_unavailable" | "empty_result" | "destructive_schema_change" | "geometry_type_changed" | "srid_changed" | "coordinate_dimension_reduced" | "arcgis_id_coverage_unavailable" | "arcgis_source_membership_changed")[];
+            /**
+             * Review Fingerprint
+             * @description Fingerprint of the reviewed changes. Send it as the commit's `review_fingerprint` once a person has seen them; null when nothing needs review.
+             */
+            review_fingerprint?: string | null;
         };
         /** ReuploadResponse */
         ReuploadResponse: {

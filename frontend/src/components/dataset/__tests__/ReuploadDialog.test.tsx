@@ -472,6 +472,46 @@ describe('ReuploadDialog', () => {
     );
   });
 
+  it('lists the review reasons and sends the fingerprint of what it showed', async () => {
+    const user = userEvent.setup();
+    previewMutateAsync.mockResolvedValueOnce(
+      makePreviewResponse({
+        job_id: 'file-job',
+        review_reasons: ['destructive_schema_change', 'geometry_type_changed'],
+        review_fingerprint: 'a'.repeat(64),
+      }),
+    );
+    renderDialog();
+
+    await openFileSource(user);
+    await dropFile();
+    const reasons = await screen.findByRole('list', { name: 'Changes that need review' });
+    expect(reasons).toHaveTextContent('The new data removes columns or changes their types.');
+    expect(reasons).toHaveTextContent('The new data changes the geometry type.');
+    await user.click(screen.getByRole('button', { name: 'Confirm Re-Upload' }));
+
+    await waitFor(() => {
+      expect(commitMutateAsync).toHaveBeenCalled();
+    });
+    expect(commitMutateAsync.mock.calls[0][0].reviewFingerprint).toBe('a'.repeat(64));
+  });
+
+  it('sends no review fingerprint with a service-source commit', async () => {
+    const user = userEvent.setup();
+    servicePreviewMutateAsync.mockResolvedValueOnce(
+      makePreviewResponse({ job_id: 'service-job', review_fingerprint: 'b'.repeat(64) }),
+    );
+    renderDialog();
+
+    await openServicePreview(user);
+    await user.click(screen.getByRole('button', { name: 'Confirm Re-Upload' }));
+
+    await waitFor(() => {
+      expect(commitMutateAsync).toHaveBeenCalled();
+    });
+    expect(commitMutateAsync.mock.calls[0][0].reviewFingerprint).toBeUndefined();
+  });
+
   it('pre-fills service URL from dataset source_url', async () => {
     const user = userEvent.setup();
     const dataset = makeDataset();
@@ -1609,6 +1649,34 @@ describe('ReuploadDialog raster reupload', () => {
   // fix(#1953): ADR-002 Decision 3 stores `internal_error` in place of a
   // failure the server did not compose, so the dialog is the surface that
   // has to turn that code into something a reader understands.
+  it('refetches the run history when a replacement is held for review', async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
+    });
+    mockUseJobStatus.mockReturnValue({
+      data: {
+        status: 'failed',
+        error_code: 'review_required',
+        error_message: 'Review the detected changes before publication.',
+      },
+    } as unknown as ReturnType<typeof useJobStatus>);
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ReuploadDialog dataset={makeDataset()} open onOpenChange={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    await openFileSource(user);
+    await dropFile();
+    await user.click(await screen.findByRole('button', { name: 'Confirm Re-Upload' }));
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({
+      queryKey: queryKeys.datasets.refreshRunsPrefix('dataset-1'),
+    }));
+  });
+
   it('renders the localized line for the coded internal failure', async () => {
     const user = userEvent.setup();
     mockUseJobStatus.mockReturnValue({

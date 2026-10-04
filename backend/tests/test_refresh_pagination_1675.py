@@ -13,7 +13,7 @@ from fastapi import HTTPException
 from httpx import AsyncClient
 from sqlalchemy import text, update
 
-from app.modules.catalog.datasets.api import router_refresh
+from app.modules.catalog.datasets.api import refresh_acceptance
 from app.modules.catalog.sources.adapters.arcgis import ArcGISIDPlan
 from app.modules.catalog.sources.adapters.arcgis import ArcGISTokenError
 from app.modules.catalog.datasets.domain.models import Record
@@ -514,7 +514,7 @@ async def test_blocked_refresh_acceptance_is_consumed_by_one_concurrent_session(
     async def _consume_once(new_run_id: uuid.UUID) -> None:
         async with db_module.async_session() as session:
             try:
-                await router_refresh._consume_blocked_refresh_acceptance(
+                await refresh_acceptance.consume_blocked_refresh_acceptance(
                     session,
                     dataset_id=dataset_id,
                     blocked_run_id=blocked_id,

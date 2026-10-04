@@ -59,6 +59,8 @@ _WRITE_SQL_TOKENS = frozenset(
     {
         "INSERT",
         "UPDATE",
+        # Every mode above ROW EXCLUSIVE needs a privilege the reader lacks.
+        "LOCK",
         "DELETE",
         "MERGE",
         "CREATE",

@@ -231,7 +231,7 @@ async def _file_replacement(
         feature_count=1,
         source_format="geojson",
         source_filename="original.geojson",
-        column_info=[{"name": "name", "type": "character varying"}],
+        column_info=[{"name": "name", "type": "text"}],
     )
     await _create_point_table(session, table, "before")
     upload = Path(settings.upload_staging_dir) / "update.geojson"
@@ -286,7 +286,7 @@ async def _service_replacement(
         feature_count=1,
         source_format="wfs",
         source_filename="parcels",
-        column_info=[{"name": "name", "type": "character varying"}],
+        column_info=[{"name": "name", "type": "text"}],
     )
     set_dataset_origin(
         dataset,

@@ -114,6 +114,8 @@ const EXACT_ERROR_KEYS: Record<string, ApiErrorDescriptor['key']> = {
     'errors.refreshOriginUnavailable',
   'A refresh is already running for this dataset. Wait for it to finish, then try again.':
     'errors.refreshDatasetBusy',
+  'The dataset changed after this replacement was held. Upload the file again.':
+    'errors.refreshReviewSuperseded',
   "This dataset's source changed while the refresh was being queued, so it was not started. Check the new source and try again.":
     'errors.refreshOriginChanged',
   // fix(#1768): the re-upload commit door's own `origin_changed`. Same code,

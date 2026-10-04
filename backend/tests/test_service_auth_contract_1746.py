@@ -1017,23 +1017,21 @@ class TestServiceLayerTakesACredentialDirectly:
 # ---------------------------------------------------------------------------
 
 
-class TestAuthIsDeclaredLast:
-    """fix(#1760 codex r2): appending is the only safe place to add this field.
+class TestPublishedFieldsKeepTheirSlots:
+    """Fields are only ever appended to a request model, after every published one.
 
     `openapi-python-client` gives every model field a positional slot in
     declaration order, so an optional field inserted ahead of an existing one
-    moves that one's slot. The first version of this change put `auth` between
-    `token` and `object_id_field` on `ServicePreviewRequest`, and a caller
-    already writing `ServicePreviewRequest(url, type, layer, title, id, token,
-    oid)` would then have sent its object-id string as `auth` and collected a
-    422 naming a method it never chose. Appending cannot move a slot that
-    already exists.
+    moves that one's slot. A caller already writing
+    `ServicePreviewRequest(url, type, layer, title, id, token, oid)` would send
+    its object-id string as whatever was inserted before it. Appending cannot
+    move a slot that already exists.
 
     Stated for all five models rather than only the one that broke, because
     the same insertion is available in each and nothing else notices it.
     """
 
-    def test_every_model_declares_auth_last(self) -> None:
+    def test_every_model_keeps_its_published_field_order(self) -> None:
         from app.modules.catalog.datasets.domain.schemas import (
             DatasetRefreshRequest,
             ReuploadCommitRequest,
@@ -1044,17 +1042,39 @@ class TestAuthIsDeclaredLast:
             ServicePreviewRequest,
         )
 
-        for model in (
-            ProbeRequest,
-            ServicePreviewRequest,
-            ReuploadCommitRequest,
-            ReuploadServicePreviewRequest,
-            DatasetRefreshRequest,
-        ):
-            assert list(model.model_fields)[-1] == "auth", (
-                f"{model.__name__} must declare `auth` last: anywhere else "
-                "shifts the positional slot of every field after it in the "
-                "generated SDK constructor."
+        preview = [
+            "url",
+            "service_type",
+            "layer_name",
+            "layer_title",
+            "layer_id",
+            "token",
+            "object_id_field",
+            "auth",
+        ]
+        published = {
+            ProbeRequest: ["url", "token", "auth"],
+            ServicePreviewRequest: preview,
+            ReuploadCommitRequest: [
+                "srid_override",
+                "expected_origin_kind",
+                "token",
+                "layer_name",
+                "auth",
+            ],
+            ReuploadServicePreviewRequest: preview,
+            DatasetRefreshRequest: [
+                "token",
+                "verification_policy",
+                "accept_blocked_run_id",
+                "auth",
+            ],
+        }
+        for model, fields in published.items():
+            assert list(model.model_fields)[: len(fields)] == fields, (
+                f"{model.__name__} must keep its published fields first and in "
+                "order: a field declared among them shifts the positional slot "
+                "of every field after it in the generated SDK constructor."
             )
 
     def test_the_generated_sdk_keeps_the_older_field_ahead_of_auth(self) -> None:

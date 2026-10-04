@@ -41,7 +41,7 @@ class DatasetRefreshRequest:
                 arcgis_id_set_v1 performs the stronger ArcGIS object-ID membership check. Default: 'standard'.
             accept_blocked_run_id (None | Unset | UUID): A blocked run whose reviewed source and staged content may be
                 accepted. The refresh that uses the acceptance holds it until it ends, and a cancelled or failed refresh gives
-                it back. A different result blocks again.
+                it back. A different result blocks again. A blocked file replacement is accepted from the upload its run kept.
             auth (None | ServiceAuthRequest | Unset): Structured credential for a protected service. Mutually exclusive with
                 the token field.
     """

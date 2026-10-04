@@ -256,12 +256,16 @@ export async function reuploadCommit(
   // the user was uploading and confirming. Optional server-side, so omitting
   // it is the pre-#1768 behaviour rather than an error.
   expectedOriginKind?: DatasetOrigin | null,
+  // The preview's fingerprint of the changes the person was shown. Without
+  // it a file replacement that needs review ends blocked.
+  reviewFingerprint?: string | null,
 ): Promise<ReuploadCommitResponse> {
   const payload: ReuploadCommitRequest = {
     srid_override: sridOverride ?? null,
     ...(token ? { token } : {}),
     ...(layerName !== undefined ? { layer_name: layerName } : {}),
     ...(expectedOriginKind ? { expected_origin_kind: expectedOriginKind } : {}),
+    ...(reviewFingerprint ? { review_fingerprint: reviewFingerprint } : {}),
   };
 
   try {

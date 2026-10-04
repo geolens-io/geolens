@@ -305,6 +305,41 @@ describe('SourceRefreshAction', () => {
     }));
   });
 
+  it('publishes a held-back file replacement without a credential or a refresh button', async () => {
+    mutateAsync.mockResolvedValue({
+      run_id: 'run-45',
+      job_id: 'job-45',
+      dataset_id: 'dataset-1',
+      origin_kind: 'upload',
+      trigger: 'manual',
+      status: 'pending',
+      message: 'Accepted replacement queued',
+    });
+    const user = userEvent.setup();
+    render(
+      <SourceRefreshAction
+        dataset={makeDataset({ origin: 'upload', source_format: 'geojson' })}
+        watch={makeWatch()}
+        showTrigger={false}
+        acceptBlockedRun={{ id: 'blocked-upload', upload: true }}
+      />,
+    );
+
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('Publish the reviewed replacement');
+    expect(screen.queryByRole('button', { name: 'Refresh from source' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Access token (optional)')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Publish replacement' }));
+
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledWith({
+      datasetId: 'dataset-1',
+      token: undefined,
+      auth: undefined,
+      acceptBlockedRunId: 'blocked-upload',
+    }));
+    expect(trackDispatchedRun).toHaveBeenCalledWith('run-45');
+  });
+
   it('sends no token when the field is left blank', async () => {
     mutateAsync.mockResolvedValue({
       run_id: 'run-1',

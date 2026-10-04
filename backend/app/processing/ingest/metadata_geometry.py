@@ -265,6 +265,42 @@ async def ensure_geom_column(
     return True
 
 
+def _reserved_rename_base(col_name: str) -> str:
+    """The name ``rename_reserved_columns`` gives a column, before any collision suffix."""
+    from app.processing.ingest.ogr import RESERVED_COLUMN_NAMES
+
+    if ":" not in col_name:
+        return f"src_{col_name}"
+    # fix(#640): launder to a safe name; must start with a letter or the
+    # identifier validator rejects it (":id" -> "id", not "_id").
+    base = re.sub(r"[^A-Za-z0-9_]", "_", col_name).strip("_")
+    if not base or not base[0].isalpha():
+        base = f"col_{base}" if base else "col"
+    # A laundered name may hit an internal one (":geom" -> "geom") — apply
+    # the reserved-name rule so staging's own geometry columns stay
+    # uncontested.
+    if base in RESERVED_COLUMN_NAMES:
+        base = f"src_{base}"
+    return base[:63]
+
+
+def stored_column_name(source_name: str) -> str:
+    """The column name a source field is stored under once a file is loaded.
+
+    ogr2ogr's PostgreSQL laundering (ASCII lowercase; ``'``, ``-`` and ``#``
+    become ``_``), then the reserved-name rename. A rename that collides with
+    another column gets a suffix this does not predict.
+    """
+    from app.processing.ingest.ogr import RESERVED_COLUMN_NAMES
+
+    laundered = "".join(
+        "_" if ch in "'-#" else ch.lower() if ch.isascii() else ch for ch in source_name
+    )
+    if laundered in RESERVED_COLUMN_NAMES or ":" in laundered:
+        return _reserved_rename_base(laundered)
+    return laundered
+
+
 async def rename_reserved_columns(
     session: AsyncSession,
     table_name: str,
@@ -333,20 +369,7 @@ async def rename_reserved_columns(
                 if col_name not in RESERVED_COLUMN_NAMES and ":" not in col_name:
                     continue
 
-                if ":" in col_name:
-                    # fix(#640): launder to a safe name; must start with a
-                    # letter or the identifier validator rejects it
-                    # (":id" -> "id", not "_id").
-                    base = re.sub(r"[^A-Za-z0-9_]", "_", col_name).strip("_")
-                    if not base or not base[0].isalpha():
-                        base = f"col_{base}" if base else "col"
-                    # A laundered name may hit an internal one (":geom" ->
-                    # "geom") — apply the reserved-name rule so staging's
-                    # own geometry columns stay uncontested.
-                    if base in RESERVED_COLUMN_NAMES:
-                        base = f"src_{base}"
-                    base = base[:63]
-                else:
+                if ":" not in col_name:
                     if col_name == "gid":
                         is_pipeline_gid = (
                             col_default is not None and "nextval" in str(col_default)
@@ -358,7 +381,7 @@ async def rename_reserved_columns(
                         if data_type == "USER-DEFINED" and udt_name == "geometry":
                             continue
 
-                    base = f"src_{col_name}"
+                base = _reserved_rename_base(col_name)
 
                 target = base
                 suffix = 2

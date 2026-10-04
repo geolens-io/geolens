@@ -20,6 +20,12 @@ from ..models.refresh_verification_identity_check import (
 from ..models.refresh_verification_identity_check import (
     RefreshVerificationIdentityCheck,
 )
+from ..models.refresh_verification_review_acknowledged_by_type_0 import (
+    check_refresh_verification_review_acknowledged_by_type_0,
+)
+from ..models.refresh_verification_review_acknowledged_by_type_0 import (
+    RefreshVerificationReviewAcknowledgedByType0,
+)
 from ..models.refresh_verification_review_reasons_item import (
     check_refresh_verification_review_reasons_item,
 )
@@ -55,7 +61,10 @@ class RefreshVerification:
         count_status (RefreshVerificationCountStatus):
         identity_check (RefreshVerificationIdentityCheck):
         review_reasons (list[RefreshVerificationReviewReasonsItem]):
-        review_fingerprint (None | str):
+        review_fingerprint (None | str): Identifies what a blocked run asks a person to accept. A service refresh
+            fingerprints all of its evidence, so its acceptance must fetch the same data again. A file replacement
+            fingerprints only its review reasons, removed columns, type changes and, for a geometry reason, the geometry
+            facts, which is what its preview shows.
         accepted_blocked_run_id (None | UUID):
         source_binding_fingerprint (None | str | Unset):
         content_digest (None | str | Unset):
@@ -64,6 +73,9 @@ class RefreshVerification:
         staged_srid (int | None | Unset):
         staged_coordinate_dimension (int | None | Unset):
         geometry_contract (None | RefreshVerificationGeometryContractType0 | Unset):
+        review_acknowledged_by (None | RefreshVerificationReviewAcknowledgedByType0 | Unset): Why a file replacement
+            with review reasons published: its commit carried the preview's fingerprint, or a person accepted a blocked run
+            with the same changes.
         acceptance_consumed_by_run_id (None | Unset | UUID):
     """
 
@@ -83,6 +95,9 @@ class RefreshVerification:
     staged_srid: int | None | Unset = UNSET
     staged_coordinate_dimension: int | None | Unset = UNSET
     geometry_contract: None | RefreshVerificationGeometryContractType0 | Unset = UNSET
+    review_acknowledged_by: (
+        None | RefreshVerificationReviewAcknowledgedByType0 | Unset
+    ) = UNSET
     acceptance_consumed_by_run_id: None | Unset | UUID = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -172,6 +187,14 @@ class RefreshVerification:
         else:
             geometry_contract = self.geometry_contract
 
+        review_acknowledged_by: None | str | Unset
+        if isinstance(self.review_acknowledged_by, Unset):
+            review_acknowledged_by = UNSET
+        elif isinstance(self.review_acknowledged_by, str):
+            review_acknowledged_by = self.review_acknowledged_by
+        else:
+            review_acknowledged_by = self.review_acknowledged_by
+
         acceptance_consumed_by_run_id: None | str | Unset
         if isinstance(self.acceptance_consumed_by_run_id, Unset):
             acceptance_consumed_by_run_id = UNSET
@@ -209,6 +232,8 @@ class RefreshVerification:
             field_dict["staged_coordinate_dimension"] = staged_coordinate_dimension
         if geometry_contract is not UNSET:
             field_dict["geometry_contract"] = geometry_contract
+        if review_acknowledged_by is not UNSET:
+            field_dict["review_acknowledged_by"] = review_acknowledged_by
         if acceptance_consumed_by_run_id is not UNSET:
             field_dict["acceptance_consumed_by_run_id"] = acceptance_consumed_by_run_id
 
@@ -381,6 +406,31 @@ class RefreshVerification:
 
         geometry_contract = _parse_geometry_contract(d.pop("geometry_contract", UNSET))
 
+        def _parse_review_acknowledged_by(
+            data: object,
+        ) -> None | RefreshVerificationReviewAcknowledgedByType0 | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                review_acknowledged_by_type_0 = (
+                    check_refresh_verification_review_acknowledged_by_type_0(data)
+                )
+
+                return review_acknowledged_by_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(
+                None | RefreshVerificationReviewAcknowledgedByType0 | Unset, data
+            )
+
+        review_acknowledged_by = _parse_review_acknowledged_by(
+            d.pop("review_acknowledged_by", UNSET)
+        )
+
         def _parse_acceptance_consumed_by_run_id(data: object) -> None | Unset | UUID:
             if data is None:
                 return data
@@ -417,6 +467,7 @@ class RefreshVerification:
             staged_srid=staged_srid,
             staged_coordinate_dimension=staged_coordinate_dimension,
             geometry_contract=geometry_contract,
+            review_acknowledged_by=review_acknowledged_by,
             acceptance_consumed_by_run_id=acceptance_consumed_by_run_id,
         )
 

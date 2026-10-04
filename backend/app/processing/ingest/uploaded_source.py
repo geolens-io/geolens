@@ -57,14 +57,20 @@ class UploadedSource:
         publication: "PublicationCommit | None",
         failed: bool,
         refused: bool,
+        held: bool = False,
     ) -> None:
-        """Discard private downloads and refused input; leave published originals to follow-ups."""
+        """Discard private downloads and refused input; leave published originals to follow-ups.
+
+        A ``held`` upload outlives its failed job, for a person to accept. The
+        client-writable presigned key still goes: the upload is read from the
+        frozen copy.
+        """
         final_status = _replacement_status(publication, failed)
         await self._release(
             task="reupload_file",
             final_status=final_status,
             unlink=refused or self.local_path != self.original_path,
-            reap_source=final_status == "failed",
+            reap_source=final_status == "failed" and (refused or not held),
             replayable=False,
         )
 

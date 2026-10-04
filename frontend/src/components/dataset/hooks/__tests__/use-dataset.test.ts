@@ -174,8 +174,20 @@ describe('useReuploadCommit', () => {
     });
   });
 
+  it('invalidates the refresh run history on success', async () => {
+    mockReuploadCommit.mockResolvedValueOnce({ message: 'ok' } as never);
+    const { result, qc } = renderWithClient();
+    const spy = vi.spyOn(qc, 'invalidateQueries');
+
+    await result.current.mutateAsync({ datasetId: 'ds-1', jobId: 'j1' });
+
+    expect(spy).toHaveBeenCalledWith({
+      queryKey: queryKeys.datasets.refreshRunsPrefix('ds-1'),
+    });
+  });
+
   // fix(#1768): expectedOriginKind joined the positional tail.
-  it('passes datasetId, jobId, sridOverride, token, layerName, expectedOriginKind through to reuploadCommit', async () => {
+  it('passes datasetId, jobId, sridOverride, token, layerName, expectedOriginKind, reviewFingerprint through to reuploadCommit', async () => {
     mockReuploadCommit.mockResolvedValueOnce({ message: 'ok' } as never);
     const { result } = renderWithClient();
 
@@ -186,6 +198,7 @@ describe('useReuploadCommit', () => {
       token: 'tok',
       layerName: 'layer-a',
       expectedOriginKind: 'service',
+      reviewFingerprint: 'f'.repeat(64),
     });
 
     expect(mockReuploadCommit).toHaveBeenCalledWith(
@@ -195,6 +208,7 @@ describe('useReuploadCommit', () => {
       'tok',
       'layer-a',
       'service',
+      'f'.repeat(64),
     );
   });
 
@@ -207,6 +221,7 @@ describe('useReuploadCommit', () => {
     expect(mockReuploadCommit).toHaveBeenCalledWith(
       'ds-1',
       'j1',
+      undefined,
       undefined,
       undefined,
       undefined,

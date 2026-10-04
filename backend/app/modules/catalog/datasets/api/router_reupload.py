@@ -63,6 +63,7 @@ from app.platform.refresh.credentials import (
     discard_service_credential,
     resolve_dispatch_credential,
 )
+from app.platform.refresh import verification as refresh_policy
 from app.platform.refresh.service import DatasetBusyError, create_pending_run
 from app.platform.dataset_origin import classify_origin
 from app.platform.extensions import get_catalog_port
@@ -594,17 +595,23 @@ async def reupload_service_preview(
 def _diffable_columns(columns: list[dict], *, file_path: str) -> list[dict]:
     """Columns as ``run_ogr2ogr`` will actually store them, for the diff.
 
-    The preview passes ``AUTODETECT_TYPE=YES`` for a CSV source so the UI
+    Names are the stored ones, laundered and moved off reserved names. The
+    preview passes ``AUTODETECT_TYPE=YES`` for a CSV source so the UI
     can show a numeric or boolean column as more than a plain string, but
     the commit never does: every CSV field lands as ``character varying``
     regardless of its content. Diffing the preview's autodetected type
     against the stored column would report a type change for nearly every
-    CSV re-upload. Every other format's import keeps the preview's type,
-    so this is a no-op for them.
+    CSV re-upload. Every other format's import keeps the preview's type.
     """
-    if not file_path.lower().endswith(".csv"):
-        return columns
-    return [{"name": c["name"], "type": "String"} for c in columns]
+    port = get_catalog_port()
+    csv = file_path.lower().endswith(".csv")
+    return [
+        {
+            **({"name": c["name"], "type": "String"} if csv else c),
+            "name": port.stored_column_name(c["name"]),
+        }
+        for c in columns
+    ]
 
 
 @router.post(
@@ -672,6 +679,8 @@ async def reupload_preview(
     prior_feature_count = dataset.feature_count
     prior_record_type = dataset.record.record_type
     prior_geometry_type = dataset.geometry_type
+    prior_table_name = dataset.table_name
+    prior_geometry = (dataset.srid, dataset.is_3d, dataset.n_dims)
     await db.rollback()
 
     # Resolve S3 key to local file for ogrinfo
@@ -769,6 +778,14 @@ async def reupload_preview(
         info["feature_count"],
     )
     schema_diff = SchemaDiff(**diff)
+    review_reasons, review_fingerprint = await _preview_review(
+        db,
+        diff=diff,
+        info=info,
+        srid_override=request.srid_override if request else None,
+        live_table=prior_table_name,
+        live_geometry=prior_geometry,
+    )
 
     # GPKG-01 Phase 1058: read the most-recent completed IngestJob's source_layer
     # to provide a pre-selection hint for the frontend layer-select UI (D-02).
@@ -799,7 +816,50 @@ async def reupload_preview(
         schema_diff=schema_diff,
         all_layers=all_layers,
         previous_source_layer=previous_source_layer,
+        review_reasons=review_reasons,
+        review_fingerprint=review_fingerprint,
     )
+
+
+async def _preview_review(
+    db: AsyncSession,
+    *,
+    diff: dict,
+    info: dict,
+    srid_override: int | None,
+    live_table: str,
+    live_geometry: tuple[int | None, bool | None, int | None],
+) -> tuple[list[str], str | None]:
+    """The review reasons and fingerprint the worker will compute for this file.
+
+    The staged geometry is the declared layer type, under the SRID the commit
+    will store: the override, else the detected one, else 4326.
+    """
+    detected = info.get("srid")
+    staged = refresh_policy.declared_geometry_contract(
+        info.get("geometry_type"),
+        srid=srid_override
+        if srid_override is not None
+        else (detected if detected is not None else 4326),
+    )
+    srid, is_3d, n_dims = live_geometry
+    live = refresh_policy.geometry_contract(
+        # Read only when the staged side can be compared with it.
+        geometry_types=await get_catalog_port().get_geometry_types(db, live_table)
+        if staged.families
+        else None,
+        srid=srid,
+        is_3d=is_3d,
+        n_dims=n_dims,
+    )
+    reasons = refresh_policy.review_reasons(
+        schema_diff=diff,
+        fetched_feature_count=info.get("feature_count"),
+        live=live,
+        staged=staged,
+    )
+    subject = refresh_policy.review_subject(reasons, diff, live, staged)
+    return reasons, refresh_policy.review_fingerprint(subject)
 
 
 def _require_reupload_source(job, is_service_refresh: bool) -> None:

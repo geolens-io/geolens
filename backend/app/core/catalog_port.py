@@ -158,7 +158,9 @@ class CatalogPort(Protocol):
         self, file_path: str, *, layer_name: str | None = None, sample_limit: int = 5
     ) -> dict[str, Any]: ...
 
-    def reupload_file_task(self) -> Any: ...
+    def reupload_file_task(self) -> Any:
+        """The verified file-replacement task, under a name pre-change workers lack."""
+        ...
 
     def reupload_service_task(self) -> Any: ...
 
@@ -217,6 +219,16 @@ class CatalogPort(Protocol):
         *,
         schema: str | None = None,
     ) -> list[dict[str, Any]]: ...
+
+    def stored_column_name(self, source_name: str) -> str: ...
+
+    async def get_geometry_types(
+        self,
+        session: AsyncSession,
+        table_name: str,
+        *,
+        schema: str | None = None,
+    ) -> list[str] | None: ...
 
     async def generate_attribute_metadata(
         self,

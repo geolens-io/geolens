@@ -33,6 +33,7 @@ import {
   vrtGenerationColors,
 } from '@/lib/status-colors';
 import { useAuthStore } from '@/stores/auth-store';
+import { useDrawingStore } from '@/stores/drawing-store';
 import type {
   DatasetOrigin,
   DatasetRefreshRequest,
@@ -57,8 +58,15 @@ export interface SourcePanelProps {
    *  active run row in the refresh history. */
   canEdit?: boolean;
   refreshBusy?: boolean;
-  onAcceptBlockedRun?: (run: { id: string; verificationPolicy?: DatasetRefreshRequest['verification_policy'] }) => void;
+  onAcceptBlockedRun?: (run: BlockedRunToAccept) => void;
   onSyncRunDispatched?: (runId: string) => void;
+}
+
+/** A blocked run a person chose to accept. `upload` marks a held-back file replacement. */
+export interface BlockedRunToAccept {
+  id: string;
+  verificationPolicy?: DatasetRefreshRequest['verification_policy'];
+  upload?: boolean;
 }
 
 type PointerField = {
@@ -324,7 +332,7 @@ function RefreshRunHistory({
   dataset: DatasetResponse;
   canEdit: boolean;
   refreshBusy?: boolean;
-  onAcceptBlockedRun?: (run: { id: string; verificationPolicy?: DatasetRefreshRequest['verification_policy'] }) => void;
+  onAcceptBlockedRun?: (run: BlockedRunToAccept) => void;
 }) {
   const { t, i18n } = useTranslation('dataset');
   const [limit, setLimit] = useState(5);
@@ -332,6 +340,10 @@ function RefreshRunHistory({
   const refreshRunQuery = skip > 0 ? { skip, limit } : { limit };
   const { data, isLoading, isError, isFetching } = useDatasetRefreshRuns(dataset.id, refreshRunQuery);
   const cancelRefreshJob = useCancelRefreshJob();
+  // The refresh action refuses while a feature of this dataset is selected.
+  const hasSelectedFeature = useDrawingStore(
+    (s) => s.targetDatasetId === dataset.id && s.selectedFeature !== null,
+  );
   const runs = useMemo(() => data?.runs ?? [], [data?.runs]);
   const targetRunId = typeof window !== 'undefined' && window.location.hash.startsWith('#refresh-run-')
     ? window.location.hash.slice(1)
@@ -464,15 +476,18 @@ function RefreshRunHistory({
               )}
               {run.verification && (
                 <div className="mt-2 space-y-1 text-xs text-muted-foreground">
-                  <p>
-                    {run.verification.source_count == null
-                      ? t('sourcePanel.refresh.history.sourceCountUnavailable')
-                      : t('sourcePanel.refresh.history.countEvidence', {
-                        source: run.verification.source_count.toLocaleString(i18n.language),
-                        fetched: (run.verification.fetched_count ?? 0).toLocaleString(i18n.language),
-                      })}
-                  </p>
-                  {run.verification.identity_check === 'unavailable' && (
+                  {/* A file has no source to count or identify records against. */}
+                  {run.origin_kind !== 'upload' && (
+                    <p>
+                      {run.verification.source_count == null
+                        ? t('sourcePanel.refresh.history.sourceCountUnavailable')
+                        : t('sourcePanel.refresh.history.countEvidence', {
+                          source: run.verification.source_count.toLocaleString(i18n.language),
+                          fetched: (run.verification.fetched_count ?? 0).toLocaleString(i18n.language),
+                        })}
+                    </p>
+                  )}
+                  {run.origin_kind !== 'upload' && run.verification.identity_check === 'unavailable' && (
                     <p>{t('sourcePanel.refresh.history.identityUnavailable')}</p>
                   )}
                   {typeof run.verification.source_binding.url === 'string'
@@ -503,26 +518,34 @@ function RefreshRunHistory({
                   {run.status === 'blocked'
                     && canEdit
                     && run.verification
-                    && matchesCurrentServiceBinding(dataset, run.verification.source_binding)
+                    && (run.origin_kind === 'upload'
+                      || matchesCurrentServiceBinding(dataset, run.verification.source_binding))
                     && run.verification.review_fingerprint
                     && !run.verification.acceptance_consumed_by_run_id
                     && onAcceptBlockedRun && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={refreshBusy}
-                      onClick={() => {
-                        const sourcePolicy = run.verification?.source_binding.verification_policy;
-                        const verificationPolicy = sourcePolicy === 'arcgis_id_set_v1'
-                          ? sourcePolicy
-                          : run.verification?.verification_policy === 'arcgis_id_set_v1'
-                            ? run.verification.verification_policy
-                            : undefined;
-                        onAcceptBlockedRun({ id: run.id, verificationPolicy });
-                      }}
-                    >
-                      {t('sourcePanel.refresh.history.reviewAndRetry')}
-                    </Button>
+                    <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={refreshBusy || hasSelectedFeature}
+                        onClick={() => {
+                          const sourcePolicy = run.verification?.source_binding.verification_policy;
+                          const verificationPolicy = sourcePolicy === 'arcgis_id_set_v1'
+                            ? sourcePolicy
+                            : run.verification?.verification_policy === 'arcgis_id_set_v1'
+                              ? run.verification.verification_policy
+                              : undefined;
+                          onAcceptBlockedRun(run.origin_kind === 'upload'
+                            ? { id: run.id, upload: true }
+                            : { id: run.id, verificationPolicy });
+                        }}
+                      >
+                        {t('sourcePanel.refresh.history.reviewAndRetry')}
+                      </Button>
+                      {hasSelectedFeature && (
+                        <p>{t('sourcePanel.refresh.featureEditBlockedHint')}</p>
+                      )}
+                    </>
                   )}
                 </div>
               )}

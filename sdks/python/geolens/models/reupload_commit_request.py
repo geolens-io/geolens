@@ -36,6 +36,9 @@ class ReuploadCommitRequest:
         layer_name (None | str | Unset):
         auth (None | ServiceAuthRequest | Unset): Structured credential for a protected service. Mutually exclusive with
             the token field.
+        review_fingerprint (None | str | Unset): The preview's `review_fingerprint`, sent once a person has seen the
+            changes it describes. A file replacement with review reasons publishes only when the worker's own fingerprint
+            matches; otherwise its run ends `blocked`. Service re-uploads ignore it.
     """
 
     srid_override: int | None | Unset = UNSET
@@ -45,6 +48,7 @@ class ReuploadCommitRequest:
     token: None | str | Unset = UNSET
     layer_name: None | str | Unset = UNSET
     auth: None | ServiceAuthRequest | Unset = UNSET
+    review_fingerprint: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -84,6 +88,12 @@ class ReuploadCommitRequest:
         else:
             auth = self.auth
 
+        review_fingerprint: None | str | Unset
+        if isinstance(self.review_fingerprint, Unset):
+            review_fingerprint = UNSET
+        else:
+            review_fingerprint = self.review_fingerprint
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
@@ -97,6 +107,8 @@ class ReuploadCommitRequest:
             field_dict["layer_name"] = layer_name
         if auth is not UNSET:
             field_dict["auth"] = auth
+        if review_fingerprint is not UNSET:
+            field_dict["review_fingerprint"] = review_fingerprint
 
         return field_dict
 
@@ -175,12 +187,24 @@ class ReuploadCommitRequest:
 
         auth = _parse_auth(d.pop("auth", UNSET))
 
+        def _parse_review_fingerprint(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        review_fingerprint = _parse_review_fingerprint(
+            d.pop("review_fingerprint", UNSET)
+        )
+
         reupload_commit_request = cls(
             srid_override=srid_override,
             expected_origin_kind=expected_origin_kind,
             token=token,
             layer_name=layer_name,
             auth=auth,
+            review_fingerprint=review_fingerprint,
         )
 
         reupload_commit_request.additional_properties = d

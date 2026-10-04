@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from functools import partial, wraps
 
 import structlog
-from sqlalchemy import select, text
+from sqlalchemy import exists, select, text
 
 from app.core.db.tenant_session import tenant_task
 from app.core.failure_reason import FixedReason
@@ -201,6 +201,87 @@ async def _detect_reupload_crs(
     return info, effective_srid
 
 
+async def _hold_live_table(session, dataset, *, schema: str) -> None:
+    """Hold the live table still and re-read the dataset row that describes it.
+
+    Column edits and feature writes take the table before the dataset row, so
+    this waits for those in flight and keeps new ones out until the swap. It is
+    the swap's own lock, taken once: a feature write that already holds the
+    table can't then wait on an upgrade.
+    """
+    from app.platform.catalog_locks import worker_lock_budget
+    from app.processing.ingest.metadata import _qtable
+
+    live = _qtable(dataset.table_name, schema=schema)
+    # Bound as `schema`, so the tenant binder reads it under the tenant's role.
+    if await session.scalar(
+        text(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema = :schema AND table_name = :table)"
+        ),
+        {"schema": schema, "table": dataset.table_name},
+    ):
+        async with worker_lock_budget(session):
+            await session.execute(
+                # codeql[py/sql-injection] identifiers validated by _qtable (metadata_sql.py)
+                text(f"LOCK TABLE {live} IN ACCESS EXCLUSIVE MODE")
+            )
+    await session.refresh(
+        dataset,
+        attribute_names=[
+            "column_info",
+            "feature_count",
+            "srid",
+            "is_3d",
+            "n_dims",
+            "current_version",
+        ],
+    )
+
+
+async def _live_geometry_types(table_name: str, *, schema: str) -> list[str] | None:
+    """The live table's geometry types, read on a connection of its own.
+
+    Its lock ends with the read, so publication takes the live table only once,
+    outright, before it compares.
+    """
+    from app.core.db import async_session
+    from app.processing.ingest.metadata import get_geometry_types
+
+    # Counts are re-read under the lock; a geometry-only edit is overwritten like any edit.
+    async with async_session() as session:
+        return await get_geometry_types(session, table_name, schema=schema)
+
+
+async def _staged_input_needed_elsewhere(job_id: str, file_path: str) -> bool:
+    """Whether another job still needs this staged upload, such as a blocked run's.
+
+    True when that can't be read: an accepting attempt can fail before it has
+    read its own job, and its upload must outlive it for the next acceptance.
+    """
+    from app.core.db import async_session
+    from app.platform.jobs.models import IngestJob, needs_staged_input
+
+    try:
+        async with async_session() as session:
+            return bool(
+                await session.scalar(
+                    select(
+                        exists().where(
+                            IngestJob.file_path == file_path,
+                            IngestJob.id != uuid.UUID(job_id),
+                            needs_staged_input(),
+                        )
+                    )
+                )
+            )
+    except Exception:  # broad: an unreadable answer keeps the upload
+        structlog.get_logger().warning(
+            "reupload_staged_input_check_failed", job_id=job_id
+        )
+        return True
+
+
 class _FileReupload:
     """A browser upload's bytes, loaded by ogr2ogr into this attempt's table."""
 
@@ -217,6 +298,9 @@ class _FileReupload:
         # Set when the upload fails the safety checks: recorded, not raised.
         self.refused = False
         self.owned_staging_key: str | None = None
+        self.verification: dict | None = None
+        # Kept while a person can still accept this upload's blocked run.
+        self.held = False
 
     def prepare(self, job, dataset, staging_table: str) -> None:
         # Read off the row, not the local `file_path` a download rebinds.
@@ -224,9 +308,16 @@ class _FileReupload:
             job.id, job.user_metadata, job.file_path
         )
         self.staging_table = staging_table
+        self.live_table = dataset.table_name
         self.attempt_id = job.attempt_id
         self.source_filename = job.source_filename
         self.user_metadata = job.user_metadata or {}
+        self.reviewed_fingerprint = self.user_metadata.get("review_fingerprint")
+        self.accepted_fingerprint = self.user_metadata.get(
+            "accepted_refresh_fingerprint"
+        )
+        self.accepted_run_id = self.user_metadata.get("accepted_refresh_run_id")
+        self.accepted_version = self.user_metadata.get("accepted_dataset_version")
         self.prior_record_type = dataset.record.record_type
         self.prior_geometry_type = dataset.geometry_type
         # The user-chosen layer of a multi-layer file.
@@ -276,11 +367,18 @@ class _FileReupload:
         self.source_format = await asyncio.to_thread(
             derive_source_format, self.file_path
         )
+        # Read while no publication session holds a pooled connection.
+        self.live_geometry_types = await _live_geometry_types(
+            self.live_table, schema=_current_tenant_schema()
+        )
 
     async def stage(self, session, job, dataset) -> Verdict:
         # Rename source columns that collide with GeoLens-internal names,
         # before the post-process steps so they cannot clash.
-        from app.processing.ingest.metadata import rename_reserved_columns
+        from app.processing.ingest.metadata import (
+            get_geometry_types,
+            rename_reserved_columns,
+        )
 
         reserved_renames = await rename_reserved_columns(
             session, self.staging_table, schema=_current_tenant_schema()
@@ -333,7 +431,72 @@ class _FileReupload:
         # Tell the user when the Web Mercator clamp destroyed geometry,
         # instead of leaving them to discover it downstream.
         _append_mercator_clip_warning(job, staging_result.mercator_clip)
-        return PUBLISH
+        # Read before the live table is locked: it scans only the staged rows.
+        self.staged_geometry_types = await get_geometry_types(
+            session, self.staging_table, schema=_current_tenant_schema()
+        )
+        return Verdict(verify=self._verify)
+
+    async def _verify(self, session, dataset) -> Verdict:
+        schema = _current_tenant_schema()
+        await _hold_live_table(session, dataset, schema=schema)
+        if (
+            self.accepted_run_id is not None
+            and dataset.current_version != self.accepted_version
+        ):
+            raise RefreshPublicationFenceError(
+                "review_superseded", refresh_policy.REVIEW_SUPERSEDED
+            )
+        # The function and transaction `project()` diffs with after the swap.
+        self.schema_diff = catalog_projection.schema_diff(dataset, self.measurement)
+        self.verification = refresh_policy.verify_file_replacement(
+            schema_diff=self.schema_diff,
+            fetched_feature_count=self.measurement.metadata.get("feature_count"),
+            live=refresh_policy.geometry_contract(
+                geometry_types=self.live_geometry_types,
+                srid=dataset.srid,
+                is_3d=dataset.is_3d,
+                n_dims=dataset.n_dims,
+            ),
+            staged=refresh_policy.geometry_contract(
+                geometry_types=self.staged_geometry_types,
+                srid=self.measurement.metadata.get("srid"),
+                is_3d=self.measurement.three_d.get("is_3d"),
+                n_dims=self.measurement.three_d.get("n_dims"),
+            ),
+            source_binding={
+                "kind": "upload",
+                "filename": self.source_filename,
+                "file_hash": self.file_hash,
+            },
+            reviewed_fingerprint=self.reviewed_fingerprint,
+            accepted_fingerprint=self.accepted_fingerprint,
+            accepted_run_id=self.accepted_run_id,
+        )
+        # What an acceptance of this run must still find live.
+        self.verification["live_version"] = dataset.current_version
+        if self.verification["decision"] == "allowed":
+            return PUBLISH
+        self.held = True
+        return Verdict(
+            publish=False,
+            reason=FixedReason(
+                "Review the detected changes before publication.",
+                code="review_required",
+            ),
+            settle=self._hold_back,
+            notify=False,
+        )
+
+    async def _hold_back(self, session) -> None:
+        # A file contacts no origin, so nothing about one is stamped.
+        await record_refresh_blocked(
+            session,
+            ingest_job_id=uuid.UUID(self.job_id),
+            feature_count_after=self.measurement.metadata.get("feature_count"),
+            schema_diff=self.schema_diff,
+            verification=self.verification,
+        )
 
     async def install(self, session, dataset) -> None:
         await _install_reupload_table(
@@ -371,6 +534,7 @@ class _FileReupload:
             feature_count=self.measurement.metadata.get("feature_count"),
             schema_diff=schema_diff,
             contacted_origin=False,
+            verification=self.verification,
             live_table=dataset.table_name,
             quicklook_table=_quicklook_table(dataset, self.measurement),
             reaps_staged_upload=True,
@@ -414,7 +578,16 @@ class _FileReupload:
                 local_path=self.file_path,
                 owned_presigned_key=self.owned_staging_key,
             ).release_file_replacement(
-                publication=publication, failed=failed, refused=self.refused
+                publication=publication,
+                failed=failed,
+                refused=self.refused,
+                held=self.held
+                or (
+                    failed
+                    and await _staged_input_needed_elsewhere(
+                        self.job_id, self.original_file_path
+                    )
+                ),
             )
 
     def _archive_name(self) -> str:
@@ -447,6 +620,17 @@ async def reupload_file(
     )
 
 
+# Every file replacement is queued under a name introduced with its review
+# verification, so a pre-change worker, which would publish without it, cannot
+# run one. Jobs queued under the old name run the same verified function.
+reupload_verified_file = task_app.task(
+    reupload_file.func,
+    queue="ingest",
+    retry=0,
+    name="app.ingest.tasks.reupload_verified_file",
+)
+
+
 def _file_refresh_error_code(exc: BaseException) -> str:
     """Map a file-reupload failure onto its run ``error_code``.
 
@@ -455,6 +639,8 @@ def _file_refresh_error_code(exc: BaseException) -> str:
     """
     if isinstance(exc, CatalogLockConflict):
         return CATALOG_LOCK_CONFLICT_CODE
+    if isinstance(exc, RefreshPublicationFenceError):
+        return exc.code
     return "file_refresh_failed"
 
 
@@ -844,6 +1030,7 @@ class _ServiceReupload:
 
     def prepare(self, job, dataset, staging_table: str) -> None:
         self.staging_table = staging_table
+        self.live_table = dataset.table_name
         # A failure's contact stamp lands only while the dataset keeps the
         # origin this attempt fetched from.
         self.bound = (dataset.origin_uri, dataset.origin_ref, dataset.source_format)
@@ -945,6 +1132,12 @@ class _ServiceReupload:
             )
         except ValueError as exc:
             raise IngestionError(str(exc)) from exc
+        if not self.is_refresh:
+            return
+        # Read while no publication session holds a pooled connection.
+        self.live_geometry_types = await _live_geometry_types(
+            self.live_table, schema=_current_tenant_schema()
+        )
 
     async def stage(self, session, job, dataset) -> Verdict:
         from app.processing.ingest.metadata import (
@@ -963,7 +1156,6 @@ class _ServiceReupload:
             table=self.staging_table,
             schema=schema,
             staged=staged,
-            score=False,
         )
         # Verification compares this fetch, not the preview's: a live
         # service can have changed since the preview was taken.
@@ -974,11 +1166,11 @@ class _ServiceReupload:
         if not self.is_refresh:
             return PUBLISH
 
-        geometry_type, srid, coordinate_dimension = await _staged_geometry_contract(
+        self.staged_geometry = await _staged_geometry_contract(
             session, schema=schema, table=self.staging_table
         )
         credential_version = self.options.get("credential_version")
-        source_binding = {
+        self.source_binding = {
             "service_type": self.source_format,
             "url": self.source_url_value,
             "layer_id": service_layer_identity(
@@ -1000,36 +1192,42 @@ class _ServiceReupload:
                 token=self.token,
             ),
         }
+        self.content_digest = await compute_table_content_digest(
+            session, self.staging_table, schema=schema, has_geometry=staged.has_geometry
+        )
+        self.staged_contract = refresh_policy.geometry_contract(
+            geometry_types=await get_geometry_types(
+                session, self.staging_table, schema=schema
+            ),
+            srid=self.measurement.metadata.get("srid"),
+            is_3d=self.measurement.three_d.get("is_3d"),
+            n_dims=self.measurement.three_d.get("n_dims"),
+        )
+        return Verdict(verify=self._verify)
+
+    async def _verify(self, session, dataset) -> Verdict:
+        schema = _current_tenant_schema()
+        await _hold_live_table(session, dataset, schema=schema)
+        self.measured_schema_diff = catalog_projection.schema_diff(
+            dataset, self.measurement
+        )
+        geometry_type, srid, coordinate_dimension = self.staged_geometry
         self.verification = refresh_policy.verify_service_refresh(
-            source_binding=source_binding,
+            source_binding=self.source_binding,
             schema_diff=self.measured_schema_diff,
             expected_feature_count=self.expected_feature_count,
             fetched_feature_count=self.measured_feature_count,
-            content_digest=await compute_table_content_digest(
-                session,
-                self.staging_table,
-                schema=schema,
-                has_geometry=staged.has_geometry,
-            ),
+            content_digest=self.content_digest,
             staged_geometry_type=geometry_type,
             staged_srid=srid,
             staged_coordinate_dimension=coordinate_dimension,
             live=refresh_policy.geometry_contract(
-                geometry_types=await get_geometry_types(
-                    session, dataset.table_name, schema=schema
-                ),
+                geometry_types=self.live_geometry_types,
                 srid=dataset.srid,
                 is_3d=dataset.is_3d,
                 n_dims=dataset.n_dims,
             ),
-            staged=refresh_policy.geometry_contract(
-                geometry_types=await get_geometry_types(
-                    session, self.staging_table, schema=schema
-                ),
-                srid=self.measurement.metadata.get("srid"),
-                is_3d=self.measurement.three_d.get("is_3d"),
-                n_dims=self.measurement.three_d.get("n_dims"),
-            ),
+            staged=self.staged_contract,
             accepted_fingerprint=self.accepted_fingerprint,
             accepted_run_id=self.accepted_run_id,
         )
@@ -1082,15 +1280,6 @@ class _ServiceReupload:
             )
 
     async def install(self, session, dataset) -> None:
-        # Scored once publication is allowed: the quality scan reads the
-        # whole staged table.
-        self.measurement = await catalog_projection.scored(
-            session,
-            dataset,
-            self.measurement,
-            table=self.staging_table,
-            schema=_current_tenant_schema(),
-        )
         await _install_reupload_table(
             session,
             dataset=dataset,
