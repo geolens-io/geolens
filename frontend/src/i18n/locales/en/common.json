@@ -527,6 +527,7 @@
     "loadFailed": "Failed to load maps: {{message}}",
     "noMapsYet": "No maps yet",
     "noMapsMatch": "No maps match your current filters.",
+    "noMatchingMaps": "No matching maps",
     "noMapsDescription": "Create a map to start composing layers from your catalog.",
     "createFirstMap": "Create your first map",
     "deleted": "Map deleted",

@@ -527,6 +527,7 @@
     "loadFailed": "加载地图失败：{{message}}",
     "noMapsYet": "还没有地图",
     "noMapsMatch": "没有符合当前筛选条件的地图。",
+    "noMatchingMaps": "没有匹配的地图",
     "noMapsDescription": "创建一张地图，开始用目录中的数据组合图层。",
     "createFirstMap": "创建您的第一张地图",
     "deleted": "地图已删除",

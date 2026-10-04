@@ -203,7 +203,11 @@ export function MapsPage() {
       {data && data.total === 0 && (
         <EmptyState
           icon={MapIcon}
-          title={t('maps.noMapsYet')}
+          title={
+            debouncedSearch || visibility !== 'all'
+              ? t('maps.noMatchingMaps')
+              : t('maps.noMapsYet')
+          }
           // keepPreviousData holds the old empty page while a new query loads.
           announce={!isFetching}
           announceTrigger={`${debouncedSearch}|${visibility}`}

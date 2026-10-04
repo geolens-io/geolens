@@ -510,6 +510,7 @@
     "loadFailed": "Error al cargar mapas: {{message}}",
     "noMapsYet": "Aún no hay mapas",
     "noMapsMatch": "Ningún mapa coincide con los filtros actuales.",
+    "noMatchingMaps": "Ningún mapa coincide",
     "noMapsDescription": "Cree un mapa para empezar a componer capas de su catálogo.",
     "createFirstMap": "Crear su primer mapa",
     "deleted": "Mapa eliminado",

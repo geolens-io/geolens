@@ -60,7 +60,7 @@ describe('MapsPage empty-state announcement', () => {
     await waitFor(() => expect(matchAnnounced()).toBe(true), { timeout: 3000 });
 
     search('b');
-    await waitFor(() => expect(screen.queryByText(/no maps yet/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('No matching maps')).toBeInTheDocument());
     // Debounce (300 ms) has fired and the request is in flight.
     await new Promise((resolve) => setTimeout(resolve, 380));
     expect(matchAnnounced()).toBe(false);
@@ -78,5 +78,14 @@ describe('MapsPage empty-state announcement', () => {
     expect(matchAnnounced()).toBe(false);
     await waitFor(() => expect(screen.getByText('Alps')).toBeInTheDocument(), { timeout: 3000 });
     expect(matchAnnounced()).toBe(false);
+  });
+
+  it('titles an unfiltered empty list "No maps yet" and a filtered one "No matching maps"', async () => {
+    responses = { a: EMPTY };
+    render(<MapsPage />);
+    expect(screen.getByText('No maps yet')).toBeInTheDocument();
+    search('a');
+    await waitFor(() => expect(screen.getByText('No matching maps')).toBeInTheDocument(), { timeout: 3000 });
+    expect(screen.queryByText('No maps yet')).not.toBeInTheDocument();
   });
 });
