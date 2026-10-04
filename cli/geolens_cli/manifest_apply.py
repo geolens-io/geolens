@@ -17,6 +17,7 @@ from rich.table import Table
 
 from ._sdk_helpers import (
     EXIT_AUTH,
+    EXIT_BLOCKED,
     EXIT_GENERIC,
     EXIT_NETWORK,
     EXIT_SERVER,
@@ -585,6 +586,74 @@ def apply_report_payload(path: Path, response: Mapping[str, Any]) -> dict[str, A
     }
 
 
+def wait_for_apply_jobs(
+    client: Any,
+    response: Mapping[str, Any],
+    *,
+    instance: str,
+    credential_kind: str,
+    credential_provenance: str | None,
+) -> dict[str, Any]:
+    """Follow every queued job to its end and stamp each result with the outcome.
+
+    An update runs under a refresh run, found through the job that queued it.
+    A job with no run (a first import) is followed through the job itself.
+    ``final_status`` is one of complete, failed, blocked or cancelled.
+    """
+    from uuid import UUID
+
+    from . import refresh as _refresh
+
+    waited = copy.deepcopy(dict(response))
+    results = waited.get("results")
+    if not isinstance(results, list):
+        return waited
+    for result in results:
+        if not (
+            isinstance(result, dict)
+            and result.get("action") in {"create", "update"}
+            and result.get("job_id")
+        ):
+            continue
+        job_id = UUID(str(result["job_id"]))
+        poll = None
+        if result.get("dataset_id"):
+            try:
+                poll = _refresh.wait_for_refresh_run(
+                    client,
+                    UUID(str(result["dataset_id"])),
+                    None,
+                    ingest_job_id=job_id,
+                    instance=instance,
+                    credential_kind=credential_kind,
+                    credential_provenance=credential_provenance,
+                )
+            except _refresh.RefreshRequestError:
+                poll = None
+        if poll is None:
+            poll = _refresh.wait_for_refresh(client, job_id)
+        result["final_status"] = "complete" if poll.succeeded else poll.status
+        result["run_id"] = poll.run_id
+        if poll.error_message:
+            result["error_message"] = poll.error_message
+        if poll.status == "blocked":
+            result["review_reasons"] = _refresh.blocked_review_reasons(poll)
+    return waited
+
+
+def apply_wait_exit_code(response: Mapping[str, Any]) -> int:
+    """1 if anything errored or failed, else 6 if anything is blocked, else 0."""
+    if has_apply_errors(response):
+        return EXIT_GENERIC
+    results = response.get("results", [])
+    if any(
+        isinstance(result, Mapping) and result.get("final_status") == "blocked"
+        for result in results
+    ):
+        return EXIT_BLOCKED
+    return 0
+
+
 def has_apply_errors(response: Mapping[str, Any]) -> bool:
     """Return True when the backend rejected or any result is an error."""
 
@@ -594,7 +663,11 @@ def has_apply_errors(response: Mapping[str, Any]) -> bool:
     if not isinstance(results, list):
         return False
     return any(
-        isinstance(result, Mapping) and result.get("action") == "error"
+        isinstance(result, Mapping)
+        and (
+            result.get("action") == "error"
+            or result.get("final_status") in {"failed", "cancelled", "timed_out"}
+        )
         for result in results
     )
 
@@ -631,9 +704,14 @@ def render_apply_summary(
     table.add_column("ACTION")
     table.add_column("DATASET ID", overflow="fold")
     table.add_column("JOB ID", overflow="fold")
+    results = response.get("results", [])
+    waited = isinstance(results, list) and any(
+        isinstance(result, Mapping) and "final_status" in result for result in results
+    )
+    if waited:
+        table.add_column("STATUS")
     table.add_column("MESSAGE", overflow="fold")
 
-    results = response.get("results", [])
     if isinstance(results, list):
         for result in results:
             if not isinstance(result, Mapping):
@@ -643,6 +721,7 @@ def render_apply_summary(
                 _cell(result, "action"),
                 _cell(result, "dataset_id"),
                 _cell(result, "job_id"),
+                *((_cell(result, "final_status"),) if waited else ()),
                 _cell(result, "message"),
             )
 

@@ -25,7 +25,7 @@ from uuid import UUID
 
 from . import publish as _publish
 from ._sdk_helpers import EXIT_AUTH, EXIT_GENERIC, EXIT_SERVER, call_sdk, long_request_timeout
-from .refresh import _problem_detail
+from .refresh import _problem_detail, review_reason_sentence
 
 #: Upload returns 201 Created (ReuploadResponse). Cited:
 #: sdks/python/geolens/api/datasets_reupload/
@@ -189,14 +189,19 @@ def captured_origin_kind(dataset: Any) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 
-def build_preview_request(layer_name: Optional[str]) -> Any:
-    """Build the reupload preview request body (UNSET when no layer given)."""
+def build_preview_request(
+    layer_name: Optional[str], srid_override: Optional[int] = None
+) -> Any:
+    """Build the reupload preview request body (UNSET when nothing is set)."""
     from geolens.models.reupload_preview_request import ReuploadPreviewRequest
     from geolens.types import UNSET
 
-    if layer_name is None:
+    if layer_name is None and srid_override is None:
         return UNSET
-    return ReuploadPreviewRequest(layer_name=layer_name)
+    return ReuploadPreviewRequest(
+        layer_name=layer_name if layer_name is not None else UNSET,
+        srid_override=srid_override if srid_override is not None else UNSET,
+    )
 
 
 def build_commit_request(
@@ -204,8 +209,12 @@ def build_commit_request(
     layer_name: Optional[str],
     srid_override: Optional[int],
     expected_origin_kind: Optional[str] = None,
+    review_fingerprint: Optional[str] = None,
 ) -> Any:
     """Build a ReuploadCommitRequest. No ``token``; replace is file-only.
+
+    ``review_fingerprint`` is the preview's, sent only after a person
+    confirmed that preview; it acknowledges the reasons the preview listed.
 
     fix(#1768): ``expected_origin_kind`` is the origin ``origin_refusal_message``
     above read and allowed, sent back so the commit door can refuse if it is no
@@ -227,6 +236,7 @@ def build_commit_request(
         expected_origin_kind=(
             expected_origin_kind if expected_origin_kind in KNOWN_ORIGIN_KINDS else UNSET
         ),
+        review_fingerprint=review_fingerprint or UNSET,
     )
 
 
@@ -268,14 +278,71 @@ def is_multi_layer(preview: Any) -> bool:
     return len(layer_summaries(preview)) > 0
 
 
+def _set(value: Any) -> Any:
+    from geolens.types import Unset
+
+    return None if isinstance(value, Unset) else value
+
+
+def preview_review_fingerprint(preview: Any) -> Optional[str]:
+    """The fingerprint to send once a person confirmed this preview."""
+    return _set(getattr(preview, "review_fingerprint", None)) or None
+
+
+def _schema_diff_summary(diff: Any) -> dict[str, Any]:
+    """Columns removed, retyped and added, with old and new row counts."""
+    return {
+        "columns_removed": [
+            {"name": c.name, "type": c.type_} for c in getattr(diff, "columns_removed", [])
+        ],
+        "type_changes": [
+            {"name": c.name, "old_type": c.old_type, "new_type": c.new_type}
+            for c in getattr(diff, "type_changes", [])
+        ],
+        "columns_added": [
+            {"name": c.name, "type": c.type_} for c in getattr(diff, "columns_added", [])
+        ],
+        "rows_old": getattr(diff, "row_count_old", None),
+        "rows_new": getattr(diff, "row_count_new", None),
+    }
+
+
 def preview_summary(preview: Any) -> dict[str, Any]:
     """Select the stable preview fields worth printing before commit."""
-    return {
+    summary: dict[str, Any] = {
         "layer_name": getattr(preview, "layer_name", None),
         "feature_count": getattr(preview, "feature_count", None),
         "srid": getattr(preview, "crs", None),
         "geometry_type": getattr(preview, "geometry_type", None),
     }
+    diff = _set(getattr(preview, "schema_diff", None))
+    if hasattr(diff, "columns_removed"):
+        summary["schema_diff"] = _schema_diff_summary(diff)
+    reasons = _set(getattr(preview, "review_reasons", None)) or []
+    summary["review_reasons"] = [
+        {"code": str(code), "message": review_reason_sentence(str(code))} for code in reasons
+    ]
+    return summary
+
+
+def review_lines(summary: dict[str, Any]) -> list[str]:
+    """What a replace would change, as lines to print before the prompt."""
+    lines: list[str] = []
+    diff = summary.get("schema_diff")
+    if diff:
+        lines.append(f"Rows: {diff['rows_old']} now, {diff['rows_new']} in the file")
+        for column in diff["columns_removed"]:
+            lines.append(f"Removed column: {column['name']} ({column['type']})")
+        for change in diff["type_changes"]:
+            lines.append(
+                f"Retyped column: {change['name']} "
+                f"({change['old_type']} -> {change['new_type']})"
+            )
+        for column in diff["columns_added"]:
+            lines.append(f"Added column: {column['name']} ({column['type']})")
+    for reason in summary.get("review_reasons", []):
+        lines.append(f"Needs review: {reason['message']}")
+    return lines
 
 
 def multi_layer_refusal_message(layers: list[dict[str, Any]]) -> str:

@@ -813,12 +813,34 @@ class TestRefreshWait:
             ["--json", "refresh", str(DATASET_ID), "--wait"],
         )
 
-        assert result.exit_code == 1
+        assert result.exit_code == 6
         payload = json.loads(result.output)
         assert payload["status"] == "blocked"
         assert payload["verification"]["review_reasons"] == [
             "destructive_schema_change"
         ]
+
+    def test_human_blocked_output_names_the_reasons_and_the_accept_command(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login(mock_keyring)
+        _patch_refresh_endpoint(monkeypatch, _accepted())
+        _patch_run(
+            monkeypatch,
+            status="blocked",
+            verification={"review_reasons": ["srid_changed"]},
+        )
+
+        result = runner.invoke(app, ["refresh", str(DATASET_ID), "--wait"])
+
+        assert result.exit_code == 6, result.output
+        assert "coordinate reference system" in result.output
+        assert (
+            f"Accept with: geolens refresh {DATASET_ID} --accept-blocked-run {RUN_ID}"
+            in result.output
+        )
 
     def test_run_poll_keeps_the_reauthenticated_client(self, monkeypatch) -> None:
         from geolens_cli.refresh import wait_for_refresh_run

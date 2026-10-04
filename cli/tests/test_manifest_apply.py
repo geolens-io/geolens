@@ -1305,3 +1305,111 @@ def test_apply_remote_source_still_posts(
 
     assert result.exit_code == 0, result.output
     assert sdk.client.httpx_client.calls[0]["url"] == APPLY_ENDPOINT
+
+
+class TestApplyWait:
+    """`geolens apply --wait` follows each queued job and exits by precedence."""
+
+    DATASETS = {
+        "roads": "00000000-0000-0000-0000-0000000000a1",
+        "parks": "00000000-0000-0000-0000-0000000000a2",
+    }
+
+    def _setup(self, monkeypatch, outcomes: dict[str, str], extra=()):
+        from types import SimpleNamespace
+
+        from geolens_cli import refresh as _refresh
+
+        results = [
+            {
+                "dataset_key": key,
+                "action": "update",
+                "job_id": f"00000000-0000-0000-0000-0000000000b{i}",
+                "dataset_id": dataset_id,
+                "message": "queued",
+                "errors": [],
+            }
+            for i, (key, dataset_id) in enumerate(self.DATASETS.items(), start=1)
+        ] + list(extra)
+        sdk = _install_fake_sdk(
+            monkeypatch,
+            FakeResponse(200, _apply_response(results=results)),
+        )
+        sdk.client.credential_kind = "bearer"
+        sdk.credential_kind = "bearer"
+        sdk.credential_provenance = None
+        monkeypatch.setattr(AppState, "active_instance", lambda _self: "https://x.example.com")
+
+        def fake_wait(client, dataset_id, run_id, *, ingest_job_id, **_kw):
+            key = next(k for k, v in self.DATASETS.items() if v == str(dataset_id))
+            return _refresh.RefreshPollResult(
+                status=outcomes[key],
+                run_id=f"run-{key}",
+                verification={"review_reasons": ["srid_changed"]},
+            )
+
+        monkeypatch.setattr("geolens_cli.refresh.wait_for_refresh_run", fake_wait)
+        return SimpleNamespace(sdk=sdk)
+
+    @pytest.mark.parametrize(
+        ("outcomes", "extra_error", "expected"),
+        [
+            ({"roads": "succeeded", "parks": "succeeded"}, False, 0),
+            ({"roads": "succeeded", "parks": "blocked"}, False, 6),
+            ({"roads": "failed", "parks": "blocked"}, False, 1),
+            ({"roads": "cancelled", "parks": "blocked"}, False, 1),
+            ({"roads": "succeeded", "parks": "blocked"}, True, 1),
+        ],
+    )
+    def test_exit_precedence(
+        self, runner, monkeypatch, outcomes, extra_error, expected
+    ) -> None:
+        extra = (
+            [{"dataset_key": "bad", "action": "error", "errors": ["nope"], "message": "x"}]
+            if extra_error
+            else []
+        )
+        self._setup(monkeypatch, outcomes, extra)
+
+        result = runner.invoke(app, ["apply", "--wait", str(_remote_manifest_path())])
+
+        assert result.exit_code == expected, result.output
+
+    def test_json_carries_final_status_and_run_id(self, runner, monkeypatch) -> None:
+        self._setup(monkeypatch, {"roads": "succeeded", "parks": "blocked"})
+
+        result = runner.invoke(
+            app, ["--json", "apply", "--wait", str(_remote_manifest_path())]
+        )
+
+        assert result.exit_code == 6
+        by_key = {r["dataset_key"]: r for r in json.loads(result.output)["results"]}
+        assert by_key["roads"]["final_status"] == "complete"
+        assert by_key["parks"]["final_status"] == "blocked"
+        assert by_key["parks"]["run_id"] == "run-parks"
+
+    def test_table_has_a_status_column_and_the_accept_hint(
+        self, runner, monkeypatch
+    ) -> None:
+        self._setup(monkeypatch, {"roads": "succeeded", "parks": "blocked"})
+
+        result = runner.invoke(app, ["apply", "--wait", str(_remote_manifest_path())])
+
+        assert "STATUS" in result.output
+        assert (
+            f"Accept with: geolens refresh {self.DATASETS['parks']} "
+            "--accept-blocked-run run-parks"
+        ) in result.output.replace("\n", " ").replace("  ", " ")
+
+    def test_without_wait_nothing_is_polled(self, runner, monkeypatch) -> None:
+        self._setup(monkeypatch, {"roads": "blocked", "parks": "blocked"})
+
+        def must_not_poll(*a, **k):  # pragma: no cover - guard
+            raise AssertionError("apply without --wait must not poll")
+
+        monkeypatch.setattr("geolens_cli.refresh.wait_for_refresh_run", must_not_poll)
+
+        result = runner.invoke(app, ["apply", str(_remote_manifest_path())])
+
+        assert result.exit_code == 0, result.output
+        assert "STATUS" not in result.output

@@ -82,7 +82,7 @@ class Formatter:
     def info(self, message: str) -> None:
         if self.json_mode or self.quiet:
             return
-        self._stdout.print(message)
+        self._stdout.print(message, soft_wrap=True)
 
     def debug(self, message: str) -> None:
         if self.verbose and not self.json_mode:
