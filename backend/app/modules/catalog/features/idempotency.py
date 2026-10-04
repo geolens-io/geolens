@@ -178,19 +178,19 @@ async def claim_create_key(
     )
     if claimed is None:
         return False
-    # Rows another transaction holds are skipped, so two prunes never wait on
-    # each other and housekeeping cannot fail a create.
+    # SKIP LOCKED keeps concurrent prunes from waiting on each other. MATERIALIZED
+    # evaluates the batch once; a rescanned IN subquery picks a fresh 100 per row.
     expired = (
         select(FeatureCreateKey.id)
         .where(FeatureCreateKey.created_at <= cutoff)
         .order_by(FeatureCreateKey.created_at)
         .limit(_PRUNE_BATCH)
         .with_for_update(skip_locked=True)
+        .cte("expired")
+        .prefix_with("MATERIALIZED")
     )
     await db.execute(
-        delete(FeatureCreateKey).where(
-            FeatureCreateKey.id.in_(expired.scalar_subquery())
-        )
+        delete(FeatureCreateKey).where(FeatureCreateKey.id.in_(select(expired.c.id)))
     )
     return True
 
