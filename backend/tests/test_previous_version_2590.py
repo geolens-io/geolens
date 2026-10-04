@@ -1158,3 +1158,31 @@ async def test_restoring_an_empty_generic_layer_keeps_it_open_to_any_geometry(
         assert line.status_code == 201, line.text
     finally:
         await _cleanup(session, dataset)
+
+
+async def test_a_routine_reading_the_live_table_refuses_the_replacement(
+    test_db_session,
+) -> None:
+    """A SQL-standard routine over the live table blocks the swap, naming the routine."""
+    from app.processing.ingest.previous_version import DependentRelationsBlockSwap
+
+    session = test_db_session
+    admin_id, dataset = await _seed(session)
+    routine = f"count_{uuid.uuid4().hex[:10]}"
+    await session.execute(
+        text(
+            f'CREATE FUNCTION "data"."{routine}"() RETURNS bigint LANGUAGE sql '
+            f'BEGIN ATOMIC SELECT count(*) FROM "data"."{dataset.table_name}"; END'
+        )
+    )
+    await session.commit()
+    try:
+        with pytest.raises(DependentRelationsBlockSwap, match=routine):
+            await _replace(session, dataset, admin_id, ["paris"])
+
+        assert await _names(session, dataset.table_name) == ["New York"]
+    finally:
+        await session.rollback()
+        await session.execute(text(f'DROP FUNCTION IF EXISTS "data"."{routine}"()'))
+        await session.commit()
+        await _cleanup(session, dataset)

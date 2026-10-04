@@ -3,9 +3,9 @@
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# Views (through their rewrite rules) and foreign keys elsewhere that hold a
-# table, or a partition under it, by oid. A rename leaves them reading the
-# renamed table.
+# Views (through their rewrite rules), SQL-standard routine bodies and foreign
+# keys elsewhere that hold a table, or a partition under it, by oid. A rename
+# leaves them reading the renamed table.
 _DEPENDENT_RELATIONS = text(
     """
     WITH target AS (
@@ -29,6 +29,12 @@ _DEPENDENT_RELATIONS = text(
     JOIN pg_class dc ON dc.oid = r.ev_class
     JOIN pg_namespace dn ON dn.oid = dc.relnamespace
     WHERE dc.oid NOT IN (SELECT oid FROM tree)
+    UNION
+    SELECT d.objid::regprocedure::text
+    FROM tree
+    JOIN pg_depend d
+      ON d.refobjid = tree.oid AND d.refclassid = 'pg_class'::regclass
+     AND d.classid = 'pg_proc'::regclass
     UNION
     SELECT format('%I.%I', cn.nspname, cc.relname)
     FROM tree
@@ -57,7 +63,7 @@ async def relation_present(session: AsyncSession, schema: str, name: str) -> boo
 async def dependent_relations(
     session: AsyncSession, schema: str, table: str
 ) -> list[str]:
-    """Other relations that depend on *table*, schema-qualified and sorted."""
+    """Other relations and routines that depend on *table*, schema-qualified and sorted."""
     rows = await session.execute(
         _DEPENDENT_RELATIONS, {"schema": schema, "table": table}
     )
