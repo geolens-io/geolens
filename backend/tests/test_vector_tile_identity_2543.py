@@ -36,8 +36,8 @@ def _vector(table: str, z: int = 0, x: int = 0, y: int = 0) -> str:
     return f"/tiles/data.{table}/{z}/{x}/{y}.pbf"
 
 
-def _cluster(table: str) -> str:
-    return f"/tiles/clusters/data.{table}/0/0/0.pbf"
+def _cluster(table: str, z: int = 0, x: int = 0, y: int = 0) -> str:
+    return f"/tiles/clusters/data.{table}/{z}/{x}/{y}.pbf"
 
 
 def _assert_private(resp) -> None:
@@ -215,6 +215,85 @@ async def test_restricted_tiles_follow_grants(
     assert refused.status_code == 404
 
 
+@pytest.mark.parametrize("change", ["grant_removed", "made_private"])
+async def test_access_is_decided_on_the_live_row_not_the_cached_snapshot(
+    client: AsyncClient,
+    people,
+    mint_key,
+    make_tiles,
+    grant_holder,
+    test_db_session,
+    change: str,
+) -> None:
+    """A grant holder's key loses a restricted tile at once when the grant goes or the dataset turns private."""
+    owner_id, _ = people
+    holder_id, role_id = grant_holder
+    dataset = await make_tiles(owner_id, visibility="restricted")
+    test_db_session.add(DatasetGrant(dataset_id=dataset.id, role_id=role_id))
+    await test_db_session.commit()
+    key, _ = await mint_key(holder_id)
+    path = _vector(dataset.table_name)
+
+    before = await client.get(path, headers={"X-Api-Key": key})
+    assert before.status_code == 200, before.text
+
+    if change == "grant_removed":
+        await test_db_session.execute(
+            text(
+                "DELETE FROM catalog.dataset_grants "
+                "WHERE dataset_id = :d AND role_id = :r"
+            ),
+            {"d": dataset.id, "r": role_id},
+        )
+    else:
+        await test_db_session.execute(
+            text("UPDATE catalog.records SET visibility = 'private' WHERE id = :id"),
+            {"id": dataset.record_id},
+        )
+    await test_db_session.commit()
+
+    after = await client.get(path, headers={"X-Api-Key": key})
+
+    assert after.status_code == 404, after.text
+    _, snapshot = tile_router._VECTOR_SNAPSHOTS.entries[dataset.table_name]
+    assert snapshot.visibility == "restricted", "the snapshot was re-read"
+
+
+@pytest.mark.parametrize(
+    ("record_status", "expected"),
+    [
+        ("published", {"stranger": 200, "owner": 200, "anonymous": 403}),
+        ("draft", {"stranger": 404, "owner": 200, "anonymous": 403}),
+    ],
+)
+async def test_internal_tiles_open_to_any_signed_in_key_once_published(
+    client: AsyncClient,
+    people,
+    mint_key,
+    make_tiles,
+    record_status: str,
+    expected: dict[str, int],
+) -> None:
+    """An internal tile serves every signed-in key when published and only its owner's as a draft."""
+    owner_id, stranger_id = people
+    dataset = await make_tiles(
+        owner_id, visibility="internal", record_status=record_status
+    )
+    owner_key, _ = await mint_key(owner_id)
+    stranger_key, _ = await mint_key(stranger_id)
+    path = _vector(dataset.table_name)
+
+    statuses = {
+        "stranger": (
+            await client.get(path, headers={"X-Api-Key": stranger_key})
+        ).status_code,
+        "owner": (await client.get(path, headers={"X-Api-Key": owner_key})).status_code,
+        "anonymous": (await client.get(path)).status_code,
+    }
+
+    assert statuses == expected
+
+
 async def test_private_draft_serves_owner_and_admin_keys_only(
     client: AsyncClient, people, mint_key, make_tiles, test_db_session
 ) -> None:
@@ -324,8 +403,9 @@ async def test_a_key_stops_opening_tiles_once_it_is_dead(
     assert after.status_code == 401, after.text
 
 
+@pytest.mark.parametrize("route", [_vector, _cluster])
 async def test_private_tile_responses_stay_private_and_vary_on_credentials(
-    client: AsyncClient, people, mint_key, make_tiles, monkeypatch
+    client: AsyncClient, people, mint_key, make_tiles, monkeypatch, route
 ) -> None:
     """200, 204 and 304 private responses are private with Vary, even under a hosted public override."""
     owner_id, _ = people
@@ -337,12 +417,12 @@ async def test_private_tile_responses_stay_private_and_vary_on_credentials(
         lambda _tid: (None, "public, max-age=60, s-maxage=600"),
     )
 
-    full = await client.get(_vector(dataset.table_name), params={"api_key": key})
+    full = await client.get(route(dataset.table_name), params={"api_key": key})
     empty = await client.get(
-        _vector(dataset.table_name, 18, 100000, 100000), headers={"X-Api-Key": key}
+        route(dataset.table_name, 18, 100000, 100000), headers={"X-Api-Key": key}
     )
     unchanged = await client.get(
-        _vector(dataset.table_name),
+        route(dataset.table_name),
         headers={"X-Api-Key": key, "If-None-Match": full.headers["etag"]},
     )
 
@@ -355,14 +435,15 @@ async def test_private_tile_responses_stay_private_and_vary_on_credentials(
         _assert_private(resp)
 
 
+@pytest.mark.parametrize("route", [_vector, _cluster])
 async def test_public_tiles_stay_public_unless_the_key_is_in_the_query(
-    client: AsyncClient, people, mint_key, make_tiles
+    client: AsyncClient, people, mint_key, make_tiles, route
 ) -> None:
     """A public tile is shared-cacheable anonymously or with a header key, never with ?api_key=."""
     owner_id, _ = people
     key, _ = await mint_key(owner_id)
     dataset = await make_tiles(owner_id, visibility="public")
-    path = _vector(dataset.table_name)
+    path = route(dataset.table_name)
 
     anonymous = await client.get(path)
     header_key = await client.get(path, headers={"X-Api-Key": key})
