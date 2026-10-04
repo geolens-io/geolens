@@ -134,6 +134,7 @@ export function BuilderDialogs({
           // while this dialog stays open across the switch.
           key={mapId}
           mapId={mapId}
+          mapName={mapData.name}
           visibility={mapData.visibility ?? 'private'}
           open={showShare}
           onOpenChange={onShowShareChange}

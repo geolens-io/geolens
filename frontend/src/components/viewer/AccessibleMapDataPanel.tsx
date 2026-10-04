@@ -1,6 +1,7 @@
 /* eslint-disable jsx-a11y/no-noninteractive-tabindex -- the named overflow region must be keyboard-scrollable */
 import { RefreshCw, TableProperties } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useDebouncedValue } from '@/hooks/use-debounce';
 import { Button } from '@/components/ui/button';
 import {
   Sheet,
@@ -24,6 +25,8 @@ interface AccessibleMapDataPanelProps {
   onRefresh: () => void;
   disabled?: boolean;
 }
+
+const SUMMARY_ANNOUNCE_DELAY_MS = 1000;
 
 function humanizeKey(key: string): string {
   return key
@@ -54,6 +57,14 @@ export function AccessibleMapDataPanel({
 }: AccessibleMapDataPanelProps) {
   const { t, i18n } = useTranslation('common');
   const layerEntries = createViewerLayerEntries(layers);
+  const resultSummary = featureResult.truncated
+    ? t('viewer.data.resultSummaryTruncated', {
+        shown: featureResult.features.length,
+        total: featureResult.total,
+      })
+    : t('viewer.data.resultSummary', { count: featureResult.total });
+  // The map refreshes this result on every idle; announcing each one is noise.
+  const announcedSummary = useDebouncedValue(resultSummary, SUMMARY_ANNOUNCE_DELAY_MS);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -129,13 +140,9 @@ export function AccessibleMapDataPanel({
               <h3 id="map-data-features-heading" className="text-sm font-semibold">
                 {t('viewer.data.featuresHeading')}
               </h3>
-              <p className="text-xs text-muted-foreground" role="status" aria-live="polite">
-                {featureResult.truncated
-                  ? t('viewer.data.resultSummaryTruncated', {
-                      shown: featureResult.features.length,
-                      total: featureResult.total,
-                    })
-                  : t('viewer.data.resultSummary', { count: featureResult.total })}
+              <p className="text-xs text-muted-foreground" aria-hidden="true">{resultSummary}</p>
+              <p className="sr-only" role="status" aria-live="polite">
+                {announcedSummary}
               </p>
             </div>
 

@@ -35,4 +35,9 @@ describe('EmptyState', () => {
     );
     expect(container.firstChild).toHaveClass('py-8');
   });
+
+  it('is a status region so assistive tech announces the empty result', () => {
+    render(<EmptyState icon={FolderOpen} title="No items found" />);
+    expect(screen.getByRole('status')).toHaveTextContent('No items found');
+  });
 });

@@ -181,6 +181,30 @@ describe('SearchPage', () => {
     });
   });
 
+  it('keeps one live region mounted and announces the count, then the refetch', () => {
+    setAnonymousUser();
+    const base = {
+      data: {
+        type: 'FeatureCollection',
+        numberMatched: 12,
+        numberReturned: 2,
+        features: [makeFeature('dataset-1', 'California Watersheds'), makeFeature('dataset-2', 'Road Centerlines')],
+      },
+      isLoading: false,
+      error: null,
+    };
+    mockUseSearchResults.mockReturnValue({ ...base, isFetching: false } as ReturnType<typeof useSearchResults>);
+    const { rerender } = render(<SearchPage />, { route: '/' });
+    const live = screen.getByTestId('search-live-status');
+    expect(live).toHaveAttribute('role', 'status');
+    expect(live).toHaveTextContent('12 catalog results');
+
+    mockUseSearchResults.mockReturnValue({ ...base, isFetching: true } as ReturnType<typeof useSearchResults>);
+    rerender(<SearchPage />);
+    expect(screen.getByTestId('search-live-status')).toBe(live);
+    expect(live).toHaveTextContent('Updating results');
+  });
+
   it('renders skeletons while loading with no cached data', () => {
     setAnonymousUser();
     mockUseSearchResults.mockReturnValue({
@@ -193,7 +217,7 @@ describe('SearchPage', () => {
     render(<SearchPage />, { route: '/' });
 
     // The skeleton container is announced via role=status / aria-live
-    expect(screen.getByRole('status')).toBeInTheDocument();
+    expect(screen.getAllByRole('status').length).toBeGreaterThan(0);
     expect(screen.getAllByTestId('dataset-card-skeleton').length).toBeGreaterThan(0);
     // No results or error visible yet
     expect(screen.queryByTestId('search-result-card')).not.toBeInTheDocument();
@@ -352,6 +376,6 @@ describe('SearchPage', () => {
     expect(screen.getByRole('alert')).toHaveTextContent("Couldn't load map matches.");
     fireEvent.click(screen.getByRole('button', { name: /retry map search/i }));
     expect(refetchMaps).toHaveBeenCalledOnce();
-    expect(screen.getByText('12 catalog results')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '12 catalog results' })).toBeInTheDocument();
   });
 });

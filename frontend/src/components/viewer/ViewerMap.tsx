@@ -1157,7 +1157,7 @@ export const ViewerMap = memo(function ViewerMap({
         </span>
       )}
       {contextLost && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80">
+        <div role="alert" className="absolute inset-0 z-50 flex items-center justify-center bg-background/80">
           <div className="text-center space-y-2">
             <p className="text-sm text-muted-foreground">{t('errorBoundary.mapMessage')}</p>
             <button type="button" onClick={reload} className="text-sm underline text-primary hover:text-primary/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring rounded-sm px-1">{t('reload')}</button>

@@ -123,3 +123,35 @@ describe('LoginPage guest-browse reaches the catalog', () => {
     }
   });
 });
+
+describe('LoginPage accessibility', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(getOAuthProviders).mockResolvedValue([]);
+    useAuthStore.setState({ token: null, user: null });
+  });
+
+  it('announces a failed auth-config load as an alert', async () => {
+    vi.mocked(getAuthConfig).mockRejectedValue(new Error('boom'));
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <TooltipProvider>
+          <MemoryRouter initialEntries={['/login']}>
+            <Routes>
+              <Route path="/login" element={<LoginPage />} />
+            </Routes>
+          </MemoryRouter>
+        </TooltipProvider>
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByRole('alert')).toHaveTextContent(/authentication settings/i);
+  });
+
+  it('draws the decorative globe once instead of animating it forever', () => {
+    const raf = vi.spyOn(window, 'requestAnimationFrame');
+    vi.mocked(getAuthConfig).mockResolvedValue(LANDING_FIRST_CONFIG);
+    renderApp();
+    expect(raf).not.toHaveBeenCalled();
+    raf.mockRestore();
+  });
+});

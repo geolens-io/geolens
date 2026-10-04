@@ -90,6 +90,14 @@ export function buildEmbedSrc({
   return `${origin}/m/${shareToken}?${params.toString()}`;
 }
 
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 /**
  * Generate the iframe embed snippet for a shared map.
  *
@@ -129,14 +137,17 @@ export function generateEmbedCode({
   shareToken,
   embedTokenRaw,
   origin,
+  title,
 }: {
   shareToken: string;
   embedTokenRaw: string;
   origin: string;
+  /** Accessible name for the frame (WCAG 4.1.2); escaped for the attribute. */
+  title: string;
 }): string {
   if (!shareToken) return '';
   const url = buildEmbedSrc({ shareToken, embedTokenRaw, origin });
-  return `<iframe src="${url}" width="800" height="600" sandbox="allow-scripts allow-same-origin" style="border:none;"></iframe>`;
+  return `<iframe src="${url}" title="${escapeHtmlAttribute(title)}" width="100%" height="600" sandbox="allow-scripts allow-same-origin" style="border:none;"></iframe>`;
 }
 
 const VISIBILITY_OPTIONS: Array<{
@@ -743,6 +754,8 @@ interface ShareDialogProps {
    * existing tests that don't exercise this warning keep compiling.
    */
   layers?: MapLayerResponse[];
+  /** Names the embed snippet's iframe; a generic label is used when absent. */
+  mapName?: string;
 }
 
 /**
@@ -942,6 +955,7 @@ export function ShareDialog({
   hasUnsavedChanges = false,
   saveStatus = hasUnsavedChanges ? 'unsaved' : 'saved',
   layers = [],
+  mapName,
 }: ShareDialogProps) {
   const { t } = useTranslation('builder');
   const { isEnterprise } = useEdition();
@@ -1224,6 +1238,7 @@ export function ShareDialog({
       shareToken: rawShareToken || '',
       embedTokenRaw: embedTokenRaw || '',
       origin: embedBaseUrl,
+      title: mapName || t('share.embedTitleFallback'),
     });
   }
 

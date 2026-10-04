@@ -123,8 +123,18 @@ export function SearchPage() {
               </SearchControls>
             </section>
 
+            {/* Mounted before its text changes so readers announce updates; a status
+                that mounts with its content is often skipped. */}
+            <p role="status" aria-live="polite" className="sr-only" data-testid="search-live-status">
+              {isFetching && data
+                ? t('updating')
+                : data && data.features.length > 0
+                  ? t('catalogResults', { count: totalMatched })
+                  : ''}
+            </p>
+
             {isFetching && data && (
-              <div role="status" aria-live="polite" className="inline-flex items-center gap-2 rounded-md border bg-card px-3 py-1.5 text-sm text-muted-foreground shadow-sm">
+              <div aria-hidden="true" className="inline-flex items-center gap-2 rounded-md border bg-card px-3 py-1.5 text-sm text-muted-foreground shadow-sm">
                 <Loader2 className="size-4 animate-spin" aria-hidden="true" />
                 {t('updating')}
               </div>
