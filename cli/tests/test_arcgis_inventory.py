@@ -5,7 +5,10 @@ from __future__ import annotations
 import http.client
 import http.server
 import json
+import shutil
+import ssl
 import stat
+import subprocess
 import threading
 import time
 import tracemalloc
@@ -952,6 +955,44 @@ class _TricklingPortal(http.server.BaseHTTPRequestHandler):
         return None
 
 
+@pytest.fixture(scope="module")
+def loopback_tls(tmp_path_factory):
+    """A throwaway self-signed certificate for 127.0.0.1, made with the openssl CLI."""
+    openssl = shutil.which("openssl")
+    if openssl is None:
+        pytest.skip("the openssl CLI is needed to make a test certificate")
+    folder = tmp_path_factory.mktemp("tls")
+    cert, key = folder / "cert.pem", folder / "key.pem"
+    subprocess.run(
+        [
+            openssl,
+            "req",
+            "-x509",
+            "-newkey",
+            "ec",
+            "-pkeyopt",
+            "ec_paramgen_curve:prime256v1",
+            "-nodes",
+            "-days",
+            "1",
+            "-subj",
+            "/CN=127.0.0.1",
+            "-addext",
+            "subjectAltName=IP:127.0.0.1",
+            "-keyout",
+            str(key),
+            "-out",
+            str(cert),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    server_side = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    server_side.load_cert_chain(cert, key)
+    return server_side, ssl.create_default_context(cafile=str(cert))
+
+
+@pytest.mark.parametrize("scheme", ["http", "https"])
 @pytest.mark.parametrize(
     "prefix",
     [
@@ -961,8 +1002,10 @@ class _TricklingPortal(http.server.BaseHTTPRequestHandler):
         ),
     ],
 )
-def test_trickled_headers_and_chunk_framing_stop_at_the_deadline(monkeypatch, prefix):
-    """A response trickled anywhere, not just in the body, gives up at the request deadline."""
+def test_trickled_headers_and_chunk_framing_stop_at_the_deadline(
+    monkeypatch, request, prefix, scheme
+):
+    """A response trickled anywhere, over HTTP or TLS, gives up at the request deadline."""
     monkeypatch.setattr(inventory, "GET_ATTEMPTS", 1)
     monkeypatch.setattr(inventory, "REQUEST_DEADLINE", 0.5)
     monkeypatch.setattr(inventory, "SOCKET_TIMEOUT", 5.0)
@@ -971,11 +1014,15 @@ def test_trickled_headers_and_chunk_framing_stop_at_the_deadline(monkeypatch, pr
         "Handler", (_TricklingPortal,), {"prefix": prefix, "release": threading.Event()}
     )
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    client_context = None
+    if scheme == "https":
+        server_context, client_context = request.getfixturevalue("loopback_tls")
+        server.socket = server_context.wrap_socket(server.socket, server_side=True)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
         client = inventory.PortalClient(
-            f"http://127.0.0.1:{server.server_address[1]}/portal",
-            opener=inventory.build_opener(),
+            f"{scheme}://127.0.0.1:{server.server_address[1]}/portal",
+            opener=inventory.build_opener(context=client_context),
             redact=inventory.Redactor(),
             sleep=lambda seconds: None,
         )
@@ -987,3 +1034,24 @@ def test_trickled_headers_and_chunk_framing_stop_at_the_deadline(monkeypatch, pr
         handler.release.set()
         server.shutdown()
         server.server_close()
+
+
+def test_url_only_data_sources_are_recorded(run):
+    """An Experience Builder source named only by URL is a dependency, deduplicated by URL."""
+    roads = "https://gis.example.gov/arcgis/rest/services/Roads/FeatureServer/0"
+    config = {
+        "dataSources": {
+            "ds1": {"type": "FEATURE_LAYER", "url": f"{roads}?token=stored"},
+            "ds2": {"type": "FEATURE_LAYER", "url": roads},
+            "ds3": {"type": "FEATURE_LAYER", "url": roads.replace("/0", "/1")},
+        }
+    }
+    result, _ = run(
+        FakePortal(portal_routes({item_data_path(C1): config})), "--scope", "org"
+    )
+    assert result.exit_code == 0, result.output
+    deps = [d for d in _report(result)["dependencies"] if d["from_id"] == C1]
+    assert [(d["role"], d["to_id"], d["to_url"], d["resolved"]) for d in deps] == [
+        ("app_data_source", None, roads, False),
+        ("app_data_source", None, roads.replace("/0", "/1"), False),
+    ]

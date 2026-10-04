@@ -15,6 +15,7 @@ import json
 import os
 import re
 import socket
+import ssl
 import sys
 import threading
 import time
@@ -211,41 +212,57 @@ class _RefuseRedirects(urllib.request.HTTPRedirectHandler):
 
 
 class _Watchdog:
-    """Shuts a request's socket down when its deadline passes."""
+    """Shuts a request's connection down when its deadline passes.
+
+    It keeps a duplicate of the connection's descriptor. TLS wrapping
+    detaches the original socket object from the descriptor, but shutting
+    down any descriptor of a connection ends it for every reader, so the
+    duplicate still interrupts a TLS handshake or read.
+    """
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._sock: socket.socket | None = None
+        self._dup: socket.socket | None = None
         self.fired = False
 
     def attach(self, sock: socket.socket) -> socket.socket:
         with self._lock:
-            self._sock = sock
+            self._close_dup()
+            self._dup = sock.dup()
             if self.fired:
-                _shut(sock)
+                _shutdown(self._dup)
         return sock
 
     def fire(self) -> None:
         with self._lock:
             self.fired = True
-            if self._sock is not None:
-                _shut(self._sock)
+            if self._dup is not None:
+                _shutdown(self._dup)
+
+    def release(self) -> None:
+        with self._lock:
+            self._close_dup()
+
+    def _close_dup(self) -> None:
+        if self._dup is not None:
+            self._dup.close()
+            self._dup = None
 
 
-def _shut(sock: socket.socket) -> None:
-    for step in (lambda: sock.shutdown(socket.SHUT_RDWR), sock.close):
-        try:
-            step()
-        except OSError:
-            pass
+def _shutdown(sock: socket.socket) -> None:
+    try:
+        sock.shutdown(socket.SHUT_RDWR)
+    except OSError:
+        pass
 
 
 class _WatchedConnections:
     """Hands each new connection's socket to the request's watchdog.
 
-    http.client opens the socket through the connection's
-    ``_create_connection`` attribute, so wrapping it covers the TLS
-    handshake, status line, headers, chunk framing and body alike.
+    http.client opens the socket through the connection's private
+    ``_create_connection`` attribute, before any TLS wrapping, so the
+    watchdog covers the handshake, status line, headers, chunk framing and
+    body alike.
     """
 
     def do_open(self, http_class, req, **kwargs):
@@ -271,14 +288,19 @@ class _WatchedHTTPSHandler(_WatchedConnections, urllib.request.HTTPSHandler):
     pass
 
 
-def build_opener() -> urllib.request.OpenerDirector:
+def build_opener(
+    context: ssl.SSLContext | None = None,
+) -> urllib.request.OpenerDirector:
     """An opener that refuses redirects and honors per-request deadlines.
 
     A redirect would carry the credential header to wherever the portal
-    points, so none is followed.
+    points, so none is followed. *context* overrides the default TLS
+    verification context.
     """
     return urllib.request.build_opener(
-        _RefuseRedirects(), _WatchedHTTPHandler(), _WatchedHTTPSHandler()
+        _RefuseRedirects(),
+        _WatchedHTTPHandler(),
+        _WatchedHTTPSHandler(context=context),
     )
 
 
@@ -465,6 +487,7 @@ class PortalClient:
             raise
         finally:
             timer.cancel()
+            watchdog.release()
         # A shut socket also reads as a clean end of body, cutting it short.
         if watchdog.fired:
             raise self._deadline_error(path)
@@ -893,27 +916,41 @@ def web_map_dependencies(
 _APP_MAP_SOURCE_TYPES = frozenset({"WEB_MAP", "WEB_SCENE"})
 
 
-def _app_references(
-    data: Mapping[str, Any],
-) -> list[tuple[str, str, str, str | None]] | None:
-    """(item id, kind, role, layer id) from the documented app config keys, or
-    None if none of those keys is present.
+_AppRef = tuple[str | None, str | None, str, str, str | None]
+
+
+def _app_references(data: Mapping[str, Any]) -> list[_AppRef] | None:
+    """(item id, URL, kind, role, layer id) from the documented app config
+    keys, or None if none of those keys is present.
 
     Maps an app opens are ``app_web_map``; layers it reads directly, such as a
     dashboard chart's dataset or an Experience Builder feature layer source,
-    are ``app_data_source`` with their layer id.
+    are ``app_data_source`` with their layer id. A data source may name its
+    service by URL alone, so a reference needs an item id or a URL.
     """
-    found: list[tuple[str, str, str, str | None]] = []
+    found: list[_AppRef] = []
     recognized = False
 
-    def add(ref: Any, kind: Any, role: str, layer_id: Any = None) -> None:
-        if isinstance(ref, str) and ref:
-            layer = (
-                None
-                if layer_id is None or isinstance(layer_id, bool)
-                else str(layer_id)
-            )
-            found.append((ref, str(kind or ""), role, layer))
+    def add(
+        ref: Any, kind: Any, role: str, layer_id: Any = None, url: Any = None
+    ) -> None:
+        item_id = ref if isinstance(ref, str) and ref else None
+        clean_url = sanitize_url(url)
+        if item_id is None and clean_url is None:
+            return
+        layer = (
+            None if layer_id is None or isinstance(layer_id, bool) else str(layer_id)
+        )
+        found.append((item_id, clean_url, str(kind or ""), role, layer))
+
+    def add_source(source: Mapping[str, Any]) -> None:
+        add(
+            source.get("itemId"),
+            source.get("type"),
+            "app_data_source",
+            source.get("layerId"),
+            source.get("url"),
+        )
 
     values = data.get("values")
     if isinstance(values, dict) and "webmap" in values:
@@ -934,13 +971,10 @@ def _app_references(
         for source in sources.values():
             if not isinstance(source, dict):
                 continue
-            kind = source.get("type")
-            if kind in _APP_MAP_SOURCE_TYPES:
-                add(source.get("itemId"), kind, "app_web_map")
+            if source.get("type") in _APP_MAP_SOURCE_TYPES:
+                add(source.get("itemId"), source.get("type"), "app_web_map")
             else:
-                add(
-                    source.get("itemId"), kind, "app_data_source", source.get("layerId")
-                )
+                add_source(source)
     widgets = data.get("widgets")
     desktop = data.get("desktopView")
     if not isinstance(widgets, list) and isinstance(desktop, dict):
@@ -957,17 +991,14 @@ def _app_references(
                     dataset.get("dataSource") if isinstance(dataset, dict) else None
                 )
                 if isinstance(source, dict):
-                    add(
-                        source.get("itemId"),
-                        source.get("type"),
-                        "app_data_source",
-                        source.get("layerId"),
-                    )
+                    add_source(source)
     if not recognized:
         return None
-    unique: dict[tuple[str, str, str | None], tuple[str, str, str, str | None]] = {}
-    for ref in found:
-        unique.setdefault((ref[0], ref[2], ref[3]), ref)
+    unique: dict[tuple[str | None, str | None, str, str | None], _AppRef] = {}
+    for item_id, url, kind, role, layer in found:
+        unique.setdefault(
+            (item_id, url, role, layer), (item_id, url, kind, role, layer)
+        )
     return list(unique.values())
 
 
@@ -997,7 +1028,7 @@ def _extract_dependencies(
         _dependency(
             row["id"],
             ref,
-            None,
+            url,
             role=role,
             layer_type=kind,
             layer_id=layer_id,
@@ -1006,7 +1037,7 @@ def _extract_dependencies(
             index=index,
             portal=portal,
         )
-        for order, (ref, kind, role, layer_id) in enumerate(refs)
+        for order, (ref, url, kind, role, layer_id) in enumerate(refs)
     ]
 
 
