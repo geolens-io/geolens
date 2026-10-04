@@ -137,6 +137,19 @@ describe('ConnectDropdown', () => {
     expect(screen.queryByText('Copy CSV Export URL')).not.toBeInTheDocument();
   });
 
+  it.each([
+    ['public', 'https://catalog.example.com/api/tiles/data.public_parks/{z}/{x}/{y}.pbf'],
+    ['private', 'https://catalog.example.com/api/tiles/data.public_parks/{z}/{x}/{y}.pbf?api_key={your_key}'],
+  ] as const)('copies the %s vector tile URL for desktop clients', async (visibility, expected) => {
+    const user = userEvent.setup();
+    render(<ConnectDropdown dataset={makeDataset({ visibility })} />);
+
+    await user.click(screen.getByRole('button', { name: /connect/i }));
+    await user.click(screen.getByText('Copy Vector Tiles URL'));
+
+    await expect(navigator.clipboard.readText()).resolves.toBe(expected);
+  });
+
   it('keeps copy shortcuts and opens the available QGIS, Python, and curl instructions', async () => {
     const user = userEvent.setup();
     const onShowInstructions = vi.fn();

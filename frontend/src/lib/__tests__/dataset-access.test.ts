@@ -75,14 +75,15 @@ describe('getDatasetAccessEndpoints', () => {
     });
   });
 
-  it('offers the vector tile URL for a public dataset only', async () => {
+  it('offers a plain vector tile URL when public and a key placeholder otherwise', async () => {
     const { getDatasetAccessEndpoints } = await import('@/lib/dataset-access');
     const base = { id: 'ds-1', record_type: 'vector_dataset' as RecordType, table_name: 'parks' };
 
     expect(getDatasetAccessEndpoints({ ...base, visibility: 'public' }, 'https://catalog.example.com/api').vectorTilesUrl)
-      .toContain('/tiles/data.parks/{z}/{x}/{y}.pbf');
+      .toBe('https://catalog.example.com/api/tiles/data.parks/{z}/{x}/{y}.pbf');
     for (const visibility of ['internal', 'restricted', 'private'] as const) {
-      expect(getDatasetAccessEndpoints({ ...base, visibility }, 'https://catalog.example.com/api').vectorTilesUrl).toBeNull();
+      expect(getDatasetAccessEndpoints({ ...base, visibility }, 'https://catalog.example.com/api').vectorTilesUrl)
+        .toBe('https://catalog.example.com/api/tiles/data.parks/{z}/{x}/{y}.pbf?api_key={your_key}');
     }
   });
 
@@ -94,6 +95,10 @@ describe('getDatasetAccessEndpoints', () => {
     expect(
       getDatasetAccessEndpoints(dataset, 'https://catalog.example.com/api', [
         dist('/tiles/data.parks/{z}/{x}/{y}.pbf'),
+      ]).vectorTilesUrl,
+    ).toBe('https://catalog.example.com/api/tiles/data.parks/{z}/{x}/{y}.pbf?api_key={your_key}');
+    expect(
+      getDatasetAccessEndpoints(dataset, 'https://catalog.example.com/api', [
         dist('https://tiles.example.org/{z}/{x}/{y}.pbf'),
       ]).vectorTilesUrl,
     ).toBe('https://tiles.example.org/{z}/{x}/{y}.pbf');

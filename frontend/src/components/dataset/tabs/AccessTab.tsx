@@ -372,7 +372,7 @@ export function AccessTab({ dataset, canEdit = false }: AccessTabProps) {
               <DistributionsList
                 recordId={dataset.record_id}
                 canEdit={canEdit}
-                hideVectorTiles={dataset.visibility !== 'public'}
+                visibility={dataset.visibility}
               />
             ) : (
               <p className="text-sm text-muted-foreground">
@@ -388,6 +388,9 @@ export function AccessTab({ dataset, canEdit = false }: AccessTabProps) {
             {/* XYZ Tile URL for raster/VRT datasets */}
             {tileToken === 'raster' && dataset.raster?.connect?.tile_url && (
               <TileUrlSection tileUrl={dataset.raster.connect.tile_url} />
+            )}
+            {tileToken === 'vector' && dataset.record_type !== 'table' && dataset.visibility !== 'public' && (
+              <p className="text-xs text-muted-foreground mt-4">{t('serviceUrls.vectorTilesKeyHint')}</p>
             )}
             <p className="text-xs text-muted-foreground mt-4">
               {t('serviceUrls.authHelpSimple')}{' '}

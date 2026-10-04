@@ -155,14 +155,24 @@ function resolveByType(
   return dist ? resolveDistributionUrl(dist.url, publicApiBaseUrl) : null;
 }
 
-// The signature requirement applies to this instance's own tile route, not to
-// an external tile service someone registered as a distribution.
+// The key requirement applies to this instance's own tile route, not to an
+// external tile service someone registered as a distribution.
 const GEOLENS_VECTOR_TILE_RE = /\/tiles\/data\.[^/?#]+\/\{z\}\/\{x\}\/\{y\}\.pbf/;
 
 export function isGeoLensVectorTileUrl(url: string, publicApiBaseUrl: string | null | undefined): boolean {
   if (!GEOLENS_VECTOR_TILE_RE.test(url)) return false;
   if (!isAbsoluteUrl(url) || isSameOriginAbsoluteUrl(url)) return true;
   return !!publicApiBaseUrl && url.startsWith(`${stripTrailingSlashes(publicApiBaseUrl)}/`);
+}
+
+/** A non-public dataset's own tile template with the API key placeholder desktop GIS clients fill in. */
+export function vectorTileUrlForClients(
+  url: string,
+  visibility: DatasetResponse['visibility'],
+  publicApiBaseUrl: string | null | undefined,
+): string {
+  if (visibility === 'public' || !isGeoLensVectorTileUrl(url, publicApiBaseUrl)) return url;
+  return `${url}${url.includes('?') ? '&' : '?'}api_key={your_key}`;
 }
 
 export interface DatasetAccessEndpoints {
@@ -178,9 +188,11 @@ export function getDatasetAccessEndpoints(
 ): DatasetAccessEndpoints {
   const { featureTable, tileToken } = recordTypeCapabilities(dataset.record_type);
   const isTable = dataset.record_type === 'table';
-
-  // Non-public GeoLens tiles need a short-lived signature, so no static URL works for them.
-  const isPublic = dataset.visibility === 'public';
+  const vectorTilesUrl =
+    resolveByType(distributions, (d) => d.distribution_type === 'vector_tiles', publicApiBaseUrl)
+    ?? (!isTable && tileToken === 'vector' && dataset.table_name
+      ? resolveDistributionUrl(`/tiles/data.${dataset.table_name}/{z}/{x}/{y}.pbf`, publicApiBaseUrl)
+      : null);
 
   return {
     ogcFeaturesUrl:
@@ -189,14 +201,6 @@ export function getDatasetAccessEndpoints(
     csvExportUrl:
       resolveByType(distributions, (d) => d.distribution_type === 'download' && d.format === 'csv', publicApiBaseUrl)
       ?? (featureTable ? resolveDistributionUrl(`/datasets/${dataset.id}/export?format=csv`, publicApiBaseUrl) : null),
-    vectorTilesUrl:
-      resolveByType(
-        distributions,
-        (d) => d.distribution_type === 'vector_tiles' && (isPublic || !isGeoLensVectorTileUrl(d.url, publicApiBaseUrl)),
-        publicApiBaseUrl,
-      )
-      ?? (isPublic && !isTable && tileToken === 'vector' && dataset.table_name
-        ? resolveDistributionUrl(`/tiles/data.${dataset.table_name}/{z}/{x}/{y}.pbf`, publicApiBaseUrl)
-        : null),
+    vectorTilesUrl: vectorTilesUrl && vectorTileUrlForClients(vectorTilesUrl, dataset.visibility, publicApiBaseUrl),
   };
 }

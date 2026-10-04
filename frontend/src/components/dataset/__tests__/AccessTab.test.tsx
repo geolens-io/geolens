@@ -287,12 +287,21 @@ describe('AccessTab', () => {
       expect(screen.getByText('Tile Services')).toBeInTheDocument();
     });
 
+    it('shows a public dataset the plain tile URL and no key hint', () => {
+      render(<AccessTab dataset={makeDataset({ visibility: 'public', record_type: 'vector_dataset' })} />);
+      expect(screen.getByText(/\/tiles\/data\.public_parks\/\{z\}\/\{x\}\/\{y\}\.pbf$/)).toBeInTheDocument();
+      expect(screen.queryByText(/In QGIS, add a Vector Tiles connection/)).not.toBeInTheDocument();
+    });
+
     it.each(['internal', 'restricted', 'private'] as const)(
-      'does not list an unsigned tile service for a %s dataset',
+      'lists the tile service with a key placeholder and a QGIS hint for a %s dataset',
       (visibility) => {
-        render(<AccessTab dataset={makeDataset({ visibility })} />);
-        expect(screen.queryByText('Tile Services')).not.toBeInTheDocument();
-        expect(screen.queryByText(/\{z\}\/\{x\}\/\{y\}\.pbf/)).not.toBeInTheDocument();
+        render(<AccessTab dataset={makeDataset({ visibility, record_type: 'vector_dataset' })} />);
+        expect(screen.getByText('Tile Services')).toBeInTheDocument();
+        expect(
+          screen.getByText(/\/tiles\/data\.public_parks\/\{z\}\/\{x\}\/\{y\}\.pbf\?api_key=\{your_key\}$/),
+        ).toBeInTheDocument();
+        expect(screen.getByText(/In QGIS, add a Vector Tiles connection/)).toBeInTheDocument();
       },
     );
 
@@ -309,7 +318,6 @@ describe('AccessTab', () => {
       } as unknown as ReturnType<typeof useDistributions>);
       render(<AccessTab dataset={makeDataset({ visibility: 'private' })} />);
       expect(screen.getByText('https://tiles.example.org/{z}/{x}/{y}.pbf')).toBeInTheDocument();
-      expect(screen.queryByText(/tiles\/data\.public_parks/)).not.toBeInTheDocument();
     });
 
     it('keeps an external tile service even when it uses the same path as GeoLens', () => {
@@ -326,9 +334,9 @@ describe('AccessTab', () => {
       expect(screen.getByText('https://partner.example/api/tiles/data.parks/{z}/{x}/{y}.pbf')).toBeInTheDocument();
     });
 
-    it('does not claim that every endpoint accepts an API key or bearer token', () => {
+    it('names the endpoints that accept an API key or bearer token', () => {
       render(<AccessTab dataset={makeDataset({ visibility: 'private' })} />);
-      expect(screen.getByText(/Downloads and OGC Features endpoints accept/)).toBeInTheDocument();
+      expect(screen.getByText(/Downloads, OGC Features and vector tile endpoints accept/)).toBeInTheDocument();
     });
   });
 
