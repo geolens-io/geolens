@@ -304,7 +304,7 @@ async def _end_lease(job_id: uuid.UUID) -> None:
         await session.execute(
             text(
                 "UPDATE catalog.ingest_jobs SET user_metadata = jsonb_set("
-                "user_metadata, '{publish_followups,next_attempt_at}', "
+                "user_metadata, '{publish_obligations,next_attempt_at}', "
                 "to_jsonb(now() - interval '1 minute')) WHERE id = :id"
             ),
             {"id": job_id},

@@ -47,7 +47,6 @@ from app.platform.jobs.models import (
     COMMIT_ATTEMPTED_METADATA_KEY,
     EMBEDDING_BACKFILL_METADATA_KEY,
     FAN_OUT_INTERRUPTED_METADATA_KEY,
-    PUBLISH_FOLLOWUPS_FIELD,
     STAGING_REAPED_FINAL_MARKER,
     STAGING_REAPED_MARKER,
     SUPERSEDED_COG_ITEM,
@@ -56,6 +55,7 @@ from app.platform.jobs.models import (
     IngestJob,
     holds_unarchived_original,
     needs_staged_input,
+    owed_publish_record,
     owned_presigned_staging_key,
 )
 from app.platform.jobs.ledger import Outcome, end_stale, run_stale_passes
@@ -634,7 +634,7 @@ async def _live_referenced_storage_keys(
         ),
     ]
     if owed_cogs:
-        owed = IngestJob.user_metadata[PUBLISH_FOLLOWUPS_FIELD][SUPERSEDED_COG_ITEM]
+        owed = owed_publish_record()[SUPERSEDED_COG_ITEM]
         arms.append(
             select(owed["key"].astext.label("key")).where(
                 owed["key"].astext == any_(keys_param)

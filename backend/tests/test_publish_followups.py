@@ -825,7 +825,7 @@ async def _make_due(job_id) -> None:
         await session.execute(
             text(
                 "UPDATE catalog.ingest_jobs SET user_metadata = jsonb_set("
-                "user_metadata, '{publish_followups,next_attempt_at}', "
+                "user_metadata, '{publish_obligations,next_attempt_at}', "
                 "to_jsonb(now() - interval '1 minute')) WHERE id = :id"
             ),
             {"id": job_id},
@@ -1175,7 +1175,7 @@ async def test_an_owed_archive_is_retried_at_the_cap_until_storage_recovers(
                 wait = await session.scalar(
                     text(
                         "SELECT (user_metadata #>> "
-                        "'{publish_followups,next_attempt_at}')::timestamptz - now() "
+                        "'{publish_obligations,next_attempt_at}')::timestamptz - now() "
                         "FROM catalog.ingest_jobs WHERE id = :id"
                     ),
                     {"id": job_id},
@@ -1198,7 +1198,7 @@ async def test_an_owed_archive_is_retried_at_the_cap_until_storage_recovers(
             await session.execute(
                 text(
                     "UPDATE catalog.ingest_jobs SET user_metadata = jsonb_set("
-                    "user_metadata, '{publish_followups,attempts}', '1000') "
+                    "user_metadata, '{publish_obligations,attempts}', '1000') "
                     "WHERE id = :id"
                 ),
                 {"id": job_id},

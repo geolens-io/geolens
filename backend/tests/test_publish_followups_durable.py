@@ -9,12 +9,16 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 import structlog
-from sqlalchemy import delete, select, text, update
+from sqlalchemy import Text, delete, literal, select, text, update
 
 import app.core.db as db_module
 from app.core.config import settings
 from app.modules.catalog.datasets.domain.models import Record
-from app.platform.jobs.models import PUBLISH_FOLLOWUPS_FIELD, IngestJob
+from app.platform.jobs.models import (
+    LEGACY_PUBLISH_FOLLOWUPS_FIELD,
+    PUBLISH_FOLLOWUPS_FIELD,
+    IngestJob,
+)
 from app.processing.ingest.publish_followups import (
     owed_followups,
     run_owed_publish_followups,
@@ -103,9 +107,10 @@ async def _job(
     status: str = "complete",
     error_message: str | None = None,
     table_name: str | None = None,
+    field: str = PUBLISH_FOLLOWUPS_FIELD,
     **record,
 ) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
-    """A job whose record, shaped as an older worker wrote it, owes ``task``: (job, attempt, record)."""
+    """A job whose record under ``field`` owes ``task``: (job, attempt, record)."""
     admin_id = await get_user_id(session, "admin")
     dataset = await create_dataset(
         session,
@@ -121,7 +126,7 @@ async def _job(
     session.add(job)
     await session.flush()
     job.user_metadata = {
-        PUBLISH_FOLLOWUPS_FIELD: {
+        field: {
             "task": task,
             "attempt_id": str(job.attempt_id),
             **record,
@@ -137,6 +142,15 @@ async def _drop(session, job_id, record_id) -> None:
     await session.commit()
 
 
+async def _metadata(job_id) -> dict:
+    async with db_module.async_session() as session:
+        return (
+            await session.scalar(
+                select(IngestJob.user_metadata).where(IngestJob.id == job_id)
+            )
+        ) or {}
+
+
 async def _record(job_id) -> dict | None:
     async with db_module.async_session() as session:
         metadata = await session.scalar(
@@ -150,7 +164,7 @@ async def _leased(job_id) -> bool:
     async with db_module.async_session() as session:
         return await session.scalar(
             text(
-                "SELECT (user_metadata #>> '{publish_followups,next_attempt_at}')"
+                "SELECT (user_metadata #>> '{publish_obligations,next_attempt_at}')"
                 "::timestamptz > now() FROM catalog.ingest_jobs WHERE id = :id"
             ),
             {"id": job_id},
@@ -353,14 +367,132 @@ async def test_run_once_items_are_dropped_after_eight_attempts_and_storage_items
 async def test_a_record_an_older_worker_wrote_gets_its_items_at_the_claim(
     test_db_session, ran, task, status, expected
 ) -> None:
-    """A record naming a task and no item, unclaimed, runs what its task and status imply."""
+    """A legacy record naming a task and no item, unclaimed, runs what its task and status imply."""
     job_id, _, record_id = await _job(
-        test_db_session, task=task, status=status, error_message="refused"
+        test_db_session,
+        task=task,
+        status=status,
+        error_message="refused",
+        field=LEGACY_PUBLISH_FOLLOWUPS_FIELD,
     )
     try:
         await run_owed_publish_followups()
 
         assert ran == expected
+        assert (
+            not {PUBLISH_FOLLOWUPS_FIELD, LEGACY_PUBLISH_FOLLOWUPS_FIELD}
+            & (await _metadata(job_id)).keys()
+        )
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def test_a_claimed_legacy_record_settles_only_its_storage_items(
+    test_db_session, ran, monkeypatch
+) -> None:
+    """A legacy record an older worker claimed owes its storage items alone, as that worker read it."""
+    settled: list[list[str]] = []
+
+    async def _reaped(job_uuid, dataset_id, keys):
+        settled.append(keys)
+        return []
+
+    monkeypatch.setattr(
+        "app.processing.ingest.publish_followups._reap_superseded", _reaped
+    )
+    key = f"rasters/{uuid.uuid4()}/superseded.tif"
+    job_id, _, record_id = await _job(
+        test_db_session,
+        task="ingest_raster",
+        field=LEGACY_PUBLISH_FOLLOWUPS_FIELD,
+        claimed=True,
+        superseded_keys=[key],
+    )
+    try:
+        await run_owed_publish_followups()
+
+        assert (settled, ran) == ([[key]], [])
+        assert (
+            not {PUBLISH_FOLLOWUPS_FIELD, LEGACY_PUBLISH_FOLLOWUPS_FIELD}
+            & (await _metadata(job_id)).keys()
+        )
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def _earlier_release_claims(job_id) -> None:
+    """The claim the previous release's runner makes, which reads only the legacy field.
+
+    That runner selects a complete or failed job by its legacy record. A claimed
+    record owing no storage item is gone; an unclaimed one is marked claimed
+    while it still owes storage items, or gone otherwise, and its run-once
+    steps are what its task implies.
+    """
+    owed = IngestJob.user_metadata[LEGACY_PUBLISH_FOLLOWUPS_FIELD]
+    storage = (
+        "archive_key",
+        "reaps_staged_upload",
+        "superseded_keys",
+        "superseded_cog",
+    )
+    async with db_module.async_session() as session:
+        row = (
+            await session.execute(
+                select(IngestJob.user_metadata)
+                .where(
+                    IngestJob.id == job_id,
+                    IngestJob.status.in_(("complete", "failed")),
+                    owed.is_not(None),
+                )
+                .with_for_update(skip_locked=True)
+            )
+        ).one_or_none()
+        if row is None:
+            return
+        record = row.user_metadata[LEGACY_PUBLISH_FOLLOWUPS_FIELD]
+        if not any(item in record for item in storage):
+            await session.execute(
+                update(IngestJob)
+                .where(IngestJob.id == job_id)
+                .values(
+                    user_metadata=IngestJob.user_metadata.op("-")(
+                        literal(LEGACY_PUBLISH_FOLLOWUPS_FIELD, Text)
+                    )
+                )
+            )
+            await session.commit()
+
+
+async def test_the_previous_release_cannot_see_a_record_this_one_writes(
+    test_db_session, ran
+) -> None:
+    """A record this release writes survives the previous release's claim and still settles."""
+    job_id, attempt_id, record_id = await _job(test_db_session, task="ingest_raster")
+    try:
+        async with db_module.async_session() as session:
+            await session.execute(
+                update(IngestJob)
+                .where(IngestJob.id == job_id)
+                .values(
+                    user_metadata=owed_followups(
+                        attempt_id,
+                        "ingest_raster",
+                        catalog_cache=True,
+                        notice="ingest_complete",
+                        usage="ingest_jobs",
+                    )
+                )
+            )
+            await session.commit()
+        await _make_due(job_id)
+        written = await _metadata(job_id)
+        assert LEGACY_PUBLISH_FOLLOWUPS_FIELD not in written
+
+        await _earlier_release_claims(job_id)
+
+        assert await _metadata(job_id) == written
+        await run_owed_publish_followups()
+        assert ran == [("cache",), ("notice", "ingest_complete"), ("bill",)]
         assert await _record(job_id) is None
     finally:
         await _drop(test_db_session, job_id, record_id)

@@ -51,10 +51,12 @@ from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.jobs.models import (
     ARCHIVE_PENDING_METADATA_KEY,
     ARCHIVE_REVIEW_METADATA_KEY,
+    LEGACY_PUBLISH_FOLLOWUPS_FIELD,
     PUBLISH_FOLLOWUPS_FIELD,
     SUPERSEDED_COG_ITEM,
     IngestJob,
     holds_unarchived_original,
+    owed_publish_record,
     owned_presigned_staging_key,
 )
 from app.processing.ingest.tasks_common import (
@@ -813,17 +815,22 @@ def _run_once_items(status: str, task: str) -> dict[str, object]:
     return items
 
 
-def _taken(items: dict[str, object]):
-    """The job's ``user_metadata`` with its record claimed, owing ``items`` too, and leased."""
+def _taken(items: dict[str, object], *, source: str):
+    """The job's ``user_metadata`` with its record, read from ``source``, claimed, owing ``items`` too, and leased.
+
+    The record is written under ``PUBLISH_FOLLOWUPS_FIELD`` whatever field it
+    was read from, and a legacy field it was read from goes.
+    """
+    metadata = IngestJob.user_metadata
+    if source != PUBLISH_FOLLOWUPS_FIELD:
+        metadata = metadata.op("-")(literal(source, Text))
     fields: list = []
     for item, value in items.items():
         fields += [item, literal(value, JSONB)]
     fields += [_CLAIMED, true(), _NEXT_ATTEMPT_AT, func.now() + _CLAIM_LEASE]
-    record = IngestJob.user_metadata[PUBLISH_FOLLOWUPS_FIELD].op("||")(
-        func.jsonb_build_object(*fields)
-    )
+    record = IngestJob.user_metadata[source].op("||")(func.jsonb_build_object(*fields))
     path = literal([PUBLISH_FOLLOWUPS_FIELD], ARRAY(Text))
-    return func.jsonb_set(IngestJob.user_metadata, path, record)
+    return func.jsonb_set(metadata, path, record)
 
 
 async def _published_dataset(dataset_id: uuid.UUID | None):
@@ -1016,14 +1023,16 @@ async def run_publish_followups(
     once while the sweep waits out the lease. A row another caller has locked,
     or a job neither complete nor failed, runs nothing. Only a complete job
     runs its storage items. A record an earlier attempt wrote is cleared and
-    runs nothing. Returns whether this call claimed the record.
+    runs nothing. A record an earlier release wrote under its legacy field is
+    taken the same way and moved to the current one. Returns whether this call
+    claimed the record.
 
     ``local_copy`` is a copy of the upload the caller holds and keeps; the
     archive reads it instead of downloading the upload again.
     """
     import app.core.db as db_module
 
-    owed = IngestJob.user_metadata[PUBLISH_FOLLOWUPS_FIELD]
+    owed = owed_publish_record()
     may_take = _is_due(owed)
     if attempt_id is not None:
         writes = owed["attempt_id"].astext == str(attempt_id)
@@ -1052,15 +1061,18 @@ async def run_publish_followups(
         ).one_or_none()
         if row is None:
             return False
-        first = not row.user_metadata[PUBLISH_FOLLOWUPS_FIELD].get(_CLAIMED)
+        source = (
+            PUBLISH_FOLLOWUPS_FIELD
+            if PUBLISH_FOLLOWUPS_FIELD in row.user_metadata
+            else LEGACY_PUBLISH_FOLLOWUPS_FIELD
+        )
+        first = not row.user_metadata[source].get(_CLAIMED)
         current = row.owed_attempt == str(row.attempt_id)
         if current:
             items = _run_once_items(row.status, row.task) if first else {}
-            metadata = _taken(items)
+            metadata = _taken(items, source=source)
         else:
-            metadata = IngestJob.user_metadata.op("-")(
-                literal(PUBLISH_FOLLOWUPS_FIELD, Text)
-            )
+            metadata = IngestJob.user_metadata.op("-")(literal(source, Text))
         stored = (
             await session.execute(
                 update(IngestJob)
@@ -1125,7 +1137,7 @@ def _unowed_archive():
     ended = func.coalesce(IngestJob.completed_at, IngestJob.created_at)
     return and_(
         holds_unarchived_original(),
-        metadata[PUBLISH_FOLLOWUPS_FIELD].is_(None),
+        owed_publish_record().is_(None),
         not_(metadata.has_key(ARCHIVE_REVIEW_METADATA_KEY)),
         ended < func.now() - _UNOWED_ARCHIVE_MIN_AGE,
     )
@@ -1257,7 +1269,7 @@ async def run_owed_publish_followups() -> int:
     import app.core.db as db_module
 
     log = structlog.get_logger()
-    record = IngestJob.user_metadata[PUBLISH_FOLLOWUPS_FIELD]
+    record = owed_publish_record()
     try:
         async with db_module.async_session() as session:
             owed = (

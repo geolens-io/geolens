@@ -28,7 +28,7 @@ from app.platform.dataset_origin import (
     set_dataset_origin,
     set_postgis_origin,
 )
-from app.platform.jobs.models import IngestJob
+from app.platform.jobs.models import PUBLISH_FOLLOWUPS_FIELD, IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.refresh.service import create_pending_run
 from app.platform.storage.local import LocalStorageProvider
@@ -1365,7 +1365,7 @@ async def _owed(job_id: uuid.UUID) -> dict | None:
     metadata = await _fresh_scalar(
         select(IngestJob.user_metadata).where(IngestJob.id == job_id)
     )
-    return (metadata or {}).get("publish_followups")
+    return (metadata or {}).get(PUBLISH_FOLLOWUPS_FIELD)
 
 
 async def _owed_keys(job_id: uuid.UUID) -> list[str] | None:
@@ -1508,7 +1508,7 @@ async def test_a_failing_superseded_delete_does_not_crowd_out_a_fresh_record(
         await session.execute(
             text(
                 "UPDATE catalog.ingest_jobs SET user_metadata = jsonb_set("
-                "user_metadata, '{publish_followups,next_attempt_at}', "
+                "user_metadata, '{publish_obligations,next_attempt_at}', "
                 "to_jsonb(now() - interval '1 hour')) WHERE id = :id"
             ),
             {"id": stuck.job_id},
