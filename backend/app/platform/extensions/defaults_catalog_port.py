@@ -245,9 +245,9 @@ class DefaultCatalogPort:
         )
 
     def reupload_file_task(self):  # type: ignore[no-untyped-def]
-        from app.processing.ingest.tasks import reupload_file
+        from app.processing.ingest.tasks import reupload_verified_file
 
-        return reupload_file
+        return reupload_verified_file
 
     def reupload_service_task(self):  # type: ignore[no-untyped-def]
         from app.processing.ingest.tasks import reupload_service

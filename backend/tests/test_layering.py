@@ -1318,7 +1318,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # replacement share.
     "backend/app/processing/ingest/tasks_common.py": 1784,
     # File and remote-source replacement strategies own retrieval, staging and verification.
-    "backend/app/processing/ingest/tasks_reupload.py": 1355,
+    "backend/app/processing/ingest/tasks_reupload.py": 1366,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection.
     "backend/app/modules/catalog/datasets/api/router_refresh.py": 1353,

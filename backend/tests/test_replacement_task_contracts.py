@@ -1,7 +1,9 @@
 """A queued replacement job resolves to the same task and binds the same arguments."""
 
+import ast
 import inspect
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 
@@ -24,6 +26,15 @@ _SERVICE_PARAMETERS = (
     _KWARGS,
 )
 
+_FILE_PARAMETERS = (
+    ("job_id", _ARG, _REQUIRED),
+    ("dataset_id", _ARG, _REQUIRED),
+    ("file_path", _ARG, _REQUIRED),
+    ("user_id", _ARG, _REQUIRED),
+    ("attempt_id", _ARG, None),
+    _KWARGS,
+)
+
 
 @dataclass(frozen=True)
 class _Contract:
@@ -38,14 +49,13 @@ _CONTRACTS = {
         aliases=("app.ingest.tasks.reupload_file",),
         queue="ingest",
         pass_context=False,
-        parameters=(
-            ("job_id", _ARG, _REQUIRED),
-            ("dataset_id", _ARG, _REQUIRED),
-            ("file_path", _ARG, _REQUIRED),
-            ("user_id", _ARG, _REQUIRED),
-            ("attempt_id", _ARG, None),
-            _KWARGS,
-        ),
+        parameters=_FILE_PARAMETERS,
+    ),
+    "app.ingest.tasks.reupload_verified_file": _Contract(
+        aliases=(),
+        queue="ingest",
+        pass_context=False,
+        parameters=_FILE_PARAMETERS,
     ),
     "app.processing.ingest.tasks_reupload.reupload_service": _Contract(
         aliases=("app.ingest.tasks.reupload_service",),
@@ -139,3 +149,52 @@ def test_the_verified_refresh_name_runs_the_service_task() -> None:
     verified = task_app.tasks["app.ingest.tasks.reupload_verified_refresh"]
     service = task_app.tasks["app.processing.ingest.tasks_reupload.reupload_service"]
     assert verified.func is service.func
+
+
+def test_the_verified_file_name_runs_the_file_replacement_task() -> None:
+    """A job queued under either file-replacement name runs the verifying function."""
+    verified = task_app.tasks["app.ingest.tasks.reupload_verified_file"]
+    file = task_app.tasks["app.processing.ingest.tasks_reupload.reupload_file"]
+    assert verified.func is file.func
+    assert verified.name not in file.aliases
+
+
+_APP = Path(__file__).resolve().parents[1] / "app"
+
+
+def test_every_file_replacement_dispatch_queues_the_verified_name() -> None:
+    """Each door that queues a file replacement gets the name pre-change workers lack."""
+    from app.platform.extensions.defaults_catalog_port import DefaultCatalogPort
+
+    assert (
+        DefaultCatalogPort().reupload_file_task().name
+        == "app.ingest.tasks.reupload_verified_file"
+    )
+    dispatchers: set[str] = set()
+    old_task_users: set[str] = set()
+    for path in sorted(_APP.rglob("*.py")):
+        rel = path.relative_to(_APP).as_posix()
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "reupload_file_task"
+            ):
+                dispatchers.add(rel)
+            named = (
+                [alias.name for alias in node.names]
+                if isinstance(node, ast.ImportFrom)
+                else [node.attr]
+                if isinstance(node, ast.Attribute)
+                else []
+            )
+            if "reupload_file" in named:
+                old_task_users.add(rel)
+    assert dispatchers == {
+        "modules/catalog/datasets/api/refresh_acceptance.py",
+        "modules/catalog/datasets/api/router_reupload.py",
+        "processing/ingest/manifest_service.py",
+    }
+    # The old name stays registered for jobs already queued under it; only the
+    # task registry imports it.
+    assert old_task_users == {"processing/ingest/tasks.py"}

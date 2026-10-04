@@ -583,6 +583,17 @@ async def reupload_file(
     )
 
 
+# Every file replacement is queued under a name introduced with its review
+# verification, so a pre-change worker, which would publish without it, cannot
+# run one. Jobs queued under the old name run the same verified function.
+reupload_verified_file = task_app.task(
+    reupload_file.func,
+    queue="ingest",
+    retry=0,
+    name="app.ingest.tasks.reupload_verified_file",
+)
+
+
 def _file_refresh_error_code(exc: BaseException) -> str:
     """Map a file-reupload failure onto its run ``error_code``.
 
