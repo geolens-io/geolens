@@ -843,13 +843,19 @@ def test_http_499_during_search_tries_the_form_field_then_fails(run):
 
 def test_empty_web_map_body_is_an_item_error(run):
     """An empty web map configuration is a failed read: an error row, and --strict fails."""
-    routes = portal_routes({item_data_path(B1): (200, b"")})
+    routes = portal_routes(
+        {
+            item_data_path(B1): (200, b""),
+            item_data_path(B2): load("item_web_map_data.json"),
+        }
+    )
     result, _ = run(FakePortal(routes), "--scope", "org", "--strict")
     assert result.exit_code == 1
     report = _report(result)
     assert report["complete"] is True
     assert report["counts"]["total"] == 15
     errors = {e["item_id"]: e["message"] for e in report["errors"]}
+    assert list(errors) == [B1]
     assert "empty body" in errors[B1]
     assert _rows(report)[B1]["dependencies_status"] == "error"
     assert not [d for d in report["dependencies"] if d["from_id"] == B1]
