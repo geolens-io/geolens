@@ -22,6 +22,9 @@ from app.processing.ingest.publish_followups import (
 )
 from tests.factories import create_dataset, get_user_id
 from tests.test_publish_followups import _make_due
+from tests.test_publish_followups import (
+    _only_this_tests_followups as _only_this_tests_followups,
+)
 from tests.test_replacement_post_commit import _archived, _upload_left
 from tests.test_replacement_post_commit import replace as replace
 from tests.test_replacement_post_commit import storage as storage

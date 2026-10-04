@@ -59,6 +59,23 @@ class _Ran(list):
         self.billing: list[str | None] = []
 
 
+@pytest.fixture(autouse=True)
+async def _only_this_tests_followups(test_db_session, monkeypatch) -> None:
+    """Leave the run-once items of jobs earlier tests left due unrun, so a sweep's doubles see only this test's jobs."""
+    import app.processing.ingest.publish_followups as publish_followups
+
+    earlier = set(await test_db_session.scalars(select(IngestJob.id)))
+    await test_db_session.rollback()
+    real = publish_followups._run_item
+
+    async def _run_item(item, value, job_uuid, row, dataset):
+        if job_uuid in earlier:
+            return False
+        return await real(item, value, job_uuid, row, dataset)
+
+    monkeypatch.setattr(publish_followups, "_run_item", _run_item)
+
+
 @pytest.fixture
 def followups(monkeypatch) -> _Ran:
     """Each follow-up a publish runs, in order."""

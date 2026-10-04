@@ -45,6 +45,9 @@ from app.processing.ingest.publication import (
 from app.processing.raster.models import RasterAsset
 from tests.factories import create_dataset, get_user_id
 from tests.test_feature_lock_order_1847 import _published_version
+from tests.test_publish_followups import (
+    _only_this_tests_followups as _only_this_tests_followups,
+)
 from tests.test_worker_swap_bump_after_lock_1911 import _message, _overlap
 
 pytestmark = pytest.mark.anyio
