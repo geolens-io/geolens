@@ -691,6 +691,7 @@
     "expiration90Days": "90 days",
     "expirationCustom": "Custom date…",
     "iframePreviewTitle": "Map embed preview",
+    "embedTitleFallback": "Embedded GeoLens map",
     "iframePreviewToggle": "Preview",
     "iframeErrorTitle": "Preview unavailable",
     "iframeErrorBody": "Check that the embed token is valid and the share link is active. Reload to retry.",

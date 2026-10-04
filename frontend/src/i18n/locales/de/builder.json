@@ -691,6 +691,7 @@
     "expiration90Days": "90 Tage",
     "expirationCustom": "Benutzerdefiniertes Datum…",
     "iframePreviewTitle": "Karten-Einbettungsvorschau",
+    "embedTitleFallback": "Eingebettete GeoLens-Karte",
     "iframePreviewToggle": "Vorschau",
     "iframeErrorTitle": "Vorschau nicht verfügbar",
     "iframeErrorBody": "Bitte überprüfen Sie, ob das Einbettungs-Token gültig und der Freigabelink aktiv ist. Zum Wiederholen neu laden.",

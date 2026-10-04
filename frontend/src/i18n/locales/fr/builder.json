@@ -691,6 +691,7 @@
     "expiration90Days": "90 jours",
     "expirationCustom": "Date personnalisée…",
     "iframePreviewTitle": "Aperçu de la carte intégrée",
+    "embedTitleFallback": "Carte GeoLens intégrée",
     "iframePreviewToggle": "Aperçu",
     "iframeErrorTitle": "Aperçu indisponible",
     "iframeErrorBody": "Vérifiez que le jeton d'intégration est valide et que le lien de partage est actif. Rechargez pour réessayer.",

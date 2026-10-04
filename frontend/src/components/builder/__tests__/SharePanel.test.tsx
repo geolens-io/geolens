@@ -380,12 +380,24 @@ describe('#1515: embed code sandbox attribute', () => {
       shareToken: 'abc123',
       embedTokenRaw: 'tok-456',
       origin: 'https://geolens.example.com',
+      title: 'Harbor map',
     });
     expect(code).toBe(
       '<iframe src="https://geolens.example.com/m/abc123?embed=true&et=tok-456"' +
-        ' width="800" height="600" sandbox="allow-scripts allow-same-origin"' +
+        ' title="Harbor map" width="100%" height="600"' +
+        ' sandbox="allow-scripts allow-same-origin"' +
         ' style="border:none;"></iframe>',
     );
+  });
+
+  it('escapes the map name so it cannot break out of the title attribute', () => {
+    const code = generateEmbedCode({
+      shareToken: 'abc123',
+      embedTokenRaw: 'tok-456',
+      origin: 'https://geolens.example.com',
+      title: 'Bob\'s "Q&A" <map>',
+    });
+    expect(code).toContain('title="Bob\'s &quot;Q&amp;A&quot; &lt;map&gt;"');
   });
 
   it('carries allow-same-origin, without which the frame cannot load its own bundle', () => {
@@ -393,6 +405,7 @@ describe('#1515: embed code sandbox attribute', () => {
       shareToken: 'abc123',
       embedTokenRaw: 'tok-456',
       origin: 'https://geolens.example.com',
+      title: 'Harbor map',
     });
     expect(code).toContain('sandbox="allow-scripts allow-same-origin"');
   });
@@ -402,6 +415,7 @@ describe('#1515: embed code sandbox attribute', () => {
       shareToken: '',
       embedTokenRaw: '',
       origin: 'https://geolens.example.com',
+      title: 'Harbor map',
     });
     expect(code).toBe('');
   });
@@ -411,6 +425,7 @@ describe('#1515: embed code sandbox attribute', () => {
       shareToken: 'abc123',
       embedTokenRaw: 'tok-456',
       origin: 'https://geolens.example.com',
+      title: 'Harbor map',
     });
     expect(code).toContain('et=tok-456');
   });
@@ -420,6 +435,7 @@ describe('#1515: embed code sandbox attribute', () => {
       shareToken: 'abc123',
       embedTokenRaw: '',
       origin: 'https://geolens.example.com',
+      title: 'Harbor map',
     });
     expect(code).not.toContain('et=');
   });
@@ -437,6 +453,8 @@ describe('#1515: embed code sandbox attribute', () => {
     const textarea = await screen.findByRole('textbox') as HTMLTextAreaElement;
     expect(textarea).toBeTruthy();
     expect(textarea.value).toContain('sandbox="allow-scripts allow-same-origin"');
+    expect(textarea.value).toContain('title="');
+    expect(textarea.value).toContain('width="100%"');
   });
 });
 
@@ -456,7 +474,7 @@ describe('SHARE-04: buildEmbedSrc shared URL builder', () => {
   });
 
   it('generateEmbedCode wraps the exact buildEmbedSrc output (no drift)', () => {
-    const args = { shareToken: 'abc123', embedTokenRaw: 'tok-456', origin: 'https://x.io' };
+    const args = { shareToken: 'abc123', embedTokenRaw: 'tok-456', origin: 'https://x.io', title: 'Harbor map' };
     expect(generateEmbedCode(args)).toContain(`src="${buildEmbedSrc(args)}"`);
   });
 });
@@ -1050,6 +1068,7 @@ describe('SHARE-03 embed-preview iframe', () => {
       shareToken: 'share-token',
       embedTokenRaw: 'raw-token',
       origin: 'https://geolens.example.com',
+      title: 'Harbor map',
     });
     expect(snippet).toContain(`sandbox="${iframe.getAttribute('sandbox')}"`);
   });

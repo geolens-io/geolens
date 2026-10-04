@@ -89,8 +89,7 @@ function nearArcPath(samples: [number, number][], cosT: number, sinT: number) {
 }
 
 /**
- * Decorative orthographic globe built with SVG and requestAnimationFrame.
- * Reduced-motion users receive a fixed pose.
+ * Decorative orthographic globe built with SVG, drawn in a fixed pose.
  */
 function BrandMapBackdrop() {
   const { W, H, cx, cy, R } = GLOBE;
@@ -99,7 +98,7 @@ function BrandMapBackdrop() {
   const dotsRef = useRef<SVGGElement>(null);
   const meridiansRef = useRef<SVGGElement>(null);
 
-  // Parallels are invariant under polar-axis spin → build their arcs once.
+  // Parallels are invariant under polar-axis spin, so their arcs are built once.
   const parallelPaths = GLOBE_PARALLELS.map((latDeg) => {
     const lat = (latDeg * Math.PI) / 180;
     const samples: [number, number][] = [];
@@ -126,42 +125,8 @@ function BrandMapBackdrop() {
         el.setAttribute('d', nearArcPath(samples, cosT, sinT));
       });
     };
-    // matchMedia is absent under jsdom; optional-chain so tests don't crash.
-    const reduceMq = window.matchMedia?.('(prefers-reduced-motion: reduce)');
-    // The brand panel is `hidden` below 880px — don't burn rAF when it isn't shown.
-    const wideMq = window.matchMedia?.('(min-width: 880px)');
-    const omega = (2 * Math.PI) / 120_000; // ~120s per revolution
-    let start = 0; // seeded from the first rAF timestamp (avoids impure performance.now)
-    let raf = 0;
-    const tick = (now: number) => {
-      if (start === 0) start = now;
-      render(omega * (now - start));
-      raf = requestAnimationFrame(tick);
-    };
-    const canAnimate = () =>
-      typeof window.requestAnimationFrame === 'function' &&
-      !reduceMq?.matches &&
-      (wideMq?.matches ?? true);
-    const sync = () => {
-      if (canAnimate()) {
-        if (!raf) {
-          start = 0;
-          raf = requestAnimationFrame(tick);
-        }
-      } else {
-        if (raf) {
-          cancelAnimationFrame(raf);
-          raf = 0;
-        }
-        render(0.7); // fixed earth-like pose while hidden / reduced-motion
-      }
-    };
-    sync();
-    wideMq?.addEventListener?.('change', sync);
-    return () => {
-      if (raf) cancelAnimationFrame(raf);
-      wideMq?.removeEventListener?.('change', sync);
-    };
+    // Fixed earth-like pose: a decorative animation that never stops fails WCAG 2.2.2.
+    render(0.7);
   }, [cosT, sinT]);
 
   // Faint full-bleed graticule for texture behind the globe.
@@ -365,7 +330,7 @@ export function LoginPage() {
           </div>
 
           {configError && (
-            <p className="mb-4 text-sm text-destructive">{t('authConfig.loadFailed')}</p>
+            <p role="alert" className="mb-4 text-sm text-destructive">{t('authConfig.loadFailed')}</p>
           )}
 
           {/* In SSO-only mode, hide the password form without a flash when

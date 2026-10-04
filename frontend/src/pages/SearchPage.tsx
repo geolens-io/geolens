@@ -1,10 +1,12 @@
 import { type ReactNode, useRef } from 'react';
 import { Database, Loader2, SearchX, Upload, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useShallow } from 'zustand/react/shallow';
 import { Link } from 'react-router';
 import { PageShell } from '@/components/layout/PageShell';
 import { ErrorState } from '@/components/layout/ErrorState';
 import { EmptyState } from '@/components/layout/EmptyState';
+import { LiveAnnouncement } from '@/components/ui/live-announcement';
 import { Button } from '@/components/ui/button';
 import { SearchBar } from '@/components/search/SearchBar';
 import { SavedSearches } from '@/components/search/SavedSearches';
@@ -58,6 +60,7 @@ export function SearchPage() {
     refetch: refetchMaps,
   } = useMapSearchResults();
   const mapQuery = useSearchStore((s) => s.q).trim();
+  const searchParams = useSearchStore(useShallow((s) => s.toParams()));
   const offset = useSearchStore((s) => s.offset);
   const limit = useSearchStore((s) => s.limit);
   const token = useAuthStore((s) => s.token);
@@ -89,6 +92,21 @@ export function SearchPage() {
   const hasMapTextQuery = mapQuery.length > 0;
   const isMapSearchPending = hasMapTextQuery && (isLoadingMaps || isFetchingMaps);
   const hasMapMatches = (mapResults?.maps.length ?? 0) > 0;
+  const searchKey = JSON.stringify(searchParams);
+  const catalogEmpty = !!data && data.features.length === 0;
+  const mapMatchText = hasMapMatches ? t('mapMatchCount', { count: mapResults?.total ?? 0 }) : '';
+  const catalogText = catalogEmpty
+    ? t('empty.catalogResultsTitle')
+    : t('catalogResults', { count: totalMatched });
+  const liveStatus: string = !data
+    ? ''
+    : isFetching
+      ? t('updating')
+      : catalogEmpty && isMapSearchPending
+        ? '' // the map section announces its own pending state
+        : mapMatchText
+          ? `${catalogText}${catalogEmpty ? '.' : ','} ${mapMatchText}`
+          : catalogText;
   const shouldShowMapSearch = hasMapTextQuery && (isMapSearchPending || !!mapsError || hasMapMatches);
 
   useUrlSearchSync();
@@ -123,8 +141,10 @@ export function SearchPage() {
               </SearchControls>
             </section>
 
+            <LiveAnnouncement text={liveStatus} trigger={searchKey} />
+
             {isFetching && data && (
-              <div role="status" aria-live="polite" className="inline-flex items-center gap-2 rounded-md border bg-card px-3 py-1.5 text-sm text-muted-foreground shadow-sm">
+              <div aria-hidden="true" className="inline-flex items-center gap-2 rounded-md border bg-card px-3 py-1.5 text-sm text-muted-foreground shadow-sm">
                 <Loader2 className="size-4 animate-spin" aria-hidden="true" />
                 {t('updating')}
               </div>
@@ -183,6 +203,7 @@ export function SearchPage() {
               // A positive total with an empty page means the current offset is out of range.
               hasActiveSearch || totalMatched > 0 ? (
                 <EmptyState
+                  announce={false}
                   icon={SearchX}
                   title={t('empty.catalogResultsTitle')}
                   description={t('empty.catalogResultsDescription')}
@@ -195,6 +216,7 @@ export function SearchPage() {
                 />
               ) : (
                 <EmptyState
+                  announce={false}
                   icon={Database}
                   title={t('empty.catalogTitle', { defaultValue: 'Your catalog is empty' })}
                   description={t('empty.catalogDescription', {

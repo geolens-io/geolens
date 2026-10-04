@@ -67,7 +67,7 @@ export function MapsPage() {
     setSkip(0);
   }, [debouncedSearch, sortBy, sortDir, visibility]);
 
-  const { data, isLoading, error, refetch } = useMaps({
+  const { data, isLoading, isFetching, error, refetch } = useMaps({
     skip,
     limit: PAGE_SIZE,
     search: debouncedSearch || undefined,
@@ -204,6 +204,9 @@ export function MapsPage() {
         <EmptyState
           icon={MapIcon}
           title={t('maps.noMapsYet')}
+          // keepPreviousData holds the old empty page while a new query loads.
+          announce={!isFetching}
+          announceTrigger={`${debouncedSearch}|${visibility}`}
           description={
             debouncedSearch || visibility !== 'all'
               ? t('maps.noMapsMatch')

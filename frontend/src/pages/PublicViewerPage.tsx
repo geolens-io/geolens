@@ -43,7 +43,6 @@ function parseZoom(raw: string | null): number | null {
 
 export function PublicViewerPage() {
   const { t } = useTranslation('common');
-  useDocumentTitle(t('common:pageTitle.sharedMap'));
   const { isEnterprise } = useEdition();
   const { data: branding } = useBranding();
   // Gate on branding !== undefined so enterprise users with show_badge:false do
@@ -59,6 +58,7 @@ export function PublicViewerPage() {
   const legendParam = searchParams.get('legend');
 
   const { data, isLoading, isError, error } = useSharedMap(token, apiKey, embedToken);
+  useDocumentTitle(data?.name || t('common:pageTitle.sharedMap'));
 
   const effectiveShowLegend = legendParam !== null ? legendParam === 'true' : !isEmbed;
 
@@ -75,9 +75,9 @@ export function PublicViewerPage() {
     return (
       <div className="flex h-dvh flex-col">
         {!isEmbed && <SiteBanner />}
-        <div className="flex min-h-0 w-full flex-1 items-center justify-center bg-muted">
+        <main className="flex min-h-0 w-full flex-1 items-center justify-center bg-muted">
           <LoadingState message={t('viewer.loading')} />
-        </div>
+        </main>
       </div>
     );
   }
@@ -89,10 +89,10 @@ export function PublicViewerPage() {
       // min-h-screen overflowed the viewport by the banner's height.
       <div className="flex h-dvh flex-col">
       {!isEmbed && <SiteBanner />}
-      <div className="app-surface-gradient flex min-h-0 flex-1 overflow-y-auto px-6">
+      <main className="app-surface-gradient flex min-h-0 flex-1 overflow-y-auto px-6">
         {/* m-auto (not items-center on the parent) so a card taller than a
             short viewport scrolls instead of clipping its top */}
-        <div className="m-auto flex w-full max-w-xl flex-col items-center rounded-2xl border bg-background/95 p-8 text-center shadow-lg backdrop-blur">
+        <div role="alert" className="m-auto flex w-full max-w-xl flex-col items-center rounded-2xl border bg-background/95 p-8 text-center shadow-lg backdrop-blur">
           {isExpired ? (
             <>
               <Clock className="size-10 text-muted-foreground" />
@@ -137,7 +137,7 @@ export function PublicViewerPage() {
             </Button>
           </div>
         </div>
-      </div>
+      </main>
       </div>
     );
   }
