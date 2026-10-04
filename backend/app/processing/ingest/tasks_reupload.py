@@ -248,9 +248,27 @@ async def _live_geometry_types(table_name: str, *, schema: str) -> list[str] | N
     from app.core.db import async_session
     from app.processing.ingest.metadata import get_geometry_types
 
-    # Counts are re-read under the lock; a geometry-only edit is overwritten like any edit.
     async with async_session() as session:
         return await get_geometry_types(session, table_name, schema=schema)
+
+
+async def _held_live_geometry_types(
+    session, table_name: str, scanned: list[str] | None, *, schema: str
+) -> list[str] | None:
+    """The live geometry types as they are under the swap's lock.
+
+    A column declared as the one type the earlier scan found can since have
+    only lost it, which compares no less strictly, so only other columns are
+    scanned again while readers wait.
+    """
+    from app.processing.ingest.metadata import get_geometry_types
+
+    declared = await catalog_projection._declared_geometry_type(
+        session, schema=schema, table=table_name
+    )
+    if scanned is not None and scanned == [declared]:
+        return scanned
+    return await get_geometry_types(session, table_name, schema=schema)
 
 
 async def _staged_input_needed_elsewhere(job_id: str, file_path: str) -> bool:
@@ -440,6 +458,9 @@ class _FileReupload:
     async def _verify(self, session, dataset) -> Verdict:
         schema = _current_tenant_schema()
         await _hold_live_table(session, dataset, schema=schema)
+        self.live_geometry_types = await _held_live_geometry_types(
+            session, dataset.table_name, self.live_geometry_types, schema=schema
+        )
         if (
             self.accepted_run_id is not None
             and dataset.current_version != self.accepted_version
@@ -1208,6 +1229,9 @@ class _ServiceReupload:
     async def _verify(self, session, dataset) -> Verdict:
         schema = _current_tenant_schema()
         await _hold_live_table(session, dataset, schema=schema)
+        self.live_geometry_types = await _held_live_geometry_types(
+            session, dataset.table_name, self.live_geometry_types, schema=schema
+        )
         self.measured_schema_diff = catalog_projection.schema_diff(
             dataset, self.measurement
         )

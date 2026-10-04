@@ -265,3 +265,45 @@ async def test_only_a_refresh_reads_the_live_geometry_types(
 
     await _refresh(client, admin_auth_header, monkeypatch, dataset_id, _WELLS)
     assert len(scanned) == 1
+
+
+async def test_a_type_added_after_the_live_scan_holds_a_refresh_for_review(
+    client: AsyncClient, admin_auth_header, test_db_session, monkeypatch
+):
+    """A refresh compares the live geometry types as they are under its lock."""
+    from app.core.db import async_session
+
+    dataset_id = await _ingest(test_db_session, monkeypatch, _WELLS)
+    live = f'data."{(await _dataset(test_db_session, dataset_id)).table_name}"'
+    # Unconstrained, as a created layer's column is, so it takes any type.
+    await test_db_session.execute(
+        text(f"ALTER TABLE {live} ALTER COLUMN geom TYPE geometry")
+    )
+    await test_db_session.commit()
+    real = tasks_reupload._live_geometry_types
+
+    async def _scan_then_add_a_polygon(table_name, *, schema):
+        scanned = await real(table_name, schema=schema)
+        async with async_session() as writer:
+            await writer.execute(
+                text(
+                    f"INSERT INTO {live} (name, geom) VALUES ('late', "
+                    "ST_GeomFromText('POLYGON Z ((-73.9 40.7 1, -73.8 40.7 1, "
+                    "-73.8 40.8 1, -73.9 40.7 1))', 4326))"
+                )
+            )
+            await writer.commit()
+        return scanned
+
+    monkeypatch.setattr(
+        tasks_reupload, "_live_geometry_types", _scan_then_add_a_polygon
+    )
+    await _refresh(client, admin_auth_header, monkeypatch, dataset_id, _WELLS)
+
+    [run] = await _runs_ordered(test_db_session, dataset_id)
+    assert run.status == "blocked", run.verification
+    assert run.verification["review_reasons"] == ["geometry_type_changed"]
+    kept = await test_db_session.scalar(
+        text(f"SELECT count(*) FROM {live} WHERE name = 'late'")
+    )
+    assert kept == 1

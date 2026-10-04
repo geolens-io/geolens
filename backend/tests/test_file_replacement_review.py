@@ -655,6 +655,50 @@ async def test_live_geometry_is_read_before_the_live_table_is_locked(
     assert run.status == "succeeded"
 
 
+async def test_a_type_added_after_the_live_scan_holds_a_replacement_for_review(
+    harness: _Harness,
+):
+    """A replacement compares the live geometry types as they are under its lock."""
+    import app.core.db as db_module
+    from app.processing.ingest import tasks_reupload
+
+    dataset = await _published(harness, _geojson(harness.tmp_path / "a.geojson", _BASE))
+    live = f'"data"."{dataset.table_name}"'
+    # Unconstrained, as a created layer's column is, so it takes any type.
+    await harness.session.execute(
+        text(f"ALTER TABLE {live} ALTER COLUMN geom TYPE geometry")
+    )
+    await harness.session.commit()
+    real = tasks_reupload._live_geometry_types
+
+    async def _scan_then_add_a_polygon(table_name, *, schema):
+        scanned = await real(table_name, schema=schema)
+        async with db_module.async_session() as writer:
+            await writer.execute(
+                text(
+                    f"INSERT INTO {live} (name, geom) VALUES ('late', "
+                    "ST_GeomFromText('POLYGON ((-73.9 40.7, -73.8 40.7, "
+                    "-73.8 40.8, -73.9 40.7))', 4326))"
+                )
+            )
+            await writer.commit()
+        return scanned
+
+    with patch.object(
+        tasks_reupload, "_live_geometry_types", new=_scan_then_add_a_polygon
+    ):
+        _preview, run = await harness.replace(
+            dataset, _geojson(harness.tmp_path / "b.geojson", _BASE)
+        )
+
+    assert run.status == "blocked", run.verification
+    assert run.verification["review_reasons"] == ["geometry_type_changed"]
+    kept = await harness.session.scalar(
+        text(f"SELECT count(*) FROM {live} WHERE name = 'late'")
+    )
+    assert kept == 1
+
+
 async def test_a_replacement_publishes_on_a_one_connection_pool(harness: _Harness):
     """The worker never holds two pooled connections at once."""
     import app.core.db as db_module
