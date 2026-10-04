@@ -301,6 +301,7 @@ class _FileReupload:
             job.id, job.user_metadata, job.file_path
         )
         self.staging_table = staging_table
+        self.live_table = dataset.table_name
         self.attempt_id = job.attempt_id
         self.source_filename = job.source_filename
         self.user_metadata = job.user_metadata or {}
@@ -357,6 +358,10 @@ class _FileReupload:
         self.file_hash = await asyncio.to_thread(sha256_file, self.file_path)
         self.source_format = await asyncio.to_thread(
             derive_source_format, self.file_path
+        )
+        # Read while no publication session holds a pooled connection.
+        self.live_geometry_types = await _live_geometry_types(
+            self.live_table, schema=_current_tenant_schema()
         )
 
     async def stage(self, session, job, dataset) -> Verdict:
@@ -421,9 +426,6 @@ class _FileReupload:
         # Read before the live table is locked: it scans only the staged rows.
         self.staged_geometry_types = await get_geometry_types(
             session, self.staging_table, schema=_current_tenant_schema()
-        )
-        self.live_geometry_types = await _live_geometry_types(
-            dataset.table_name, schema=_current_tenant_schema()
         )
         return Verdict(verify=self._verify)
 
@@ -1009,6 +1011,7 @@ class _ServiceReupload:
 
     def prepare(self, job, dataset, staging_table: str) -> None:
         self.staging_table = staging_table
+        self.live_table = dataset.table_name
         # A failure's contact stamp lands only while the dataset keeps the
         # origin this attempt fetched from.
         self.bound = (dataset.origin_uri, dataset.origin_ref, dataset.source_format)
@@ -1110,6 +1113,10 @@ class _ServiceReupload:
             )
         except ValueError as exc:
             raise IngestionError(str(exc)) from exc
+        # Read while no publication session holds a pooled connection.
+        self.live_geometry_types = await _live_geometry_types(
+            self.live_table, schema=_current_tenant_schema()
+        )
 
     async def stage(self, session, job, dataset) -> Verdict:
         from app.processing.ingest.metadata import (
@@ -1174,9 +1181,6 @@ class _ServiceReupload:
             srid=self.measurement.metadata.get("srid"),
             is_3d=self.measurement.three_d.get("is_3d"),
             n_dims=self.measurement.three_d.get("n_dims"),
-        )
-        self.live_geometry_types = await _live_geometry_types(
-            dataset.table_name, schema=schema
         )
         return Verdict(verify=self._verify)
 

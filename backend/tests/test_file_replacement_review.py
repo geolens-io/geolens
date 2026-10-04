@@ -654,6 +654,30 @@ async def test_live_geometry_is_read_before_the_live_table_is_locked(
     assert run.status == "succeeded"
 
 
+async def test_a_replacement_publishes_on_a_one_connection_pool(harness: _Harness):
+    """The worker never holds two pooled connections at once."""
+    import app.core.db as db_module
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    dataset = await _published(harness, _geojson(harness.tmp_path / "a.geojson", _BASE))
+    url = db_module.engine.url
+    assert url.database.startswith("geolens_test"), url.database
+    engine = create_async_engine(url, pool_size=1, max_overflow=0, pool_timeout=5)
+    try:
+        with patch.object(
+            db_module,
+            "async_session",
+            async_sessionmaker(engine, expire_on_commit=False),
+        ):
+            _preview, run = await harness.replace(
+                dataset, _geojson(harness.tmp_path / "b.geojson", _BASE, rows=4)
+            )
+    finally:
+        await engine.dispose()
+
+    assert run.status == "succeeded", (run.error_code, run.error_message)
+
+
 # 7: the preview and the worker fingerprint the same subject
 
 

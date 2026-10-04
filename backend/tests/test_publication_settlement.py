@@ -331,6 +331,28 @@ async def test_a_verified_refresh_reads_live_geometry_before_it_locks_the_live_t
     assert (await _run(job.id)).status == "succeeded"
 
 
+async def test_a_verified_refresh_publishes_on_a_one_connection_pool(test_db_session):
+    """The worker never holds two pooled connections at once."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    dataset, job, admin_id = await _candidate(test_db_session, refresh=True)
+    url = db_module.engine.url
+    assert url.database.startswith("geolens_test"), url.database
+    engine = create_async_engine(url, pool_size=1, max_overflow=0, pool_timeout=5)
+    try:
+        with patch.object(
+            db_module,
+            "async_session",
+            async_sessionmaker(engine, expire_on_commit=False),
+        ):
+            await _reupload(dataset, job, admin_id)
+    finally:
+        await engine.dispose()
+
+    assert (await _run(job.id)).status == "succeeded"
+    assert await _live(dataset) == "candidate"
+
+
 async def test_a_refresh_that_changes_the_geometry_family_waits_for_review(
     test_db_session, quiet
 ):
