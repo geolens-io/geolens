@@ -752,10 +752,13 @@ async def test_service_worker_skips_arcgis_chunking_without_pagination_support(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("layer_order_field", "expected"), [("FID", ["FID ASC"]), (None, None)]
+)
 async def test_service_worker_single_fetch_orders_by_the_layers_own_oid_field(
-    test_db_session, monkeypatch
+    test_db_session, monkeypatch, layer_order_field, expected
 ):
-    """The unpaged import orders by the layer's declared OID, not the probe's hint."""
+    """The unpaged import orders by what the layer reports, not the probe's hint."""
     from app.modules.catalog.sources.preview import build_gdal_source
     from app.processing.ingest import tasks_vector
 
@@ -794,8 +797,11 @@ async def test_service_worker_single_fetch_orders_by_the_layers_own_oid_field(
     async def _fake_generate_table_name(*args, **kwargs):
         return table_name, None
 
+    page_info_kwargs: list[dict] = []
+
     async def _fake_page_info(*args, **kwargs):
-        return 251, 2000, True, "FID"
+        page_info_kwargs.append(kwargs)
+        return 251, 2000, True, layer_order_field
 
     async def _fake_run_ogr2ogr_service(
         gdal_source: str, layer_name: str, target_table: str, *args, **kwargs
@@ -856,7 +862,8 @@ async def test_service_worker_single_fetch_orders_by_the_layers_own_oid_field(
         user_id=str(admin_id),
     )
 
-    assert order_fields == [["FID ASC"]]
+    assert order_fields == [expected]
+    assert page_info_kwargs == [{"fallback_order_field": "OBJECTID"}]
 
 
 @pytest.mark.anyio

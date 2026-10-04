@@ -399,10 +399,54 @@ async def test_fetch_arcgis_pagination_info_omits_order_field_without_order_supp
 
     async with _mock_transport_client(handle) as client:
         _, _, object_id_field = await fetch_arcgis_pagination_info(
-            "https://services.arcgis.com/svc/FeatureServer", 0, client
+            "https://services.arcgis.com/svc/FeatureServer",
+            0,
+            client,
+            fallback_order_field="OBJECTID",
         )
 
     assert object_id_field is None
+
+
+@pytest.mark.asyncio
+async def test_fetch_arcgis_pagination_info_returns_fallback_when_unreadable():
+    """An unreadable layer returns the caller's fallback order field."""
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        return _streaming_json_response(
+            {"error": {"code": 500, "message": "Service not started"}}
+        )
+
+    async with _mock_transport_client(handle) as client:
+        result = await fetch_arcgis_pagination_info(
+            "https://services.arcgis.com/svc/FeatureServer",
+            0,
+            client,
+            fallback_order_field="OBJECTID",
+        )
+
+    assert result == (None, False, "OBJECTID")
+
+
+@pytest.mark.asyncio
+async def test_import_page_info_returns_fallback_when_the_read_raises(monkeypatch):
+    """A failed page-info read keeps the caller's fallback order field."""
+    from app.modules.catalog.sources.adapters import arcgis
+    from app.processing.ingest import tasks_vector
+
+    async def _raise(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(arcgis, "fetch_arcgis_pagination_info", _raise)
+
+    result = await tasks_vector._fetch_arcgis_import_page_info(
+        "https://services.arcgis.com/svc/FeatureServer",
+        0,
+        None,
+        fallback_order_field="OBJECTID",
+    )
+
+    assert result == (None, None, False, "OBJECTID")
 
 
 @pytest.mark.asyncio

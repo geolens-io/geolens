@@ -64,7 +64,7 @@ def _fake_fetch(points):
 def _source(monkeypatch, points):
     """Serve ``points`` as the ArcGIS layer for every fetch inside the block."""
 
-    async def _page_info(source_url, layer_id, token):
+    async def _page_info(source_url, layer_id, token, **_):
         return len(points), 1000, False, None
 
     monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _page_info)

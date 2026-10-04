@@ -282,7 +282,7 @@ async def test_refresh_pages_large_arcgis_layer(
     admin_id = await get_user_id(test_db_session, "admin")
     dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
 
-    async def _fake_page_info(source_url, layer_id, token):
+    async def _fake_page_info(source_url, layer_id, token, **_):
         return 4500, 1000, True, "FID"
 
     # Patched on tasks_vector: the refresh guard resolves the probe through
@@ -319,7 +319,7 @@ async def test_small_arcgis_count_mismatch_refuses_publication(
     admin_id = await get_user_id(test_db_session, "admin")
     dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
 
-    async def _fake_page_info(source_url, layer_id, token):
+    async def _fake_page_info(source_url, layer_id, token, **_):
         return 500, 1000, False, None
 
     monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)
@@ -356,7 +356,7 @@ async def test_empty_refresh_blocks_until_exact_run_is_accepted(
     record_id = dataset.record_id
     original_version = dataset.current_version
 
-    async def _fake_page_info(source_url, layer_id, token):
+    async def _fake_page_info(source_url, layer_id, token, **_):
         return 0, 1000, True, "FID"
 
     monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)
@@ -426,7 +426,7 @@ async def test_empty_refresh_acceptance_fences_staged_spatial_contract(
     dataset_id = dataset.id
     original_version = dataset.current_version
 
-    async def _fake_page_info(source_url, layer_id, token):
+    async def _fake_page_info(source_url, layer_id, token, **_):
         return 0, 1000, True, "FID"
 
     monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)
@@ -552,7 +552,7 @@ async def test_unavailable_source_count_blocks_until_exact_run_is_accepted(
     dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
     original_version = dataset.current_version
 
-    async def _fake_page_info(source_url, layer_id, token):
+    async def _fake_page_info(source_url, layer_id, token, **_):
         return None, 1000, False, None
 
     monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)
@@ -599,7 +599,7 @@ async def test_destructive_schema_change_blocks_before_swap(
     await test_db_session.commit()
     original_version = dataset.current_version
 
-    async def _fake_page_info(source_url, layer_id, token):
+    async def _fake_page_info(source_url, layer_id, token, **_):
         return 10, 1000, False, None
 
     monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)
@@ -648,7 +648,7 @@ async def test_post_verification_failure_preserves_evidence_and_live_dataset(
     record_id = dataset.record_id
     original_version = dataset.current_version
 
-    async def _fake_page_info(source_url, layer_id, token):
+    async def _fake_page_info(source_url, layer_id, token, **_):
         return 10, 1000, False, None
 
     async def _fail_after_swap(*args, **kwargs):
@@ -690,7 +690,7 @@ async def test_refresh_no_progress_page_fails_the_run(
     admin_id = await get_user_id(test_db_session, "admin")
     dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
 
-    async def _fake_page_info(source_url, layer_id, token):
+    async def _fake_page_info(source_url, layer_id, token, **_):
         return 4500, 1000, True, "FID"
 
     monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)
@@ -725,7 +725,7 @@ async def test_partially_populated_pages_fail_the_run(
     admin_id = await get_user_id(test_db_session, "admin")
     dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
 
-    async def _fake_page_info(source_url, layer_id, token):
+    async def _fake_page_info(source_url, layer_id, token, **_):
         return 4500, 1000, True, "FID"
 
     monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)
@@ -753,7 +753,7 @@ async def test_probe_failure_still_stamps_origin_contact(
     dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
     assert dataset.last_checked_at is None
 
-    async def _probe_token_error(source_url, layer_id, token):
+    async def _probe_token_error(source_url, layer_id, token, **_):
         raise IngestionError("ArcGIS token required (498)")
 
     monkeypatch.setattr(
@@ -808,7 +808,7 @@ async def test_refresh_small_layer_keeps_single_fetch(
     admin_id = await get_user_id(test_db_session, "admin")
     dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
 
-    async def _fake_page_info(source_url, layer_id, token):
+    async def _fake_page_info(source_url, layer_id, token, **_):
         return 500, 1000, True, "FID"
 
     monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)
@@ -824,10 +824,18 @@ async def test_refresh_small_layer_keeps_single_fetch(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("layer_order_field", "expected"), [("FID", ["FID ASC"]), (None, None)]
+)
 async def test_refresh_single_fetch_orders_by_the_layers_own_oid_field(
-    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    monkeypatch,
+    layer_order_field,
+    expected,
 ):
-    """The unpaged fetch orders by the layer's declared OID, not the stored hint."""
+    """The unpaged fetch orders by what the layer reports, not the stored hint."""
     admin_id = await get_user_id(test_db_session, "admin")
     dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
     test_db_session.add(
@@ -844,8 +852,11 @@ async def test_refresh_single_fetch_orders_by_the_layers_own_oid_field(
     )
     await test_db_session.commit()
 
-    async def _fake_page_info(source_url, layer_id, token):
-        return 251, 2000, True, "FID"
+    fallbacks: list[str | None] = []
+
+    async def _fake_page_info(source_url, layer_id, token, **kwargs):
+        fallbacks.append(kwargs.get("fallback_order_field"))
+        return 251, 2000, True, layer_order_field
 
     monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)
 
@@ -855,7 +866,8 @@ async def test_refresh_single_fetch_orders_by_the_layers_own_oid_field(
 
     assert len(calls) == 1, calls
     query = parse_qs(urlparse(calls[0]["source"].split(":", 1)[1]).query)
-    assert query["orderByFields"] == ["FID ASC"], calls[0]["source"]
+    assert query.get("orderByFields") == expected, calls[0]["source"]
+    assert fallbacks == ["OBJECTID"]
 
 
 def _arcgis_id_plan(ids: tuple[int, ...]) -> ArcGISIDPlan:
@@ -940,7 +952,7 @@ async def test_stronger_arcgis_policy_uses_exact_id_chunks_and_records_coverage(
     dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
     ids = (3, 991, 9_223_372_036_854_775_807)
 
-    async def _fake_page_info(source_url, layer_id, token):
+    async def _fake_page_info(source_url, layer_id, token, **_):
         return len(ids), 1000, True, "OBJECTID"
 
     monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)
@@ -974,7 +986,7 @@ async def test_stronger_arcgis_policy_clamps_exact_id_chunks_to_gdal_bound(
     dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
     ids = (*range(1_000), (1 << 63) - 1)
 
-    async def _fake_page_info(source_url, layer_id, token):
+    async def _fake_page_info(source_url, layer_id, token, **_):
         return len(ids), 2_000, True, "OBJECTID"
 
     monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)
@@ -1011,7 +1023,7 @@ async def test_stronger_arcgis_policy_bounds_long_id_chunks_by_gdal_url_size(
     dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
     ids = tuple((1 << 63) - 1 - offset for offset in range(1_000))
 
-    async def _fake_page_info(source_url, layer_id, token):
+    async def _fake_page_info(source_url, layer_id, token, **_):
         return len(ids), 2_000, True, "OBJECTID"
 
     monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)
@@ -1047,7 +1059,7 @@ async def test_stronger_arcgis_policy_records_source_token_challenge_as_expired(
     admin_id = await get_user_id(test_db_session, "admin")
     dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
 
-    async def _fake_page_info(source_url, layer_id, token):
+    async def _fake_page_info(source_url, layer_id, token, **_):
         return 1, 1000, True, "OBJECTID"
 
     monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)
@@ -1075,7 +1087,7 @@ async def test_stronger_arcgis_policy_rejects_same_count_duplicate_source_oids(
     original_version = dataset.current_version
     ids = (3, 991, 9_223_372_036_854_775_807)
 
-    async def _fake_page_info(source_url, layer_id, token):
+    async def _fake_page_info(source_url, layer_id, token, **_):
         return len(ids), 1000, True, "OBJECTID"
 
     monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)
@@ -1111,7 +1123,7 @@ async def test_stronger_arcgis_policy_reports_changed_source_membership(
     initial_ids = (3, 991, 9_223_372_036_854_775_807)
     changed_ids = (3, 992, 9_223_372_036_854_775_807)
 
-    async def _fake_page_info(source_url, layer_id, token):
+    async def _fake_page_info(source_url, layer_id, token, **_):
         return len(initial_ids), 1000, True, "OBJECTID"
 
     monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)

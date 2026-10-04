@@ -726,7 +726,9 @@ async def _fetch_service_layer_with_paging_guard(
             max_record_count,
             supports_pagination,
             pagination_order_field,
-        ) = await _tv._fetch_arcgis_import_page_info(source_url, layer_id, token)
+        ) = await _tv._fetch_arcgis_import_page_info(
+            source_url, layer_id, token, fallback_order_field=fallback_order_field
+        )
         if max_record_count is not None:
             page_size = max(1, min(page_size, max_record_count))
         if verification_policy == "arcgis_id_set_v1":
@@ -793,7 +795,7 @@ async def _fetch_service_layer_with_paging_guard(
         layer_name,
         layer_id,
         token=token,
-        order_field=pagination_order_field or fallback_order_field,
+        order_field=pagination_order_field,
     )
     await run_ogr2ogr_service(
         gdal_source,

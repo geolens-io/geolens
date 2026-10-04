@@ -836,8 +836,13 @@ async def fetch_arcgis_pagination_info(
     token: str | None = None,
     *,
     current_version: object = None,
+    fallback_order_field: str | None = None,
 ) -> tuple[int | None, bool, str | None]:
     """Fetch ArcGIS pagination support, page size, and stable order field.
+
+    The order field is the layer's own OID when the layer can order by it,
+    ``None`` when it can't, and *fallback_order_field* when the layer's
+    metadata can't be read.
 
     fix(#1770): bounded like `enrich_arcgis_feature_counts` above, for the
     same reason. This is also where ``currentVersion`` lives — a caller that
@@ -867,13 +872,13 @@ async def fetch_arcgis_pagination_info(
         # fix(#1858): degrades here for the reason given at `_fetch_count`
         # above — the optional fact is pagination support, and the worker's
         # own handler degrades identically either way.
-        return None, False, None
+        return None, False, fallback_order_field
 
     # fix(#1770): same as `_fetch_count`/`fetch_arcgis_feature_count` above
     # — a non-dict response makes the checks below raise uncaught, instead
     # of the ordinary "no pagination info" degrade.
     if not isinstance(data, dict):
-        return None, False, None
+        return None, False, fallback_order_field
 
     if "error" in data:
         error_info = data["error"]
@@ -881,7 +886,7 @@ async def fetch_arcgis_pagination_info(
         message = error_info.get("message", "Unknown ArcGIS error")
         if code in _ARCGIS_TOKEN_ERROR_CODES:
             raise ArcGISTokenError(code, message)
-        return None, False, None
+        return None, False, fallback_order_field
 
     value = data.get("maxRecordCount")
     max_record_count = value if isinstance(value, int) and value > 0 else None

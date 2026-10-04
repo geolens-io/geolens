@@ -299,10 +299,13 @@ async def _write_service_import_progress(
 
 
 async def _fetch_arcgis_import_page_info(
-    source_url: str, layer_id: int | str | None, token: str | None
+    source_url: str,
+    layer_id: int | str | None,
+    token: str | None,
+    fallback_order_field: str | None = None,
 ) -> tuple[int | None, int | None, bool, str | None]:
     if layer_id is None:
-        return None, None, False, None
+        return None, None, False, fallback_order_field
 
     from app.modules.catalog.sources.adapters.arcgis import (
         ArcGISTokenError,
@@ -318,7 +321,11 @@ async def _fetch_arcgis_import_page_info(
                 supports_pagination,
                 order_field,
             ) = await fetch_arcgis_pagination_info(
-                source_url, layer_id, client, token=token
+                source_url,
+                layer_id,
+                client,
+                token=token,
+                fallback_order_field=fallback_order_field,
             )
             feature_count = await fetch_arcgis_feature_count(
                 source_url, layer_id, client, token=token
@@ -333,7 +340,7 @@ async def _fetch_arcgis_import_page_info(
             layer_id=str(layer_id),
             error=str(exc),
         )
-        return None, None, False, None
+        return None, None, False, fallback_order_field
 
 
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.ingest_file"])
@@ -896,7 +903,9 @@ async def ingest_service(
                     max_record_count,
                     supports_pagination,
                     pagination_order_field,
-                ) = await _fetch_arcgis_import_page_info(source_url, layer_id, token)
+                ) = await _fetch_arcgis_import_page_info(
+                    source_url, layer_id, token, fallback_order_field=object_id_field
+                )
                 if max_record_count is not None:
                     page_size = max(1, min(page_size, max_record_count))
 
@@ -947,7 +956,7 @@ async def ingest_service(
                 layer_name,
                 layer_id,
                 token=token,
-                order_field=pagination_order_field or object_id_field,
+                order_field=pagination_order_field,
             )
             await run_ogr2ogr_service(
                 _src,

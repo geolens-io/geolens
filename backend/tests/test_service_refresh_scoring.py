@@ -49,7 +49,7 @@ async def _refresh(client, headers, monkeypatch, dataset_id, *, source_count):
         )
     assert response.status_code == 202, response.text
 
-    async def _page_info(source_url, layer_id, token):
+    async def _page_info(source_url, layer_id, token, **_):
         return source_count, 1000, False, None
 
     kwargs = task.defer_async.call_args.kwargs
