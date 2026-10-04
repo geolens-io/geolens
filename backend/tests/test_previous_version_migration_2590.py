@@ -89,3 +89,46 @@ async def test_the_downgrade_drops_only_recorded_previous_versions(
         for table in (kept_previous, claimed_previous, parted_previous):
             await session.execute(text(f'DROP TABLE IF EXISTS "data"."{table}"'))
         await session.commit()
+
+
+async def test_the_downgrade_refuses_while_restore_runs_exist(test_db_session) -> None:
+    """With a restore run on record the downgrade stops before changing anything."""
+    from app.platform.refresh.service import create_pending_run
+
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    created = await create_dataset(session, created_by=admin_id)
+    dataset_id = created.id
+    run = await create_pending_run(
+        session,
+        dataset_id=dataset_id,
+        origin_kind="restore",
+        trigger="manual",
+        triggered_by=admin_id,
+        ingest_job_id=None,
+        feature_count_before=None,
+    )
+    run_id = run.id
+    await session.commit()
+    try:
+        down = run_alembic("downgrade", "0076_feature_create_keys", normalize=False)
+        assert down.returncode != 0
+        assert "origin_kind restore" in down.stderr
+        definition = await fresh_query(
+            "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+            "WHERE conname = 'chk_refresh_runs_origin_kind'"
+        )
+        assert "restore" in definition[0][0]
+        assert await fresh_query(
+            "SELECT 1 FROM information_schema.columns WHERE table_schema = 'catalog' "
+            "AND table_name = 'datasets' AND column_name = 'previous_version_number'"
+        )
+    finally:
+        await session.rollback()
+        await session.execute(
+            text("DELETE FROM catalog.dataset_refresh_runs WHERE id = :id"),
+            {"id": run_id},
+        )
+        await session.commit()
+        up = run_alembic("upgrade", "heads")
+        assert up.returncode == 0, up.stderr

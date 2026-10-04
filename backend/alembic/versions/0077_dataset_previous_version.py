@@ -30,22 +30,14 @@ depends_on: Union[str, Sequence[str], None] = None
 
 _LOCK_TIMEOUT = "SET LOCAL lock_timeout = '5s'"
 
-_BASE_ORIGIN_KINDS = "'upload', 'postgis', 'service', 'stac', 'raster'"
-
-
-def _replace_origin_kinds(kinds: str) -> None:
-    op.drop_constraint(
-        "chk_refresh_runs_origin_kind",
-        "dataset_refresh_runs",
-        schema="catalog",
-        type_="check",
-    )
-    op.create_check_constraint(
-        "chk_refresh_runs_origin_kind",
-        "dataset_refresh_runs",
-        f"origin_kind IN ({kinds})",
-        schema="catalog",
-    )
+_VALIDATE_ORIGIN_KINDS = """
+DO $$
+BEGIN
+  PERFORM set_config('lock_timeout', '5s', true);
+  ALTER TABLE catalog.dataset_refresh_runs
+    VALIDATE CONSTRAINT chk_refresh_runs_origin_kind;
+END $$;
+"""
 
 
 def upgrade() -> None:
@@ -80,25 +72,41 @@ def upgrade() -> None:
             )
         )
     with op.get_context().autocommit_block():
+        op.execute(sa.text(_VALIDATE_ORIGIN_KINDS))
+
+
+def downgrade() -> None:
+    # Refuses while a restore run exists: remove those rows first rather than
+    # leave rows that violate the constraint. The narrower CHECK goes in the
+    # way the upgrade's did, validated outside the DDL locks; both steps can
+    # be repeated.
+    with op.get_context().autocommit_block():
         op.execute(
             sa.text(
                 """
                 DO $$
                 BEGIN
                   PERFORM set_config('lock_timeout', '5s', true);
+                  IF EXISTS (
+                    SELECT 1 FROM catalog.dataset_refresh_runs
+                    WHERE origin_kind = 'restore'
+                  ) THEN
+                    RAISE EXCEPTION
+                      'Refresh runs with origin_kind restore exist; delete them before downgrading.';
+                  END IF;
                   ALTER TABLE catalog.dataset_refresh_runs
-                    VALIDATE CONSTRAINT chk_refresh_runs_origin_kind;
+                    DROP CONSTRAINT IF EXISTS chk_refresh_runs_origin_kind,
+                    ADD CONSTRAINT chk_refresh_runs_origin_kind CHECK (
+                      origin_kind IN ('upload', 'postgis', 'service', 'stac',
+                                      'raster')
+                    ) NOT VALID;
                 END $$;
                 """
             )
         )
-
-
-def downgrade() -> None:
+    with op.get_context().autocommit_block():
+        op.execute(sa.text(_VALIDATE_ORIGIN_KINDS))
     op.execute(_LOCK_TIMEOUT)
-    # Fails loudly while a restore run exists: remove those rows first rather
-    # than leave rows that violate the constraint.
-    _replace_origin_kinds(_BASE_ORIGIN_KINDS)
     # The earlier schema has no columns pointing at the retained tables, and
     # its table discovery would list them as registerable, so they go too:
     # only in the dataset's own data schema, and never a dataset's own table.

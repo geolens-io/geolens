@@ -4,27 +4,38 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # Views (through their rewrite rules) and foreign keys elsewhere that hold a
-# table by oid. A rename leaves them reading the renamed table.
+# table, or a partition under it, by oid. A rename leaves them reading the
+# renamed table.
 _DEPENDENT_RELATIONS = text(
     """
+    WITH target AS (
+        SELECT t.oid
+        FROM pg_class t
+        JOIN pg_namespace tn ON tn.oid = t.relnamespace
+        WHERE tn.nspname = :schema AND t.relname = :table
+    ),
+    -- pg_partition_tree lists nothing for a table that is not partitioned.
+    tree AS (
+        SELECT oid FROM target
+        UNION
+        SELECT p.relid FROM target CROSS JOIN LATERAL pg_partition_tree(target.oid) p
+    )
     SELECT format('%I.%I', dn.nspname, dc.relname)
-    FROM pg_class t
-    JOIN pg_namespace tn ON tn.oid = t.relnamespace
+    FROM tree
     JOIN pg_depend d
-      ON d.refobjid = t.oid AND d.refclassid = 'pg_class'::regclass
+      ON d.refobjid = tree.oid AND d.refclassid = 'pg_class'::regclass
      AND d.classid = 'pg_rewrite'::regclass
     JOIN pg_rewrite r ON r.oid = d.objid
     JOIN pg_class dc ON dc.oid = r.ev_class
     JOIN pg_namespace dn ON dn.oid = dc.relnamespace
-    WHERE tn.nspname = :schema AND t.relname = :table AND dc.oid <> t.oid
+    WHERE dc.oid NOT IN (SELECT oid FROM tree)
     UNION
     SELECT format('%I.%I', cn.nspname, cc.relname)
-    FROM pg_class t
-    JOIN pg_namespace tn ON tn.oid = t.relnamespace
-    JOIN pg_constraint con ON con.confrelid = t.oid AND con.contype = 'f'
+    FROM tree
+    JOIN pg_constraint con ON con.confrelid = tree.oid AND con.contype = 'f'
     JOIN pg_class cc ON cc.oid = con.conrelid
     JOIN pg_namespace cn ON cn.oid = cc.relnamespace
-    WHERE tn.nspname = :schema AND t.relname = :table AND cc.oid <> t.oid
+    WHERE cc.oid NOT IN (SELECT oid FROM tree)
     ORDER BY 1
     """
 )

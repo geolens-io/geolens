@@ -1043,3 +1043,47 @@ async def test_a_view_over_the_previous_version_refuses_its_drop(
         if view is not None:
             await _drop_view(session, view)
         await _cleanup(session, dataset)
+
+
+async def test_a_view_over_a_partition_of_the_live_table_refuses_the_replacement(
+    test_db_session,
+) -> None:
+    """A view reading a partition under the live table blocks the swap like one over the table."""
+    from app.processing.ingest.previous_version import DependentRelationsBlockSwap
+
+    session = test_db_session
+    admin_id, dataset = await _seed(session)
+    table = dataset.table_name
+    child = f"{table}_p0"
+    await session.execute(text(f'DROP TABLE "data"."{table}"'))
+    await session.execute(
+        text(
+            f'CREATE TABLE "data"."{table}" (gid int NOT NULL, '
+            "geom geometry(Point, 4326), geom_4326 geometry(Point, 4326), name text, "
+            "PRIMARY KEY (gid)) PARTITION BY RANGE (gid)"
+        )
+    )
+    await session.execute(
+        text(
+            f'CREATE TABLE "data"."{child}" PARTITION OF "data"."{table}" '
+            "FOR VALUES FROM (0) TO (1000)"
+        )
+    )
+    await session.execute(
+        text(
+            f'INSERT INTO "data"."{table}" (gid, geom, geom_4326, name) VALUES '
+            "(1, ST_SetSRID(ST_MakePoint(-74.0, 40.7), 4326), "
+            "ST_SetSRID(ST_MakePoint(-74.0, 40.7), 4326), 'New York')"
+        )
+    )
+    await session.commit()
+    view = await _view_over(session, child)
+    try:
+        with pytest.raises(DependentRelationsBlockSwap, match=view):
+            await _replace(session, dataset, admin_id, ["paris"])
+
+        assert await _names(session, table) == ["New York"]
+        assert await _names(session, view) == ["New York"]
+    finally:
+        await _drop_view(session, view)
+        await _cleanup(session, dataset)
