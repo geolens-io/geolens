@@ -31,11 +31,11 @@ from app.processing.ingest.publication import (
     Verdict,
     settle_replacement,
 )
+from app.processing.ingest.previous_version import stamp_previous_version
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
     _current_tenant_schema,
     install_candidate_table,
-    stamp_previous_version,
     task_app,
 )
 

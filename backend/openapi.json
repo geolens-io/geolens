@@ -39397,7 +39397,7 @@
     },
     "/datasets/{dataset_id}/previous-version": {
       "delete": {
-        "description": "Delete the dataset's previous version, so it can no longer be restored.\n\nRefuses with 404 ``no_previous_version`` when there is none, 409\n``previous_version_changed`` when it is not ``expected_version_number``,\nand 409 ``dataset_busy`` while a refresh, replacement or restore is\nactive.",
+        "description": "Delete the dataset's previous version, so it can no longer be restored.\n\nRefuses with 404 ``no_previous_version`` when there is none, 409\n``previous_version_changed`` when it is not ``expected_version_number``,\n409 ``previous_version_in_use`` while a view or foreign key elsewhere\nreads its table, and 409 ``dataset_busy`` while a refresh, replacement or\nrestore is active.",
         "operationId": "delete_previous_version_datasets__dataset_id__previous_version_delete",
         "parameters": [
           {

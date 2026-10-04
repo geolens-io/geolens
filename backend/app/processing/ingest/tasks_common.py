@@ -1399,10 +1399,6 @@ class SourceURLRefused(RuntimeError):
     """The fetch-time safety check refused a service URL."""
 
 
-class PreviousVersionNameTaken(RuntimeError):
-    """The previous-version name holds a table this dataset did not keep."""
-
-
 def resolve_service_type(raw: str) -> tuple[str, str]:
     """Map raw service_type string to (service_type, source_format)."""
     from app.processing.ingest.ogr import IngestionError
@@ -1572,6 +1568,10 @@ async def install_candidate_table(
 
     from app.platform.jobs.heartbeat import previous_version_table
     from app.processing.ingest.metadata import _qtable
+    from app.processing.ingest.previous_version import (
+        refuse_dependent_relations,
+        require_own_previous_version_name,
+    )
 
     table_name = dataset.table_name
     previous = previous_version_table(table_name, dataset.id)
@@ -1586,7 +1586,7 @@ async def install_candidate_table(
     def _q(name: str) -> str:
         return _qtable(name, schema=_tenant_schema)
 
-    await _require_own_previous_version_name(
+    await require_own_previous_version_name(
         session, dataset, previous, schema=_tenant_schema
     )
 
@@ -1616,6 +1616,9 @@ async def install_candidate_table(
         renamed as the table is, since the next rename needs the name it held.
         """
         await session.execute(text(f"SET LOCAL lock_timeout = '{timeout_str}'"))
+        await refuse_dependent_relations(
+            session, (table_name, previous), schema=_tenant_schema
+        )
         if candidate != previous:
             # Without a live table there is nothing to keep, and an older
             # previous version left in place would be stamped as this one's.
@@ -1694,70 +1697,6 @@ async def install_candidate_table(
         await ensure_geom_4326_gist_index(session, table_name, schema=_tenant_schema)
 
 
-async def _require_own_previous_version_name(
-    session, dataset, previous: str, *, schema: str
-) -> None:
-    """Refuse unless ``previous`` is free or holds the previous version this dataset recorded.
-
-    The name is predictable, so a table found under it is dropped or renamed
-    only when the catalog says it is this dataset's own.
-    """
-    from sqlalchemy import select, text
-
-    from app.platform.extensions import get_processing_port
-    from app.platform.jobs.heartbeat import previous_version_name_claimed
-
-    Dataset = get_processing_port().get_dataset_orm_class()
-    recorded = await session.scalar(
-        select(Dataset.previous_version_number).where(Dataset.id == dataset.id)
-    )
-    present = await session.scalar(
-        text(
-            "SELECT EXISTS (SELECT 1 FROM pg_class c "
-            "JOIN pg_namespace n ON n.oid = c.relnamespace "
-            "WHERE n.nspname = :schema AND c.relname = :name)"
-        ),
-        {"schema": schema, "name": previous},
-    )
-    if await previous_version_name_claimed(session, previous) or (
-        present and recorded is None
-    ):
-        structlog.get_logger().warning(
-            "previous_version_name_taken", dataset_id=str(dataset.id)
-        )
-        raise PreviousVersionNameTaken(
-            "Another table already uses the name this dataset keeps its "
-            "previous version under, so the data was not replaced. Ask an "
-            "administrator to rename that table."
-        )
-
-
-async def stamp_previous_version(session, dataset, version_number: int) -> None:
-    """Record that the previous-version table holds ``version_number``, or that none exists.
-
-    Call after the swap, in its transaction, holding the catalog rows, and
-    before ``last_refreshed_at`` is moved on: it records the replaced data's.
-    """
-    from sqlalchemy import text
-
-    from app.platform.jobs.heartbeat import previous_version_table
-    from app.processing.ingest.metadata import _qtable
-
-    previous = _qtable(
-        previous_version_table(dataset.table_name, dataset.id),
-        schema=_current_tenant_schema(),
-    )
-    size = await session.scalar(
-        text("SELECT pg_total_relation_size(to_regclass(:previous))"),
-        {"previous": previous},
-    )
-    kept = size is not None
-    dataset.previous_version_number = version_number if kept else None
-    dataset.previous_version_retained_at = datetime.now(timezone.utc) if kept else None
-    dataset.previous_version_bytes = size
-    dataset.previous_version_refreshed_at = dataset.last_refreshed_at if kept else None
-
-
 async def _write_reupload_catalog(
     session,
     *,
@@ -1793,6 +1732,7 @@ async def _write_reupload_catalog(
     )  # LAZY — preserved per D-17
     from app.platform.extensions import get_processing_port
     from app.processing.ingest.catalog_projection import project
+    from app.processing.ingest.previous_version import stamp_previous_version
 
     DatasetVersion = get_processing_port().get_dataset_version_orm_class()
     actor_id = uuid.UUID(user_id)

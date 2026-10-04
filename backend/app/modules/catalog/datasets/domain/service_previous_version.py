@@ -19,8 +19,10 @@ from app.modules.catalog.datasets.domain._sql_safety import _safe_table_ref
 from app.modules.catalog.datasets.domain.schemas import PreviousVersionResponse
 from app.platform.jobs import ledger
 from app.platform.jobs.heartbeat import (
+    dependent_relations,
     previous_version_name_claimed,
     previous_version_table,
+    relation_present,
 )
 from app.platform.jobs.models import EXPECTED_PREVIOUS_VERSION_KEY, IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
@@ -165,6 +167,17 @@ async def drop_recorded_previous_version(
         logger.warning("previous_version_drop_skipped", dataset_id=str(dataset.id))
     elif dataset.previous_version_number is not None:
         previous = _safe_table_ref(name, schema=schema)
+        if await relation_present(db, schema, name):
+            await db.execute(text(f"LOCK TABLE {previous} IN ACCESS EXCLUSIVE MODE"))
+            if dependents := await dependent_relations(db, schema, name):
+                raise PreviousVersionRefused(
+                    409,
+                    "previous_version_in_use",
+                    f"{', '.join(dependents)} "
+                    f"{'depends' if len(dependents) == 1 else 'depend'} on this "
+                    "dataset's previous version. Drop or redefine them, then "
+                    "try again.",
+                )
         await db.execute(text(f"DROP TABLE IF EXISTS {previous}"))
 
 

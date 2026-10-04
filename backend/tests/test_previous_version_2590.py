@@ -799,7 +799,7 @@ async def test_a_replacement_leaves_another_datasets_table_under_the_reserved_na
     admin_id, dataset = await _seed(session)
     squatter = await _squat(session, dataset)
     try:
-        from app.processing.ingest.tasks_common import PreviousVersionNameTaken
+        from app.processing.ingest.previous_version import PreviousVersionNameTaken
 
         with pytest.raises(PreviousVersionNameTaken):
             await _replace(session, dataset, admin_id, ["paris"])
@@ -950,4 +950,96 @@ async def test_a_delete_waiting_on_a_first_replacement_drops_what_it_kept(
         for opened in (publication, observer):
             await opened.rollback()
             await opened.close()
+        await _cleanup(session, dataset)
+
+
+async def _view_over(session, table: str) -> str:
+    view = f"view_{uuid.uuid4().hex[:10]}"
+    await session.execute(
+        text(f'CREATE VIEW "data"."{view}" AS SELECT gid, name FROM "data"."{table}"')
+    )
+    await session.commit()
+    return view
+
+
+async def _drop_view(session, view: str) -> None:
+    await session.rollback()
+    await session.execute(text(f'DROP VIEW IF EXISTS "data"."{view}"'))
+    await session.commit()
+
+
+async def test_a_view_over_the_live_table_refuses_the_replacement(
+    test_db_session,
+) -> None:
+    """A replacement refuses while a view reads the live table, naming the view and leaving both as they were."""
+    from app.processing.ingest.previous_version import DependentRelationsBlockSwap
+
+    session = test_db_session
+    admin_id, dataset = await _seed(session)
+    view = await _view_over(session, dataset.table_name)
+    previous = previous_version_table(dataset.table_name, dataset.id)
+    try:
+        with pytest.raises(DependentRelationsBlockSwap, match=view):
+            await _replace(session, dataset, admin_id, ["paris"])
+
+        assert await _names(session, dataset.table_name) == ["New York"]
+        assert await _names(session, view) == ["New York"]
+        assert not await _relation_exists(session, previous)
+        row = await _dataset_row(session, dataset.id)
+        assert (row.current_version, row.previous_version_number) == (1, None)
+    finally:
+        await _drop_view(session, view)
+        await _cleanup(session, dataset)
+
+
+async def test_a_view_over_the_live_table_refuses_a_restore(
+    client: AsyncClient, test_db_session, admin_auth_header
+) -> None:
+    """A restore refuses while a view reads the live table, leaving the live data in place."""
+    from app.processing.ingest.previous_version import DependentRelationsBlockSwap
+
+    session = test_db_session
+    admin_id, dataset = await _seed(session)
+    view = None
+    try:
+        await _replace(session, dataset, admin_id, ["paris"])
+        view = await _view_over(session, dataset.table_name)
+
+        with pytest.raises(DependentRelationsBlockSwap, match=view):
+            await _restore(client, admin_auth_header, session, dataset, 1)
+
+        assert await _names(session, dataset.table_name) == ["Paris"]
+        assert await _names(session, view) == ["Paris"]
+        assert (await _dataset_row(session, dataset.id)).current_version == 2
+    finally:
+        if view is not None:
+            await _drop_view(session, view)
+        await _cleanup(session, dataset)
+
+
+async def test_a_view_over_the_previous_version_refuses_its_drop(
+    client: AsyncClient, test_db_session, admin_auth_header
+) -> None:
+    """Dropping the previous version answers 409 naming the view that reads it, and keeps the table."""
+    session = test_db_session
+    admin_id, dataset = await _seed(session)
+    previous = previous_version_table(dataset.table_name, dataset.id)
+    view = None
+    try:
+        await _replace(session, dataset, admin_id, ["paris"])
+        view = await _view_over(session, previous)
+
+        refused = await client.delete(
+            f"/api/datasets/{dataset.id}/previous-version",
+            params={"expected_version_number": 1},
+            headers=admin_auth_header,
+        )
+        assert refused.status_code == 409, refused.text
+        detail = refused.json()["detail"]
+        assert detail["code"] == "previous_version_in_use"
+        assert view in detail["message"]
+        assert await _names(session, previous) == ["New York"]
+    finally:
+        if view is not None:
+            await _drop_view(session, view)
         await _cleanup(session, dataset)

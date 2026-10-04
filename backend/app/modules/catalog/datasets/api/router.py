@@ -69,6 +69,7 @@ from app.modules.catalog.collections.service import get_dataset_collections
 from app.modules.catalog.datasets.domain.service import (
     DatasetTitleMismatchError,
     DependentVrtError,
+    PreviousVersionRefused,
     create_empty_dataset,
     defer_metadata_embedding,
     delete_dataset,
@@ -637,6 +638,11 @@ async def delete_dataset_endpoint(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
+        )
+    except PreviousVersionRefused as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message},
         )
     except ValueError as exc:
         if str(exc) == "Dataset not found":

@@ -116,8 +116,9 @@ def sync_detailed(
 
     Refuses with 404 ``no_previous_version`` when there is none, 409
     ``previous_version_changed`` when it is not ``expected_version_number``,
-    and 409 ``dataset_busy`` while a refresh, replacement or restore is
-    active.
+    409 ``previous_version_in_use`` while a view or foreign key elsewhere
+    reads its table, and 409 ``dataset_busy`` while a refresh, replacement or
+    restore is active.
 
     Args:
         dataset_id (UUID):
@@ -155,8 +156,9 @@ def sync(
 
     Refuses with 404 ``no_previous_version`` when there is none, 409
     ``previous_version_changed`` when it is not ``expected_version_number``,
-    and 409 ``dataset_busy`` while a refresh, replacement or restore is
-    active.
+    409 ``previous_version_in_use`` while a view or foreign key elsewhere
+    reads its table, and 409 ``dataset_busy`` while a refresh, replacement or
+    restore is active.
 
     Args:
         dataset_id (UUID):
@@ -189,8 +191,9 @@ async def asyncio_detailed(
 
     Refuses with 404 ``no_previous_version`` when there is none, 409
     ``previous_version_changed`` when it is not ``expected_version_number``,
-    and 409 ``dataset_busy`` while a refresh, replacement or restore is
-    active.
+    409 ``previous_version_in_use`` while a view or foreign key elsewhere
+    reads its table, and 409 ``dataset_busy`` while a refresh, replacement or
+    restore is active.
 
     Args:
         dataset_id (UUID):
@@ -226,8 +229,9 @@ async def asyncio(
 
     Refuses with 404 ``no_previous_version`` when there is none, 409
     ``previous_version_changed`` when it is not ``expected_version_number``,
-    and 409 ``dataset_busy`` while a refresh, replacement or restore is
-    active.
+    409 ``previous_version_in_use`` while a view or foreign key elsewhere
+    reads its table, and 409 ``dataset_busy`` while a refresh, replacement or
+    restore is active.
 
     Args:
         dataset_id (UUID):

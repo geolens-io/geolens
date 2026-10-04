@@ -2589,8 +2589,9 @@ export const datasetMapsDatasetsDatasetIdMapsGet = <ThrowOnError extends boolean
  *
  * Refuses with 404 ``no_previous_version`` when there is none, 409
  * ``previous_version_changed`` when it is not ``expected_version_number``,
- * and 409 ``dataset_busy`` while a refresh, replacement or restore is
- * active.
+ * 409 ``previous_version_in_use`` while a view or foreign key elsewhere
+ * reads its table, and 409 ``dataset_busy`` while a refresh, replacement or
+ * restore is active.
  */
 export const deletePreviousVersionDatasetsDatasetIdPreviousVersionDelete = <ThrowOnError extends boolean = false>(options: Options<DeletePreviousVersionDatasetsDatasetIdPreviousVersionDeleteData, ThrowOnError>): RequestResult<DeletePreviousVersionDatasetsDatasetIdPreviousVersionDeleteResponses, DeletePreviousVersionDatasetsDatasetIdPreviousVersionDeleteErrors, ThrowOnError> => (options.client ?? client).delete<DeletePreviousVersionDatasetsDatasetIdPreviousVersionDeleteResponses, DeletePreviousVersionDatasetsDatasetIdPreviousVersionDeleteErrors, ThrowOnError>({
     security: [
