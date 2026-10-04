@@ -227,6 +227,20 @@ async def _hold_live_table(session, dataset, *, schema: str) -> None:
     )
 
 
+async def _live_geometry_types(table_name: str, *, schema: str) -> list[str]:
+    """The live table's geometry types, read on a connection of its own.
+
+    Its lock ends with the read, so publication takes the live table only once,
+    outright, before it compares.
+    """
+    from app.core.db import async_session
+    from app.processing.ingest.metadata import get_geometry_types
+
+    # Counts are re-read under the lock; a geometry-only edit is overwritten like any edit.
+    async with async_session() as session:
+        return await get_geometry_types(session, table_name, schema=schema)
+
+
 async def _staged_input_needed_elsewhere(job_id: str, file_path: str) -> bool:
     """Whether another job still needs this staged upload, such as a blocked run's.
 
@@ -403,11 +417,12 @@ class _FileReupload:
         self.staged_geometry_types = await get_geometry_types(
             session, self.staging_table, schema=_current_tenant_schema()
         )
+        self.live_geometry_types = await _live_geometry_types(
+            dataset.table_name, schema=_current_tenant_schema()
+        )
         return Verdict(verify=self._verify)
 
     async def _verify(self, session, dataset) -> Verdict:
-        from app.processing.ingest.metadata import get_geometry_types
-
         schema = _current_tenant_schema()
         await _hold_live_table(session, dataset, schema=schema)
         # The function and transaction `project()` diffs with after the swap.
@@ -416,9 +431,7 @@ class _FileReupload:
             schema_diff=self.schema_diff,
             fetched_feature_count=self.measurement.metadata.get("feature_count"),
             live=refresh_policy.geometry_contract(
-                geometry_types=await get_geometry_types(
-                    session, dataset.table_name, schema=schema
-                ),
+                geometry_types=self.live_geometry_types,
                 srid=dataset.srid,
                 is_3d=dataset.is_3d,
                 n_dims=dataset.n_dims,
@@ -1157,11 +1170,12 @@ class _ServiceReupload:
             is_3d=self.measurement.three_d.get("is_3d"),
             n_dims=self.measurement.three_d.get("n_dims"),
         )
+        self.live_geometry_types = await _live_geometry_types(
+            dataset.table_name, schema=schema
+        )
         return Verdict(verify=self._verify)
 
     async def _verify(self, session, dataset) -> Verdict:
-        from app.processing.ingest.metadata import get_geometry_types
-
         schema = _current_tenant_schema()
         await _hold_live_table(session, dataset, schema=schema)
         self.measured_schema_diff = catalog_projection.schema_diff(
@@ -1178,9 +1192,7 @@ class _ServiceReupload:
             staged_srid=srid,
             staged_coordinate_dimension=coordinate_dimension,
             live=refresh_policy.geometry_contract(
-                geometry_types=await get_geometry_types(
-                    session, dataset.table_name, schema=schema
-                ),
+                geometry_types=self.live_geometry_types,
                 srid=dataset.srid,
                 is_3d=dataset.is_3d,
                 n_dims=dataset.n_dims,

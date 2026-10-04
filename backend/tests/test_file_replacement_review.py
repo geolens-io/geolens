@@ -542,6 +542,40 @@ async def test_a_feature_inserted_while_the_replacement_publishes_holds_it_for_r
     assert kept == 1
 
 
+async def test_live_geometry_is_read_before_the_live_table_is_locked(
+    harness: _Harness,
+):
+    """Readers of the live table are not held behind its geometry-type scan."""
+    import app.core.db as db_module
+    from app.processing.ingest import metadata
+
+    dataset = await _published(harness, _geojson(harness.tmp_path / "a.geojson", _BASE))
+    real = metadata.get_geometry_types
+    reads: list[int] = []
+
+    async def _scan_while_reading_the_live_table(session, table_name, **kwargs):
+        if table_name == dataset.table_name:
+            async with db_module.async_session() as reader:
+                await reader.execute(text("SET LOCAL lock_timeout = '1s'"))
+                reads.append(
+                    await reader.scalar(
+                        text(f'SELECT count(*) FROM "data"."{table_name}"')
+                    )
+                )
+        return await real(session, table_name, **kwargs)
+
+    with patch.object(
+        metadata, "get_geometry_types", new=_scan_while_reading_the_live_table
+    ):
+        _preview, run = await harness.replace(
+            dataset, _geojson(harness.tmp_path / "b.geojson", _BASE)
+        )
+
+    # The preview reads the live geometry too; every read got through.
+    assert reads == [3, 3]
+    assert run.status == "succeeded"
+
+
 # 7: the preview and the worker fingerprint the same subject
 
 

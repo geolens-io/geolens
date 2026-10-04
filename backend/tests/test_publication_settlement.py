@@ -295,6 +295,42 @@ async def test_a_verified_refresh_scores_its_candidate_before_it_locks_the_live_
     assert (await _run(job.id)).status == "succeeded"
 
 
+async def test_a_verified_refresh_reads_live_geometry_before_it_locks_the_live_table(
+    test_db_session,
+):
+    """Readers of the live table are not held behind its geometry-type scan."""
+    from app.processing.ingest import metadata
+
+    dataset, job, admin_id = await _candidate(test_db_session, refresh=True)
+    real = metadata.get_geometry_types
+    reads: list[int] = []
+
+    async def _scan_while_reading_the_live_table(session, table_name, **kwargs):
+        if table_name == dataset.table_name:
+            async with db_module.async_session() as reader:
+                await reader.execute(sa.text("SET LOCAL lock_timeout = '1s'"))
+                reads.append(
+                    await reader.scalar(
+                        sa.text(f'SELECT count(*) FROM data."{table_name}"')
+                    )
+                )
+        return await real(session, table_name, **kwargs)
+
+    await _reupload(
+        dataset,
+        job,
+        admin_id,
+        patches=(
+            patch.object(
+                metadata, "get_geometry_types", new=_scan_while_reading_the_live_table
+            ),
+        ),
+    )
+
+    assert reads == [1]
+    assert (await _run(job.id)).status == "succeeded"
+
+
 async def test_a_refresh_that_changes_the_geometry_family_waits_for_review(
     test_db_session, quiet
 ):
