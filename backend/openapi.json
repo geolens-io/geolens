@@ -16158,6 +16158,10 @@
             "description": "Human-readable label for display in the admin UI.",
             "title": "Label",
             "type": "string"
+          },
+          "default_value": {
+            "description": "Runtime default the setting resets to. Reported only for embedding_dims, so the UI can tell whether a reset changes the live width.",
+            "title": "Default Value"
           }
         },
         "required": [

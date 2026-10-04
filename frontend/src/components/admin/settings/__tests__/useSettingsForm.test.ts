@@ -454,7 +454,9 @@ describe('useSettingsForm', () => {
 
       let finishReset: (ok: boolean) => void = () => {};
       submitReset = () => new Promise<boolean>((resolve) => (finishReset = resolve));
-      act(() => result.current.onReset('name'));
+      act(() => {
+        void result.current.onReset('name');
+      });
       act(() => result.current.setters.name('Erin'));
       await act(async () => finishReset(true));
       rerender({
