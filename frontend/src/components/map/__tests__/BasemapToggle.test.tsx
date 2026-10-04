@@ -136,6 +136,25 @@ describe('BasemapToggle — disclosure semantics (GLUX-008)', () => {
     expect(screen.queryByText('Dark')).not.toBeInTheDocument();
   });
 
+  it('closes when focus leaves the picker', async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <BasemapToggle value="positron" onChange={vi.fn()} />
+        <button type="button">outside</button>
+      </>,
+    );
+    await user.click(screen.getByRole('button', { name: 'Change basemap' }));
+    expect(screen.getByText('Dark')).toBeInTheDocument();
+
+    await user.tab();
+    await user.tab();
+    await user.tab();
+    await user.tab();
+
+    expect(screen.queryByText('Dark')).not.toBeInTheDocument();
+  });
+
   it('Escape closes popover and returns focus to trigger', async () => {
     const user = userEvent.setup();
     render(<BasemapToggle value="positron" onChange={vi.fn()} />);
