@@ -1,4 +1,4 @@
-"""A service refresh scans the staged table's quality only when it publishes."""
+"""A service refresh stores the staged table's quality only when it publishes."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import text
 
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.platform.jobs.heartbeat import attempt_scoped_staging_table
@@ -63,7 +64,7 @@ async def _refresh(client, headers, monkeypatch, dataset_id, *, source_count):
     [(None, "blocked"), (len(_WELLS) + 1, "failed")],
     ids=["blocked", "rejected"],
 )
-async def test_a_refresh_that_does_not_publish_runs_no_quality_scan(
+async def test_a_refresh_that_does_not_publish_writes_no_quality_or_data(
     client: AsyncClient,
     admin_auth_header,
     test_db_session,
@@ -71,9 +72,19 @@ async def test_a_refresh_that_does_not_publish_runs_no_quality_scan(
     source_count: int | None,
     status: str,
 ):
-    """A blocked or rejected service refresh never scores quality."""
+    """A blocked or rejected service refresh may score, but stores none of it."""
     dataset_id = await _ingest(test_db_session, monkeypatch, _WELLS)
-    calls = _record_scores(monkeypatch)
+    dataset = await test_db_session.get(Dataset, dataset_id)
+    dataset.quality_detail = {"kept": True}
+    await test_db_session.commit()
+    live = f'"data"."{dataset.table_name}"'
+    live_before = (
+        await test_db_session.execute(
+            text(f"SELECT to_regclass('{live}')::oid, count(*) FROM {live}")
+        )
+    ).one()
+    # End the read, or its lock would hold off the refresh's own.
+    await test_db_session.rollback()
 
     await _refresh(
         client, admin_auth_header, monkeypatch, dataset_id, source_count=source_count
@@ -81,7 +92,16 @@ async def test_a_refresh_that_does_not_publish_runs_no_quality_scan(
 
     [run] = await _runs_ordered(test_db_session, dataset_id)
     assert run.status == status, run.verification
-    assert calls == []
+    test_db_session.expire_all()
+    assert (await test_db_session.get(Dataset, dataset_id)).quality_detail == {
+        "kept": True
+    }
+    live_after = (
+        await test_db_session.execute(
+            text(f"SELECT to_regclass('{live}')::oid, count(*) FROM {live}")
+        )
+    ).one()
+    assert live_after == live_before
 
 
 async def test_a_published_refresh_stores_the_quality_of_the_staged_table(
