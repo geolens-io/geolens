@@ -209,6 +209,11 @@ describe('PublicViewerPage', () => {
     expect(footer).not.toHaveTextContent('Powered by GeoLens');
     // Hidden under 400px would take the links away from narrow screens.
     expect(footer.className).not.toMatch(/(^|\s)hidden(\s|$)/);
+    // A narrow footer takes its own row after the map instead of overlaying
+    // its controls; the overlay only applies from 400px up.
+    expect(screen.getByRole('main')).not.toContainElement(footer);
+    expect(footer.className).not.toMatch(/(^|\s)(absolute|pointer-events-none)(\s|$)/);
+    expect(footer.className).toContain('min-[400px]:absolute');
     expect(screen.getByRole('link', { name: /^github$/i })).toHaveAttribute(
       'href',
       'https://github.com/geolens-io/geolens',
