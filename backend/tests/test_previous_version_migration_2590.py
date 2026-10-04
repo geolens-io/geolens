@@ -35,28 +35,29 @@ async def _exists(schema: str, table: str) -> bool:
     return bool(rows)
 
 
-async def test_the_downgrade_spares_other_schemas_and_claimed_tables(
+async def test_the_downgrade_drops_only_recorded_previous_versions(
     test_db_session,
 ) -> None:
-    """A same-named table in another schema and a table another dataset uses survive the downgrade."""
+    """Recorded previous versions go, partitioned ones too; another schema's and another dataset's tables stay."""
     session = test_db_session
     admin_id = await get_user_id(session, "admin")
     datasets = []
-    for _ in range(2):
+    for _ in range(3):
         created = await create_dataset(
             session, created_by=admin_id, table_name=f"mig_{uuid.uuid4().hex[:10]}"
         )
         datasets.append((created.id, created.table_name))
-    (kept_id, kept_table), (claimed_id, claimed_table) = datasets
+    (kept_id, kept_table), (claimed_id, claimed_table), parted = datasets
     kept_previous = previous_version_table(kept_table, kept_id)
+    parted_previous = previous_version_table(parted[1], parted[0])
     claimed_previous = previous_version_table(claimed_table, claimed_id)
     await create_dataset(session, created_by=admin_id, table_name=claimed_previous)
     await session.execute(
         text(
             "UPDATE catalog.datasets SET previous_version_number = 1 "
-            "WHERE id IN (:kept, :claimed)"
+            "WHERE id IN (:kept, :claimed, :parted)"
         ),
-        {"kept": kept_id, "claimed": claimed_id},
+        {"kept": kept_id, "claimed": claimed_id, "parted": parted[0]},
     )
     await session.execute(text(f'CREATE SCHEMA "{_OTHER_SCHEMA}"'))
     for schema, table in (
@@ -65,6 +66,11 @@ async def test_the_downgrade_spares_other_schemas_and_claimed_tables(
         ("data", claimed_previous),
     ):
         await session.execute(text(f'CREATE TABLE "{schema}"."{table}" (gid int)'))
+    await session.execute(
+        text(
+            f'CREATE TABLE "data"."{parted_previous}" (gid int) PARTITION BY RANGE (gid)'
+        )
+    )
     await session.commit()
 
     try:
@@ -72,6 +78,7 @@ async def test_the_downgrade_spares_other_schemas_and_claimed_tables(
         assert down.returncode == 0, down.stderr
 
         assert not await _exists("data", kept_previous)
+        assert not await _exists("data", parted_previous)
         assert await _exists(_OTHER_SCHEMA, kept_previous)
         assert await _exists("data", claimed_previous)
     finally:
@@ -79,6 +86,6 @@ async def test_the_downgrade_spares_other_schemas_and_claimed_tables(
         assert up.returncode == 0, up.stderr
         await session.rollback()
         await session.execute(text(f'DROP SCHEMA IF EXISTS "{_OTHER_SCHEMA}" CASCADE'))
-        for table in (kept_previous, claimed_previous):
+        for table in (kept_previous, claimed_previous, parted_previous):
             await session.execute(text(f'DROP TABLE IF EXISTS "data"."{table}"'))
         await session.commit()

@@ -112,7 +112,7 @@ def downgrade() -> None:
                 JOIN pg_namespace n ON n.nspname = CASE
                     WHEN d.tenant_id IS NULL THEN 'data'
                     ELSE 'data_t_' || replace(d.tenant_id::text, '-', '_') END
-                JOIN pg_class c ON c.relnamespace = n.oid AND c.relkind = 'r'
+                JOIN pg_class c ON c.relnamespace = n.oid AND c.relkind IN ('r', 'p')
                     AND c.relname = left(d.table_name, 21)
                         || '_previous_' || replace(d.id::text, '-', '')
                 WHERE d.previous_version_number IS NOT NULL
