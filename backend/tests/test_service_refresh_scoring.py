@@ -75,7 +75,12 @@ async def test_a_refresh_that_does_not_publish_writes_no_quality_or_data(
     """A blocked or rejected service refresh may score, but stores none of it."""
     dataset_id = await _ingest(test_db_session, monkeypatch, _WELLS)
     dataset = await test_db_session.get(Dataset, dataset_id)
-    dataset.quality_detail = {"kept": True}
+    kept = {
+        "overall": 12.5,
+        "metadata_completeness": 12.5,
+        "attribute_completeness": 12.5,
+    }
+    dataset.quality_detail = kept
     await test_db_session.commit()
     live = f'"data"."{dataset.table_name}"'
     live_before = (
@@ -93,9 +98,7 @@ async def test_a_refresh_that_does_not_publish_writes_no_quality_or_data(
     [run] = await _runs_ordered(test_db_session, dataset_id)
     assert run.status == status, run.verification
     test_db_session.expire_all()
-    assert (await test_db_session.get(Dataset, dataset_id)).quality_detail == {
-        "kept": True
-    }
+    assert (await test_db_session.get(Dataset, dataset_id)).quality_detail == kept
     live_after = (
         await test_db_session.execute(
             text(f"SELECT to_regclass('{live}')::oid, count(*) FROM {live}")
