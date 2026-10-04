@@ -107,9 +107,18 @@ class _RestorePreviousVersion:
 
         DatasetVersion = get_processing_port().get_dataset_version_orm_class()
         actor_id = uuid.UUID(self.user_id)
-        await session.refresh(dataset, ["current_version", "previous_version_number"])
+        await session.refresh(
+            dataset,
+            [
+                "current_version",
+                "previous_version_number",
+                "previous_version_refreshed_at",
+                "last_refreshed_at",
+            ],
+        )
         replaced = dataset.current_version
         restored = dataset.previous_version_number
+        restored_refreshed_at = dataset.previous_version_refreshed_at
         source = await session.scalar(
             select(DatasetVersion).where(
                 DatasetVersion.dataset_id == dataset.id,
@@ -124,11 +133,9 @@ class _RestorePreviousVersion:
         dataset.current_version = replaced + 1
         dataset.scheduled_refresh_hold = RESTORED_HOLD
         dataset.record.updated_by = actor_id
-        # Freshness describes the data that is live again. A first ingest
-        # writes no version row, so its data dates from the dataset's creation.
-        dataset.last_refreshed_at = (
-            dataset.record.created_at if source is None else source.uploaded_at
-        )
+        # Freshness describes the data that is live again, as the swap that
+        # kept it recorded.
+        dataset.last_refreshed_at = restored_refreshed_at
 
         version = DatasetVersion(
             dataset_id=dataset.id,

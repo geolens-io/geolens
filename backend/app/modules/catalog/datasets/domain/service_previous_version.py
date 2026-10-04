@@ -10,6 +10,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+import structlog
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,7 +18,10 @@ from app.core.record_types import capabilities
 from app.modules.catalog.datasets.domain._sql_safety import _safe_table_ref
 from app.modules.catalog.datasets.domain.schemas import PreviousVersionResponse
 from app.platform.jobs import ledger
-from app.platform.jobs.heartbeat import previous_version_table
+from app.platform.jobs.heartbeat import (
+    previous_version_name_claimed,
+    previous_version_table,
+)
 from app.platform.jobs.models import EXPECTED_PREVIOUS_VERSION_KEY, IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.refresh.service import (
@@ -25,6 +29,9 @@ from app.platform.refresh.service import (
     DatasetBusyError,
     create_pending_run,
 )
+
+
+logger = structlog.get_logger(__name__)
 
 
 class PreviousVersionRefused(Exception):
@@ -141,6 +148,22 @@ async def _refuse_while_running(db: AsyncSession, dataset_id: uuid.UUID) -> None
         raise PreviousVersionRefused(*_BUSY)
 
 
+async def drop_recorded_previous_version(
+    db: AsyncSession, dataset: Any, *, schema: str
+) -> None:
+    """Drop the previous-version table this dataset recorded; never commits.
+
+    The name is predictable, so a table under it that another dataset uses,
+    or that this dataset never recorded, is left in place.
+    """
+    name = previous_version_table(dataset.table_name, dataset.id)
+    if await previous_version_name_claimed(db, name):
+        logger.warning("previous_version_drop_skipped", dataset_id=str(dataset.id))
+    elif dataset.previous_version_number is not None:
+        previous = _safe_table_ref(name, schema=schema)
+        await db.execute(text(f"DROP TABLE IF EXISTS {previous}"))
+
+
 async def drop_previous_version(
     db: AsyncSession, dataset: Any, *, user_id: uuid.UUID, expected: int
 ) -> None:
@@ -160,11 +183,9 @@ async def drop_previous_version(
     await _refuse_while_running(db, dataset.id)
     await db.refresh(dataset, ["previous_version_number"])
     _require_version(dataset, expected)
-    previous = _safe_table_ref(
-        previous_version_table(dataset.table_name, dataset.id),
-        schema=tenant_data_schema(current_tenant_var.get()),
+    await drop_recorded_previous_version(
+        db, dataset, schema=tenant_data_schema(current_tenant_var.get())
     )
-    await db.execute(text(f"DROP TABLE IF EXISTS {previous}"))
     await lock_catalog_rows_for_write(db, dataset)
     # A run admitted before the row lock committed is visible now.
     await _refuse_while_running(db, dataset.id)

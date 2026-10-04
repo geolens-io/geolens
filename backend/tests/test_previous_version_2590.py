@@ -774,3 +774,110 @@ async def test_a_held_dataset_refuses_an_admitted_scheduled_run_at_execution(
         "scheduled_refresh_held",
         "failed",
     )
+
+
+async def _squat(session, victim) -> SimpleNamespace:
+    """Another dataset whose own table has the victim's previous-version name."""
+    admin_id = await get_user_id(session, "admin")
+    name = previous_version_table(victim.table_name, victim.id)
+    squatter = await create_dataset(
+        session, created_by=admin_id, name="Squatter", table_name=name
+    )
+    await session.execute(
+        text(f'CREATE TABLE "data"."{name}" (gid serial PRIMARY KEY, name text)')
+    )
+    await session.execute(text(f'INSERT INTO "data"."{name}" (name) VALUES (\'Mine\')'))
+    await session.commit()
+    return SimpleNamespace(id=squatter.id, table_name=name)
+
+
+async def test_a_replacement_leaves_another_datasets_table_under_the_reserved_name(
+    test_db_session,
+) -> None:
+    """A dataset holding the previous-version name keeps its table, and the replacement publishes nothing."""
+    session = test_db_session
+    admin_id, dataset = await _seed(session)
+    squatter = await _squat(session, dataset)
+    try:
+        from app.processing.ingest.tasks_common import PreviousVersionNameTaken
+
+        with pytest.raises(PreviousVersionNameTaken):
+            await _replace(session, dataset, admin_id, ["paris"])
+
+        assert await _names(session, squatter.table_name) == ["Mine"]
+        assert await _names(session, dataset.table_name) == ["New York"]
+        row = await _dataset_row(session, dataset.id)
+        assert (row.current_version, row.previous_version_number) == (1, None)
+    finally:
+        await _cleanup(session, dataset)
+
+
+async def test_deleting_a_dataset_leaves_another_datasets_table_under_the_reserved_name(
+    client: AsyncClient, test_db_session, admin_auth_header
+) -> None:
+    """Dataset delete drops only a previous version the dataset recorded."""
+    session = test_db_session
+    _, dataset = await _seed(session)
+    squatter = await _squat(session, dataset)
+    try:
+        deleted = await client.request(
+            "DELETE",
+            f"/api/datasets/{dataset.id}",
+            json={"confirm_title": "Test Dataset"},
+            headers=admin_auth_header,
+        )
+        assert deleted.status_code == 204, deleted.text
+        assert await _names(session, squatter.table_name) == ["Mine"]
+    finally:
+        await _cleanup(session, dataset)
+
+
+@pytest.mark.parametrize("shape", ["previous", "staging"])
+async def test_generated_table_names_avoid_derived_shapes(
+    test_db_session, shape
+) -> None:
+    """A title shaped like a previous-version or staging name gets a name of neither shape."""
+    from app.platform.jobs.heartbeat import is_attempt_scoped_staging_table
+    from app.processing.ingest.service import generate_table_name
+
+    title = f"roads_{shape}_{uuid.uuid4().hex}"
+    name, warning = await generate_table_name(title, test_db_session)
+
+    assert not is_previous_version_table(name)
+    assert not is_attempt_scoped_staging_table(name)
+    assert warning is not None
+
+
+async def test_repeated_restores_keep_each_versions_own_freshness(
+    client: AsyncClient, test_db_session, admin_auth_header
+) -> None:
+    """Restoring data back and forth reinstates the freshness each copy had when it was kept."""
+    session = test_db_session
+    admin_id, dataset = await _seed(session)
+    original = datetime(2001, 1, 1, tzinfo=timezone.utc)
+    await session.execute(
+        text("UPDATE catalog.datasets SET last_refreshed_at = :at WHERE id = :id"),
+        {"at": original, "id": dataset.id},
+    )
+    await session.commit()
+
+    async def _freshness():
+        return await session.scalar(
+            text("SELECT last_refreshed_at FROM catalog.datasets WHERE id = :id"),
+            {"id": dataset.id},
+        )
+
+    try:
+        await _replace(session, dataset, admin_id, ["paris"])
+        replaced = await _freshness()
+        assert replaced > original
+
+        await _restore(client, admin_auth_header, session, dataset, 1)
+        assert await _freshness() == original
+        await _restore(client, admin_auth_header, session, dataset, 2)
+        assert await _freshness() == replaced
+        await _restore(client, admin_auth_header, session, dataset, 3)
+        assert await _freshness() == original
+        assert await _names(session, dataset.table_name) == ["New York"]
+    finally:
+        await _cleanup(session, dataset)

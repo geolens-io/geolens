@@ -553,6 +553,10 @@ class Dataset(Base):
     previous_version_bytes: Mapped[int | None] = mapped_column(
         BigInteger, nullable=True
     )
+    # The kept data's own last_refreshed_at, which a restore reinstates.
+    previous_version_refreshed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     # Why scheduled refreshes are refused until released: 'restored'.
     scheduled_refresh_hold: Mapped[str | None] = mapped_column(
         String(32), nullable=True

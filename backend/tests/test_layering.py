@@ -1318,7 +1318,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Shared ingest finalization carries verification, manifest record fields, bounded
     # ArcGIS requests, lifecycle context, the quicklook draw that ingest and
     # replacement share, and the swap that keeps the replaced table.
-    "backend/app/processing/ingest/tasks_common.py": 1828,
+    "backend/app/processing/ingest/tasks_common.py": 1876,
     # File and remote-source replacement strategies own retrieval, staging and verification.
     "backend/app/processing/ingest/tasks_reupload.py": 1411,
     # Refresh strategies share access, admission and dispatch rules at this API
@@ -1365,7 +1365,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/admin/service.py": 1022,
     # Ingest admission, staging, job settlement and table registration share one
     # orchestration boundary.
-    "backend/app/processing/ingest/service.py": 1582,
+    "backend/app/processing/ingest/service.py": 1586,
     # The PostGIS strategy: geometry and gid repair, the snapshot measurement and
     # its catalog writes.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 699,

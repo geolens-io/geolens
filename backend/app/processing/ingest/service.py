@@ -690,7 +690,10 @@ async def generate_table_name(
     )
     existing |= {row[0] for row in retired_result.all()}
 
-    if slug in existing:
+    # Names GeoLens derives from another table's would let this dataset take
+    # a table a swap later drops or renames; the `_N` suffix moves off them.
+    reserved = is_previous_version_table(slug) or is_attempt_scoped_staging_table(slug)
+    if slug in existing or reserved:
         suffix = 2
         while _with_collision_suffix(base_slug, suffix) in existing:
             suffix += 1
@@ -701,7 +704,8 @@ async def generate_table_name(
                     "Give this dataset a more distinctive title."
                 )
         slug = _with_collision_suffix(base_slug, suffix)
-        collision_warning = f"Table name '{base_slug}' already exists, using '{slug}'"
+        taken = "is reserved" if reserved else "already exists"
+        collision_warning = f"Table name '{base_slug}' {taken}, using '{slug}'"
 
     return slug, collision_warning
 

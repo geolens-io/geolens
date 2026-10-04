@@ -65,6 +65,15 @@ def is_previous_version_table(table_name: str) -> bool:
     return _PREVIOUS_VERSION_NAME_RE.search(table_name) is not None
 
 
+async def previous_version_name_claimed(session: AsyncSession, name: str) -> bool:
+    """Whether a catalog dataset uses *name* as its own table, so it is no previous version."""
+    claimed = await session.scalar(
+        text("SELECT 1 FROM catalog.datasets WHERE table_name = :name LIMIT 1"),
+        {"name": name},
+    )
+    return claimed is not None
+
+
 async def resolve_ingest_job_attempt(
     job_id: uuid.UUID,
     attempt_id: str | uuid.UUID | None,

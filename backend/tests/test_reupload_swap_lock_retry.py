@@ -94,6 +94,7 @@ def _make_dataset_stub(table_name: str):
         current_version=1,
         tile_cache_version=1,
         source_url=None,
+        last_refreshed_at=None,
     )
 
 

@@ -2,7 +2,8 @@
 
 A replacement keeps the table it replaced as ``<table>_previous_<dataset hex>``
 in the live table's schema. The columns on ``catalog.datasets`` say which
-version that table holds, when it was kept and its size, and
+version that table holds, when it was kept, its size and the kept data's own
+refresh time, and
 ``scheduled_refresh_hold`` records why scheduled refreshes are refused after a
 restore. ``dataset_versions.restored_from_version`` names the version a restore
 republished, and a refresh run's ``origin_kind`` may be ``restore``. All
@@ -56,6 +57,9 @@ def upgrade() -> None:
             "previous_version_retained_at", sa.DateTime(timezone=True), nullable=True
         ),
         sa.Column("previous_version_bytes", sa.BigInteger(), nullable=True),
+        sa.Column(
+            "previous_version_refreshed_at", sa.DateTime(timezone=True), nullable=True
+        ),
         sa.Column("scheduled_refresh_hold", sa.String(32), nullable=True),
     ):
         op.add_column("datasets", column, schema="catalog")
@@ -93,6 +97,7 @@ def downgrade() -> None:
     op.drop_column("dataset_versions", "restored_from_version", schema="catalog")
     for column in (
         "scheduled_refresh_hold",
+        "previous_version_refreshed_at",
         "previous_version_bytes",
         "previous_version_retained_at",
         "previous_version_number",
