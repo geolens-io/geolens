@@ -187,10 +187,13 @@ async def dispatch_upload_acceptance(
     )
     blocked_run = await db.get(DatasetRefreshRun, run_id)
     held_version = (blocked_run.verification or {}).get("live_version")
+    # Held until commit, so the retention purge skips the job and keeps its
+    # upload; a job the purge already took is gone by the time this returns.
     blocked_job = await db.scalar(
         select(IngestJob)
         .join(DatasetRefreshRun, DatasetRefreshRun.ingest_job_id == IngestJob.id)
         .where(DatasetRefreshRun.id == run_id, IngestJob.dataset_id == dataset_id)
+        .with_for_update(read=True, key_share=True, of=IngestJob)
     )
     if blocked_job is None or not blocked_job.file_path:
         raise _upload_unavailable(

@@ -8,12 +8,13 @@ import shutil
 import subprocess
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import OperationalError
 
 from app.core.config import settings
@@ -1026,6 +1027,127 @@ async def test_a_viewer_cannot_accept_a_blocked_upload_run(
     assert response.status_code in (403, 404)
     await harness.session.refresh(blocked)
     assert "acceptance_consumed_by_run_id" not in blocked.verification
+
+
+async def _past_retention(harness: _Harness, job_id: uuid.UUID) -> str:
+    """Age a job past retention and return the upload it names."""
+    old = datetime.now(timezone.utc) - timedelta(
+        days=settings.ingest_jobs_retention_days + 1
+    )
+    await harness.session.execute(
+        update(IngestJob)
+        .where(IngestJob.id == job_id)
+        .values(created_at=old, completed_at=old)
+    )
+    await harness.session.commit()
+    return (await harness.job(job_id)).file_path
+
+
+async def _purge_elsewhere() -> None:
+    """Run the retention purge on its own connection, as the sweeper does."""
+    import app.core.db as db_module
+    from app.platform.jobs.sweep import fail_stale_jobs
+
+    async with db_module.async_session() as other:
+        await fail_stale_jobs(other)
+
+
+async def _jobs_naming(harness: _Harness, key: str) -> set[uuid.UUID]:
+    return set(
+        (
+            await harness.session.execute(
+                select(IngestJob.id)
+                .where(IngestJob.file_path == key)
+                .execution_options(populate_existing=True)
+            )
+        ).scalars()
+    )
+
+
+def _reaped(harness: _Harness, key: str) -> bool:
+    return any(key in str(call.args) for call in harness.storage.delete.await_args_list)
+
+
+async def _until_blocked_by(pid: int, task: asyncio.Task) -> None:
+    """Wait until a backend waits on ``pid``, or ``task`` ends without waiting."""
+    import app.core.db as db_module
+
+    for _ in range(200):
+        if task.done():
+            return
+        async with db_module.async_session() as probe:
+            if await probe.scalar(
+                text(
+                    "SELECT EXISTS (SELECT 1 FROM pg_stat_activity "
+                    "WHERE CAST(:pid AS int) = ANY(pg_blocking_pids(pid)))"
+                ),
+                {"pid": pid},
+            ):
+                return
+        await asyncio.sleep(0.05)
+    raise AssertionError("the acceptance neither waited on the purge nor finished")
+
+
+async def test_the_purge_skips_a_blocked_job_while_its_acceptance_holds_it(
+    harness: _Harness, monkeypatch
+):
+    import app.platform.jobs.router as jobs_router
+
+    monkeypatch.setattr(settings, "ingest_jobs_retention_days", 30)
+    dataset, job_id, blocked = await _blocked_dataset(harness)
+    key = await _past_retention(harness, job_id)
+    check = jobs_router.staged_input_available
+
+    async def _purged_meanwhile(job):
+        await _purge_elsewhere()
+        return await check(job)
+
+    with patch.object(jobs_router, "staged_input_available", _purged_meanwhile):
+        response = await harness.accept(dataset, blocked.id)
+
+    assert response.status_code == 202, response.text
+    accepted_job_id = uuid.UUID(response.json()["job_id"])
+    assert await _jobs_naming(harness, key) == {job_id, accepted_job_id}
+    assert not _reaped(harness, key)
+
+    await _purge_elsewhere()
+    assert await _jobs_naming(harness, key) == {accepted_job_id}
+    assert not _reaped(harness, key)
+
+
+async def test_an_acceptance_behind_the_purge_answers_upload_unavailable(
+    harness: _Harness, monkeypatch
+):
+    import app.core.db as db_module
+    from app.platform.jobs import sweep
+
+    monkeypatch.setattr(settings, "ingest_jobs_retention_days", 30)
+    dataset, job_id, blocked = await _blocked_dataset(harness)
+    key = await _past_retention(harness, job_id)
+    deleted, release = asyncio.Event(), asyncio.Event()
+    collect = sweep.collect_unreaped_artifacts
+
+    async def _hold_before_commit(db, outcome):
+        deleted.set()
+        await release.wait()
+        return await collect(db, outcome)
+
+    async with db_module.async_session() as purge_db:
+        purge_pid = await purge_db.scalar(text("SELECT pg_backend_pid()"))
+        with patch.object(sweep, "collect_unreaped_artifacts", _hold_before_commit):
+            purge = asyncio.create_task(sweep.fail_stale_jobs(purge_db))
+            await asyncio.wait_for(deleted.wait(), timeout=30)
+            accept = asyncio.create_task(harness.accept(dataset, blocked.id))
+            await _until_blocked_by(purge_pid, accept)
+            release.set()
+            await asyncio.wait_for(purge, timeout=30)
+    response = await asyncio.wait_for(accept, timeout=30)
+
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"]["code"] == "upload_unavailable"
+    harness.task.defer_async.assert_not_awaited()
+    assert await _jobs_naming(harness, key) == set()
+    assert _reaped(harness, key)
 
 
 # 9: a manifest apply carries no fingerprint
