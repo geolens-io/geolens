@@ -12,7 +12,7 @@ from sqlalchemy import text
 
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.platform.jobs.models import IngestJob
-from app.processing.ingest import tasks_vector
+from app.processing.ingest import tasks_reupload, tasks_vector
 from app.processing.ingest.metadata import compute_table_content_digest
 from app.processing.ingest.tasks_reupload import reupload_service
 
@@ -244,3 +244,24 @@ async def test_a_3d_layer_that_loses_z_values_is_no_longer_3d(
     dataset = await _dataset(test_db_session, dataset_id)
     assert _three_d(dataset) == (False, 2, None, None)
     assert "elev" not in await _live_columns(test_db_session, dataset.table_name)
+
+
+async def test_only_a_refresh_reads_the_live_geometry_types(
+    client: AsyncClient, admin_auth_header, test_db_session, monkeypatch
+):
+    """A plain re-upload publishes unverified, so it skips the live geometry scan."""
+    scanned: list[str] = []
+    real = tasks_reupload._live_geometry_types
+
+    async def _recording(table_name, *, schema):
+        scanned.append(table_name)
+        return await real(table_name, schema=schema)
+
+    monkeypatch.setattr(tasks_reupload, "_live_geometry_types", _recording)
+    dataset_id = await _ingest(test_db_session, monkeypatch, _WELLS)
+
+    await _reupload(test_db_session, monkeypatch, dataset_id, _WELLS)
+    assert scanned == []
+
+    await _refresh(client, admin_auth_header, monkeypatch, dataset_id, _WELLS)
+    assert len(scanned) == 1

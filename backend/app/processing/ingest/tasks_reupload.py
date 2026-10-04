@@ -1113,6 +1113,8 @@ class _ServiceReupload:
             )
         except ValueError as exc:
             raise IngestionError(str(exc)) from exc
+        if not self.is_refresh:
+            return
         # Read while no publication session holds a pooled connection.
         self.live_geometry_types = await _live_geometry_types(
             self.live_table, schema=_current_tenant_schema()
