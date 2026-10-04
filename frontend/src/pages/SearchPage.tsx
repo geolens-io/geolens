@@ -89,6 +89,18 @@ export function SearchPage() {
   const hasMapTextQuery = mapQuery.length > 0;
   const isMapSearchPending = hasMapTextQuery && (isLoadingMaps || isFetchingMaps);
   const hasMapMatches = (mapResults?.maps.length ?? 0) > 0;
+  const catalogEmpty = !!data && data.features.length === 0;
+  const liveStatus: string = !data
+    ? ''
+    : isFetching
+      ? t('updating')
+      : !catalogEmpty
+        ? t('catalogResults', { count: totalMatched })
+        : isMapSearchPending
+          ? '' // the map section announces its own pending state
+          : hasMapMatches
+            ? `${t('empty.catalogResultsTitle')}. ${t('mapMatchCount', { count: mapResults?.maps.length ?? 0 })}`
+            : t('empty.catalogResultsTitle');
   const shouldShowMapSearch = hasMapTextQuery && (isMapSearchPending || !!mapsError || hasMapMatches);
 
   useUrlSearchSync();
@@ -126,11 +138,7 @@ export function SearchPage() {
             {/* Mounted before its text changes so readers announce updates; a status
                 that mounts with its content is often skipped. */}
             <p role="status" aria-live="polite" className="sr-only" data-testid="search-live-status">
-              {isFetching && data
-                ? t('updating')
-                : data && data.features.length > 0
-                  ? t('catalogResults', { count: totalMatched })
-                  : ''}
+              {liveStatus}
             </p>
 
             {isFetching && data && (

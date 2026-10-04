@@ -205,6 +205,58 @@ describe('SearchPage', () => {
     expect(live).toHaveTextContent('Updating results');
   });
 
+  describe('live status for empty responses', () => {
+    const populated = {
+      type: 'FeatureCollection',
+      numberMatched: 12,
+      numberReturned: 2,
+      features: [makeFeature('dataset-1', 'California Watersheds'), makeFeature('dataset-2', 'Road Centerlines')],
+    };
+    const empty = { type: 'FeatureCollection', numberMatched: 0, numberReturned: 0, features: [] as OGCRecordResponse[] };
+    const setResults = (data: object, isFetching: boolean) =>
+      mockUseSearchResults.mockReturnValue({
+        data, isLoading: false, error: null, isFetching,
+      } as unknown as ReturnType<typeof useSearchResults>);
+
+    it('announces an empty result after a populated one', () => {
+      setAnonymousUser();
+      setResults(populated, false);
+      const { rerender } = render(<SearchPage />, { route: '/' });
+      setResults(populated, true);
+      rerender(<SearchPage />);
+      setResults(empty, false);
+      rerender(<SearchPage />);
+      expect(screen.getByTestId('search-live-status')).toHaveTextContent('No catalog results found');
+    });
+
+    it('still announces after a second empty search', () => {
+      setAnonymousUser();
+      setResults(empty, false);
+      const { rerender } = render(<SearchPage />, { route: '/' });
+      expect(screen.getByTestId('search-live-status')).toHaveTextContent('No catalog results found');
+      setResults(empty, true);
+      rerender(<SearchPage />);
+      expect(screen.getByTestId('search-live-status')).toHaveTextContent('Updating results');
+      setResults(empty, false);
+      rerender(<SearchPage />);
+      expect(screen.getByTestId('search-live-status')).toHaveTextContent('No catalog results found');
+    });
+
+    it('includes the map match count when only maps matched', () => {
+      setAnonymousUser();
+      act(() => {
+        useSearchStore.getState().setQuery('Matterhorn');
+      });
+      setResults(empty, false);
+      mockUseMapSearchResults.mockReturnValue({
+        data: { maps: [{ id: 'm1', name: 'Alps' }, { id: 'm2', name: 'Alps 2' }], total: 2 },
+        isLoading: false, isFetching: false, error: null,
+      } as unknown as ReturnType<typeof useMapSearchResults>);
+      render(<SearchPage />, { route: '/' });
+      expect(screen.getByTestId('search-live-status')).toHaveTextContent('No catalog results found. 2 matching maps');
+    });
+  });
+
   it('renders skeletons while loading with no cached data', () => {
     setAnonymousUser();
     mockUseSearchResults.mockReturnValue({
