@@ -1600,6 +1600,14 @@ async def install_candidate_table(
         {"schema": _tenant_schema, "tn": table_name},
     )
     live_exists = live_exists_result.scalar()
+    live_partitioned = await session.scalar(
+        text(
+            "SELECT EXISTS (SELECT 1 FROM pg_class c "
+            "JOIN pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE n.nspname = :schema AND c.relname = :tn AND c.relkind = 'p')"
+        ),
+        {"schema": _tenant_schema, "tn": table_name},
+    )
 
     # ING-06 (P2-08): wrap the swap DDL in SAVEPOINTs + single retry on
     # lock_timeout. Autovacuum can hold AccessExclusiveLock long enough to
@@ -1637,6 +1645,11 @@ async def install_candidate_table(
                 text(f'ALTER TABLE {_q(keep)} RENAME TO "{previous}"')
             )
             await rename_pkey_to_match_table(session, previous)
+        if live_partitioned and candidate != previous:
+            # Its partitions would keep their own names under the renamed
+            # parent, where discovery lists them and registration accepts
+            # them, so a partitioned table is not kept.
+            await session.execute(text(f"DROP TABLE {_q(previous)}"))
 
     # fix(#1917): a `SET LOCAL` survives RELEASE SAVEPOINT, so the DDL budget
     # below outlives its savepoint and would clamp every later wait in this

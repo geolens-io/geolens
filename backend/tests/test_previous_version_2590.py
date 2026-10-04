@@ -1045,15 +1045,8 @@ async def test_a_view_over_the_previous_version_refuses_its_drop(
         await _cleanup(session, dataset)
 
 
-async def test_a_view_over_a_partition_of_the_live_table_refuses_the_replacement(
-    test_db_session,
-) -> None:
-    """A view reading a partition under the live table blocks the swap like one over the table."""
-    from app.processing.ingest.previous_version import DependentRelationsBlockSwap
-
-    session = test_db_session
-    admin_id, dataset = await _seed(session)
-    table = dataset.table_name
+async def _partition_live(session, table: str) -> str:
+    """Rebuild the seeded live table as a partitioned one holding New York; returns its partition."""
     child = f"{table}_p0"
     await session.execute(text(f'DROP TABLE "data"."{table}"'))
     await session.execute(
@@ -1077,6 +1070,19 @@ async def test_a_view_over_a_partition_of_the_live_table_refuses_the_replacement
         )
     )
     await session.commit()
+    return child
+
+
+async def test_a_view_over_a_partition_of_the_live_table_refuses_the_replacement(
+    test_db_session,
+) -> None:
+    """A view reading a partition under the live table blocks the swap like one over the table."""
+    from app.processing.ingest.previous_version import DependentRelationsBlockSwap
+
+    session = test_db_session
+    admin_id, dataset = await _seed(session)
+    table = dataset.table_name
+    child = await _partition_live(session, table)
     view = await _view_over(session, child)
     try:
         with pytest.raises(DependentRelationsBlockSwap, match=view):
@@ -1086,4 +1092,22 @@ async def test_a_view_over_a_partition_of_the_live_table_refuses_the_replacement
         assert await _names(session, view) == ["New York"]
     finally:
         await _drop_view(session, view)
+        await _cleanup(session, dataset)
+
+
+async def test_a_replacement_does_not_keep_a_partitioned_table(test_db_session) -> None:
+    """A partitioned live table is dropped as before, so no partition outlives it under its own name."""
+    session = test_db_session
+    admin_id, dataset = await _seed(session)
+    child = await _partition_live(session, dataset.table_name)
+    try:
+        await _replace(session, dataset, admin_id, ["paris"])
+
+        assert await _names(session, dataset.table_name) == ["Paris"]
+        assert not await _relation_exists(
+            session, previous_version_table(dataset.table_name, dataset.id)
+        )
+        assert not await _relation_exists(session, child)
+        assert (await _dataset_row(session, dataset.id)).previous_version_number is None
+    finally:
         await _cleanup(session, dataset)
