@@ -56,14 +56,18 @@ async def measure(
     schema: str,
     staged: StagingResult | None = None,
     score: bool = True,
+    stored: Any = None,
 ) -> Measurement:
     """Measure ``table`` as ``dataset``'s feature table, writing nothing.
 
     ``staged`` supplies the metadata, samples and 3D facts the staging pipeline
     already read. Without it they are read here, and no ``elev`` column is added.
     ``score=False`` skips the quality scan for a caller that may not publish;
-    :func:`scored` adds it later.
+    :func:`scored` adds it later. ``stored`` gives the geometry type and 3D
+    facts an empty or unconstrained column falls back to, the dataset's own
+    by default.
     """
+    stored = dataset if stored is None else stored
     from app.processing.ingest.metadata import (
         detect_3d_metadata,
         extract_metadata,
@@ -84,7 +88,7 @@ async def measure(
     declared = await _declared_geometry_type(session, schema=schema, table=table)
     if declared is not None and metadata.get("geometry_type") is None:
         three_d = await _three_d_without_rows(
-            session, dataset, schema=schema, table=table
+            session, stored, schema=schema, table=table
         )
     measurement = Measurement(
         metadata=metadata,
@@ -93,7 +97,7 @@ async def measure(
         geometry_type=_effective_geometry_type(
             measured=metadata.get("geometry_type"),
             declared=declared,
-            stored=dataset.geometry_type,
+            stored=stored.geometry_type,
         ),
         quality_detail=None,
     )

@@ -136,7 +136,11 @@ logger = logging.getLogger(__name__)
 # under their stored names and reads the live geometry types to judge review
 # reasons, so an overlay replacing the ``catalog_port`` slot without them
 # fails every file re-upload preview.
-EXTENSION_API_VERSION: int = 15
+#
+# 15 -> 16: CatalogPort gained the required ``restore_previous_version_task``
+# method, which the previous-version restore route defers. An overlay
+# replacing the ``catalog_port`` slot without it fails every restore request.
+EXTENSION_API_VERSION: int = 16
 
 
 def check_extension_api_version(name: str, declared_version: int | None) -> None:

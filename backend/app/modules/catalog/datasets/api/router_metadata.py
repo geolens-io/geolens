@@ -101,6 +101,7 @@ async def get_dataset_versions_endpoint(
                 file_hash=v.file_hash if can_view_provenance else None,
                 uploaded_by=v.uploaded_by if can_view_provenance else None,
                 uploaded_at=v.uploaded_at,
+                restored_from_version=v.restored_from_version,
             )
             for v in versions
         ],

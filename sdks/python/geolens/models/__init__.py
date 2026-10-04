@@ -569,6 +569,7 @@ from .preview_response_detected_geometry_columns_type_0 import (
     PreviewResponseDetectedGeometryColumnsType0,
 )
 from .preview_response_sample_rows_item import PreviewResponseSampleRowsItem
+from .previous_version_response import PreviousVersionResponse
 from .probe_request import ProbeRequest
 from .probe_response import ProbeResponse
 from .problem_detail import ProblemDetail
@@ -636,6 +637,8 @@ from .replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_featu
 from .resend_verification_request import ResendVerificationRequest
 from .reserved_rename_detail import ReservedRenameDetail
 from .reserved_rename_warning import ReservedRenameWarning
+from .restore_previous_version_request import RestorePreviousVersionRequest
+from .restore_previous_version_response import RestorePreviousVersionResponse
 from .reupload_commit_request import ReuploadCommitRequest
 from .reupload_commit_request_expected_origin_kind_type_0 import (
     ReuploadCommitRequestExpectedOriginKindType0,
@@ -1224,6 +1227,7 @@ __all__ = (
     "PreviewResponse",
     "PreviewResponseDetectedGeometryColumnsType0",
     "PreviewResponseSampleRowsItem",
+    "PreviousVersionResponse",
     "ProbeRequest",
     "ProbeResponse",
     "ProblemDetail",
@@ -1265,6 +1269,8 @@ __all__ = (
     "ResendVerificationRequest",
     "ReservedRenameDetail",
     "ReservedRenameWarning",
+    "RestorePreviousVersionRequest",
+    "RestorePreviousVersionResponse",
     "ReuploadCommitRequest",
     "ReuploadCommitRequestExpectedOriginKindType0",
     "ReuploadCommitResponse",

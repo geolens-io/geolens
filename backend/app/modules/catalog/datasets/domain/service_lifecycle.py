@@ -24,6 +24,9 @@ from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.core.pointcloud import pointcloud_prefix
 from app.core.tiles3d import tileset_prefix
 from app.platform.dataset_origin import geolens_owns_table
+from app.modules.catalog.datasets.domain.service_previous_version import (
+    drop_recorded_previous_version,
+)
 from app.platform.storage.reap import delete_prefix
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -286,6 +289,8 @@ async def delete_dataset(
         # is worse than leaving it (linearization isn't reversible; a
         # column drop rewrites the table for nothing). Re-registering
         # reapplies all three idempotently.
+        # Always a GeoLens copy, so it goes in both arms.
+        await drop_recorded_previous_version(session, dataset, schema=data_schema)
         # Ahead of the reap, behind the DROP. See the raster branch.
         await lock_catalog_rows_for_write(session, dataset)
 

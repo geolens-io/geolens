@@ -34,6 +34,10 @@ This module is the one place that knows about refuse-to-coerce downgrades:
   test_pointcloud_branches and test_pointcloud_record_type_refusals) remove
   them themselves.
 
+- ``0077_dataset_previous_version``: refuses while any refresh run has
+  ``origin_kind = 'restore'``. Normalized automatically, since ordinary
+  restore tests leave such runs behind.
+
 If a future migration gains a refuse-to-coerce downgrade, teach this module
 about it rather than adding cleanup to individual test files.
 """
@@ -153,6 +157,19 @@ $$;
 """
 
 
+# Restore runs are fixture noise in a test database; 0077's downgrade refuses
+# them because the earlier CHECK has no 'restore'.
+_RESTORE_RUN_NORMALIZATION = """
+DO $$
+BEGIN
+    IF to_regclass('catalog.dataset_refresh_runs') IS NOT NULL THEN
+        DELETE FROM catalog.dataset_refresh_runs WHERE origin_kind = 'restore';
+    END IF;
+END
+$$;
+"""
+
+
 def _execute_normalization(sql: str) -> None:
     from app.core.config import settings
 
@@ -174,6 +191,11 @@ def normalize_seam_extents() -> None:
 def normalize_api_key_state() -> None:
     """Clear key expiry and epoch bumps so downgrades can cross 0029."""
     _execute_normalization(_API_KEY_STATE_NORMALIZATION)
+
+
+def normalize_restore_runs() -> None:
+    """Delete restore refresh runs so downgrades can cross 0077."""
+    _execute_normalization(_RESTORE_RUN_NORMALIZATION)
 
 
 def run_alembic(
@@ -203,6 +225,7 @@ def run_alembic(
     if normalize and args and args[0] == "downgrade":
         normalize_seam_extents()
         normalize_api_key_state()
+        normalize_restore_runs()
 
     env = os.environ.copy()
     env["PYTHONPATH"] = str(_BACKEND_DIR)

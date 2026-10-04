@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     )
     from ..models.derived_from_response import DerivedFromResponse
     from ..models.point_cloud_metadata import PointCloudMetadata
+    from ..models.previous_version_response import PreviousVersionResponse
     from ..models.quality_detail import QualityDetail
     from ..models.raster_metadata import RasterMetadata
     from ..models.tileset_metadata import TilesetMetadata
@@ -133,6 +134,9 @@ class DatasetResponse:
         metadata_warnings (list[str] | None | Unset): Advisory warnings produced by a metadata update — e.g. a
             visibility or status change exposing keywords inherited from an analysis source the new audience cannot open.
             Only ever set on the PATCH response; the change has already applied.
+        previous_version (None | PreviousVersionResponse | Unset): The data the last replacement or restore replaced,
+            which POST /previous-version/restore publishes again. Set on the detail endpoint only; null elsewhere and when
+            there is none.
     """
 
     id: UUID
@@ -199,6 +203,7 @@ class DatasetResponse:
     stac_extensions: list[str] | None | Unset = UNSET
     language: None | str | Unset = UNSET
     metadata_warnings: list[str] | None | Unset = UNSET
+    previous_version: None | PreviousVersionResponse | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -210,6 +215,7 @@ class DatasetResponse:
         )
         from ..models.derived_from_response import DerivedFromResponse
         from ..models.point_cloud_metadata import PointCloudMetadata
+        from ..models.previous_version_response import PreviousVersionResponse
         from ..models.quality_detail import QualityDetail
         from ..models.raster_metadata import RasterMetadata
         from ..models.tileset_metadata import TilesetMetadata
@@ -584,6 +590,14 @@ class DatasetResponse:
         else:
             metadata_warnings = self.metadata_warnings
 
+        previous_version: dict[str, Any] | None | Unset
+        if isinstance(self.previous_version, Unset):
+            previous_version = UNSET
+        elif isinstance(self.previous_version, PreviousVersionResponse):
+            previous_version = self.previous_version.to_dict()
+        else:
+            previous_version = self.previous_version
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -706,6 +720,8 @@ class DatasetResponse:
             field_dict["language"] = language
         if metadata_warnings is not UNSET:
             field_dict["metadata_warnings"] = metadata_warnings
+        if previous_version is not UNSET:
+            field_dict["previous_version"] = previous_version
 
         return field_dict
 
@@ -721,6 +737,7 @@ class DatasetResponse:
         )
         from ..models.derived_from_response import DerivedFromResponse
         from ..models.point_cloud_metadata import PointCloudMetadata
+        from ..models.previous_version_response import PreviousVersionResponse
         from ..models.quality_detail import QualityDetail
         from ..models.raster_metadata import RasterMetadata
         from ..models.tileset_metadata import TilesetMetadata
@@ -1395,6 +1412,25 @@ class DatasetResponse:
 
         metadata_warnings = _parse_metadata_warnings(d.pop("metadata_warnings", UNSET))
 
+        def _parse_previous_version(
+            data: object,
+        ) -> None | PreviousVersionResponse | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                previous_version_type_0 = PreviousVersionResponse.from_dict(data)
+
+                return previous_version_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | PreviousVersionResponse | Unset, data)
+
+        previous_version = _parse_previous_version(d.pop("previous_version", UNSET))
+
         dataset_response = cls(
             id=id,
             record_id=record_id,
@@ -1460,6 +1496,7 @@ class DatasetResponse:
             stac_extensions=stac_extensions,
             language=language,
             metadata_warnings=metadata_warnings,
+            previous_version=previous_version,
         )
 
         dataset_response.additional_properties = d

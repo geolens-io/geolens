@@ -66,6 +66,9 @@ from app.processing.ingest.tasks_raster_replace import (  # noqa: F401
 from app.processing.ingest.tasks_postgis_refresh import (  # noqa: F401
     refresh_postgis,
 )
+from app.processing.ingest.tasks_restore import (  # noqa: F401
+    restore_previous_version,
+)
 from app.processing.ingest.tasks_stac_refresh import (  # noqa: F401
     refresh_stac,
 )

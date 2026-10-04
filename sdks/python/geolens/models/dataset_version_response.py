@@ -6,6 +6,7 @@ from typing import Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..types import UNSET, Unset
 
 from dateutil.parser import isoparse
 from typing import cast
@@ -36,6 +37,7 @@ class DatasetVersionResponse:
             file_hash (None | str):
             uploaded_by (None | UUID):
             uploaded_at (datetime.datetime):
+            restored_from_version (int | None | Unset): The version a restore published again as this one
     """
 
     id: UUID
@@ -49,6 +51,7 @@ class DatasetVersionResponse:
     file_hash: None | str
     uploaded_by: None | UUID
     uploaded_at: datetime.datetime
+    restored_from_version: int | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -84,6 +87,12 @@ class DatasetVersionResponse:
 
         uploaded_at = self.uploaded_at.isoformat()
 
+        restored_from_version: int | None | Unset
+        if isinstance(self.restored_from_version, Unset):
+            restored_from_version = UNSET
+        else:
+            restored_from_version = self.restored_from_version
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -101,6 +110,8 @@ class DatasetVersionResponse:
                 "uploaded_at": uploaded_at,
             }
         )
+        if restored_from_version is not UNSET:
+            field_dict["restored_from_version"] = restored_from_version
 
         return field_dict
 
@@ -172,6 +183,17 @@ class DatasetVersionResponse:
 
         uploaded_at = isoparse(d.pop("uploaded_at"))
 
+        def _parse_restored_from_version(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        restored_from_version = _parse_restored_from_version(
+            d.pop("restored_from_version", UNSET)
+        )
+
         dataset_version_response = cls(
             id=id,
             dataset_id=dataset_id,
@@ -184,6 +206,7 @@ class DatasetVersionResponse:
             file_hash=file_hash,
             uploaded_by=uploaded_by,
             uploaded_at=uploaded_at,
+            restored_from_version=restored_from_version,
         )
 
         dataset_version_response.additional_properties = d

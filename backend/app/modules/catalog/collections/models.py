@@ -116,6 +116,8 @@ class DatasetVersion(Base):
     srid: Mapped[int | None] = mapped_column(Integer, nullable=True)
     geometry_type: Mapped[str | None] = mapped_column(Text, nullable=True)
     file_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The version whose data a restore published as this one.
+    restored_from_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     uploaded_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("catalog.users.id", ondelete="SET NULL"), nullable=True
     )

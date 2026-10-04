@@ -2428,6 +2428,7 @@ _PAIR_WRITER_EXEMPTIONS = {
     "app.processing.ingest.tasks_reupload.write": "the file and service strategies' write step, which the settlement seam calls holding the job row and the pair",
     "app.processing.ingest.tasks_raster_replace.write": "the raster strategy's write step, which the settlement seam calls holding the job row, the raster row and the pair",
     "app.processing.ingest.tasks_postgis_refresh.write": "the PostGIS strategy's write step, which the settlement seam calls holding the job row and the pair",
+    "app.processing.ingest.tasks_restore.write": "the restore strategy's write step, which the settlement seam calls holding the job row and the pair",
     "app.processing.ingest.tasks_stac_refresh.write": "the STAC strategy's write step, which the settlement seam calls holding the job row, the raster row and the pair",
 }
 

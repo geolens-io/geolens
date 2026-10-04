@@ -60,9 +60,11 @@ class DatasetRefreshRun(Base):
         # raster's replace run stamps 'upload' immediately, while the
         # dataset stays 'stac' until a successful swap rebinds it). 'raster'
         # is RESERVED for the raster-replace door (#1290) and unused today;
-        # reupload_commit always stamps raster replaces 'upload'.
+        # reupload_commit always stamps raster replaces 'upload'. 'restore'
+        # republishes the dataset's retained previous version.
         CheckConstraint(
-            "origin_kind IN ('upload', 'postgis', 'service', 'stac', 'raster')",
+            "origin_kind IN ('upload', 'postgis', 'service', 'stac', 'raster', "
+            "'restore')",
             name="chk_refresh_runs_origin_kind",
         ),
         # Admission control in the schema: at most one mutation per dataset

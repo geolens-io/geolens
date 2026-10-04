@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.failure_reason import FixedReason, coded_failure_reason
@@ -80,6 +80,43 @@ class RefreshExecutionResult:
     status: Literal["completed", "rejected", "already_settled"]
 
 
+class ScheduledRefreshHeld(Exception):
+    """A hold on the dataset refuses scheduled refreshes; ``reason`` says why."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"Scheduled refresh is held: {reason}")
+        self.reason = reason
+
+
+async def release_scheduled_refresh_hold(
+    session: AsyncSession, dataset_id: UUID
+) -> None:
+    """Let scheduled refreshes of the dataset be admitted again; never commits."""
+    await session.execute(
+        text(
+            "UPDATE catalog.datasets SET scheduled_refresh_hold = NULL "
+            "WHERE id = :dataset_id AND scheduled_refresh_hold IS NOT NULL"
+        ),
+        {"dataset_id": dataset_id},
+    )
+
+
+_HOLD = text("SELECT scheduled_refresh_hold FROM catalog.datasets WHERE id = :id")
+_HOLD_FOR_SHARE = text(
+    "SELECT scheduled_refresh_hold FROM catalog.datasets WHERE id = :id FOR SHARE"
+)
+
+
+async def _refuse_scheduled_hold(
+    session: AsyncSession, dataset_id: UUID, *, lock: bool = False
+) -> None:
+    """Raise ``ScheduledRefreshHeld`` when the dataset row carries a hold."""
+    # Read from the row, not the caller's instance, which may predate a restore.
+    hold = await session.scalar(_HOLD_FOR_SHARE if lock else _HOLD, {"id": dataset_id})
+    if hold is not None:
+        raise ScheduledRefreshHeld(hold)
+
+
 CredentialResolver = Callable[[str, str | None], Awaitable[str]]
 ScheduledRefreshTaskExecutor = Callable[[str, str, str | None], Awaitable[None]]
 _REJECTION_CODE_CHARACTERS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789_")
@@ -123,7 +160,8 @@ async def prepare_admitted_refresh(
 
     Authorization belongs to the caller's domain guard. This facade requires
     a user-bound actor and refuses malformed identities before writing. It never
-    commits, defers queue work, or accepts a credential value.
+    commits, defers queue work, or accepts a credential value. A scheduled
+    admission of a dataset under a hold raises ``ScheduledRefreshHeld``.
     """
     dataset_id = getattr(dataset, "id", None)
     actor_id = getattr(actor, "id", None)
@@ -138,40 +176,51 @@ async def prepare_admitted_refresh(
             "scheduled admission requires scheduled_for and occurrence_key"
         )
 
+    if trigger == "scheduled":
+        await _refuse_scheduled_hold(session, dataset_id)
+
     execution_key = uuid.uuid4()
-    job = ledger.create(
-        session,
-        created_by=actor_id,
-        dataset_id=dataset_id,
-        source_filename=request.source_filename,
-        source_url=request.source_url,
-        source_layer=request.source_layer,
-        user_metadata={
-            **dict(request.job_metadata),
-            "refresh": True,
-            "dataset_id": str(dataset_id),
-            "origin_kind": request.origin_kind,
-            "verification_policy": request.verification_policy,
-        },
-    )
-    await session.flush()
-    run = await create_pending_run(
-        session,
-        dataset_id=dataset_id,
-        origin_kind=request.origin_kind,
-        trigger=trigger,
-        triggered_by=actor_id,
-        ingest_job_id=job.id,
-        feature_count_before=request.feature_count_before,
-        scheduled_for=scheduled_for,
-        occurrence_key=occurrence_key,
-        execution_key=execution_key,
-        source_binding_fingerprint=request.source_binding_fingerprint,
-        local_edit_baseline=request.local_edit_baseline,
-        verification_policy=request.verification_policy,
-        credential_reference=request.credential_reference,
-        credential_version=request.credential_version,
-    )
+    # A savepoint, so a hold found once the run is reserved leaves no job or run.
+    async with session.begin_nested():
+        job = ledger.create(
+            session,
+            created_by=actor_id,
+            dataset_id=dataset_id,
+            source_filename=request.source_filename,
+            source_url=request.source_url,
+            source_layer=request.source_layer,
+            user_metadata={
+                **dict(request.job_metadata),
+                "refresh": True,
+                "dataset_id": str(dataset_id),
+                "origin_kind": request.origin_kind,
+                "verification_policy": request.verification_policy,
+            },
+        )
+        await session.flush()
+        run = await create_pending_run(
+            session,
+            dataset_id=dataset_id,
+            origin_kind=request.origin_kind,
+            trigger=trigger,
+            triggered_by=actor_id,
+            ingest_job_id=job.id,
+            feature_count_before=request.feature_count_before,
+            scheduled_for=scheduled_for,
+            occurrence_key=occurrence_key,
+            execution_key=execution_key,
+            source_binding_fingerprint=request.source_binding_fingerprint,
+            local_edit_baseline=request.local_edit_baseline,
+            verification_policy=request.verification_policy,
+            credential_reference=request.credential_reference,
+            credential_version=request.credential_version,
+        )
+        if trigger == "scheduled":
+            # A restore that committed while the reservation waited on its run
+            # set the hold after the read above. FOR SHARE keeps this answer
+            # until the admission commits: a later restore must first update
+            # the row.
+            await _refuse_scheduled_hold(session, dataset_id, lock=True)
     return RefreshAdmission(
         dataset_id=dataset_id,
         job_id=job.id,
@@ -287,6 +336,27 @@ async def execute_admitted_refresh(
         await session.commit()
         credential_reference = run.credential_reference
         credential_version = run.credential_version
+        scheduled = run.trigger == "scheduled"
+        dataset_id = run.dataset_id
+
+    if scheduled:
+        # Admission refuses a held dataset; this covers a claim of a run
+        # admitted by a release that did not check.
+        async with async_session() as session:
+            try:
+                await _refuse_scheduled_hold(session, dataset_id)
+            except ScheduledRefreshHeld:
+                await fail_claimed_admitted_refresh(
+                    session,
+                    ingest_job_id=job_id,
+                    execution_key=claim_key,
+                    error_code="scheduled_refresh_held",
+                    error_message="Scheduled refreshes of this dataset are on hold.",
+                )
+                await session.commit()
+                return RefreshExecutionResult(
+                    job_id=job_id, run_id=claimed_run_id, status="rejected"
+                )
 
     token: str | None = None
     if credential_reference is not None:

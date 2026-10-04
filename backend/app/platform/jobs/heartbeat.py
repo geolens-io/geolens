@@ -48,6 +48,32 @@ def is_attempt_scoped_staging_table(table_name: str) -> bool:
     return _ATTEMPT_STAGING_NAME_RE.search(table_name) is not None
 
 
+# POSIX syntax, like the staging pattern, so discovery's `~` and Python agree.
+PREVIOUS_VERSION_NAME_PATTERN = r"_previous_[0-9a-f]{32}$"
+
+_PREVIOUS_VERSION_NAME_RE = re.compile(PREVIOUS_VERSION_NAME_PATTERN)
+
+
+def previous_version_table(base_table: str, dataset_id: uuid.UUID) -> str:
+    """Return the name of the table holding a dataset's previous data."""
+    suffix = f"_previous_{dataset_id.hex}"
+    return f"{base_table[: 63 - len(suffix)]}{suffix}"
+
+
+def is_previous_version_table(table_name: str) -> bool:
+    """Whether *table_name* is a dataset's retained previous-version table."""
+    return _PREVIOUS_VERSION_NAME_RE.search(table_name) is not None
+
+
+async def previous_version_name_claimed(session: AsyncSession, name: str) -> bool:
+    """Whether a catalog dataset uses *name* as its own table, so it is no previous version."""
+    claimed = await session.scalar(
+        text("SELECT 1 FROM catalog.datasets WHERE table_name = :name LIMIT 1"),
+        {"name": name},
+    )
+    return claimed is not None
+
+
 async def resolve_ingest_job_attempt(
     job_id: uuid.UUID,
     attempt_id: str | uuid.UUID | None,

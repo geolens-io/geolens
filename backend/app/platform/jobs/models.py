@@ -98,6 +98,9 @@ ARCHIVE_PENDING_METADATA_KEY = "archive_pending"
 # The row keeps its flags, and its upload, for an operator to review.
 ARCHIVE_REVIEW_METADATA_KEY = "archive_review"
 
+# The previous version a restore was admitted for; the worker refuses any other.
+EXPECTED_PREVIOUS_VERSION_KEY = "expected_previous_version"
+
 # Artifact records. A worker names each object, table or owed follow-up here no
 # later than it creates it, so a killed attempt still leaves an owner, and the
 # retention purge keeps a row while any of them is set.

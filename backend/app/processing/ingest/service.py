@@ -59,7 +59,9 @@ from app.platform.jobs.defer_guard import (
 )
 from app.platform.jobs.heartbeat import (
     ATTEMPT_STAGING_NAME_PATTERN,
+    PREVIOUS_VERSION_NAME_PATTERN,
     is_attempt_scoped_staging_table,
+    is_previous_version_table,
 )
 from app.platform.jobs import ledger
 from app.platform.jobs.models import (
@@ -139,6 +141,7 @@ async def discover_unregistered_tables(
         tenant_join_clause = ""
         bind_params = dict(schema=schema, limit=limit)
     bind_params["attempt_staging_pattern"] = ATTEMPT_STAGING_NAME_PATTERN
+    bind_params["previous_version_pattern"] = PREVIOUS_VERSION_NAME_PATTERN
 
     result = await session.execute(
         text(
@@ -178,6 +181,7 @@ async def discover_unregistered_tables(
                 -- listed here and permanently registerable. Same expression
                 -- the registration refusal uses.
                 AND t.table_name !~ :attempt_staging_pattern
+                AND t.table_name !~ :previous_version_pattern
                 AND t.table_name != 'spatial_ref_sys'
             ORDER BY t.table_name
             LIMIT :limit
@@ -686,7 +690,10 @@ async def generate_table_name(
     )
     existing |= {row[0] for row in retired_result.all()}
 
-    if slug in existing:
+    # Names GeoLens derives from another table's would let this dataset take
+    # a table a swap later drops or renames; the `_N` suffix moves off them.
+    reserved = is_previous_version_table(slug) or is_attempt_scoped_staging_table(slug)
+    if slug in existing or reserved:
         suffix = 2
         while _with_collision_suffix(base_slug, suffix) in existing:
             suffix += 1
@@ -697,7 +704,8 @@ async def generate_table_name(
                     "Give this dataset a more distinctive title."
                 )
         slug = _with_collision_suffix(base_slug, suffix)
-        collision_warning = f"Table name '{base_slug}' already exists, using '{slug}'"
+        taken = "is reserved" if reserved else "already exists"
+        collision_warning = f"Table name '{base_slug}' {taken}, using '{slug}'"
 
     return slug, collision_warning
 
@@ -839,6 +847,12 @@ async def register_existing_table(
             "single import attempt and is dropped when that attempt ends, so a "
             "dataset registered against it would lose its rows. Rename the "
             "table if you mean to keep it."
+        )
+    if is_previous_version_table(table_name):
+        raise ValueError(
+            f"Table '{table_name}' holds a dataset's previous version, which "
+            "GeoLens drops or replaces at that dataset's next replacement. "
+            "Rename the table if you mean to keep it."
         )
 
     result = await session.execute(

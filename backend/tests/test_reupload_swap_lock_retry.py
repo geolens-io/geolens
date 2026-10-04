@@ -19,6 +19,7 @@ import structlog
 from asyncpg.exceptions import LockNotAvailableError
 from sqlalchemy import text
 
+from app.platform.jobs.heartbeat import previous_version_table
 from app.processing.ingest.catalog_projection import Measurement
 from app.processing.ingest.tasks_common import (
     _install_reupload_table,
@@ -93,6 +94,7 @@ def _make_dataset_stub(table_name: str):
         current_version=1,
         tile_cache_version=1,
         source_url=None,
+        last_refreshed_at=None,
     )
 
 
@@ -367,14 +369,14 @@ class TestReuploadSwapRetry:
         # call inside ``_swap_with_timeout`` raises ``LockNotAvailableError``.
         original_execute = self.session.execute
         raised = {"once": False}
+        kept = previous_version_table(self.live, dataset.id)
 
         async def _flaky_execute(stmt, *args, **kwargs):
-            # Only intercept the live-table rename on the first pass.
-            # ``_qtable`` produces ``"data"."{name}"`` so we look for the
-            # full RENAME-to-_old shape rather than just the table name
-            # (which would also match the SELECT EXISTS pre-check).
+            # Only intercept the live-table rename on the first pass: the
+            # full RENAME shape, since the table name alone would also match
+            # the SELECT EXISTS pre-check.
             sql = str(getattr(stmt, "text", stmt))
-            if not raised["once"] and f'RENAME TO "{self.live}_old"' in sql:
+            if not raised["once"] and f'RENAME TO "{kept}"' in sql:
                 raised["once"] = True
                 raise LockNotAvailableError("simulated autovacuum contention")
             return await original_execute(stmt, *args, **kwargs)

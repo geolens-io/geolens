@@ -372,7 +372,14 @@ export interface DatasetResponse {
    * visibility/status change exposing keywords inherited from an analysis
    * source the new audience cannot open. PATCH responses only. */
   metadata_warnings?: string[] | null;
+  /** The data the last replacement or restore replaced, restorable through
+   * POST /datasets/{id}/previous-version/restore. Detail endpoint only. */
+  previous_version?: PreviousVersion | null;
 }
+
+export type PreviousVersion = components['schemas']['PreviousVersionResponse'];
+export type RestorePreviousVersionResponse =
+  components['schemas']['RestorePreviousVersionResponse'];
 
 export interface DatasetListResponse {
   datasets: DatasetResponse[];
@@ -1095,6 +1102,8 @@ export interface DatasetVersionResponse {
   file_hash: string | null;
   uploaded_by: string | null;
   uploaded_at: string;
+  /** The version a restore published again as this one. */
+  restored_from_version?: number | null;
 }
 
 export interface DatasetVersionListResponse {
@@ -1137,7 +1146,7 @@ export interface DatasetRefreshRunResponse {
    *  flight; see refresh/models.py's CHECK constraint comment for a
    *  concrete case. 'raster' is reserved for a future distinct
    *  raster-replace door label; today's raster-replace runs are recorded
-   *  'upload'. */
+   *  'upload'. 'restore' republishes the dataset's previous version. */
   origin_kind: string;
   trigger: string;
   /** UTC occurrence time for scheduler-dispatched runs; absent on manual history. */
