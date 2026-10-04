@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useMemo, useRef, type KeyboardEvent } from 'react';
 import type { MapTerrainConfig, SharedLayerResponse } from '@/types/api';
 import { useTranslation } from 'react-i18next';
 import { demChipGlyph, LayerTypeIcon, RasterGlyphChip } from '@/components/map/layer-icons';
@@ -41,6 +41,7 @@ export function LayerLegend({
 }: LayerLegendProps) {
   const { t } = useTranslation('common');
   const panelRef = useRef<HTMLDivElement>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
   const customTitle = legendTitle?.trim() ? legendTitle.trim() : null;
 
   // The synthetic terrain entry below stays local to this legend: ViewerMap
@@ -77,22 +78,23 @@ export function LayerLegend({
     return terrainSourceIsShownAsLayer(terrainConfig, visibleSourceLayers) ? null : entry;
   }, [terrainConfig, layers, sorted, visibleLayers]);
 
-  // Dismiss on Escape
-  useEffect(() => {
-    if (!isOpen) return;
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') onToggle();
-    }
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onToggle]);
+  // Escape closes the panel only while focus is in the legend, and marks the
+  // event handled so FeaturePopup and BasemapToggle's document listeners skip it.
+  function handleEscape(e: KeyboardEvent<HTMLElement>) {
+    if (e.key !== 'Escape' || e.defaultPrevented || !isOpen) return;
+    e.preventDefault();
+    onToggle();
+    toggleRef.current?.focus();
+  }
 
   return (
     <>
       {/* Toggle button — always visible */}
       <button
+        ref={toggleRef}
         type="button"
         onClick={onToggle}
+        onKeyDown={handleEscape}
         aria-expanded={isOpen}
         aria-controls="layer-legend-panel"
         aria-label={isOpen ? t('viewer.legend.hide') : t('viewer.legend.show')}
@@ -104,8 +106,10 @@ export function LayerLegend({
       {/* Legend panel — unmounted when closed (PR #330: prevent keyboard trap
           into invisible per-layer toggles; was opacity-0 + pointer-events-none only). */}
       {isOpen && (
+      // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape dismisses the region from any control focused inside it
       <div
         ref={panelRef}
+        onKeyDown={handleEscape}
         id="layer-legend-panel"
         role="region"
         aria-label={t('viewer.legend.title')}

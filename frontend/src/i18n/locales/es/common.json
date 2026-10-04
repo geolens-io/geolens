@@ -106,6 +106,7 @@
     "change": "Cambiar idioma"
   },
   "pagination": {
+    "label": "Paginación",
     "showing": "Mostrando {{start}}-{{end}} de {{total}}",
     "previous": "Anterior",
     "next": "Siguiente",

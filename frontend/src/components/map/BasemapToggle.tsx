@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, type FocusEvent as ReactFocusEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Check } from 'lucide-react';
 import { useBasemaps } from '@/hooks/use-settings';
 import { basemapThumbnail } from '@/lib/basemap-utils';
@@ -41,23 +41,25 @@ export function BasemapToggle({ value, onChange, title = 'Change basemap', class
     return () => document.removeEventListener('mousedown', handleMouseDown);
   }, [open]);
 
-  // Escape to close (mirrors LayerLegend pattern)
-  useEffect(() => {
-    if (!open) return;
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        closeAndReturnFocus();
-      }
-    }
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [open]);
+  // The picker is a disclosure that is open only while focus is inside it, so the
+  // focused control owns Escape; consuming it here keeps FeaturePopup's document
+  // fallback from also closing.
+  function handleKeyDown(e: ReactKeyboardEvent<HTMLDivElement>) {
+    if (e.key !== 'Escape' || !open) return;
+    e.preventDefault();
+    e.stopPropagation();
+    closeAndReturnFocus();
+  }
+
+  function handleBlur(e: ReactFocusEvent<HTMLDivElement>) {
+    if (open && !e.currentTarget.contains(e.relatedTarget)) setOpen(false);
+  }
 
   if (enabled.length <= 1) return null;
 
   return (
-    <div ref={containerRef} className={cn('relative', className)}>
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- Escape and focus-out from any control inside close the picker
+    <div ref={containerRef} onKeyDown={handleKeyDown} onBlur={handleBlur} className={cn('relative', className)}>
       {/* Trigger: shows current basemap thumbnail */}
       <button
         ref={triggerRef}
@@ -82,10 +84,12 @@ export function BasemapToggle({ value, onChange, title = 'Change basemap', class
 
       {/* Popover: list of basemap options with labels */}
       {open && (
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- keeps a click on padding from blurring focus out of the picker
         <div
           id={POPOVER_ID}
           role="group"
           aria-label={title}
+          onMouseDown={(e) => { if (!(e.target as HTMLElement).closest('button')) e.preventDefault(); }}
           className="absolute bottom-0 left-full ms-2 bg-background/95 backdrop-blur-sm border rounded-lg shadow-lg p-2 flex flex-col gap-1.5 min-w-[140px]"
         >
           {enabled.map((b) => {

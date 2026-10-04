@@ -1,4 +1,4 @@
-import { render, screen } from '@/test/test-utils';
+import { render, screen, within } from '@/test/test-utils';
 import type { OGCRecordResponse } from '@/types/api';
 import { useQuicklook } from '@/components/maps/hooks/use-quicklook';
 import { SearchResultCard } from '../SearchResultCard';
@@ -56,6 +56,13 @@ function makeFeature(
 describe('SearchResultCard', () => {
   // Vector card tests
   describe('Vector records', () => {
+    it('exposes the title as a heading inside the card link', () => {
+      render(<SearchResultCard feature={makeFeature()} />, { route: '/' });
+      const link = screen.getByRole('link');
+      expect(within(link).getByRole('heading', { level: 3, name: 'World Countries' })).toBeInTheDocument();
+      expect(link.className).toContain('focus-visible:ring-2');
+    });
+
     it('renders title and links to /datasets/:id', () => {
       render(<SearchResultCard feature={makeFeature()} />);
 

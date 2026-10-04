@@ -235,6 +235,20 @@ describe('FilterPanel identity reset (fix #1761 review round 4)', () => {
   // date draft above, just reached through onApply instead of directly.
   // Left open across an identity change, Apply would write the previous
   // identity's drawn area into the just-cleared store.
+  it('renders the selected area as a button beside its remove control, not nested', () => {
+    useSearchStore.getState().setFilter('bbox', '-10,-10,10,10');
+    render(<FilterPanel totalResults={10} showMobile={false} />);
+
+    const area = screen.getByRole('button', { name: 'Area selected' });
+    expect(area.querySelector('button')).toBeNull();
+    expect(area.closest('[role="button"]')).toBeNull();
+    fireEvent.click(area);
+    expect(useSearchStore.getState().spatialPanelOpen).toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: /remove.*area selected/i }));
+    expect(useSearchStore.getState().bbox).toBe('');
+  });
+
   it('closes the spatial filter panel on identity change', () => {
     render(<FilterPanel totalResults={10} showMobile={false} />);
 

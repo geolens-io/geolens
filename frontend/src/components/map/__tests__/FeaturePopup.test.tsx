@@ -286,3 +286,18 @@ describe('FeaturePopup', () => {
     expect(screen.queryByLabelText(/next feature/i)).not.toBeInTheDocument();
   });
 });
+
+describe('FeaturePopup Escape', () => {
+  it('ignores an Escape another handler already consumed', () => {
+    const onClose = vi.fn();
+    render(<FeaturePopup longitude={0} latitude={0} features={[makeFeature()]} onClose={onClose} />);
+
+    const handled = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true, bubbles: true });
+    handled.preventDefault();
+    document.dispatchEvent(handled);
+    expect(onClose).not.toHaveBeenCalled();
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true, bubbles: true }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
