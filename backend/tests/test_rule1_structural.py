@@ -1723,6 +1723,10 @@ def test_delegated_guards_still_enforce_access() -> None:
         "tiles _authorize_vector_tile_request no longer verifies tile "
         "signatures / embed tokens"
     )
+    assert "check_dataset_access" in tile_auth_calls, (
+        "tiles _authorize_vector_tile_request no longer delegates a caller's "
+        "access to a non-public dataset to check_dataset_access"
+    )
     tile_auth = _source_of(tiles_router._authorize_vector_tile_request)
     assert "visibility" in tile_auth and "403" in tile_auth, (
         "tiles _authorize_vector_tile_request no longer gates non-public "

@@ -119,8 +119,9 @@ FAIL_OPEN_ALLOWLIST: dict[str, tuple[str, str]] = {
     "app.processing.tiles.router.tile_endpoint": (
         CAPABILITY,
         "Vector tiles are authorized by X-Embed-Token or by a signed template, "
-        "neither of which depends on who is asking. Both arms are evaluated in "
-        "_authorize_vector_tile_request, which applies the rule once both have "
+        "neither of which depends on who is asking. Both capability arms run "
+        "first in _authorize_vector_tile_request, then the caller's identity "
+        "through check_dataset_access; the rule is applied once all have "
         "declined.",
     ),
     "app.processing.tiles.router.cluster_tile_endpoint": (

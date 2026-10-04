@@ -46,10 +46,11 @@ def _serving_tile_headers(
 ) -> dict[str, str]:
     """Apply hosted cache policy only to responses already safe for sharing.
 
-    Signed, embed-token, and unpublished preview tiles resolve to ``private``.
-    A serving extension must never turn those into publicly cacheable CDN
-    responses. Public tiles may use the provider's CDN-specific TTL. A
-    ``no-store`` scope is sent as a bare ``no-store`` and takes no TTL.
+    Signed, embed-token, caller-authorized and unpublished preview tiles
+    resolve to ``private``. A serving extension must never turn those into
+    publicly cacheable CDN responses. Public tiles may use the provider's
+    CDN-specific TTL. A ``no-store`` scope is sent as a bare ``no-store`` and
+    takes no TTL.
     """
     headers = (
         _empty_tile_headers(cache_scope, cache_ttl)
@@ -60,6 +61,10 @@ def _serving_tile_headers(
         headers["Cache-Control"] = "no-store"
     elif cache_scope == "public" and cache_control_override is not None:
         headers["Cache-Control"] = cache_control_override
+    if cache_scope != "public":
+        # A client cache must not replay one credential's tile to another
+        # credential, or to none, on the same URL.
+        headers["Vary"] = "Authorization, X-Api-Key, X-Embed-Token"
     return headers
 
 

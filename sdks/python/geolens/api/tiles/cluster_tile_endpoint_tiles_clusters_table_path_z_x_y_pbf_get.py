@@ -157,12 +157,14 @@ def sync_detailed(
 
     Authorization matches the plain vector tile route, in three cases. A
     public, published dataset is readable without credentials. A non-public
-    dataset needs either valid signature parameters (``sig``, ``exp``,
-    ``scope``) or an embed token scoped to it, and answers 403 without one. A
-    public dataset that is not yet published is readable by its owner, by an
-    admin, with an embed token, or with valid signature parameters, and answers
-    404 to other callers, so a refusal keeps its existence undisclosed. An
-    unknown table is 404 too.
+    dataset needs valid signature parameters (``sig``, ``exp``, ``scope``), an
+    embed token scoped to it, or an API key (``X-Api-Key`` header or
+    ``api_key`` query parameter) or bearer token for a caller with access to
+    it. It answers 403 to a request carrying none of these and 404 to a caller
+    without access. A public dataset that is not yet published is readable by
+    its owner, by an admin, with an embed token, or with valid signature
+    parameters, and answers 404 to other callers, so a refusal keeps its
+    existence undisclosed. An unknown table is 404 too.
 
     A request that no capability authorized and that carried a credential which
     did not resolve is refused with 401 rather than served as an anonymous
@@ -248,12 +250,14 @@ def sync(
 
     Authorization matches the plain vector tile route, in three cases. A
     public, published dataset is readable without credentials. A non-public
-    dataset needs either valid signature parameters (``sig``, ``exp``,
-    ``scope``) or an embed token scoped to it, and answers 403 without one. A
-    public dataset that is not yet published is readable by its owner, by an
-    admin, with an embed token, or with valid signature parameters, and answers
-    404 to other callers, so a refusal keeps its existence undisclosed. An
-    unknown table is 404 too.
+    dataset needs valid signature parameters (``sig``, ``exp``, ``scope``), an
+    embed token scoped to it, or an API key (``X-Api-Key`` header or
+    ``api_key`` query parameter) or bearer token for a caller with access to
+    it. It answers 403 to a request carrying none of these and 404 to a caller
+    without access. A public dataset that is not yet published is readable by
+    its owner, by an admin, with an embed token, or with valid signature
+    parameters, and answers 404 to other callers, so a refusal keeps its
+    existence undisclosed. An unknown table is 404 too.
 
     A request that no capability authorized and that carried a credential which
     did not resolve is refused with 401 rather than served as an anonymous
@@ -334,12 +338,14 @@ async def asyncio_detailed(
 
     Authorization matches the plain vector tile route, in three cases. A
     public, published dataset is readable without credentials. A non-public
-    dataset needs either valid signature parameters (``sig``, ``exp``,
-    ``scope``) or an embed token scoped to it, and answers 403 without one. A
-    public dataset that is not yet published is readable by its owner, by an
-    admin, with an embed token, or with valid signature parameters, and answers
-    404 to other callers, so a refusal keeps its existence undisclosed. An
-    unknown table is 404 too.
+    dataset needs valid signature parameters (``sig``, ``exp``, ``scope``), an
+    embed token scoped to it, or an API key (``X-Api-Key`` header or
+    ``api_key`` query parameter) or bearer token for a caller with access to
+    it. It answers 403 to a request carrying none of these and 404 to a caller
+    without access. A public dataset that is not yet published is readable by
+    its owner, by an admin, with an embed token, or with valid signature
+    parameters, and answers 404 to other callers, so a refusal keeps its
+    existence undisclosed. An unknown table is 404 too.
 
     A request that no capability authorized and that carried a credential which
     did not resolve is refused with 401 rather than served as an anonymous
@@ -423,12 +429,14 @@ async def asyncio(
 
     Authorization matches the plain vector tile route, in three cases. A
     public, published dataset is readable without credentials. A non-public
-    dataset needs either valid signature parameters (``sig``, ``exp``,
-    ``scope``) or an embed token scoped to it, and answers 403 without one. A
-    public dataset that is not yet published is readable by its owner, by an
-    admin, with an embed token, or with valid signature parameters, and answers
-    404 to other callers, so a refusal keeps its existence undisclosed. An
-    unknown table is 404 too.
+    dataset needs valid signature parameters (``sig``, ``exp``, ``scope``), an
+    embed token scoped to it, or an API key (``X-Api-Key`` header or
+    ``api_key`` query parameter) or bearer token for a caller with access to
+    it. It answers 403 to a request carrying none of these and 404 to a caller
+    without access. A public dataset that is not yet published is readable by
+    its owner, by an admin, with an embed token, or with valid signature
+    parameters, and answers 404 to other callers, so a refusal keeps its
+    existence undisclosed. An unknown table is 404 too.
 
     A request that no capability authorized and that carried a credential which
     did not resolve is refused with 401 rather than served as an anonymous
