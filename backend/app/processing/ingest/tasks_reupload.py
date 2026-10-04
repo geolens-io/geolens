@@ -227,7 +227,7 @@ async def _hold_live_table(session, dataset, *, schema: str) -> None:
     )
 
 
-async def _live_geometry_types(table_name: str, *, schema: str) -> list[str]:
+async def _live_geometry_types(table_name: str, *, schema: str) -> list[str] | None:
     """The live table's geometry types, read on a connection of its own.
 
     Its lock ends with the read, so publication takes the live table only once,

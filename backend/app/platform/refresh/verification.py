@@ -21,7 +21,11 @@ _GEOMETRY_FAMILIES = {
 
 @dataclass(frozen=True, slots=True)
 class GeometryContract:
-    """The geometry facts a refresh is compared on; ``None`` means unknown."""
+    """The geometry facts a refresh is compared on; ``None`` means unknown.
+
+    ``families`` is an empty set when a table with a geometry column was
+    measured and holds no usable geometry.
+    """
 
     families: frozenset[str] | None
     srid: int | None
@@ -38,16 +42,23 @@ def geometry_contract(
 ) -> GeometryContract:
     """Fold the distinct geometry types a table holds into a set of families.
 
-    Single and multi fold together and the generic type is dropped; no known
-    family means the contract has no families to compare.
+    Single and multi fold together and the generic type is dropped. ``None``
+    types, or only types with no family, leave the families unknown; an empty
+    list is a measurement of no geometry at all.
     """
+    if geometry_types is None:
+        return GeometryContract(families=None, srid=srid, is_3d=is_3d, n_dims=n_dims)
+    types = list(geometry_types)
     families = frozenset(
         family
-        for geometry_type in geometry_types or ()
+        for geometry_type in types
         if (family := _GEOMETRY_FAMILIES.get(geometry_type.upper()))
     )
     return GeometryContract(
-        families=families or None, srid=srid, is_3d=is_3d, n_dims=n_dims
+        families=None if types and not families else families,
+        srid=srid,
+        is_3d=is_3d,
+        n_dims=n_dims,
     )
 
 
@@ -79,7 +90,17 @@ def review_reasons(
         reasons.append("empty_result")
     if schema_diff.get("columns_removed") or schema_diff.get("type_changes"):
         reasons.append("destructive_schema_change")
-    if live.families and staged.families and live.families != staged.families:
+    # A staged table with no rows is empty_result's to report.
+    staged_families = (
+        None
+        if staged.families == frozenset() and fetched_feature_count == 0
+        else staged.families
+    )
+    if (
+        live.families
+        and staged_families is not None
+        and live.families != staged_families
+    ):
         reasons.append("geometry_type_changed")
     if live.srid is not None and staged.srid is not None and live.srid != staged.srid:
         reasons.append("srid_changed")

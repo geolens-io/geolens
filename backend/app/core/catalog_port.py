@@ -228,7 +228,7 @@ class CatalogPort(Protocol):
         table_name: str,
         *,
         schema: str | None = None,
-    ) -> list[str]: ...
+    ) -> list[str] | None: ...
 
     async def generate_attribute_metadata(
         self,

@@ -394,6 +394,27 @@ async def test_a_polygon_file_over_a_point_dataset_is_blocked(harness: _Harness)
     assert run.verification["review_reasons"] == ["geometry_type_changed"]
 
 
+async def test_a_file_whose_geometries_are_all_null_is_blocked(harness: _Harness):
+    """Rows that keep their attributes but lose every geometry wait for review."""
+    dataset = await _published(harness, _geojson(harness.tmp_path / "a.geojson", _BASE))
+    version_before = dataset.current_version
+    nulls = harness.tmp_path / "b.geojson"
+    features = json.loads(_geojson(nulls, _BASE).read_text())
+    for feature in features["features"]:
+        feature["geometry"] = None
+    nulls.write_text(json.dumps(features))
+
+    _preview, run = await harness.replace(dataset, nulls, reviewed=False)
+
+    assert run.status == "blocked", run.verification
+    assert run.verification["review_reasons"] == ["geometry_type_changed"]
+    assert (await harness.reload(dataset)).current_version == version_before
+    located = await harness.session.scalar(
+        text(f'SELECT count(geom) FROM "data"."{dataset.table_name}"')
+    )
+    assert located == 3
+
+
 async def test_a_replacement_with_nothing_to_review_publishes_without_a_fingerprint(
     harness: _Harness,
 ):
