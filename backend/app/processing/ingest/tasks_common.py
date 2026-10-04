@@ -1370,6 +1370,7 @@ async def _finalize_ingest(ctx: IngestContext):
         archive = {
             "reaps_staged_upload": not user_metadata.get("fan_out_parent_id"),
             "archive_key": original_archive_key(dataset.id, ctx.archive_from),
+            "sweep_waits": True,
         }
     completed = {
         "dataset_id": dataset.id,
