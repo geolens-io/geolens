@@ -33,6 +33,8 @@ export interface SettingItem {
   value: unknown;
   source: 'default' | 'overridden' | 'env_only';
   label: string;
+  /** Runtime default; reported only for embedding_dims. */
+  default_value?: unknown;
 }
 
 export interface AllSettingsResponse {

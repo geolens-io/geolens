@@ -174,6 +174,10 @@ class SettingItem(BaseModel):
         description="Where the value came from: 'default' (built-in default), 'overridden' (admin set via UI), or 'env_only' (configured via environment variable, read-only)."
     )
     label: str = Field(description="Human-readable label for display in the admin UI.")
+    default_value: Any = Field(
+        default=None,
+        description="Runtime default the setting resets to. Reported only for embedding_dims, so the UI can tell whether a reset changes the live width.",
+    )
 
 
 class FeatureFlagsResponse(BaseModel):

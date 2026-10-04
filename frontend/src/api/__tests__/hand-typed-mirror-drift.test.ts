@@ -55,7 +55,7 @@ const MIRRORS: MirrorShape[] = [
     schema: 'SettingItem',
     source: 'settings.ts SettingItem',
     required: ['key', 'value', 'source', 'label'],
-    optional: [],
+    optional: ['default_value'],
   },
   {
     schema: 'ConfigModeResponse',

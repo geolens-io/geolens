@@ -219,10 +219,11 @@ export function useSettingsForm<K extends string>(
   submitResetRef.current = submitReset;
   const onReset = useCallback((key: string) => {
     const submittedEdits = editCountsRef.current.get(key) ?? 0;
-    void Promise.resolve(submitResetRef.current?.(key)).then((succeeded) => {
+    return Promise.resolve(submitResetRef.current?.(key)).then((succeeded) => {
       if (succeeded === true && (editCountsRef.current.get(key) ?? 0) === submittedEdits) {
         editMarkersRef.current.delete(key);
       }
+      return succeeded;
     });
   }, []);
 
