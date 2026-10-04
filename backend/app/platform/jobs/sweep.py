@@ -1596,12 +1596,18 @@ async def fail_stale_jobs(
             not_(presigned_url_may_still_be_live),
             not_(holds_unarchived_original()),
         ]
-        # fix(#1778): a row still naming an unreaped artifact is not
-        # purged; it IS the pending-reap record. One DELETE .. RETURNING
-        # (#434) so retry can't flip a candidate mid-way.
+        # A row still naming an unreaped artifact is the pending-reap record,
+        # so it stays. One statement, so a retry can't flip a candidate
+        # mid-way; a row someone holds, such as a blocked job whose upload an
+        # acceptance is reusing, is skipped until a later pass.
+        purgeable = (
+            select(IngestJob.id)
+            .where(*purge_clauses, not_(_carries_unreaped_artifacts()))
+            .with_for_update(skip_locked=True)
+        )
         deleted = await db.execute(
             delete(IngestJob)
-            .where(*purge_clauses, not_(_carries_unreaped_artifacts()))
+            .where(IngestJob.id.in_(purgeable))
             .returning(IngestJob.id, IngestJob.file_path, IngestJob.user_metadata)
         )
         deleted_rows = deleted.all()
