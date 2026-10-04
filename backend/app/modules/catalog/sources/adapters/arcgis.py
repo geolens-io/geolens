@@ -886,10 +886,16 @@ async def fetch_arcgis_pagination_info(
     value = data.get("maxRecordCount")
     max_record_count = value if isinstance(value, int) and value > 0 else None
     advanced = data.get("advancedQueryCapabilities") or {}
-    supports_pagination = (
-        isinstance(advanced, dict) and advanced.get("supportsPagination") is True
+    if not isinstance(advanced, dict):
+        advanced = {}
+    supports_pagination = advanced.get("supportsPagination") is True
+    # A server that can't order rejects a query carrying orderByFields.
+    supports_order_by = (
+        data.get("supportsAdvancedQueries") is True
+        or advanced.get("supportsOrderBy") is True
     )
-    return max_record_count, supports_pagination, _extract_arcgis_object_id_field(data)
+    order_field = _extract_arcgis_object_id_field(data) if supports_order_by else None
+    return max_record_count, supports_pagination, order_field
 
 
 async def fetch_arcgis_layer_preview(

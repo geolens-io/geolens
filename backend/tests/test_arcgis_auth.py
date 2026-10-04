@@ -363,6 +363,7 @@ async def test_fetch_arcgis_pagination_info_requires_explicit_support():
 
         next_body[0] = {
             "maxRecordCount": 1000,
+            "supportsAdvancedQueries": True,
             "advancedQueryCapabilities": {"supportsPagination": True},
             "objectIdField": "FID",
         }
@@ -383,6 +384,28 @@ async def test_fetch_arcgis_pagination_info_requires_explicit_support():
 
 
 @pytest.mark.asyncio
+async def test_fetch_arcgis_pagination_info_omits_order_field_without_order_support():
+    """A layer that can't order returns no order field, even with an OID."""
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        return _streaming_json_response(
+            {
+                "maxRecordCount": 1000,
+                "supportsAdvancedQueries": False,
+                "advancedQueryCapabilities": {"supportsOrderBy": False},
+                "objectIdField": "FID",
+            }
+        )
+
+    async with _mock_transport_client(handle) as client:
+        _, _, object_id_field = await fetch_arcgis_pagination_info(
+            "https://services.arcgis.com/svc/FeatureServer", 0, client
+        )
+
+    assert object_id_field is None
+
+
+@pytest.mark.asyncio
 async def test_fetch_arcgis_pagination_info_uses_oid_field_fallback():
     """Layer metadata can identify the stable order field via field type.
 
@@ -394,7 +417,10 @@ async def test_fetch_arcgis_pagination_info_uses_oid_field_fallback():
         return _streaming_json_response(
             {
                 "maxRecordCount": 1000,
-                "advancedQueryCapabilities": {"supportsPagination": True},
+                "advancedQueryCapabilities": {
+                    "supportsPagination": True,
+                    "supportsOrderBy": True,
+                },
                 "fields": [
                     {"name": "NAME", "type": "esriFieldTypeString"},
                     {"name": "OBJECTID_1", "type": "esriFieldTypeOID"},
