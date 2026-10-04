@@ -581,7 +581,9 @@ def apply_report_payload(path: Path, response: Mapping[str, Any]) -> dict[str, A
         "accepted": bool(response.get("accepted")),
         "counts": summarize_results(response),
         "dry_run": bool(response.get("dry_run")),
-        "ok": bool(response.get("accepted")) and not has_apply_errors(response),
+        "ok": bool(response.get("accepted"))
+        and not has_apply_errors(response)
+        and not has_blocked_results(response),
         "path": str(path),
         "results": response.get("results", []),
     }
@@ -667,13 +669,16 @@ def apply_wait_exit_code(response: Mapping[str, Any]) -> int:
     """1 if anything errored or failed, else 6 if anything is blocked, else 0."""
     if has_apply_errors(response):
         return EXIT_GENERIC
-    results = response.get("results", [])
-    if any(
+    return EXIT_BLOCKED if has_blocked_results(response) else 0
+
+
+def has_blocked_results(response: Mapping[str, Any]) -> bool:
+    """True when any followed job ended blocked for review."""
+    results = response.get("results")
+    return isinstance(results, list) and any(
         isinstance(result, Mapping) and result.get("final_status") == "blocked"
         for result in results
-    ):
-        return EXIT_BLOCKED
-    return 0
+    )
 
 
 def has_apply_errors(response: Mapping[str, Any]) -> bool:

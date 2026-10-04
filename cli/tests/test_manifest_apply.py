@@ -1390,6 +1390,7 @@ class TestApplyWait:
         assert by_key["roads"]["final_status"] == "complete"
         assert by_key["parks"]["final_status"] == "blocked"
         assert by_key["parks"]["run_id"] == "run-parks"
+        assert json.loads(result.output)["ok"] is False
 
     def test_table_has_a_status_column_and_the_accept_hint(
         self, runner, monkeypatch
