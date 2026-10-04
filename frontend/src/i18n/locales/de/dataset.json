@@ -423,7 +423,8 @@
     }
   },
   "serviceUrls": {
-    "authHelpSimple": "Downloads und OGC-Features-Endpunkte akzeptieren einen X-Api-Key- oder Authorization: Bearer-Header.",
+    "authHelpSimple": "Downloads sowie OGC-Features- und Vektorkachel-Endpunkte akzeptieren einen X-Api-Key- oder Authorization: Bearer-Header.",
+    "vectorTilesKeyHint": "Vektorkacheln eines nicht öffentlichen Datensatzes brauchen einen API-Schlüssel. Fügen Sie in QGIS eine Vektorkachel-Verbindung mit der Kachel-URL ohne den Parameter api_key hinzu und wählen Sie unter Authentifizierung die Methode API Header mit dem Header X-Api-Key. Clients, die keine Header senden können, behalten ?api_key= bei. Verwenden Sie einen Schlüssel mit Nur-Lesen-Zugriff.",
     "manageApiKeys": "API-Schlüssel verwalten"
   },
   "schema": {

@@ -13,14 +13,14 @@ import { Copy, Check, Circle, CircleDot, Loader2, Download } from 'lucide-react'
 import { LoadingState } from '@/components/layout/LoadingState';
 import {
   getPublicApiBaseUrl,
-  isGeoLensVectorTileUrl,
   resolveDistributionUrl,
   isAbsoluteUrl,
   isSameOriginAbsoluteUrl,
   isFetchableDistributionUrl,
+  vectorTileUrlForClients,
 } from '@/lib/dataset-access';
 import { authenticatedDownload } from '@/api/datasets';
-import type { DistributionResponse } from '@/types/api';
+import type { DatasetVisibility, DistributionResponse } from '@/types/api';
 
 interface DistributionsListProps {
   recordId: string;
@@ -28,9 +28,8 @@ interface DistributionsListProps {
    * + `_check_record_ownership` guard on the distribution PATCH endpoint.
    * Everyone else keeps the read-only view (#1395). */
   canEdit?: boolean;
-  /** GeoLens vector tile URLs of non-public datasets need a short-lived
-   * signature, so the static URL is not listed. */
-  hideVectorTiles?: boolean;
+  /** A non-public dataset's own vector tile URL is listed with an API key placeholder. */
+  visibility?: DatasetVisibility;
 }
 
 const TYPE_ORDER = ['download', 'api', 'tiles', 'other'] as const;
@@ -263,7 +262,7 @@ function groupByType(
   return groups;
 }
 
-export function DistributionsList({ recordId, canEdit = false, hideVectorTiles = false }: DistributionsListProps) {
+export function DistributionsList({ recordId, canEdit = false, visibility = 'public' }: DistributionsListProps) {
   const { t } = useTranslation('dataset');
   const { data, isLoading, error } = useDistributions(recordId);
   const { data: tileConfig } = useTileConfig();
@@ -282,8 +281,10 @@ export function DistributionsList({ recordId, canEdit = false, hideVectorTiles =
     );
   }
 
-  const distributions = (data?.distributions ?? []).filter(
-    (d) => !(hideVectorTiles && d.distribution_type === 'vector_tiles' && isGeoLensVectorTileUrl(d.url, publicApiBaseUrl)),
+  const distributions = (data?.distributions ?? []).map((d) =>
+    d.distribution_type === 'vector_tiles'
+      ? { ...d, url: vectorTileUrlForClients(d.url, visibility, publicApiBaseUrl) }
+      : d,
   );
 
   if (distributions.length === 0) {

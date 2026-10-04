@@ -423,7 +423,8 @@
     }
   },
   "serviceUrls": {
-    "authHelpSimple": "Les téléchargements et les points d'accès OGC Features acceptent un en-tête X-Api-Key ou Authorization: Bearer.",
+    "authHelpSimple": "Les téléchargements et les points d'accès OGC Features et de tuiles vectorielles acceptent un en-tête X-Api-Key ou Authorization: Bearer.",
+    "vectorTilesKeyHint": "Les tuiles vectorielles d'un jeu de données non public nécessitent une clé API. Dans QGIS, ajoutez une connexion de tuiles vectorielles avec l'URL des tuiles sans le paramètre api_key, puis, sous Authentification, choisissez la méthode API Header avec l'en-tête X-Api-Key. Les clients qui ne peuvent pas envoyer d'en-têtes peuvent garder ?api_key=. Utilisez une clé en lecture seule.",
     "manageApiKeys": "Gérer les clés API"
   },
   "schema": {

@@ -1961,13 +1961,17 @@ def _demote_prewarmed_cache_scope(
     them under that URL. The emitted vector template also carries the
     publication version, and a caller supplying the counter an unpublish is
     about to make current would otherwise fill that shared-cache key with
-    bytes from before the transition.
+    bytes from before the transition. A key in the query would put the
+    credential into a shared cache's key, so that response is never shared.
     """
     if _client_saw_newer_state(request.query_params.get(_CLIENT_STATE_PARAM), meta):
         return "no-store"
-    if cache_scope == "public" and _cache_key_version_mismatch(
-        _cache_key_arg_values(request, TILE_PUBLICATION_VERSION_PARAM),
-        meta.publication_version,
+    if cache_scope == "public" and (
+        _cache_key_arg_values(request, "api_key")
+        or _cache_key_version_mismatch(
+            _cache_key_arg_values(request, TILE_PUBLICATION_VERSION_PARAM),
+            meta.publication_version,
+        )
     ):
         return "private"
     return cache_scope
@@ -1986,7 +1990,8 @@ async def _authorize_vector_tile_request(
     """Authorize direct vector-tile access and return cache scope.
 
     A valid signature authorizes ahead of the visibility split, so it carries
-    the minter's access to an unpublished draft as the raster route does. The
+    the minter's access to an unpublished draft as the raster route does. A
+    non-public dataset then admits a resolved caller with access to it. The
     dataset alone decides cache scope: only public + published is shared.
     """
     embed_token_header = request.headers.get("X-Embed-Token")
@@ -2033,6 +2038,18 @@ async def _authorize_vector_tile_request(
         )
 
     if meta.visibility != "public":
+        if user is not None:
+            # As on the raster route, the caller's own access is another way in,
+            # so an aged-out signature falls through here. The live row decides,
+            # never the snapshot, so a revoked grant applies on the next request.
+            port = get_processing_port()
+            dataset = await port.get_dataset(db, meta.dataset_id)
+            if dataset is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+                )
+            await port.check_dataset_access(db, dataset, meta.dataset_id, user)
+            return "private"
         if not sig or not exp or not scope:
             capability_declined(
                 request,
@@ -2262,12 +2279,14 @@ async def cluster_tile_endpoint(
 
     Authorization matches the plain vector tile route, in three cases. A
     public, published dataset is readable without credentials. A non-public
-    dataset needs either valid signature parameters (``sig``, ``exp``,
-    ``scope``) or an embed token scoped to it, and answers 403 without one. A
-    public dataset that is not yet published is readable by its owner, by an
-    admin, with an embed token, or with valid signature parameters, and answers
-    404 to other callers, so a refusal keeps its existence undisclosed. An
-    unknown table is 404 too.
+    dataset needs valid signature parameters (``sig``, ``exp``, ``scope``), an
+    embed token scoped to it, or an API key (``X-Api-Key`` header or
+    ``api_key`` query parameter) or bearer token for a caller with access to
+    it. It answers 403 to a request carrying none of these and 404 to a caller
+    without access. A public dataset that is not yet published is readable by
+    its owner, by an admin, with an embed token, or with valid signature
+    parameters, and answers 404 to other callers, so a refusal keeps its
+    existence undisclosed. An unknown table is 404 too.
 
     A request that no capability authorized and that carried a credential which
     did not resolve is refused with 401 rather than served as an anonymous
@@ -2453,13 +2472,18 @@ async def tile_endpoint(
     URL pattern: ``/tiles/data.{table_name}/{z}/{x}/{y}.pbf``
 
     A public, published dataset is readable without credentials. A non-public
-    dataset needs either valid signature parameters (``sig``, ``exp``,
-    ``scope``) or an embed token scoped to it, and answers 403 without one. A
-    public dataset that is not yet published is readable by its owner, by an
-    admin, with an embed token, or with valid signature parameters, and answers
-    404 to other callers, so a refusal keeps its existence undisclosed. An
-    unknown table is 404 too, and so is a dataset without vector tiles, such as
-    a raster, once the caller is authorized to see it.
+    dataset needs valid signature parameters (``sig``, ``exp``, ``scope``), an
+    embed token scoped to it, or an API key (``X-Api-Key`` header or
+    ``api_key`` query parameter) or bearer token for a caller with access to
+    it. It answers 403 to a request carrying none of these and 404 to a caller
+    without access. A tile served on the caller's credentials is marked
+    private, so no shared cache stores it, and a tile requested with
+    ``api_key`` in the query is never marked public. A public dataset that is
+    not yet published is readable by its owner, by an admin, with an embed
+    token, or with valid signature parameters, and answers 404 to other
+    callers, so a refusal keeps its existence undisclosed. An unknown table is
+    404 too, and so is a dataset without vector tiles, such as a raster, once
+    the caller is authorized to see it.
 
     A request that no capability authorized and that carried a credential which
     did not resolve is refused with 401 rather than served as an anonymous

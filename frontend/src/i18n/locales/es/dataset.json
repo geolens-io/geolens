@@ -423,7 +423,8 @@
     }
   },
   "serviceUrls": {
-    "authHelpSimple": "Las descargas y los endpoints de OGC Features aceptan un encabezado X-Api-Key o Authorization: Bearer.",
+    "authHelpSimple": "Las descargas y los endpoints de OGC Features y de teselas vectoriales aceptan un encabezado X-Api-Key o Authorization: Bearer.",
+    "vectorTilesKeyHint": "Las teselas vectoriales de un conjunto de datos no público necesitan una clave de API. En QGIS, añade una conexión de teselas vectoriales con la URL de teselas sin el parámetro api_key y, en Autenticación, elige el método API Header con el encabezado X-Api-Key. Los clientes que no pueden enviar encabezados pueden conservar ?api_key=. Usa una clave de solo lectura.",
     "manageApiKeys": "Gestionar claves API"
   },
   "schema": {

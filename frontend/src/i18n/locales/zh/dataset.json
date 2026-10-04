@@ -374,7 +374,8 @@
     }
   },
   "serviceUrls": {
-    "authHelpSimple": "下载和 OGC Features 端点接受 X-Api-Key 或 Authorization: Bearer 请求头。",
+    "authHelpSimple": "下载、OGC Features 和矢量瓦片端点接受 X-Api-Key 或 Authorization: Bearer 请求头。",
+    "vectorTilesKeyHint": "非公开数据集的矢量瓦片需要 API 密钥。在 QGIS 中，用去掉 api_key 参数的瓦片 URL 添加矢量瓦片连接，然后在“身份验证”下选择 API Header 方法，请求头填写 X-Api-Key。无法发送请求头的客户端可以保留 ?api_key=。请使用只读密钥。",
     "manageApiKeys": "管理 API 密钥"
   },
   "schema": {

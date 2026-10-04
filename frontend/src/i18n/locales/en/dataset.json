@@ -374,7 +374,8 @@
     }
   },
   "serviceUrls": {
-    "authHelpSimple": "Downloads and OGC Features endpoints accept an X-Api-Key or Authorization: Bearer header.",
+    "authHelpSimple": "Downloads, OGC Features and vector tile endpoints accept an X-Api-Key or Authorization: Bearer header.",
+    "vectorTilesKeyHint": "Vector tiles of a non-public dataset need an API key. In QGIS, add a Vector Tiles connection with the tile URL minus the api_key parameter, then under Authentication pick the API Header method with the header X-Api-Key. Clients that can't send headers can keep ?api_key=. Use a read-only key.",
     "manageApiKeys": "Manage API keys"
   },
   "schema": {
