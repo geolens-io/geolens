@@ -1218,3 +1218,32 @@ async def test_a_policy_reading_the_live_table_refuses_the_replacement(
         await session.execute(text(f'DROP TABLE IF EXISTS "data"."{other}"'))
         await session.commit()
         await _cleanup(session, dataset)
+
+
+async def test_a_routine_returning_the_row_type_refuses_the_replacement(
+    test_db_session,
+) -> None:
+    """A routine typed by the live table's row type blocks the swap, naming the routine."""
+    from app.processing.ingest.previous_version import DependentRelationsBlockSwap
+
+    session = test_db_session
+    admin_id, dataset = await _seed(session)
+    routine = f"rows_{uuid.uuid4().hex[:10]}"
+    table = f'"data"."{dataset.table_name}"'
+    await session.execute(
+        text(
+            f'CREATE FUNCTION "data"."{routine}"() RETURNS SETOF {table} '
+            f"LANGUAGE sql AS 'SELECT * FROM {table}'"
+        )
+    )
+    await session.commit()
+    try:
+        with pytest.raises(DependentRelationsBlockSwap, match=routine):
+            await _replace(session, dataset, admin_id, ["paris"])
+
+        assert await _names(session, dataset.table_name) == ["New York"]
+    finally:
+        await session.rollback()
+        await session.execute(text(f'DROP FUNCTION IF EXISTS "data"."{routine}"()'))
+        await session.commit()
+        await _cleanup(session, dataset)

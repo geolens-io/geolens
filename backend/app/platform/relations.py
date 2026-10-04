@@ -4,7 +4,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # Every object outside the table, or a partition under it, that records an
-# ordinary dependency on it by oid: views, routine bodies, foreign keys and
+# ordinary dependency on it or its row type by oid: views, routine bodies, foreign keys and
 # row-security policies among them. A rename leaves each reading the renamed
 # table. The table's own rules, constraints, policies and triggers, and its
 # indexes and owned sequences (auto dependencies), move with it.
@@ -21,11 +21,22 @@ _DEPENDENT_RELATIONS = text(
         SELECT oid FROM target
         UNION
         SELECT p.relid FROM target CROSS JOIN LATERAL pg_partition_tree(target.oid) p
+    ),
+    -- A table is also depended on through its row type and that type's array.
+    referenced AS (
+        SELECT 'pg_class'::regclass AS refclassid, oid AS refobjid FROM tree
+        UNION
+        SELECT 'pg_type'::regclass, c.reltype FROM pg_class c
+        WHERE c.oid IN (SELECT oid FROM tree)
+        UNION
+        SELECT 'pg_type'::regclass, ty.typarray FROM pg_class c
+        JOIN pg_type ty ON ty.oid = c.reltype
+        WHERE c.oid IN (SELECT oid FROM tree) AND ty.typarray <> 0
     )
     SELECT DISTINCT pg_describe_object(d.classid, d.objid, 0)
-    FROM tree
+    FROM referenced
     JOIN pg_depend d
-      ON d.refobjid = tree.oid AND d.refclassid = 'pg_class'::regclass
+      ON d.refobjid = referenced.refobjid AND d.refclassid = referenced.refclassid
      AND d.deptype = 'n'
     WHERE NOT (
         (d.classid = 'pg_class'::regclass AND d.objid IN (SELECT oid FROM tree))
