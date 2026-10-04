@@ -31,7 +31,6 @@ depends_on: Union[str, Sequence[str], None] = None
 _LOCK_TIMEOUT = "SET LOCAL lock_timeout = '5s'"
 
 _BASE_ORIGIN_KINDS = "'upload', 'postgis', 'service', 'stac', 'raster'"
-_NEW_ORIGIN_KINDS = "'restore'"
 
 
 def _replace_origin_kinds(kinds: str) -> None:
@@ -50,25 +49,49 @@ def _replace_origin_kinds(kinds: str) -> None:
 
 
 def upgrade() -> None:
-    op.execute(_LOCK_TIMEOUT)
-    for column in (
-        sa.Column("previous_version_number", sa.Integer(), nullable=True),
-        sa.Column(
-            "previous_version_retained_at", sa.DateTime(timezone=True), nullable=True
-        ),
-        sa.Column("previous_version_bytes", sa.BigInteger(), nullable=True),
-        sa.Column(
-            "previous_version_refreshed_at", sa.DateTime(timezone=True), nullable=True
-        ),
-        sa.Column("scheduled_refresh_hold", sa.String(32), nullable=True),
-    ):
-        op.add_column("datasets", column, schema="catalog")
-    op.add_column(
-        "dataset_versions",
-        sa.Column("restored_from_version", sa.Integer(), nullable=True),
-        schema="catalog",
-    )
-    _replace_origin_kinds(f"{_BASE_ORIGIN_KINDS}, {_NEW_ORIGIN_KINDS}")
+    # The DDL commits on its own, so its brief ACCESS EXCLUSIVE locks are gone
+    # before VALIDATE scans the run history under SHARE UPDATE EXCLUSIVE. Every
+    # statement can be repeated, so a retry after an interrupted VALIDATE works.
+    with op.get_context().autocommit_block():
+        op.execute(
+            sa.text(
+                """
+                DO $$
+                BEGIN
+                  PERFORM set_config('lock_timeout', '5s', true);
+                  ALTER TABLE catalog.datasets
+                    ADD COLUMN IF NOT EXISTS previous_version_number integer,
+                    ADD COLUMN IF NOT EXISTS
+                      previous_version_retained_at timestamp with time zone,
+                    ADD COLUMN IF NOT EXISTS previous_version_bytes bigint,
+                    ADD COLUMN IF NOT EXISTS
+                      previous_version_refreshed_at timestamp with time zone,
+                    ADD COLUMN IF NOT EXISTS scheduled_refresh_hold varchar(32);
+                  ALTER TABLE catalog.dataset_versions
+                    ADD COLUMN IF NOT EXISTS restored_from_version integer;
+                  ALTER TABLE catalog.dataset_refresh_runs
+                    DROP CONSTRAINT IF EXISTS chk_refresh_runs_origin_kind,
+                    ADD CONSTRAINT chk_refresh_runs_origin_kind CHECK (
+                      origin_kind IN ('upload', 'postgis', 'service', 'stac', 'raster',
+                                      'restore')
+                    ) NOT VALID;
+                END $$;
+                """
+            )
+        )
+    with op.get_context().autocommit_block():
+        op.execute(
+            sa.text(
+                """
+                DO $$
+                BEGIN
+                  PERFORM set_config('lock_timeout', '5s', true);
+                  ALTER TABLE catalog.dataset_refresh_runs
+                    VALIDATE CONSTRAINT chk_refresh_runs_origin_kind;
+                END $$;
+                """
+            )
+        )
 
 
 def downgrade() -> None:
