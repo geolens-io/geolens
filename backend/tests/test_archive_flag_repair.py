@@ -262,7 +262,7 @@ async def test_an_owed_archive_with_no_upload_backs_off_while_the_store_cannot_a
             wait = await session.scalar(
                 text(
                     "SELECT (user_metadata #>> "
-                    "'{publish_obligations,next_attempt_at}')::timestamptz - now() "
+                    "'{publish_followups,next_attempt_at}')::timestamptz - now() "
                     "FROM catalog.ingest_jobs WHERE id = :id"
                 ),
                 {"id": job_id},

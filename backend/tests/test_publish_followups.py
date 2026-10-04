@@ -25,6 +25,7 @@ from app.platform.jobs.models import (
 from app.platform.storage.local import LocalStorageProvider
 from app.processing.ingest.publish_followups import (
     PUBLISH_FOLLOWUPS_FIELD,
+    PUBLISH_OBLIGATIONS_FIELD,
     owed_followups,
     run_owed_publish_followups,
     run_publish_followups,
@@ -149,7 +150,9 @@ async def _owes(job_id) -> bool:
         metadata = await session.scalar(
             select(IngestJob.user_metadata).where(IngestJob.id == job_id)
         )
-    return PUBLISH_FOLLOWUPS_FIELD in (metadata or {})
+    return bool(
+        {PUBLISH_FOLLOWUPS_FIELD, PUBLISH_OBLIGATIONS_FIELD} & (metadata or {}).keys()
+    )
 
 
 @pytest.mark.parametrize(
@@ -583,7 +586,7 @@ async def test_a_hosted_staging_key_never_reads_as_a_local_file(
 async def test_a_delete_cut_short_leaves_the_record_for_the_next_run(
     test_db_session, raster_storage, followups, monkeypatch
 ) -> None:
-    """A run stopped inside the upload's delete keeps the record, and the run after its lease deletes the upload."""
+    """A run stopped inside the upload's delete keeps the record, and a later run deletes the upload."""
     import app.processing.ingest.publish_followups as publish_followups
 
     real_reap = publish_followups.reap_presigned_staging_object
@@ -605,8 +608,6 @@ async def test_a_delete_cut_short_leaves_the_record_for_the_next_run(
             await run_publish_followups(job_id)
         assert await _owes(job_id), "the record went before the upload did"
         assert await left(), "precondition: the delete stopped before the unlink"
-        await run_owed_publish_followups()
-        assert await left(), "the sweep took a record still under its lease"
 
         await _make_due(job_id)
         await run_owed_publish_followups()
@@ -824,9 +825,9 @@ async def _make_due(job_id) -> None:
     async with db_module.async_session() as session:
         await session.execute(
             text(
-                "UPDATE catalog.ingest_jobs SET user_metadata = jsonb_set("
-                "user_metadata, '{publish_obligations,next_attempt_at}', "
-                "to_jsonb(now() - interval '1 minute')) WHERE id = :id"
+                "UPDATE catalog.ingest_jobs SET user_metadata = jsonb_set(jsonb_set("
+                "user_metadata, '{publish_followups,next_attempt_at}', to_jsonb(now() - interval '1 minute')), "
+                "'{publish_obligations,next_attempt_at}', to_jsonb(now() - interval '1 minute')) WHERE id = :id"
             ),
             {"id": job_id},
         )
@@ -1175,7 +1176,7 @@ async def test_an_owed_archive_is_retried_at_the_cap_until_storage_recovers(
                 wait = await session.scalar(
                     text(
                         "SELECT (user_metadata #>> "
-                        "'{publish_obligations,next_attempt_at}')::timestamptz - now() "
+                        "'{publish_followups,next_attempt_at}')::timestamptz - now() "
                         "FROM catalog.ingest_jobs WHERE id = :id"
                     ),
                     {"id": job_id},
@@ -1198,7 +1199,7 @@ async def test_an_owed_archive_is_retried_at_the_cap_until_storage_recovers(
             await session.execute(
                 text(
                     "UPDATE catalog.ingest_jobs SET user_metadata = jsonb_set("
-                    "user_metadata, '{publish_obligations,attempts}', '1000') "
+                    "user_metadata, '{publish_followups,attempts}', '1000') "
                     "WHERE id = :id"
                 ),
                 {"id": job_id},

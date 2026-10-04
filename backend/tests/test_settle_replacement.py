@@ -29,6 +29,7 @@ from app.platform.refresh.service import (
 )
 from app.processing.ingest.publish_followups import (
     PUBLISH_FOLLOWUPS_FIELD,
+    PUBLISH_OBLIGATIONS_FIELD,
     run_owed_publish_followups,
 )
 from app.processing.ingest.publication import (
@@ -291,7 +292,9 @@ async def _owes_followups(seed: _Seed) -> bool:
         metadata = await session.scalar(
             select(IngestJob.user_metadata).where(IngestJob.id == seed.job_id)
         )
-    return PUBLISH_FOLLOWUPS_FIELD in (metadata or {})
+    return bool(
+        {PUBLISH_FOLLOWUPS_FIELD, PUBLISH_OBLIGATIONS_FIELD} & (metadata or {}).keys()
+    )
 
 
 def _events(notifications: AsyncMock) -> list[str]:
@@ -303,9 +306,9 @@ async def _end_lease(job_id: uuid.UUID) -> None:
     async with db_module.async_session() as session:
         await session.execute(
             text(
-                "UPDATE catalog.ingest_jobs SET user_metadata = jsonb_set("
-                "user_metadata, '{publish_obligations,next_attempt_at}', "
-                "to_jsonb(now() - interval '1 minute')) WHERE id = :id"
+                "UPDATE catalog.ingest_jobs SET user_metadata = jsonb_set(jsonb_set("
+                "user_metadata, '{publish_followups,next_attempt_at}', to_jsonb(now() - interval '1 minute')), "
+                "'{publish_obligations,next_attempt_at}', to_jsonb(now() - interval '1 minute')) WHERE id = :id"
             ),
             {"id": job_id},
         )
@@ -363,12 +366,16 @@ async def test_a_publish_that_consumed_an_upload_owes_it_after_the_release(
             select(IngestJob.user_metadata).where(IngestJob.id == seed.job_id)
         )
     assert metadata["warnings"] == ["w"]
-    record = metadata[PUBLISH_FOLLOWUPS_FIELD]
-    assert record.pop("next_attempt_at")
-    assert record == {
-        "task": "fake_replacement",
-        "attempt_id": str(seed.attempt_id),
+    owner = {"task": "fake_replacement", "attempt_id": str(seed.attempt_id)}
+    assert metadata[PUBLISH_FOLLOWUPS_FIELD] == {
+        **owner,
         "reaps_staged_upload": True,
+        "claimed": True,
+    }
+    obligations = metadata[PUBLISH_OBLIGATIONS_FIELD]
+    assert obligations.pop("next_attempt_at")
+    assert obligations == {
+        **owner,
         "catalog_cache": True,
         "tile_cache": seed.table,
         "embedding": True,
@@ -786,7 +793,7 @@ async def test_a_failure_after_the_commit_is_logged_and_the_job_stays_complete(
         metadata = await session.scalar(
             select(IngestJob.user_metadata).where(IngestJob.id == seed.job_id)
         )
-    record = metadata[PUBLISH_FOLLOWUPS_FIELD]
+    record = metadata[PUBLISH_OBLIGATIONS_FIELD]
     owed = {"catalog_cache", "tile_cache", "embedding"} & record.keys()
     assert (owed, record["attempts"]) == ({item}, 1)
 

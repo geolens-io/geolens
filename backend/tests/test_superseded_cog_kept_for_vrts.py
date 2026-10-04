@@ -1052,6 +1052,68 @@ async def test_an_unpublished_key_a_replacement_still_owes_as_its_cog_is_not_rea
         await test_db_session.commit()
 
 
+async def _cogs_an_earlier_release_owes(keys: tuple[str, ...]) -> set[str]:
+    """The superseded COGs an earlier release reads as owed: only the ``publish_followups`` record's."""
+    async with db_module.async_session() as session:
+        rows = await session.scalars(
+            text(
+                "SELECT user_metadata #>> '{publish_followups,superseded_cog,key}' "
+                "FROM catalog.ingest_jobs "
+                "WHERE user_metadata #>> '{publish_followups,superseded_cog,key}' "
+                "= ANY(:keys)"
+            ),
+            {"keys": list(keys)},
+        )
+        return set(rows)
+
+
+async def test_a_cog_a_replacement_owes_stays_protected_from_an_earlier_release(
+    test_db_session, raster_storage
+) -> None:
+    """A superseded COG this release's publish owes is one an earlier release's reap also keeps."""
+    from sqlalchemy import update
+
+    from app.platform.jobs.sweep import reap_unpublished_storage_keys
+    from app.processing.ingest.publish_followups import owed_followups
+
+    admin_id = await _admin_id(test_db_session)
+    cog = f"rasters/{uuid.uuid4()}/attempts/{uuid.uuid4()}/sha/source.cog.tif"
+    await raster_storage.put(cog, io.BytesIO(b"read by a VRT"))
+    job = IngestJob(
+        source_filename="replacement.tif",
+        created_by=admin_id,
+        status="complete",
+        user_metadata={},
+    )
+    test_db_session.add(job)
+    await test_db_session.commit()
+    job_id, attempt_id = job.id, job.attempt_id
+    try:
+        async with db_module.async_session() as session:
+            await session.execute(
+                update(IngestJob)
+                .where(IngestJob.id == job_id)
+                .values(
+                    user_metadata=owed_followups(
+                        attempt_id,
+                        "reupload_raster",
+                        superseded_cog=cog,
+                        superseded_cog_bytes=1,
+                        catalog_cache=True,
+                        embedding=True,
+                    )
+                )
+            )
+            await session.commit()
+
+        assert await _cogs_an_earlier_release_owes((cog,)) == {cog}
+        assert await reap_unpublished_storage_keys((cog,)) == (0, 1, 0)
+        assert await raster_storage.exists(cog)
+    finally:
+        await test_db_session.execute(delete(IngestJob).where(IngestJob.id == job_id))
+        await test_db_session.commit()
+
+
 async def test_an_admin_cleanup_reclaims_a_kept_cog_nothing_reads(
     client, admin_auth_header, test_db_session, raster_storage
 ) -> None:

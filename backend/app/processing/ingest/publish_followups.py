@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import timedelta
+from types import SimpleNamespace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -51,12 +52,11 @@ from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.jobs.models import (
     ARCHIVE_PENDING_METADATA_KEY,
     ARCHIVE_REVIEW_METADATA_KEY,
-    LEGACY_PUBLISH_FOLLOWUPS_FIELD,
     PUBLISH_FOLLOWUPS_FIELD,
+    PUBLISH_OBLIGATIONS_FIELD,
     SUPERSEDED_COG_ITEM,
     IngestJob,
     holds_unarchived_original,
-    owed_publish_record,
     owned_presigned_staging_key,
 )
 from app.processing.ingest.tasks_common import (
@@ -150,16 +150,21 @@ def owed_followups(
 ):
     """The job's ``user_metadata`` with this attempt's ``task`` follow-ups owed.
 
-    With ``archive_key`` it also marks the upload's archive pending, which the
-    follow-ups remove once that archive exists. ``sweep_waits`` holds the
-    sweep off for one retry delay, for a task that archives the upload itself.
-    The run-once items are the catalog cache purge, the tile cache purge and
-    the quicklook of a table, the embedding, a notice event and a usage
-    dimension, billed once under the job's id. A record
+    The storage items go in ``PUBLISH_FOLLOWUPS_FIELD``, claimed, so a runner
+    of an earlier release runs them and nothing else. With ``archive_key`` it
+    also marks the upload's archive pending, which the follow-ups remove once
+    that archive exists. ``sweep_waits`` holds the sweep off those items for
+    one retry delay, for a task that archives the upload itself.
+
+    The run-once items go in ``PUBLISH_OBLIGATIONS_FIELD``: the catalog cache
+    purge, the tile cache purge and the quicklook of a table, the embedding, a
+    notice event and a usage dimension, billed once under the job's id. A
+    record naming none gets the ones its job implies at its first claim. One
     naming any is written claimed, so its claim adds none, and leased, so the
     sweep leaves it to the writer's own call until the lease runs out.
     """
-    fields = ["task", task, "attempt_id", str(attempt_uuid)]
+    owner = ["task", task, "attempt_id", str(attempt_uuid)]
+    fields = list(owner)
     run_once = {
         _CATALOG_CACHE: catalog_cache or None,
         _TILE_CACHE: tile_cache,
@@ -171,24 +176,26 @@ def owed_followups(
     for item, value in run_once.items():
         if value is not None:
             fields += [item, literal(value, JSONB)]
-    marks = []
-    if reaps_staged_upload:
-        fields += [_REAPS_STAGED_UPLOAD, true()]
-    if archive_key is not None:
-        fields += [_ARCHIVE_KEY, archive_key]
-        marks = [ARCHIVE_PENDING_METADATA_KEY, true()]
-    if superseded_keys:
-        fields += [_SUPERSEDED_KEYS, literal(list(superseded_keys), JSONB)]
-    if superseded_cog is not None:
-        cog = {"key": superseded_cog, "bytes": superseded_cog_bytes}
-        fields += [_SUPERSEDED_COG, literal(cog, JSONB)]
     if any(value is not None for value in run_once.values()):
         fields += [_CLAIMED, true(), _NEXT_ATTEMPT_AT, func.now() + _CLAIM_LEASE]
-    elif sweep_waits:
-        fields += [_NEXT_ATTEMPT_AT, func.now() + _RETRY_BASE]
-    owed = func.jsonb_build_object(
-        PUBLISH_FOLLOWUPS_FIELD, func.jsonb_build_object(*fields), *marks
-    )
+    records = [PUBLISH_OBLIGATIONS_FIELD, func.jsonb_build_object(*fields)]
+    storage = []
+    if reaps_staged_upload:
+        storage += [_REAPS_STAGED_UPLOAD, true()]
+    if archive_key is not None:
+        storage += [_ARCHIVE_KEY, archive_key]
+        records += [ARCHIVE_PENDING_METADATA_KEY, true()]
+    if superseded_keys:
+        storage += [_SUPERSEDED_KEYS, literal(list(superseded_keys), JSONB)]
+    if superseded_cog is not None:
+        cog = {"key": superseded_cog, "bytes": superseded_cog_bytes}
+        storage += [_SUPERSEDED_COG, literal(cog, JSONB)]
+    if storage:
+        storage += [_CLAIMED, true()]
+        if sweep_waits:
+            storage += [_NEXT_ATTEMPT_AT, func.now() + _RETRY_BASE]
+        records += [PUBLISH_FOLLOWUPS_FIELD, func.jsonb_build_object(*owner, *storage)]
+    owed = func.jsonb_build_object(*records)
     return func.coalesce(IngestJob.user_metadata, text("'{}'::jsonb")).op("||")(owed)
 
 
@@ -426,11 +433,13 @@ async def _delete_staged_upload(job_uuid: uuid.UUID, file_path: str | None) -> b
     return unlinked and reaped
 
 
-async def _write_record(job_uuid: uuid.UUID, attempt_id: str, metadata) -> None:
-    """Write ``metadata``, built from the stored value, while the record is ``attempt_id``'s."""
+async def _write_record(
+    job_uuid: uuid.UUID, attempt_id: str, metadata, field: str = PUBLISH_FOLLOWUPS_FIELD
+) -> None:
+    """Write ``metadata``, built from the stored value, while the record in ``field`` is ``attempt_id``'s."""
     import app.core.db as db_module
 
-    record = IngestJob.user_metadata[PUBLISH_FOLLOWUPS_FIELD]
+    record = IngestJob.user_metadata[field]
     async with db_module.async_session() as session:
         await session.execute(
             update(IngestJob)
@@ -441,14 +450,17 @@ async def _write_record(job_uuid: uuid.UUID, attempt_id: str, metadata) -> None:
         await session.commit()
 
 
-async def _confirm_owed_item(job_uuid: uuid.UUID, attempt_id: str, *items: str) -> None:
-    """Take ``items`` alone off the record ``attempt_id`` wrote; every other item stays owed."""
+async def _confirm_owed_item(
+    job_uuid: uuid.UUID,
+    attempt_id: str,
+    *items: str,
+    field: str = PUBLISH_FOLLOWUPS_FIELD,
+) -> None:
+    """Take ``items`` alone off the record in ``field`` ``attempt_id`` wrote; every other item stays owed."""
     metadata = IngestJob.user_metadata
     for item in items:
-        metadata = metadata.op("#-")(
-            literal([PUBLISH_FOLLOWUPS_FIELD, item], ARRAY(Text))
-        )
-    await _write_record(job_uuid, attempt_id, metadata)
+        metadata = metadata.op("#-")(literal([field, item], ARRAY(Text)))
+    await _write_record(job_uuid, attempt_id, metadata, field)
 
 
 async def _delete_orphaned_archive(job_uuid: uuid.UUID, archive_key: str) -> bool:
@@ -682,20 +694,25 @@ async def _owe_superseded_keys(
     await _write_record(job_uuid, attempt_id, owed)
 
 
-async def _schedule_retry(job_uuid: uuid.UUID, attempt_id: str, attempts: int) -> None:
-    """Count ``attempts`` on the job's record and set when the next one is due."""
+async def _schedule_retry(
+    job_uuid: uuid.UUID,
+    attempt_id: str,
+    attempts: int,
+    field: str = PUBLISH_FOLLOWUPS_FIELD,
+) -> None:
+    """Count ``attempts`` on the job's record in ``field`` and set when the next one is due."""
     delay = _RETRY_BASE * min(2 ** (attempts - 1), _RETRY_CAP // _RETRY_BASE)
     counted = func.jsonb_set(
         IngestJob.user_metadata,
-        literal([PUBLISH_FOLLOWUPS_FIELD, _ATTEMPTS], ARRAY(Text)),
+        literal([field, _ATTEMPTS], ARRAY(Text)),
         func.to_jsonb(literal(attempts, Integer)),
     )
     scheduled = func.jsonb_set(
         counted,
-        literal([PUBLISH_FOLLOWUPS_FIELD, _NEXT_ATTEMPT_AT], ARRAY(Text)),
+        literal([field, _NEXT_ATTEMPT_AT], ARRAY(Text)),
         func.to_jsonb(func.now() + delay),
     )
-    await _write_record(job_uuid, attempt_id, scheduled)
+    await _write_record(job_uuid, attempt_id, scheduled, field)
 
 
 async def _settle_storage_items(
@@ -798,10 +815,12 @@ def _is_due(record):
     )
 
 
-def _due_at(record):
-    """When a record fell due, for ordering: its next attempt, or else when its job ended."""
+def _due_at(*records):
+    """When a job's records fell due, for ordering: their earliest next attempt, or else when the job ended."""
     return func.coalesce(
-        _next_attempt_at(record), IngestJob.completed_at, IngestJob.created_at
+        func.least(*(_next_attempt_at(record) for record in records)),
+        IngestJob.completed_at,
+        IngestJob.created_at,
     )
 
 
@@ -817,23 +836,62 @@ def _run_once_items(status: str, task: str) -> dict[str, object]:
     return items
 
 
-def _taken(items: dict[str, object], *, source: str):
-    """The job's ``user_metadata`` with its record, read from ``source``, claimed, owing ``items`` too, and leased.
+def _taken(stored: dict, row, *, leases: bool):
+    """The take's write to the job's ``user_metadata``, and whether it claimed a record first.
 
-    The record is written under ``PUBLISH_FOLLOWUPS_FIELD`` whatever field it
-    was read from, and a legacy field it was read from goes.
+    A record of an earlier attempt goes. A storage record not yet claimed,
+    which an earlier release wrote, is claimed: the run-once items its task
+    implies move to the obligations record, and it goes when it owes no
+    storage item or its job did not complete. An obligations record naming no
+    item gets the ones its task implies. When ``leases``, the obligations
+    record is claimed and leased, and marked with the attempt it was leased
+    for.
     """
+    attempt = str(row.attempt_id)
+    obligations = stored.get(PUBLISH_OBLIGATIONS_FIELD)
+    storage = stored.get(PUBLISH_FOLLOWUPS_FIELD)
     metadata = IngestJob.user_metadata
-    if source != PUBLISH_FOLLOWUPS_FIELD:
-        metadata = metadata.op("-")(literal(source, Text))
-    fields: list = []
-    for item, value in items.items():
-        fields += [item, literal(value, JSONB)]
-    fields += [_CLAIMED, true(), _NEXT_ATTEMPT_AT, func.now() + _CLAIM_LEASE]
-    fields += [_TAKEN_FOR, IngestJob.user_metadata[source]["attempt_id"]]
-    record = IngestJob.user_metadata[source].op("||")(func.jsonb_build_object(*fields))
-    path = literal([PUBLISH_FOLLOWUPS_FIELD], ARRAY(Text))
-    return func.jsonb_set(metadata, path, record)
+    first = False
+    for field, record in (
+        (PUBLISH_OBLIGATIONS_FIELD, obligations),
+        (PUBLISH_FOLLOWUPS_FIELD, storage),
+    ):
+        if record is not None and record.get("attempt_id") != attempt:
+            metadata = metadata.op("-")(literal(field, Text))
+            first = True
+    if obligations is not None and obligations.get("attempt_id") != attempt:
+        obligations = None
+    if storage is not None and storage.get("attempt_id") != attempt:
+        storage = None
+    items: dict[str, object] = {}
+    if storage is not None and not storage.get(_CLAIMED):
+        items |= _run_once_items(row.status, storage["task"])
+        if obligations is None:
+            obligations = {"task": storage["task"], "attempt_id": attempt}
+            leases = True
+        first = True
+        if row.status != "complete" or not any(i in storage for i in _STORAGE_ITEMS):
+            metadata = metadata.op("-")(literal(PUBLISH_FOLLOWUPS_FIELD, Text))
+        else:
+            metadata = func.jsonb_set(
+                metadata,
+                literal([PUBLISH_FOLLOWUPS_FIELD, _CLAIMED], ARRAY(Text)),
+                text("'true'::jsonb"),
+            )
+    if obligations is not None and leases and not obligations.get(_CLAIMED):
+        items |= _run_once_items(row.status, obligations["task"])
+        first = True
+    if obligations is not None and (items or leases):
+        fields: list = []
+        for item, value in items.items():
+            fields += [item, literal(value, JSONB)]
+        if leases:
+            fields += [_CLAIMED, true(), _NEXT_ATTEMPT_AT, func.now() + _CLAIM_LEASE]
+            fields += [_TAKEN_FOR, attempt]
+        record = literal(obligations, JSONB).op("||")(func.jsonb_build_object(*fields))
+        path = literal([PUBLISH_OBLIGATIONS_FIELD], ARRAY(Text))
+        metadata = func.jsonb_set(metadata, path, record)
+    return metadata, first, leases and obligations is not None
 
 
 async def _published_dataset(dataset_id: uuid.UUID | None):
@@ -979,17 +1037,19 @@ async def _settle_run_once_items(
             if not settled:
                 left.add(item)
                 continue
-        await _confirm_owed_item(job_uuid, row.owed_attempt, item)
+        await _confirm_owed_item(
+            job_uuid, row.owed_attempt, item, field=PUBLISH_OBLIGATIONS_FIELD
+        )
     return left
 
 
 async def _settle_record(
-    job_uuid: uuid.UUID, attempt_id: str, record, left: set[str]
+    job_uuid: uuid.UUID, attempt_id: str, record, left: set[str], field: str
 ) -> None:
-    """Retry what ``record`` still owes, ``left``, later, or remove the record when nothing is.
+    """Retry what the record in ``field`` still owes, ``left``, later, or remove it when nothing is.
 
     A run-once item still owed once the record's attempts reach
-    ``_GIVE_UP_ATTEMPTS`` is dropped and logged.
+    ``_GIVE_UP_ATTEMPTS`` is dropped and logged; a storage item never is.
     """
     attempts = int(record.get(_ATTEMPTS) or 0) + 1
     abandoned = sorted(left.intersection(_RUN_ONCE_ITEMS))
@@ -1000,13 +1060,13 @@ async def _settle_record(
             items=abandoned,
             attempts=attempts,
         )
-        await _confirm_owed_item(job_uuid, attempt_id, *abandoned)
+        await _confirm_owed_item(job_uuid, attempt_id, *abandoned, field=field)
         left = left.difference(abandoned)
     if left:
-        await _schedule_retry(job_uuid, attempt_id, attempts)
+        await _schedule_retry(job_uuid, attempt_id, attempts, field)
         return
-    cleared = IngestJob.user_metadata.op("-")(literal(PUBLISH_FOLLOWUPS_FIELD, Text))
-    await _write_record(job_uuid, attempt_id, cleared)
+    cleared = IngestJob.user_metadata.op("-")(literal(field, Text))
+    await _write_record(job_uuid, attempt_id, cleared, field)
 
 
 async def run_publish_followups(
@@ -1017,31 +1077,34 @@ async def run_publish_followups(
 ) -> bool:
     """Run a job's owed follow-ups once its terminal commit is visible.
 
-    Takes the record, leasing it in one write that, at its first claim, also
-    adds the run-once items its job's status and task imply when it names
-    none. Then runs every item it owes in order, removing each one that
-    lands, and the record once none is left; an item that does not land is
-    retried later. Only a due record is taken, unless ``attempt_id`` is the
-    attempt that wrote it and no take has leased it yet, so the writer runs it
-    at once while the sweep, and a repeat call from the writer, wait out the
-    lease. A row another caller has locked,
-    or a job neither complete nor failed, runs nothing. Only a complete job
-    runs its storage items. A record an earlier attempt wrote is cleared and
-    runs nothing. A record an earlier release wrote under its legacy field is
-    taken the same way and moved to the current one. Returns whether this call
-    claimed the record.
+    The obligations record, holding the run-once items, is taken only when
+    it is due, unless ``attempt_id`` is the attempt that wrote it and no take
+    has leased it yet, so the writer runs it at once while the sweep, and a
+    repeat call from the writer, wait out the lease. The take leases it in one
+    write that, at its first claim, adds the run-once items its job implies.
+    The storage record runs whenever it is due, as an earlier release runs it,
+    since its items are safe to repeat. The purges run first, then the
+    storage items, then the rest of the run-once items, each removed once it
+    lands, and each record once it owes nothing; an item that does not land is
+    retried later. A row another caller has locked, or a job neither complete
+    nor failed, runs nothing. Only a complete job runs its storage items. A
+    record an earlier attempt wrote is cleared and runs nothing. Returns
+    whether this call claimed a record.
 
     ``local_copy`` is a copy of the upload the caller holds and keeps; the
     archive reads it instead of downloading the upload again.
     """
     import app.core.db as db_module
 
-    owed = owed_publish_record()
-    may_take = _is_due(owed)
+    obligations = IngestJob.user_metadata[PUBLISH_OBLIGATIONS_FIELD]
+    storage = IngestJob.user_metadata[PUBLISH_FOLLOWUPS_FIELD]
+    leases = _is_due(obligations)
     if attempt_id is not None:
-        writes = owed["attempt_id"].astext == str(attempt_id)
-        taken = owed[_TAKEN_FOR].astext == str(attempt_id)
-        may_take = or_(may_take, and_(writes, not_(func.coalesce(taken, False))))
+        writes = obligations["attempt_id"].astext == str(attempt_id)
+        taken = obligations[_TAKEN_FOR].astext == str(attempt_id)
+        leases = or_(leases, and_(writes, not_(func.coalesce(taken, False))))
+    leases = and_(obligations.is_not(None), leases)
+    stores = and_(storage.is_not(None), _is_due(storage))
     async with db_module.async_session() as session:
         row = (
             await session.execute(
@@ -1050,34 +1113,22 @@ async def run_publish_followups(
                     IngestJob.dataset_id,
                     IngestJob.error_message,
                     IngestJob.attempt_id,
-                    owed["task"].astext.label("task"),
-                    owed["attempt_id"].astext.label("owed_attempt"),
                     IngestJob.file_path,
                     IngestJob.user_metadata,
+                    leases.label("leases"),
+                    stores.label("stores"),
                 )
                 .where(
                     IngestJob.id == job_uuid,
                     IngestJob.status.in_(("complete", "failed")),
-                    owed.is_not(None),
-                    may_take,
+                    or_(leases, stores),
                 )
                 .with_for_update(skip_locked=True)
             )
         ).one_or_none()
         if row is None:
             return False
-        source = (
-            PUBLISH_FOLLOWUPS_FIELD
-            if PUBLISH_FOLLOWUPS_FIELD in row.user_metadata
-            else LEGACY_PUBLISH_FOLLOWUPS_FIELD
-        )
-        first = not row.user_metadata[source].get(_CLAIMED)
-        current = row.owed_attempt == str(row.attempt_id)
-        if current:
-            items = _run_once_items(row.status, row.task) if first else {}
-            metadata = _taken(items, source=source)
-        else:
-            metadata = IngestJob.user_metadata.op("-")(literal(source, Text))
+        metadata, first, leased = _taken(row.user_metadata, row, leases=row.leases)
         stored = (
             await session.execute(
                 update(IngestJob)
@@ -1089,21 +1140,32 @@ async def run_publish_followups(
         ).scalar_one()
         await session.commit()
 
-    log = structlog.get_logger().bind(job_id=str(job_uuid), task=row.task)
-    if not current:
-        log.info("publish_followups_from_an_earlier_attempt")
-        return True
-    known = row.task in _LABELS or row.task in _ITEMS_ONLY
-    if first and row.status == "complete" and not known:
+    attempt = str(row.attempt_id)
+    held = stored.get(PUBLISH_OBLIGATIONS_FIELD) if leased else None
+    storage_record = stored.get(PUBLISH_FOLLOWUPS_FIELD)
+    if not (row.stores and row.status == "complete"):
+        storage_record = None
+    owed = held or storage_record
+    if owed is None:
+        return first
+    context = SimpleNamespace(**row._mapping, owed_attempt=attempt, task=owed["task"])
+    log = structlog.get_logger().bind(job_id=str(job_uuid), task=context.task)
+    known = context.task in _LABELS or context.task in _ITEMS_ONLY
+    if first and held is not None and row.status == "complete" and not known:
         log.warning("publish_followups_unknown_task")
-    record = stored[PUBLISH_FOLLOWUPS_FIELD]
-    left = await _settle_run_once_items(job_uuid, row, record, _PURGES)
-    if row.status == "complete":
-        left |= await _settle_storage_items(
-            job_uuid, row, record, local_copy=local_copy
+    left: set[str] = set()
+    if held is not None:
+        left = await _settle_run_once_items(job_uuid, context, held, _PURGES)
+    if storage_record is not None:
+        stays = await _settle_storage_items(
+            job_uuid, context, storage_record, local_copy=local_copy
         )
-    left |= await _settle_run_once_items(job_uuid, row, record, _AFTER_STORAGE)
-    await _settle_record(job_uuid, row.owed_attempt, record, left)
+        await _settle_record(
+            job_uuid, attempt, storage_record, stays, PUBLISH_FOLLOWUPS_FIELD
+        )
+    if held is not None:
+        left |= await _settle_run_once_items(job_uuid, context, held, _AFTER_STORAGE)
+        await _settle_record(job_uuid, attempt, held, left, PUBLISH_OBLIGATIONS_FIELD)
     return first
 
 
@@ -1142,7 +1204,7 @@ def _unowed_archive():
     ended = func.coalesce(IngestJob.completed_at, IngestJob.created_at)
     return and_(
         holds_unarchived_original(),
-        owed_publish_record().is_(None),
+        metadata[PUBLISH_FOLLOWUPS_FIELD].is_(None),
         not_(metadata.has_key(ARCHIVE_REVIEW_METADATA_KEY)),
         ended < func.now() - _UNOWED_ARCHIVE_MIN_AGE,
     )
@@ -1274,18 +1336,19 @@ async def run_owed_publish_followups() -> int:
     import app.core.db as db_module
 
     log = structlog.get_logger()
-    record = owed_publish_record()
+    records = (
+        IngestJob.user_metadata[PUBLISH_OBLIGATIONS_FIELD],
+        IngestJob.user_metadata[PUBLISH_FOLLOWUPS_FIELD],
+    )
+    due = or_(*(and_(record.is_not(None), _is_due(record)) for record in records))
+    retried = or_(*(record[_ATTEMPTS].is_not(None) for record in records))
     try:
         async with db_module.async_session() as session:
             owed = (
                 await session.scalars(
                     select(IngestJob.id)
-                    .where(
-                        IngestJob.status.in_(("complete", "failed")),
-                        record.is_not(None),
-                        _is_due(record),
-                    )
-                    .order_by(record[_ATTEMPTS].is_not(None), _due_at(record))
+                    .where(IngestJob.status.in_(("complete", "failed")), due)
+                    .order_by(retried, _due_at(*records))
                     .limit(_SWEEP_BATCH)
                 )
             ).all()

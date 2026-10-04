@@ -1507,9 +1507,9 @@ async def test_a_failing_superseded_delete_does_not_crowd_out_a_fresh_record(
     async with db_module.async_session() as session:
         await session.execute(
             text(
-                "UPDATE catalog.ingest_jobs SET user_metadata = jsonb_set("
-                "user_metadata, '{publish_obligations,next_attempt_at}', "
-                "to_jsonb(now() - interval '1 hour')) WHERE id = :id"
+                "UPDATE catalog.ingest_jobs SET user_metadata = jsonb_set(jsonb_set("
+                "user_metadata, '{publish_followups,next_attempt_at}', to_jsonb(now() - interval '1 hour')), "
+                "'{publish_obligations,next_attempt_at}', to_jsonb(now() - interval '1 hour')) WHERE id = :id"
             ),
             {"id": stuck.job_id},
         )
