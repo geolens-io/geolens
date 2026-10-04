@@ -243,6 +243,22 @@ describe('SearchPage', () => {
       await waitFor(() => expect(statusTexts()).toContain('12 catalog results'));
     });
 
+    it('announces both the catalog and map counts when each matched', async () => {
+      setAnonymousUser();
+      act(() => {
+        useSearchStore.getState().setQuery('Matterhorn');
+      });
+      setResults(populated, false);
+      mockUseMapSearchResults.mockReturnValue({
+        data: { maps: [{ id: 'm1', name: 'Alps' }], total: 2 },
+        isLoading: false, isFetching: false, error: null,
+      } as unknown as ReturnType<typeof useMapSearchResults>);
+      render(<SearchPage />, { route: '/' });
+      await waitFor(() =>
+        expect(statusTexts()).toContain('12 catalog results, 2 matching maps'),
+      );
+    });
+
     it('carries the empty outcome in exactly one live region', async () => {
       setAnonymousUser();
       act(() => {

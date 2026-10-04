@@ -94,17 +94,19 @@ export function SearchPage() {
   const hasMapMatches = (mapResults?.maps.length ?? 0) > 0;
   const searchKey = JSON.stringify(searchParams);
   const catalogEmpty = !!data && data.features.length === 0;
+  const mapMatchText = hasMapMatches ? t('mapMatchCount', { count: mapResults?.total ?? 0 }) : '';
+  const catalogText = catalogEmpty
+    ? t('empty.catalogResultsTitle')
+    : t('catalogResults', { count: totalMatched });
   const liveStatus: string = !data
     ? ''
     : isFetching
       ? t('updating')
-      : !catalogEmpty
-        ? t('catalogResults', { count: totalMatched })
-        : isMapSearchPending
-          ? '' // the map section announces its own pending state
-          : hasMapMatches
-            ? `${t('empty.catalogResultsTitle')}. ${t('mapMatchCount', { count: mapResults?.total ?? 0 })}`
-            : t('empty.catalogResultsTitle');
+      : catalogEmpty && isMapSearchPending
+        ? '' // the map section announces its own pending state
+        : mapMatchText
+          ? `${catalogText}${catalogEmpty ? '.' : ','} ${mapMatchText}`
+          : catalogText;
   const shouldShowMapSearch = hasMapTextQuery && (isMapSearchPending || !!mapsError || hasMapMatches);
 
   useUrlSearchSync();
