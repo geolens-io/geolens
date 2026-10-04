@@ -150,6 +150,9 @@ jobs:
               # test asserts audit-archives/ stays gitignored, so a
               # .gitignore-only PR must run Backend Tests too.
               - 'scripts/audit_retention.sh'
+              # Decides which test files each Backend Tests shard runs; a PR
+              # touching only it must exercise the sharded run.
+              - 'scripts/ci_backend_shards.py'
               # fix(#1277 review): test_sdks_round_trip.py asserts the generated
               # SDK carries no unguarded optional-body emission, which is what
               # this script produces during `make sdks`. A PR editing only the
