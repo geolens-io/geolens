@@ -77,39 +77,35 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     # Refuses while a restore run exists: remove those rows first rather than
-    # leave rows that violate the constraint. The narrower CHECK goes in the
-    # way the upgrade's did, validated outside the DDL locks; both steps can
-    # be repeated.
-    with op.get_context().autocommit_block():
-        op.execute(
-            sa.text(
-                """
-                DO $$
-                BEGIN
-                  PERFORM set_config('lock_timeout', '5s', true);
-                  -- Held from the check through the replacement, so no restore
-                  -- run can land between them.
-                  LOCK TABLE catalog.dataset_refresh_runs IN ACCESS EXCLUSIVE MODE;
-                  IF EXISTS (
-                    SELECT 1 FROM catalog.dataset_refresh_runs
-                    WHERE origin_kind = 'restore'
-                  ) THEN
-                    RAISE EXCEPTION
-                      'Refresh runs with origin_kind restore exist; delete them before downgrading.';
-                  END IF;
-                  ALTER TABLE catalog.dataset_refresh_runs
-                    DROP CONSTRAINT IF EXISTS chk_refresh_runs_origin_kind,
-                    ADD CONSTRAINT chk_refresh_runs_origin_kind CHECK (
-                      origin_kind IN ('upload', 'postgis', 'service', 'stac',
-                                      'raster')
-                    ) NOT VALID;
-                END $$;
-                """
-            )
-        )
-    with op.get_context().autocommit_block():
-        op.execute(sa.text(_VALIDATE_ORIGIN_KINDS))
+    # leave rows that violate the constraint. One transaction, unlike the
+    # upgrade: a later revision in the same downgrade can refuse, and a
+    # committed narrower CHECK would then outlive the rollback at 0077, where
+    # `upgrade heads` never widens it again.
     op.execute(_LOCK_TIMEOUT)
+    op.execute(
+        sa.text(
+            """
+            DO $$
+            BEGIN
+              -- Held from the check through the replacement, so no restore
+              -- run can land between them.
+              LOCK TABLE catalog.dataset_refresh_runs IN ACCESS EXCLUSIVE MODE;
+              IF EXISTS (
+                SELECT 1 FROM catalog.dataset_refresh_runs
+                WHERE origin_kind = 'restore'
+              ) THEN
+                RAISE EXCEPTION
+                  'Refresh runs with origin_kind restore exist; delete them before downgrading.';
+              END IF;
+              ALTER TABLE catalog.dataset_refresh_runs
+                DROP CONSTRAINT IF EXISTS chk_refresh_runs_origin_kind,
+                ADD CONSTRAINT chk_refresh_runs_origin_kind CHECK (
+                  origin_kind IN ('upload', 'postgis', 'service', 'stac', 'raster')
+                );
+            END $$;
+            """
+        )
+    )
     # The earlier schema has no columns pointing at the retained tables, and
     # its table discovery would list them as registerable, so they go too:
     # only in the dataset's own data schema, and never a dataset's own table.

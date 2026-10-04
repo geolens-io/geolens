@@ -132,3 +132,31 @@ async def test_the_downgrade_refuses_while_restore_runs_exist(test_db_session) -
         await session.commit()
         up = run_alembic("upgrade", "heads")
         assert up.returncode == 0, up.stderr
+
+
+async def test_a_downgrade_refused_further_down_keeps_the_restore_check(
+    test_db_session,
+) -> None:
+    """When an older revision refuses the downgrade, 0077's wider check is still in place."""
+    from tests.alembic_helpers import (
+        normalize_api_key_state,
+        normalize_restore_runs,
+        normalize_seam_extents,
+    )
+    from tests.test_alembic_helpers import _PRE_API_KEY_HARDENING, _seed_expiring_key
+
+    await _seed_expiring_key(test_db_session, epoch_bump=True)
+    normalize_seam_extents()
+    normalize_restore_runs()
+    try:
+        down = run_alembic("downgrade", _PRE_API_KEY_HARDENING, normalize=False)
+        assert down.returncode != 0, "precondition: 0029 refuses the downgrade"
+        definition = await fresh_query(
+            "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+            "WHERE conname = 'chk_refresh_runs_origin_kind'"
+        )
+        assert "restore" in definition[0][0]
+    finally:
+        normalize_api_key_state()
+        up = run_alembic("upgrade", "heads")
+        assert up.returncode == 0, up.stderr

@@ -17,7 +17,7 @@ from sqlalchemy.orm import joinedload
 
 from app.core.db.sqlstate import TABLE_ABSENT, sqlstate
 from app.core.identity import Identity
-from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
+from app.core.record_types import RASTER_FAMILY_RECORD_TYPES, capabilities
 from app.core.pointcloud import POINTCLOUD_ASSET_KEY
 from app.core.tiles3d import TILESET_ASSET_KEY
 from app.modules.catalog.authorization import (
@@ -307,7 +307,7 @@ async def get_dataset_detail(
         response.has_generic_geometry = await dataset_geom_is_generic(
             db, dataset.table_name
         )
-    if response is not None:
+    if response is not None and capabilities(record_type).feature_table:
         response.previous_version = await previous_version_summary(db, dataset)
     return response
 
