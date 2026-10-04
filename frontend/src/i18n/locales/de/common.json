@@ -776,7 +776,7 @@
     "attributionFeedback": "Feedback zur Karte",
     "fullscreenEnter": "Vollbild",
     "fullscreenExit": "Vollbild beenden",
-    "resetBearing": "Ausrichtung auf Norden zurücksetzen",
+    "resetBearing": "Ziehen, um die Karte zu drehen, klicken, um nach Norden auszurichten",
     "zoomIn": "Vergrößern",
     "zoomOut": "Verkleinern",
     "terrainEnable": "3D-Gelände aktivieren",

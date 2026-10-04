@@ -776,7 +776,7 @@
     "attributionFeedback": "Comentarios sobre el mapa",
     "fullscreenEnter": "Pantalla completa",
     "fullscreenExit": "Salir de pantalla completa",
-    "resetBearing": "Restablecer el rumbo al norte",
+    "resetBearing": "Arrastre para girar el mapa, haga clic para restablecer el norte",
     "zoomIn": "Acercar",
     "zoomOut": "Alejar",
     "terrainEnable": "Activar el terreno 3D",

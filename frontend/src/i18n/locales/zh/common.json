@@ -776,7 +776,7 @@
     "attributionFeedback": "地图反馈",
     "fullscreenEnter": "进入全屏",
     "fullscreenExit": "退出全屏",
-    "resetBearing": "将方位重置为正北",
+    "resetBearing": "拖动以旋转地图，点击以重置为正北",
     "zoomIn": "放大",
     "zoomOut": "缩小",
     "terrainEnable": "启用 3D 地形",

@@ -776,7 +776,7 @@
     "attributionFeedback": "Commentaires sur la carte",
     "fullscreenEnter": "Plein écran",
     "fullscreenExit": "Quitter le plein écran",
-    "resetBearing": "Réinitialiser l'orientation vers le nord",
+    "resetBearing": "Faites glisser pour faire pivoter la carte, cliquez pour revenir au nord",
     "zoomIn": "Zoom avant",
     "zoomOut": "Zoom arrière",
     "terrainEnable": "Activer le terrain 3D",

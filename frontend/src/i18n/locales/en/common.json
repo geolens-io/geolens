@@ -776,7 +776,7 @@
     "attributionFeedback": "Map feedback",
     "fullscreenEnter": "Enter fullscreen",
     "fullscreenExit": "Exit fullscreen",
-    "resetBearing": "Reset bearing to north",
+    "resetBearing": "Drag to rotate map, click to reset north",
     "zoomIn": "Zoom in",
     "zoomOut": "Zoom out",
     "terrainEnable": "Enable 3D terrain",
