@@ -931,6 +931,9 @@ class ReuploadCommitRequest(BaseModel):
     _validate_token = field_validator("token")(_validate_safe_token)
     # GPKG-01 Phase 1058: user-chosen layer for multi-layer GPKG files
     layer_name: str | None = Field(default=None, max_length=500)
+    auth: ServiceAuthRequest | None = Field(
+        default=None, description=SERVICE_AUTH_FIELD_DESCRIPTION
+    )
     review_fingerprint: str | None = Field(
         default=None,
         pattern="^[0-9a-f]{64}$",
@@ -940,9 +943,6 @@ class ReuploadCommitRequest(BaseModel):
             "publishes only when the worker's own fingerprint matches; "
             "otherwise its run ends `blocked`. Service re-uploads ignore it."
         ),
-    )
-    auth: ServiceAuthRequest | None = Field(
-        default=None, description=SERVICE_AUTH_FIELD_DESCRIPTION
     )
     _reject_auth_conflict = model_validator(mode="after")(reject_service_auth_conflict)
 

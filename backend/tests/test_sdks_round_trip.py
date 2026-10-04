@@ -74,6 +74,8 @@ if str(_SDK_PY_PATH) not in _sys.path:
 
 from geolens.auth import GeolensClient  # noqa: E402
 from geolens.client import AuthenticatedClient, Client  # noqa: E402
+from geolens.models.reupload_commit_request import ReuploadCommitRequest  # noqa: E402
+from geolens.models.service_auth_request import ServiceAuthRequest  # noqa: E402
 from geolens.models.stac_item_summary import StacItemSummary  # noqa: E402
 from geolens.types import UNSET  # noqa: E402
 
@@ -195,6 +197,17 @@ class TestPythonModelOptionalFieldCompatibility:
         raw = {"id": "item-1", "title": "Item 1", "asset_count": 1}
         item = StacItemSummary.from_dict(raw)
         assert item.data_asset_import_refusal is UNSET
+
+
+class TestPythonModelPositionalSlots:
+    """A field added to a request model never takes a slot a caller already fills."""
+
+    def test_a_positional_auth_on_a_reupload_commit_stays_auth(self) -> None:
+        auth = ServiceAuthRequest(method="bearer", token="t")
+        request = ReuploadCommitRequest(None, None, None, None, auth)
+        assert request.auth is auth
+        assert request.to_dict()["auth"]["method"] == "bearer"
+        assert "review_fingerprint" not in request.to_dict()
 
 
 # ------------------- Binary downloads -------------------

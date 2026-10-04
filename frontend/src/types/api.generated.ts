@@ -11997,13 +11997,13 @@ export interface components {
             token?: string | null;
             /** Layer Name */
             layer_name?: string | null;
+            /** @description Structured credential for a protected service. Mutually exclusive with the token field. */
+            auth?: components["schemas"]["ServiceAuthRequest"] | null;
             /**
              * Review Fingerprint
              * @description The preview's `review_fingerprint`, sent once a person has seen the changes it describes. A file replacement with review reasons publishes only when the worker's own fingerprint matches; otherwise its run ends `blocked`. Service re-uploads ignore it.
              */
             review_fingerprint?: string | null;
-            /** @description Structured credential for a protected service. Mutually exclusive with the token field. */
-            auth?: components["schemas"]["ServiceAuthRequest"] | null;
         };
         /** ReuploadCommitResponse */
         ReuploadCommitResponse: {

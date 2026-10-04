@@ -366,7 +366,7 @@ class TestTheFlatUnionPublishesWhatTheSubclassesEnforce:
     def test_the_union_declares_its_fields_in_the_published_order(self) -> None:
         """The generated Python SDK gives each field a positional slot in this
         order, so a field inserted rather than appended moves a caller's
-        argument. Same rule as TestAuthIsDeclaredLast in the #1746 suite."""
+        argument. Same rule as TestPublishedFieldsKeepTheirSlots in the #1746 suite."""
         assert list(CommitRequest.model_fields) == [
             "title",
             "summary",

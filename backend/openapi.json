@@ -15093,6 +15093,17 @@
             ],
             "title": "Layer Name"
           },
+          "auth": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ServiceAuthRequest"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Structured credential for a protected service. Mutually exclusive with the token field."
+          },
           "review_fingerprint": {
             "anyOf": [
               {
@@ -15105,17 +15116,6 @@
             ],
             "description": "The preview's `review_fingerprint`, sent once a person has seen the changes it describes. A file replacement with review reasons publishes only when the worker's own fingerprint matches; otherwise its run ends `blocked`. Service re-uploads ignore it.",
             "title": "Review Fingerprint"
-          },
-          "auth": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ServiceAuthRequest"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Structured credential for a protected service. Mutually exclusive with the token field."
           }
         },
         "title": "ReuploadCommitRequest",

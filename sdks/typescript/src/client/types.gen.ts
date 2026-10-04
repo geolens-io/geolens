@@ -8745,15 +8745,15 @@ export type ReuploadCommitRequest = {
      */
     layer_name?: string | null;
     /**
+     * Structured credential for a protected service. Mutually exclusive with the token field.
+     */
+    auth?: ServiceAuthRequest | null;
+    /**
      * Review Fingerprint
      *
      * The preview's `review_fingerprint`, sent once a person has seen the changes it describes. A file replacement with review reasons publishes only when the worker's own fingerprint matches; otherwise its run ends `blocked`. Service re-uploads ignore it.
      */
     review_fingerprint?: string | null;
-    /**
-     * Structured credential for a protected service. Mutually exclusive with the token field.
-     */
-    auth?: ServiceAuthRequest | null;
 };
 
 /**
