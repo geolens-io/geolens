@@ -1298,3 +1298,35 @@ def test_failed_item_reads_do_not_retain_their_responses(monkeypatch):
         tracemalloc.stop()
     assert len(inv.errors) == 30
     assert peak < 12 * 1024 * 1024
+
+
+def test_registered_group_layer_keeps_its_own_reference(run):
+    """A group layer with its own itemId gets a row before its children's rows."""
+    group_item = "e7" * 16
+    web_map = {
+        "operationalLayers": [
+            {
+                "id": "parcels_group",
+                "layerType": "GroupLayer",
+                "itemId": group_item,
+                "layers": [
+                    {"id": "parcels_0", "layerType": "ArcGISFeatureLayer", "itemId": A1}
+                ],
+            },
+            {
+                "id": "plain_group",
+                "layerType": "GroupLayer",
+                "layers": [{"id": "view_0", "itemId": A2}],
+            },
+        ]
+    }
+    result, _ = run(
+        FakePortal(portal_routes({item_data_path(B1): web_map})), "--scope", "org"
+    )
+    assert result.exit_code == 0, result.output
+    deps = [d for d in _report(result)["dependencies"] if d["from_id"] == B1]
+    assert [(d["to_id"], d["layer_type"], d["layer_id"], d["order"]) for d in deps] == [
+        (group_item, "GroupLayer", "parcels_group", 0),
+        (A1, "ArcGISFeatureLayer", "parcels_0", 1),
+        (A2, None, "view_0", 2),
+    ]

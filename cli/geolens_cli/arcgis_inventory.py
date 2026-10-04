@@ -909,6 +909,20 @@ def web_map_dependencies(
     """Layer, basemap and table references of one web map, in map order."""
     rows: list[dict[str, Any]] = []
 
+    def own_row(layer: Mapping[str, Any], role: str) -> dict[str, Any]:
+        return _dependency(
+            item_id,
+            layer.get("itemId"),
+            _layer_url(layer),
+            role=role,
+            layer_type=layer.get("layerType"),
+            layer_id=layer.get("id"),
+            title=layer.get("title"),
+            order=len(rows),
+            index=index,
+            portal=portal,
+        )
+
     def walk(layers: Any, role: str) -> None:
         if not isinstance(layers, list):
             return
@@ -918,22 +932,12 @@ def web_map_dependencies(
             if layer.get("layerType") == "GroupLayer" and isinstance(
                 layer.get("layers"), list
             ):
+                # A registered group layer is an item of its own.
+                if layer.get("itemId") or _layer_url(layer):
+                    rows.append(own_row(layer, role))
                 walk(layer["layers"], role)
                 continue
-            rows.append(
-                _dependency(
-                    item_id,
-                    layer.get("itemId"),
-                    _layer_url(layer),
-                    role=role,
-                    layer_type=layer.get("layerType"),
-                    layer_id=layer.get("id"),
-                    title=layer.get("title"),
-                    order=len(rows),
-                    index=index,
-                    portal=portal,
-                )
-            )
+            rows.append(own_row(layer, role))
             sublayers = layer.get("layers")
             for sub in sublayers if isinstance(sublayers, list) else []:
                 # A map or tiled map service sublayer can name its own query
