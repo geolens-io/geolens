@@ -1324,3 +1324,60 @@ async def test_a_restore_points_the_source_fields_at_the_kept_file(
         }
     finally:
         await _cleanup(session, dataset)
+
+
+async def test_a_restore_of_service_data_leaves_the_upload_binding_alone(
+    client: AsyncClient, test_db_session, admin_auth_header
+) -> None:
+    """A kept version that came from a service is not described by upload fields."""
+    session = test_db_session
+    admin_id, dataset = await _seed(session)
+    await session.execute(
+        text(
+            "UPDATE catalog.datasets SET source_format = 'wfs', "
+            "source_filename = 'roads' WHERE id = :id"
+        ),
+        {"id": dataset.id},
+    )
+    await session.commit()
+    try:
+        await _replace(
+            session,
+            dataset,
+            admin_id,
+            ["paris"],
+            filename="b.gpkg",
+            source_format="gpkg",
+        )
+        await session.execute(
+            text(
+                "UPDATE catalog.dataset_versions SET source_format = 'wfs', "
+                "source_filename = 'roads' "
+                "WHERE dataset_id = :id AND version_number = 2"
+            ),
+            {"id": dataset.id},
+        )
+        await session.commit()
+        await _replace(
+            session,
+            dataset,
+            admin_id,
+            ["london"],
+            filename="c.gpkg",
+            source_format="gpkg",
+        )
+
+        await _restore(client, admin_auth_header, session, dataset, 2)
+
+        row = (
+            await session.execute(
+                text(
+                    "SELECT source_filename, source_format FROM catalog.datasets "
+                    "WHERE id = :id"
+                ),
+                {"id": dataset.id},
+            )
+        ).one()
+        assert (row.source_filename, row.source_format) == ("c.gpkg", "gpkg")
+    finally:
+        await _cleanup(session, dataset)
