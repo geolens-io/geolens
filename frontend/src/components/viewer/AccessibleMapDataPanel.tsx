@@ -72,10 +72,11 @@ export function AccessibleMapDataPanel({
           variant="outline"
           size="sm"
           disabled={disabled}
+          title={t('viewer.data.launch')}
           className="absolute bottom-0 left-1/2 z-30 h-[calc(2rem+env(safe-area-inset-bottom))] max-w-[calc(100%-13rem)] -translate-x-1/2 rounded-b-none border-b-0 bg-background/95 pb-[env(safe-area-inset-bottom)] shadow-md backdrop-blur-sm focus-visible:ring-inset"
         >
           <TableProperties aria-hidden="true" />
-          <span className="truncate">{t('viewer.data.launch')}</span>
+          <span className="truncate max-[399px]:sr-only">{t('viewer.data.launch')}</span>
         </Button>
       </SheetTrigger>
       <SheetContent

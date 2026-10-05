@@ -60,6 +60,9 @@ describe('AccessibleMapDataPanel', () => {
 
     const trigger = screen.getByRole('button', { name: 'Map data' });
     expect(trigger).toHaveClass('bottom-0', 'left-1/2', '-translate-x-1/2', 'rounded-b-none');
+    // The label stays in the DOM (visually hidden when narrow) and doubles as a tooltip.
+    expect(trigger).toHaveAccessibleName('Map data');
+    expect(trigger).toHaveAttribute('title', 'Map data');
   });
 
   it('offers a keyboard-operable structured alternative to the map canvas', () => {
