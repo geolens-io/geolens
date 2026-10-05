@@ -8,6 +8,7 @@ Mirrors test_settings_admin.py conventions: client + admin_auth_header fixtures,
 PUT to /settings/, read back from GET /settings/all/.
 """
 
+import pytest
 from httpx import AsyncClient
 
 
@@ -24,6 +25,18 @@ async def _get_allowed_domains(client: AsyncClient, header: dict) -> object:
     item = next((s for s in auth_items if s["key"] == "allowed_email_domains"), None)
     assert item is not None, "allowed_email_domains not found in auth tab"
     return item["value"]
+
+
+@pytest.fixture(autouse=True)
+async def _clear_allowlist_after(client: AsyncClient, admin_auth_header: dict):
+    """The setting is committed to the shared per-worker DB; leave it unrestricted."""
+    yield
+    resp = await client.put(
+        "/settings/",
+        json={"settings": {"allowed_email_domains": []}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200, resp.text
 
 
 # ---------------------------------------------------------------------------
