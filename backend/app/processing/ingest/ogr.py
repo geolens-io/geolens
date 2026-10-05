@@ -5,7 +5,9 @@ import json
 import os
 import re
 import time
+import zipfile
 from collections.abc import Callable
+from pathlib import PurePosixPath
 from typing import NoReturn, TypedDict
 
 import structlog
@@ -638,6 +640,35 @@ def _resolve_source_path(file_path: str) -> str:
     return file_path
 
 
+_ARCHIVE_SIDECAR_SUFFIXES = {".csvt", ".prj", ".txt", ".md", ".xml"}
+
+
+def _is_csv_source(file_path: str, layer_name: str | None = None) -> bool:
+    """Whether GDAL reads this source through its CSV driver.
+
+    A zip is a CSV source when its selected layer is a ``.csv`` member, or,
+    with no layer chosen, when the only data file in it is a ``.csv``.
+    """
+    lower = file_path.lower()
+    if lower.endswith(".csv"):
+        return True
+    if not lower.endswith(".zip"):
+        return False
+    try:
+        with zipfile.ZipFile(file_path) as archive:
+            names = [n for n in archive.namelist() if not n.endswith("/")]
+    except (OSError, zipfile.BadZipFile):
+        return False
+    if layer_name:
+        return any(
+            PurePosixPath(n).stem == layer_name and n.lower().endswith(".csv")
+            for n in names
+        )
+    suffixes = {PurePosixPath(n.lower()).suffix for n in names}
+    data = suffixes - _ARCHIVE_SIDECAR_SUFFIXES
+    return data == {".csv"} and sum(n.lower().endswith(".csv") for n in names) == 1
+
+
 def _is_parquet(file_path: str) -> bool:
     """The Debian GDAL build has no Arrow/Parquet driver — .parquet files
     are handled by the pure-pyarrow path in ingest/parquet.py instead of
@@ -837,7 +868,7 @@ async def run_ogrinfo(
     cmd = ["ogrinfo", "-so", "-json", *driver_args]
     # CSV driver types all fields as String by default; auto-detect so
     # numeric columns appear as Real/Integer in the preview schema.
-    if file_path.lower().endswith(".csv"):
+    if _is_csv_source(file_path, layer_name):
         cmd += ["-oo", "AUTODETECT_TYPE=YES", "-oo", "AUTODETECT_SIZE_LIMIT=0"]
     cmd.append(source)
     if layer_name:
@@ -926,7 +957,7 @@ async def run_ogrinfo_preview(
     cmd = ["ogrinfo", "-json", "-features", "-limit", str(sample_limit), *driver_args]
     # CSV driver types all fields as String by default; auto-detect so
     # numeric columns appear as Real/Integer in the preview schema.
-    if file_path.lower().endswith(".csv"):
+    if _is_csv_source(file_path, layer_name):
         cmd += ["-oo", "AUTODETECT_TYPE=YES", "-oo", "AUTODETECT_SIZE_LIMIT=0"]
     cmd.append(source)
     if layer_name:
@@ -1034,7 +1065,7 @@ async def run_ogr2ogr(
         validate_content_directives, file_path, original_filename
     )
     source = _resolve_source_path(file_path)
-    is_csv = file_path.lower().endswith(".csv")
+    is_csv = _is_csv_source(file_path, layer_name)
     is_non_spatial = geometry_type is None
 
     cmd = [
