@@ -176,7 +176,7 @@ async def test_arcgis_service_import_lands_every_attribute_column(
         return table_name, None
 
     async def _fake_page_info(*args, **kwargs):
-        return None, 1000, False, "OBJECTID"
+        return 1, 1000, False, "OBJECTID"
 
     async def _fake_run_ogr2ogr_service(
         gdal_source: str,
@@ -358,6 +358,10 @@ async def test_service_refresh_repopulates_wrong_stored_column_info(
             patch(
                 "app.processing.ingest.ogr.run_ogr2ogr_service",
                 new=_fake_run_ogr2ogr_service,
+            ),
+            patch(
+                "app.processing.ingest.tasks_vector._fetch_arcgis_import_page_info",
+                new=AsyncMock(return_value=(1, 1000, False, "OBJECTID")),
             ),
             patch(
                 "app.processing.ingest.publish_followups.invalidate_catalog_cache",

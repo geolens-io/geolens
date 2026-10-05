@@ -299,22 +299,46 @@ async def _write_service_import_progress(
 
 
 def _refuse_truncated_arcgis_fetch(
-    feature_count: int | None, max_record_count: int | None, supports_pagination: bool
+    feature_count: int | None,
+    max_record_count: int | None,
+    supports_pagination: bool,
+    *,
+    reviews_unknown_count: bool,
 ) -> None:
-    """Raise when one ArcGIS fetch from a server that can't page would stop short."""
+    """Raise when one ArcGIS fetch from a server that can't page could stop short.
+
+    ``reviews_unknown_count`` is whether the caller holds a fetch with no
+    source count for review before publishing it, as a refresh does.
+    """
+    if supports_pagination is True:
+        return
+    from app.processing.ingest.ogr import IngestionError
+
+    if feature_count is None and not reviews_unknown_count:
+        raise IngestionError(
+            "GeoLens couldn't read this ArcGIS layer's feature count, and the "
+            "server doesn't report that it can page through results, so it "
+            "can't confirm that one request would return the whole layer. "
+            "Try again later."
+        )
     if (
-        supports_pagination is not True
-        and feature_count is not None
+        feature_count is not None
         and max_record_count is not None
         and feature_count > max_record_count
     ):
-        from app.processing.ingest.ogr import IngestionError
-
         raise IngestionError(
             f"This ArcGIS layer has {feature_count} features but the server "
             f"returns at most {max_record_count} per request and can't page "
             "through the rest, so GeoLens can't import it completely."
         )
+
+
+def _record_arcgis_order_field(job, order_field: str | None) -> None:
+    """Store the order field an ArcGIS fetch used as the job's ``object_id_field``.
+
+    A later refresh orders by this when it can't read the layer's own JSON.
+    """
+    job.user_metadata = {**(job.user_metadata or {}), "object_id_field": order_field}
 
 
 async def _fetch_arcgis_import_page_info(
@@ -914,8 +938,11 @@ async def ingest_service(
                 _progress_job.progress = _SERVICE_IMPORT_INITIAL_PROGRESS
                 await _progress_session.commit()
 
+        arcgis_order_field: str | None = None
+
         # Retry WFS namespaces through the shared helper.
         async def _do_import(layer_name: str) -> None:
+            nonlocal arcgis_order_field
             feature_count = max_record_count = None
             page_size = _ARCGIS_SERVICE_IMPORT_CHUNK_SIZE
             supports_pagination = False
@@ -929,6 +956,7 @@ async def ingest_service(
                 ) = await _fetch_arcgis_import_page_info(
                     source_url, layer_id, token, fallback_order_field=object_id_field
                 )
+                arcgis_order_field = pagination_order_field
                 if max_record_count is not None:
                     page_size = max(1, min(page_size, max_record_count))
 
@@ -973,9 +1001,13 @@ async def ingest_service(
                 )
                 return
 
-            _refuse_truncated_arcgis_fetch(
-                feature_count, max_record_count, supports_pagination
-            )
+            if service_type == "arcgis_featureserver":
+                _refuse_truncated_arcgis_fetch(
+                    feature_count,
+                    max_record_count,
+                    supports_pagination,
+                    reviews_unknown_count=False,
+                )
             _src, _layer = port.build_gdal_source(
                 service_type_raw,
                 source_url,
@@ -1021,6 +1053,8 @@ async def ingest_service(
             # Finalization owns the transaction, including this progress write.
             job.current_step = "finalize"
             job.progress = 0.7
+            if service_type == "arcgis_featureserver":
+                _record_arcgis_order_field(job, arcgis_order_field)
 
             # 4a. Rename any source column that collides with a GeoLens-internal
             #     name. Runs BEFORE _finalize_ingest (which calls add_4326_column).

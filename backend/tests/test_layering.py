@@ -1321,7 +1321,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_common.py": 1829,
     # File and remote-source replacement strategies own retrieval, staging and
     # verification, including the live geometry read and its witness.
-    "backend/app/processing/ingest/tasks_reupload.py": 1478,
+    "backend/app/processing/ingest/tasks_reupload.py": 1492,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection.
     "backend/app/modules/catalog/datasets/api/router_refresh.py": 1354,
@@ -1352,7 +1352,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_raster_replace.py": 614,
     # File and remote-source imports own publication fencing, heartbeat phases
     # and failure settlement.
-    "backend/app/processing/ingest/tasks_vector.py": 1132,
+    "backend/app/processing/ingest/tasks_vector.py": 1166,
     # GDAL environments, timeouts, reaping and error sanitization share one process
     # boundary.
     "backend/app/processing/ingest/ogr.py": 1487,
