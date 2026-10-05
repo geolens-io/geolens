@@ -1,7 +1,8 @@
 """A dataset quicklook is publicly cacheable only when the dataset is public and published.
 
 A public vector quicklook is redrawn under the same URL when its data is
-replaced, so caches revalidate it by ETag; a raster's keeps an hour's freshness.
+replaced, so caches revalidate it by ETag; a raster's keeps an hour in a browser
+and a minute in a shared cache.
 """
 
 import hashlib
@@ -23,7 +24,7 @@ pytestmark = pytest.mark.anyio
 PNG = b"\x89PNG\r\n\x1a\nquicklook"
 PNG_ETAG = '"' + hashlib.sha256(PNG).hexdigest() + '"'
 PUBLIC = "public, no-cache"
-PUBLIC_RASTER = "public, max-age=3600"
+PUBLIC_RASTER = "public, max-age=3600, s-maxage=60"
 PRIVATE = "private, no-store"
 
 

@@ -226,8 +226,8 @@ class _Titiler:
 @pytest.mark.parametrize(
     "version,cache_control",
     [
-        (None, "public, max-age=3600"),
-        ("1", "public, max-age=3600"),
+        (None, "public, max-age=3600, s-maxage=60"),
+        ("1", "public, max-age=3600, s-maxage=60"),
         ("0", "private, no-store"),
     ],
     ids=["no-v", "v-equal", "v-older"],

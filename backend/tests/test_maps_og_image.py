@@ -190,7 +190,7 @@ class TestOgImageRoutes:
     async def test_get_og_image_public_map_cache_control(
         self, client: AsyncClient, admin_auth_header: dict
     ) -> None:
-        """GET /maps/{id}/og-image/ sets public, max-age=86400 for a public map."""
+        """GET /maps/{id}/og-image/ is browser-cached a day and shared-cached a minute."""
         map_data = await _create_map(client, admin_auth_header, visibility="public")
         map_id = map_data["id"]
 
@@ -208,6 +208,7 @@ class TestOgImageRoutes:
         cc = get_resp.headers.get("cache-control", "")
         assert "public" in cc
         assert "max-age=86400" in cc
+        assert "s-maxage=60" in cc
 
     async def test_get_og_image_404_when_none_uploaded(
         self, client: AsyncClient, admin_auth_header: dict

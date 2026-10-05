@@ -590,10 +590,10 @@ without credentials; private/restricted datasets require one of:
 Priority: header API key > query param API key > JWT > anonymous.
 
 **The `?api_key=` query parameter is deprecated, and it authenticates reads
-only.** A key sent in the URL is recorded by server access logs and any proxy
-in between, so it authenticates `GET`, `HEAD` and `OPTIONS` and nothing else.
-On any other method the key is ignored and the request is answered as if no
-credential had been sent. Prefer the `X-Api-Key` header, which carries reads
+only.** A key sent in the URL is recorded by server access logs and by any
+proxy or CDN that terminates TLS in front of GeoLens, so it authenticates
+`GET`, `HEAD` and `OPTIONS` and nothing else. On any other method the key is
+ignored and the request is answered as if no credential had been sent. Prefer the `X-Api-Key` header, which carries reads
 and writes alike; keep the query parameter only for clients that cannot send
 headers (e.g. XYZ tile URLs in desktop GIS tools).
 

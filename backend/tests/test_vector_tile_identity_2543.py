@@ -436,6 +436,37 @@ async def test_private_tile_responses_stay_private_and_vary_on_credentials(
 
 
 @pytest.mark.parametrize("route", [_vector, _cluster])
+async def test_public_tiles_leave_shared_caches_within_a_minute(
+    client: AsyncClient, people, make_tiles, monkeypatch, route
+) -> None:
+    """200, 204 and 304 public tiles cap s-maxage at 60 and drop stale serving, even under a hosted policy."""
+    owner_id, _ = people
+    dataset = await make_tiles(owner_id, visibility="public")
+    monkeypatch.setattr(
+        tile_router,
+        "_get_tile_serving_controls",
+        lambda _tid: (
+            None,
+            "public, max-age=600, s-maxage=86400, stale-while-revalidate=86400",
+        ),
+    )
+
+    full = await client.get(route(dataset.table_name))
+    empty = await client.get(route(dataset.table_name, 18, 100000, 100000))
+    unchanged = await client.get(
+        route(dataset.table_name), headers={"If-None-Match": full.headers["etag"]}
+    )
+
+    assert (full.status_code, empty.status_code, unchanged.status_code) == (
+        200,
+        204,
+        304,
+    )
+    for resp in (full, empty, unchanged):
+        assert resp.headers["cache-control"] == "public, max-age=600, s-maxage=60"
+
+
+@pytest.mark.parametrize("route", [_vector, _cluster])
 async def test_public_tiles_stay_public_unless_the_key_is_in_the_query(
     client: AsyncClient, people, mint_key, make_tiles, route
 ) -> None:

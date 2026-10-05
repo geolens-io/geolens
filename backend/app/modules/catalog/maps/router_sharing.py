@@ -59,6 +59,7 @@ from app.modules.catalog.maps.service import (
 )
 from app.modules.catalog.maps.style_json import build_maplibre_style
 from app.modules.embed_tokens.service import revoke_embed_tokens_by_map
+from app.platform.cache.scope import public_cache_control
 from app.standards.ogc.errors import FORBIDDEN_RESPONSE, GONE_RESPONSE
 
 router = APIRouter()
@@ -123,7 +124,7 @@ async def shared_map_card_endpoint(
     )
     return HTMLResponse(
         content=card_html,
-        headers={"Cache-Control": "public, max-age=300"},
+        headers={"Cache-Control": public_cache_control(300)},
     )
 
 

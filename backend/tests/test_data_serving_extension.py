@@ -204,7 +204,7 @@ def test_hosted_cache_override_never_publicizes_private_tiles(empty: bool):
     public_headers = _serving_tile_headers("public", 60, override, empty=empty)
 
     assert private_headers["Cache-Control"] == "private, max-age=60"
-    assert public_headers["Cache-Control"] == override
+    assert public_headers["Cache-Control"] == f"{override}, s-maxage=60"
     assert ("Content-Encoding" in private_headers) is (not empty)
 
 
@@ -343,7 +343,9 @@ async def test_hosted_tile_endpoints_share_cache_policy_and_limit_only_db_misses
 
     assert response.status_code == 200
     expected_cache_control = (
-        cache_override if cache_scope == "public" else f"private, max-age={cache_ttl}"
+        f"{cache_override}, s-maxage=60"
+        if cache_scope == "public"
+        else f"private, max-age={cache_ttl}"
     )
     assert response.headers["Cache-Control"] == expected_cache_control
     assert serving.limiter_requests == [str(tenant_id)]
