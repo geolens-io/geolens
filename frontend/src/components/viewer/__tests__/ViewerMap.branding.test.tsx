@@ -146,6 +146,15 @@ describe('ViewerMap GeoLens attribution credit', () => {
     expect(credits()).toBeNull();
   });
 
+  it('omits the credit until the edition has resolved', () => {
+    mockedUseEdition.mockReturnValue({ ...COMMUNITY, isResolved: false });
+    brandingData({ show_badge: true, privacy_url: null });
+
+    render(<ViewerMap {...MINIMAL_PROPS} />);
+
+    expect(credits()).toBeNull();
+  });
+
   it('puts the credit after the layer credits and drops the old overlay', () => {
     mockedUseEdition.mockReturnValue(COMMUNITY);
     brandingData({ show_badge: true, privacy_url: null });

@@ -150,11 +150,11 @@ export const ViewerMap = memo(function ViewerMap({
 }: ViewerMapProps) {
   const { t } = useTranslation('common');
   const mapLocale = useMapLocale();
-  const { isEnterprise } = useEdition();
+  const { isEnterprise, isResolved } = useEdition();
   const { data: branding } = useBranding();
-  // Gate on branding !== undefined so enterprise users with show_badge:false do
-  // not see a flash of the credit while the branding query is still loading.
-  const showBranding = branding !== undefined && (!isEnterprise || branding?.show_badge !== false);
+  // Wait for both queries: isEnterprise defaults to false until the edition
+  // resolves, which would flash the credit for Enterprise with show_badge false.
+  const showBranding = isResolved && branding !== undefined && (!isEnterprise || branding?.show_badge !== false);
   const mapRef = useRef<MaplibreMap | null>(null);
   const managedSourcesRef = useRef<Set<string>>(new Set());
   const prevOrderKeyRef = useRef('');
