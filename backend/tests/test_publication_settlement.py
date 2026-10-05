@@ -295,13 +295,20 @@ async def test_a_verified_refresh_scores_its_candidate_before_it_locks_the_live_
     assert (await _run(job.id)).status == "succeeded"
 
 
+@pytest.mark.parametrize("column", ["Point", "Geometry"])
 async def test_a_verified_refresh_reads_live_geometry_before_it_locks_the_live_table(
-    test_db_session,
+    test_db_session, column: str
 ):
-    """Readers of a live table typed as what it holds are not held behind its scan."""
+    """Readers of the live table are not held behind its geometry-type scan."""
     from app.processing.ingest import metadata
 
     dataset, job, admin_id = await _candidate(test_db_session, refresh=True)
+    await test_db_session.execute(
+        sa.text(
+            f'ALTER TABLE data."{dataset.table_name}" '
+            f"ALTER COLUMN geom TYPE geometry({column}, 4326)"
+        )
+    )
     await test_db_session.execute(
         sa.text(
             f'UPDATE data."{dataset.table_name}" '

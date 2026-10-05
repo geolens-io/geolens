@@ -239,34 +239,65 @@ async def _hold_live_table(session, dataset, *, schema: str) -> None:
     )
 
 
-async def _live_geometry_types(table_name: str, *, schema: str) -> list[str] | None:
-    """The live table's geometry types, read on a connection of its own.
+async def _live_table_witness(session, dataset_id, table_name: str, *, schema: str):
+    """The live table's oid and its dataset's tile cache version.
 
-    Its lock ends with the read, so publication takes the live table only once,
-    outright, before it compares.
+    A feature write rolls the version in the transaction that writes the row,
+    and a swap or restore replaces the table, so while both are unchanged no
+    GeoLens write has reached the rows.
+    """
+    from app.platform.extensions import get_processing_port
+
+    Dataset = get_processing_port().get_dataset_orm_class()
+    oid = text(
+        "SELECT c.oid FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+        "WHERE n.nspname = :schema AND c.relname = :table"
+    ).bindparams(schema=schema, table=table_name)
+    version = select(Dataset.tile_cache_version).where(Dataset.id == dataset_id)
+    return await session.scalar(oid), await session.scalar(version)
+
+
+async def _live_geometry_types(table_name: str, *, schema: str, dataset_id=None):
+    """The live table's witness and geometry types, read on a connection of its own.
+
+    The witness is read first, so a write the scan missed changes it. Without
+    ``dataset_id`` there is none. The read's lock ends with it, so publication
+    takes the live table only once, outright, before it compares.
     """
     from app.core.db import async_session
     from app.processing.ingest.metadata import get_geometry_types
 
     async with async_session() as session:
-        return await get_geometry_types(session, table_name, schema=schema)
+        witness = None
+        if dataset_id is not None:
+            witness = await _live_table_witness(
+                session, dataset_id, table_name, schema=schema
+            )
+        return witness, await get_geometry_types(session, table_name, schema=schema)
 
 
 async def _held_live_geometry_types(
-    session, table_name: str, scanned: list[str] | None, *, schema: str
+    session, dataset, scan, *, schema: str
 ) -> list[str] | None:
     """The live geometry types as they are under the swap's lock.
 
     A column declared as the one type the earlier scan found can since have
-    only lost it, which compares no less strictly, so only other columns are
-    scanned again while readers wait.
+    only lost it, which compares no less strictly. Any other scan stands while
+    its witness is unchanged, so readers wait on a scan only when something
+    wrote the table since.
     """
     from app.processing.ingest.metadata import get_geometry_types
 
+    witness, scanned = scan
+    table_name = dataset.table_name
     declared = await catalog_projection._declared_geometry_type(
         session, schema=schema, table=table_name
     )
     if scanned is not None and scanned == [declared]:
+        return scanned
+    if witness is not None and witness == await _live_table_witness(
+        session, dataset.id, table_name, schema=schema
+    ):
         return scanned
     return await get_geometry_types(session, table_name, schema=schema)
 
@@ -327,6 +358,12 @@ class _FileReupload:
         )
         self.staging_table = staging_table
         self.live_table = dataset.table_name
+        # Other tools may write a registered table without rolling its version.
+        registered = (
+            classify_origin(dataset.source_format, dataset.record.record_type)
+            == "postgis"
+        )
+        self.witness_for = None if registered else dataset.id
         self.attempt_id = job.attempt_id
         self.source_filename = job.source_filename
         self.user_metadata = job.user_metadata or {}
@@ -386,8 +423,10 @@ class _FileReupload:
             derive_source_format, self.file_path
         )
         # Read while no publication session holds a pooled connection.
-        self.live_geometry_types = await _live_geometry_types(
-            self.live_table, schema=_current_tenant_schema()
+        self.live_scan = await _live_geometry_types(
+            self.live_table,
+            schema=_current_tenant_schema(),
+            dataset_id=self.witness_for,
         )
 
     async def stage(self, session, job, dataset) -> Verdict:
@@ -459,7 +498,7 @@ class _FileReupload:
         schema = _current_tenant_schema()
         await _hold_live_table(session, dataset, schema=schema)
         self.live_geometry_types = await _held_live_geometry_types(
-            session, dataset.table_name, self.live_geometry_types, schema=schema
+            session, dataset, self.live_scan, schema=schema
         )
         if (
             self.accepted_run_id is not None
@@ -1055,6 +1094,7 @@ class _ServiceReupload:
     def prepare(self, job, dataset, staging_table: str) -> None:
         self.staging_table = staging_table
         self.live_table = dataset.table_name
+        self.dataset_id = dataset.id
         # A failure's contact stamp lands only while the dataset keeps the
         # origin this attempt fetched from.
         self.bound = (dataset.origin_uri, dataset.origin_ref, dataset.source_format)
@@ -1159,8 +1199,8 @@ class _ServiceReupload:
         if not self.is_refresh:
             return
         # Read while no publication session holds a pooled connection.
-        self.live_geometry_types = await _live_geometry_types(
-            self.live_table, schema=_current_tenant_schema()
+        self.live_scan = await _live_geometry_types(
+            self.live_table, schema=_current_tenant_schema(), dataset_id=self.dataset_id
         )
 
     async def stage(self, session, job, dataset) -> Verdict:
@@ -1233,7 +1273,7 @@ class _ServiceReupload:
         schema = _current_tenant_schema()
         await _hold_live_table(session, dataset, schema=schema)
         self.live_geometry_types = await _held_live_geometry_types(
-            session, dataset.table_name, self.live_geometry_types, schema=schema
+            session, dataset, self.live_scan, schema=schema
         )
         self.measured_schema_diff = catalog_projection.schema_diff(
             dataset, self.measurement

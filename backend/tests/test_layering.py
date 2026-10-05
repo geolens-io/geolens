@@ -1319,8 +1319,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # ArcGIS requests, lifecycle context, the quicklook draw that ingest and
     # replacement share, and the swap that keeps the replaced table.
     "backend/app/processing/ingest/tasks_common.py": 1829,
-    # File and remote-source replacement strategies own retrieval, staging and verification.
-    "backend/app/processing/ingest/tasks_reupload.py": 1438,
+    # File and remote-source replacement strategies own retrieval, staging and
+    # verification, including the live geometry read and its witness.
+    "backend/app/processing/ingest/tasks_reupload.py": 1478,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection.
     "backend/app/modules/catalog/datasets/api/router_refresh.py": 1354,
