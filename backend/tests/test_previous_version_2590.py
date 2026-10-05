@@ -125,6 +125,7 @@ async def _replace(
     filename: str = "update.geojson",
     file_hash: str = "f" * 64,
     source_format: str = "geojson",
+    srid: int = 4326,
 ) -> IngestJob:
     """Run a file replacement of the dataset with ``cities`` through the worker."""
     from app.processing.ingest.tasks import reupload_file
@@ -138,7 +139,7 @@ async def _replace(
         filename=filename,
     )
     ogrinfo = {
-        "srid": 4326,
+        "srid": srid,
         "geometry_type": "Point",
         "layer_name": "update",
         "feature_count": len(cities),
@@ -183,7 +184,10 @@ async def _replace(
             user_id=str(admin_id),
             attempt_id=str(job.attempt_id),
         )
-    assert await _job_status(session, job.id) == "complete"
+    assert await _job_status(session, job.id) == "complete", await session.scalar(
+        text("SELECT error_message FROM catalog.ingest_jobs WHERE id = :id"),
+        {"id": job.id},
+    )
     return job
 
 
@@ -627,7 +631,7 @@ async def test_the_detail_and_versions_name_the_previous_version(
             v["version_number"]: v["restored_from_version"]
             for v in versions.json()["versions"]
         }
-        assert restored == {2: None, 3: None, 4: 2}
+        assert restored == {1: None, 2: None, 3: None, 4: 2}
     finally:
         await _cleanup(session, dataset)
 
@@ -1428,5 +1432,184 @@ async def test_a_restore_of_an_upload_replaces_a_service_binding(
         assert (row.source_filename, row.source_format) == ("b.gpkg", "gpkg")
         assert row.origin_uri is None
         assert row.origin_ref["kind"] == "upload"
+    finally:
+        await _cleanup(session, dataset)
+
+
+async def _source_row(session, dataset_id):
+    return (
+        await session.execute(
+            text(
+                "SELECT source_filename, source_format, original_srid, origin_ref, "
+                "is_3d, n_dims FROM catalog.datasets WHERE id = :id"
+            ),
+            {"id": dataset_id},
+        )
+    ).one()
+
+
+async def test_restoring_the_first_import_reinstates_its_source_and_crs(
+    client: AsyncClient, test_db_session, admin_auth_header
+) -> None:
+    """Version 1 comes back with the file, format, hash and source CRS it was imported from."""
+    session = test_db_session
+    admin_id, dataset = await _seed(session)
+    await session.execute(
+        text(
+            "UPDATE catalog.datasets SET source_filename = 'a.gpkg', "
+            "source_format = 'gpkg', original_srid = 2263, "
+            "origin_ref = CAST(:ref AS jsonb) WHERE id = :id"
+        ),
+        {
+            "ref": '{"kind": "upload", "filename": "a.gpkg", "file_hash": "'
+            + "a" * 64
+            + '"}',
+            "id": dataset.id,
+        },
+    )
+    await session.commit()
+    try:
+        await _replace(
+            session, dataset, admin_id, ["paris"], filename="b.geojson", srid=4326
+        )
+        await _restore(client, admin_auth_header, session, dataset, 1)
+
+        row = await _source_row(session, dataset.id)
+        assert (row.source_filename, row.source_format) == ("a.gpkg", "gpkg")
+        assert row.original_srid == 2263
+        assert row.origin_ref == {
+            "kind": "upload",
+            "filename": "a.gpkg",
+            "file_hash": "a" * 64,
+        }
+        restored = (
+            await session.execute(
+                text(
+                    "SELECT source_filename, original_srid, restored_from_version "
+                    "FROM catalog.dataset_versions "
+                    "WHERE dataset_id = :id AND version_number = 3"
+                ),
+                {"id": dataset.id},
+            )
+        ).one()
+        assert tuple(restored) == ("a.gpkg", 2263, 1)
+    finally:
+        await _cleanup(session, dataset)
+
+
+async def test_restoring_a_replacement_reinstates_its_source_crs(
+    client: AsyncClient, test_db_session, admin_auth_header
+) -> None:
+    """A kept replacement's source CRS replaces the CRS of the file that replaced it."""
+    session = test_db_session
+    admin_id, dataset = await _seed(session)
+    try:
+        await _replace(
+            session,
+            dataset,
+            admin_id,
+            ["paris"],
+            filename="b.gpkg",
+            source_format="gpkg",
+            srid=2263,
+        )
+        await _replace(
+            session, dataset, admin_id, ["london"], filename="c.geojson", srid=4326
+        )
+        assert (await _source_row(session, dataset.id)).original_srid == 4326
+
+        await _restore(client, admin_auth_header, session, dataset, 2)
+
+        assert (await _source_row(session, dataset.id)).original_srid == 2263
+    finally:
+        await _cleanup(session, dataset)
+
+
+async def test_restoring_a_created_generic_layer_keeps_it_open_to_any_geometry(
+    client: AsyncClient, test_db_session, admin_auth_header
+) -> None:
+    """A drawn layer restored over a file is a drawn layer again, so edits take any geometry."""
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    table = f"prev2590_{uuid.uuid4().hex[:10]}"
+    created = await create_dataset(
+        session,
+        created_by=admin_id,
+        table_name=table,
+        geometry_type="GEOMETRY",
+        source_format="created",
+        source_filename=None,
+        feature_count=1,
+        column_info=[{"name": "name", "type": "text"}],
+    )
+    dataset = SimpleNamespace(id=created.id, table_name=table)
+    await session.execute(
+        text(
+            f'CREATE TABLE "data"."{table}" (gid serial PRIMARY KEY, '
+            "geom geometry(Geometry, 4326), geom_4326 geometry(Geometry, 4326), "
+            "name text)"
+        )
+    )
+    await session.execute(
+        text(
+            f'INSERT INTO "data"."{table}" (geom, geom_4326, name) VALUES '
+            "(ST_SetSRID(ST_MakePoint(-74.0, 40.7), 4326), "
+            "ST_SetSRID(ST_MakePoint(-74.0, 40.7), 4326), 'New York')"
+        )
+    )
+    await session.commit()
+    try:
+        await _replace(session, dataset, admin_id, ["paris"])
+        await _restore(client, admin_auth_header, session, dataset, 1)
+
+        row = await _source_row(session, dataset.id)
+        assert (row.source_format, row.source_filename) == ("created", None)
+        line = await client.post(
+            f"/api/datasets/{dataset.id}/features/",
+            json={
+                "geometry": {"type": "LineString", "coordinates": [[0, 0], [1, 1]]},
+                "properties": {"name": "Road"},
+            },
+            headers=admin_auth_header,
+        )
+        assert line.status_code == 201, line.text
+    finally:
+        await _cleanup(session, dataset)
+
+
+async def test_restoring_an_empty_unconstrained_table_keeps_its_dimensionality(
+    client: AsyncClient, test_db_session, admin_auth_header
+) -> None:
+    """With no rows or typmod to read, the kept version's recorded 3D facts come back."""
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    table = f"prev2590_{uuid.uuid4().hex[:10]}"
+    created = await create_dataset(
+        session,
+        created_by=admin_id,
+        table_name=table,
+        geometry_type="GEOMETRY",
+        feature_count=0,
+        column_info=[{"name": "name", "type": "text"}],
+    )
+    dataset = SimpleNamespace(id=created.id, table_name=table)
+    await session.execute(
+        text("UPDATE catalog.datasets SET is_3d = false, n_dims = 2 WHERE id = :id"),
+        {"id": dataset.id},
+    )
+    await session.execute(
+        text(
+            f'CREATE TABLE "data"."{table}" (gid serial PRIMARY KEY, '
+            "geom geometry CONSTRAINT enforce_srid_geom CHECK (ST_SRID(geom) = 4326), "
+            "geom_4326 geometry, name text)"
+        )
+    )
+    await session.commit()
+    try:
+        await _replace(session, dataset, admin_id, ["paris"])
+        await _restore(client, admin_auth_header, session, dataset, 1)
+
+        row = await _source_row(session, dataset.id)
+        assert (row.is_3d, row.n_dims) == (False, 2)
     finally:
         await _cleanup(session, dataset)
