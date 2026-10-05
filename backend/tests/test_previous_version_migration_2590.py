@@ -91,6 +91,73 @@ async def test_the_downgrade_drops_only_recorded_previous_versions(
         await session.commit()
 
 
+async def test_a_same_named_dataset_in_another_tenant_does_not_keep_a_previous_version(
+    test_db_session,
+) -> None:
+    """Only a dataset in the kept table's own tenant claims its name; a NULL-tenant one counts as a tenant."""
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    tenant_id = uuid.uuid4()
+    tenant_schema = "data_t_" + str(tenant_id).replace("-", "_")
+    await session.execute(
+        text("INSERT INTO catalog.tenants (id, slug, name) VALUES (:id, :slug, 'T')"),
+        {"id": tenant_id, "slug": f"t-{tenant_id.hex[:8]}"},
+    )
+    shared, tenanted = [
+        (created.id, created.table_name)
+        for created in [
+            await create_dataset(
+                session, created_by=admin_id, table_name=f"mig_{uuid.uuid4().hex[:10]}"
+            )
+            for _ in range(2)
+        ]
+    ]
+    shared_previous = previous_version_table(shared[1], shared[0])
+    tenanted_previous = previous_version_table(tenanted[1], tenanted[0])
+    in_tenant, in_shared = [
+        (await create_dataset(session, created_by=admin_id, table_name=name)).id
+        for name in (shared_previous, tenanted_previous)
+    ]
+    await session.execute(
+        text(
+            "UPDATE catalog.datasets SET previous_version_number = 1 "
+            "WHERE id IN (:shared, :tenanted)"
+        ),
+        {"shared": shared[0], "tenanted": tenanted[0]},
+    )
+    await session.execute(
+        text("UPDATE catalog.datasets SET tenant_id = :t WHERE id IN (:a, :b)"),
+        {"t": tenant_id, "a": tenanted[0], "b": in_tenant},
+    )
+    await session.execute(text(f'CREATE SCHEMA "{tenant_schema}"'))
+    await session.execute(text(f'CREATE TABLE "data"."{shared_previous}" (gid int)'))
+    await session.execute(
+        text(f'CREATE TABLE "{tenant_schema}"."{tenanted_previous}" (gid int)')
+    )
+    await session.commit()
+
+    try:
+        down = run_alembic("downgrade", "0076_feature_create_keys")
+        assert down.returncode == 0, down.stderr
+
+        assert not await _exists("data", shared_previous)
+        assert not await _exists(tenant_schema, tenanted_previous)
+    finally:
+        up = run_alembic("upgrade", "heads")
+        assert up.returncode == 0, up.stderr
+        await session.rollback()
+        await session.execute(text(f'DROP SCHEMA IF EXISTS "{tenant_schema}" CASCADE'))
+        await session.execute(text(f'DROP TABLE IF EXISTS "data"."{shared_previous}"'))
+        await session.execute(
+            text("DELETE FROM catalog.datasets WHERE id = ANY(:ids)"),
+            {"ids": [shared[0], tenanted[0], in_tenant, in_shared]},
+        )
+        await session.execute(
+            text("DELETE FROM catalog.tenants WHERE id = :id"), {"id": tenant_id}
+        )
+        await session.commit()
+
+
 async def test_the_downgrade_refuses_while_restore_runs_exist(test_db_session) -> None:
     """With a restore run on record the downgrade stops before changing anything."""
     from app.platform.refresh.service import create_pending_run

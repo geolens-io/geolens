@@ -108,7 +108,8 @@ def downgrade() -> None:
     )
     # The earlier schema has no columns pointing at the retained tables, and
     # its table discovery would list them as registerable, so they go too:
-    # only in the dataset's own data schema, and never a dataset's own table.
+    # only in the dataset's own data schema, and never a table a dataset in
+    # the same tenant uses as its own: tenants name their tables independently.
     op.execute(
         """
         DO $$
@@ -126,6 +127,7 @@ def downgrade() -> None:
                   AND NOT EXISTS (
                       SELECT 1 FROM catalog.datasets o
                       WHERE o.table_name = c.relname
+                        AND o.tenant_id IS NOT DISTINCT FROM d.tenant_id
                   )
             LOOP
                 EXECUTE format('DROP TABLE IF EXISTS %s', kept);
