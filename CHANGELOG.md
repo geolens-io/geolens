@@ -145,6 +145,12 @@ and releases use semantic versioning.
   columns into a point layer, as a single import does, instead of a table
   without geometry. A `.3tz` or `.laz` dropped in the Geospatial files mode
   now gets a message naming the mode that imports it. (#2645, #2648)
+- ArcGIS layers whose object ID field is not named `OBJECTID`, such as the
+  `FID` on many ArcGIS Online layers, import and refresh. GeoLens orders by
+  the field the layer reports, and sends no ordering to a layer that can't
+  sort. An import or refresh from a server that can't page now fails with a
+  message when the layer has more features than one request returns,
+  instead of publishing a partial table. (#2643, #2647)
 - Accessibility fixes from the WCAG 2.1 AA review of the public pages:
   status messages and landmarks, page titles on the shared map and embed,
   Escape and focus handling in the legend, a list structure and labeled
@@ -195,6 +201,8 @@ and releases use semantic versioning.
   version record to restore it from. The restored data is correct. (#2649)
 - After a restore, the dataset's source coordinate system still describes
   the replaced upload. (#2646)
+- An ArcGIS server that can't page and doesn't return a feature count can
+  still publish a partial table on a first import. (#2652)
 
 ## [1.21.1] - 2026-10-02
 
