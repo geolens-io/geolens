@@ -253,9 +253,9 @@ async def test_only_a_refresh_reads_the_live_geometry_types(
     scanned: list[str] = []
     real = tasks_reupload._live_geometry_types
 
-    async def _recording(table_name, *, schema):
+    async def _recording(table_name, **kwargs):
         scanned.append(table_name)
-        return await real(table_name, schema=schema)
+        return await real(table_name, **kwargs)
 
     monkeypatch.setattr(tasks_reupload, "_live_geometry_types", _recording)
     dataset_id = await _ingest(test_db_session, monkeypatch, _WELLS)
@@ -272,6 +272,7 @@ async def test_a_type_added_after_the_live_scan_holds_a_refresh_for_review(
 ):
     """A refresh compares the live geometry types as they are under its lock."""
     from app.core.db import async_session
+    from app.platform.catalog_locks import bump_tile_cache_version_atomic
 
     dataset_id = await _ingest(test_db_session, monkeypatch, _WELLS)
     live = f'data."{(await _dataset(test_db_session, dataset_id)).table_name}"'
@@ -282,8 +283,8 @@ async def test_a_type_added_after_the_live_scan_holds_a_refresh_for_review(
     await test_db_session.commit()
     real = tasks_reupload._live_geometry_types
 
-    async def _scan_then_add_a_polygon(table_name, *, schema):
-        scanned = await real(table_name, schema=schema)
+    async def _scan_then_add_a_polygon(*args, **kwargs):
+        scanned = await real(*args, **kwargs)
         async with async_session() as writer:
             await writer.execute(
                 text(
@@ -291,6 +292,10 @@ async def test_a_type_added_after_the_live_scan_holds_a_refresh_for_review(
                     "ST_GeomFromText('POLYGON Z ((-73.9 40.7 1, -73.8 40.7 1, "
                     "-73.8 40.8 1, -73.9 40.7 1))', 4326))"
                 )
+            )
+            # As a feature write does, in the transaction that writes the row.
+            await bump_tile_cache_version_atomic(
+                writer, dataset_cls=Dataset, dataset_id=dataset_id
             )
             await writer.commit()
         return scanned

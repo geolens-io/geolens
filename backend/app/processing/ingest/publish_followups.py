@@ -41,6 +41,7 @@ from sqlalchemy import (
     select,
     text,
     true,
+    type_coerce,
     update,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
@@ -52,11 +53,13 @@ from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.jobs.models import (
     ARCHIVE_PENDING_METADATA_KEY,
     ARCHIVE_REVIEW_METADATA_KEY,
+    OBLIGATIONS_HOLD_FIELD,
     PUBLISH_FOLLOWUPS_FIELD,
     PUBLISH_OBLIGATIONS_FIELD,
     SUPERSEDED_COG_ITEM,
     IngestJob,
     holds_unarchived_original,
+    obligations_hold,
     owned_presigned_staging_key,
 )
 from app.processing.ingest.tasks_common import (
@@ -134,6 +137,28 @@ _CLAIM_LEASE = timedelta(minutes=10)
 _UNOWED_ARCHIVE_MIN_AGE = timedelta(days=1)
 
 
+def _hold():
+    return func.jsonb_build_object(OBLIGATIONS_HOLD_FIELD, obligations_hold())
+
+
+def _holding(metadata):
+    """``metadata`` with the obligations hold while it holds an obligations record, and without it otherwise.
+
+    The hold never replaces a value already in its field.
+    """
+    stored = type_coerce(metadata, JSONB).self_group()
+    field = literal(OBLIGATIONS_HOLD_FIELD, Text)
+    obligations = stored.op("->")(literal(PUBLISH_OBLIGATIONS_FIELD, Text))
+    return case(
+        (obligations.is_not(None), _hold().op("||")(metadata)),
+        (
+            stored.op("->")(field) == obligations_hold(),
+            metadata.op("-")(field),
+        ),
+        else_=metadata,
+    )
+
+
 def owed_followups(
     attempt_uuid: uuid.UUID,
     task: str,
@@ -164,7 +189,8 @@ def owed_followups(
     notice event and a usage dimension, billed once under the job's id. A
     record naming none gets the ones its job implies at its first claim. One
     naming any is written claimed, so its claim adds none, and leased, so the
-    sweep leaves it to the writer's own call until the lease runs out.
+    sweep leaves it to the writer's own call until the lease runs out. The
+    obligations hold goes beside it, and goes with it.
     """
     owner = ["task", task, "attempt_id", str(attempt_uuid)]
     fields = list(owner)
@@ -199,7 +225,8 @@ def owed_followups(
             storage += [_NEXT_ATTEMPT_AT, func.now() + _RETRY_BASE]
         records += [PUBLISH_FOLLOWUPS_FIELD, func.jsonb_build_object(*owner, *storage)]
     owed = func.jsonb_build_object(*records)
-    return func.coalesce(IngestJob.user_metadata, text("'{}'::jsonb")).op("||")(owed)
+    stored = func.coalesce(IngestJob.user_metadata, text("'{}'::jsonb"))
+    return _hold().op("||")(stored.op("||")(owed))
 
 
 async def note_publish_followups(
@@ -447,7 +474,7 @@ async def _write_record(
         await session.execute(
             update(IngestJob)
             .where(IngestJob.id == job_uuid, record["attempt_id"].astext == attempt_id)
-            .values(user_metadata=metadata)
+            .values(user_metadata=_holding(metadata))
             .execution_options(synchronize_session=False)
         )
         await session.commit()
@@ -1188,7 +1215,7 @@ async def run_publish_followups(
             await session.execute(
                 update(IngestJob)
                 .where(IngestJob.id == job_uuid)
-                .values(user_metadata=metadata)
+                .values(user_metadata=_holding(metadata))
                 .returning(IngestJob.user_metadata)
                 .execution_options(synchronize_session=False)
             )
@@ -1403,6 +1430,26 @@ async def run_owed_publish_followups() -> int:
     )
     due = or_(*(and_(record.is_not(None), _is_due(record)) for record in records))
     retried = or_(*(record[_ATTEMPTS].is_not(None) for record in records))
+    # A record written before holds were, and not yet due, gets its hold now.
+    unheld = (
+        select(IngestJob.id)
+        .where(
+            records[0].is_not(None),
+            IngestJob.user_metadata[OBLIGATIONS_HOLD_FIELD].is_(None),
+        )
+        .with_for_update(skip_locked=True)
+    )
+    try:
+        async with db_module.async_session() as session:
+            await session.execute(
+                update(IngestJob)
+                .where(IngestJob.id.in_(unheld))
+                .values(user_metadata=_hold().op("||")(IngestJob.user_metadata))
+                .execution_options(synchronize_session=False)
+            )
+            await session.commit()
+    except Exception:  # broad: the holds are set on the next pass
+        log.warning("publish_obligation_holds_not_set", exc_info=True)
     try:
         async with db_module.async_session() as session:
             owed = (

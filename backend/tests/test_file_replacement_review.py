@@ -656,11 +656,52 @@ async def test_live_geometry_is_read_before_the_live_table_is_locked(
     assert run.status == "succeeded"
 
 
-async def test_a_type_added_after_the_live_scan_holds_a_replacement_for_review(
+async def test_a_generic_live_column_is_not_scanned_again_under_the_lock(
     harness: _Harness,
+):
+    """Readers of a generic live column nothing wrote since its scan are not held behind a scan."""
+    import app.core.db as db_module
+    from app.processing.ingest import metadata
+
+    dataset = await _published(harness, _geojson(harness.tmp_path / "a.geojson", _BASE))
+    await harness.session.execute(
+        text(
+            f'ALTER TABLE "data"."{dataset.table_name}" ALTER COLUMN geom TYPE geometry'
+        )
+    )
+    await harness.session.commit()
+    real = metadata.get_geometry_types
+    reads: list[int] = []
+
+    async def _scan_while_reading_the_live_table(session, table_name, **kwargs):
+        if table_name == dataset.table_name:
+            async with db_module.async_session() as reader:
+                await reader.execute(text("SET LOCAL lock_timeout = '1s'"))
+                reads.append(
+                    await reader.scalar(
+                        text(f'SELECT count(*) FROM "data"."{table_name}"')
+                    )
+                )
+        return await real(session, table_name, **kwargs)
+
+    with patch.object(
+        metadata, "get_geometry_types", new=_scan_while_reading_the_live_table
+    ):
+        _preview, run = await harness.replace(
+            dataset, _geojson(harness.tmp_path / "b.geojson", _BASE)
+        )
+
+    assert reads == [3, 3]
+    assert run.status == "succeeded"
+
+
+@pytest.mark.parametrize("registered", [False, True])
+async def test_a_type_added_after_the_live_scan_holds_a_replacement_for_review(
+    harness: _Harness, registered: bool
 ):
     """A replacement compares the live geometry types as they are under its lock."""
     import app.core.db as db_module
+    from app.platform.catalog_locks import bump_tile_cache_version_atomic
     from app.processing.ingest import tasks_reupload
 
     dataset = await _published(harness, _geojson(harness.tmp_path / "a.geojson", _BASE))
@@ -669,11 +710,15 @@ async def test_a_type_added_after_the_live_scan_holds_a_replacement_for_review(
     await harness.session.execute(
         text(f"ALTER TABLE {live} ALTER COLUMN geom TYPE geometry")
     )
+    if registered:
+        await harness.session.execute(
+            update(Dataset).where(Dataset.id == dataset.id).values(source_format=None)
+        )
     await harness.session.commit()
     real = tasks_reupload._live_geometry_types
 
-    async def _scan_then_add_a_polygon(table_name, *, schema):
-        scanned = await real(table_name, schema=schema)
+    async def _scan_then_add_a_polygon(*args, **kwargs):
+        scanned = await real(*args, **kwargs)
         async with db_module.async_session() as writer:
             await writer.execute(
                 text(
@@ -682,6 +727,12 @@ async def test_a_type_added_after_the_live_scan_holds_a_replacement_for_review(
                     "-73.8 40.8, -73.9 40.7))', 4326))"
                 )
             )
+            # A feature write rolls the version; another tool writing a
+            # registered table rolls nothing.
+            if not registered:
+                await bump_tile_cache_version_atomic(
+                    writer, dataset_cls=Dataset, dataset_id=dataset.id
+                )
             await writer.commit()
         return scanned
 
