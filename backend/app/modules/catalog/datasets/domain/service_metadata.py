@@ -46,6 +46,9 @@ _TYPE_EQUIVALENCES = {
     "real": "double precision",
     "int": "integer",
     "int64": "bigint",
+    "integer64": "bigint",
+    "datetime": "timestamp with time zone",
+    "time": "time without time zone",
     "float": "double precision",
 }
 
