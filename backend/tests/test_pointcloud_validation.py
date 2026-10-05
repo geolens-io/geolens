@@ -1423,7 +1423,7 @@ async def test_the_worker_leaves_the_checks_below_the_top_node_to_the_child(
 async def test_a_decode_past_its_time_budget_is_refused(tmp_path, monkeypatch) -> None:
     """A decode that uses up its share of the file's budget in CPU time is refused."""
     _burning_decoder(monkeypatch)
-    monkeypatch.setattr(pointcloud_module, "DECODE_FLOOR_SECONDS", 3)
+    monkeypatch.setattr(pointcloud_module, "DECODE_FLOOR_SECONDS", 5)
 
     with pytest.raises(UnsafeUploadError) as refusal:
         await inspect_every_node(write(tmp_path, copc_nodes()))
