@@ -72,7 +72,7 @@ export function AccessibleMapDataPanel({
           variant="outline"
           size="sm"
           disabled={disabled}
-          className="absolute bottom-20 left-3 z-30 bg-background/95 shadow-md backdrop-blur-sm"
+          className="absolute bottom-0 left-1/2 z-30 -translate-x-1/2 rounded-b-none border-b-0 bg-background/95 shadow-md backdrop-blur-sm focus-visible:ring-inset"
         >
           <TableProperties aria-hidden="true" />
           {t('viewer.data.launch')}

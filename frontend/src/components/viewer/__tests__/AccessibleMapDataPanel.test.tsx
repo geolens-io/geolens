@@ -55,6 +55,13 @@ function Harness({ onRefresh = vi.fn() }: { onRefresh?: () => void }) {
 }
 
 describe('AccessibleMapDataPanel', () => {
+  it('sits as a tab centered on the bottom edge', () => {
+    render(<Harness />);
+
+    const trigger = screen.getByRole('button', { name: 'Map data' });
+    expect(trigger).toHaveClass('bottom-0', 'left-1/2', '-translate-x-1/2', 'rounded-b-none');
+  });
+
   it('offers a keyboard-operable structured alternative to the map canvas', () => {
     render(<Harness />);
 

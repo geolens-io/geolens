@@ -15,12 +15,9 @@ import { Clock, MapPinOff } from 'lucide-react';
 import { ApiError } from '@/api/client';
 import { useTranslation } from 'react-i18next';
 import { LoadingState } from '@/components/layout/LoadingState';
-import { AppFooter } from '@/components/layout/AppFooter';
 import { SiteBanner } from '@/components/layout/SiteBanner';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { MapErrorBoundary } from '@/components/error';
-import { useEdition } from '@/hooks/use-edition';
-import { useBranding } from '@/hooks/use-settings';
 import { Button } from '@/components/ui/button';
 
 function parseCenter(raw: string | null): { lng: number; lat: number } | null {
@@ -43,11 +40,6 @@ function parseZoom(raw: string | null): number | null {
 
 export function PublicViewerPage() {
   const { t } = useTranslation('common');
-  const { isEnterprise } = useEdition();
-  const { data: branding } = useBranding();
-  // Gate on branding !== undefined so enterprise users with show_badge:false do
-  // not see a flash of the footer badge while the branding query is loading (IN-02).
-  const showFooterBranding = branding !== undefined && (!isEnterprise || branding?.show_badge !== false);
   const { token } = useParams<{ token: string }>();
   const [searchParams] = useSearchParams();
   const isEmbed = searchParams.get('embed') === 'true';
@@ -172,7 +164,6 @@ export function PublicViewerPage() {
             visibleLayers={visibleLayers}
             apiKey={apiKey}
             embedToken={embedToken}
-            showInlineBranding={isEmbed}
             onDrawnChange={setDrawnLayers}
           />
         </Suspense>
@@ -206,14 +197,6 @@ export function PublicViewerPage() {
 
       </main>
 
-      {/* Its own row below 400px so wrapped links never cover map controls. */}
-      {!isEmbed && (
-        <AppFooter
-          showBranding={showFooterBranding}
-          className="px-3 pb-2 text-2xs text-muted-foreground min-[400px]:pointer-events-none min-[400px]:absolute min-[400px]:inset-x-0 min-[400px]:bottom-0 min-[400px]:z-10"
-          navClassName="mx-auto inline-flex max-w-full rounded-full border border-border/50 bg-background/75 px-3 py-1.5 shadow-sm backdrop-blur-sm min-[400px]:pointer-events-auto"
-        />
-      )}
     </div>
   );
 }

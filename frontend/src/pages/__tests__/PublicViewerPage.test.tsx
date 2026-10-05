@@ -4,8 +4,6 @@ import { act, render, screen, within } from '@/test/test-utils';
 import { PublicViewerPage } from '../PublicViewerPage';
 import { useSharedMap } from '@/hooks/use-maps';
 import { useViewerLayers } from '@/components/viewer/hooks/use-viewer-layers';
-import { useEdition } from '@/hooks/use-edition';
-import { useBranding } from '@/hooks/use-settings';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { ApiError } from '@/api/client';
 import type { ViewerMap } from '@/components/viewer/ViewerMap';
@@ -29,14 +27,6 @@ vi.mock('@/components/viewer/hooks/use-viewer-layers', () => ({
 
 vi.mock('@/hooks/use-document-title', () => ({
   useDocumentTitle: vi.fn(),
-}));
-
-vi.mock('@/hooks/use-edition', () => ({
-  useEdition: vi.fn(),
-}));
-
-vi.mock('@/hooks/use-settings', () => ({
-  useBranding: vi.fn(),
 }));
 
 vi.mock('@/components/viewer/ViewerMap', () => ({
@@ -67,8 +57,6 @@ vi.mock('@/components/error', () => ({
 
 const mockedUseSharedMap = vi.mocked(useSharedMap);
 const mockedUseViewerLayers = vi.mocked(useViewerLayers);
-const mockedUseEdition = vi.mocked(useEdition);
-const mockedUseBranding = vi.mocked(useBranding);
 
 const SHARED_MAP: SharedMapResponse = {
   name: 'Shared map',
@@ -147,19 +135,6 @@ describe('PublicViewerPage', () => {
       isLegendOpen: true,
       setIsLegendOpen: vi.fn(),
     } as ReturnType<typeof useViewerLayers>);
-
-    mockedUseEdition.mockReturnValue({
-      edition: 'enterprise',
-      features: ['branding'],
-      isEnterprise: true,
-      isMultiTenant: false,
-      isLoading: false,
-      isResolved: true,
-    });
-
-    mockedUseBranding.mockReturnValue({
-      data: { show_badge: false, privacy_url: null },
-    } as ReturnType<typeof useBranding>);
   });
 
   it('titles the document with the shared map name', () => {
@@ -201,26 +176,14 @@ describe('PublicViewerPage', () => {
     expect(within(main).getByRole('alert')).toHaveTextContent(/map not found/i);
   });
 
-  it('renders footer links on shared-map pages even when enterprise branding is disabled', () => {
+  it('renders no app footer on shared-map pages', () => {
     renderPage();
 
-    const footer = screen.getByRole('contentinfo');
-    expect(footer).toBeInTheDocument();
-    expect(footer).not.toHaveTextContent('Powered by GeoLens');
-    // Hidden under 400px would take the links away from narrow screens.
-    expect(footer.className).not.toMatch(/(^|\s)hidden(\s|$)/);
-    // A narrow footer takes its own row after the map instead of overlaying
-    // its controls; the overlay only applies from 400px up.
-    expect(screen.getByRole('main')).not.toContainElement(footer);
-    expect(footer.className).not.toMatch(/(^|\s)(absolute|pointer-events-none)(\s|$)/);
-    expect(footer.className).toContain('min-[400px]:absolute');
-    expect(screen.getByRole('link', { name: /^github$/i })).toHaveAttribute(
-      'href',
-      'https://github.com/geolens-io/geolens',
-    );
+    expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /^github$/i })).not.toBeInTheDocument();
   });
 
-  it('omits the footer on embedded shared-map pages', () => {
+  it('renders no app footer on embedded shared-map pages', () => {
     renderPage('/m/share-token?embed=true');
 
     expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
@@ -245,21 +208,6 @@ describe('PublicViewerPage', () => {
       basemapConfig: SHARED_MAP.basemap_config,
       terrainConfig: SHARED_MAP.terrain_config,
       showBasemapLabels: true,
-    });
-  });
-
-  describe('SHARE-07 branding overlay routing', () => {
-    it('embed mode passes showInlineBranding=true to ViewerMap', async () => {
-      renderPage('/m/share-token?embed=true');
-      await screen.findByTestId('viewer-map');
-      expect(viewerMapMock.props?.showInlineBranding).toBe(true);
-    });
-
-    it('non-embed mode passes showInlineBranding=false to ViewerMap AND AppFooter renders', async () => {
-      renderPage('/m/share-token');
-      await screen.findByTestId('viewer-map');
-      expect(viewerMapMock.props?.showInlineBranding).toBe(false);
-      expect(screen.getByRole('contentinfo')).toBeInTheDocument();
     });
   });
 
