@@ -471,7 +471,7 @@ export function JobList() {
                                   </pre>
                                 </div>
                               )}
-                              {job.status === 'failed' && job.retry_reason && (
+                              {job.status === 'failed' && job.retry_reason && job.error_code !== 'review_required' && (
                                 <p className="mb-2 text-xs text-muted-foreground">
                                   {job.retry_reason}
                                 </p>

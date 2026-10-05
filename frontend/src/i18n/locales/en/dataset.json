@@ -885,7 +885,8 @@
           "succeeded": "Succeeded",
           "failed": "Failed",
           "cancelled": "Cancelled",
-          "blocked": "Needs review"
+          "blocked": "Needs review",
+          "accepted": "Accepted"
         },
         "sourceCountUnavailable": "Source count unavailable.",
         "identityUnavailable": "Record identities were not compared.",

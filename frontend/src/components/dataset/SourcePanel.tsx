@@ -37,6 +37,7 @@ import { useDrawingStore } from '@/stores/drawing-store';
 import type {
   DatasetOrigin,
   DatasetRefreshRequest,
+  DatasetRefreshRunResponse,
   DatasetResponse,
   DatasetVersionResponse,
   SchemaDriftStatus,
@@ -161,6 +162,19 @@ function matchesCurrentServiceBinding(
     && binding.layer_id === currentLayer
     && typeof binding.url === 'string'
     && safeHttpPointer(binding.url) === currentUrl;
+}
+
+// A later published run replaced the data this held upload was measured
+// against, so accepting it would be refused.
+function heldUploadSuperseded(
+  run: DatasetRefreshRunResponse,
+  runs: DatasetRefreshRunResponse[],
+): boolean {
+  if (run.origin_kind !== 'upload') return false;
+  const heldAt = Date.parse(run.started_at);
+  return runs.some((other) => other.status === 'succeeded'
+    && other.dataset_version_id != null
+    && Date.parse(other.started_at) > heldAt);
 }
 
 function trustedRef(dataset: DatasetResponse, origin: DatasetOrigin): Record<string, unknown> | null {
@@ -388,8 +402,22 @@ function RefreshRunHistory({
               className="border-s-2 border-muted ps-4"
             >
               <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline" className={refreshRunStatusColors[run.status] ?? ''}>
-                  {t(`sourcePanel.refresh.history.status.${run.status}`, { defaultValue: run.status })}
+                <Badge
+                  variant="outline"
+                  className={refreshRunStatusColors[
+                    run.status === 'blocked' && run.verification?.acceptance_consumed_by_run_id
+                      ? 'succeeded'
+                      : run.status
+                  ] ?? ''}
+                >
+                  {t(
+                    `sourcePanel.refresh.history.status.${
+                      run.status === 'blocked' && run.verification?.acceptance_consumed_by_run_id
+                        ? 'accepted'
+                        : run.status
+                    }`,
+                    { defaultValue: run.status },
+                  )}
                 </Badge>
                 {/* fix(#1325): run.origin_kind is the run's execution door,
                     not the dataset's origin shown by the OriginBadge above —
@@ -522,6 +550,7 @@ function RefreshRunHistory({
                       || matchesCurrentServiceBinding(dataset, run.verification.source_binding))
                     && run.verification.review_fingerprint
                     && !run.verification.acceptance_consumed_by_run_id
+                    && !heldUploadSuperseded(run, runs)
                     && onAcceptBlockedRun && (
                     <>
                       <Button

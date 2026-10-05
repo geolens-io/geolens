@@ -885,7 +885,8 @@
           "succeeded": "已成功",
           "failed": "已失败",
           "cancelled": "已取消",
-          "blocked": "需要审核"
+          "blocked": "需要审核",
+          "accepted": "已接受"
         },
         "sourceCountUnavailable": "数据源计数不可用。",
         "identityUnavailable": "未比较记录标识。",
