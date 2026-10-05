@@ -137,8 +137,17 @@ describe('ViewerMap GeoLens attribution credit', () => {
     expect(credits()).toBeNull();
   });
 
-  it('omits the credit while branding is still loading', () => {
+  it('shows the community credit even when the branding lookup returns nothing', () => {
     mockedUseEdition.mockReturnValue(COMMUNITY);
+    brandingData(undefined);
+
+    render(<ViewerMap {...MINIMAL_PROPS} />);
+
+    expect(credits()).toHaveLength(1);
+  });
+
+  it('omits the enterprise credit while branding is still loading', () => {
+    mockedUseEdition.mockReturnValue(ENTERPRISE);
     brandingData(undefined);
 
     render(<ViewerMap {...MINIMAL_PROPS} />);
