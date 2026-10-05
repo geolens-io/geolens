@@ -524,6 +524,37 @@ async def test_an_upload_that_completes_but_raises_is_removed(
     assert not await storage.exists(keys[0]), "the upload outlived its failure"
 
 
+async def test_a_draw_reads_the_predecessor_pointer_under_a_row_lock(
+    test_db_session, storage, tables
+) -> None:
+    """Two draws of one version must each reap the pointer their own update replaced."""
+    from sqlalchemy import event
+
+    import app.core.db as db_module
+
+    dataset, _admin_id, _before = await _published_one_point_dataset(
+        test_db_session, storage, tables
+    )
+    statements: list[str] = []
+
+    def _record(_conn, _cursor, statement, *_rest):
+        statements.append(statement)
+
+    engine = db_module.engine.sync_engine
+    event.listen(engine, "before_cursor_execute", _record)
+    try:
+        await _draw(dataset)
+    finally:
+        event.remove(engine, "before_cursor_execute", _record)
+
+    predecessor_reads = [
+        stmt
+        for stmt in statements
+        if "SELECT" in stmt and "quicklook_256_uri" in stmt and "WHERE" in stmt
+    ]
+    assert any("FOR NO KEY UPDATE" in stmt for stmt in predecessor_reads)
+
+
 async def test_a_draw_whose_dataset_was_deleted_removes_its_upload(
     test_db_session, storage, tables, monkeypatch
 ) -> None:

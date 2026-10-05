@@ -1182,7 +1182,9 @@ async def _draw_quicklook(
     previous_uri: str | None = None
     try:
         previous_uri = await session.scalar(
-            select(Dataset.quicklook_256_uri).where(Dataset.id == dataset_id)
+            select(Dataset.quicklook_256_uri)
+            .where(Dataset.id == dataset_id)
+            .with_for_update(key_share=True)
         )
         written = await session.execute(
             update(Dataset)

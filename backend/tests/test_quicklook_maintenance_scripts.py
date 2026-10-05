@@ -123,3 +123,48 @@ async def test_forced_bulk_redraw_removes_its_upload_when_the_write_fails(monkey
     await script.main()
 
     storage.delete.assert_awaited_once_with(storage.put.await_args.args[0])
+
+
+@pytest.mark.anyio
+async def test_forced_bulk_redraw_counts_a_failed_old_image_removal_as_done(
+    monkeypatch, capsys
+):
+    """The pointer is already committed, so a cleanup failure is not a failed redraw."""
+    import sys
+    from unittest.mock import AsyncMock
+
+    from scripts import generate_vector_quicklooks as script
+
+    row = MagicMock(
+        id="33333333-3333-3333-3333-333333333333",
+        table_name="t",
+        geometry_type="Point",
+        quicklook_256_uri="vectors/33333333/quicklook_256.png",
+    )
+    db = MagicMock()
+    db.execute = AsyncMock(return_value=MagicMock(fetchall=lambda: [row]))
+    db.commit = AsyncMock()
+    db.rollback = AsyncMock()
+    session = MagicMock()
+    session.__aenter__ = AsyncMock(return_value=db)
+    session.__aexit__ = AsyncMock(return_value=False)
+    storage = MagicMock(
+        put=AsyncMock(), delete=AsyncMock(side_effect=OSError("delete failed"))
+    )
+    monkeypatch.setattr(sys, "argv", ["generate_vector_quicklooks.py", "--force"])
+    monkeypatch.setattr(
+        script,
+        "create_async_engine",
+        MagicMock(return_value=MagicMock(dispose=AsyncMock())),
+    )
+    monkeypatch.setattr(script, "sessionmaker", MagicMock(return_value=lambda: session))
+    monkeypatch.setattr("app.platform.storage.init_storage", MagicMock())
+    monkeypatch.setattr("app.platform.storage.get_storage", lambda: storage)
+    monkeypatch.setattr(
+        "app.processing.vector.quicklook.generate_vector_quicklook_with_timeout",
+        AsyncMock(return_value=b"x" * 600),
+    )
+
+    await script.main()
+
+    assert "Done: 1 generated, 0 skipped." in capsys.readouterr().out

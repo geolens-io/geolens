@@ -102,7 +102,12 @@ async def main() -> None:
                 )
                 await db.commit()
                 if row.quicklook_256_uri and row.quicklook_256_uri != ql_key:
-                    await storage.delete(row.quicklook_256_uri)
+                    try:
+                        await storage.delete(row.quicklook_256_uri)
+                    except (
+                        Exception
+                    ) as e:  # broad: an orphaned image only costs storage
+                        print(f"  could not remove {row.quicklook_256_uri}: {e}")
                 success += 1
                 print(f"  [{i}/{len(rows)}] OK   {name} ({len(ql_bytes)} bytes)")
             except Exception as e:
