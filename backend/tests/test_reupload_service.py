@@ -363,8 +363,9 @@ class TestServiceReuploadWorker:
             .where(DatasetVersion.dataset_id == dataset.id)
             .order_by(DatasetVersion.version_number.desc())
         )
-        version = version_result.scalar_one()
+        version, kept = version_result.scalars().all()
         assert version.version_number == original_version + 1
+        assert kept.version_number == original_version
         assert version.source_format == "wfs"
         assert version.source_filename == "roads_wfs"
         assert version.feature_count == 275

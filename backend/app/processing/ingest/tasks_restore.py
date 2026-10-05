@@ -33,7 +33,10 @@ from app.processing.ingest.publication import (
     Verdict,
     settle_replacement,
 )
-from app.processing.ingest.previous_version import stamp_previous_version
+from app.processing.ingest.previous_version import (
+    record_live_version,
+    stamp_previous_version,
+)
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
     _current_tenant_schema,
@@ -48,24 +51,31 @@ _CHANGED = "previous_version_changed"
 _NOT_APPLICABLE = "restore_not_applicable"
 
 
-def _reinstate_upload_source(dataset, source) -> None:
-    """Point the dataset's source fields back at the kept version's upload.
+def _reinstate_source(dataset, source) -> None:
+    """Point the dataset's source fields back at the kept version's.
 
-    A kept version that did not come from an upload is not described by upload
-    fields, and a first import has no version row to read, so both leave the
-    dataset's binding as it is.
+    The source CRS always follows the kept data. The binding follows it only
+    for an upload or a layer drawn in the app: version fields cannot describe
+    another origin, so that binding is left as it is. A version kept before
+    its row was recorded has none to read, and changes nothing.
     """
-    if (
-        source is None
-        or not source.source_format
-        or classify_origin(source.source_format) != "upload"
-    ):
+    if source is None:
+        return
+    dataset.original_srid = source.original_srid
+    kind = classify_origin(source.source_format) if source.source_format else None
+    if kind not in ("upload", "created"):
         return
     dataset.source_filename = source.source_filename
     dataset.source_format = source.source_format
-    set_dataset_origin(
-        dataset, "upload", filename=source.source_filename, file_hash=source.file_hash
-    )
+    if kind == "upload":
+        set_dataset_origin(
+            dataset,
+            "upload",
+            filename=source.source_filename,
+            file_hash=source.file_hash,
+        )
+    else:
+        set_dataset_origin(dataset, "created")
 
 
 class RestoreRefused(Exception):
@@ -117,18 +127,28 @@ class _RestorePreviousVersion:
         from app.platform.extensions import get_processing_port
 
         DatasetVersion = get_processing_port().get_dataset_version_orm_class()
-        kept_type = await session.scalar(
-            select(DatasetVersion.geometry_type).where(
-                DatasetVersion.dataset_id == dataset.id,
-                DatasetVersion.version_number == self.expected,
+        kept = (
+            await session.execute(
+                select(
+                    DatasetVersion.geometry_type,
+                    DatasetVersion.is_3d,
+                    DatasetVersion.n_dims,
+                ).where(
+                    DatasetVersion.dataset_id == dataset.id,
+                    DatasetVersion.version_number == self.expected,
+                )
             )
-        )
+        ).one_or_none()
         self.measurement = await catalog_projection.measure(
             session,
             dataset,
             table=self.previous,
             schema=schema,
-            stored=SimpleNamespace(geometry_type=kept_type, is_3d=None, n_dims=None),
+            stored=SimpleNamespace(
+                geometry_type=None if kept is None else kept.geometry_type,
+                is_3d=None if kept is None else kept.is_3d,
+                n_dims=None if kept is None else kept.n_dims,
+            ),
         )
         await install_candidate_table(
             session,
@@ -163,6 +183,7 @@ class _RestorePreviousVersion:
             )
         )
 
+        await record_live_version(session, dataset)
         schema_diff = await catalog_projection.project(
             session, dataset, self.measurement
         )
@@ -173,7 +194,7 @@ class _RestorePreviousVersion:
         # Freshness describes the data that is live again, as the swap that
         # kept it recorded.
         dataset.last_refreshed_at = restored_refreshed_at
-        _reinstate_upload_source(dataset, source)
+        _reinstate_source(dataset, source)
 
         version = DatasetVersion(
             dataset_id=dataset.id,
@@ -184,6 +205,9 @@ class _RestorePreviousVersion:
             feature_count=self.measurement.metadata.get("feature_count"),
             srid=self.measurement.metadata.get("srid"),
             geometry_type=self.measurement.geometry_type,
+            original_srid=None if source is None else source.original_srid,
+            is_3d=self.measurement.three_d.get("is_3d"),
+            n_dims=self.measurement.three_d.get("n_dims"),
             restored_from_version=restored,
             uploaded_by=actor_id,
         )
