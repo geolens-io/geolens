@@ -312,8 +312,12 @@ async def _fetch_arcgis_import_page_info(
         fetch_arcgis_feature_count,
         fetch_arcgis_pagination_info,
     )
+    from app.core.url_redaction import redact_exception_text
     from app.platform.security import make_safe_client
 
+    # A failed count must not discard what the layer metadata already said.
+    max_record_count, supports_pagination = None, False
+    order_field = fallback_order_field
     try:
         async with make_safe_client(timeout=30.0) as client:
             (
@@ -338,9 +342,9 @@ async def _fetch_arcgis_import_page_info(
             "arcgis_import_page_info_fetch_failed",
             source_url=source_url,
             layer_id=str(layer_id),
-            error=str(exc),
+            error=redact_exception_text(exc),
         )
-        return None, None, False, fallback_order_field
+        return None, max_record_count, supports_pagination, order_field
 
 
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.ingest_file"])
