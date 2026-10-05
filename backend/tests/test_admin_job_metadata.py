@@ -462,7 +462,7 @@ async def test_a_refresh_accepting_a_blocked_run_lists_no_acceptance_state(
     await test_db_session.commit()
     dataset_id = dataset.id
 
-    async def _empty_layer(source_url, layer_id, token):
+    async def _empty_layer(source_url, layer_id, token, **_):
         return 0, 1000, True, "FID"
 
     monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _empty_layer)

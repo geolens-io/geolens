@@ -752,6 +752,136 @@ async def test_service_worker_skips_arcgis_chunking_without_pagination_support(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("page_info", "expected"),
+    [
+        ((251, 2000, True, "FID"), [["FID ASC"]]),
+        ((251, 2000, True, None), [None]),
+        ((5000, 2000, False, None), []),
+        ((5000, 2000, False, "FID"), []),
+    ],
+)
+async def test_service_worker_single_fetch_orders_by_the_layers_own_oid_field(
+    test_db_session, monkeypatch, page_info, expected
+):
+    """The single fetch orders by the layer's field, or refuses to truncate."""
+    from app.modules.catalog.sources.preview import build_gdal_source
+    from app.processing.ingest import tasks_vector
+
+    admin_id = await _get_admin_id(test_db_session)
+    table_name = f"tbl_arcgis_fid_{_uuid.uuid4().hex[:8]}"
+    source_url = "https://example.test/arcgis/rest/services/Countries/FeatureServer"
+
+    job = IngestJob(
+        source_filename="Countries",
+        source_url=source_url,
+        source_layer="0",
+        created_by=admin_id,
+        status="pending",
+        user_metadata={
+            "title": "Countries",
+            "visibility": "private",
+            "service_type": "ArcGIS FeatureServer",
+            "layer_id": "0",
+            "geometry_type": "Polygon",
+            "object_id_field": "OBJECTID",
+        },
+    )
+    test_db_session.add(job)
+    await test_db_session.flush()
+    await test_db_session.commit()
+
+    order_fields: list[list[str] | None] = []
+
+    class _FakeProcessingPort:
+        def build_gdal_source(self, *args, **kwargs):
+            return build_gdal_source(*args, **kwargs)
+
+    async def _validate_url_noop(_url: str) -> None:
+        return None
+
+    async def _fake_generate_table_name(*args, **kwargs):
+        return table_name, None
+
+    page_info_kwargs: list[dict] = []
+
+    async def _fake_page_info(*args, **kwargs):
+        page_info_kwargs.append(kwargs)
+        return page_info
+
+    async def _fake_run_ogr2ogr_service(
+        gdal_source: str, layer_name: str, target_table: str, *args, **kwargs
+    ) -> None:
+        query = parse_qs(urlsplit(gdal_source.removeprefix("ESRIJSON:")).query)
+        order_fields.append(query.get("orderByFields"))
+        await test_db_session.execute(
+            text(f'DROP TABLE IF EXISTS data."{target_table}"')
+        )
+        await test_db_session.execute(
+            text(f'CREATE TABLE data."{target_table}" (gid serial PRIMARY KEY)')
+        )
+        await test_db_session.commit()
+
+    async def _fake_rename_reserved_columns(*args, **kwargs):
+        return []
+
+    async def _fake_finalize_ingest(context):
+        context.job.status = "complete"
+        context.job.current_step = "complete"
+        context.job.progress = 1.0
+        await context.session.commit()
+
+    async def _fake_emit_billing_event(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "app.platform.security.validate_url_for_ssrf", _validate_url_noop
+    )
+    monkeypatch.setattr(
+        "app.platform.extensions.get_processing_port",
+        lambda: _FakeProcessingPort(),
+    )
+    monkeypatch.setattr("app.processing.ingest.ogr.build_pg_conn_str", lambda: "PG:")
+    monkeypatch.setattr(
+        "app.processing.ingest.service.generate_table_name",
+        _fake_generate_table_name,
+    )
+    monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)
+    monkeypatch.setattr(
+        "app.processing.ingest.ogr.run_ogr2ogr_service", _fake_run_ogr2ogr_service
+    )
+    monkeypatch.setattr(
+        "app.processing.ingest.metadata.rename_reserved_columns",
+        _fake_rename_reserved_columns,
+    )
+    monkeypatch.setattr(tasks_vector, "_finalize_ingest", _fake_finalize_ingest)
+    monkeypatch.setattr(
+        "app.processing.ingest.publish_followups._emit_billing_event",
+        _fake_emit_billing_event,
+    )
+
+    run = tasks_vector.ingest_service.func(
+        job_id=str(job.id),
+        attempt_id=str(job.attempt_id),
+        source_url=source_url,
+        source_layer="0",
+        user_id=str(admin_id),
+    )
+    if expected:
+        await run
+    else:
+        from app.processing.ingest.ogr import IngestionError
+
+        with pytest.raises(IngestionError, match="can't page through the rest"):
+            await run
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+
+    assert order_fields == expected
+    assert page_info_kwargs == [{"fallback_order_field": "OBJECTID"}]
+
+
+@pytest.mark.anyio
 async def test_service_worker_skips_arcgis_chunking_without_order_field(
     test_db_session, monkeypatch
 ):

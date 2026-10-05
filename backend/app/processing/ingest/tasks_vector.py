@@ -298,19 +298,45 @@ async def _write_service_import_progress(
         await session.commit()
 
 
+def _refuse_truncated_arcgis_fetch(
+    feature_count: int | None, max_record_count: int | None, supports_pagination: bool
+) -> None:
+    """Raise when one ArcGIS fetch from a server that can't page would stop short."""
+    if (
+        supports_pagination is not True
+        and feature_count is not None
+        and max_record_count is not None
+        and feature_count > max_record_count
+    ):
+        from app.processing.ingest.ogr import IngestionError
+
+        raise IngestionError(
+            f"This ArcGIS layer has {feature_count} features but the server "
+            f"returns at most {max_record_count} per request and can't page "
+            "through the rest, so GeoLens can't import it completely."
+        )
+
+
 async def _fetch_arcgis_import_page_info(
-    source_url: str, layer_id: int | str | None, token: str | None
+    source_url: str,
+    layer_id: int | str | None,
+    token: str | None,
+    fallback_order_field: str | None = None,
 ) -> tuple[int | None, int | None, bool, str | None]:
     if layer_id is None:
-        return None, None, False, None
+        return None, None, False, fallback_order_field
 
     from app.modules.catalog.sources.adapters.arcgis import (
         ArcGISTokenError,
         fetch_arcgis_feature_count,
         fetch_arcgis_pagination_info,
     )
+    from app.core.url_redaction import redact_exception_text
     from app.platform.security import make_safe_client
 
+    # A failed count must not discard what the layer metadata already said.
+    max_record_count, supports_pagination = None, False
+    order_field = fallback_order_field
     try:
         async with make_safe_client(timeout=30.0) as client:
             (
@@ -318,7 +344,11 @@ async def _fetch_arcgis_import_page_info(
                 supports_pagination,
                 order_field,
             ) = await fetch_arcgis_pagination_info(
-                source_url, layer_id, client, token=token
+                source_url,
+                layer_id,
+                client,
+                token=token,
+                fallback_order_field=fallback_order_field,
             )
             feature_count = await fetch_arcgis_feature_count(
                 source_url, layer_id, client, token=token
@@ -331,9 +361,9 @@ async def _fetch_arcgis_import_page_info(
             "arcgis_import_page_info_fetch_failed",
             source_url=source_url,
             layer_id=str(layer_id),
-            error=str(exc),
+            error=redact_exception_text(exc),
         )
-        return None, None, False, None
+        return None, max_record_count, supports_pagination, order_field
 
 
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.ingest_file"])
@@ -886,7 +916,7 @@ async def ingest_service(
 
         # Retry WFS namespaces through the shared helper.
         async def _do_import(layer_name: str) -> None:
-            feature_count = None
+            feature_count = max_record_count = None
             page_size = _ARCGIS_SERVICE_IMPORT_CHUNK_SIZE
             supports_pagination = False
             pagination_order_field = None
@@ -896,7 +926,9 @@ async def ingest_service(
                     max_record_count,
                     supports_pagination,
                     pagination_order_field,
-                ) = await _fetch_arcgis_import_page_info(source_url, layer_id, token)
+                ) = await _fetch_arcgis_import_page_info(
+                    source_url, layer_id, token, fallback_order_field=object_id_field
+                )
                 if max_record_count is not None:
                     page_size = max(1, min(page_size, max_record_count))
 
@@ -941,13 +973,16 @@ async def ingest_service(
                 )
                 return
 
+            _refuse_truncated_arcgis_fetch(
+                feature_count, max_record_count, supports_pagination
+            )
             _src, _layer = port.build_gdal_source(
                 service_type_raw,
                 source_url,
                 layer_name,
                 layer_id,
                 token=token,
-                order_field=object_id_field,
+                order_field=pagination_order_field,
             )
             await run_ogr2ogr_service(
                 _src,

@@ -529,6 +529,8 @@ async def _probe_arcgis_service_within_deadline(
 
     layers = []
 
+    # Root layer lists usually omit objectIdField, and a guessed name makes
+    # the server reject the query; the worker reads the layer's own JSON.
     service_oid = data.get("objectIdField")
 
     for layer in data.get("layers", []):
@@ -539,9 +541,7 @@ async def _probe_arcgis_service_within_deadline(
                 "title": layer.get("title"),
                 "geometry_type": _normalize_esri_geom_type(layer.get("geometryType")),
                 "type": "layer",
-                "object_id_field": layer.get("objectIdField")
-                or service_oid
-                or "OBJECTID",
+                "object_id_field": layer.get("objectIdField") or service_oid,
             }
         )
 
@@ -836,8 +836,13 @@ async def fetch_arcgis_pagination_info(
     token: str | None = None,
     *,
     current_version: object = None,
+    fallback_order_field: str | None = None,
 ) -> tuple[int | None, bool, str | None]:
     """Fetch ArcGIS pagination support, page size, and stable order field.
+
+    The order field is the layer's own OID when the layer can order by it,
+    ``None`` when it can't, and *fallback_order_field* when the layer's
+    metadata can't be read.
 
     fix(#1770): bounded like `enrich_arcgis_feature_counts` above, for the
     same reason. This is also where ``currentVersion`` lives — a caller that
@@ -867,13 +872,13 @@ async def fetch_arcgis_pagination_info(
         # fix(#1858): degrades here for the reason given at `_fetch_count`
         # above — the optional fact is pagination support, and the worker's
         # own handler degrades identically either way.
-        return None, False, None
+        return None, False, fallback_order_field
 
     # fix(#1770): same as `_fetch_count`/`fetch_arcgis_feature_count` above
     # — a non-dict response makes the checks below raise uncaught, instead
     # of the ordinary "no pagination info" degrade.
     if not isinstance(data, dict):
-        return None, False, None
+        return None, False, fallback_order_field
 
     if "error" in data:
         error_info = data["error"]
@@ -881,15 +886,21 @@ async def fetch_arcgis_pagination_info(
         message = error_info.get("message", "Unknown ArcGIS error")
         if code in _ARCGIS_TOKEN_ERROR_CODES:
             raise ArcGISTokenError(code, message)
-        return None, False, None
+        return None, False, fallback_order_field
 
     value = data.get("maxRecordCount")
     max_record_count = value if isinstance(value, int) and value > 0 else None
     advanced = data.get("advancedQueryCapabilities") or {}
-    supports_pagination = (
-        isinstance(advanced, dict) and advanced.get("supportsPagination") is True
+    if not isinstance(advanced, dict):
+        advanced = {}
+    supports_pagination = advanced.get("supportsPagination") is True
+    # A server that can't order rejects a query carrying orderByFields.
+    supports_order_by = (
+        data.get("supportsAdvancedQueries") is True
+        or advanced.get("supportsOrderBy") is True
     )
-    return max_record_count, supports_pagination, _extract_arcgis_object_id_field(data)
+    order_field = _extract_arcgis_object_id_field(data) if supports_order_by else None
+    return max_record_count, supports_pagination, order_field
 
 
 async def fetch_arcgis_layer_preview(

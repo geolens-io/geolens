@@ -243,8 +243,8 @@ async def test_arcgis_object_id_field_extraction():
 
 
 @pytest.mark.asyncio
-async def test_arcgis_object_id_field_default():
-    """When no objectIdField in metadata, default to OBJECTID."""
+async def test_arcgis_object_id_field_unknown_when_root_omits_it():
+    """A root without objectIdField leaves the layer's OID field unknown."""
 
     def handle(request: httpx.Request) -> httpx.Response:
         return _streaming_json_response(
@@ -260,7 +260,7 @@ async def test_arcgis_object_id_field_default():
             "https://services.arcgis.com/svc/FeatureServer", client
         )
     assert result is not None
-    assert result["layers"][0]["object_id_field"] == "OBJECTID"
+    assert result["layers"][0]["object_id_field"] is None
 
 
 def test_build_gdal_source_custom_oid():
@@ -363,6 +363,7 @@ async def test_fetch_arcgis_pagination_info_requires_explicit_support():
 
         next_body[0] = {
             "maxRecordCount": 1000,
+            "supportsAdvancedQueries": True,
             "advancedQueryCapabilities": {"supportsPagination": True},
             "objectIdField": "FID",
         }
@@ -383,6 +384,100 @@ async def test_fetch_arcgis_pagination_info_requires_explicit_support():
 
 
 @pytest.mark.asyncio
+async def test_fetch_arcgis_pagination_info_omits_order_field_without_order_support():
+    """A layer that can't order returns no order field, even with an OID."""
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        return _streaming_json_response(
+            {
+                "maxRecordCount": 1000,
+                "supportsAdvancedQueries": False,
+                "advancedQueryCapabilities": {"supportsOrderBy": False},
+                "objectIdField": "FID",
+            }
+        )
+
+    async with _mock_transport_client(handle) as client:
+        _, _, object_id_field = await fetch_arcgis_pagination_info(
+            "https://services.arcgis.com/svc/FeatureServer",
+            0,
+            client,
+            fallback_order_field="OBJECTID",
+        )
+
+    assert object_id_field is None
+
+
+@pytest.mark.asyncio
+async def test_fetch_arcgis_pagination_info_returns_fallback_when_unreadable():
+    """An unreadable layer returns the caller's fallback order field."""
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        return _streaming_json_response(
+            {"error": {"code": 500, "message": "Service not started"}}
+        )
+
+    async with _mock_transport_client(handle) as client:
+        result = await fetch_arcgis_pagination_info(
+            "https://services.arcgis.com/svc/FeatureServer",
+            0,
+            client,
+            fallback_order_field="OBJECTID",
+        )
+
+    assert result == (None, False, "OBJECTID")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("layer_order_field", ["FID", None])
+async def test_import_page_info_keeps_the_layer_order_field_when_the_count_fails(
+    monkeypatch, layer_order_field
+):
+    """A failed count keeps the order field the layer metadata reported."""
+    from app.modules.catalog.sources.adapters import arcgis
+    from app.processing.ingest import tasks_vector
+
+    async def _pagination_info(*args, **kwargs):
+        return 2000, True, layer_order_field
+
+    async def _count_times_out(*args, **kwargs):
+        raise TimeoutError
+
+    monkeypatch.setattr(arcgis, "fetch_arcgis_pagination_info", _pagination_info)
+    monkeypatch.setattr(arcgis, "fetch_arcgis_feature_count", _count_times_out)
+
+    result = await tasks_vector._fetch_arcgis_import_page_info(
+        "https://services.arcgis.com/svc/FeatureServer",
+        0,
+        None,
+        fallback_order_field="OBJECTID",
+    )
+
+    assert result == (None, 2000, True, layer_order_field)
+
+
+@pytest.mark.asyncio
+async def test_import_page_info_returns_fallback_when_the_read_raises(monkeypatch):
+    """A failed page-info read keeps the caller's fallback order field."""
+    from app.modules.catalog.sources.adapters import arcgis
+    from app.processing.ingest import tasks_vector
+
+    async def _raise(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(arcgis, "fetch_arcgis_pagination_info", _raise)
+
+    result = await tasks_vector._fetch_arcgis_import_page_info(
+        "https://services.arcgis.com/svc/FeatureServer",
+        0,
+        None,
+        fallback_order_field="OBJECTID",
+    )
+
+    assert result == (None, None, False, "OBJECTID")
+
+
+@pytest.mark.asyncio
 async def test_fetch_arcgis_pagination_info_uses_oid_field_fallback():
     """Layer metadata can identify the stable order field via field type.
 
@@ -394,7 +489,10 @@ async def test_fetch_arcgis_pagination_info_uses_oid_field_fallback():
         return _streaming_json_response(
             {
                 "maxRecordCount": 1000,
-                "advancedQueryCapabilities": {"supportsPagination": True},
+                "advancedQueryCapabilities": {
+                    "supportsPagination": True,
+                    "supportsOrderBy": True,
+                },
                 "fields": [
                     {"name": "NAME", "type": "esriFieldTypeString"},
                     {"name": "OBJECTID_1", "type": "esriFieldTypeOID"},
