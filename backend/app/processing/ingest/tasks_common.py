@@ -1172,6 +1172,8 @@ async def _draw_quicklook(
             table=table_name,
             error=str(_ql_exc),
         )
+        # An upload can complete remotely and still raise, so the key is reaped.
+        await _reap_quicklook(ql_storage, stored_key, table_name)
         return False
 
     # The write is IO that can raise on a dead connection, and the dataset is

@@ -501,6 +501,29 @@ async def test_a_read_that_loses_the_image_to_a_redraw_serves_the_new_one(
     assert response.content != before
 
 
+async def test_an_upload_that_completes_but_raises_is_removed(
+    test_db_session, storage, tables, monkeypatch
+) -> None:
+    """An upload whose acknowledgement is lost must not leave an unreferenced image."""
+    dataset, _admin_id, _before = await _published_one_point_dataset(
+        test_db_session, storage, tables
+    )
+    await _publish_spread(test_db_session, dataset)
+    keys: list[str] = []
+    real_put = storage.put
+
+    async def _put_then_drop(stored_key, data):
+        keys.append(stored_key)
+        await real_put(stored_key, data)
+        raise ConnectionError("connection lost before the acknowledgement")
+
+    monkeypatch.setattr(storage, "put", _put_then_drop)
+    await _draw(dataset)
+
+    assert keys
+    assert not await storage.exists(keys[0]), "the upload outlived its failure"
+
+
 async def test_a_draw_whose_dataset_was_deleted_removes_its_upload(
     test_db_session, storage, tables, monkeypatch
 ) -> None:
