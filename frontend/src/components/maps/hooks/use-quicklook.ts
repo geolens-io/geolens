@@ -29,6 +29,10 @@ export interface UseQuicklookResult {
  * the render AFTER a 404 populates the negative cache ("Rendered fewer hooks
  * than expected", crashing the consumer to its error boundary).
  *
+ * `version` is the record's `quicklook_version`. It is part of the query key,
+ * the request URL and the negative-cache key, so a redrawn image is fetched
+ * fresh and a 404 for the replaced image does not hide the new one.
+ *
  * Blob URL lifecycle: the blob URL is cached in React Query under the
  * quicklook key and shared across consumers. Revocation is tied to the QUERY
  * CACHE (eviction / refetch-replacement) via registerBlobUrlRevocation, NOT to
@@ -38,20 +42,24 @@ export interface UseQuicklookResult {
 export function useQuicklook(
   datasetId: string | null,
   size: number = 256,
+  version: string | null = null,
 ): UseQuicklookResult {
   const queryClient = useQueryClient();
   useEffect(() => { registerBlobUrlRevocation(queryClient); }, [queryClient]);
 
-  const knownMissing = datasetId != null && isQuicklookKnownMissing(datasetId);
+  const knownMissing =
+    datasetId != null && isQuicklookKnownMissing(datasetId, version);
 
   const {
     data,
     isPending,
     error,
   } = useQuery({
-    queryKey: ['quicklook', datasetId, size],
+    queryKey: ['quicklook', datasetId, size, version],
     queryFn: async () => {
-      const blob = await apiFetchBlob(`/datasets/${datasetId}/quicklook?size=${size}`);
+      const params = new URLSearchParams({ size: String(size) });
+      if (version) params.set('v', version);
+      const blob = await apiFetchBlob(`/datasets/${datasetId}/quicklook?${params}`);
       return URL.createObjectURL(blob);
     },
     enabled: datasetId != null && !knownMissing,
@@ -69,7 +77,7 @@ export function useQuicklook(
 
   // Handle 404 negative-caching — idempotent, so safe to call during render
   if (error instanceof ApiError && error.status === 404) {
-    markQuicklookMissing(datasetId);
+    markQuicklookMissing(datasetId, version);
     return { url: null, status: 'missing' };
   }
 

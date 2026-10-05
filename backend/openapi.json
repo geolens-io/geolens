@@ -13081,6 +13081,18 @@
             "title": "Has Quicklook",
             "type": "boolean"
           },
+          "quicklook_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Changes whenever the quicklook image is replaced. Pass it as the `v` query parameter of the quicklook request so caches fetch the new image.",
+            "title": "Quicklook Version"
+          },
           "gsd": {
             "anyOf": [
               {

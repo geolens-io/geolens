@@ -256,7 +256,7 @@ async def delete_dataset(
         )
     else:
         # Vector ingest persists originals/{id}/ and
-        # vectors/{id}/quicklook_256.png, so deletion removes both objects.
+        # vectors/{id}/quicklook_256_<version>.png, so deletion removes both prefixes.
         data_schema = tenant_data_schema(tenant_id)
         # Probe ahead of the branch, not inside the detach arm.
         # After the DROP below the pg_class row is gone within this

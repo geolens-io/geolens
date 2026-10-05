@@ -176,6 +176,14 @@ class OGCRecordProperties(BaseModel):
     distributions: list[dict] | None = None
     record_status: str | None = None
     has_quicklook: bool = False
+    quicklook_version: str | None = Field(
+        default=None,
+        description=(
+            "Changes whenever the quicklook image is replaced. Pass it as the "
+            "`v` query parameter of the quicklook request so caches fetch the "
+            "new image."
+        ),
+    )
     gsd: float | None = None
     # fix(#1805): gsd is a lossy min(abs(res_x), abs(res_y)) — two sources
     # with different per-axis resolution can share one gsd, so the client

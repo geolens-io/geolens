@@ -1093,10 +1093,12 @@ async def _generate_quicklook(session, dataset_id: uuid.UUID, table_name: str) -
     session that trips ``MissingGreenlet`` on ``dataset.record``'s next lazy
     access.
 
-    Every draw of a dataset overwrites the same object, so of two draws that
-    overlap the later put can come from the earlier read. Each change to the
-    data rolls the dataset's tile version, so a draw that sees the version
-    move while it ran draws again, and the last put shows the newest data.
+    Every draw writes an object of its own and swings the dataset's pointer to
+    it only while the tile version is still the one the draw read, so an older
+    draw can neither overwrite a newer image nor take the pointer back. Each
+    change to the data rolls the tile version, so a draw that sees the version
+    move while it ran draws again. A new key per draw also gives the image a
+    new identity for caches and for the reconcile sweep's probe.
     The draw holds only the caller's session, one pooled connection.
 
     The caller's view of ``quicklook_256_uri`` is stale after this returns.
@@ -1112,7 +1114,7 @@ async def _generate_quicklook(session, dataset_id: uuid.UUID, table_name: str) -
     try:
         for _ in range(_QUICKLOOK_DRAWS):
             drawn = await session.scalar(content_version)
-            landed = await _draw_quicklook(session, dataset_id, table_name)
+            landed = await _draw_quicklook(session, dataset_id, table_name, drawn)
             # A draw that failed can leave its transaction aborted.
             await session.rollback()
             if await session.scalar(content_version) == drawn:
@@ -1125,8 +1127,15 @@ async def _generate_quicklook(session, dataset_id: uuid.UUID, table_name: str) -
     return landed
 
 
-async def _draw_quicklook(session, dataset_id: uuid.UUID, table_name: str) -> bool:
-    """Draw, upload and record the quicklook once; returns whether it landed or the dataset is gone."""
+async def _draw_quicklook(
+    session, dataset_id: uuid.UUID, table_name: str, drawn_version: int | None
+) -> bool:
+    """Draw, upload and record the quicklook once.
+
+    ``drawn_version`` is the tile version the draw started from; the pointer
+    only moves while the dataset still has it. Returns whether the image
+    landed or the dataset is gone.
+    """
     import io as _io
 
     from sqlalchemy import select, update
@@ -1137,7 +1146,7 @@ async def _draw_quicklook(session, dataset_id: uuid.UUID, table_name: str) -> bo
 
     _ql_log = structlog.get_logger()
     ql_storage = get_storage()
-    ql_key = f"vectors/{dataset_id}/quicklook_256.png"
+    ql_key = f"vectors/{dataset_id}/quicklook_256_{uuid.uuid4().hex[:12]}.png"
     stored_key = resolve_storage_key(ql_key, tenant_id=current_tenant_var.get())
     try:
         from app.processing.vector.quicklook import (
@@ -1168,17 +1177,22 @@ async def _draw_quicklook(session, dataset_id: uuid.UUID, table_name: str) -> bo
     # The write is IO that can raise on a dead connection, and the dataset is
     # already published, so its failure is only logged.
     Dataset = get_processing_port().get_dataset_orm_class()
+    previous_uri: str | None = None
     try:
+        previous_uri = await session.scalar(
+            select(Dataset.quicklook_256_uri).where(Dataset.id == dataset_id)
+        )
         written = await session.execute(
             update(Dataset)
             .where(
                 Dataset.id == dataset_id,
-                Dataset.quicklook_256_uri.is_distinct_from(ql_key),
+                Dataset.tile_cache_version.is_not_distinct_from(drawn_version),
             )
             .values(quicklook_256_uri=ql_key)
             .execution_options(synchronize_session=False)
         )
-        gone = not written.rowcount and (
+        swung = bool(written.rowcount)
+        gone = not swung and (
             await session.scalar(select(Dataset.id).where(Dataset.id == dataset_id))
             is None
         )
@@ -1187,6 +1201,7 @@ async def _draw_quicklook(session, dataset_id: uuid.UUID, table_name: str) -> bo
             await session.rollback()
         except Exception:  # broad: best-effort cleanup; connection may be irrecoverable
             pass
+        await _reap_quicklook(ql_storage, stored_key, table_name)
         _ql_log.warning(
             "quicklook_failed",
             phase="recovery",
@@ -1195,14 +1210,12 @@ async def _draw_quicklook(session, dataset_id: uuid.UUID, table_name: str) -> bo
         )
         return False
 
-    if gone:
-        # A delete that reaped vectors/{id}/ before this upload left it unowned.
+    if gone or not swung:
+        # A delete that reaped vectors/{id}/ before this upload left it unowned,
+        # and a draw the data outran must not leave its image behind.
         await session.rollback()
-        try:
-            await ql_storage.delete(stored_key)
-        except Exception as exc:  # broad: an orphaned image only costs storage
-            _ql_log.warning("quicklook_reap_failed", table=table_name, error=str(exc))
-        return True
+        await _reap_quicklook(ql_storage, stored_key, table_name)
+        return gone
 
     try:
         await session.commit()
@@ -1210,6 +1223,7 @@ async def _draw_quicklook(session, dataset_id: uuid.UUID, table_name: str) -> bo
         Exception
     ) as _ql_commit_exc:  # broad: transient commit failure after successful generation
         await session.rollback()
+        await _reap_quicklook(ql_storage, stored_key, table_name)
         _ql_log.warning(
             "quicklook_failed",
             phase="commit",
@@ -1217,7 +1231,23 @@ async def _draw_quicklook(session, dataset_id: uuid.UUID, table_name: str) -> bo
             error=str(_ql_commit_exc),
         )
         return False
+    if previous_uri and previous_uri != ql_key:
+        await _reap_quicklook(
+            ql_storage,
+            resolve_storage_key(previous_uri, tenant_id=current_tenant_var.get()),
+            table_name,
+        )
     return True
+
+
+async def _reap_quicklook(storage, stored_key: str, table_name: str) -> None:
+    """Delete an image nothing points at; a leftover only costs storage."""
+    try:
+        await storage.delete(stored_key)
+    except Exception as exc:  # broad: an orphaned image only costs storage
+        structlog.get_logger().warning(
+            "quicklook_reap_failed", table=table_name, error=str(exc)
+        )
 
 
 async def _detect_3d_and_promote_elev(

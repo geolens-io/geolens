@@ -11207,6 +11207,11 @@ export interface components {
              * @default false
              */
             has_quicklook: boolean;
+            /**
+             * Quicklook Version
+             * @description Changes whenever the quicklook image is replaced. Pass it as the `v` query parameter of the quicklook request so caches fetch the new image.
+             */
+            quicklook_version?: string | null;
             /** Gsd */
             gsd?: number | null;
             /** Res X */

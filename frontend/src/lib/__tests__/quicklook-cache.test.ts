@@ -57,4 +57,11 @@ describe('quicklook-cache (SP-07)', () => {
     markQuicklookMissing('dup');
     expect(isQuicklookKnownMissing('dup')).toBe(true);
   });
+
+  it('keeps a miss to the version that 404d', () => {
+    markQuicklookMissing('versioned', 'v1');
+    expect(isQuicklookKnownMissing('versioned', 'v1')).toBe(true);
+    expect(isQuicklookKnownMissing('versioned', 'v2')).toBe(false);
+    expect(isQuicklookKnownMissing('versioned')).toBe(false);
+  });
 });

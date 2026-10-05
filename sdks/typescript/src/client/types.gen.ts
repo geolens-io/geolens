@@ -7592,6 +7592,12 @@ export type OgcRecordProperties = {
      */
     has_quicklook?: boolean;
     /**
+     * Quicklook Version
+     *
+     * Changes whenever the quicklook image is replaced. Pass it as the `v` query parameter of the quicklook request so caches fetch the new image.
+     */
+    quicklook_version?: string | null;
+    /**
      * Gsd
      */
     gsd?: number | null;

@@ -153,7 +153,7 @@ async def _published_one_point_dataset(
     await _create_drawn_table(session, table, _PARIS)
     async with db_module.async_session() as ql_session:
         await _generate_quicklook(ql_session, dataset.id, table)
-    before = await storage.get(f"vectors/{dataset.id}/quicklook_256.png")
+    _uri, before = await _stored_quicklook(storage, dataset.id)
     return dataset, admin_id, before
 
 
@@ -166,7 +166,8 @@ async def _stored_quicklook(
         uri = await session.scalar(
             select(Dataset.quicklook_256_uri).where(Dataset.id == dataset_id)
         )
-    return uri, await storage.get(f"vectors/{dataset_id}/quicklook_256.png")
+    assert uri is not None
+    return uri, await storage.get(uri)
 
 
 async def _replace_from_file(
@@ -288,7 +289,7 @@ async def test_a_replacement_draws_the_quicklook_from_the_new_table(
         )
     assert count == len(_SPREAD), "the replacement did not publish"
     uri, after = await _stored_quicklook(storage, dataset.id)
-    assert uri == f"vectors/{dataset.id}/quicklook_256.png"
+    assert uri.startswith(f"vectors/{dataset.id}/quicklook_256_")
     assert after != before, "the quicklook still shows the replaced data"
     assert after == await _render(dataset.table_name)
 
@@ -483,10 +484,11 @@ async def test_a_draw_whose_dataset_was_deleted_removes_its_upload(
     dataset, _admin_id, _before = await _published_one_point_dataset(
         test_db_session, storage, tables
     )
-    key = f"vectors/{dataset.id}/quicklook_256.png"
+    keys: list[str] = []
     real_put = storage.put
 
     async def _deleted_before_put(stored_key, data):
+        keys.append(stored_key)
         # The delete commits and reaps vectors/{id}/ while the draw renders.
         async with db_module.async_session() as delete:
             await delete.execute(
@@ -497,10 +499,63 @@ async def test_a_draw_whose_dataset_was_deleted_removes_its_upload(
                 {"id": dataset.id},
             )
             await delete.commit()
-        await storage.delete(key)
+        await storage.delete(stored_key)
         return await real_put(stored_key, data)
 
     monkeypatch.setattr(storage, "put", _deleted_before_put)
     await _draw(dataset)
 
-    assert not await storage.exists(key), "the upload outlived its dataset"
+    assert keys
+    assert not await storage.exists(keys[0]), "the upload outlived its dataset"
+
+
+async def test_a_redraw_writes_a_new_key_and_removes_the_replaced_image(
+    test_db_session, storage, tables
+) -> None:
+    """The image a browser or the reconcile probe saw keeps no identity once it is replaced."""
+    dataset, _admin_id, _before = await _published_one_point_dataset(
+        test_db_session, storage, tables
+    )
+    first_uri, _ = await _stored_quicklook(storage, dataset.id)
+
+    await _publish_spread(test_db_session, dataset)
+    await _draw(dataset)
+
+    second_uri, _ = await _stored_quicklook(storage, dataset.id)
+    assert second_uri != first_uri
+    assert not await storage.exists(first_uri), "the replaced image was left behind"
+
+
+async def test_an_older_draw_leaves_the_newer_pointer_and_its_own_image_unkept(
+    test_db_session, storage, tables, monkeypatch
+) -> None:
+    """A draw the data outran keeps neither the pointer nor its upload."""
+    dataset, _admin_id, _before = await _published_one_point_dataset(
+        test_db_session, storage, tables
+    )
+    held = asyncio.Event()
+    release = asyncio.Event()
+    puts: list[str] = []
+    real_put = storage.put
+
+    async def _hold_first(key, data):
+        puts.append(key)
+        if len(puts) == 1:
+            held.set()
+            await release.wait()
+        return await real_put(key, data)
+
+    monkeypatch.setattr(storage, "put", _hold_first)
+    older = asyncio.create_task(_draw(dataset))
+    try:
+        await asyncio.wait_for(held.wait(), timeout=10)
+        await _publish_spread(test_db_session, dataset)
+        await asyncio.wait_for(_draw(dataset), timeout=30)
+    finally:
+        release.set()
+        await asyncio.wait_for(older, timeout=30)
+
+    uri, _ = await _stored_quicklook(storage, dataset.id)
+    assert puts[0] != uri
+    assert uri in puts
+    assert not await storage.exists(puts[0]), "the superseded draw's image was kept"

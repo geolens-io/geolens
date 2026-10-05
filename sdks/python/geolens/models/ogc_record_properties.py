@@ -81,6 +81,8 @@ class OGCRecordProperties:
         distributions (list[OGCRecordPropertiesDistributionsType0Item] | None | Unset):
         record_status (None | str | Unset):
         has_quicklook (bool | Unset):  Default: False.
+        quicklook_version (None | str | Unset): Changes whenever the quicklook image is replaced. Pass it as the `v`
+            query parameter of the quicklook request so caches fetch the new image.
         gsd (float | None | Unset):
         res_x (float | None | Unset):
         res_y (float | None | Unset):
@@ -133,6 +135,7 @@ class OGCRecordProperties:
     )
     record_status: None | str | Unset = UNSET
     has_quicklook: bool | Unset = False
+    quicklook_version: None | str | Unset = UNSET
     gsd: float | None | Unset = UNSET
     res_x: float | None | Unset = UNSET
     res_y: float | None | Unset = UNSET
@@ -348,6 +351,12 @@ class OGCRecordProperties:
 
         has_quicklook = self.has_quicklook
 
+        quicklook_version: None | str | Unset
+        if isinstance(self.quicklook_version, Unset):
+            quicklook_version = UNSET
+        else:
+            quicklook_version = self.quicklook_version
+
         gsd: float | None | Unset
         if isinstance(self.gsd, Unset):
             gsd = UNSET
@@ -494,6 +503,8 @@ class OGCRecordProperties:
             field_dict["record_status"] = record_status
         if has_quicklook is not UNSET:
             field_dict["has_quicklook"] = has_quicklook
+        if quicklook_version is not UNSET:
+            field_dict["quicklook_version"] = quicklook_version
         if gsd is not UNSET:
             field_dict["gsd"] = gsd
         if res_x is not UNSET:
@@ -872,6 +883,15 @@ class OGCRecordProperties:
 
         has_quicklook = d.pop("has_quicklook", UNSET)
 
+        def _parse_quicklook_version(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        quicklook_version = _parse_quicklook_version(d.pop("quicklook_version", UNSET))
+
         def _parse_gsd(data: object) -> float | None | Unset:
             if data is None:
                 return data
@@ -1034,6 +1054,7 @@ class OGCRecordProperties:
             distributions=distributions,
             record_status=record_status,
             has_quicklook=has_quicklook,
+            quicklook_version=quicklook_version,
             gsd=gsd,
             res_x=res_x,
             res_y=res_y,
