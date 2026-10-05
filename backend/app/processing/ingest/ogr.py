@@ -1086,10 +1086,8 @@ async def run_ogr2ogr(
         )
 
     if is_csv:
-        # Without this the CSV driver stores every column as text. Scanning
-        # the whole file keeps a value past the default sample window from
-        # failing the insert into a column typed Integer.
-        cmd.extend(["-oo", "AUTODETECT_TYPE=YES", "-oo", "AUTODETECT_SIZE_LIMIT=0"])
+        # The CSV driver otherwise stores every column as text.
+        cmd.extend(["-oo", "AUTODETECT_TYPE=YES"])
 
     if is_csv and not is_non_spatial:
         cmd.extend(
