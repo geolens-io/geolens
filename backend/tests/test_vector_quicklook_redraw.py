@@ -475,6 +475,31 @@ async def test_a_redraw_gives_the_public_quicklook_a_new_etag(
     assert revalidated.headers["etag"] not in (None, held)
 
 
+async def test_a_read_that_loses_the_image_to_a_redraw_serves_the_new_one(
+    client, test_db_session, storage, tables, monkeypatch
+) -> None:
+    """A redraw that reaps the image between the pointer read and the fetch is not a 404."""
+    dataset, _admin_id, before = await _published_one_point_dataset(
+        test_db_session, storage, tables, visibility="public"
+    )
+    real_get = storage.get
+    redrawn = False
+
+    async def _redraw_then_get(key):
+        nonlocal redrawn
+        if not redrawn:
+            redrawn = True
+            await _publish_spread(test_db_session, dataset)
+            await _draw(dataset)
+        return await real_get(key)
+
+    monkeypatch.setattr(storage, "get", _redraw_then_get)
+    response = await client.get(f"/datasets/{dataset.id}/quicklook")
+
+    assert response.status_code == 200
+    assert response.content != before
+
+
 async def test_a_draw_whose_dataset_was_deleted_removes_its_upload(
     test_db_session, storage, tables, monkeypatch
 ) -> None:

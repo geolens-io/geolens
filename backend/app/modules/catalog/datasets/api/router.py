@@ -278,9 +278,19 @@ async def get_quicklook(
         from app.core.db.tenant_session import current_tenant_var
         from app.platform.storage.titiler_url import resolve_storage_key
 
-        data = await storage.get(
-            resolve_storage_key(uri, tenant_id=current_tenant_var.get())
-        )
+        tenant_id = current_tenant_var.get()
+        try:
+            data = await storage.get(resolve_storage_key(uri, tenant_id=tenant_id))
+        except FileNotFoundError:
+            # A redraw may have replaced and removed this image after the read above.
+            if record_type != "vector_dataset":
+                raise
+            await db.refresh(dataset, ["quicklook_256_uri"])
+            if dataset.quicklook_256_uri in (None, uri):
+                raise
+            data = await storage.get(
+                resolve_storage_key(dataset.quicklook_256_uri, tenant_id=tenant_id)
+            )
     except FileNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
