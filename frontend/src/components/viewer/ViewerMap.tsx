@@ -34,7 +34,6 @@ import type { DrawnLayer } from '@/components/map/legend-facts';
 import { substitutePopupTemplate } from '@/lib/popup-template';
 import i18n from '@/i18n/i18n';
 import { GEOLENS_SITE_URL } from '@/lib/external-links';
-import { escapeAttributionHtml } from '@/lib/attribution-safety';
 import type { MapLibreEvent, MapMouseEvent } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapBasemapConfig, MapTerrainConfig, SharedLayerResponse } from '@/types/api';
@@ -169,15 +168,14 @@ export const ViewerMap = memo(function ViewerMap({
     () => collectLayerAttributions(layers, visibleLayers),
     [layers, visibleLayers],
   );
-  const brandingText = t('export.poweredBy', { defaultValue: 'Powered by GeoLens' });
   const attributionCredits = useMemo(
     () => showBranding
       ? [
           ...layerAttributions,
-          `<a href="${GEOLENS_SITE_URL}" target="_blank" rel="noopener noreferrer">${escapeAttributionHtml(brandingText)}</a>`,
+          `<a href="${GEOLENS_SITE_URL}" target="_blank" rel="noopener noreferrer">GeoLens</a>`,
         ]
       : layerAttributions,
-    [layerAttributions, showBranding, brandingText],
+    [layerAttributions, showBranding],
   );
 
   // Tile token management (fetch, auto-refresh, error toast)
@@ -1073,7 +1071,7 @@ export const ViewerMap = memo(function ViewerMap({
 
   return (
     <div
-      className={`relative h-full w-full [&_.maplibregl-ctrl-bottom-right]:mb-8 ${!mapReady ? 'bg-muted animate-pulse' : ''}`}
+      className={`relative h-full w-full [&_.maplibregl-ctrl-attrib]:max-w-[calc(50%-4.5rem)] ${!mapReady ? 'bg-muted animate-pulse' : ''}`}
       // audit(w3-maps): aria-label on <MapGL> is silently dropped —
       // @vis.gl/react-maplibre v8 forwards only id/ref/style, and MapLibre
       // labels its canvas "Map". Label the wrapper region instead (same

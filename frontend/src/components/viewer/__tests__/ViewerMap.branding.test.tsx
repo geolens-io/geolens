@@ -116,7 +116,7 @@ describe('ViewerMap GeoLens attribution credit', () => {
     expect(html).toContain('href="https://getgeolens.com"');
     expect(html).toContain('target="_blank"');
     expect(html).toContain('rel="noopener noreferrer"');
-    expect(html).toContain('Powered by GeoLens');
+    expect(html).toContain('>GeoLens</a>');
   });
 
   it('adds the credit for enterprise with show_badge true', () => {
