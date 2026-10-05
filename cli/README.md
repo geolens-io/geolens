@@ -91,9 +91,13 @@ provider served every page from one snapshot.
 Registered PostGIS refresh measures the registered live relation; it does not
 copy or preserve that relation. Referenced STAC refresh updates the remote item
 and asset pointer; it does not copy the asset bytes. A failed or blocked service
-refresh retains the current managed table. After a successful replacement,
-restoring earlier data requires a backup or re-import because refresh history
-does not retain the previous table.
+refresh retains the current managed table. After a successful file replacement
+or service refresh of a vector dataset, GeoLens keeps the replaced table as the
+previous version until the next replacement, and `POST
+/api/datasets/{id}/previous-version/restore` publishes it again. A registered
+PostGIS refresh, a partitioned table, rasters, mosaics, tilesets and point
+clouds keep no previous version, so restoring their earlier data requires a
+backup or re-import.
 
 Protected services can receive bearer credentials with `--token`. Use bare
 `--token` for a hidden prompt. Use `--auth-file` with a protected JSON file for

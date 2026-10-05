@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "geolens-cli"
-version = "1.21.1"
+version = "1.22.0"
 description = "Apache-2.0 command-line interface for the GeoLens API. Login, scan, publish, and export STAC against any GeoLens instance."
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -33,17 +33,9 @@ dependencies = [
   "tomli_w>=1.0.0,<2.0.0",
   "platformdirs>=4.0.0,<5.0.0",
   "structlog>=25.0.0,<26.0.0",
-  # fix(#685 review): 1.5.0 is the first SDK carrying
-  # geolens.api.datasets_analysis; `geolens analysis` raises
-  # ModuleNotFoundError against anything older, and 1.2.0 satisfied the old
-  # floor.
-  # fix(#1107 review): 1.7.0 is the first SDK whose analysis request models
-  # define join_dataset_id/join_fields; the builders pass those keywords
-  # unconditionally, so a 1.5/1.6 SDK raises TypeError on every analysis
-  # command, not just spatial_join.
-  # feat(#1227): 1.10.0 adds the generated one-request dataset refresh method
-  # and the source freshness/health/origin fields consumed by CLI status.
-  "geolens>=1.10.0,<2.0.0",
+  # 1.22.0 is the first SDK whose re-upload commit accepts review_fingerprint;
+  # `geolens replace` sends it after a review, which an older SDK rejects.
+  "geolens>=1.22.0,<2.0.0",
   # PYSEC-2026-215 (idna.encode DoS, fixed 3.15): keep this floor in step with
   # backend's; without it a re-lock resolves idna back to a vulnerable 3.13.
   "idna>=3.18",
