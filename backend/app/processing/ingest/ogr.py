@@ -43,6 +43,10 @@ from app.core.service_tokens import (
 from app.core.upload_errors import IngestCeilingError
 from app.core.url_redaction import redact_url_credentials, scrub_secret_value
 from app.platform.egress_proxy import service_egress_proxy
+from app.processing.ingest.arcgis_errors import (
+    ARCGIS_ERROR_RESPONSE_RE,
+    fetch_arcgis_error_detail,
+)
 from app.processing.ingest.gdal_drivers import local_input_driver_args
 from app.core.async_io import run_in_thread_draining
 from app.processing.ingest.validation import validate_content_directives
@@ -204,6 +208,10 @@ _SERVICE_FAILURE_CLASSES = (
         ),
         "the source service reported an authentication failure",
     ),
+    (
+        re.compile(r"Missing 'features' member|Failed to read ESRIJSON data"),
+        "the source service returned an error instead of features",
+    ),
 )
 
 
@@ -213,23 +221,33 @@ _PG_DESTINATION_ECHO_RE = re.compile(r"PG:.*")
 
 
 def _raise_service_gdal_failure(
-    tool: str, returncode: int, stderr_text: str, *, refused: bool
+    tool: str,
+    returncode: int,
+    stderr_text: str,
+    *,
+    refused: bool,
+    service_error: str | None = None,
 ) -> NoReturn:
     """Raise a service import's reason, having logged the redacted GDAL text.
 
     ``refused`` is whether the egress proxy turned a destination away, which
-    GDAL itself reports only as an HTTP 403.
+    GDAL itself reports only as an HTTP 403. ``service_error`` is the
+    service's own redacted error, added to the reason.
     """
     structlog.get_logger().error(
-        f"{tool} failed for a remote service", exit_code=returncode, stderr=stderr_text
+        f"{tool} failed for a remote service",
+        exit_code=returncode,
+        stderr=stderr_text,
+        service_error=service_error,
     )
     if refused:
         raise IngestionError(
             f"{tool} failed (exit {returncode}): {SERVICE_ADDRESS_REFUSED}"
         )
-    raise IngestionError(
-        _gdal_failure_reason(tool, returncode, stderr_text, _SERVICE_FAILURE_CLASSES)
+    reason = _gdal_failure_reason(
+        tool, returncode, stderr_text, _SERVICE_FAILURE_CLASSES
     )
+    raise IngestionError(f"{reason}. {service_error}" if service_error else reason)
 
 
 # fix(#1746): the worker's own refusals, as constants rather than composed
@@ -1453,6 +1471,17 @@ async def run_ogr2ogr_service(
             ),
             token,
         )
+        service_error = None
+        if (
+            service_type == "arcgis_featureserver"
+            and not egress.refused
+            and ARCGIS_ERROR_RESPONSE_RE.search(stderr_text)
+        ):
+            service_error = await fetch_arcgis_error_detail(gdal_source, token)
         _raise_service_gdal_failure(
-            "ogr2ogr", proc.returncode, stderr_text, refused=egress.refused
+            "ogr2ogr",
+            proc.returncode,
+            stderr_text,
+            refused=egress.refused,
+            service_error=service_error,
         )
