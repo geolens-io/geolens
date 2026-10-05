@@ -630,7 +630,7 @@ async def test_a_decode_past_its_budget_fails_the_job_with_its_code(
     """The worker records the decode budget's refusal with its point cloud code."""
     job_id = await committed_upload(client, uploader[0], copc_nodes())
     _burning_decoder(monkeypatch)
-    monkeypatch.setattr("app.processing.ingest.pointcloud.DECODE_FLOOR_SECONDS", 3)
+    monkeypatch.setattr("app.processing.ingest.pointcloud.DECODE_FLOOR_SECONDS", 5)
 
     with pytest.raises(UnsafeUploadError, match="seconds to decode"):
         await run_queued(queued)
