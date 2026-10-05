@@ -934,7 +934,8 @@
           "succeeded": "Erfolgreich",
           "failed": "Fehlgeschlagen",
           "cancelled": "Abgebrochen",
-          "blocked": "Prüfung erforderlich"
+          "blocked": "Prüfung erforderlich",
+          "accepted": "Akzeptiert"
         },
         "sourceCountUnavailable": "Quellanzahl nicht verfügbar.",
         "identityUnavailable": "Datensatzkennungen wurden nicht verglichen.",

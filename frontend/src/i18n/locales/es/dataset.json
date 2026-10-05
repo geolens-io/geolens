@@ -934,7 +934,8 @@
           "succeeded": "Correcta",
           "failed": "Fallida",
           "cancelled": "Cancelada",
-          "blocked": "Requiere revisión"
+          "blocked": "Requiere revisión",
+          "accepted": "Aceptado"
         },
         "sourceCountUnavailable": "Recuento de la fuente no disponible.",
         "identityUnavailable": "No se compararon las identidades de los registros.",

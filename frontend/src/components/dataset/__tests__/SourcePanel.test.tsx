@@ -1208,6 +1208,85 @@ describe('SourcePanel', () => {
     expect(onAcceptBlockedRun).toHaveBeenCalledWith({ id: 'run-upload-blocked', upload: true });
   });
 
+  it('does not offer review for a held replacement that a later publish superseded', () => {
+    const held = {
+      id: 'run-upload-blocked',
+      dataset_id: 'dataset-1',
+      dataset_version_id: null,
+      ingest_job_id: 'job-1',
+      origin_kind: 'upload',
+      trigger: 'manual',
+      status: 'blocked',
+      started_at: '2026-08-05T00:00:00Z',
+      verification: {
+        decision: 'blocked',
+        source_binding: { kind: 'upload' },
+        review_reasons: ['destructive_schema_change'],
+        review_fingerprint: 'fingerprint',
+        accepted_blocked_run_id: null,
+      },
+    };
+    const later = {
+      id: 'run-later',
+      dataset_id: 'dataset-1',
+      dataset_version_id: 'version-2',
+      ingest_job_id: 'job-2',
+      origin_kind: 'upload',
+      trigger: 'manual',
+      status: 'succeeded',
+      started_at: '2026-08-06T00:00:00Z',
+      verification: null,
+    };
+    vi.mocked(useDatasetRefreshRuns).mockReturnValue({
+      data: { runs: [later, held], total: 2 },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useDatasetRefreshRuns>);
+
+    render(
+      <SourcePanel dataset={makeDataset({ origin: 'upload' })} canEdit onAcceptBlockedRun={vi.fn()} />,
+    );
+
+    expect(screen.getByText('Needs review')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Review and retry' })).not.toBeInTheDocument();
+  });
+
+  it('labels a held replacement whose acceptance was consumed as accepted', () => {
+    vi.mocked(useDatasetRefreshRuns).mockReturnValue({
+      data: {
+        runs: [{
+          id: 'run-upload-blocked',
+          dataset_id: 'dataset-1',
+          dataset_version_id: null,
+          ingest_job_id: 'job-1',
+          origin_kind: 'upload',
+          trigger: 'manual',
+          status: 'blocked',
+          started_at: '2026-08-05T00:00:00Z',
+          verification: {
+            decision: 'blocked',
+            source_binding: { kind: 'upload' },
+            review_reasons: ['destructive_schema_change'],
+            review_fingerprint: 'fingerprint',
+            accepted_blocked_run_id: null,
+            acceptance_consumed_by_run_id: 'run-accepting',
+          },
+        }],
+        total: 1,
+      },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useDatasetRefreshRuns>);
+
+    render(
+      <SourcePanel dataset={makeDataset({ origin: 'upload' })} canEdit onAcceptBlockedRun={vi.fn()} />,
+    );
+
+    expect(screen.getByText('Accepted')).toBeInTheDocument();
+    expect(screen.queryByText('Needs review')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Review and retry' })).not.toBeInTheDocument();
+  });
+
   it('disables publishing a held-back replacement while a feature is selected, and says why', () => {
     mockBlockedUploadRun();
     useDrawingStore.setState({

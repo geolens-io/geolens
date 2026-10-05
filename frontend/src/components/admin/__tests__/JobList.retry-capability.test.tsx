@@ -69,6 +69,31 @@ describe('JobList retry capability', () => {
     expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
   });
 
+  it('leaves the replay hint off a job held for review', async () => {
+    mockUseAdminJobs.mockReturnValue({
+      data: {
+        jobs: [
+          failedJob({
+            can_retry: false,
+            error_code: 'review_required',
+            error_message: 'Review the detected changes before publication.',
+            retry_reason: 'Dataset replacement jobs cannot be replayed as ordinary imports. Start the reupload again.',
+          }),
+        ],
+        total: 1,
+      },
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    const user = userEvent.setup();
+
+    render(<JobList />);
+    await user.click(screen.getByTestId('job-details-toggle'));
+
+    expect(screen.queryByText(/cannot be replayed/)).not.toBeInTheDocument();
+  });
+
   it('offers retry when the server marks the failed job retryable', async () => {
     mockUseAdminJobs.mockReturnValue({
       data: { jobs: [failedJob()], total: 1 },
