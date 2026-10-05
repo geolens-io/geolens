@@ -710,7 +710,7 @@ async def _fetch_service_layer_with_paging_guard(
 
     port = get_processing_port()
     page_size = _tv._ARCGIS_SERVICE_IMPORT_CHUNK_SIZE
-    feature_count = None
+    feature_count = max_record_count = None
     supports_pagination = False
     pagination_order_field = None
     id_plan = None
@@ -787,6 +787,9 @@ async def _fetch_service_layer_with_paging_guard(
         )
         return feature_count, id_plan
 
+    _tv._refuse_truncated_arcgis_fetch(
+        feature_count, max_record_count, supports_pagination, pagination_order_field
+    )
     gdal_source, layer_arg = port.build_gdal_source(
         service_type_raw,
         source_url,

@@ -298,6 +298,29 @@ async def _write_service_import_progress(
         await session.commit()
 
 
+def _refuse_truncated_arcgis_fetch(
+    feature_count: int | None,
+    max_record_count: int | None,
+    supports_pagination: bool,
+    order_field: str | None,
+) -> None:
+    """Raise when one unordered, unpaged ArcGIS fetch would stop short."""
+    if (
+        order_field is None
+        and supports_pagination is not True
+        and feature_count is not None
+        and max_record_count is not None
+        and feature_count > max_record_count
+    ):
+        from app.processing.ingest.ogr import IngestionError
+
+        raise IngestionError(
+            f"This ArcGIS layer has {feature_count} features but the server "
+            f"returns at most {max_record_count} per request and supports "
+            "neither paging nor ordering, so GeoLens can't import it completely."
+        )
+
+
 async def _fetch_arcgis_import_page_info(
     source_url: str,
     layer_id: int | str | None,
@@ -897,7 +920,7 @@ async def ingest_service(
 
         # Retry WFS namespaces through the shared helper.
         async def _do_import(layer_name: str) -> None:
-            feature_count = None
+            feature_count = max_record_count = None
             page_size = _ARCGIS_SERVICE_IMPORT_CHUNK_SIZE
             supports_pagination = False
             pagination_order_field = None
@@ -954,6 +977,12 @@ async def ingest_service(
                 )
                 return
 
+            _refuse_truncated_arcgis_fetch(
+                feature_count,
+                max_record_count,
+                supports_pagination,
+                pagination_order_field,
+            )
             _src, _layer = port.build_gdal_source(
                 service_type_raw,
                 source_url,

@@ -753,12 +753,17 @@ async def test_service_worker_skips_arcgis_chunking_without_pagination_support(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("layer_order_field", "expected"), [("FID", ["FID ASC"]), (None, None)]
+    ("page_info", "expected"),
+    [
+        ((251, 2000, True, "FID"), [["FID ASC"]]),
+        ((251, 2000, True, None), [None]),
+        ((5000, 2000, False, None), []),
+    ],
 )
 async def test_service_worker_single_fetch_orders_by_the_layers_own_oid_field(
-    test_db_session, monkeypatch, layer_order_field, expected
+    test_db_session, monkeypatch, page_info, expected
 ):
-    """The unpaged import orders by what the layer reports, not the probe's hint."""
+    """The single fetch orders by the layer's field, or refuses to truncate."""
     from app.modules.catalog.sources.preview import build_gdal_source
     from app.processing.ingest import tasks_vector
 
@@ -801,7 +806,7 @@ async def test_service_worker_single_fetch_orders_by_the_layers_own_oid_field(
 
     async def _fake_page_info(*args, **kwargs):
         page_info_kwargs.append(kwargs)
-        return 251, 2000, True, layer_order_field
+        return page_info
 
     async def _fake_run_ogr2ogr_service(
         gdal_source: str, layer_name: str, target_table: str, *args, **kwargs
@@ -854,15 +859,24 @@ async def test_service_worker_single_fetch_orders_by_the_layers_own_oid_field(
         _fake_emit_billing_event,
     )
 
-    await tasks_vector.ingest_service.func(
+    run = tasks_vector.ingest_service.func(
         job_id=str(job.id),
         attempt_id=str(job.attempt_id),
         source_url=source_url,
         source_layer="0",
         user_id=str(admin_id),
     )
+    if expected:
+        await run
+    else:
+        from app.processing.ingest.ogr import IngestionError
 
-    assert order_fields == [expected]
+        with pytest.raises(IngestionError, match="neither paging nor ordering"):
+            await run
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+
+    assert order_fields == expected
     assert page_info_kwargs == [{"fallback_order_field": "OBJECTID"}]
 
 

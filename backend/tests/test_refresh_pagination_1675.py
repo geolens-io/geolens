@@ -825,17 +825,22 @@ async def test_refresh_small_layer_keeps_single_fetch(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("layer_order_field", "expected"), [("FID", ["FID ASC"]), (None, None)]
+    ("page_info", "expected"),
+    [
+        ((251, 2000, True, "FID"), ["FID ASC"]),
+        ((251, 2000, True, None), None),
+        ((5000, 2000, False, None), "refused"),
+    ],
 )
 async def test_refresh_single_fetch_orders_by_the_layers_own_oid_field(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session,
     monkeypatch,
-    layer_order_field,
+    page_info,
     expected,
 ):
-    """The unpaged fetch orders by what the layer reports, not the stored hint."""
+    """The single fetch orders by the layer's field, or refuses to truncate."""
     admin_id = await get_user_id(test_db_session, "admin")
     dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
     test_db_session.add(
@@ -856,12 +861,22 @@ async def test_refresh_single_fetch_orders_by_the_layers_own_oid_field(
 
     async def _fake_page_info(source_url, layer_id, token, **kwargs):
         fallbacks.append(kwargs.get("fallback_order_field"))
-        return 251, 2000, True, layer_order_field
+        return page_info
 
     monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)
 
     calls: list[dict] = []
     task_kwargs = await _dispatch_refresh(client, admin_auth_header, dataset.id)
+    if expected == "refused":
+        from app.processing.ingest.ogr import IngestionError
+
+        with pytest.raises(IngestionError, match="neither paging nor ordering"):
+            await _execute_with_fake(task_kwargs, _fake_ogr2ogr(calls, lambda i: 0))
+        assert calls == []
+        runs = await _runs_ordered(test_db_session, dataset.id)
+        assert [r.status for r in runs] == ["failed"]
+        assert "neither paging nor ordering" in (runs[0].error_message or "")
+        return
     await _execute_with_fake(task_kwargs, _fake_ogr2ogr(calls, lambda i: 251))
 
     assert len(calls) == 1, calls
