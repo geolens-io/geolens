@@ -739,9 +739,7 @@ async def _fetch_service_layer_with_paging_guard(
                         layer_id,
                         client,
                         token=token,
-                        expected_oid_field=(
-                            pagination_order_field or fallback_order_field
-                        ),
+                        expected_oid_field=pagination_order_field,
                     )
             except ValueError as exc:
                 from app.processing.ingest.ogr import IngestionError

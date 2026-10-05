@@ -979,6 +979,43 @@ async def test_stronger_arcgis_policy_uses_exact_id_chunks_and_records_coverage(
 
 
 @pytest.mark.anyio
+async def test_stronger_arcgis_policy_ignores_a_stale_oid_once_the_layer_was_read(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+):
+    """A layer read that names no order field leaves the ID plan unconstrained."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
+    test_db_session.add(
+        IngestJob(
+            dataset_id=dataset.id,
+            source_filename="Big",
+            source_url=_ARCGIS_BASE,
+            source_layer="0",
+            created_by=admin_id,
+            status="complete",
+            completed_at=datetime.now(timezone.utc),
+            user_metadata={"object_id_field": "STALE_OID"},
+        )
+    )
+    await test_db_session.commit()
+    ids = (3, 991)
+
+    async def _fake_page_info(source_url, layer_id, token, **_):
+        return len(ids), 1000, True, None
+
+    id_plan = AsyncMock(side_effect=[_arcgis_id_plan(ids), _arcgis_id_plan(ids)])
+    monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)
+    monkeypatch.setattr(
+        "app.modules.catalog.sources.adapters.arcgis.fetch_arcgis_id_plan", id_plan
+    )
+    task_kwargs = await _dispatch_refresh(client, admin_auth_header, dataset.id)
+    task_kwargs["verification_policy"] = "arcgis_id_set_v1"
+    await _execute_with_fake(task_kwargs, _fake_ogr2ogr_with_source_oids([], list(ids)))
+
+    assert id_plan.await_args_list[0].kwargs["expected_oid_field"] is None
+
+
+@pytest.mark.anyio
 async def test_stronger_arcgis_policy_clamps_exact_id_chunks_to_gdal_bound(
     client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
 ):
