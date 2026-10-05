@@ -42,7 +42,7 @@ vi.mock('@vis.gl/react-maplibre', () => ({
 vi.mock('@/hooks/use-settings', () => ({
   useBasemaps: () => ({ data: [] }),
   useTileConfig: () => ({ data: { cdn_base_url: null } }),
-  useBranding: () => ({ data: null }),
+  useBranding: () => ({ data: undefined }),
 }));
 
 vi.mock('@/hooks/use-edition', () => ({

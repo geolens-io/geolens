@@ -191,9 +191,12 @@ describe('AppLayout', () => {
     expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
   });
 
-  it('renders footer on anonymous map viewer pages', () => {
-    renderAppLayout(['/maps/map-1']);
-    expect(screen.getByRole('contentinfo')).toBeInTheDocument();
+  it('hides footer and fills the viewport on anonymous map viewer pages', () => {
+    const { container } = renderAppLayout(['/maps/map-1']);
+    expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
+    const shell = container.firstElementChild as HTMLElement;
+    expect(shell).toHaveClass('h-dvh', 'overflow-hidden');
+    expect(screen.getByRole('main')).toHaveClass('min-h-0');
   });
 
   it('clips the shell to the viewport and gives main min-h-0 on authenticated map routes (#347 (BLDR-01))', () => {

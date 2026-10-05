@@ -33,6 +33,7 @@ import { MapCoordReadout } from '@/components/map/MapCoordReadout';
 import type { DrawnLayer } from '@/components/map/legend-facts';
 import { substitutePopupTemplate } from '@/lib/popup-template';
 import i18n from '@/i18n/i18n';
+import { GEOLENS_SITE_URL } from '@/lib/external-links';
 import type { MapLibreEvent, MapMouseEvent } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapBasemapConfig, MapTerrainConfig, SharedLayerResponse } from '@/types/api';
@@ -93,11 +94,6 @@ interface ViewerMapProps {
   basemapConfig?: MapBasemapConfig | null;
   showBasemapLabels?: boolean;
   terrainConfig?: MapTerrainConfig | null;
-  /** When true and edition is community (or enterprise with show_badge !== false),
-   *  renders an inline "Powered by GeoLens" overlay anchored to the map canvas.
-   *  Defaults to false — non-embed callers stay clean.
-   */
-  showInlineBranding?: boolean;
   /** Receives what the map draws each layer as, by layer key, once any bounded cluster GeoJSON has settled. */
   onDrawnChange?: (drawn: ReadonlyMap<string, DrawnLayer>) => void;
 }
@@ -149,19 +145,15 @@ export const ViewerMap = memo(function ViewerMap({
   basemapConfig = null,
   showBasemapLabels = true,
   terrainConfig = null,
-  showInlineBranding = false,
   onDrawnChange,
 }: ViewerMapProps) {
   const { t } = useTranslation('common');
   const mapLocale = useMapLocale();
-  const { isEnterprise } = useEdition();
+  const { isEnterprise, isResolved } = useEdition();
   const { data: branding } = useBranding();
-  // Gate on branding !== undefined so enterprise users with show_badge:false do
-  // not see a flash of the badge while the branding query is still loading (IN-02).
-  const showBranding = showInlineBranding && (
-    branding !== undefined &&
-    (!isEnterprise || branding?.show_badge !== false)
-  );
+  // isEnterprise defaults to false until the edition resolves, and only Enterprise
+  // can opt out, so Enterprise also waits for branding to avoid flashing the credit.
+  const showBranding = isResolved && (!isEnterprise || (branding !== undefined && branding.show_badge !== false));
   const mapRef = useRef<MaplibreMap | null>(null);
   const managedSourcesRef = useRef<Set<string>>(new Set());
   const prevOrderKeyRef = useRef('');
@@ -175,6 +167,15 @@ export const ViewerMap = memo(function ViewerMap({
   const layerAttributions = useMemo(
     () => collectLayerAttributions(layers, visibleLayers),
     [layers, visibleLayers],
+  );
+  const attributionCredits = useMemo(
+    () => showBranding
+      ? [
+          ...layerAttributions,
+          `<a href="${GEOLENS_SITE_URL}" target="_blank" rel="noopener noreferrer">GeoLens</a>`,
+        ]
+      : layerAttributions,
+    [layerAttributions, showBranding],
   );
 
   // Tile token management (fetch, auto-refresh, error toast)
@@ -1070,7 +1071,7 @@ export const ViewerMap = memo(function ViewerMap({
 
   return (
     <div
-      className={`relative h-full w-full ${!mapReady ? 'bg-muted animate-pulse' : ''}`}
+      className={`relative h-full w-full [&_.maplibregl-ctrl-bottom-right]:max-w-[calc(50%-4.5rem)] max-[399px]:[&_.maplibregl-ctrl-bottom-right]:max-w-[calc(50%-1.75rem)] [&_.maplibregl-ctrl-attrib-inner]:[overflow-wrap:break-word] ${!mapReady ? 'bg-muted animate-pulse' : ''}`}
       // audit(w3-maps): aria-label on <MapGL> is silently dropped —
       // @vis.gl/react-maplibre v8 forwards only id/ref/style, and MapLibre
       // labels its canvas "Map". Label the wrapper region instead (same
@@ -1117,11 +1118,11 @@ export const ViewerMap = memo(function ViewerMap({
             attributionControlKey owns the derivation so its injectivity can be
             tested directly — see the note there. */}
         <AttributionControl
-          key={attributionControlKey(layerAttributions)}
+          key={attributionControlKey(attributionCredits)}
           position="bottom-right"
           compact={true}
           customAttribution={
-            layerAttributions.length > 0 ? layerAttributions : undefined
+            attributionCredits.length > 0 ? attributionCredits : undefined
           }
         />
         {popupInfo && (
@@ -1151,14 +1152,6 @@ export const ViewerMap = memo(function ViewerMap({
         data-testid="viewer-entry-veil"
         className={`pointer-events-none absolute inset-0 z-20 bg-muted transition-opacity duration-500 ${revealed ? 'opacity-0' : 'opacity-100'}`}
       />
-      {showBranding && (
-        <span
-          data-testid="viewer-branding-overlay"
-          className="absolute bottom-2 left-2 z-10 text-xs text-muted-foreground bg-background/70 rounded-sm px-2 py-1 pointer-events-none"
-        >
-          {t('export.poweredBy', { defaultValue: 'Powered by GeoLens' })}
-        </span>
-      )}
       {contextLost && (
         <div role="alert" className="absolute inset-0 z-50 flex items-center justify-center bg-background/80">
           <div className="text-center space-y-2">

@@ -6,14 +6,10 @@ import { SiteBanner } from './SiteBanner';
 import { useEdition } from '@/hooks/use-edition';
 import { useBranding } from '@/hooks/use-settings';
 import { SkipToContent } from './SkipToContent';
-import { useAuthStore } from '@/stores/auth-store';
 import { cn } from '@/lib/utils';
 
 export function AppLayout() {
-  const hasAuthToken = useAuthStore((state) => !!state.token);
-  const isEditor = useAuthStore((state) => state.isEditor());
   const isMapRoute = Boolean(useMatch('/maps/:id'));
-  const isAuthenticatedMapRoute = isMapRoute && (isEditor || hasAuthToken);
   const { pathname } = useLocation();
   const navType = useNavigationType();
 
@@ -41,7 +37,7 @@ export function AppLayout() {
     <div
       className={cn(
         'flex flex-col pt-[calc(3.5rem+env(safe-area-inset-top))]',
-        isAuthenticatedMapRoute ? 'h-dvh overflow-hidden' : 'min-h-screen',
+        isMapRoute ? 'h-dvh overflow-hidden' : 'min-h-screen',
       )}
     >
       <SkipToContent />
@@ -56,7 +52,6 @@ export function AppLayout() {
         // navbar/banner/footer leave — fixes the public-map scroll (was a
         // hardcoded 100dvh-navbar that ignored the footer) AND lets standalone
         // pages (404) center vertically in the available viewport (#305).
-        // isMapRoute retained for any map-specific tweaks.
         // scroll-mt clears the fixed navbar when the skip-link scrolls
         // #main-content into view, so the heading isn't hidden under it (#305).
         // min-h-0 on authenticated map routes fixes the flexbox min-height:auto
@@ -64,13 +59,13 @@ export function AppLayout() {
         // whole builder page scrolling when an editor bar expands (#347 (BLDR-01)).
         className={cn(
           'flex flex-1 flex-col scroll-mt-16 animate-fade-in focus:outline-none',
-          isMapRoute && 'flex-col',
-          isAuthenticatedMapRoute && 'min-h-0',
+          isMapRoute && 'min-h-0',
         )}
       >
         <Outlet />
       </main>
-      {!isAuthenticatedMapRoute && <AppFooter showBranding={showFooterBranding} />}
+      {/* The map route carries its own GeoLens credit in the attribution control. */}
+      {!isMapRoute && <AppFooter showBranding={showFooterBranding} />}
     </div>
   );
 }
