@@ -46,6 +46,7 @@ _TYPE_EQUIVALENCES = {
     "real": "double precision",
     "int": "integer",
     "int64": "bigint",
+    "integer64": "bigint",
     "float": "double precision",
 }
 

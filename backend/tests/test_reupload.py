@@ -1538,6 +1538,17 @@ class TestSchemaDiffComputation:
         assert result["row_count_new"] == 150
         assert result["row_count_delta"] == 50
 
+    def test_integer64_previews_as_the_stored_bigint(self):
+        result = compute_schema_diff(
+            [{"name": "n", "type": "character varying"}],
+            [{"name": "n", "type": "Integer64"}],
+            1,
+            1,
+        )
+        assert result["type_changes"] == [
+            {"name": "n", "old_type": "character varying", "new_type": "bigint"}
+        ]
+
     def test_schema_diff_no_changes(self):
         """Identical schemas produce empty diff."""
         cols = [{"name": "a", "type": "Integer"}]
