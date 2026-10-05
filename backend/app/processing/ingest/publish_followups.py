@@ -1430,6 +1430,26 @@ async def run_owed_publish_followups() -> int:
     )
     due = or_(*(and_(record.is_not(None), _is_due(record)) for record in records))
     retried = or_(*(record[_ATTEMPTS].is_not(None) for record in records))
+    # A record written before holds were, and not yet due, gets its hold now.
+    unheld = (
+        select(IngestJob.id)
+        .where(
+            records[0].is_not(None),
+            IngestJob.user_metadata[OBLIGATIONS_HOLD_FIELD].is_(None),
+        )
+        .with_for_update(skip_locked=True)
+    )
+    try:
+        async with db_module.async_session() as session:
+            await session.execute(
+                update(IngestJob)
+                .where(IngestJob.id.in_(unheld))
+                .values(user_metadata=_hold().op("||")(IngestJob.user_metadata))
+                .execution_options(synchronize_session=False)
+            )
+            await session.commit()
+    except Exception:  # broad: the holds are set on the next pass
+        log.warning("publish_obligation_holds_not_set", exc_info=True)
     try:
         async with db_module.async_session() as session:
             owed = (

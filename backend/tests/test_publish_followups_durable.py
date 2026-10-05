@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -525,6 +526,30 @@ async def test_the_previous_release_keeps_a_job_while_it_owes_run_once_steps(
         await run_owed_publish_followups()
         assert ran == _RASTER
         assert not await _earlier_release_keeps(job_id)
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def test_the_sweep_holds_a_record_written_before_holds_that_is_not_due(
+    test_db_session, ran
+) -> None:
+    """A record an earlier release wrote, still waiting out its delay, is held by the next sweep."""
+    later = (datetime.now(timezone.utc) + timedelta(hours=4)).isoformat()
+    job_id, _, record_id = await _job(
+        test_db_session,
+        task="ingest_raster",
+        claimed=True,
+        catalog_cache=True,
+        next_attempt_at=later,
+    )
+    try:
+        assert not await _earlier_release_keeps(job_id)
+
+        await run_owed_publish_followups()
+
+        assert ran == []
+        assert (await _record(job_id))["next_attempt_at"] == later
+        assert await _earlier_release_keeps(job_id)
     finally:
         await _drop(test_db_session, job_id, record_id)
 

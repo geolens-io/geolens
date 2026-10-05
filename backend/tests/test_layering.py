@@ -1314,7 +1314,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Owed publish follow-ups, storage and run-once, with their lease, retry
     # schedule, per-channel notices and the hold an earlier release's purge
     # honours, plus settling the archive flags of jobs that owe no follow-up.
-    "backend/app/processing/ingest/publish_followups.py": 1457,
+    "backend/app/processing/ingest/publish_followups.py": 1477,
     # Shared ingest finalization carries verification, manifest record fields, bounded
     # ArcGIS requests, lifecycle context, the quicklook draw that ingest and
     # replacement share, and the swap that keeps the replaced table.
