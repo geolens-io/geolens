@@ -830,6 +830,7 @@ async def test_refresh_small_layer_keeps_single_fetch(
         ((251, 2000, True, "FID"), ["FID ASC"]),
         ((251, 2000, True, None), None),
         ((5000, 2000, False, None), "refused"),
+        ((5000, 2000, False, "FID"), "refused"),
     ],
 )
 async def test_refresh_single_fetch_orders_by_the_layers_own_oid_field(
@@ -870,12 +871,12 @@ async def test_refresh_single_fetch_orders_by_the_layers_own_oid_field(
     if expected == "refused":
         from app.processing.ingest.ogr import IngestionError
 
-        with pytest.raises(IngestionError, match="neither paging nor ordering"):
+        with pytest.raises(IngestionError, match="can't page through the rest"):
             await _execute_with_fake(task_kwargs, _fake_ogr2ogr(calls, lambda i: 0))
         assert calls == []
         runs = await _runs_ordered(test_db_session, dataset.id)
         assert [r.status for r in runs] == ["failed"]
-        assert "neither paging nor ordering" in (runs[0].error_message or "")
+        assert "can't page through the rest" in (runs[0].error_message or "")
         return
     await _execute_with_fake(task_kwargs, _fake_ogr2ogr(calls, lambda i: 251))
 

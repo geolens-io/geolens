@@ -758,6 +758,7 @@ async def test_service_worker_skips_arcgis_chunking_without_pagination_support(
         ((251, 2000, True, "FID"), [["FID ASC"]]),
         ((251, 2000, True, None), [None]),
         ((5000, 2000, False, None), []),
+        ((5000, 2000, False, "FID"), []),
     ],
 )
 async def test_service_worker_single_fetch_orders_by_the_layers_own_oid_field(
@@ -871,7 +872,7 @@ async def test_service_worker_single_fetch_orders_by_the_layers_own_oid_field(
     else:
         from app.processing.ingest.ogr import IngestionError
 
-        with pytest.raises(IngestionError, match="neither paging nor ordering"):
+        with pytest.raises(IngestionError, match="can't page through the rest"):
             await run
         await test_db_session.refresh(job)
         assert job.status == "failed"
