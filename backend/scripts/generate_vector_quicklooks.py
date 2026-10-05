@@ -13,6 +13,7 @@ Multi-tenant mode is refused: there is no tenant context or tenant storage prefi
 import asyncio
 import io
 import sys
+import uuid
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -45,7 +46,7 @@ async def main() -> None:
         where_clause = "" if force else "  AND d.quicklook_256_uri IS NULL"
         result = await db.execute(
             text(
-                "SELECT d.id, d.table_name, d.geometry_type "
+                "SELECT d.id, d.table_name, d.geometry_type, d.quicklook_256_uri "
                 "FROM catalog.datasets d "
                 "JOIN catalog.records r ON d.record_id = r.id "
                 "WHERE r.record_type = 'vector_dataset' "
@@ -76,7 +77,8 @@ async def main() -> None:
                     skipped += 1
                     continue
 
-                ql_key = f"vectors/{row.id}/quicklook_256.png"
+                # A new key per draw gives the image a new quicklook_version.
+                ql_key = f"vectors/{row.id}/quicklook_256_{uuid.uuid4().hex[:12]}.png"
                 await storage.put(ql_key, io.BytesIO(ql_bytes))
                 await db.execute(
                     text(
@@ -85,6 +87,8 @@ async def main() -> None:
                     {"uri": ql_key, "id": row.id},
                 )
                 await db.commit()
+                if row.quicklook_256_uri and row.quicklook_256_uri != ql_key:
+                    await storage.delete(row.quicklook_256_uri)
                 success += 1
                 print(f"  [{i}/{len(rows)}] OK   {name} ({len(ql_bytes)} bytes)")
             except Exception as e:
