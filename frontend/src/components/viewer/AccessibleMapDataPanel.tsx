@@ -67,12 +67,15 @@ export function AccessibleMapDataPanel({
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetTrigger asChild>
+        {/* Below MapLibre's attribution (z-index 2) so an expanded credit list stays
+            readable and clickable on narrow screens; the pb keeps the label out of
+            the home-indicator inset. */}
         <Button
           type="button"
           variant="outline"
           size="sm"
           disabled={disabled}
-          className="absolute bottom-0 left-1/2 z-30 -translate-x-1/2 rounded-b-none border-b-0 bg-background/95 shadow-md backdrop-blur-sm focus-visible:ring-inset"
+          className="absolute bottom-0 left-1/2 z-[1] h-[calc(2rem+env(safe-area-inset-bottom))] -translate-x-1/2 rounded-b-none border-b-0 bg-background/95 pb-[env(safe-area-inset-bottom)] shadow-md backdrop-blur-sm focus-visible:ring-inset"
         >
           <TableProperties aria-hidden="true" />
           {t('viewer.data.launch')}
