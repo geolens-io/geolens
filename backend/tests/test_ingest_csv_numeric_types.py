@@ -96,3 +96,14 @@ async def test_a_non_numeric_value_past_the_sample_window_is_kept(
         assert last == "n/a"
     finally:
         await _drop(test_db_session, table)
+
+
+@pytest.mark.parametrize("probe", [ogr.run_ogrinfo, ogr.run_ogrinfo_preview])
+async def test_previews_report_the_type_the_import_stores(probe, tmp_path):
+    csv = tmp_path / "late_text.csv"
+    rows = "".join(f"row{i:060d},{i}\n" for i in range(20000))
+    csv.write_text(f"name,score\n{rows}last,n/a\n")
+    assert csv.stat().st_size > 1_000_000
+    info = await probe(str(csv))
+    score = next(c for c in info["columns"] if c["name"] == "score")
+    assert score["type"] == "String"

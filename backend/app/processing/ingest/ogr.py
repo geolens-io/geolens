@@ -838,7 +838,7 @@ async def run_ogrinfo(
     # CSV driver types all fields as String by default; auto-detect so
     # numeric columns appear as Real/Integer in the preview schema.
     if file_path.lower().endswith(".csv"):
-        cmd += ["-oo", "AUTODETECT_TYPE=YES"]
+        cmd += ["-oo", "AUTODETECT_TYPE=YES", "-oo", "AUTODETECT_SIZE_LIMIT=0"]
     cmd.append(source)
     if layer_name:
         cmd.append(layer_name)
@@ -927,7 +927,7 @@ async def run_ogrinfo_preview(
     # CSV driver types all fields as String by default; auto-detect so
     # numeric columns appear as Real/Integer in the preview schema.
     if file_path.lower().endswith(".csv"):
-        cmd += ["-oo", "AUTODETECT_TYPE=YES"]
+        cmd += ["-oo", "AUTODETECT_TYPE=YES", "-oo", "AUTODETECT_SIZE_LIMIT=0"]
     cmd.append(source)
     if layer_name:
         cmd.append(layer_name)
