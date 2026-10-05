@@ -23,6 +23,7 @@ from app.modules.catalog.maps.schemas import (
 from app.modules.catalog.maps.service import LayerRow, validate_public_visibility
 from app.modules.catalog.maps.sharing import can_read_every_map_dataset
 from app.modules.catalog.maps.style_json import project_terrain_config
+from app.platform.cache.scope import public_cache_control
 from app.platform.extensions import get_permission_extension
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -287,7 +288,7 @@ async def _stored_image_cache_control(
     if map_obj.visibility == "public" and (
         user is None or await can_read_every_map_dataset(db, map_obj, None)
     ):
-        return f"public, max-age={max_age}"
+        return public_cache_control(max_age)
     return "private, no-cache"
 
 

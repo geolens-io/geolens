@@ -62,7 +62,7 @@ from app.modules.catalog.datasets.domain.schemas import (
 )
 from app.platform.refresh.service import list_runs_for_dataset
 from app.platform.cache.provider import get_tile_cache, notify_table_invalidated
-from app.platform.cache.scope import is_publicly_cacheable
+from app.platform.cache.scope import is_publicly_cacheable, public_cache_control
 from app.platform.http.ranges import if_none_match_matches
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.modules.catalog.collections.service import get_dataset_collections
@@ -304,7 +304,7 @@ async def get_quicklook(
         if if_none_match_matches(request.headers.get("if-none-match"), etag):
             return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
     else:
-        headers = {"Cache-Control": "public, max-age=3600"}
+        headers = {"Cache-Control": public_cache_control(3600)}
     return Response(content=data, media_type="image/png", headers=headers)
 
 

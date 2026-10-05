@@ -137,8 +137,9 @@ async def test_stored_images_go_only_to_callers_who_can_read_every_dataset(
 
     anonymous = await client.get(f"/maps/{map_id}/thumbnail/")
     assert anonymous.status_code == 200
-    assert anonymous.headers["cache-control"] == "public, max-age=3600"
+    assert anonymous.headers["cache-control"] == "public, max-age=3600, s-maxage=60"
     card = await client.get(card_path)
+    assert card.headers["cache-control"] == "public, max-age=300, s-maxage=60"
     assert f"/maps/{map_id}/og-image/" in card.text
 
     # A layer added before public maps were limited to public datasets.

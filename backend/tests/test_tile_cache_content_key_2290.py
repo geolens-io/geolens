@@ -787,7 +787,7 @@ async def test_a_tile_older_than_the_page_is_not_cached_under_its_url(
             assert resp.status_code == 200, resp.text
         assert ahead_of_row.headers["cache-control"] == "no-store"
         for resp in (current, after_the_swap, unversioned, older):
-            assert resp.headers["cache-control"] == _CDN_POLICY
+            assert resp.headers["cache-control"] == "public, max-age=60, s-maxage=60"
     finally:
         tile_router._evict_dataset_meta(table)
         await _drop_table(test_db_session, table)

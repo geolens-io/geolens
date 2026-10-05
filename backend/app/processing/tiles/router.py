@@ -49,7 +49,7 @@ from app.platform.cache.provider import (
     get_tile_cache,
     register_table_invalidation_listener,
 )
-from app.platform.cache.scope import is_publicly_cacheable
+from app.platform.cache.scope import is_publicly_cacheable, public_cache_control
 from app.platform.extensions import (
     get_billing_extensions,
     get_data_serving_extension,
@@ -1286,7 +1286,7 @@ async def raster_tile_proxy(
     # nginx cache (its key carries no auth). Emit `no-store` so nginx skips
     # caching (frontend/nginx.conf honors it); only public datasets are cacheable.
     if cache_status == "public":
-        cache_control = "public, max-age=3600"
+        cache_control = public_cache_control(3600)
     else:
         cache_control = "private, no-store"
     return Response(
