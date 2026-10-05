@@ -1086,8 +1086,10 @@ async def run_ogr2ogr(
         )
 
     if is_csv:
-        # The CSV driver otherwise stores every column as text.
-        cmd.extend(["-oo", "AUTODETECT_TYPE=YES"])
+        # The CSV driver otherwise stores every column as text. The default
+        # scan stops after 1 MB and empties later values that don't fit the
+        # inferred type, so scan the whole file.
+        cmd.extend(["-oo", "AUTODETECT_TYPE=YES", "-oo", "AUTODETECT_SIZE_LIMIT=0"])
 
     if is_csv and not is_non_spatial:
         cmd.extend(

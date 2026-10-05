@@ -79,19 +79,20 @@ async def test_a_non_spatial_csv_types_numeric_columns(test_db_session, tmp_path
         await _drop(test_db_session, table)
 
 
-async def test_a_non_numeric_value_past_the_sample_window_still_imports(
+async def test_a_non_numeric_value_past_the_sample_window_is_kept(
     test_db_session, tmp_path
 ):
     csv = tmp_path / "late_text.csv"
-    rows = "".join(f"row{i},{i}\n" for i in range(20000))
+    rows = "".join(f"row{i:060d},{i}\n" for i in range(20000))
     csv.write_text(f"name,score\n{rows}last,n/a\n")
+    assert csv.stat().st_size > 1_000_000
     table = await _load(csv)
     try:
         types = await _column_types(test_db_session, table)
         assert types["score"] == "varchar"
-        count = await test_db_session.scalar(
-            text(f'SELECT count(*) FROM "data"."{table}"')
+        last = await test_db_session.scalar(
+            text(f'SELECT score FROM "data"."{table}" WHERE name = \'last\'')
         )
-        assert count == 20001
+        assert last == "n/a"
     finally:
         await _drop(test_db_session, table)

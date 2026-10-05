@@ -1343,7 +1343,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # semantics.
     "backend/app/processing/embeddings/backfill.py": 919,
     # Reupload preview, compatibility, review and staged commit share an endpoint lifecycle.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1598,
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1588,
     # VRT creation and regeneration share publication, owed-object records and
     # superseded-object cleanup.
     "backend/app/processing/ingest/tasks_vrt.py": 1650,
@@ -1354,7 +1354,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_vector.py": 1132,
     # GDAL environments, timeouts, reaping and error sanitization share one process
     # boundary.
-    "backend/app/processing/ingest/ogr.py": 1425,
+    "backend/app/processing/ingest/ogr.py": 1427,
     # Archive and GDAL content validation remain centralized at the upload security
     # boundary.
     "backend/app/processing/ingest/validation.py": 1206,
