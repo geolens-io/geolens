@@ -20,6 +20,19 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
 
+async def _drop_unreferenced(db, storage, dataset_id, ql_key: str) -> None:
+    """Delete an uploaded image unless the dataset's committed pointer names it."""
+    try:
+        current = await db.scalar(
+            text("SELECT quicklook_256_uri FROM catalog.datasets WHERE id = :id"),
+            {"id": dataset_id},
+        )
+        if current != ql_key:
+            await storage.delete(ql_key)
+    except Exception as e:  # broad: an orphaned image only costs storage
+        print(f"  could not clean up {ql_key}: {e}")
+
+
 async def main() -> None:
     from app.core.config import settings
     from app.core.tenancy import is_multi_tenant
@@ -67,6 +80,7 @@ async def main() -> None:
 
         for i, row in enumerate(rows, 1):
             name = row.table_name or str(row.id)
+            ql_key = None
             try:
                 ql_bytes = await generate_vector_quicklook_with_timeout(
                     db, row.table_name, row.geometry_type or "", 256, timeout=15.0
@@ -94,6 +108,8 @@ async def main() -> None:
             except Exception as e:
                 print(f"  [{i}/{len(rows)}] FAIL {name}: {e}")
                 await db.rollback()
+                if ql_key is not None:
+                    await _drop_unreferenced(db, storage, row.id, ql_key)
                 skipped += 1
 
         try:

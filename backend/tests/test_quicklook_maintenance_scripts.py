@@ -79,3 +79,47 @@ async def test_forced_bulk_redraw_writes_a_new_key_and_removes_the_old_image(
     assert new_key != old_uri
     assert db.execute.await_args_list[-1].args[1]["uri"] == new_key
     storage.delete.assert_awaited_once_with(old_uri)
+
+
+@pytest.mark.anyio
+async def test_forced_bulk_redraw_removes_its_upload_when_the_write_fails(monkeypatch):
+    """An image whose pointer never landed is not left under the dataset prefix."""
+    import sys
+    from unittest.mock import AsyncMock
+
+    from scripts import generate_vector_quicklooks as script
+
+    row = MagicMock(
+        id="22222222-2222-2222-2222-222222222222",
+        table_name="t",
+        geometry_type="Point",
+        quicklook_256_uri=None,
+    )
+    db = MagicMock()
+    db.execute = AsyncMock(
+        side_effect=[MagicMock(fetchall=lambda: [row]), RuntimeError("write failed")]
+    )
+    db.scalar = AsyncMock(return_value=None)
+    db.commit = AsyncMock()
+    db.rollback = AsyncMock()
+    session = MagicMock()
+    session.__aenter__ = AsyncMock(return_value=db)
+    session.__aexit__ = AsyncMock(return_value=False)
+    storage = MagicMock(put=AsyncMock(), delete=AsyncMock())
+    monkeypatch.setattr(sys, "argv", ["generate_vector_quicklooks.py", "--force"])
+    monkeypatch.setattr(
+        script,
+        "create_async_engine",
+        MagicMock(return_value=MagicMock(dispose=AsyncMock())),
+    )
+    monkeypatch.setattr(script, "sessionmaker", MagicMock(return_value=lambda: session))
+    monkeypatch.setattr("app.platform.storage.init_storage", MagicMock())
+    monkeypatch.setattr("app.platform.storage.get_storage", lambda: storage)
+    monkeypatch.setattr(
+        "app.processing.vector.quicklook.generate_vector_quicklook_with_timeout",
+        AsyncMock(return_value=b"x" * 600),
+    )
+
+    await script.main()
+
+    storage.delete.assert_awaited_once_with(storage.put.await_args.args[0])

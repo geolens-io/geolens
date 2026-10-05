@@ -475,20 +475,21 @@ async def test_a_redraw_gives_the_public_quicklook_a_new_etag(
     assert revalidated.headers["etag"] not in (None, held)
 
 
+@pytest.mark.parametrize("redraws", [1, 2])
 async def test_a_read_that_loses_the_image_to_a_redraw_serves_the_new_one(
-    client, test_db_session, storage, tables, monkeypatch
+    client, test_db_session, storage, tables, monkeypatch, redraws: int
 ) -> None:
-    """A redraw that reaps the image between the pointer read and the fetch is not a 404."""
+    """Redraws that reap the image between the pointer read and the fetch are not a 404."""
     dataset, _admin_id, before = await _published_one_point_dataset(
         test_db_session, storage, tables, visibility="public"
     )
     real_get = storage.get
-    redrawn = False
+    remaining = redraws
 
     async def _redraw_then_get(key):
-        nonlocal redrawn
-        if not redrawn:
-            redrawn = True
+        nonlocal remaining
+        if remaining:
+            remaining -= 1
             await _publish_spread(test_db_session, dataset)
             await _draw(dataset)
         return await real_get(key)
