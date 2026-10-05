@@ -138,6 +138,13 @@ and releases use semantic versioning.
 - `geolens arcgis inventory` reports a web map with no `baseMap` as an
   invalid item instead of a complete map. (#2623)
 - `/maps` says "No matching maps" when a filter matches nothing. (#2617)
+- After a restore, the dataset's Source panel names the restored file and its
+  fingerprint instead of the replaced one, when the kept version came from an
+  upload. (#2639, #2641)
+- Import All with Defaults turns a CSV with latitude and longitude or WKT
+  columns into a point layer, as a single import does, instead of a table
+  without geometry. A `.3tz` or `.laz` dropped in the Geospatial files mode
+  now gets a message naming the mode that imports it. (#2645, #2648)
 - Accessibility fixes from the WCAG 2.1 AA review of the public pages:
   status messages and landmarks, page titles on the shared map and embed,
   Escape and focus handling in the legend, a list structure and labeled
@@ -183,9 +190,11 @@ and releases use semantic versioning.
   same-named table in another tenant can make it keep a retained table, which
   then shows up as registerable. Nothing is dropped that should not be.
   (#2636)
-- After a restore, the dataset's Source panel still names the replaced file
-  and its fingerprint. The restored data and the version history are
-  correct. (#2639)
+- Restoring the original import after its first replacement still names the
+  replacing file in the Source panel, because the original import has no
+  version record to restore it from. The restored data is correct. (#2649)
+- After a restore, the dataset's source coordinate system still describes
+  the replaced upload. (#2646)
 
 ## [1.21.1] - 2026-10-02
 
