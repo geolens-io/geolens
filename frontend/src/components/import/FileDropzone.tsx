@@ -24,6 +24,12 @@ export function effectiveBatchLimit(remainingQuota: number | null | undefined): 
     : MAX_BATCH_FILES;
 }
 
+// Extensions the geospatial-files mode never takes, and the mode that does.
+const KIND_ONLY_MODES = [
+  { ext: '.3tz', modeKey: 'upload.kindTileset' },
+  { ext: '.laz', modeKey: 'upload.kindPointCloud' },
+];
+
 interface FileDropzoneProps {
   onFilesAccepted: (files: File[]) => void;
   allowedExtensions?: string[];
@@ -35,6 +41,8 @@ interface FileDropzoneProps {
   tileset?: boolean;
   /** The drop takes COPC point clouds. */
   pointcloud?: boolean;
+  /** Mode-only extensions the instance allows; only these get a "choose that mode" hint. */
+  enabledKindOnlyExtensions?: string[];
 }
 
 /** Group deduped extensions by data kind for the format pills */
@@ -58,7 +66,7 @@ function groupByKind(extensions: string[], only?: DataKind): { kind: DataKind; e
   return result;
 }
 
-export function FileDropzone({ onFilesAccepted, allowedExtensions, maxSizeMb, remainingQuota, tileset = false, pointcloud = false }: FileDropzoneProps) {
+export function FileDropzone({ onFilesAccepted, allowedExtensions, maxSizeMb, remainingQuota, tileset = false, pointcloud = false, enabledKindOnlyExtensions = [] }: FileDropzoneProps) {
   const { t } = useTranslation('import');
 
   // Client-side UX guard only; the cap is enforced server-side at
@@ -101,10 +109,19 @@ export function FileDropzone({ onFilesAccepted, allowedExtensions, maxSizeMb, re
 
   const onDropRejected = useCallback((rejections: FileRejection[]) => {
     for (const { file, errors } of rejections) {
-      const reason = errors.map(rejectionReason).join(', ');
+      const kindOnly = !tileset && !pointcloud && errors.some((e) => e.code === ErrorCode.FileInvalidType)
+        ? KIND_ONLY_MODES.find(({ ext }) => file.name.toLowerCase().endsWith(ext) && enabledKindOnlyExtensions.includes(ext))
+        : undefined;
+      const reason = (kindOnly
+        ? [
+            t('dropzone.rejectionReason.kindOnly', { ext: kindOnly.ext, mode: t(kindOnly.modeKey) }),
+            ...errors.filter((e) => e.code !== ErrorCode.FileInvalidType).map(rejectionReason),
+          ]
+        : errors.map(rejectionReason)
+      ).join(', ');
       toast.error(t('dropzone.fileRejected', { filename: file.name, reason }));
     }
-  }, [t, rejectionReason]);
+  }, [t, rejectionReason, tileset, pointcloud, enabledKindOnlyExtensions]);
 
   const { getRootProps, getInputProps, isDragActive, isDragReject } =
     useDropzone({

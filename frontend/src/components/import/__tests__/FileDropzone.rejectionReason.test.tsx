@@ -32,4 +32,50 @@ describe('FileDropzone rejection reason', () => {
     expect(message).toContain(i18n.t('import:dropzone.rejectionReason.fileTooLarge', { size: 1 }));
     expect(message).not.toMatch(/larger than/i);
   });
+
+  it('names the mode that takes a .3tz dropped in the geospatial files mode', async () => {
+    const user = userEvent.setup({ applyAccept: false });
+    render(<FileDropzone onFilesAccepted={() => {}} allowedExtensions={['.gpkg', '.csv']} enabledKindOnlyExtensions={['.3tz']} />);
+
+    await user.upload(screen.getByLabelText(i18n.t('import:dropzone.ariaLabel')), new File(['x'], 'city.3tz'));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    const message = vi.mocked(toast.error).mock.calls[0][0] as string;
+    expect(message).toContain('city.3tz');
+    expect(message).toContain(i18n.t('import:upload.kindTileset'));
+  });
+
+  it('keeps the unsupported-type reason when the instance disables the mode extension', async () => {
+    const user = userEvent.setup({ applyAccept: false });
+    render(<FileDropzone onFilesAccepted={() => {}} allowedExtensions={['.gpkg', '.csv']} />);
+
+    await user.upload(screen.getByLabelText(i18n.t('import:dropzone.ariaLabel')), new File(['x'], 'city.3tz'));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    const message = vi.mocked(toast.error).mock.calls[0][0] as string;
+    expect(message).not.toContain(i18n.t('import:upload.kindTileset'));
+    expect(message).toContain('.gpkg, .csv');
+  });
+
+  it('keeps the size reason next to the mode hint', async () => {
+    const user = userEvent.setup({ applyAccept: false });
+    render(
+      <FileDropzone
+        onFilesAccepted={() => {}}
+        allowedExtensions={['.gpkg']}
+        enabledKindOnlyExtensions={['.3tz']}
+        maxSizeMb={1}
+      />,
+    );
+
+    await user.upload(
+      screen.getByLabelText(i18n.t('import:dropzone.ariaLabel')),
+      new File([new Uint8Array(2 * 1024 * 1024)], 'city.3tz'),
+    );
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    const message = vi.mocked(toast.error).mock.calls[0][0] as string;
+    expect(message).toContain(i18n.t('import:upload.kindTileset'));
+    expect(message).toContain(i18n.t('import:dropzone.rejectionReason.fileTooLarge', { size: 1 }));
+  });
 });

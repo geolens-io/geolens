@@ -104,6 +104,20 @@ describe('upload commit policy', () => {
     expect(peekUploadBatch()?.canTrack).toBe(true);
   });
 
+  test('batch defaults send the geometry columns the preview detected', async () => {
+    mockUploadFile.mockResolvedValueOnce({ job_id: 'job-csv' });
+    mockPreviewFile.mockResolvedValueOnce({
+      job_id: 'job-csv', source_filename: 'places.csv', layer_name: 'places', layers: [],
+      geometry_type: null, detected_geometry_columns: { x_column: 'lon', y_column: 'lat', wkt_column: null },
+    });
+    startUploadEntry('csv', new File([''], 'places.csv'), false);
+    await vi.waitFor(() => expect(statusOf('csv')).toBe('preview'));
+    mockCommitImport.mockResolvedValueOnce({});
+    await commitUploadEntries();
+    expect(mockCommitImport).toHaveBeenCalledWith('job-csv', { title: 'places', x_column: 'lon', y_column: 'lat' });
+    expect(peekUploadBatch()?.entries.find((e) => e.id === 'csv')?.submitted?.kind).toBe('vector');
+  });
+
   test('partial fan-out derives requests and tracking kind and waits for results acknowledgement', async () => {
     await startMultiLayerEntry();
     mockCommitFanOut.mockResolvedValueOnce({ results: [

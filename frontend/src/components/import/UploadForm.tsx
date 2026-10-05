@@ -204,6 +204,10 @@ export function UploadForm({ onPhaseChange, onOutcomeChange }: UploadFormProps) 
         : configExtensions?.filter((ext) => !KIND_ONLY_EXTENSIONS.has(ext.toLowerCase())),
     [uploadKind, tilesetExtensions, configExtensions],
   );
+  const enabledKindOnlyExtensions = useMemo(
+    () => (configExtensions ?? []).map((ext) => ext.toLowerCase()).filter((ext) => KIND_ONLY_EXTENSIONS.has(ext)),
+    [configExtensions],
+  );
   const maxSizeMb = uploadConfig ? Math.round(uploadConfig.max_file_size_bytes / (1024 * 1024)) : undefined;
 
   const reset = useCallback(() => {
@@ -563,6 +567,7 @@ export function UploadForm({ onPhaseChange, onOutcomeChange }: UploadFormProps) 
         remainingQuota={configFetching ? null : (uploadConfig?.remaining_dataset_quota ?? null)}
         tileset={uploadKind === 'tiles3d'}
         pointcloud={uploadKind === 'pointcloud'}
+        enabledKindOnlyExtensions={enabledKindOnlyExtensions}
       />
     </div>
   );

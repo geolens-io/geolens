@@ -131,7 +131,8 @@
       "fileInvalidType": "Der Dateityp muss einer der folgenden sein: {{types}}",
       "fileTooLarge": "Die Datei überschreitet das Limit von {{size}} MB",
       "fileTooSmall": "Die Datei ist kleiner als die Mindestgröße",
-      "tooManyFiles": "Bis zu {{max}} Dateien pro Stapel"
+      "tooManyFiles": "Bis zu {{max}} Dateien pro Stapel",
+      "kindOnly": "{{ext}}-Dateien werden in diesem Modus nicht importiert. Wählen Sie stattdessen „{{mode}}“"
     },
     "sizeLimit": "Maximal 500 MB pro Datei",
     "sizeLimitDynamic": "Maximal {{size}} MB pro Datei",

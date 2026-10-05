@@ -131,7 +131,8 @@
       "fileInvalidType": "El tipo de archivo debe ser uno de: {{types}}",
       "fileTooLarge": "El archivo supera el límite de {{size}} MB",
       "fileTooSmall": "El archivo es menor que el tamaño mínimo",
-      "tooManyFiles": "Hasta {{max}} archivos por lote"
+      "tooManyFiles": "Hasta {{max}} archivos por lote",
+      "kindOnly": "Los archivos {{ext}} no se importan en este modo. Elija «{{mode}}»"
     },
     "sizeLimit": "Máximo 500 MB por archivo",
     "sizeLimitDynamic": "Máximo {{size}} MB por archivo",
