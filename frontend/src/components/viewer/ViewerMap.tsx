@@ -1071,7 +1071,7 @@ export const ViewerMap = memo(function ViewerMap({
 
   return (
     <div
-      className={`relative h-full w-full [&_.maplibregl-ctrl-bottom-right]:max-w-[calc(50%-4.5rem)] ${!mapReady ? 'bg-muted animate-pulse' : ''}`}
+      className={`relative h-full w-full [&_.maplibregl-ctrl-bottom-right]:max-w-[calc(50%-4.5rem)] [&_.maplibregl-ctrl-attrib-inner]:[overflow-wrap:anywhere] ${!mapReady ? 'bg-muted animate-pulse' : ''}`}
       // audit(w3-maps): aria-label on <MapGL> is silently dropped —
       // @vis.gl/react-maplibre v8 forwards only id/ref/style, and MapLibre
       // labels its canvas "Map". Label the wrapper region instead (same
