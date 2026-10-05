@@ -1223,7 +1223,8 @@ async def _draw_quicklook(
         Exception
     ) as _ql_commit_exc:  # broad: transient commit failure after successful generation
         await session.rollback()
-        await _reap_quicklook(ql_storage, stored_key, table_name)
+        # The commit may have landed before the connection dropped, so the image
+        # stays: an orphan costs storage, a reaped live image 404s.
         _ql_log.warning(
             "quicklook_failed",
             phase="commit",

@@ -509,6 +509,31 @@ async def test_a_draw_whose_dataset_was_deleted_removes_its_upload(
     assert not await storage.exists(keys[0]), "the upload outlived its dataset"
 
 
+async def test_a_commit_that_lands_but_reports_failure_keeps_the_image(
+    test_db_session, storage, tables
+) -> None:
+    """A lost COMMIT acknowledgement must not delete the image the pointer now names."""
+    import app.core.db as db_module
+
+    dataset, _admin_id, _before = await _published_one_point_dataset(
+        test_db_session, storage, tables
+    )
+    await _publish_spread(test_db_session, dataset)
+
+    async with db_module.async_session() as session:
+        real_commit = session.commit
+
+        async def _commit_then_drop() -> None:
+            await real_commit()
+            raise ConnectionError("connection lost after COMMIT")
+
+        session.commit = _commit_then_drop
+        await _generate_quicklook(session, dataset.id, dataset.table_name)
+
+    uri, _png = await _stored_quicklook(storage, dataset.id)
+    assert await storage.exists(uri), "the committed pointer names a deleted image"
+
+
 async def test_a_redraw_writes_a_new_key_and_removes_the_replaced_image(
     test_db_session, storage, tables
 ) -> None:
