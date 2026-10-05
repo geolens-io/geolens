@@ -54,6 +54,7 @@ from app.platform.jobs.models import (
     UNPUBLISHED_STORAGE_KEYS_FIELD,
     UNREAPED_ARTIFACT_FIELDS,
     IngestJob,
+    carries_unreaped,
     holds_unarchived_original,
     needs_staged_input,
     owned_presigned_staging_key,
@@ -1681,7 +1682,7 @@ def _carries_unreaped_artifacts(fields=UNREAPED_ARTIFACT_FIELDS):
     pending record the retention purge keeps. A string test on the JSONB blob,
     never a throwing cast.
     """
-    return or_(*(IngestJob.user_metadata[field].is_not(None) for field in fields))
+    return or_(*(carries_unreaped(field) for field in fields))
 
 
 async def collect_unreaped_artifacts(

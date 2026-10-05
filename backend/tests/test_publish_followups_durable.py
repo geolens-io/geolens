@@ -9,16 +9,20 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 import structlog
-from sqlalchemy import Text, delete, literal, select, text, update
+from sqlalchemy import Text, delete, literal, or_, select, text, update
 
 import app.core.db as db_module
 from app.core.config import settings
 from app.modules.catalog.datasets.domain.models import Record
 from app.platform.jobs.models import (
+    OBLIGATIONS_HOLD,
+    OBLIGATIONS_HOLD_FIELD,
     PUBLISH_FOLLOWUPS_FIELD,
     PUBLISH_OBLIGATIONS_FIELD,
     IngestJob,
 )
+from app.platform.jobs.sweep import _REAPED_ARTIFACT_FIELDS, _carries_unreaped_artifacts
+from app.processing.analysis.tasks import recorded_analysis_output_tables
 from app.processing.ingest.publish_followups import (
     owed_followups,
     run_owed_publish_followups,
@@ -471,6 +475,90 @@ async def _earlier_release_claims(job_id) -> None:
             await session.commit()
 
 
+# The fields the previous release's retention purge keeps a job for while any holds a value.
+_EARLIER_RELEASE_KEEPS = (
+    "unpublished_storage_keys",
+    "analysis_out_table",
+    "unpublished_tileset_attempts",
+    PUBLISH_FOLLOWUPS_FIELD,
+)
+
+
+async def _earlier_release_keeps(job_id) -> bool:
+    """Whether the previous release's retention purge keeps the job, and its readers find no table in it."""
+    metadata = await _metadata(job_id)
+    assert recorded_analysis_output_tables(metadata) == ()
+    held = or_(
+        *(
+            IngestJob.user_metadata[field].is_not(None)
+            for field in _EARLIER_RELEASE_KEEPS
+        )
+    )
+    async with db_module.async_session() as session:
+        return await session.scalar(select(held).where(IngestJob.id == job_id))
+
+
+async def _carries(job_id, *fields) -> bool:
+    async with db_module.async_session() as session:
+        return await session.scalar(
+            select(_carries_unreaped_artifacts(*fields)).where(IngestJob.id == job_id)
+        )
+
+
+@pytest.mark.parametrize("field", [PUBLISH_OBLIGATIONS_FIELD, PUBLISH_FOLLOWUPS_FIELD])
+async def test_the_previous_release_keeps_a_job_while_it_owes_run_once_steps(
+    test_db_session, ran, field
+) -> None:
+    """A rolled-back purge keeps a job whose run-once steps are owed, and not once they land."""
+    job_id, _, record_id = await _job(
+        test_db_session, task="ingest_raster", field=field
+    )
+    try:
+        ran.die("cache")
+        with pytest.raises(asyncio.CancelledError):
+            await run_publish_followups(job_id)
+        await _earlier_release_claims(job_id)
+
+        assert await _earlier_release_keeps(job_id)
+
+        await _make_due(job_id)
+        await run_owed_publish_followups()
+        assert ran == _RASTER
+        assert not await _earlier_release_keeps(job_id)
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def test_the_obligations_hold_names_nothing_to_reap(test_db_session) -> None:
+    """A job owing run-once steps fills no reap batch, and a hold left alone keeps no job."""
+    job_id, attempt_id, record_id = await _job(test_db_session, task="ingest_raster")
+    try:
+        async with db_module.async_session() as session:
+            await session.execute(
+                update(IngestJob)
+                .where(IngestJob.id == job_id)
+                .values(
+                    user_metadata=owed_followups(
+                        attempt_id, "ingest_raster", catalog_cache=True
+                    )
+                )
+            )
+            await session.commit()
+        assert (await _metadata(job_id))[OBLIGATIONS_HOLD_FIELD] == OBLIGATIONS_HOLD
+        assert not await _carries(job_id, _REAPED_ARTIFACT_FIELDS)
+
+        async with db_module.async_session() as session:
+            await session.execute(
+                update(IngestJob)
+                .where(IngestJob.id == job_id)
+                .values(user_metadata={OBLIGATIONS_HOLD_FIELD: OBLIGATIONS_HOLD})
+            )
+            await session.commit()
+        assert not await _carries(job_id)
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
 async def test_the_previous_release_cannot_see_a_record_this_one_writes(
     test_db_session, ran
 ) -> None:
@@ -499,9 +587,11 @@ async def test_the_previous_release_cannot_see_a_record_this_one_writes(
         await _earlier_release_claims(job_id)
 
         assert await _metadata(job_id) == written
+        assert await _earlier_release_keeps(job_id)
         await run_owed_publish_followups()
         assert ran == [("cache",), ("notice", "ingest_complete"), ("bill",)]
         assert await _record(job_id) is None
+        assert not await _earlier_release_keeps(job_id)
     finally:
         await _drop(test_db_session, job_id, record_id)
 

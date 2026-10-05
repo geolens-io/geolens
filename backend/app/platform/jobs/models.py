@@ -1,3 +1,4 @@
+import json
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -12,7 +13,9 @@ from sqlalchemy import (
     String,
     Text,
     and_,
+    cast,
     func,
+    literal,
     or_,
     text,
 )
@@ -122,6 +125,11 @@ UNREAPED_ARTIFACT_FIELDS = (
     PUBLISH_FOLLOWUPS_FIELD,
     PUBLISH_OBLIGATIONS_FIELD,
 )
+# Set beside an obligations record, under a field an earlier release's retention
+# purge keeps a row for and its readers take as naming no table, so a rollback
+# can't purge a job that still owes run-once steps.
+OBLIGATIONS_HOLD_FIELD = ANALYSIS_OUTPUT_TABLE_FIELD
+OBLIGATIONS_HOLD = {PUBLISH_OBLIGATIONS_FIELD: True}
 
 # The user_metadata keys the admin job list shows: what the user supplied at
 # upload, commit or in a manifest, the job's request and its outcome. Any other
@@ -296,6 +304,22 @@ class IngestJob(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+def obligations_hold():
+    """The obligations hold as a JSONB value."""
+    return cast(literal(json.dumps(OBLIGATIONS_HOLD)), JSONB)
+
+
+def carries_unreaped(field: str):
+    """Predicate: the row's ``field`` names an artifact or follow-up nothing has settled.
+
+    The obligations hold names neither; the record beside it keeps the row.
+    """
+    value = IngestJob.user_metadata[field]
+    if field != OBLIGATIONS_HOLD_FIELD:
+        return value.is_not(None)
+    return and_(value.is_not(None), value != obligations_hold())
 
 
 def holds_unarchived_original():

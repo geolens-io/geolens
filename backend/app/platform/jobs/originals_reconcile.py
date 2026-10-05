@@ -28,6 +28,7 @@ from app.platform.jobs.models import (
     ACTIVE_STATUSES,
     UNREAPED_ARTIFACT_FIELDS,
     IngestJob,
+    carries_unreaped,
 )
 from app.platform.jobs.staging_reconcile import (
     _current_entry,
@@ -110,10 +111,7 @@ async def _still_referenced(db: AsyncSession, dataset_id: uuid.UUID) -> bool:
     dataset = select(_dataset_model().id).where(_dataset_model().id == dataset_id)
     can_still_write = or_(
         IngestJob.status.in_(ACTIVE_STATUSES),
-        *(
-            IngestJob.user_metadata[field].is_not(None)
-            for field in UNREAPED_ARTIFACT_FIELDS
-        ),
+        *(carries_unreaped(field) for field in UNREAPED_ARTIFACT_FIELDS),
     )
     job = select(IngestJob.id).where(
         can_still_write,
