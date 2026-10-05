@@ -60,15 +60,23 @@ async def _seed(session, *, visibility: str = "public"):
     return admin_id, dataset
 
 
-async def _queue(session, dataset, admin_id, *, origin_kind: str, metadata: dict):
+async def _queue(
+    session,
+    dataset,
+    admin_id,
+    *,
+    origin_kind: str,
+    metadata: dict,
+    filename: str = "update.geojson",
+):
     from app.platform.refresh.service import create_pending_run
 
     job = IngestJob(
         dataset_id=dataset.id,
         status="pending",
         attempt_id=uuid.uuid4(),
-        source_filename="update.geojson",
-        file_path="/tmp/update.geojson",
+        source_filename=filename,
+        file_path=f"/tmp/{filename}",
         created_by=admin_id,
         user_metadata={"dataset_id": str(dataset.id), **metadata},
     )
@@ -108,12 +116,26 @@ def _stager(cities: list[str]):
     return _stage
 
 
-async def _replace(session, dataset, admin_id, cities: list[str]) -> IngestJob:
+async def _replace(
+    session,
+    dataset,
+    admin_id,
+    cities: list[str],
+    *,
+    filename: str = "update.geojson",
+    file_hash: str = "f" * 64,
+    source_format: str = "geojson",
+) -> IngestJob:
     """Run a file replacement of the dataset with ``cities`` through the worker."""
     from app.processing.ingest.tasks import reupload_file
 
     job = await _queue(
-        session, dataset, admin_id, origin_kind="upload", metadata={"reupload": True}
+        session,
+        dataset,
+        admin_id,
+        origin_kind="upload",
+        metadata={"reupload": True},
+        filename=filename,
     )
     ogrinfo = {
         "srid": 4326,
@@ -141,11 +163,11 @@ async def _replace(session, dataset, admin_id, cities: list[str]) -> IngestJob:
             ("app.processing.ingest.tasks_staging.get_storage", lambda: AsyncMock()),
             (
                 "app.processing.ingest.tasks_reupload.sha256_file",
-                lambda path: "f" * 64,
+                lambda path: file_hash,
             ),
             (
                 "app.processing.ingest.tasks_reupload.derive_source_format",
-                lambda path: "geojson",
+                lambda path: source_format,
             ),
             (
                 "app.processing.ingest.tasks_reupload.UploadedSource."
@@ -1246,4 +1268,165 @@ async def test_a_routine_returning_the_row_type_refuses_the_replacement(
         await session.rollback()
         await session.execute(text(f'DROP FUNCTION IF EXISTS "data"."{routine}"()'))
         await session.commit()
+        await _cleanup(session, dataset)
+
+
+async def test_a_restore_points_the_source_fields_at_the_kept_file(
+    client: AsyncClient, test_db_session, admin_auth_header
+) -> None:
+    """After a restore the dataset names the file that produced the data now live."""
+    session = test_db_session
+    admin_id, dataset = await _seed(session)
+    await session.execute(
+        text(
+            "UPDATE catalog.datasets SET source_filename = 'a.geojson', "
+            "origin_ref = CAST(:ref AS jsonb) WHERE id = :id"
+        ),
+        {"ref": '{"kind": "upload", "filename": "a.geojson"}', "id": dataset.id},
+    )
+    await session.commit()
+    try:
+        await _replace(
+            session,
+            dataset,
+            admin_id,
+            ["paris"],
+            filename="b.gpkg",
+            file_hash="b" * 64,
+            source_format="gpkg",
+        )
+        await _replace(
+            session,
+            dataset,
+            admin_id,
+            ["london"],
+            filename="c.geojson",
+            file_hash="c" * 64,
+        )
+
+        await _restore(client, admin_auth_header, session, dataset, 2)
+
+        row = (
+            await session.execute(
+                text(
+                    "SELECT source_filename, source_format, origin_ref FROM catalog.datasets "
+                    "WHERE id = :id"
+                ),
+                {"id": dataset.id},
+            )
+        ).one()
+        assert row.source_filename == "b.gpkg"
+        assert row.source_format == "gpkg"
+        assert row.origin_ref == {
+            "kind": "upload",
+            "filename": "b.gpkg",
+            "file_hash": "b" * 64,
+        }
+    finally:
+        await _cleanup(session, dataset)
+
+
+async def test_a_restore_of_service_data_leaves_the_upload_binding_alone(
+    client: AsyncClient, test_db_session, admin_auth_header
+) -> None:
+    """A kept version that came from a service is not described by upload fields."""
+    session = test_db_session
+    admin_id, dataset = await _seed(session)
+    await session.execute(
+        text(
+            "UPDATE catalog.datasets SET source_format = 'wfs', "
+            "source_filename = 'roads' WHERE id = :id"
+        ),
+        {"id": dataset.id},
+    )
+    await session.commit()
+    try:
+        await _replace(
+            session,
+            dataset,
+            admin_id,
+            ["paris"],
+            filename="b.gpkg",
+            source_format="gpkg",
+        )
+        await session.execute(
+            text(
+                "UPDATE catalog.dataset_versions SET source_format = 'wfs', "
+                "source_filename = 'roads' "
+                "WHERE dataset_id = :id AND version_number = 2"
+            ),
+            {"id": dataset.id},
+        )
+        await session.commit()
+        await _replace(
+            session,
+            dataset,
+            admin_id,
+            ["london"],
+            filename="c.gpkg",
+            source_format="gpkg",
+        )
+
+        await _restore(client, admin_auth_header, session, dataset, 2)
+
+        row = (
+            await session.execute(
+                text(
+                    "SELECT source_filename, source_format FROM catalog.datasets "
+                    "WHERE id = :id"
+                ),
+                {"id": dataset.id},
+            )
+        ).one()
+        assert (row.source_filename, row.source_format) == ("c.gpkg", "gpkg")
+    finally:
+        await _cleanup(session, dataset)
+
+
+async def test_a_restore_of_an_upload_replaces_a_service_binding(
+    client: AsyncClient, test_db_session, admin_auth_header
+) -> None:
+    """The kept upload's file, not the service that replaced it, is what the dataset names."""
+    session = test_db_session
+    admin_id, dataset = await _seed(session)
+    try:
+        await _replace(
+            session,
+            dataset,
+            admin_id,
+            ["paris"],
+            filename="b.gpkg",
+            source_format="gpkg",
+        )
+        await _replace(session, dataset, admin_id, ["london"], filename="c.gpkg")
+        await session.execute(
+            text(
+                "UPDATE catalog.datasets SET source_format = 'wfs', "
+                "source_filename = 'roads', "
+                "origin_uri = 'https://svc.example/wfs', "
+                "origin_ref = CAST(:ref AS jsonb) WHERE id = :id"
+            ),
+            {
+                "ref": '{"kind": "service", "service_type": "wfs", '
+                '"url": "https://svc.example/wfs"}',
+                "id": dataset.id,
+            },
+        )
+        await session.commit()
+
+        await _restore(client, admin_auth_header, session, dataset, 2)
+
+        row = (
+            await session.execute(
+                text(
+                    "SELECT source_filename, source_format, origin_uri, origin_ref "
+                    "FROM catalog.datasets WHERE id = :id"
+                ),
+                {"id": dataset.id},
+            )
+        ).one()
+        assert (row.source_filename, row.source_format) == ("b.gpkg", "gpkg")
+        assert row.origin_uri is None
+        assert row.origin_ref["kind"] == "upload"
+    finally:
         await _cleanup(session, dataset)
