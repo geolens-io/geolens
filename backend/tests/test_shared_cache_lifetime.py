@@ -1,5 +1,7 @@
 """A public response tells shared caches to drop it within SHARED_CACHE_MAX_AGE seconds."""
 
+import re
+
 import pytest
 
 from app.platform.cache.scope import (
@@ -8,6 +10,9 @@ from app.platform.cache.scope import (
     public_cache_control,
 )
 from app.processing.tiles.responses import _serving_tile_headers
+from tests.repo_paths import repo_root
+
+NGINX_CONF = repo_root(__file__) / "frontend" / "nginx.conf"
 
 
 @pytest.mark.parametrize(
@@ -58,3 +63,14 @@ def test_a_private_tile_takes_no_shared_lifetime(empty):
         "private", 300, "public, max-age=600, s-maxage=86400", empty=empty
     )
     assert headers["Cache-Control"] == "private, max-age=300"
+
+
+def test_the_bundled_nginx_cache_never_serves_a_stale_tile():
+    directives = [
+        line.strip()
+        for line in NGINX_CONF.read_text().splitlines()
+        if not line.lstrip().startswith("#")
+    ]
+    assert "proxy_cache raster_cache;" in directives
+    stale = [d for d in directives if re.match(r"proxy_cache_use_stale\b", d)]
+    assert all(d == "proxy_cache_use_stale off;" for d in stale), stale
