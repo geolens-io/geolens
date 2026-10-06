@@ -5,11 +5,23 @@ import math
 import re
 from collections.abc import Iterable, Iterator, Sequence
 from functools import lru_cache
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from geoalchemy2.shape import to_shape
-from sqlalchemy import Integer, and_, case, cast, column, func, or_, select, text, true
+from sqlalchemy import (
+    Integer,
+    and_,
+    case,
+    cast,
+    column,
+    func,
+    or_,
+    select,
+    text,
+    true,
+)
 from sqlalchemy import table as sql_table
+from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import ColumnElement
 
 if TYPE_CHECKING:
@@ -544,6 +556,35 @@ def wrap_geometry_longitudes(geom: ColumnElement) -> ColumnElement:
         (and_(xmin > -180, xmax < 180, func.ST_IsValid(geom)), geom),
         (finite, folded),
     )
+
+
+def wrapped_spatial_filter(
+    entity: Any, folded: ColumnElement, predicate: str = "intersects"
+) -> ColumnElement:
+    """Rows of ``entity`` whose ``spatial_extent`` meets ``folded`` under ``predicate``.
+
+    A fold across ±180 has pieces at both ends, so its single envelope spans every
+    longitude. Both the ``&&`` prefilter and the index condition PostGIS adds for
+    the predicate then admit the whole latitude band. Probing the index once per
+    piece keeps each probe to its own side of the seam. Intersection decomposes
+    over pieces; ``within`` is checked against the whole fold.
+    """
+    candidate = aliased(entity)
+    pieces = func.ST_Dump(folded).table_valued("geom")
+    spatial_fn = func.ST_Within if predicate == "within" else func.ST_Intersects
+    target = folded if predicate == "within" else pieces.c.geom
+    matches = (
+        select(candidate.id)
+        .select_from(pieces)
+        .join(
+            candidate,
+            and_(
+                candidate.spatial_extent.op("&&")(func.ST_Envelope(pieces.c.geom)),
+                spatial_fn(candidate.spatial_extent, target),
+            ),
+        )
+    )
+    return entity.id.in_(matches)
 
 
 @lru_cache(maxsize=512)

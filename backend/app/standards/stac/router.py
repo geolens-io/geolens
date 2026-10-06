@@ -62,6 +62,7 @@ from app.core.geo import (
     rollup_bbox,
     rollup_bbox_columns,
     wrap_geometry_longitudes,
+    wrapped_spatial_filter,
 )
 from app.modules.catalog.search.service import build_assets, dataset_to_ogc_record
 from app.standards.stac.schemas import (
@@ -1367,8 +1368,7 @@ def _build_search_filters(
         _geom = wrap_geometry_longitudes(
             func.ST_SetSRID(func.ST_GeomFromGeoJSON(intersects_str), 4326)
         )
-        filters.append(Record.spatial_extent.op("&&")(func.ST_Envelope(_geom)))
-        filters.append(func.ST_Intersects(Record.spatial_extent, _geom))
+        filters.append(wrapped_spatial_filter(Record, _geom))
     elif bbox:
         # Filter by bbox (only if intersects not provided). parse_bbox takes the
         # GET string and the POST list, so both spellings validate identically.
