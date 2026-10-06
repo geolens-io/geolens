@@ -1204,6 +1204,11 @@ async def _draw_quicklook(
             await session.scalar(select(Dataset.id).where(Dataset.id == dataset_id))
             is None
         )
+    except asyncio.CancelledError:
+        # Nothing was committed, so the unreferenced upload is reaped.
+        await asyncio.shield(session.rollback())
+        await asyncio.shield(_reap_quicklook(ql_storage, stored_key, table_name))
+        raise
     except Exception as _ql_recovery_exc:  # broad: non-fatal contract — connection drop between upload and recovery must not propagate
         try:
             await session.rollback()

@@ -94,6 +94,15 @@ async def main() -> None:
                 # A new key per draw gives the image a new quicklook_version.
                 ql_key = f"vectors/{row.id}/quicklook_256_{uuid.uuid4().hex[:12]}.png"
                 await storage.put(ql_key, io.BytesIO(ql_bytes))
+                # Read under the row lock so cleanup targets the pointer this
+                # update replaces, not the one the batch query saw.
+                replaced = await db.scalar(
+                    text(
+                        "SELECT quicklook_256_uri FROM catalog.datasets "
+                        "WHERE id = :id FOR NO KEY UPDATE"
+                    ),
+                    {"id": row.id},
+                )
                 await db.execute(
                     text(
                         "UPDATE catalog.datasets SET quicklook_256_uri = :uri WHERE id = :id"
@@ -101,13 +110,13 @@ async def main() -> None:
                     {"uri": ql_key, "id": row.id},
                 )
                 await db.commit()
-                if row.quicklook_256_uri and row.quicklook_256_uri != ql_key:
+                if replaced and replaced != ql_key:
                     try:
-                        await storage.delete(row.quicklook_256_uri)
+                        await storage.delete(replaced)
                     except (
                         Exception
                     ) as e:  # broad: an orphaned image only costs storage
-                        print(f"  could not remove {row.quicklook_256_uri}: {e}")
+                        print(f"  could not remove {replaced}: {e}")
                 success += 1
                 print(f"  [{i}/{len(rows)}] OK   {name} ({len(ql_bytes)} bytes)")
             except Exception as e:

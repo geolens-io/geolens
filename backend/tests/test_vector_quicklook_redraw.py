@@ -579,6 +579,38 @@ async def test_a_cancelled_upload_is_removed_and_the_cancel_propagates(
     assert not await storage.exists(keys[0]), "the upload outlived its cancel"
 
 
+async def test_a_cancel_during_the_pointer_write_removes_the_upload(
+    test_db_session, storage, tables, monkeypatch
+) -> None:
+    """A cancel before the commit leaves the pointer alone, so the new image is reaped."""
+    dataset, _admin_id, _before = await _published_one_point_dataset(
+        test_db_session, storage, tables
+    )
+    await _publish_spread(test_db_session, dataset)
+    keys: list[str] = []
+    real_put = storage.put
+
+    async def _record_put(stored_key, data):
+        keys.append(stored_key)
+        await real_put(stored_key, data)
+
+    monkeypatch.setattr(storage, "put", _record_put)
+    real_execute = AsyncSession.execute
+
+    async def _cancel_on_update(self, statement, *args, **kwargs):
+        if getattr(statement, "is_update", False):
+            raise asyncio.CancelledError
+        return await real_execute(self, statement, *args, **kwargs)
+
+    monkeypatch.setattr(AsyncSession, "execute", _cancel_on_update)
+    with pytest.raises(asyncio.CancelledError):
+        await _draw(dataset)
+    monkeypatch.undo()
+
+    assert keys
+    assert not await storage.exists(keys[0]), "the upload outlived its cancel"
+
+
 async def test_a_draw_whose_dataset_was_deleted_removes_its_upload(
     test_db_session, storage, tables, monkeypatch
 ) -> None:

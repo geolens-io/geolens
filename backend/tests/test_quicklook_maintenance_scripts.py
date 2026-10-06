@@ -56,6 +56,7 @@ async def test_forced_bulk_redraw_writes_a_new_key_and_removes_the_old_image(
     )
     db = MagicMock()
     db.execute = AsyncMock(return_value=MagicMock(fetchall=lambda: [row]))
+    db.scalar = AsyncMock(return_value=row.quicklook_256_uri)
     db.commit = AsyncMock()
     db.rollback = AsyncMock()
     session = MagicMock()
@@ -143,6 +144,7 @@ async def test_forced_bulk_redraw_counts_a_failed_old_image_removal_as_done(
     )
     db = MagicMock()
     db.execute = AsyncMock(return_value=MagicMock(fetchall=lambda: [row]))
+    db.scalar = AsyncMock(return_value=row.quicklook_256_uri)
     db.commit = AsyncMock()
     db.rollback = AsyncMock()
     session = MagicMock()
@@ -168,3 +170,46 @@ async def test_forced_bulk_redraw_counts_a_failed_old_image_removal_as_done(
     await script.main()
 
     assert "Done: 1 generated, 0 skipped." in capsys.readouterr().out
+
+
+@pytest.mark.anyio
+async def test_forced_bulk_redraw_removes_the_pointer_its_update_replaced(monkeypatch):
+    """A pointer that moved while the image rendered is the one to reap, not the batch's copy."""
+    import sys
+    from unittest.mock import AsyncMock
+
+    from scripts import generate_vector_quicklooks as script
+
+    row = MagicMock(
+        id="44444444-4444-4444-4444-444444444444",
+        table_name="t",
+        geometry_type="Point",
+        quicklook_256_uri="vectors/44444444/quicklook_256_aaaa.png",
+    )
+    moved_to = "vectors/44444444/quicklook_256_bbbb.png"
+    db = MagicMock()
+    db.execute = AsyncMock(return_value=MagicMock(fetchall=lambda: [row]))
+    db.scalar = AsyncMock(return_value=moved_to)
+    db.commit = AsyncMock()
+    db.rollback = AsyncMock()
+    session = MagicMock()
+    session.__aenter__ = AsyncMock(return_value=db)
+    session.__aexit__ = AsyncMock(return_value=False)
+    storage = MagicMock(put=AsyncMock(), delete=AsyncMock())
+    monkeypatch.setattr(sys, "argv", ["generate_vector_quicklooks.py", "--force"])
+    monkeypatch.setattr(
+        script,
+        "create_async_engine",
+        MagicMock(return_value=MagicMock(dispose=AsyncMock())),
+    )
+    monkeypatch.setattr(script, "sessionmaker", MagicMock(return_value=lambda: session))
+    monkeypatch.setattr("app.platform.storage.init_storage", MagicMock())
+    monkeypatch.setattr("app.platform.storage.get_storage", lambda: storage)
+    monkeypatch.setattr(
+        "app.processing.vector.quicklook.generate_vector_quicklook_with_timeout",
+        AsyncMock(return_value=b"x" * 600),
+    )
+
+    await script.main()
+
+    storage.delete.assert_awaited_once_with(moved_to)
