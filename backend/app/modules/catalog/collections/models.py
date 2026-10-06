@@ -2,10 +2,12 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    Boolean,
     DateTime,
     ForeignKey,
     Index,
     Integer,
+    SmallInteger,
     Text,
     UniqueConstraint,
     func,
@@ -116,6 +118,10 @@ class DatasetVersion(Base):
     srid: Mapped[int | None] = mapped_column(Integer, nullable=True)
     geometry_type: Mapped[str | None] = mapped_column(Text, nullable=True)
     file_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # What a restore of this version puts back on the dataset.
+    original_srid: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    is_3d: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    n_dims: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     # The version whose data a restore published as this one.
     restored_from_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     uploaded_by: Mapped[uuid.UUID | None] = mapped_column(

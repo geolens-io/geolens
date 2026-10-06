@@ -1745,12 +1745,16 @@ async def _write_reupload_catalog(
     )  # LAZY — preserved per D-17
     from app.platform.extensions import get_processing_port
     from app.processing.ingest.catalog_projection import project
-    from app.processing.ingest.previous_version import stamp_previous_version
+    from app.processing.ingest.previous_version import (
+        record_live_version,
+        stamp_previous_version,
+    )
 
     DatasetVersion = get_processing_port().get_dataset_version_orm_class()
     actor_id = uuid.UUID(user_id)
     new_version = dataset.current_version + 1
 
+    await record_live_version(session, dataset)
     schema_diff = await project(session, dataset, measurement)
     await stamp_previous_version(session, dataset, dataset.current_version)
 
@@ -1807,6 +1811,9 @@ async def _write_reupload_catalog(
         # describes never disagree about what this swap installed (#1373).
         geometry_type=measurement.geometry_type,
         file_hash=file_hash,
+        original_srid=original_srid,
+        is_3d=measurement.three_d.get("is_3d"),
+        n_dims=measurement.three_d.get("n_dims"),
         uploaded_by=actor_id,
     )
     session.add(version)

@@ -88,6 +88,47 @@ async def require_own_previous_version_name(
         )
 
 
+# The live version's row, written from the dataset when a first import left
+# none, and otherwise given the facts it was written without. A restore row's
+# source CRS is left alone: a restore made before restores reinstated it left
+# the dataset naming the replaced file's.
+_RECORD_LIVE_VERSION = text(
+    """
+    INSERT INTO catalog.dataset_versions AS v (
+        dataset_id, version_number, source_filename, source_format,
+        feature_count, srid, geometry_type, file_hash, original_srid, is_3d,
+        n_dims, uploaded_by, uploaded_at
+    )
+    SELECT d.id, d.current_version, d.source_filename, d.source_format,
+        d.feature_count, d.srid, d.geometry_type,
+        CASE WHEN d.origin_ref->>'kind' = 'upload'
+            THEN d.origin_ref->>'file_hash' END,
+        d.original_srid, d.is_3d, d.n_dims, r.created_by, r.created_at
+    FROM catalog.datasets d
+    JOIN catalog.records r ON r.id = d.record_id
+    WHERE d.id = :dataset_id
+    ON CONFLICT (dataset_id, version_number) DO UPDATE SET
+        original_srid = COALESCE(
+            v.original_srid,
+            CASE WHEN v.restored_from_version IS NULL
+                THEN EXCLUDED.original_srid END
+        ),
+        is_3d = COALESCE(v.is_3d, EXCLUDED.is_3d),
+        n_dims = COALESCE(v.n_dims, EXCLUDED.n_dims)
+    """
+)
+
+
+async def record_live_version(session: AsyncSession, dataset: Any) -> None:
+    """Make the live version's row describe the data a swap is about to keep.
+
+    Call holding the catalog rows, before the projection moves the dataset's
+    columns on to the incoming data: a restore of the kept version reads its
+    source fields, source CRS and dimensionality back from this row.
+    """
+    await session.execute(_RECORD_LIVE_VERSION, {"dataset_id": dataset.id})
+
+
 async def stamp_previous_version(
     session: AsyncSession, dataset: Any, version_number: int
 ) -> None:
