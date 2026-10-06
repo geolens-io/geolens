@@ -619,6 +619,7 @@ export interface OGCRecordProperties {
   last_refreshed_at?: string | null;
   update_frequency?: string | null;
   has_quicklook?: boolean;
+  quicklook_version?: string | null;
   band_count?: number | null;
   dataset_count?: number;
   vrt_type?: string | null;

@@ -220,6 +220,9 @@ async def get_single_dataset(
     return result
 
 
+_QUICKLOOK_READ_ATTEMPTS = 3
+
+
 @router.get(
     "/{dataset_id}/quicklook",
     response_class=Response,
@@ -230,6 +233,10 @@ async def get_quicklook(
     request: Request,
     size: int = Query(
         256, ge=1, le=512, description="Quicklook size in pixels (256 or 512)"
+    ),
+    v: str | None = Query(
+        None,
+        description="The record's `quicklook_version`; it only keys caches and does not change the response.",
     ),
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
@@ -278,9 +285,22 @@ async def get_quicklook(
         from app.core.db.tenant_session import current_tenant_var
         from app.platform.storage.titiler_url import resolve_storage_key
 
-        data = await storage.get(
-            resolve_storage_key(uri, tenant_id=current_tenant_var.get())
-        )
+        tenant_id = current_tenant_var.get()
+        for attempt in range(_QUICKLOOK_READ_ATTEMPTS):
+            try:
+                data = await storage.get(resolve_storage_key(uri, tenant_id=tenant_id))
+                break
+            except FileNotFoundError:
+                # A redraw may have replaced and removed this image after the read above.
+                if (
+                    record_type != "vector_dataset"
+                    or attempt == _QUICKLOOK_READ_ATTEMPTS - 1
+                ):
+                    raise
+                await db.refresh(dataset, ["quicklook_256_uri"])
+                if dataset.quicklook_256_uri in (None, uri):
+                    raise
+                uri = dataset.quicklook_256_uri
     except FileNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

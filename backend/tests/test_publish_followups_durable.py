@@ -835,8 +835,13 @@ async def test_a_quicklook_whose_upload_failed_is_drawn_again_once_due(
             dataset_id = await session.scalar(
                 select(IngestJob.dataset_id).where(IngestJob.id == job_id)
             )
-        key = f"vectors/{dataset_id}/quicklook_256.png"
-        assert await store.exists(key)
+        from app.modules.catalog.datasets.domain.models import Dataset
+
+        async with db_module.async_session() as session:
+            key = await session.scalar(
+                select(Dataset.quicklook_256_uri).where(Dataset.id == dataset_id)
+            )
+        assert key is not None and await store.exists(key)
     finally:
         await _drop(test_db_session, job_id, record_id)
         async with db_module.async_session() as session:

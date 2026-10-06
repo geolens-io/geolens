@@ -153,7 +153,7 @@ async def _published_one_point_dataset(
     await _create_drawn_table(session, table, _PARIS)
     async with db_module.async_session() as ql_session:
         await _generate_quicklook(ql_session, dataset.id, table)
-    before = await storage.get(f"vectors/{dataset.id}/quicklook_256.png")
+    _uri, before = await _stored_quicklook(storage, dataset.id)
     return dataset, admin_id, before
 
 
@@ -166,7 +166,8 @@ async def _stored_quicklook(
         uri = await session.scalar(
             select(Dataset.quicklook_256_uri).where(Dataset.id == dataset_id)
         )
-    return uri, await storage.get(f"vectors/{dataset_id}/quicklook_256.png")
+    assert uri is not None
+    return uri, await storage.get(uri)
 
 
 async def _replace_from_file(
@@ -288,7 +289,7 @@ async def test_a_replacement_draws_the_quicklook_from_the_new_table(
         )
     assert count == len(_SPREAD), "the replacement did not publish"
     uri, after = await _stored_quicklook(storage, dataset.id)
-    assert uri == f"vectors/{dataset.id}/quicklook_256.png"
+    assert uri.startswith(f"vectors/{dataset.id}/quicklook_256_")
     assert after != before, "the quicklook still shows the replaced data"
     assert after == await _render(dataset.table_name)
 
@@ -474,6 +475,181 @@ async def test_a_redraw_gives_the_public_quicklook_a_new_etag(
     assert revalidated.headers["etag"] not in (None, held)
 
 
+@pytest.mark.parametrize("redraws", [1, 2])
+async def test_a_read_that_loses_the_image_to_a_redraw_serves_the_new_one(
+    client, test_db_session, storage, tables, monkeypatch, redraws: int
+) -> None:
+    """Redraws that reap the image between the pointer read and the fetch are not a 404."""
+    dataset, _admin_id, before = await _published_one_point_dataset(
+        test_db_session, storage, tables, visibility="public"
+    )
+    real_get = storage.get
+    remaining = redraws
+
+    async def _redraw_then_get(key):
+        nonlocal remaining
+        if remaining:
+            remaining -= 1
+            await _publish_spread(test_db_session, dataset)
+            await _draw(dataset)
+        return await real_get(key)
+
+    monkeypatch.setattr(storage, "get", _redraw_then_get)
+    response = await client.get(f"/datasets/{dataset.id}/quicklook")
+
+    assert response.status_code == 200
+    assert response.content != before
+
+
+async def test_an_upload_that_completes_but_raises_is_removed(
+    test_db_session, storage, tables, monkeypatch
+) -> None:
+    """An upload whose acknowledgement is lost must not leave an unreferenced image."""
+    dataset, _admin_id, _before = await _published_one_point_dataset(
+        test_db_session, storage, tables
+    )
+    await _publish_spread(test_db_session, dataset)
+    keys: list[str] = []
+    real_put = storage.put
+
+    async def _put_then_drop(stored_key, data):
+        keys.append(stored_key)
+        await real_put(stored_key, data)
+        raise ConnectionError("connection lost before the acknowledgement")
+
+    monkeypatch.setattr(storage, "put", _put_then_drop)
+    await _draw(dataset)
+
+    assert keys
+    assert not await storage.exists(keys[0]), "the upload outlived its failure"
+
+
+async def test_a_draw_reads_the_predecessor_pointer_under_a_row_lock(
+    test_db_session, storage, tables
+) -> None:
+    """Two draws of one version must each reap the pointer their own update replaced."""
+    from sqlalchemy import event
+
+    import app.core.db as db_module
+
+    dataset, _admin_id, _before = await _published_one_point_dataset(
+        test_db_session, storage, tables
+    )
+    statements: list[str] = []
+
+    def _record(_conn, _cursor, statement, *_rest):
+        statements.append(statement)
+
+    engine = db_module.engine.sync_engine
+    event.listen(engine, "before_cursor_execute", _record)
+    try:
+        await _draw(dataset)
+    finally:
+        event.remove(engine, "before_cursor_execute", _record)
+
+    predecessor_reads = [
+        stmt
+        for stmt in statements
+        if "SELECT" in stmt and "quicklook_256_uri" in stmt and "WHERE" in stmt
+    ]
+    assert any("FOR NO KEY UPDATE" in stmt for stmt in predecessor_reads)
+
+
+async def test_a_cancelled_upload_is_removed_and_the_cancel_propagates(
+    test_db_session, storage, tables, monkeypatch
+) -> None:
+    """A cancel that lands after the write drained must not strand the object."""
+    dataset, _admin_id, _before = await _published_one_point_dataset(
+        test_db_session, storage, tables
+    )
+    await _publish_spread(test_db_session, dataset)
+    keys: list[str] = []
+    real_put = storage.put
+
+    async def _put_then_cancel(stored_key, data):
+        keys.append(stored_key)
+        await real_put(stored_key, data)
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(storage, "put", _put_then_cancel)
+    with pytest.raises(asyncio.CancelledError):
+        await _draw(dataset)
+
+    assert keys
+    assert not await storage.exists(keys[0]), "the upload outlived its cancel"
+
+
+async def test_a_cancel_during_the_pointer_write_removes_the_upload(
+    test_db_session, storage, tables, monkeypatch
+) -> None:
+    """A cancel before the commit leaves the pointer alone, so the new image is reaped."""
+    dataset, _admin_id, _before = await _published_one_point_dataset(
+        test_db_session, storage, tables
+    )
+    await _publish_spread(test_db_session, dataset)
+    keys: list[str] = []
+    real_put = storage.put
+
+    async def _record_put(stored_key, data):
+        keys.append(stored_key)
+        await real_put(stored_key, data)
+
+    monkeypatch.setattr(storage, "put", _record_put)
+    real_execute = AsyncSession.execute
+
+    async def _cancel_on_update(self, statement, *args, **kwargs):
+        if getattr(statement, "is_update", False):
+            raise asyncio.CancelledError
+        return await real_execute(self, statement, *args, **kwargs)
+
+    monkeypatch.setattr(AsyncSession, "execute", _cancel_on_update)
+    with pytest.raises(asyncio.CancelledError):
+        await _draw(dataset)
+    monkeypatch.undo()
+
+    assert keys
+    assert not await storage.exists(keys[0]), "the upload outlived its cancel"
+
+
+@pytest.mark.parametrize("lands", [False, True])
+async def test_a_cancel_during_the_commit_keeps_the_image_only_if_it_landed(
+    test_db_session, storage, tables, monkeypatch, lands: bool
+) -> None:
+    """A cancelled commit reaps an unreferenced upload and keeps one the pointer names."""
+    import app.core.db as db_module
+
+    dataset, _admin_id, _before = await _published_one_point_dataset(
+        test_db_session, storage, tables
+    )
+    await _publish_spread(test_db_session, dataset)
+    keys: list[str] = []
+    real_put = storage.put
+
+    async def _record_put(stored_key, data):
+        keys.append(stored_key)
+        await real_put(stored_key, data)
+
+    monkeypatch.setattr(storage, "put", _record_put)
+
+    async with db_module.async_session() as session:
+        real_commit = session.commit
+
+        async def _cancelled_commit() -> None:
+            if lands:
+                await real_commit()
+            raise asyncio.CancelledError
+
+        monkeypatch.setattr(session, "commit", _cancelled_commit)
+        with pytest.raises(asyncio.CancelledError):
+            await _generate_quicklook(session, dataset.id, dataset.table_name)
+
+    assert keys
+    assert await storage.exists(keys[0]) is lands
+    if lands:
+        uri, _png = await _stored_quicklook(storage, dataset.id)
+        assert uri.rsplit("/", 1)[-1] == keys[0].rsplit("/", 1)[-1]
+
+
 async def test_a_draw_whose_dataset_was_deleted_removes_its_upload(
     test_db_session, storage, tables, monkeypatch
 ) -> None:
@@ -483,10 +659,11 @@ async def test_a_draw_whose_dataset_was_deleted_removes_its_upload(
     dataset, _admin_id, _before = await _published_one_point_dataset(
         test_db_session, storage, tables
     )
-    key = f"vectors/{dataset.id}/quicklook_256.png"
+    keys: list[str] = []
     real_put = storage.put
 
     async def _deleted_before_put(stored_key, data):
+        keys.append(stored_key)
         # The delete commits and reaps vectors/{id}/ while the draw renders.
         async with db_module.async_session() as delete:
             await delete.execute(
@@ -497,10 +674,88 @@ async def test_a_draw_whose_dataset_was_deleted_removes_its_upload(
                 {"id": dataset.id},
             )
             await delete.commit()
-        await storage.delete(key)
+        await storage.delete(stored_key)
         return await real_put(stored_key, data)
 
     monkeypatch.setattr(storage, "put", _deleted_before_put)
     await _draw(dataset)
 
-    assert not await storage.exists(key), "the upload outlived its dataset"
+    assert keys
+    assert not await storage.exists(keys[0]), "the upload outlived its dataset"
+
+
+async def test_a_commit_that_lands_but_reports_failure_keeps_the_image(
+    test_db_session, storage, tables
+) -> None:
+    """A lost COMMIT acknowledgement must not delete the image the pointer now names."""
+    import app.core.db as db_module
+
+    dataset, _admin_id, _before = await _published_one_point_dataset(
+        test_db_session, storage, tables
+    )
+    await _publish_spread(test_db_session, dataset)
+
+    async with db_module.async_session() as session:
+        real_commit = session.commit
+
+        async def _commit_then_drop() -> None:
+            await real_commit()
+            raise ConnectionError("connection lost after COMMIT")
+
+        session.commit = _commit_then_drop
+        await _generate_quicklook(session, dataset.id, dataset.table_name)
+
+    uri, _png = await _stored_quicklook(storage, dataset.id)
+    assert await storage.exists(uri), "the committed pointer names a deleted image"
+
+
+async def test_a_redraw_writes_a_new_key_and_removes_the_replaced_image(
+    test_db_session, storage, tables
+) -> None:
+    """The image a browser or the reconcile probe saw keeps no identity once it is replaced."""
+    dataset, _admin_id, _before = await _published_one_point_dataset(
+        test_db_session, storage, tables
+    )
+    first_uri, _ = await _stored_quicklook(storage, dataset.id)
+
+    await _publish_spread(test_db_session, dataset)
+    await _draw(dataset)
+
+    second_uri, _ = await _stored_quicklook(storage, dataset.id)
+    assert second_uri != first_uri
+    assert not await storage.exists(first_uri), "the replaced image was left behind"
+
+
+async def test_an_older_draw_leaves_the_newer_pointer_and_its_own_image_unkept(
+    test_db_session, storage, tables, monkeypatch
+) -> None:
+    """A draw the data outran keeps neither the pointer nor its upload."""
+    dataset, _admin_id, _before = await _published_one_point_dataset(
+        test_db_session, storage, tables
+    )
+    held = asyncio.Event()
+    release = asyncio.Event()
+    puts: list[str] = []
+    real_put = storage.put
+
+    async def _hold_first(key, data):
+        puts.append(key)
+        if len(puts) == 1:
+            held.set()
+            await release.wait()
+        return await real_put(key, data)
+
+    monkeypatch.setattr(storage, "put", _hold_first)
+    older = asyncio.create_task(_draw(dataset))
+    try:
+        await asyncio.wait_for(held.wait(), timeout=10)
+        await _publish_spread(test_db_session, dataset)
+        await asyncio.wait_for(_draw(dataset), timeout=30)
+    finally:
+        release.set()
+        await asyncio.wait_for(older, timeout=30)
+
+    uri, _ = await _stored_quicklook(storage, dataset.id)
+    assert puts[0] != uri
+    assert uri in puts
+    assert not await storage.exists(puts[0]), "the superseded draw's image was kept"

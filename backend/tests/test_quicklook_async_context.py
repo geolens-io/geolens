@@ -399,7 +399,7 @@ async def test_generate_quicklook_completes_on_multipolygon_shape(
             "recovery missing if this fails"
         )
         assert dataset.quicklook_256_uri.startswith("vectors/")
-        assert dataset.quicklook_256_uri.endswith("quicklook_256.png")
+        assert dataset.quicklook_256_uri.endswith(".png")
 
         # Outer session is still healthy.
         record_id = dataset.record.id
@@ -451,7 +451,7 @@ async def test_generate_quicklook_url_persists_after_geom_timeout(
         # URI must have persisted despite the forced timeout.
         await session.refresh(dataset)
         assert dataset.quicklook_256_uri is not None
-        assert dataset.quicklook_256_uri.endswith("quicklook_256.png")
+        assert dataset.quicklook_256_uri.endswith(".png")
 
         # WR-02 (post-1091 review): assert on `record.msg` as a DICT, not as
         # a string. The prior `phase='commit' not in rendered` and

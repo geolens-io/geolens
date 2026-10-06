@@ -32,6 +32,12 @@ function getStore(): Storage | null {
   }
 }
 
+// A redrawn quicklook has a new version, so a miss recorded for the old image
+// must not hide it.
+function cacheKey(datasetId: string, version: string | null): string {
+  return version ? `${datasetId}@${version}` : datasetId;
+}
+
 function readSet(): Set<string> {
   if (memoryCache) return memoryCache;
   const store = getStore();
@@ -63,18 +69,25 @@ function writeSet(set: Set<string>): void {
  * Returns true if the quicklook for `datasetId` has 404'd in the current
  * tab session. The card should skip the `<img>` element in that case.
  */
-export function isQuicklookKnownMissing(datasetId: string): boolean {
-  return readSet().has(datasetId);
+export function isQuicklookKnownMissing(
+  datasetId: string,
+  version: string | null = null,
+): boolean {
+  return readSet().has(cacheKey(datasetId, version));
 }
 
 /**
  * Record that the quicklook for `datasetId` failed to load. Subsequent
  * renders within the same tab session will skip the request.
  */
-export function markQuicklookMissing(datasetId: string): void {
+export function markQuicklookMissing(
+  datasetId: string,
+  version: string | null = null,
+): void {
   const set = readSet();
-  if (set.has(datasetId)) return;
-  set.add(datasetId);
+  const key = cacheKey(datasetId, version);
+  if (set.has(key)) return;
+  set.add(key);
   writeSet(set);
 }
 

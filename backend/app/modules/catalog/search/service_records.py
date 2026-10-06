@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Sequence
 from datetime import datetime, timezone
@@ -63,6 +64,13 @@ _TABLE_FORMAT_MEDIA = {
     "gpkg": "application/geopackage+sqlite3",
     "geojson": "application/geo+json",
 }
+
+
+def _quicklook_version(uri: str | None) -> str | None:
+    """A token that changes whenever the dataset's quicklook points at a new image."""
+    if uri is None:
+        return None
+    return hashlib.sha256(uri.encode()).hexdigest()[:12]
 
 
 def _record_formats(record_type: str) -> list[str]:
@@ -384,6 +392,12 @@ def dataset_to_ogc_record(
     # Used for has_quicklook and formats below and for the STAC raster block.
     record_type = getattr(record, "record_type", "vector_dataset") or "vector_dataset"
 
+    quicklook_uri = (
+        (raster_meta.get("quicklook_256_uri") if raster_meta is not None else None)
+        if record_type in RASTER_FAMILY_RECORD_TYPES
+        else dataset.quicklook_256_uri
+    )
+
     ogc_record: dict = {
         "type": "Feature",
         "id": str(dataset.id),
@@ -422,12 +436,8 @@ def dataset_to_ogc_record(
             "record_status": record.record_status,
             # vector_dataset/table reads Dataset.quicklook_256_uri; raster
             # types read it off raster_meta (RasterAsset.quicklook_256_uri).
-            "has_quicklook": (
-                raster_meta is not None
-                and raster_meta.get("quicklook_256_uri") is not None
-            )
-            if record_type in RASTER_FAMILY_RECORD_TYPES
-            else (dataset.quicklook_256_uri is not None),
+            "has_quicklook": quicklook_uri is not None,
+            "quicklook_version": _quicklook_version(quicklook_uri),
             "formats": _record_formats(record_type),
             "language": localized.language,
             "externalIds": build_external_ids(dataset),

@@ -17,11 +17,19 @@ def _get_kwargs(
     dataset_id: UUID,
     *,
     size: int | Unset = 256,
+    v: None | str | Unset = UNSET,
 ) -> dict[str, Any]:
 
     params: dict[str, Any] = {}
 
     params["size"] = size
+
+    json_v: None | str | Unset
+    if isinstance(v, Unset):
+        json_v = UNSET
+    else:
+        json_v = v
+    params["v"] = json_v
 
     params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
@@ -110,6 +118,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
     size: int | Unset = 256,
+    v: None | str | Unset = UNSET,
 ) -> Response[Any | ProblemDetail]:
     """Get Quicklook
 
@@ -118,6 +127,8 @@ def sync_detailed(
     Args:
         dataset_id (UUID):
         size (int | Unset): Quicklook size in pixels (256 or 512) Default: 256.
+        v (None | str | Unset): The record's `quicklook_version`; it only keys caches and does not
+            change the response.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -130,6 +141,7 @@ def sync_detailed(
     kwargs = _get_kwargs(
         dataset_id=dataset_id,
         size=size,
+        v=v,
     )
 
     response = client.get_httpx_client().request(
@@ -144,6 +156,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
     size: int | Unset = 256,
+    v: None | str | Unset = UNSET,
 ) -> Any | ProblemDetail | None:
     """Get Quicklook
 
@@ -152,6 +165,8 @@ def sync(
     Args:
         dataset_id (UUID):
         size (int | Unset): Quicklook size in pixels (256 or 512) Default: 256.
+        v (None | str | Unset): The record's `quicklook_version`; it only keys caches and does not
+            change the response.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -165,6 +180,7 @@ def sync(
         dataset_id=dataset_id,
         client=client,
         size=size,
+        v=v,
     ).parsed
 
 
@@ -173,6 +189,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
     size: int | Unset = 256,
+    v: None | str | Unset = UNSET,
 ) -> Response[Any | ProblemDetail]:
     """Get Quicklook
 
@@ -181,6 +198,8 @@ async def asyncio_detailed(
     Args:
         dataset_id (UUID):
         size (int | Unset): Quicklook size in pixels (256 or 512) Default: 256.
+        v (None | str | Unset): The record's `quicklook_version`; it only keys caches and does not
+            change the response.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -193,6 +212,7 @@ async def asyncio_detailed(
     kwargs = _get_kwargs(
         dataset_id=dataset_id,
         size=size,
+        v=v,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -205,6 +225,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
     size: int | Unset = 256,
+    v: None | str | Unset = UNSET,
 ) -> Any | ProblemDetail | None:
     """Get Quicklook
 
@@ -213,6 +234,8 @@ async def asyncio(
     Args:
         dataset_id (UUID):
         size (int | Unset): Quicklook size in pixels (256 or 512) Default: 256.
+        v (None | str | Unset): The record's `quicklook_version`; it only keys caches and does not
+            change the response.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -227,5 +250,6 @@ async def asyncio(
             dataset_id=dataset_id,
             client=client,
             size=size,
+            v=v,
         )
     ).parsed

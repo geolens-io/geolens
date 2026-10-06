@@ -114,7 +114,11 @@ function DatasetPreview({ record }: { record: OGCRecordResponse }) {
   // useQuicklook solves the Bearer-JWT mismatch: apiFetchBlob attaches the
   // Authorization header, returning a blob URL instead of an anonymous <img src>.
   const enableQuicklook = !isTable && Boolean(props.has_quicklook);
-  const { url: quicklookBlobUrl } = useQuicklook(enableQuicklook ? (record.id as string) : null, 256);
+  const { url: quicklookBlobUrl } = useQuicklook(
+    enableQuicklook ? (record.id as string) : null,
+    256,
+    props.quicklook_version ?? null,
+  );
 
   if (quicklookBlobUrl) {
     return (

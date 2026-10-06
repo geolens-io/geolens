@@ -11207,6 +11207,11 @@ export interface components {
              * @default false
              */
             has_quicklook: boolean;
+            /**
+             * Quicklook Version
+             * @description Changes whenever the quicklook image is replaced. Pass it as the `v` query parameter of the quicklook request so caches fetch the new image.
+             */
+            quicklook_version?: string | null;
             /** Gsd */
             gsd?: number | null;
             /** Res X */
@@ -27115,6 +27120,8 @@ export interface operations {
             query?: {
                 /** @description Quicklook size in pixels (256 or 512) */
                 size?: number;
+                /** @description The record's `quicklook_version`; it only keys caches and does not change the response. */
+                v?: string | null;
             };
             header?: never;
             path: {

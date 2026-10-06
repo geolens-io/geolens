@@ -156,7 +156,11 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
   // 404s are cached in quicklook-cache.ts for the session so we skip re-fetching.
   const featureId = feature.id as string;
   const enableQuicklook = !isCollection && !isTable && Boolean(properties.has_quicklook);
-  const { url: quicklookBlobUrl } = useQuicklook(enableQuicklook ? featureId : null, 256);
+  const { url: quicklookBlobUrl } = useQuicklook(
+    enableQuicklook ? featureId : null,
+    256,
+    properties.quicklook_version ?? null,
+  );
 
   // Provenance (for non-collection types)
   const neverEditedLabel = t('card.neverEdited', { defaultValue: 'Never' });

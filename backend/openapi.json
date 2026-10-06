@@ -13081,6 +13081,18 @@
             "title": "Has Quicklook",
             "type": "boolean"
           },
+          "quicklook_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Changes whenever the quicklook image is replaced. Pass it as the `v` query parameter of the quicklook request so caches fetch the new image.",
+            "title": "Quicklook Version"
+          },
           "gsd": {
             "anyOf": [
               {
@@ -39724,6 +39736,24 @@
               "minimum": 1,
               "title": "Size",
               "type": "integer"
+            }
+          },
+          {
+            "description": "The record's `quicklook_version`; it only keys caches and does not change the response.",
+            "in": "query",
+            "name": "v",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The record's `quicklook_version`; it only keys caches and does not change the response.",
+              "title": "V"
             }
           }
         ],

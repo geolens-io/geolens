@@ -1188,7 +1188,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # Shared-map audience decisions stay behind the permission extension seam.
         "backend/app/modules/catalog/maps/service_public.py": 987,
         # Record assembly keeps one format and asset branch per record type.
-        "backend/app/modules/catalog/search/service_records.py": 614,
+        "backend/app/modules/catalog/search/service_records.py": 624,
         # Embedding resolution, the vector arm and the RRF merge share one semantic-mode decision.
         "backend/app/modules/catalog/search/service_semantic.py": 514,
         "backend/app/modules/catalog/maps/service_diff.py": 400,
@@ -1319,7 +1319,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # ArcGIS requests, lifecycle context, the quicklook draw that ingest and
     # replacement share, and the swap that keeps the replaced table and records
     # the version it keeps.
-    "backend/app/processing/ingest/tasks_common.py": 1836,
+    "backend/app/processing/ingest/tasks_common.py": 1890,
     # File and remote-source replacement strategies own retrieval, staging and
     # verification, including the live geometry read and its witness.
     "backend/app/processing/ingest/tasks_reupload.py": 1492,

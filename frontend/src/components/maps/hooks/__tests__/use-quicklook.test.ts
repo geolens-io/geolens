@@ -210,4 +210,41 @@ describe('useQuicklook', () => {
       `/datasets/${id}/quicklook?size=256`,
     );
   });
+
+  it('refetches the image under a new version with the version in the URL', async () => {
+    const id = 'dataset-redrawn';
+    mockApiFetchBlob.mockResolvedValue(fakeBlob);
+    const { result, rerender } = renderHook(
+      ({ version }: { version: string }) => useQuicklook(id, 256, version),
+      { wrapper: createWrapper(), initialProps: { version: 'aaa' } },
+    );
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    expect(mockApiFetchBlob).toHaveBeenLastCalledWith(
+      `/datasets/${id}/quicklook?size=256&v=aaa`,
+    );
+
+    rerender({ version: 'bbb' });
+
+    await waitFor(() =>
+      expect(mockApiFetchBlob).toHaveBeenLastCalledWith(
+        `/datasets/${id}/quicklook?size=256&v=bbb`,
+      ),
+    );
+    expect(mockApiFetchBlob).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not let a 404 for the replaced image hide the redrawn one', async () => {
+    const id = 'dataset-missing-then-redrawn';
+    mockApiFetchBlob.mockRejectedValueOnce(new ApiError('Not Found', 404));
+    const { result, rerender } = renderHook(
+      ({ version }: { version: string }) => useQuicklook(id, 256, version),
+      { wrapper: createWrapper(), initialProps: { version: 'old' } },
+    );
+    await waitFor(() => expect(result.current.status).toBe('missing'));
+
+    mockApiFetchBlob.mockResolvedValueOnce(fakeBlob);
+    rerender({ version: 'new' });
+
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+  });
 });

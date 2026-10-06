@@ -13,10 +13,24 @@ Multi-tenant mode is refused: there is no tenant context or tenant storage prefi
 import asyncio
 import io
 import sys
+import uuid
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
+
+
+async def _drop_unreferenced(db, storage, dataset_id, ql_key: str) -> None:
+    """Delete an uploaded image unless the dataset's committed pointer names it."""
+    try:
+        current = await db.scalar(
+            text("SELECT quicklook_256_uri FROM catalog.datasets WHERE id = :id"),
+            {"id": dataset_id},
+        )
+        if current != ql_key:
+            await storage.delete(ql_key)
+    except Exception as e:  # broad: an orphaned image only costs storage
+        print(f"  could not clean up {ql_key}: {e}")
 
 
 async def main() -> None:
@@ -45,7 +59,7 @@ async def main() -> None:
         where_clause = "" if force else "  AND d.quicklook_256_uri IS NULL"
         result = await db.execute(
             text(
-                "SELECT d.id, d.table_name, d.geometry_type "
+                "SELECT d.id, d.table_name, d.geometry_type, d.quicklook_256_uri "
                 "FROM catalog.datasets d "
                 "JOIN catalog.records r ON d.record_id = r.id "
                 "WHERE r.record_type = 'vector_dataset' "
@@ -66,6 +80,7 @@ async def main() -> None:
 
         for i, row in enumerate(rows, 1):
             name = row.table_name or str(row.id)
+            ql_key = None
             try:
                 ql_bytes = await generate_vector_quicklook_with_timeout(
                     db, row.table_name, row.geometry_type or "", 256, timeout=15.0
@@ -76,20 +91,52 @@ async def main() -> None:
                     skipped += 1
                     continue
 
-                ql_key = f"vectors/{row.id}/quicklook_256.png"
+                # A new key per draw gives the image a new quicklook_version.
+                ql_key = f"vectors/{row.id}/quicklook_256_{uuid.uuid4().hex[:12]}.png"
                 await storage.put(ql_key, io.BytesIO(ql_bytes))
-                await db.execute(
+                # Read under the row lock so cleanup targets the pointer this
+                # update replaces, not the one the batch query saw.
+                replaced = await db.scalar(
+                    text(
+                        "SELECT quicklook_256_uri FROM catalog.datasets "
+                        "WHERE id = :id FOR NO KEY UPDATE"
+                    ),
+                    {"id": row.id},
+                )
+                updated = await db.execute(
                     text(
                         "UPDATE catalog.datasets SET quicklook_256_uri = :uri WHERE id = :id"
                     ),
                     {"uri": ql_key, "id": row.id},
                 )
+                if not updated.rowcount:
+                    await db.rollback()
+                    await _drop_unreferenced(db, storage, row.id, ql_key)
+                    print(f"  [{i}/{len(rows)}] SKIP {name} (dataset deleted)")
+                    skipped += 1
+                    continue
                 await db.commit()
+                if replaced and replaced != ql_key:
+                    try:
+                        await storage.delete(replaced)
+                    except (
+                        Exception
+                    ) as e:  # broad: an orphaned image only costs storage
+                        print(f"  could not remove {replaced}: {e}")
                 success += 1
                 print(f"  [{i}/{len(rows)}] OK   {name} ({len(ql_bytes)} bytes)")
+            except asyncio.CancelledError:
+                await asyncio.shield(db.rollback())
+                if ql_key is not None:
+                    await asyncio.shield(
+                        _drop_unreferenced(db, storage, row.id, ql_key)
+                    )
+                raise
             except Exception as e:
                 print(f"  [{i}/{len(rows)}] FAIL {name}: {e}")
                 await db.rollback()
+                if ql_key is not None:
+                    await _drop_unreferenced(db, storage, row.id, ql_key)
                 skipped += 1
 
         try:

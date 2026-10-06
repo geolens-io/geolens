@@ -124,6 +124,31 @@ async def test_has_quicklook_true_when_uri_set(client: AsyncClient, test_db_sess
     assert result["properties"]["has_quicklook"] is True
 
 
+@pytest.mark.anyio
+async def test_quicklook_version_follows_the_stored_image(
+    client: AsyncClient, test_db_session
+):
+    """The record's quicklook_version changes with the image and is null without one."""
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    dataset_id_stub = uuid.uuid4()
+    dataset = await _create_quicklook_dataset(
+        session,
+        created_by=admin_id,
+        quicklook_256_uri=f"vectors/{dataset_id_stub}/quicklook_256_aaaa.png",
+    )
+
+    first = dataset_to_ogc_record(dataset, "http://test")["properties"]
+    dataset.quicklook_256_uri = f"vectors/{dataset_id_stub}/quicklook_256_bbbb.png"
+    second = dataset_to_ogc_record(dataset, "http://test")["properties"]
+    dataset.quicklook_256_uri = None
+    none = dataset_to_ogc_record(dataset, "http://test")["properties"]
+
+    assert first["quicklook_version"] and second["quicklook_version"]
+    assert first["quicklook_version"] != second["quicklook_version"]
+    assert none["quicklook_version"] is None
+
+
 # ---------------------------------------------------------------------------
 # Test 3: reconcile() clears a stale URI
 # ---------------------------------------------------------------------------

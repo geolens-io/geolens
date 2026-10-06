@@ -7592,6 +7592,12 @@ export type OgcRecordProperties = {
      */
     has_quicklook?: boolean;
     /**
+     * Quicklook Version
+     *
+     * Changes whenever the quicklook image is replaced. Pass it as the `v` query parameter of the quicklook request so caches fetch the new image.
+     */
+    quicklook_version?: string | null;
+    /**
      * Gsd
      */
     gsd?: number | null;
@@ -20031,6 +20037,12 @@ export type GetQuicklookDatasetsDatasetIdQuicklookGetData = {
          * Quicklook size in pixels (256 or 512)
          */
         size?: number;
+        /**
+         * V
+         *
+         * The record's `quicklook_version`; it only keys caches and does not change the response.
+         */
+        v?: string | null;
     };
     url: '/datasets/{dataset_id}/quicklook';
 };
