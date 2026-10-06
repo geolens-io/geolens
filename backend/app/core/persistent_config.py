@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any, Generic, TypeVar, cast
 
 import structlog
@@ -659,11 +659,13 @@ class _ProviderModelConfig(PersistentConfig[str]):
         db: AsyncSession,
         provider: str,
         runtime_config: dict[str, object] | None = None,
+        settings: Mapping[str, object] | None = None,
     ) -> str:
         """The model ``provider`` uses when no admin override is set.
 
         A caller that already resolved the provider's runtime config passes it,
-        so the model and endpoint come from one snapshot.
+        so the model and endpoint come from one snapshot. ``settings`` resolves
+        the provider against values not yet committed.
 
         An extension provider, or an overlay under a built-in name, supplies its
         own ``default_model`` through ``resolve_runtime_config``; without one
@@ -690,7 +692,11 @@ class _ProviderModelConfig(PersistentConfig[str]):
             config = runtime_config
             if config is None:
                 try:
-                    config = await ext.resolve_runtime_config(db)
+                    config = (
+                        await ext.resolve_runtime_config(db)
+                        if settings is None
+                        else await ext.resolve_runtime_config(db, settings)
+                    )
                 except OpenAICredentialDestinationError:
                     config = {}
             model = config.get("default_model")

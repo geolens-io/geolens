@@ -852,8 +852,23 @@ async def preflight_import(
         if mode == "overwrite"
         else current_settings["llm_provider"],
     )
+    # Overlay providers resolve their endpoint from settings, so the defaults
+    # must see the endpoint this import writes, not the committed one.
+    prospective_settings = dict(current_settings)
+    if mode == "overwrite":
+        prospective_settings.update(
+            {
+                cfg.key: cfg.env_default
+                for cfg in _registry
+                if cfg.key not in raw_settings
+                and (caller_is_enterprise or cfg.tab not in ENTERPRISE_ONLY_TABS)
+            }
+        )
+    prospective_settings.update(validated_settings)
     model_defaults = {
-        cfg.key: await cfg.default_for(db, final_provider)
+        cfg.key: await cfg.default_for(
+            db, final_provider, settings=prospective_settings
+        )
         for cfg in (LLM_MODEL, LLM_MODEL_LIGHT)
     }
     blank_model_defaults = {

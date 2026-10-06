@@ -8,7 +8,7 @@ from ``app.modules.*``. ``AuditEvent`` is forward-referenced via
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
@@ -316,7 +316,16 @@ class AIProviderExtension(Protocol):
         """
         ...
 
-    async def resolve_runtime_config(self, db: AsyncSession) -> dict[str, object]: ...
+    async def resolve_runtime_config(
+        self, db: AsyncSession, settings: Mapping[str, object] | None = None
+    ) -> dict[str, object]:
+        """The provider's endpoint and default model.
+
+        ``settings`` holds setting values keyed by setting key that take
+        precedence over the committed rows, so a caller can resolve against
+        configuration it has not written yet.
+        """
+        ...
 
 
 @runtime_checkable
