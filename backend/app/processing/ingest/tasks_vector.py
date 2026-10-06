@@ -581,9 +581,10 @@ async def ingest_file(
             original_filename=source_filename,
         )
 
-        # Resolve archive formats before phase 2 because ZIP inspection reads
-        # the central directory.
-        source_format = await asyncio.to_thread(derive_source_format, file_path)
+        # Resolve before phase 2: ZIP inspection reads the central directory.
+        source_format = await asyncio.to_thread(
+            derive_source_format, file_path, layer_name
+        )
 
         # Finalize in a fresh session using the snapshotted job attributes.
         # Requiring running status fences out attempts already failed by a sweep.

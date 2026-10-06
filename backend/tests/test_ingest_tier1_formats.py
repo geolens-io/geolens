@@ -267,6 +267,7 @@ class TestZipDataFormat:
             (["parcels.gpkg"], "gpkg"),
             (["parcels.shp", "parcels.dbf", "parcels.shx"], "shapefile"),
             (["parcels.shp", "meta.csv", "style.json"], "shapefile"),
+            (["points.csv", "metadata.json"], "csv"),
             (["__MACOSX/._parcels.csv", "parcels.geojson"], "geojson"),
             (["readme.txt"], "shapefile"),
         ],
@@ -278,6 +279,23 @@ class TestZipDataFormat:
                 zf.writestr(name, b"x")
         assert zip_data_format(str(f)) == expected
         assert derive_source_format(str(f)) == expected
+
+    @pytest.mark.parametrize(
+        ("members", "layer", "expected"),
+        [
+            (["points.csv", "metadata.json"], "points", "csv"),
+            (["points.csv", "metadata.json"], "metadata", "geojson"),
+            (["parcels.shp", "parcels.dbf", "points.csv"], "points", "csv"),
+            (["parcels.shp", "parcels.dbf", "points.csv"], "parcels", "shapefile"),
+            (["parcels.shp", "points.csv"], "unknown_layer", "shapefile"),
+        ],
+    )
+    def test_selected_layer_decides(self, tmp_path: Path, members, layer, expected):
+        f = tmp_path / "bundle.zip"
+        with zipfile.ZipFile(f, "w") as zf:
+            for name in members:
+                zf.writestr(name, b"x")
+        assert derive_source_format(str(f), layer) == expected
 
 
 class TestSourcePathResolution:

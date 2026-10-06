@@ -585,7 +585,7 @@ async def _ingest_vector_into_staging(
 
     # Shapefile-only. Keyed on the derived format, not the .zip suffix — a
     # File Geodatabase arrives in a .zip too and has no DBF to truncate.
-    if derive_source_format(file_path) == "shapefile":
+    if derive_source_format(file_path, layer_name) == "shapefile":
         from app.processing.ingest.metadata import detect_dbf_truncation_collisions
         from app.processing.ingest.ogr import run_ogrinfo_preview
         from app.processing.ingest.warnings import make_dbf_truncation_warning
