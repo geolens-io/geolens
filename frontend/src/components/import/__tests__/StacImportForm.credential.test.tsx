@@ -15,12 +15,15 @@ const mockConnectStac = vi.fn();
 const mockFetchStacCollections = vi.fn();
 const mockSearchStacItems = vi.fn();
 const mockImportStacItems = vi.fn();
+const mockFetchStacAssetSizes = vi.fn();
 
 vi.mock('@/api/stac', () => ({
   connectStac: (...args: unknown[]) => mockConnectStac(...args),
   fetchStacCollections: (...args: unknown[]) => mockFetchStacCollections(...args),
   searchStacItems: (...args: unknown[]) => mockSearchStacItems(...args),
   importStacItems: (...args: unknown[]) => mockImportStacItems(...args),
+  fetchStacAssetSizes: (...args: unknown[]) =>
+    mockFetchStacAssetSizes(...args) ?? Promise.resolve({ sizes: [] }),
 }));
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));

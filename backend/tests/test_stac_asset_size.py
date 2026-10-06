@@ -1,0 +1,209 @@
+"""On-demand STAC asset size lookup: probe order, bounds and SSRF refusals."""
+
+import asyncio
+from unittest.mock import AsyncMock, patch
+
+import httpx
+import pytest
+from httpx import AsyncClient
+
+from app.core.service_tokens import CredentialMethod, ServiceCredential
+from app.modules.catalog.sources.adapters import stac_asset_size
+from app.modules.catalog.sources.adapters.stac_asset_size import probe_asset_sizes
+from app.platform import security
+
+CATALOG = "https://stac.example.com/v1"
+ASSET = "https://data.example.com/a.tif"
+
+
+def _client(handler, **kwargs) -> httpx.AsyncClient:
+    return httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        follow_redirects=True,
+        event_hooks={"response": [security._revalidate_redirect]},
+        **kwargs,
+    )
+
+
+@pytest.fixture
+def no_dns():
+    with patch.object(stac_asset_size, "validate_url_for_ssrf", new=AsyncMock()):
+        yield
+
+
+def _patched(handler):
+    return patch.object(
+        stac_asset_size, "make_safe_client", side_effect=lambda **kw: _client(handler)
+    )
+
+
+class TestProbeOrder:
+    async def test_head_content_length_is_used(self, no_dns):
+        seen: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(request.method)
+            return httpx.Response(200, headers={"content-length": "4096"})
+
+        with _patched(handler):
+            sizes = await probe_asset_sizes(CATALOG, {"i1": ASSET})
+        assert sizes == {"i1": 4096}
+        assert seen == ["HEAD"]
+
+    async def test_range_get_total_when_head_is_refused(self, no_dns):
+        seen: list[tuple[str, str | None]] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append((request.method, request.headers.get("range")))
+            if request.method == "HEAD":
+                return httpx.Response(405)
+            return httpx.Response(206, headers={"content-range": "bytes 0-0/987654"})
+
+        with _patched(handler):
+            sizes = await probe_asset_sizes(CATALOG, {"i1": ASSET})
+        assert sizes == {"i1": 987654}
+        assert seen == [("HEAD", None), ("GET", "bytes=0-0")]
+
+    async def test_size_stays_unknown_when_the_server_reports_none(self, no_dns):
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.method == "HEAD":
+                return httpx.Response(200)
+            return httpx.Response(206, headers={"content-range": "bytes 0-0/*"})
+
+        with _patched(handler):
+            sizes = await probe_asset_sizes(CATALOG, {"i1": ASSET})
+        assert sizes == {"i1": None}
+
+
+class TestRefusals:
+    async def test_redirect_to_a_private_ip_is_refused(self, no_dns):
+        reached: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            reached.append(str(request.url))
+            if request.url.host == "data.example.com":
+                return httpx.Response(
+                    302, headers={"location": "http://169.254.169.254/latest"}
+                )
+            return httpx.Response(200, headers={"content-length": "1"})
+
+        with _patched(handler):
+            sizes = await probe_asset_sizes(CATALOG, {"i1": ASSET})
+        assert sizes == {"i1": None}
+        assert reached == [ASSET]
+
+    async def test_private_asset_href_is_never_requested(self):
+        reached: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            reached.append(str(request.url))
+            return httpx.Response(200, headers={"content-length": "1"})
+
+        with _patched(handler):
+            sizes = await probe_asset_sizes(CATALOG, {"i1": "http://127.0.0.1/a.tif"})
+        assert sizes == {"i1": None}
+        assert reached == []
+
+
+class TestCredentialScope:
+    CREDENTIAL = ServiceCredential(
+        method=CredentialMethod.HEADER_KEY,
+        service_format="stac",
+        header_name="X-Api-Key",
+        header_value="s3cret-value",
+    )
+
+    async def test_key_goes_only_to_the_catalog_origin(self, no_dns):
+        sent: dict[str, str | None] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            sent[request.url.host] = request.headers.get("x-api-key")
+            return httpx.Response(200, headers={"content-length": "7"})
+
+        with _patched(handler):
+            await probe_asset_sizes(
+                CATALOG,
+                {"own": "https://stac.example.com/a.tif", "other": ASSET},
+                self.CREDENTIAL,
+            )
+        assert sent == {"stac.example.com": "s3cret-value", "data.example.com": None}
+
+
+class TestBounds:
+    async def test_a_hung_server_leaves_the_size_unknown(self, no_dns):
+        async def handler(request: httpx.Request) -> httpx.Response:
+            await asyncio.sleep(5)
+            return httpx.Response(200, headers={"content-length": "1"})
+
+        with _patched(handler), patch.object(stac_asset_size, "PROBE_TIMEOUT", 0.05):
+            sizes = await probe_asset_sizes(CATALOG, {"i1": ASSET})
+        assert sizes == {"i1": None}
+
+    async def test_probes_run_under_the_concurrency_cap(self, no_dns):
+        live = peak = 0
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal live, peak
+            live += 1
+            peak = max(peak, live)
+            await asyncio.sleep(0.02)
+            live -= 1
+            return httpx.Response(200, headers={"content-length": "1"})
+
+        assets = {f"i{n}": f"https://data.example.com/{n}.tif" for n in range(12)}
+        with _patched(handler):
+            sizes = await probe_asset_sizes(CATALOG, assets)
+        assert all(size == 1 for size in sizes.values())
+        assert peak == stac_asset_size.MAX_CONCURRENT_PROBES
+
+
+class TestEndpoint:
+    async def test_returns_a_size_per_asset(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        with (
+            patch(
+                "app.modules.catalog.sources.stac_asset_size_router.validate_url_for_ssrf",
+                new=AsyncMock(),
+            ),
+            patch(
+                "app.modules.catalog.sources.stac_asset_size_router.probe_asset_sizes",
+                new=AsyncMock(return_value={"i1": 10, "i2": None}),
+            ),
+        ):
+            resp = await client.post(
+                "/services/stac/asset-sizes",
+                json={
+                    "url": CATALOG,
+                    "assets": [
+                        {"id": "i1", "href": ASSET},
+                        {"id": "i2", "href": "https://data.example.com/b.tif"},
+                    ],
+                },
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == 200
+        assert resp.json()["sizes"] == [
+            {"id": "i1", "size_bytes": 10},
+            {"id": "i2", "size_bytes": None},
+        ]
+
+    async def test_private_catalog_url_is_refused(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        resp = await client.post(
+            "/services/stac/asset-sizes",
+            json={
+                "url": "http://127.0.0.1/stac",
+                "assets": [{"id": "i1", "href": ASSET}],
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 400
+
+    async def test_requires_authentication(self, client: AsyncClient):
+        resp = await client.post(
+            "/services/stac/asset-sizes",
+            json={"url": CATALOG, "assets": [{"id": "i1", "href": ASSET}]},
+        )
+        assert resp.status_code in (401, 403)

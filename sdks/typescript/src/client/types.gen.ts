@@ -9866,6 +9866,76 @@ export type StacAsset = {
 };
 
 /**
+ * StacAssetSize
+ */
+export type StacAssetSize = {
+    /**
+     * Id
+     *
+     * STAC item ID.
+     */
+    id: string;
+    /**
+     * Size Bytes
+     *
+     * Asset size in bytes, or null when the server did not report one.
+     */
+    size_bytes?: number | null;
+};
+
+/**
+ * StacAssetSizeTarget
+ */
+export type StacAssetSizeTarget = {
+    /**
+     * Id
+     *
+     * STAC item ID the asset belongs to.
+     */
+    id: string;
+    /**
+     * Href
+     *
+     * URL of the item's data asset.
+     */
+    href: string;
+};
+
+/**
+ * StacAssetSizesRequest
+ */
+export type StacAssetSizesRequest = {
+    /**
+     * Url
+     *
+     * STAC API root URL the assets were found in.
+     */
+    url: string;
+    /**
+     * Assets
+     *
+     * Assets to measure (max 50 per request).
+     */
+    assets: Array<StacAssetSizeTarget>;
+    /**
+     * Credential for a protected catalog. It is sent only to assets on the catalog's own origin.
+     */
+    auth?: ServiceAuthRequest | null;
+};
+
+/**
+ * StacAssetSizesResponse
+ */
+export type StacAssetSizesResponse = {
+    /**
+     * Sizes
+     *
+     * One entry per requested asset.
+     */
+    sizes: Array<StacAssetSize>;
+};
+
+/**
  * StacCatalog
  *
  * STAC Catalog / landing page response.
@@ -27101,6 +27171,63 @@ export type ProbeServiceUrlServicesProbePostResponses = {
 };
 
 export type ProbeServiceUrlServicesProbePostResponse = ProbeServiceUrlServicesProbePostResponses[keyof ProbeServiceUrlServicesProbePostResponses];
+
+export type StacAssetSizesServicesStacAssetSizesPostData = {
+    body: StacAssetSizesRequest;
+    path?: never;
+    query?: never;
+    url: '/services/stac/asset-sizes';
+};
+
+export type StacAssetSizesServicesStacAssetSizesPostErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type StacAssetSizesServicesStacAssetSizesPostError = StacAssetSizesServicesStacAssetSizesPostErrors[keyof StacAssetSizesServicesStacAssetSizesPostErrors];
+
+export type StacAssetSizesServicesStacAssetSizesPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: StacAssetSizesResponse;
+};
+
+export type StacAssetSizesServicesStacAssetSizesPostResponse = StacAssetSizesServicesStacAssetSizesPostResponses[keyof StacAssetSizesServicesStacAssetSizesPostResponses];
 
 export type StacCollectionsServicesStacCollectionsPostData = {
     body: StacConnectRequest;

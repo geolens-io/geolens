@@ -717,6 +717,10 @@ from .sse_token_event import SSETokenEvent
 from .sse_tool_result_event import SSEToolResultEvent
 from .sse_tool_start_event import SSEToolStartEvent
 from .stac_asset import StacAsset
+from .stac_asset_size import StacAssetSize
+from .stac_asset_size_target import StacAssetSizeTarget
+from .stac_asset_sizes_request import StacAssetSizesRequest
+from .stac_asset_sizes_response import StacAssetSizesResponse
 from .stac_catalog import StacCatalog
 from .stac_collection import StacCollection
 from .stac_collection_extent import StacCollectionExtent
@@ -1327,6 +1331,10 @@ __all__ = (
     "SSEToolResultEvent",
     "SSEToolStartEvent",
     "StacAsset",
+    "StacAssetSize",
+    "StacAssetSizesRequest",
+    "StacAssetSizesResponse",
+    "StacAssetSizeTarget",
     "StacCatalog",
     "StacCollection",
     "StacCollectionExtent",

@@ -221,9 +221,10 @@
       "itemsLabel": "Items",
       "totalSizeLabel": "Estimated total size",
       "sizeUnavailable": "Size unavailable",
+      "sizeChecking": "Checking sizes...",
       "partialSizeNote_one": "{{count}} item is missing size info; total is a lower bound.",
       "partialSizeNote_other": "{{count}} items are missing size info; total is a lower bound.",
-      "estimateSource": "Estimate sourced from the STAC manifest (file:size). Actual download may differ.",
+      "estimateSource": "Estimate from the STAC manifest (file:size) or, when the catalog omits it, from the asset server. Actual download may differ.",
       "backToSelection": "Back to selection",
       "confirmImport_one": "Confirm and import {{count}} item",
       "confirmImport_other": "Confirm and import {{count}} items"

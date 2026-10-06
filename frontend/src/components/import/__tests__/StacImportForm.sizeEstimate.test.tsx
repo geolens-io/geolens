@@ -24,12 +24,15 @@ const mockConnectStac = vi.fn();
 const mockFetchStacCollections = vi.fn();
 const mockSearchStacItems = vi.fn();
 const mockImportStacItems = vi.fn();
+const mockFetchStacAssetSizes = vi.fn();
 
 vi.mock('@/api/stac', () => ({
   connectStac: (...args: unknown[]) => mockConnectStac(...args),
   fetchStacCollections: (...args: unknown[]) => mockFetchStacCollections(...args),
   searchStacItems: (...args: unknown[]) => mockSearchStacItems(...args),
   importStacItems: (...args: unknown[]) => mockImportStacItems(...args),
+  fetchStacAssetSizes: (...args: unknown[]) =>
+    mockFetchStacAssetSizes(...args) ?? Promise.resolve({ sizes: [] }),
 }));
 
 // ── Mock sonner toast ─────────────────────────────────────────────────────────
@@ -213,6 +216,43 @@ describe('StacImportForm — size-estimate confirmation step (EW-05)', () => {
 
     // Partial note should NOT appear when ALL sizes are unavailable
     expect(screen.queryByText(/stac\.confirm\.partialSizeNote/)).not.toBeInTheDocument();
+  });
+
+  test('Test 4: a size missing from the catalog is looked up for the selected items only', async () => {
+    const items: StacItemSummary[] = [
+      makeItem({ id: 'item-1', data_asset_size_bytes: 1_000_000 }),
+      makeItem({ id: 'item-2', data_asset_href: 'https://example.com/two.tif' }),
+      makeItem({ id: 'item-3', data_asset_href: 'https://example.com/three.tif' }),
+    ];
+    mockFetchStacAssetSizes.mockResolvedValue({
+      sizes: [{ id: 'item-2', size_bytes: 5_000_000 }],
+    });
+
+    const user = await driveToItemsStep(items);
+    const boxes = screen.getAllByRole('checkbox');
+    await user.click(boxes[1]);
+    await user.click(boxes[2]);
+    await user.click(screen.getByRole('button', { name: /stac.importItems/i }));
+    await waitFor(() => expect(screen.getByText('stac.confirm.title')).toBeInTheDocument());
+
+    await waitFor(() => expect(mockFetchStacAssetSizes).toHaveBeenCalledTimes(1));
+    expect(mockFetchStacAssetSizes.mock.calls[0][1]).toEqual([
+      { id: 'item-2', href: 'https://example.com/two.tif' },
+    ]);
+    // 1 MB from the catalog plus 5 MB from the probe.
+    await waitFor(() => expect(screen.getByText(/5\.7\s*MB|6\s*MB/)).toBeInTheDocument());
+    expect(screen.queryByText(/stac\.confirm\.partialSizeNote/)).not.toBeInTheDocument();
+  });
+
+  test('Test 5: a failed lookup leaves the size unavailable', async () => {
+    mockFetchStacAssetSizes.mockRejectedValue(new Error('boom'));
+    const user = await driveToItemsStep([makeItem({ id: 'item-a' })]);
+    await user.click(screen.getAllByRole('checkbox')[0]);
+    await user.click(screen.getByRole('button', { name: /stac.importItems/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText('stac.confirm.sizeUnavailable')).toBeInTheDocument(),
+    );
   });
 
   test('Test 3: confirmation flow — back returns to items; confirm calls importStacItems', async () => {

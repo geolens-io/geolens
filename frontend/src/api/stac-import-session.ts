@@ -6,6 +6,8 @@ import type {
   StacImportItem,
   StacImportResponse,
   StacItemSummary,
+  StacNextPage,
+  StacSearchRequest,
 } from '@/types/api';
 
 /**
@@ -53,6 +55,20 @@ export interface StacImportContext {
   selectedCollection: StacCollectionSummary;
   searchResult: { items: StacItemSummary[]; matched: number | null };
   selectedItemIds: string[];
+  // The item-search state, so a reattached form shows the same filters and
+  // can still load the next page.
+  search: {
+    startDate: string;
+    endDate: string;
+    bboxText: string;
+    maxCloud: string;
+    cloudCoverSeen: boolean;
+    appliedFilters: Pick<
+      StacSearchRequest,
+      'bbox' | 'datetime_range' | 'max_cloud_cover' | 'cloud_cover_mode'
+    >;
+    nextPage: StacNextPage | null;
+  };
 }
 
 export interface StacImportSession {

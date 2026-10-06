@@ -198,9 +198,10 @@
       "itemsLabel": "Éléments",
       "totalSizeLabel": "Taille totale estimée",
       "sizeUnavailable": "Taille non disponible",
+      "sizeChecking": "Vérification des tailles...",
       "partialSizeNote_one": "{{count}} élément n'a pas d'information de taille; le total est une borne inférieure.",
       "partialSizeNote_other": "{{count}} éléments n'ont pas d'information de taille; le total est une borne inférieure.",
-      "estimateSource": "Estimation basée sur le manifeste STAC (file:size). Le téléchargement réel peut différer.",
+      "estimateSource": "Estimation basée sur le manifeste STAC (file:size) ou, à défaut, sur le serveur de l'asset. Le téléchargement réel peut différer.",
       "backToSelection": "Retour à la sélection",
       "confirmImport_one": "Confirmer et importer {{count}} élément",
       "confirmImport_other": "Confirmer et importer {{count}} éléments"

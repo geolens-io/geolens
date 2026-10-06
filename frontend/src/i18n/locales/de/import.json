@@ -198,9 +198,10 @@
       "itemsLabel": "Objekte",
       "totalSizeLabel": "Geschätzte Gesamtgröße",
       "sizeUnavailable": "Größe nicht verfügbar",
+      "sizeChecking": "Größen werden geprüft ...",
       "partialSizeNote_one": "Bei {{count}} Objekt fehlt die Größenangabe; die Gesamtgröße ist eine Untergrenze.",
       "partialSizeNote_other": "Bei {{count}} Objekten fehlt die Größenangabe; die Gesamtgröße ist eine Untergrenze.",
-      "estimateSource": "Schätzung basiert auf dem STAC-Manifest (file:size). Tatsächlicher Download kann abweichen.",
+      "estimateSource": "Schätzung basiert auf dem STAC-Manifest (file:size) oder, falls der Katalog es auslässt, auf dem Asset-Server. Tatsächlicher Download kann abweichen.",
       "backToSelection": "Zurück zur Auswahl",
       "confirmImport_one": "{{count}} Objekt bestätigen und importieren",
       "confirmImport_other": "{{count}} Objekte bestätigen und importieren"
