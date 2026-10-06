@@ -66,6 +66,7 @@ from app.platform.jobs.models import (
     EMBEDDING_BACKFILL_METADATA_KEY,
     FAN_OUT_INTERRUPTED_METADATA_KEY,
     URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY,
+    URL_IMPORT_METADATA_KEY,
     public_job_metadata,
 )
 from app.platform.jobs.router import get_retry_capability
@@ -855,9 +856,7 @@ async def list_admin_jobs(
             error_code=job.error_code,
             can_retry=can_retry,
             retry_reason=retry_reason,
-            source_url=(
-                redact_url_credentials(job.source_url) if job.source_url else None
-            ),
+            source_url=_listed_source_url(job),
             restart_source=None if can_retry else _restart_source(job),
             user_metadata=public_job_metadata(job.user_metadata),
             created_by=job.created_by,
@@ -891,9 +890,16 @@ def _restart_source(job: IngestJob) -> Literal["url", "service"] | None:
         return None
     if job.source_url and not job.file_path:
         return "service"
-    if (job.user_metadata or {}).get(URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY):
+    if metadata.get(URL_IMPORT_METADATA_KEY) or metadata.get(
+        URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY
+    ):
         return "url"
     return None
+
+
+def _listed_source_url(job: IngestJob) -> str | None:
+    url = job.source_url or (job.user_metadata or {}).get(URL_IMPORT_METADATA_KEY)
+    return redact_url_credentials(url) if isinstance(url, str) and url else None
 
 
 def _ai_status(

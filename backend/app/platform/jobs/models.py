@@ -47,6 +47,12 @@ FAN_OUT_INTERRUPTED_METADATA_KEY = "fan_out_interrupted"
 # retry: a crash-truncated CSV is still valid to a streaming reader.
 URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY = "url_download_in_flight"
 
+# Stamped by the URL-import door and kept through staging. Its value is the
+# source URL with userinfo, query and fragment dropped, so a failed job can
+# still be classified as a URL import and prefill the form once its staged
+# file is gone.
+URL_IMPORT_METADATA_KEY = "url_import"
+
 # fix(#1744): stamped by ``defer_with_orphan_guard`` at dispatch time. ABSENCE
 # is load-bearing — a stamp-less pending row was never queued, so the stale
 # sweep settles it `cancelled` not `failed`. Read by sweep, status poll, worker startup.

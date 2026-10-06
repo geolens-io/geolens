@@ -2,6 +2,7 @@
 
 import asyncio
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -10,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.dependencies import get_db
 from app.core.identity import Identity
 from app.core.upload_errors import CodedRefusal, UnsafeUploadError, refusal_detail
+from app.core.url_redaction import redact_url_credentials
 from app.modules.auth.dependencies import require_permission
 from app.modules.quota.service import check_upload_quota
 from app.platform.jobs import ledger
@@ -43,6 +45,18 @@ router = APIRouter(
     tags=["Datasets"],
     responses=ERROR_RESPONSES_WRITE,
 )
+
+
+def _credential_free_url(url: str) -> str:
+    """The URL's scheme, host and path only.
+
+    The redactor matches known credential parameter names, so a signed URL
+    with an unlisted parameter would pass it; dropping the whole query and
+    fragment leaves nothing to leak. The redactor still runs over the rest.
+    """
+    parts = urlsplit(url)
+    host = parts.netloc.rpartition("@")[2]
+    return redact_url_credentials(urlunsplit((parts.scheme, host, parts.path, "", "")))
 
 
 def _url_import_filename(body: UrlUploadRequest) -> str:
@@ -128,12 +142,14 @@ async def upload_from_url(
     only the local staged file.
     """
     from app.core.db.tenant_session import defer_async_with_tenant
-    from app.core.url_redaction import redact_url_credentials
     from app.platform.jobs.defer_guard import (
         defer_with_orphan_guard,
         make_ingest_job_failed_rollback,
     )
-    from app.platform.jobs.models import URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY
+    from app.platform.jobs.models import (
+        URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY,
+        URL_IMPORT_METADATA_KEY,
+    )
     from app.platform.security import SSRFError, validate_url_for_ssrf
     from app.processing.ingest.tasks import fetch_url
 
@@ -220,6 +236,7 @@ async def upload_from_url(
             # so retry is refused; the staged transition clears it.
             user_metadata={
                 URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY: True,
+                URL_IMPORT_METADATA_KEY: _credential_free_url(body.url),
                 **tileset_job_metadata(body.kind),
             },
         )

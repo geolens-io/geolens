@@ -115,16 +115,16 @@ class TestEndpointReturnsBeforeTheDownload:
     async def test_the_url_never_lands_on_the_job_row(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
     ):
-        """A submitted URL reaches the worker as a task argument only.
+        """The raw URL reaches the worker as a task argument only.
 
-        `user_metadata` is served by GET /jobs/{id} and a URL can carry
-        userinfo credentials, so it must not be stored there.
+        The row keeps just the credential-free form, since a URL can carry
+        userinfo or signed query values.
         """
         monkeypatch.setattr(
             "app.platform.security.validate_url_for_ssrf", _accept_any_url()
         )
         captured = _capture_defer(monkeypatch)
-        url = "https://files.example.test/roads.geojson"
+        url = "https://u:hunter2@files.example.test/roads.geojson?token=s3cr3t"
         resp = await client.post(
             "/ingest/upload/url", json={"url": url}, headers=admin_auth_header
         )
@@ -132,7 +132,8 @@ class TestEndpointReturnsBeforeTheDownload:
         assert captured[0]["url"] == url
 
         job = await _get_job(test_db_session, resp.json()["job_id"])
-        assert url not in str(job.user_metadata or {})
+        assert "hunter2" not in str(job.user_metadata or {})
+        assert "s3cr3t" not in str(job.user_metadata or {})
         assert job.source_url is None
         assert not job.file_path
 

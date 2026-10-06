@@ -53,7 +53,7 @@ class AdminJobResponse:
         created_at (datetime.datetime): Timestamp when the job was queued.
         error_code (None | str | Unset): Stable code for a fixed failure reason, so a client can show it in the reader's
             language; `error_message` keeps its English text. Null when the reason is free text.
-        source_url (None | str | Unset): Service URL a service import was started from, with userinfo and credential
+        source_url (None | str | Unset): URL a service or file URL import was started from, with userinfo and credential
             query values redacted. Null for every other job.
         restart_source (AdminJobResponseRestartSourceType0 | None | Unset): Import tab a failed job whose retry is
             refused can be started again from: 'url' for a file URL import, 'service' for a service import. Null otherwise.
