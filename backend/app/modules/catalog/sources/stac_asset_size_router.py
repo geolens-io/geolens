@@ -1,12 +1,18 @@
 """STAC asset size lookup for the import review step."""
 
+import asyncio
+import time
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 
 from app.core.identity import Identity
 from app.core.service_tokens import STAC_SERVICE_FORMAT
 from app.modules.auth.dependencies import require_permission
-from app.modules.catalog.sources.adapters.stac_asset_size import probe_asset_sizes
+from app.modules.catalog.sources.adapters.stac_asset_size import (
+    BATCH_DEADLINE,
+    probe_asset_sizes,
+)
 from app.modules.catalog.sources.schemas import ServiceAuthRequest
 from app.modules.catalog.sources.stac_router import _validate_stac_http_url
 from app.platform.security import SSRFError, validate_url_for_ssrf
@@ -73,13 +79,27 @@ async def stac_asset_sizes(
         service_credential_from_request(request.auth, None),
         service_format=STAC_SERVICE_FORMAT,
     )
+    started = time.monotonic()
     try:
-        await validate_url_for_ssrf(request.url)
+        async with asyncio.timeout(BATCH_DEADLINE):
+            await validate_url_for_ssrf(request.url)
     except SSRFError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except TimeoutError:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="The catalog address could not be checked in time.",
+        )
 
-    hrefs = {a.id: a.href for a in request.assets}
-    sizes = await probe_asset_sizes(request.url, hrefs, credential)
+    sizes = await probe_asset_sizes(
+        request.url,
+        [a.href for a in request.assets],
+        credential,
+        deadline=max(0.0, BATCH_DEADLINE - (time.monotonic() - started)),
+    )
     return StacAssetSizesResponse(
-        sizes=[StacAssetSize(id=i, size_bytes=size) for i, size in sizes.items()]
+        sizes=[
+            StacAssetSize(id=a.id, size_bytes=size)
+            for a, size in zip(request.assets, sizes)
+        ]
     )

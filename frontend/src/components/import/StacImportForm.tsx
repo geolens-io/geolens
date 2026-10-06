@@ -766,10 +766,10 @@ export function StacImportForm() {
                 {t('stac.confirm.totalSizeLabel')}
               </dt>
               <dd className="text-lg font-medium tracking-tight">
-                {itemsWithSize.length > 0
-                  ? formatBytes(totalBytes)
-                  : probingSizes
-                    ? t('stac.confirm.sizeChecking')
+                {probingSizes
+                  ? t('stac.confirm.sizeChecking')
+                  : itemsWithSize.length > 0
+                    ? formatBytes(totalBytes)
                     : t('stac.confirm.sizeUnavailable')}
               </dd>
             </div>
@@ -790,7 +790,7 @@ export function StacImportForm() {
           <Button variant="outline" onClick={() => setStep('items')}>
             {t('stac.confirm.backToSelection')}
           </Button>
-          <Button onClick={handleImport}>
+          <Button onClick={handleImport} disabled={probingSizes}>
             {t('stac.confirm.confirmImport', { count: itemsToImport.length })}
           </Button>
         </div>

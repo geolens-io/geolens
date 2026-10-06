@@ -46,8 +46,8 @@ class TestProbeOrder:
             return httpx.Response(200, headers={"content-length": "4096"})
 
         with _patched(handler):
-            sizes = await probe_asset_sizes(CATALOG, {"i1": ASSET})
-        assert sizes == {"i1": 4096}
+            sizes = await probe_asset_sizes(CATALOG, [ASSET])
+        assert sizes == [4096]
         assert seen == ["HEAD"]
 
     async def test_range_get_total_when_head_is_refused(self, no_dns):
@@ -60,8 +60,8 @@ class TestProbeOrder:
             return httpx.Response(206, headers={"content-range": "bytes 0-0/987654"})
 
         with _patched(handler):
-            sizes = await probe_asset_sizes(CATALOG, {"i1": ASSET})
-        assert sizes == {"i1": 987654}
+            sizes = await probe_asset_sizes(CATALOG, [ASSET])
+        assert sizes == [987654]
         assert seen == [("HEAD", None), ("GET", "bytes=0-0")]
 
     async def test_size_stays_unknown_when_the_server_reports_none(self, no_dns):
@@ -71,8 +71,32 @@ class TestProbeOrder:
             return httpx.Response(206, headers={"content-range": "bytes 0-0/*"})
 
         with _patched(handler):
-            sizes = await probe_asset_sizes(CATALOG, {"i1": ASSET})
-        assert sizes == {"i1": None}
+            sizes = await probe_asset_sizes(CATALOG, [ASSET])
+        assert sizes == [None]
+
+
+class TestHostileLengths:
+    async def test_an_enormous_content_range_total_is_unknown(self, no_dns):
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.method == "HEAD":
+                return httpx.Response(405)
+            return httpx.Response(
+                206, headers={"content-range": f"bytes 0-0/{'9' * 5000}"}
+            )
+
+        with _patched(handler):
+            sizes = await probe_asset_sizes(CATALOG, [ASSET])
+        assert sizes == [None]
+
+    async def test_an_enormous_content_length_is_unknown(self, no_dns):
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.method == "HEAD":
+                return httpx.Response(200, headers={"content-length": "9" * 5000})
+            return httpx.Response(405)
+
+        with _patched(handler):
+            sizes = await probe_asset_sizes(CATALOG, [ASSET])
+        assert sizes == [None]
 
 
 class TestRefusals:
@@ -88,8 +112,8 @@ class TestRefusals:
             return httpx.Response(200, headers={"content-length": "1"})
 
         with _patched(handler):
-            sizes = await probe_asset_sizes(CATALOG, {"i1": ASSET})
-        assert sizes == {"i1": None}
+            sizes = await probe_asset_sizes(CATALOG, [ASSET])
+        assert sizes == [None]
         assert reached == [ASSET]
 
     async def test_private_asset_href_is_never_requested(self):
@@ -100,8 +124,8 @@ class TestRefusals:
             return httpx.Response(200, headers={"content-length": "1"})
 
         with _patched(handler):
-            sizes = await probe_asset_sizes(CATALOG, {"i1": "http://127.0.0.1/a.tif"})
-        assert sizes == {"i1": None}
+            sizes = await probe_asset_sizes(CATALOG, ["http://127.0.0.1/a.tif"])
+        assert sizes == [None]
         assert reached == []
 
 
@@ -123,7 +147,7 @@ class TestCredentialScope:
         with _patched(handler):
             await probe_asset_sizes(
                 CATALOG,
-                {"own": "https://stac.example.com/a.tif", "other": ASSET},
+                ["https://stac.example.com/a.tif", ASSET],
                 self.CREDENTIAL,
             )
         assert sent == {"stac.example.com": "s3cret-value", "data.example.com": None}
@@ -136,8 +160,8 @@ class TestBounds:
             return httpx.Response(200, headers={"content-length": "1"})
 
         with _patched(handler), patch.object(stac_asset_size, "PROBE_TIMEOUT", 0.05):
-            sizes = await probe_asset_sizes(CATALOG, {"i1": ASSET})
-        assert sizes == {"i1": None}
+            sizes = await probe_asset_sizes(CATALOG, [ASSET])
+        assert sizes == [None]
 
     async def test_probes_run_under_the_concurrency_cap(self, no_dns):
         live = peak = 0
@@ -150,10 +174,10 @@ class TestBounds:
             live -= 1
             return httpx.Response(200, headers={"content-length": "1"})
 
-        assets = {f"i{n}": f"https://data.example.com/{n}.tif" for n in range(12)}
+        assets = [f"https://data.example.com/{n}.tif" for n in range(12)]
         with _patched(handler):
             sizes = await probe_asset_sizes(CATALOG, assets)
-        assert all(size == 1 for size in sizes.values())
+        assert sizes == [1] * 12
         assert peak == stac_asset_size.MAX_CONCURRENT_PROBES
 
 
@@ -164,23 +188,23 @@ class TestBatchDeadline:
                 await asyncio.sleep(5)
             return httpx.Response(200, headers={"content-length": "9"})
 
-        assets = {
-            "fast": "https://data.example.com/fast.tif",
-            "slow": "https://data.example.com/slow.tif",
-        }
+        assets = [
+            "https://data.example.com/fast.tif",
+            "https://data.example.com/slow.tif",
+        ]
         with _patched(handler), patch.object(stac_asset_size, "BATCH_DEADLINE", 0.2):
             sizes = await probe_asset_sizes(CATALOG, assets)
-        assert sizes == {"fast": 9, "slow": None}
+        assert sizes == [9, None]
 
     async def test_assets_queued_behind_the_cap_are_cut_off_too(self, no_dns):
         async def handler(request: httpx.Request) -> httpx.Response:
             await asyncio.sleep(5)
             return httpx.Response(200, headers={"content-length": "1"})
 
-        assets = {f"i{n}": f"https://data.example.com/{n}.tif" for n in range(10)}
+        assets = [f"https://data.example.com/{n}.tif" for n in range(10)]
         with _patched(handler), patch.object(stac_asset_size, "BATCH_DEADLINE", 0.2):
             sizes = await asyncio.wait_for(probe_asset_sizes(CATALOG, assets), 3)
-        assert set(sizes.values()) == {None}
+        assert sizes == [None] * 10
 
 
 class TestEndpoint:
@@ -194,7 +218,7 @@ class TestEndpoint:
             ),
             patch(
                 "app.modules.catalog.sources.stac_asset_size_router.probe_asset_sizes",
-                new=AsyncMock(return_value={"i1": 10, "i2": None}),
+                new=AsyncMock(return_value=[10, None]),
             ),
         ):
             resp = await client.post(
@@ -213,6 +237,94 @@ class TestEndpoint:
             {"id": "i1", "size_bytes": 10},
             {"id": "i2", "size_bytes": None},
         ]
+
+    async def test_duplicate_item_ids_each_get_an_entry(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        probe = AsyncMock(return_value=[1, 2])
+        with (
+            patch(
+                "app.modules.catalog.sources.stac_asset_size_router.validate_url_for_ssrf",
+                new=AsyncMock(),
+            ),
+            patch(
+                "app.modules.catalog.sources.stac_asset_size_router.probe_asset_sizes",
+                new=probe,
+            ),
+        ):
+            resp = await client.post(
+                "/services/stac/asset-sizes",
+                json={
+                    "url": CATALOG,
+                    "assets": [
+                        {"id": "same", "href": ASSET},
+                        {"id": "same", "href": "https://data.example.com/b.tif"},
+                    ],
+                },
+                headers=admin_auth_header,
+            )
+        assert resp.json()["sizes"] == [
+            {"id": "same", "size_bytes": 1},
+            {"id": "same", "size_bytes": 2},
+        ]
+        assert probe.await_args.args[1] == [ASSET, "https://data.example.com/b.tif"]
+
+    async def test_slow_catalog_validation_is_cut_off(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        async def slow(_url):
+            await asyncio.sleep(5)
+
+        probe = AsyncMock(return_value=[None])
+        with (
+            patch(
+                "app.modules.catalog.sources.stac_asset_size_router.validate_url_for_ssrf",
+                new=slow,
+            ),
+            patch(
+                "app.modules.catalog.sources.stac_asset_size_router.BATCH_DEADLINE",
+                0.1,
+            ),
+            patch(
+                "app.modules.catalog.sources.stac_asset_size_router.probe_asset_sizes",
+                new=probe,
+            ),
+        ):
+            resp = await client.post(
+                "/services/stac/asset-sizes",
+                json={"url": CATALOG, "assets": [{"id": "i1", "href": ASSET}]},
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == 504
+        probe.assert_not_awaited()
+
+    async def test_probing_gets_only_the_time_validation_left(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        async def slowish(_url):
+            await asyncio.sleep(0.15)
+
+        probe = AsyncMock(return_value=[None])
+        with (
+            patch(
+                "app.modules.catalog.sources.stac_asset_size_router.validate_url_for_ssrf",
+                new=slowish,
+            ),
+            patch(
+                "app.modules.catalog.sources.stac_asset_size_router.BATCH_DEADLINE",
+                0.5,
+            ),
+            patch(
+                "app.modules.catalog.sources.stac_asset_size_router.probe_asset_sizes",
+                new=probe,
+            ),
+        ):
+            await client.post(
+                "/services/stac/asset-sizes",
+                json={"url": CATALOG, "assets": [{"id": "i1", "href": ASSET}]},
+                headers=admin_auth_header,
+            )
+        assert probe.await_args.kwargs["deadline"] < 0.4
 
     async def test_private_catalog_url_is_refused(
         self, client: AsyncClient, admin_auth_header: dict

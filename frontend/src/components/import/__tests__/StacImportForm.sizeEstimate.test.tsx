@@ -283,6 +283,31 @@ describe('StacImportForm — size-estimate confirmation step (EW-05)', () => {
     expect(screen.queryByText(/MB/)).not.toBeInTheDocument();
   });
 
+  test('Test 7: with mixed sizes the total and the import wait for the lookup', async () => {
+    let resolveSizes!: (v: unknown) => void;
+    mockFetchStacAssetSizes.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSizes = resolve;
+      }),
+    );
+    const items: StacItemSummary[] = [
+      makeItem({ id: 'item-1', data_asset_size_bytes: 1_000_000 }),
+      makeItem({ id: 'item-2', data_asset_href: 'https://example.com/two.tif' }),
+    ];
+    const user = await driveToItemsStep(items);
+    await user.click(screen.getAllByRole('checkbox')[0]);
+    await user.click(screen.getByRole('button', { name: /stac.importItems/i }));
+
+    await waitFor(() => expect(screen.getByText('stac.confirm.sizeChecking')).toBeInTheDocument());
+    expect(screen.queryByText(/[KM]B/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /stac\.confirm\.confirmImport/ })).toBeDisabled();
+
+    resolveSizes({ sizes: [{ id: 'item-2', size_bytes: null }] });
+    await waitFor(() => expect(screen.getByText(/[KM]B/)).toBeInTheDocument());
+    expect(screen.getByText(/stac\.confirm\.partialSizeNote/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /stac\.confirm\.confirmImport/ })).toBeEnabled();
+  });
+
   test('Test 3: confirmation flow — back returns to items; confirm calls importStacItems', async () => {
     const items: StacItemSummary[] = [
       makeItem({ id: 'flow-item-1', data_asset_size_bytes: 500_000 }),

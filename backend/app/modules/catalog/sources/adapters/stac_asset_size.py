@@ -33,15 +33,15 @@ PROBE_TIMEOUT = 8.0
 BATCH_DEADLINE = 25.0
 MAX_CONCURRENT_PROBES = 4
 
-_CONTENT_RANGE_TOTAL = re.compile(r"^bytes\s+\d+-\d+/(\d+)$")
+# Fifteen digits is far beyond any real file and keeps int() cheap.
+_MAX_DIGITS = 15
+_CONTENT_RANGE_TOTAL = re.compile(rf"^bytes\s+\d+-\d+/(\d{{1,{_MAX_DIGITS}}})$")
 
 
 def _length(value: str | None) -> int | None:
-    return (
-        int(value)
-        if value is not None and value.isascii() and value.isdigit()
-        else None
-    )
+    if value is None or not (value.isascii() and value.isdigit()):
+        return None
+    return int(value) if len(value) <= _MAX_DIGITS else None
 
 
 def _head_size(response: httpx.Response) -> int | None:
@@ -99,14 +99,16 @@ async def _asset_size(
 
 async def probe_asset_sizes(
     catalog_url: str,
-    assets: dict[str, str],
+    hrefs: list[str],
     credential: ServiceCredential | None = None,
-) -> dict[str, int | None]:
-    """Byte size per key of *assets* (key to asset URL), ``None`` when unknown.
+    deadline: float | None = None,
+) -> list[int | None]:
+    """Byte size of each URL in *hrefs*, in order, ``None`` when unknown.
 
     HEAD first, then a one-byte range request, reading ``Content-Length`` or
     the ``Content-Range`` total. At most ``MAX_CONCURRENT_PROBES`` run at once,
-    and assets still unprobed at ``BATCH_DEADLINE`` come back as ``None``.
+    and assets still unprobed after *deadline* seconds (default
+    ``BATCH_DEADLINE``) come back as ``None``.
     """
     pair = (
         None
@@ -116,14 +118,14 @@ async def probe_asset_sizes(
         )
     )
     gate = asyncio.Semaphore(MAX_CONCURRENT_PROBES)
-    tasks = {
-        key: asyncio.create_task(_asset_size(href, catalog_url, pair, gate))
-        for key, href in assets.items()
-    }
-    _, pending = await asyncio.wait(tasks.values(), timeout=BATCH_DEADLINE)
+    tasks = [
+        asyncio.create_task(_asset_size(href, catalog_url, pair, gate))
+        for href in hrefs
+    ]
+    _, pending = await asyncio.wait(
+        tasks, timeout=BATCH_DEADLINE if deadline is None else deadline
+    )
     for task in pending:
         task.cancel()
     await asyncio.gather(*pending, return_exceptions=True)
-    return {
-        key: None if task in pending else task.result() for key, task in tasks.items()
-    }
+    return [None if task in pending else task.result() for task in tasks]
