@@ -255,6 +255,34 @@ describe('StacImportForm — size-estimate confirmation step (EW-05)', () => {
     );
   });
 
+  test('Test 6: a size looked up for one search is not reused for another search\'s item with the same id', async () => {
+    const first = makeItem({ id: 'same-id', data_asset_href: 'https://example.com/one.tif' });
+    mockFetchStacAssetSizes.mockResolvedValue({ sizes: [{ id: 'same-id', size_bytes: 5_000_000 }] });
+    const user = await driveToItemsStep([first]);
+    await user.click(screen.getAllByRole('checkbox')[0]);
+    await user.click(screen.getByRole('button', { name: /stac.importItems/i }));
+    await waitFor(() => expect(screen.getByText(/MB/)).toBeInTheDocument());
+
+    // Back to the results, then a new search whose item reuses the id.
+    await user.click(screen.getByRole('button', { name: 'stac.confirm.backToSelection' }));
+    mockSearchStacItems.mockResolvedValue({
+      items: [makeItem({ id: 'same-id', data_asset_href: 'https://example.com/two.tif' })],
+      matched: 1,
+      returned: 1,
+    });
+    mockFetchStacAssetSizes.mockResolvedValue({ sizes: [{ id: 'same-id', size_bytes: null }] });
+    await user.click(screen.getByRole('button', { name: 'stac.filterApply' }));
+    await waitFor(() => expect(mockSearchStacItems).toHaveBeenCalledTimes(2));
+    await user.click(screen.getAllByRole('checkbox')[0]);
+    await user.click(screen.getByRole('button', { name: /stac.importItems/i }));
+
+    await waitFor(() => expect(mockFetchStacAssetSizes).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(screen.getByText('stac.confirm.sizeUnavailable')).toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/MB/)).not.toBeInTheDocument();
+  });
+
   test('Test 3: confirmation flow — back returns to items; confirm calls importStacItems', async () => {
     const items: StacItemSummary[] = [
       makeItem({ id: 'flow-item-1', data_asset_size_bytes: 500_000 }),

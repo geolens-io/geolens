@@ -29,6 +29,8 @@ from app.platform.security import (
 logger = structlog.stdlib.get_logger(__name__)
 
 PROBE_TIMEOUT = 8.0
+# Below the browser's request timeout, so a slow batch returns what it has.
+BATCH_DEADLINE = 25.0
 MAX_CONCURRENT_PROBES = 4
 
 _CONTENT_RANGE_TOTAL = re.compile(r"^bytes\s+\d+-\d+/(\d+)$")
@@ -103,7 +105,8 @@ async def probe_asset_sizes(
     """Byte size per key of *assets* (key to asset URL), ``None`` when unknown.
 
     HEAD first, then a one-byte range request, reading ``Content-Length`` or
-    the ``Content-Range`` total. At most ``MAX_CONCURRENT_PROBES`` run at once.
+    the ``Content-Range`` total. At most ``MAX_CONCURRENT_PROBES`` run at once,
+    and assets still unprobed at ``BATCH_DEADLINE`` come back as ``None``.
     """
     pair = (
         None
@@ -113,7 +116,14 @@ async def probe_asset_sizes(
         )
     )
     gate = asyncio.Semaphore(MAX_CONCURRENT_PROBES)
-    sizes = await asyncio.gather(
-        *(_asset_size(href, catalog_url, pair, gate) for href in assets.values())
-    )
-    return dict(zip(assets, sizes))
+    tasks = {
+        key: asyncio.create_task(_asset_size(href, catalog_url, pair, gate))
+        for key, href in assets.items()
+    }
+    _, pending = await asyncio.wait(tasks.values(), timeout=BATCH_DEADLINE)
+    for task in pending:
+        task.cancel()
+    await asyncio.gather(*pending, return_exceptions=True)
+    return {
+        key: None if task in pending else task.result() for key, task in tasks.items()
+    }

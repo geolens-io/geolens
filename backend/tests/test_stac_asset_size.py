@@ -157,6 +157,32 @@ class TestBounds:
         assert peak == stac_asset_size.MAX_CONCURRENT_PROBES
 
 
+class TestBatchDeadline:
+    async def test_slow_assets_past_the_deadline_come_back_unknown(self, no_dns):
+        async def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/slow.tif":
+                await asyncio.sleep(5)
+            return httpx.Response(200, headers={"content-length": "9"})
+
+        assets = {
+            "fast": "https://data.example.com/fast.tif",
+            "slow": "https://data.example.com/slow.tif",
+        }
+        with _patched(handler), patch.object(stac_asset_size, "BATCH_DEADLINE", 0.2):
+            sizes = await probe_asset_sizes(CATALOG, assets)
+        assert sizes == {"fast": 9, "slow": None}
+
+    async def test_assets_queued_behind_the_cap_are_cut_off_too(self, no_dns):
+        async def handler(request: httpx.Request) -> httpx.Response:
+            await asyncio.sleep(5)
+            return httpx.Response(200, headers={"content-length": "1"})
+
+        assets = {f"i{n}": f"https://data.example.com/{n}.tif" for n in range(10)}
+        with _patched(handler), patch.object(stac_asset_size, "BATCH_DEADLINE", 0.2):
+            sizes = await asyncio.wait_for(probe_asset_sizes(CATALOG, assets), 3)
+        assert set(sizes.values()) == {None}
+
+
 class TestEndpoint:
     async def test_returns_a_size_per_asset(
         self, client: AsyncClient, admin_auth_header: dict

@@ -171,8 +171,9 @@ export function StacImportForm() {
   const [nextPage, setNextPage] = useState<StacNextPage | null>(null);
   const [appliedFilters, setAppliedFilters] = useState<SearchFilters>({});
   const [loadingMore, setLoadingMore] = useState(false);
-  // Sizes looked up on the review step for assets the catalog gave none for;
-  // null means the asset's server did not say.
+  // Sizes looked up on the review step for assets the catalog gave none for,
+  // keyed by asset URL since item ids repeat across collections; null means
+  // the asset's server did not say.
   const [probedSizes, setProbedSizes] = useState<Record<string, number | null>>({});
   const [probingSizes, setProbingSizes] = useState(false);
   // Bumped whenever the result set is replaced or abandoned, so a response
@@ -677,7 +678,7 @@ export function StacImportForm() {
       (i) =>
         selectedItems.has(i.id) &&
         typeof i.data_asset_size_bytes !== 'number' &&
-        !(i.id in probedSizes),
+        !(i.data_asset_href! in probedSizes),
     );
     if (missing.length === 0) return;
     let cancelled = false;
@@ -692,8 +693,13 @@ export function StacImportForm() {
         if (cancelled) return;
         setProbedSizes((prev) => ({
           ...prev,
-          ...Object.fromEntries(missing.map((i) => [i.id, null])),
-          ...Object.fromEntries(res.sizes.map((s) => [s.id, s.size_bytes])),
+          ...Object.fromEntries(missing.map((i) => [i.data_asset_href!, null])),
+          ...Object.fromEntries(
+            res.sizes.flatMap((s) => {
+              const href = missing.find((i) => i.id === s.id)?.data_asset_href;
+              return href ? [[href, s.size_bytes]] : [];
+            }),
+          ),
         }));
       })
       .catch(() => {
@@ -701,7 +707,7 @@ export function StacImportForm() {
         if (cancelled) return;
         setProbedSizes((prev) => ({
           ...prev,
-          ...Object.fromEntries(missing.map((i) => [i.id, null])),
+          ...Object.fromEntries(missing.map((i) => [i.data_asset_href!, null])),
         }));
       })
       .finally(() => {
@@ -721,7 +727,7 @@ export function StacImportForm() {
     const sizeOf = (i: StacItemSummary) =>
       typeof i.data_asset_size_bytes === 'number'
         ? i.data_asset_size_bytes
-        : (probedSizes[i.id] ?? null);
+        : (probedSizes[i.data_asset_href!] ?? null);
     const itemsWithSize = itemsToImport.filter((i) => sizeOf(i) !== null);
     const totalBytes = itemsWithSize.reduce((acc, i) => acc + (sizeOf(i) ?? 0), 0);
     const unavailableCount = itemsToImport.length - itemsWithSize.length;
