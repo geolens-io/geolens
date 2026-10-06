@@ -611,6 +611,45 @@ async def test_a_cancel_during_the_pointer_write_removes_the_upload(
     assert not await storage.exists(keys[0]), "the upload outlived its cancel"
 
 
+@pytest.mark.parametrize("lands", [False, True])
+async def test_a_cancel_during_the_commit_keeps_the_image_only_if_it_landed(
+    test_db_session, storage, tables, monkeypatch, lands: bool
+) -> None:
+    """A cancelled commit reaps an unreferenced upload and keeps one the pointer names."""
+    import app.core.db as db_module
+
+    dataset, _admin_id, _before = await _published_one_point_dataset(
+        test_db_session, storage, tables
+    )
+    await _publish_spread(test_db_session, dataset)
+    keys: list[str] = []
+    real_put = storage.put
+
+    async def _record_put(stored_key, data):
+        keys.append(stored_key)
+        await real_put(stored_key, data)
+
+    monkeypatch.setattr(storage, "put", _record_put)
+
+    async with db_module.async_session() as session:
+        real_commit = session.commit
+
+        async def _cancelled_commit() -> None:
+            if lands:
+                await real_commit()
+            raise asyncio.CancelledError
+
+        monkeypatch.setattr(session, "commit", _cancelled_commit)
+        with pytest.raises(asyncio.CancelledError):
+            await _generate_quicklook(session, dataset.id, dataset.table_name)
+
+    assert keys
+    assert await storage.exists(keys[0]) is lands
+    if lands:
+        uri, _png = await _stored_quicklook(storage, dataset.id)
+        assert uri.rsplit("/", 1)[-1] == keys[0].rsplit("/", 1)[-1]
+
+
 async def test_a_draw_whose_dataset_was_deleted_removes_its_upload(
     test_db_session, storage, tables, monkeypatch
 ) -> None:

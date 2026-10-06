@@ -1232,6 +1232,17 @@ async def _draw_quicklook(
 
     try:
         await session.commit()
+    except asyncio.CancelledError:
+        # The commit may or may not have landed; only an unreferenced image goes.
+        await asyncio.shield(session.rollback())
+        landed = await asyncio.shield(
+            session.scalar(
+                select(Dataset.quicklook_256_uri).where(Dataset.id == dataset_id)
+            )
+        )
+        if landed != ql_key:
+            await asyncio.shield(_reap_quicklook(ql_storage, stored_key, table_name))
+        raise
     except (
         Exception
     ) as _ql_commit_exc:  # broad: transient commit failure after successful generation
