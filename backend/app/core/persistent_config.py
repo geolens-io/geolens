@@ -724,7 +724,7 @@ class _ProviderModelConfig(PersistentConfig[str]):
             if config is None:
                 try:
                     config = (
-                        await ext.resolve_runtime_config(db, settings)
+                        await ext.resolve_runtime_config(db, settings=settings)
                         if settings is not None
                         and _accepts_settings(ext.resolve_runtime_config)
                         else await ext.resolve_runtime_config(db)

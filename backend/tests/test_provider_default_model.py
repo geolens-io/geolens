@@ -165,3 +165,18 @@ async def test_a_resolver_without_the_settings_parameter_is_called_without_it(
         await LLM_MODEL.default_for(None, "ext", settings={"openai_base_url": "x"})
         == "legacy-model"
     )
+
+
+@pytest.mark.asyncio
+async def test_a_keyword_only_settings_parameter_receives_the_snapshot(monkeypatch):
+    class _KeywordOnly:
+        async def resolve_runtime_config(self, db, *, settings=None):
+            return {"default_model": (settings or {}).get("marker", "none")}
+
+    monkeypatch.setattr(
+        "app.platform.extensions.get_ai_provider", lambda n: _KeywordOnly()
+    )
+
+    assert (
+        await LLM_MODEL.default_for(None, "ext", settings={"marker": "seen"}) == "seen"
+    )
