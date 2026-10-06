@@ -1165,6 +1165,10 @@ async def _draw_quicklook(
         # a wait_for cancel poisoned.
         await session.rollback()
         await ql_storage.put(stored_key, _io.BytesIO(ql_bytes))
+    except asyncio.CancelledError:
+        # Providers drain the write before re-raising, so the object exists.
+        await asyncio.shield(_reap_quicklook(ql_storage, stored_key, table_name))
+        raise
     except Exception as _ql_exc:  # broad: quicklook generation is non-fatal; geometry rendering can OOM/timeout
         _ql_log.warning(
             "quicklook_failed",

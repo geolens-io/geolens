@@ -555,6 +555,30 @@ async def test_a_draw_reads_the_predecessor_pointer_under_a_row_lock(
     assert any("FOR NO KEY UPDATE" in stmt for stmt in predecessor_reads)
 
 
+async def test_a_cancelled_upload_is_removed_and_the_cancel_propagates(
+    test_db_session, storage, tables, monkeypatch
+) -> None:
+    """A cancel that lands after the write drained must not strand the object."""
+    dataset, _admin_id, _before = await _published_one_point_dataset(
+        test_db_session, storage, tables
+    )
+    await _publish_spread(test_db_session, dataset)
+    keys: list[str] = []
+    real_put = storage.put
+
+    async def _put_then_cancel(stored_key, data):
+        keys.append(stored_key)
+        await real_put(stored_key, data)
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(storage, "put", _put_then_cancel)
+    with pytest.raises(asyncio.CancelledError):
+        await _draw(dataset)
+
+    assert keys
+    assert not await storage.exists(keys[0]), "the upload outlived its cancel"
+
+
 async def test_a_draw_whose_dataset_was_deleted_removes_its_upload(
     test_db_session, storage, tables, monkeypatch
 ) -> None:
