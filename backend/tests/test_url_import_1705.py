@@ -395,9 +395,12 @@ class TestUrlImportFetch:
         assert deferred["url"] == "https://files.example.test/deferred.geojson"
         assert deferred["attempt_id"] == str(job.attempt_id)
         assert deferred["filename"] == "deferred.geojson"
-        # fix(#1710): a URL can carry userinfo credentials and user_metadata
-        # is served by GET /jobs/{id}, so the URL must not reach the row.
-        assert "deferred.geojson" not in str(job.user_metadata or {})
+        # The row keeps only the credential-free marker, and GET /jobs/{id}
+        # serves none of it.
+        assert job.user_metadata["url_import"] == deferred["url"]
+        status_resp = await client.get(f"/jobs/{job.id}", headers=admin_auth_header)
+        assert status_resp.status_code == 200, status_resp.text
+        assert "files.example.test" not in status_resp.text
 
     async def test_success_stages_file_and_creates_job(
         self,
