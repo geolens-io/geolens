@@ -4662,6 +4662,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/services/stac/asset-sizes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stac Asset Sizes
+         * @description Look up the size of data assets whose item publishes no ``file:size``.
+         *
+         *     Asks each asset's server for its length (HEAD, then a one-byte range
+         *     request). A size the server does not report comes back as null.
+         */
+        post: operations["stac_asset_sizes_services_stac_asset_sizes_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/services/stac/collections": {
         parameters: {
             query?: never;
@@ -12879,6 +12902,55 @@ export interface components {
             roles?: string[] | null;
             /** Size Bytes */
             size_bytes?: number | null;
+        };
+        /** StacAssetSize */
+        StacAssetSize: {
+            /**
+             * Id
+             * @description STAC item ID.
+             */
+            id: string;
+            /**
+             * Size Bytes
+             * @description Asset size in bytes, or null when the server did not report one.
+             */
+            size_bytes?: number | null;
+        };
+        /** StacAssetSizeTarget */
+        StacAssetSizeTarget: {
+            /**
+             * Id
+             * @description STAC item ID the asset belongs to.
+             */
+            id: string;
+            /**
+             * Href
+             * @description URL of the item's data asset.
+             */
+            href: string;
+        };
+        /** StacAssetSizesRequest */
+        StacAssetSizesRequest: {
+            /**
+             * Url
+             * @description STAC API root URL the assets were found in.
+             */
+            url: string;
+            /**
+             * Assets
+             * @description Assets to measure (max 50 per request).
+             */
+            assets: components["schemas"]["StacAssetSizeTarget"][];
+            /** @description Credential for a protected catalog. It is sent only to assets on the catalog's own origin. */
+            auth?: components["schemas"]["ServiceAuthRequest"] | null;
+        };
+        /** StacAssetSizesResponse */
+        StacAssetSizesResponse: {
+            /**
+             * Sizes
+             * @description One entry per requested asset.
+             */
+            sizes: components["schemas"]["StacAssetSize"][];
         };
         /**
          * StacCatalog
@@ -38771,6 +38843,122 @@ export interface operations {
             };
             /** @description Service unavailable — the database could not serve the request */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    stac_asset_sizes_services_stac_asset_sizes_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StacAssetSizesRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StacAssetSizesResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Gateway timeout — an upstream address check ran out of time */
+            504: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -221,9 +221,10 @@
       "itemsLabel": "条目",
       "totalSizeLabel": "预计总大小",
       "sizeUnavailable": "大小不可用",
+      "sizeChecking": "正在检查大小...",
       "partialSizeNote_one": "{{count}} 个条目缺少大小信息；总计为下限值。",
       "partialSizeNote_other": "{{count}} 个条目缺少大小信息；总计为下限值。",
-      "estimateSource": "估算值来自 STAC 清单（file:size）。实际下载量可能有所不同。",
+      "estimateSource": "估算值来自 STAC 清单（file:size）；目录未提供时来自资源服务器。实际下载量可能有所不同。",
       "backToSelection": "返回选择列表",
       "confirmImport_one": "确认并导入 {{count}} 个条目",
       "confirmImport_other": "确认并导入 {{count}} 个条目"

@@ -2288,6 +2288,16 @@ export interface StacSearchResponse {
   next_page?: StacNextPage | null;
 }
 
+export interface StacAssetSizesRequest {
+  url: string;
+  assets: { id: string; href: string }[];
+  auth?: ServiceAuthRequest | null;
+}
+
+export interface StacAssetSizesResponse {
+  sizes: { id: string; size_bytes: number | null }[];
+}
+
 export interface StacImportItem {
   id: string;
   collection: string | null;

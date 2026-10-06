@@ -150,6 +150,11 @@ BAD_GATEWAY_RESPONSE = {
     "description": "Bad gateway — an upstream provider failed",
 }
 
+GATEWAY_TIMEOUT_RESPONSE = {
+    **PROBLEM_RESPONSE,
+    "description": "Gateway timeout — an upstream address check ran out of time",
+}
+
 SERVICE_UNAVAILABLE_RESPONSE = {
     **PROBLEM_RESPONSE,
     "description": "Service unavailable — required publication metadata is missing",

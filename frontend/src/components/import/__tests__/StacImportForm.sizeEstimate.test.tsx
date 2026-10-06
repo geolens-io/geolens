@@ -24,12 +24,15 @@ const mockConnectStac = vi.fn();
 const mockFetchStacCollections = vi.fn();
 const mockSearchStacItems = vi.fn();
 const mockImportStacItems = vi.fn();
+const mockFetchStacAssetSizes = vi.fn();
 
 vi.mock('@/api/stac', () => ({
   connectStac: (...args: unknown[]) => mockConnectStac(...args),
   fetchStacCollections: (...args: unknown[]) => mockFetchStacCollections(...args),
   searchStacItems: (...args: unknown[]) => mockSearchStacItems(...args),
   importStacItems: (...args: unknown[]) => mockImportStacItems(...args),
+  fetchStacAssetSizes: (...args: unknown[]) =>
+    mockFetchStacAssetSizes(...args) ?? Promise.resolve({ sizes: [] }),
 }));
 
 // ── Mock sonner toast ─────────────────────────────────────────────────────────
@@ -213,6 +216,135 @@ describe('StacImportForm — size-estimate confirmation step (EW-05)', () => {
 
     // Partial note should NOT appear when ALL sizes are unavailable
     expect(screen.queryByText(/stac\.confirm\.partialSizeNote/)).not.toBeInTheDocument();
+  });
+
+  test('Test 4: a size missing from the catalog is looked up for the selected items only', async () => {
+    const items: StacItemSummary[] = [
+      makeItem({ id: 'item-1', data_asset_size_bytes: 1_000_000 }),
+      makeItem({ id: 'item-2', data_asset_href: 'https://example.com/two.tif' }),
+      makeItem({ id: 'item-3', data_asset_href: 'https://example.com/three.tif' }),
+    ];
+    mockFetchStacAssetSizes.mockResolvedValue({
+      sizes: [{ id: 'item-2', size_bytes: 5_000_000 }],
+    });
+
+    const user = await driveToItemsStep(items);
+    const boxes = screen.getAllByRole('checkbox');
+    await user.click(boxes[1]);
+    await user.click(boxes[2]);
+    await user.click(screen.getByRole('button', { name: /stac.importItems/i }));
+    await waitFor(() => expect(screen.getByText('stac.confirm.title')).toBeInTheDocument());
+
+    await waitFor(() => expect(mockFetchStacAssetSizes).toHaveBeenCalledTimes(1));
+    expect(mockFetchStacAssetSizes.mock.calls[0][1]).toEqual([
+      { id: 'item-2', href: 'https://example.com/two.tif' },
+    ]);
+    // 1 MB from the catalog plus 5 MB from the probe.
+    await waitFor(() => expect(screen.getByText(/5\.7\s*MB|6\s*MB/)).toBeInTheDocument());
+    expect(screen.queryByText(/stac\.confirm\.partialSizeNote/)).not.toBeInTheDocument();
+  });
+
+  test('Test 5: a failed lookup leaves the size unavailable', async () => {
+    mockFetchStacAssetSizes.mockRejectedValue(new Error('boom'));
+    const user = await driveToItemsStep([makeItem({ id: 'item-a' })]);
+    await user.click(screen.getAllByRole('checkbox')[0]);
+    await user.click(screen.getByRole('button', { name: /stac.importItems/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText('stac.confirm.sizeUnavailable')).toBeInTheDocument(),
+    );
+  });
+
+  test('Test 6: a size looked up for one search is not reused for another search\'s item with the same id', async () => {
+    const first = makeItem({ id: 'same-id', data_asset_href: 'https://example.com/one.tif' });
+    mockFetchStacAssetSizes.mockResolvedValue({ sizes: [{ id: 'same-id', size_bytes: 5_000_000 }] });
+    const user = await driveToItemsStep([first]);
+    await user.click(screen.getAllByRole('checkbox')[0]);
+    await user.click(screen.getByRole('button', { name: /stac.importItems/i }));
+    await waitFor(() => expect(screen.getByText(/MB/)).toBeInTheDocument());
+
+    // Back to the results, then a new search whose item reuses the id.
+    await user.click(screen.getByRole('button', { name: 'stac.confirm.backToSelection' }));
+    mockSearchStacItems.mockResolvedValue({
+      items: [makeItem({ id: 'same-id', data_asset_href: 'https://example.com/two.tif' })],
+      matched: 1,
+      returned: 1,
+    });
+    mockFetchStacAssetSizes.mockResolvedValue({ sizes: [{ id: 'same-id', size_bytes: null }] });
+    await user.click(screen.getByRole('button', { name: 'stac.filterApply' }));
+    await waitFor(() => expect(mockSearchStacItems).toHaveBeenCalledTimes(2));
+    await user.click(screen.getAllByRole('checkbox')[0]);
+    await user.click(screen.getByRole('button', { name: /stac.importItems/i }));
+
+    await waitFor(() => expect(mockFetchStacAssetSizes).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(screen.getByText('stac.confirm.sizeUnavailable')).toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/MB/)).not.toBeInTheDocument();
+  });
+
+  test('Test 7: with mixed sizes the total and the import wait for the lookup', async () => {
+    let resolveSizes!: (v: unknown) => void;
+    mockFetchStacAssetSizes.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSizes = resolve;
+      }),
+    );
+    const items: StacItemSummary[] = [
+      makeItem({ id: 'item-1', data_asset_size_bytes: 1_000_000 }),
+      makeItem({ id: 'item-2', data_asset_href: 'https://example.com/two.tif' }),
+    ];
+    const user = await driveToItemsStep(items);
+    await user.click(screen.getAllByRole('checkbox')[0]);
+    await user.click(screen.getByRole('button', { name: /stac.importItems/i }));
+
+    await waitFor(() => expect(screen.getByText('stac.confirm.sizeChecking')).toBeInTheDocument());
+    expect(screen.queryByText(/[KM]B/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /stac\.confirm\.confirmImport/ })).toBeDisabled();
+
+    resolveSizes({ sizes: [{ id: 'item-2', size_bytes: null }] });
+    await waitFor(() => expect(screen.getByText(/[KM]B/)).toBeInTheDocument());
+    expect(screen.getByText(/stac\.confirm\.partialSizeNote/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /stac\.confirm\.confirmImport/ })).toBeEnabled();
+  });
+
+  test('Test 8: two assets sharing an item id keep their own looked-up sizes', async () => {
+    mockFetchStacAssetSizes.mockResolvedValue({
+      sizes: [
+        { id: 'same', size_bytes: 5_000_000 },
+        { id: 'same', size_bytes: null },
+      ],
+    });
+    const items: StacItemSummary[] = [
+      makeItem({ id: 'same', title: 'first', data_asset_href: 'https://example.com/one.tif' }),
+      makeItem({ id: 'same', title: 'second', data_asset_href: 'https://example.com/two.tif' }),
+    ];
+    const user = await driveToItemsStep(items);
+    await user.click(screen.getAllByRole('checkbox')[0]);
+    await user.click(screen.getByRole('button', { name: /stac.importItems/i }));
+
+    await waitFor(() => expect(screen.getByText(/[KM]B/)).toBeInTheDocument());
+    expect(screen.getByText(/stac\.confirm\.partialSizeNote/)).toBeInTheDocument();
+  });
+
+  test('Test 9: leaving review mid-lookup does not strand the next review on "checking"', async () => {
+    mockFetchStacAssetSizes.mockReturnValue(new Promise(() => {}));
+    const items: StacItemSummary[] = [
+      makeItem({ id: 'item-1', data_asset_size_bytes: 1_000_000 }),
+      makeItem({ id: 'item-2', data_asset_href: 'https://example.com/two.tif' }),
+    ];
+    const user = await driveToItemsStep(items);
+    await user.click(screen.getAllByRole('checkbox')[0]);
+    await user.click(screen.getByRole('button', { name: /stac.importItems/i }));
+    await waitFor(() => expect(screen.getByText('stac.confirm.sizeChecking')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'stac.confirm.backToSelection' }));
+    await user.click(screen.getAllByRole('checkbox')[2]);
+    await user.click(screen.getByRole('button', { name: /stac.importItems/i }));
+
+    await waitFor(() => expect(screen.getByText(/[KM]B/)).toBeInTheDocument());
+    expect(screen.queryByText('stac.confirm.sizeChecking')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /stac\.confirm\.confirmImport/ })).toBeEnabled();
   });
 
   test('Test 3: confirmation flow — back returns to items; confirm calls importStacItems', async () => {

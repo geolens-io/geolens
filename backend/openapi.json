@@ -16993,6 +16993,109 @@
         "title": "StacAsset",
         "type": "object"
       },
+      "StacAssetSize": {
+        "properties": {
+          "id": {
+            "description": "STAC item ID.",
+            "title": "Id",
+            "type": "string"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Asset size in bytes, or null when the server did not report one.",
+            "title": "Size Bytes"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "StacAssetSize",
+        "type": "object"
+      },
+      "StacAssetSizeTarget": {
+        "properties": {
+          "id": {
+            "description": "STAC item ID the asset belongs to.",
+            "maxLength": 2048,
+            "title": "Id",
+            "type": "string"
+          },
+          "href": {
+            "description": "URL of the item's data asset.",
+            "maxLength": 4096,
+            "title": "Href",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "href"
+        ],
+        "title": "StacAssetSizeTarget",
+        "type": "object"
+      },
+      "StacAssetSizesRequest": {
+        "properties": {
+          "url": {
+            "description": "STAC API root URL the assets were found in.",
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Url",
+            "type": "string"
+          },
+          "assets": {
+            "description": "Assets to measure (max 50 per request).",
+            "items": {
+              "$ref": "#/components/schemas/StacAssetSizeTarget"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Assets",
+            "type": "array"
+          },
+          "auth": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ServiceAuthRequest"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Credential for a protected catalog. It is sent only to assets on the catalog's own origin."
+          }
+        },
+        "required": [
+          "url",
+          "assets"
+        ],
+        "title": "StacAssetSizesRequest",
+        "type": "object"
+      },
+      "StacAssetSizesResponse": {
+        "properties": {
+          "sizes": {
+            "description": "One entry per requested asset.",
+            "items": {
+              "$ref": "#/components/schemas/StacAssetSize"
+            },
+            "title": "Sizes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "sizes"
+        ],
+        "title": "StacAssetSizesResponse",
+        "type": "object"
+      },
       "StacCatalog": {
         "description": "STAC Catalog / landing page response.",
         "properties": {
@@ -56716,6 +56819,158 @@
         "summary": "Probe Service Url",
         "tags": [
           "Datasets"
+        ]
+      }
+    },
+    "/services/stac/asset-sizes": {
+      "post": {
+        "description": "Look up the size of data assets whose item publishes no ``file:size``.\n\nAsks each asset's server for its length (HEAD, then a one-byte range\nrequest). A size the server does not report comes back as null.",
+        "operationId": "stac_asset_sizes_services_stac_asset_sizes_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StacAssetSizesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StacAssetSizesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad request \u2014 invalid payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Forbidden \u2014 caller lacks write access"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Conflict \u2014 resource state prevents the operation"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many requests \u2014 retry after the advertised interval",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the request may be retried",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Internal server error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Service unavailable \u2014 the database could not serve the request"
+          },
+          "504": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Gateway timeout \u2014 an upstream address check ran out of time"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          },
+          {
+            "ApiKeyHeader": []
+          },
+          {
+            "ApiKeyQuery": []
+          }
+        ],
+        "summary": "Stac Asset Sizes",
+        "tags": [
+          "STAC Import"
         ]
       }
     },

@@ -28,12 +28,15 @@ const mockConnectStac = vi.fn();
 const mockFetchStacCollections = vi.fn();
 const mockSearchStacItems = vi.fn();
 const mockImportStacItems = vi.fn();
+const mockFetchStacAssetSizes = vi.fn();
 
 vi.mock('@/api/stac', () => ({
   connectStac: (...args: unknown[]) => mockConnectStac(...args),
   fetchStacCollections: (...args: unknown[]) => mockFetchStacCollections(...args),
   searchStacItems: (...args: unknown[]) => mockSearchStacItems(...args),
   importStacItems: (...args: unknown[]) => mockImportStacItems(...args),
+  fetchStacAssetSizes: (...args: unknown[]) =>
+    mockFetchStacAssetSizes(...args) ?? Promise.resolve({ sizes: [] }),
 }));
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
@@ -78,7 +81,7 @@ function makeItem(overrides: Partial<StacItemSummary> & { id: string }): StacIte
 const ITEM = makeItem({ id: 'flow-item-1' });
 
 /** Drive the wizard from idle through the confirm step, item selected. */
-async function driveToConfirmStep() {
+async function driveToConfirmStep({ withSearchState = false } = {}) {
   const user = userEvent.setup();
 
   mockConnectStac.mockResolvedValue({
@@ -104,7 +107,12 @@ async function driveToConfirmStep() {
       },
     ],
   });
-  mockSearchStacItems.mockResolvedValue({ items: [ITEM], matched: 1, returned: 1 });
+  mockSearchStacItems.mockResolvedValue({
+    items: [ITEM],
+    matched: 1,
+    returned: 1,
+    next_page: withSearchState ? { cursor: 'cursor-2' } : null,
+  });
 
   const view = render(<StacImportForm />);
 
@@ -114,6 +122,13 @@ async function driveToConfirmStep() {
   await waitFor(() => screen.getByText('Test Collection'));
   await user.click(screen.getByText('Test Collection'));
   await waitFor(() => screen.getByText(ITEM.title));
+
+  if (withSearchState) {
+    await user.type(screen.getByLabelText('stac.filterStart'), '2024-01-01');
+    await user.click(screen.getByRole('button', { name: 'stac.filterApply' }));
+    await waitFor(() => expect(mockSearchStacItems).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'stac.filterApply' })).toBeEnabled());
+  }
 
   const itemCheckbox = screen.getAllByRole('checkbox')[1];
   await user.click(itemCheckbox);
@@ -289,6 +304,43 @@ describe('StacImportForm unmount survival', () => {
     await user.click(screen.getByText('stac.collections'));
     await waitFor(() => expect(screen.getByText('Test Collection')).toBeInTheDocument());
     expect(screen.queryByText('stac.noCollections')).not.toBeInTheDocument();
+  });
+
+  test('"Back to Results" restores the filters and the Load more cursor', async () => {
+    let resolveImport!: (v: unknown) => void;
+    mockImportStacItems.mockReturnValue(
+      new Promise((resolve) => {
+        resolveImport = resolve;
+      }),
+    );
+
+    const { user, view } = await driveToConfirmStep({ withSearchState: true });
+    await user.click(screen.getByRole('button', { name: /stac\.confirm\.confirmImport/i }));
+    await waitFor(() => expect(mockImportStacItems).toHaveBeenCalledTimes(1));
+
+    view.unmount();
+    resolveImport({
+      created: 1,
+      skipped: 0,
+      errors: 0,
+      results: [{ item_id: 'flow-item-1', dataset_id: 'ds-1', status: 'created', error: null }],
+    });
+    await waitFor(() => expect(peekStacImport()?.status).toBe('fulfilled'));
+
+    render(<StacImportForm />);
+    await waitFor(() => expect(screen.getByText('stac.importComplete')).toBeInTheDocument());
+    await user.click(screen.getByText('stac.backToResults'));
+
+    await waitFor(() => expect(screen.getByLabelText('stac.filterStart')).toHaveValue('2024-01-01'));
+    mockSearchStacItems.mockClear();
+    mockSearchStacItems.mockResolvedValue({ items: [], matched: 1, returned: 0, next_page: null });
+    await user.click(screen.getByRole('button', { name: 'stac.loadMore' }));
+
+    await waitFor(() => expect(mockSearchStacItems).toHaveBeenCalledTimes(1));
+    expect(mockSearchStacItems.mock.calls[0][0]).toMatchObject({
+      datetime_range: '2024-01-01T00:00:00Z/..',
+      next_page: { cursor: 'cursor-2' },
+    });
   });
 
   // fix(codex #1763 r3): the app renders under React.StrictMode (main.tsx),

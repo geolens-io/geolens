@@ -16,6 +16,7 @@ import { formatBytes, formatNumber } from '@/lib/format';
 import { ApiError } from '@/api/client';
 import {
   connectStac,
+  fetchStacAssetSizes,
   fetchStacCollections,
   searchStacItems,
 } from '@/api/stac';
@@ -170,6 +171,11 @@ export function StacImportForm() {
   const [nextPage, setNextPage] = useState<StacNextPage | null>(null);
   const [appliedFilters, setAppliedFilters] = useState<SearchFilters>({});
   const [loadingMore, setLoadingMore] = useState(false);
+  // Sizes looked up on the review step for assets the catalog gave none for,
+  // keyed by asset URL since item ids repeat across collections; null means
+  // the asset's server did not say.
+  const [probedSizes, setProbedSizes] = useState<Record<string, number | null>>({});
+  const [probingSizes, setProbingSizes] = useState(false);
   // Bumped whenever the result set is replaced or abandoned, so a response
   // for an earlier search cannot append to, or overwrite, a newer one.
   const searchGenRef = useRef(0);
@@ -267,6 +273,7 @@ export function StacImportForm() {
     setFilterError(null);
     setNextPage(null);
     setAppliedFilters({});
+    setProbedSizes({});
     setImportResult(null);
     setError(null);
     // fix(#1712): defensive symmetry with the success/failure settlement
@@ -292,6 +299,7 @@ export function StacImportForm() {
 
     setStep('connecting');
     setError(null);
+    setProbedSizes({});
 
     try {
       const auth = buildStacAuth();
@@ -537,6 +545,15 @@ export function StacImportForm() {
       selectedCollection: selectedCollection!,
       searchResult,
       selectedItemIds: Array.from(selectedItems),
+      credential: {
+        method: credentialMethod,
+        token,
+        basicUsername,
+        basicPassword,
+        headerName,
+        headerValue,
+      },
+      search: { startDate, endDate, bboxText, maxCloud, cloudCoverSeen, appliedFilters, nextPage },
     };
     // feat(#1764): a boolean, never the credential. `/import` contacts no
     // catalog, so this is the only way the dataset can learn that browsing
@@ -601,6 +618,22 @@ export function StacImportForm() {
     setSelectedCollection(session.context.selectedCollection);
     setSearchResult(session.context.searchResult);
     setSelectedItems(new Set(session.context.selectedItemIds));
+    const { search, credential } = session.context;
+    setCredentialMethod(credential.method);
+    setToken(credential.token);
+    setBasicUsername(credential.basicUsername);
+    setBasicPassword(credential.basicPassword);
+    setHeaderName(credential.headerName);
+    setHeaderValue(credential.headerValue);
+    setStartDate(search.startDate);
+    setEndDate(search.endDate);
+    setBboxText(search.bboxText);
+    setMaxCloud(search.maxCloud);
+    setCloudCoverSeen(search.cloudCoverSeen);
+    setAppliedFilters(search.appliedFilters);
+    setNextPage(search.nextPage);
+    // A search started before the unmount must not land on the restored list.
+    searchGenRef.current += 1;
     setStep('importing');
 
     // fix(codex #1763 r3): the app renders under React.StrictMode
@@ -653,14 +686,67 @@ export function StacImportForm() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // The review step asks for the sizes the catalog left out, for the
+  // selected items only.
+  useEffect(() => {
+    if (step !== 'confirm' || !catalogInfo) return;
+    const missing = selectableItems.filter(
+      (i) =>
+        selectedItems.has(i.id) &&
+        typeof i.data_asset_size_bytes !== 'number' &&
+        !(i.data_asset_href! in probedSizes),
+    );
+    if (missing.length === 0) return;
+    let cancelled = false;
+    setProbingSizes(true);
+    const auth = buildStacAuth();
+    fetchStacAssetSizes(
+      catalogInfo.url,
+      missing.map((i) => ({ id: i.id, href: i.data_asset_href! })),
+      auth,
+    )
+      .then((res) => {
+        if (cancelled) return;
+        setProbedSizes((prev) => ({
+          ...prev,
+          ...Object.fromEntries(missing.map((i) => [i.data_asset_href!, null])),
+          ...Object.fromEntries(
+            // Entries come back in request order; ids can repeat.
+            res.sizes.flatMap((s, n) =>
+              missing[n] ? [[missing[n].data_asset_href!, s.size_bytes]] : [],
+            ),
+          ),
+        }));
+      })
+      .catch(() => {
+        // The size is a convenience; leave it unknown rather than block the import.
+        if (cancelled) return;
+        setProbedSizes((prev) => ({
+          ...prev,
+          ...Object.fromEntries(missing.map((i) => [i.data_asset_href!, null])),
+        }));
+      })
+      .finally(() => {
+        if (!cancelled) setProbingSizes(false);
+      });
+    return () => {
+      cancelled = true;
+      setProbingSizes(false);
+    };
+    // Only entering the review step should probe; the inputs it reads are
+    // settled by then.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
+
   // ── Confirm step (EW-05) ──
   if (step === 'confirm' && selectedCollection && catalogInfo) {
     const itemsToImport = selectableItems.filter((i) => selectedItems.has(i.id));
-    const itemsWithSize = itemsToImport.filter((i) => typeof i.data_asset_size_bytes === 'number');
-    const totalBytes = itemsWithSize.reduce(
-      (acc, i) => acc + (i.data_asset_size_bytes ?? 0),
-      0,
-    );
+    const sizeOf = (i: StacItemSummary) =>
+      typeof i.data_asset_size_bytes === 'number'
+        ? i.data_asset_size_bytes
+        : (probedSizes[i.data_asset_href!] ?? null);
+    const itemsWithSize = itemsToImport.filter((i) => sizeOf(i) !== null);
+    const totalBytes = itemsWithSize.reduce((acc, i) => acc + (sizeOf(i) ?? 0), 0);
     const unavailableCount = itemsToImport.length - itemsWithSize.length;
 
     return (
@@ -683,14 +769,16 @@ export function StacImportForm() {
                 {t('stac.confirm.totalSizeLabel')}
               </dt>
               <dd className="text-lg font-medium tracking-tight">
-                {itemsWithSize.length > 0
-                  ? formatBytes(totalBytes)
-                  : t('stac.confirm.sizeUnavailable')}
+                {probingSizes
+                  ? t('stac.confirm.sizeChecking')
+                  : itemsWithSize.length > 0
+                    ? formatBytes(totalBytes)
+                    : t('stac.confirm.sizeUnavailable')}
               </dd>
             </div>
           </div>
 
-          {unavailableCount > 0 && itemsWithSize.length > 0 && (
+          {!probingSizes && unavailableCount > 0 && itemsWithSize.length > 0 && (
             <p className="text-xs text-muted-foreground mt-3">
               {t('stac.confirm.partialSizeNote', { count: unavailableCount })}
             </p>
@@ -705,7 +793,7 @@ export function StacImportForm() {
           <Button variant="outline" onClick={() => setStep('items')}>
             {t('stac.confirm.backToSelection')}
           </Button>
-          <Button onClick={handleImport}>
+          <Button onClick={handleImport} disabled={probingSizes}>
             {t('stac.confirm.confirmImport', { count: itemsToImport.length })}
           </Button>
         </div>

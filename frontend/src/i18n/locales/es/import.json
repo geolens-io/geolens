@@ -198,9 +198,10 @@
       "itemsLabel": "Elementos",
       "totalSizeLabel": "Tamaño total estimado",
       "sizeUnavailable": "Tamaño no disponible",
+      "sizeChecking": "Comprobando tamaños...",
       "partialSizeNote_one": "{{count}} elemento no tiene información de tamaño; el total es un límite inferior.",
       "partialSizeNote_other": "{{count}} elementos no tienen información de tamaño; el total es un límite inferior.",
-      "estimateSource": "Estimación basada en el manifiesto STAC (file:size). La descarga real puede diferir.",
+      "estimateSource": "Estimación basada en el manifiesto STAC (file:size) o, si el catálogo no lo incluye, en el servidor del recurso. La descarga real puede diferir.",
       "backToSelection": "Volver a la selección",
       "confirmImport_one": "Confirmar e importar {{count}} elemento",
       "confirmImport_other": "Confirmar e importar {{count}} elementos"

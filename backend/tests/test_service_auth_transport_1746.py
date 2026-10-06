@@ -9137,6 +9137,11 @@ class TestAdapterProbeReadsAreBounded:
       header (`headers={"Accept-Encoding": "identity"}` only); already
       bounded by its own outer `asyncio.timeout`, identity-only streaming,
       and its own `codeql[py/full-ssrf]` marker (fix(#1708)).
+    - `catalog/sources/adapters/stac_asset_size.py`'s `_probe_size`: a
+      one-byte `Range` request whose body is never read (the response is
+      closed after its headers), under its own deadline and a concurrency
+      cap. The catalog credential is attached only for an asset on the
+      catalog's own origin, and the client is `make_safe_client()`.
     - `platform/probe_bounds.py`'s `bounded_probe_read` and
       `platform/service_endpoints.py`'s `fetch_document`: the two bounded
       implementations themselves.
@@ -9246,6 +9251,11 @@ class TestAdapterProbeReadsAreBounded:
                 "stream",
             ),
             ("app.processing.ingest.url_fetch", "fetch_url_to_path", "stream"),
+            (
+                "app.modules.catalog.sources.adapters.stac_asset_size",
+                "_probe_size",
+                "stream",
+            ),
         }
         assert found == expected, found - expected or expected - found
 

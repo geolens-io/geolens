@@ -3,6 +3,7 @@ import type {
   ServiceAuthRequest,
   StacConnectResponse,
   StacCollectionsResponse,
+  StacAssetSizesResponse,
   StacSearchRequest,
   StacSearchResponse,
   StacImportItem,
@@ -36,6 +37,18 @@ export async function searchStacItems(request: StacSearchRequest): Promise<StacS
   return apiFetch<StacSearchResponse>('/services/stac/search', {
     method: 'POST',
     body: JSON.stringify(request),
+  });
+}
+
+// Sizes of assets whose item omits `file:size`; an unknown size is null.
+export async function fetchStacAssetSizes(
+  url: string,
+  assets: { id: string; href: string }[],
+  auth?: ServiceAuthRequest,
+): Promise<StacAssetSizesResponse> {
+  return apiFetch<StacAssetSizesResponse>('/services/stac/asset-sizes', {
+    method: 'POST',
+    body: JSON.stringify({ url, assets, ...(auth ? { auth } : {}) }),
   });
 }
 
