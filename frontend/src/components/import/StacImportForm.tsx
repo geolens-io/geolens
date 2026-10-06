@@ -543,6 +543,14 @@ export function StacImportForm() {
       selectedCollection: selectedCollection!,
       searchResult,
       selectedItemIds: Array.from(selectedItems),
+      credential: {
+        method: credentialMethod,
+        token,
+        basicUsername,
+        basicPassword,
+        headerName,
+        headerValue,
+      },
       search: { startDate, endDate, bboxText, maxCloud, cloudCoverSeen, appliedFilters, nextPage },
     };
     // feat(#1764): a boolean, never the credential. `/import` contacts no
@@ -608,7 +616,13 @@ export function StacImportForm() {
     setSelectedCollection(session.context.selectedCollection);
     setSearchResult(session.context.searchResult);
     setSelectedItems(new Set(session.context.selectedItemIds));
-    const { search } = session.context;
+    const { search, credential } = session.context;
+    setCredentialMethod(credential.method);
+    setToken(credential.token);
+    setBasicUsername(credential.basicUsername);
+    setBasicPassword(credential.basicPassword);
+    setHeaderName(credential.headerName);
+    setHeaderValue(credential.headerValue);
     setStartDate(search.startDate);
     setEndDate(search.endDate);
     setBboxText(search.bboxText);

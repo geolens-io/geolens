@@ -57,6 +57,16 @@ export interface StacImportContext {
   selectedItemIds: string[];
   // The item-search state, so a reattached form shows the same filters and
   // can still load the next page.
+  // Held in this module's memory only, like the rest of the context, so
+  // Load more and Apply filters after a reattach reach a protected catalog.
+  credential: {
+    method: 'none' | 'bearer' | 'basic' | 'header';
+    token: string;
+    basicUsername: string;
+    basicPassword: string;
+    headerName: string;
+    headerValue: string;
+  };
   search: {
     startDate: string;
     endDate: string;

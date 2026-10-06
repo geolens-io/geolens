@@ -10,6 +10,7 @@ import { MemoryRouter } from 'react-router';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import type { ReactNode } from 'react';
 import { StacImportForm } from '../StacImportForm';
+import { clearStacImport, peekStacImport } from '@/api/stac-import-session';
 
 const mockConnectStac = vi.fn();
 const mockFetchStacCollections = vi.fn();
@@ -262,5 +263,78 @@ describe('StacImportForm credential block', () => {
     // The first catalog got the key it was typed for; the second gets none.
     expect(mockConnectStac).toHaveBeenLastCalledWith('https://other.test/v1', undefined);
     expect(JSON.stringify(mockConnectStac.mock.calls[1])).not.toContain('first-secret');
+  });
+
+  it('keeps the credential for Load more after the form remounts during an import', async () => {
+    const user = userEvent.setup();
+    clearStacImport();
+    mockSearchStacItems.mockResolvedValue({
+      items: [
+        {
+          id: 'item-1',
+          collection: 'test-col',
+          item_href: null,
+          title: 'item-1',
+          bbox: null,
+          datetime: null,
+          datetime_start: null,
+          datetime_end: null,
+          epsg: null,
+          gsd: null,
+          cloud_cover: null,
+          data_asset_href: 'https://catalog.test/v1/assets/a.tif',
+          data_asset_type: null,
+          data_asset_key: 'data',
+          data_asset_size_bytes: 10,
+          data_asset_import_refusal: null,
+          thumbnail_href: null,
+          asset_count: 1,
+        },
+      ],
+      matched: 2,
+      returned: 1,
+      next_page: { cursor: 'cursor-2' },
+    });
+    let resolveImport!: (v: unknown) => void;
+    mockImportStacItems.mockReturnValue(
+      new Promise((resolve) => {
+        resolveImport = resolve;
+      }),
+    );
+    const first = render(<StacImportForm />, { wrapper: Wrapper });
+
+    await typeUrl(user);
+    await chooseMethod(user, 'stac.credentialMethodBearer');
+    await user.type(screen.getByLabelText('stac.credentialTokenLabel'), 'tok-secret');
+    await connect(user);
+    await user.click(await screen.findByText('Test Collection'));
+    await user.click((await screen.findAllByRole('checkbox'))[1]);
+    await user.click(screen.getByRole('button', { name: /stac.importItems/i }));
+    await user.click(await screen.findByRole('button', { name: /stac.confirm.confirmImport/i }));
+    await waitFor(() => expect(mockImportStacItems).toHaveBeenCalledTimes(1));
+
+    first.unmount();
+    resolveImport({
+      created: 1,
+      skipped: 0,
+      errors: 0,
+      results: [{ item_id: 'item-1', dataset_id: 'ds-1', status: 'created', error: null }],
+    });
+    await waitFor(() => expect(peekStacImport()?.status).toBe('fulfilled'));
+
+    render(<StacImportForm />, { wrapper: Wrapper });
+    await user.click(await screen.findByText('stac.backToResults'));
+    mockSearchStacItems.mockClear();
+    await user.click(await screen.findByRole('button', { name: 'stac.loadMore' }));
+
+    await waitFor(() =>
+      expect(mockSearchStacItems).toHaveBeenCalledWith(
+        expect.objectContaining({
+          auth: { method: 'bearer', token: 'tok-secret' },
+          next_page: { cursor: 'cursor-2' },
+        }),
+      ),
+    );
+    clearStacImport();
   });
 });
