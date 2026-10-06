@@ -420,7 +420,7 @@ class _FileReupload:
         )
         self.file_hash = await asyncio.to_thread(sha256_file, self.file_path)
         self.source_format = await asyncio.to_thread(
-            derive_source_format, self.file_path
+            derive_source_format, self.file_path, self.layer_name
         )
         # Read while no publication session holds a pooled connection.
         self.live_scan = await _live_geometry_types(

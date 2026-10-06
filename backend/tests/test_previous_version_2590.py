@@ -168,7 +168,7 @@ async def _replace(
             ),
             (
                 "app.processing.ingest.tasks_reupload.derive_source_format",
-                lambda path: source_format,
+                lambda path, layer_name=None: source_format,
             ),
             (
                 "app.processing.ingest.tasks_reupload.UploadedSource."

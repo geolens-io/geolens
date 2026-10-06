@@ -1353,7 +1353,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_raster_replace.py": 614,
     # File and remote-source imports own publication fencing, heartbeat phases
     # and failure settlement.
-    "backend/app/processing/ingest/tasks_vector.py": 1166,
+    "backend/app/processing/ingest/tasks_vector.py": 1167,
     # GDAL environments, timeouts, reaping and error sanitization share one process
     # boundary.
     "backend/app/processing/ingest/ogr.py": 1487,
