@@ -118,7 +118,7 @@ def _fetch(
             await session.commit()
         if during is not None:
             await during()
-        return expected_feature_count, None
+        return expected_feature_count, None, None
 
     return _fake
 

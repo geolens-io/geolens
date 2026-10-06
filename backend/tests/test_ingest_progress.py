@@ -368,6 +368,11 @@ async def test_service_worker_advances_ogr2ogr_progress_while_remote_import_is_r
 
     monkeypatch.setattr(tasks_vector, "_service_import_heartbeat_tick", _tracking_tick)
 
+    async def _fake_page_info(*args, **kwargs):
+        return 1, 1000, False, "OBJECTID"
+
+    monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)
+
     worker_task = asyncio.create_task(
         tasks_vector.ingest_service.func(
             job_id=str(job_id),
@@ -656,7 +661,7 @@ async def test_service_worker_skips_arcgis_chunking_without_pagination_support(
         return table_name, None
 
     async def _fake_page_info(*args, **kwargs):
-        return None, 1000, False, "FID"
+        return 800, 1000, False, "FID"
 
     async def _fake_run_ogr2ogr_service(
         gdal_source: str,
@@ -753,18 +758,20 @@ async def test_service_worker_skips_arcgis_chunking_without_pagination_support(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("page_info", "expected"),
+    ("page_info", "expected", "refusal"),
     [
-        ((251, 2000, True, "FID"), [["FID ASC"]]),
-        ((251, 2000, True, None), [None]),
-        ((5000, 2000, False, None), []),
-        ((5000, 2000, False, "FID"), []),
+        ((251, 2000, True, "FID"), [["FID ASC"]], None),
+        ((251, 2000, True, None), [None], None),
+        ((5000, 2000, False, None), [], "can't page through the rest"),
+        ((5000, 2000, False, "FID"), [], "can't page through the rest"),
+        ((None, 2000, False, "FID"), [], "couldn't read this ArcGIS layer's feature"),
+        ((None, None, False, "OBJECTID"), [], "couldn't read this ArcGIS layer"),
     ],
 )
 async def test_service_worker_single_fetch_orders_by_the_layers_own_oid_field(
-    test_db_session, monkeypatch, page_info, expected
+    test_db_session, monkeypatch, page_info, expected, refusal
 ):
-    """The single fetch orders by the layer's field, or refuses to truncate."""
+    """The single fetch orders by the layer's field and records it, or refuses."""
     from app.modules.catalog.sources.preview import build_gdal_source
     from app.processing.ingest import tasks_vector
 
@@ -867,12 +874,14 @@ async def test_service_worker_single_fetch_orders_by_the_layers_own_oid_field(
         source_layer="0",
         user_id=str(admin_id),
     )
-    if expected:
+    if refusal is None:
         await run
+        await test_db_session.refresh(job)
+        assert job.user_metadata["object_id_field"] == page_info[3]
     else:
         from app.processing.ingest.ogr import IngestionError
 
-        with pytest.raises(IngestionError, match="can't page through the rest"):
+        with pytest.raises(IngestionError, match=refusal):
             await run
         await test_db_session.refresh(job)
         assert job.status == "failed"

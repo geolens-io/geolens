@@ -29,6 +29,7 @@ from app.processing.ingest.tasks_common import _ARCGIS_GDAL_GET_URL_MAX_BYTES
 from app.processing.ingest.tasks_reupload import (
     RefreshPublicationFenceError,
     _enforce_refresh_publication_fence,
+    _fetch_service_layer_with_paging_guard,
     reupload_service,
 )
 
@@ -831,6 +832,7 @@ async def test_refresh_small_layer_keeps_single_fetch(
         ((251, 2000, True, None), None),
         ((5000, 2000, False, None), "refused"),
         ((5000, 2000, False, "FID"), "refused"),
+        ((None, 2000, False, "FID"), ["FID ASC"]),
     ],
 )
 async def test_refresh_single_fetch_orders_by_the_layers_own_oid_field(
@@ -841,7 +843,10 @@ async def test_refresh_single_fetch_orders_by_the_layers_own_oid_field(
     page_info,
     expected,
 ):
-    """The single fetch orders by the layer's field, or refuses to truncate."""
+    """The single fetch orders by the layer's field and records it, or refuses.
+
+    A refresh with no source count still fetches, since review holds it.
+    """
     admin_id = await get_user_id(test_db_session, "admin")
     dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
     test_db_session.add(
@@ -884,6 +889,47 @@ async def test_refresh_single_fetch_orders_by_the_layers_own_oid_field(
     query = parse_qs(urlparse(calls[0]["source"].split(":", 1)[1]).query)
     assert query.get("orderByFields") == expected, calls[0]["source"]
     assert fallbacks == ["OBJECTID"]
+    job = await test_db_session.get(
+        IngestJob, uuid.UUID(task_kwargs["job_id"]), populate_existing=True
+    )
+    assert job.user_metadata["object_id_field"] == page_info[3]
+
+
+@pytest.mark.anyio
+async def test_a_reupload_without_review_refuses_an_unknown_count_it_cant_page(
+    monkeypatch,
+):
+    """A re-upload that publishes unreviewed refuses a fetch of unknown size."""
+    from app.processing.ingest.ogr import IngestionError
+
+    async def _fake_page_info(source_url, layer_id, token, **kwargs):
+        return None, 2000, False, "FID"
+
+    monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)
+    calls: list[dict] = []
+
+    with (
+        patch(
+            "app.processing.ingest.ogr.run_ogr2ogr_service",
+            new=_fake_ogr2ogr(calls, lambda i: 0),
+        ),
+        pytest.raises(IngestionError, match="couldn't read this ArcGIS layer"),
+    ):
+        await _fetch_service_layer_with_paging_guard(
+            service_type_raw="ArcGIS FeatureServer",
+            service_type="arcgis_featureserver",
+            source_url=_ARCGIS_BASE,
+            layer_name="0",
+            layer_id=0,
+            token=None,
+            staging_table="never_created",
+            db_conn_str="PG:",
+            schema="data",
+            fallback_order_field="OBJECTID",
+            on_spawn=None,
+            reviews_unknown_count=False,
+        )
+    assert calls == []
 
 
 def _arcgis_id_plan(ids: tuple[int, ...]) -> ArcGISIDPlan:

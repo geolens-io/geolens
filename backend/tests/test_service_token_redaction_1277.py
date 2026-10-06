@@ -260,6 +260,10 @@ async def _run_failing_refresh(job, dataset, *, token=None, credential_ref=None)
             "app.platform.security.validate_url_for_ssrf",
             AsyncMock(),
         ),
+        patch(
+            "app.processing.ingest.tasks_vector._fetch_arcgis_import_page_info",
+            AsyncMock(return_value=(1, 1000, False, "OBJECTID")),
+        ),
     ):
         with pytest.raises(Exception):
             await reupload_service(

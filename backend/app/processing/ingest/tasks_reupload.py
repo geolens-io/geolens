@@ -730,9 +730,13 @@ async def _fetch_service_layer_with_paging_guard(
     schema: str,
     fallback_order_field: str | None,
     on_spawn,
+    reviews_unknown_count: bool,
     verification_policy: str | None = None,
-) -> tuple[int | None, object | None]:
+) -> tuple[int | None, object | None, str | None]:
     """Fetch a service layer into staging, paging large ArcGIS layers.
+
+    Returns the source's feature count, the ArcGIS ID plan and the order
+    field the ArcGIS fetch used, each ``None`` where it doesn't apply.
 
     fix(#1675): parity with the initial-import path. A refresh of a large
     ArcGIS layer used to do ONE unpaged fetch and trust GDAL driver paging —
@@ -801,7 +805,7 @@ async def _fetch_service_layer_with_paging_guard(
                     on_spawn=on_spawn,
                     planned_ids=id_plan.ids,
                 )
-                return feature_count, id_plan
+                return feature_count, id_plan, id_plan.oid_field
     if (
         service_type == "arcgis_featureserver"
         and supports_pagination
@@ -824,11 +828,15 @@ async def _fetch_service_layer_with_paging_guard(
             order_field=pagination_order_field,
             on_spawn=on_spawn,
         )
-        return feature_count, id_plan
+        return feature_count, id_plan, pagination_order_field
 
-    _tv._refuse_truncated_arcgis_fetch(
-        feature_count, max_record_count, supports_pagination
-    )
+    if service_type == "arcgis_featureserver":
+        _tv._refuse_truncated_arcgis_fetch(
+            feature_count,
+            max_record_count,
+            supports_pagination,
+            reviews_unknown_count=reviews_unknown_count,
+        )
     gdal_source, layer_arg = port.build_gdal_source(
         service_type_raw,
         source_url,
@@ -847,7 +855,7 @@ async def _fetch_service_layer_with_paging_guard(
         schema=schema,
         on_spawn=on_spawn,
     )
-    return feature_count, id_plan
+    return feature_count, id_plan, pagination_order_field
 
 
 async def _arcgis_id_coverage_evidence(
@@ -1154,11 +1162,13 @@ class _ServiceReupload:
         db_conn_str = build_pg_conn_str()
         self.expected_feature_count: int | None = None
         self.initial_id_plan = None
+        self.order_field: str | None = None
 
         async def _run_service_import(layer_name: str) -> None:
             (
                 self.expected_feature_count,
                 self.initial_id_plan,
+                self.order_field,
             ) = await _fetch_service_layer_with_paging_guard(
                 service_type_raw=self.service_type_raw,
                 service_type=self.service_type,
@@ -1171,6 +1181,7 @@ class _ServiceReupload:
                 schema=_current_tenant_schema(),
                 fallback_order_field=self.oid_field,
                 on_spawn=_arm_contact,
+                reviews_unknown_count=self.is_refresh,
                 verification_policy=self.verification_policy,
             )
 
@@ -1208,7 +1219,10 @@ class _ServiceReupload:
             compute_table_content_digest,
             get_geometry_types,
         )
+        from app.processing.ingest import tasks_vector as _tv
 
+        if self.service_type == "arcgis_featureserver":
+            _tv._record_arcgis_order_field(job, self.order_field)
         schema = _current_tenant_schema()
         staged = await _stage_service_table(
             session, job, dataset, table=self.staging_table, schema=schema

@@ -34,6 +34,7 @@ async def bounded_probe_exchange(
     headers: dict[str, str],
     accept: str,
     json_body: object | None = None,
+    raise_for_status: bool = True,
 ) -> tuple[bytes, httpx.Response]:
     """A probe's own request to a URL its caller already SSRF-validated.
 
@@ -61,7 +62,9 @@ async def bounded_probe_exchange(
     Returns the body and the closed response, whose `url` is the address the
     body came from after any redirect, whose `history` holds the closed
     redirect responses, and whose `headers` are the final response's.
-    `json_body` is sent as a JSON request body.
+    `json_body` is sent as a JSON request body. With `raise_for_status`
+    false, a non-2xx response's body is read under the same bounds instead,
+    for a caller that wants the error a service explains in it.
 
     Does NOT itself call `validate_url_for_ssrf`, unlike `fetch_document`.
     `fetch_document` re-validates because its caller follows a CHAIN of
@@ -88,7 +91,8 @@ async def bounded_probe_exchange(
         try:
             if response.next_request is None:
                 response.history = redirects
-                response.raise_for_status()
+                if raise_for_status:
+                    response.raise_for_status()
                 body = await read_bounded_body(response, MAX_DOCUMENT_BYTES)
                 break
             redirects.append(response)
@@ -115,10 +119,16 @@ async def bounded_probe_read(
     *,
     headers: dict[str, str],
     accept: str,
+    raise_for_status: bool = True,
 ) -> tuple[bytes, httpx.Headers]:
     """A GET through `bounded_probe_exchange`, for callers that want the body
     and the response headers and nothing else."""
     body, response = await bounded_probe_exchange(
-        client, "GET", url, headers=headers, accept=accept
+        client,
+        "GET",
+        url,
+        headers=headers,
+        accept=accept,
+        raise_for_status=raise_for_status,
     )
     return body, response.headers
