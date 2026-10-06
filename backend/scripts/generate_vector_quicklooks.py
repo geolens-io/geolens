@@ -103,12 +103,18 @@ async def main() -> None:
                     ),
                     {"id": row.id},
                 )
-                await db.execute(
+                updated = await db.execute(
                     text(
                         "UPDATE catalog.datasets SET quicklook_256_uri = :uri WHERE id = :id"
                     ),
                     {"uri": ql_key, "id": row.id},
                 )
+                if not updated.rowcount:
+                    await db.rollback()
+                    await _drop_unreferenced(db, storage, row.id, ql_key)
+                    print(f"  [{i}/{len(rows)}] SKIP {name} (dataset deleted)")
+                    skipped += 1
+                    continue
                 await db.commit()
                 if replaced and replaced != ql_key:
                     try:
