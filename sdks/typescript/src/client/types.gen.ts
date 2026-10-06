@@ -27216,6 +27216,10 @@ export type StacAssetSizesServicesStacAssetSizesPostErrors = {
      * Service unavailable — the database could not serve the request
      */
     503: ProblemDetail;
+    /**
+     * Gateway timeout — an upstream address check ran out of time
+     */
+    504: ProblemDetail;
 };
 
 export type StacAssetSizesServicesStacAssetSizesPostError = StacAssetSizesServicesStacAssetSizesPostErrors[keyof StacAssetSizesServicesStacAssetSizesPostErrors];
