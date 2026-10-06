@@ -709,10 +709,10 @@ export function StacImportForm() {
           ...prev,
           ...Object.fromEntries(missing.map((i) => [i.data_asset_href!, null])),
           ...Object.fromEntries(
-            res.sizes.flatMap((s) => {
-              const href = missing.find((i) => i.id === s.id)?.data_asset_href;
-              return href ? [[href, s.size_bytes]] : [];
-            }),
+            // Entries come back in request order; ids can repeat.
+            res.sizes.flatMap((s, n) =>
+              missing[n] ? [[missing[n].data_asset_href!, s.size_bytes]] : [],
+            ),
           ),
         }));
       })

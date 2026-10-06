@@ -308,6 +308,25 @@ describe('StacImportForm — size-estimate confirmation step (EW-05)', () => {
     expect(screen.getByRole('button', { name: /stac\.confirm\.confirmImport/ })).toBeEnabled();
   });
 
+  test('Test 8: two assets sharing an item id keep their own looked-up sizes', async () => {
+    mockFetchStacAssetSizes.mockResolvedValue({
+      sizes: [
+        { id: 'same', size_bytes: 5_000_000 },
+        { id: 'same', size_bytes: null },
+      ],
+    });
+    const items: StacItemSummary[] = [
+      makeItem({ id: 'same', title: 'first', data_asset_href: 'https://example.com/one.tif' }),
+      makeItem({ id: 'same', title: 'second', data_asset_href: 'https://example.com/two.tif' }),
+    ];
+    const user = await driveToItemsStep(items);
+    await user.click(screen.getAllByRole('checkbox')[0]);
+    await user.click(screen.getByRole('button', { name: /stac.importItems/i }));
+
+    await waitFor(() => expect(screen.getByText(/[KM]B/)).toBeInTheDocument());
+    expect(screen.getByText(/stac\.confirm\.partialSizeNote/)).toBeInTheDocument();
+  });
+
   test('Test 3: confirmation flow — back returns to items; confirm calls importStacItems', async () => {
     const items: StacItemSummary[] = [
       makeItem({ id: 'flow-item-1', data_asset_size_bytes: 500_000 }),

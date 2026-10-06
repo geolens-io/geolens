@@ -75,6 +75,30 @@ class TestProbeOrder:
         assert sizes == [None]
 
 
+class TestValidationConcurrency:
+    async def test_address_checks_respect_the_probe_cap(self):
+        live = peak = 0
+
+        async def validator(_href):
+            nonlocal live, peak
+            live += 1
+            peak = max(peak, live)
+            await asyncio.sleep(0.02)
+            live -= 1
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, headers={"content-length": "1"})
+
+        assets = [f"https://data.example.com/{n}.tif" for n in range(12)]
+        with (
+            patch.object(stac_asset_size, "validate_url_for_ssrf", new=validator),
+            _patched(handler),
+        ):
+            sizes = await probe_asset_sizes(CATALOG, assets)
+        assert sizes == [1] * 12
+        assert peak == stac_asset_size.MAX_CONCURRENT_PROBES
+
+
 class TestHostileLengths:
     async def test_an_enormous_content_range_total_is_unknown(self, no_dns):
         def handler(request: httpx.Request) -> httpx.Response:

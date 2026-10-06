@@ -17,7 +17,7 @@ from app.modules.catalog.sources.schemas import ServiceAuthRequest
 from app.modules.catalog.sources.stac_router import _validate_stac_http_url
 from app.platform.security import SSRFError, validate_url_for_ssrf
 from app.platform.service_auth import credential_or_422, service_credential_from_request
-from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
+from app.standards.ogc.errors import ERROR_RESPONSES_WRITE, GATEWAY_TIMEOUT_RESPONSE
 
 router = APIRouter(
     prefix="/services/stac",
@@ -65,7 +65,11 @@ class StacAssetSizesResponse(BaseModel):
     sizes: list[StacAssetSize] = Field(description="One entry per requested asset.")
 
 
-@router.post("/asset-sizes", response_model=StacAssetSizesResponse)
+@router.post(
+    "/asset-sizes",
+    response_model=StacAssetSizesResponse,
+    responses={504: GATEWAY_TIMEOUT_RESPONSE},
+)
 async def stac_asset_sizes(
     request: StacAssetSizesRequest,
     user: Identity = Depends(require_permission("create_layers")),

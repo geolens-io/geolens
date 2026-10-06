@@ -85,13 +85,14 @@ async def _asset_size(
     pair = credential_pair if same_origin(catalog_url, href) else None
     headers = {} if pair is None else {pair[0]: pair[1]}
     try:
-        await validate_url_for_ssrf(href)
-        async with gate, asyncio.timeout(PROBE_TIMEOUT):
-            async with make_safe_client(
-                timeout=PROBE_TIMEOUT,
-                credential_header=None if pair is None else pair[0],
-            ) as client:
-                return await _probe_size(client, href, headers)
+        async with gate:
+            await validate_url_for_ssrf(href)
+            async with asyncio.timeout(PROBE_TIMEOUT):
+                async with make_safe_client(
+                    timeout=PROBE_TIMEOUT,
+                    credential_header=None if pair is None else pair[0],
+                ) as client:
+                    return await _probe_size(client, href, headers)
     except (SSRFError, httpx.HTTPError, OSError):
         logger.info("STAC asset size probe failed")
         return None
