@@ -27120,6 +27120,8 @@ export interface operations {
             query?: {
                 /** @description Quicklook size in pixels (256 or 512) */
                 size?: number;
+                /** @description The record's `quicklook_version`; it only keys caches and does not change the response. */
+                v?: string | null;
             };
             header?: never;
             path: {

@@ -234,6 +234,10 @@ async def get_quicklook(
     size: int = Query(
         256, ge=1, le=512, description="Quicklook size in pixels (256 or 512)"
     ),
+    v: str | None = Query(
+        None,
+        description="The record's `quicklook_version`; it only keys caches and does not change the response.",
+    ),
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> Response:

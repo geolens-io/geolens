@@ -213,3 +213,47 @@ async def test_forced_bulk_redraw_removes_the_pointer_its_update_replaced(monkey
     await script.main()
 
     storage.delete.assert_awaited_once_with(moved_to)
+
+
+@pytest.mark.anyio
+async def test_forced_bulk_redraw_removes_its_upload_when_cancelled(monkeypatch):
+    """An interrupt after the upload leaves no unreferenced image and still propagates."""
+    import asyncio
+    import sys
+    from unittest.mock import AsyncMock
+
+    from scripts import generate_vector_quicklooks as script
+
+    row = MagicMock(
+        id="55555555-5555-5555-5555-555555555555",
+        table_name="t",
+        geometry_type="Point",
+        quicklook_256_uri=None,
+    )
+    db = MagicMock()
+    db.execute = AsyncMock(return_value=MagicMock(fetchall=lambda: [row]))
+    db.scalar = AsyncMock(side_effect=[asyncio.CancelledError(), None])
+    db.commit = AsyncMock()
+    db.rollback = AsyncMock()
+    session = MagicMock()
+    session.__aenter__ = AsyncMock(return_value=db)
+    session.__aexit__ = AsyncMock(return_value=False)
+    storage = MagicMock(put=AsyncMock(), delete=AsyncMock())
+    monkeypatch.setattr(sys, "argv", ["generate_vector_quicklooks.py", "--force"])
+    monkeypatch.setattr(
+        script,
+        "create_async_engine",
+        MagicMock(return_value=MagicMock(dispose=AsyncMock())),
+    )
+    monkeypatch.setattr(script, "sessionmaker", MagicMock(return_value=lambda: session))
+    monkeypatch.setattr("app.platform.storage.init_storage", MagicMock())
+    monkeypatch.setattr("app.platform.storage.get_storage", lambda: storage)
+    monkeypatch.setattr(
+        "app.processing.vector.quicklook.generate_vector_quicklook_with_timeout",
+        AsyncMock(return_value=b"x" * 600),
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await script.main()
+
+    storage.delete.assert_awaited_once_with(storage.put.await_args.args[0])

@@ -119,6 +119,13 @@ async def main() -> None:
                         print(f"  could not remove {replaced}: {e}")
                 success += 1
                 print(f"  [{i}/{len(rows)}] OK   {name} ({len(ql_bytes)} bytes)")
+            except asyncio.CancelledError:
+                await asyncio.shield(db.rollback())
+                if ql_key is not None:
+                    await asyncio.shield(
+                        _drop_unreferenced(db, storage, row.id, ql_key)
+                    )
+                raise
             except Exception as e:
                 print(f"  [{i}/{len(rows)}] FAIL {name}: {e}")
                 await db.rollback()

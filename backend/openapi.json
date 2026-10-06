@@ -39737,6 +39737,24 @@
               "title": "Size",
               "type": "integer"
             }
+          },
+          {
+            "description": "The record's `quicklook_version`; it only keys caches and does not change the response.",
+            "in": "query",
+            "name": "v",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The record's `quicklook_version`; it only keys caches and does not change the response.",
+              "title": "V"
+            }
           }
         ],
         "responses": {

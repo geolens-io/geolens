@@ -20037,6 +20037,12 @@ export type GetQuicklookDatasetsDatasetIdQuicklookGetData = {
          * Quicklook size in pixels (256 or 512)
          */
         size?: number;
+        /**
+         * V
+         *
+         * The record's `quicklook_version`; it only keys caches and does not change the response.
+         */
+        v?: string | null;
     };
     url: '/datasets/{dataset_id}/quicklook';
 };
