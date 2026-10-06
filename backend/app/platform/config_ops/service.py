@@ -12,6 +12,7 @@ import time
 import uuid
 from collections import Counter
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from datetime import datetime, timezone
 from typing import Any
 
@@ -170,6 +171,7 @@ class ConfigImportPlan:
     payload_digest: str
     state_digest: str
     caller_is_enterprise: bool
+    prospective_settings: dict[str, Any] = dataclass_field(default_factory=dict)
 
 
 async def acquire_config_import_lock(db: AsyncSession) -> None:
@@ -1004,6 +1006,7 @@ async def preflight_import(
         payload_digest=payload_digest,
         state_digest=state_digest,
         caller_is_enterprise=caller_is_enterprise,
+        prospective_settings=prospective_settings,
     )
 
 
@@ -1159,7 +1162,6 @@ async def import_config(
         ENTERPRISE_ONLY_TABS,
         _registry,
         apply_side_effects_batch,
-        prospective_settings,
         provider_model_kwargs,
     )
     from app.modules.audit.service import (
@@ -1247,13 +1249,7 @@ async def import_config(
                 if cfg.key in plan.settings_to_apply or cfg in resets
             ]
             before = {cfg.key: await cfg.get(db) for cfg in touched}
-            snapshot = await prospective_settings(
-                db,
-                {
-                    **{cfg.key: cfg.env_default for cfg in resets},
-                    **plan.validated_settings,
-                },
-            )
+            snapshot = plan.prospective_settings
             # An import that names the width reconciles the column even when the
             # setting already holds it; the rebuild compares against the live
             # column.
