@@ -8,6 +8,8 @@ this sub-module.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from app.platform.ai_tool_payloads import tool_result_content
 
 
@@ -368,16 +370,20 @@ class DefaultOpenAICompatibleProvider:
             usage.completion_tokens if usage else 0,
         )
 
-    async def resolve_runtime_config(self, db) -> dict[str, object]:  # type: ignore[no-untyped-def]
+    async def resolve_runtime_config(  # type: ignore[no-untyped-def]
+        self, db, settings: Mapping[str, object] | None = None
+    ) -> dict[str, object]:
         from app.core.ai_credentials import bind_openai_credential_base_url
         from app.core.persistent_config import OPENAI_BASE_URL, llm_model_default
 
         # The default without the admin override, which callers apply.
         model = llm_model_default("openai_compatible")
-        base_url = bind_openai_credential_base_url(
-            await OPENAI_BASE_URL.get(db),
-            purpose="chat",
+        configured = (
+            settings[OPENAI_BASE_URL.key]
+            if settings is not None and OPENAI_BASE_URL.key in settings
+            else await OPENAI_BASE_URL.get(db)
         )
+        base_url = bind_openai_credential_base_url(configured, purpose="chat")
         return {"base_url": base_url, "default_model": model}
 
 

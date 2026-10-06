@@ -127,3 +127,56 @@ async def test_resolve_provider_pairs_model_and_endpoint_from_one_resolution(
 
     assert len(calls) == 1
     assert (model, runtime_config["base_url"]) == ("m1", "https://ep1.example")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cfg", [LLM_MODEL, LLM_MODEL_LIGHT])
+async def test_default_for_resolves_against_the_settings_override(monkeypatch, cfg):
+    from app.core.ai_credentials import OpenAICredentialDestinationError
+
+    class _Overlay:
+        async def resolve_runtime_config(self, db, settings=None):
+            if (settings or {}).get("openai_base_url") != "https://repaired.example":
+                raise OpenAICredentialDestinationError("stale endpoint")
+            return {"default_model": "overlay-model"}
+
+    monkeypatch.setattr("app.platform.extensions.get_ai_provider", lambda n: _Overlay())
+
+    committed = await cfg.default_for(None, "ext")
+    prospective = await cfg.default_for(
+        None, "ext", settings={"openai_base_url": "https://repaired.example"}
+    )
+
+    assert committed == llm_model_default("ext", light=cfg.light)
+    assert prospective == "overlay-model"
+
+
+@pytest.mark.asyncio
+async def test_a_resolver_without_the_settings_parameter_is_called_without_it(
+    monkeypatch,
+):
+    class _Legacy:
+        async def resolve_runtime_config(self, db):
+            return {"default_model": "legacy-model"}
+
+    monkeypatch.setattr("app.platform.extensions.get_ai_provider", lambda n: _Legacy())
+
+    assert (
+        await LLM_MODEL.default_for(None, "ext", settings={"openai_base_url": "x"})
+        == "legacy-model"
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_keyword_only_settings_parameter_receives_the_snapshot(monkeypatch):
+    class _KeywordOnly:
+        async def resolve_runtime_config(self, db, *, settings=None):
+            return {"default_model": (settings or {}).get("marker", "none")}
+
+    monkeypatch.setattr(
+        "app.platform.extensions.get_ai_provider", lambda n: _KeywordOnly()
+    )
+
+    assert (
+        await LLM_MODEL.default_for(None, "ext", settings={"marker": "seen"}) == "seen"
+    )

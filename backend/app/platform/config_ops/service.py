@@ -12,6 +12,7 @@ import time
 import uuid
 from collections import Counter
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from datetime import datetime, timezone
 from typing import Any
 
@@ -170,6 +171,7 @@ class ConfigImportPlan:
     payload_digest: str
     state_digest: str
     caller_is_enterprise: bool
+    prospective_settings: dict[str, Any] = dataclass_field(default_factory=dict)
 
 
 async def acquire_config_import_lock(db: AsyncSession) -> None:
@@ -852,8 +854,23 @@ async def preflight_import(
         if mode == "overwrite"
         else current_settings["llm_provider"],
     )
+    # Overlay providers resolve their endpoint from settings, so the defaults
+    # must see the endpoint this import writes, not the committed one.
+    prospective_settings = dict(current_settings)
+    if mode == "overwrite":
+        prospective_settings.update(
+            {
+                cfg.key: cfg.env_default
+                for cfg in _registry
+                if cfg.key not in raw_settings
+                and (caller_is_enterprise or cfg.tab not in ENTERPRISE_ONLY_TABS)
+            }
+        )
+    prospective_settings.update(validated_settings)
     model_defaults = {
-        cfg.key: await cfg.default_for(db, final_provider)
+        cfg.key: await cfg.default_for(
+            db, final_provider, settings=prospective_settings
+        )
         for cfg in (LLM_MODEL, LLM_MODEL_LIGHT)
     }
     blank_model_defaults = {
@@ -989,6 +1006,7 @@ async def preflight_import(
         payload_digest=payload_digest,
         state_digest=state_digest,
         caller_is_enterprise=caller_is_enterprise,
+        prospective_settings=prospective_settings,
     )
 
 
@@ -1144,6 +1162,7 @@ async def import_config(
         ENTERPRISE_ONLY_TABS,
         _registry,
         apply_side_effects_batch,
+        provider_model_kwargs,
     )
     from app.modules.audit.service import (
         AuditEvent,
@@ -1230,6 +1249,7 @@ async def import_config(
                 if cfg.key in plan.settings_to_apply or cfg in resets
             ]
             before = {cfg.key: await cfg.get(db) for cfg in touched}
+            snapshot = plan.prospective_settings
             # An import that names the width reconciles the column even when the
             # setting already holds it; the rebuild compares against the live
             # column.
@@ -1258,6 +1278,7 @@ async def import_config(
                         ip_address=ip_address,
                         commit=False,
                         old_value=before[cfg.key],
+                        **provider_model_kwargs(cfg, snapshot),
                     )
                     deferred_side_effects.append((cfg, value))
                 else:
@@ -1267,6 +1288,7 @@ async def import_config(
                         ip_address=ip_address,
                         commit=False,
                         old_value=before[cfg.key],
+                        **provider_model_kwargs(cfg, snapshot),
                     )
                     deferred_side_effects.append((cfg, cfg.env_default))
 

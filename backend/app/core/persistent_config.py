@@ -10,7 +10,8 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from collections.abc import Sequence
+import inspect
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Generic, TypeVar, cast
 
 import structlog
@@ -129,8 +130,14 @@ class PersistentConfig(Generic[T]):
         # intentionally cast rather than assert non-None here.
         return cast(T, self._env_default_static)
 
-    async def resolved_default(self, db: AsyncSession) -> T:
-        """The value this key takes when it has no override."""
+    async def resolved_default(
+        self, db: AsyncSession, settings: Mapping[str, object] | None = None
+    ) -> T:
+        """The value this key takes when it has no override.
+
+        ``settings`` is a prospective snapshot for keys whose default depends
+        on other settings; this one doesn't.
+        """
         return self.env_default
 
     async def get(self, db: AsyncSession) -> T:
@@ -290,8 +297,12 @@ class PersistentConfig(Generic[T]):
         ip_address: str | None = None,
         commit: bool = True,
         old_value: Any = _UNSET,
+        settings: Mapping[str, object] | None = None,
     ) -> None:
         """Delete DB override, reverting to env_default. Audit and invalidate cache.
+
+        ``settings`` is the batch's prospective snapshot, so the audited new
+        value is the default that takes effect once the whole batch commits.
 
         fix(#430): pass ``commit=False`` to defer the DB commit to a caller's
         terminal commit (config-import overwrite mode), so a mid-import failure
@@ -321,7 +332,7 @@ class PersistentConfig(Generic[T]):
                         details={
                             "setting_key": self.key,
                             "old_value": old_value,
-                            "new_value": await self.resolved_default(db),
+                            "new_value": await self.resolved_default(db, settings),
                         },
                         ip_address=ip_address,
                     ),
@@ -637,6 +648,26 @@ def llm_model_default(provider: str, *, light: bool = False) -> str:
     return settings.openai_model
 
 
+def _accepts_settings(resolver: Callable[..., object]) -> bool:
+    """Whether an extension's resolver takes the prospective ``settings``."""
+    params = inspect.signature(resolver).parameters.values()
+    return any(p.name == "settings" or p.kind is p.VAR_KEYWORD for p in params)
+
+
+async def prospective_settings(
+    db: AsyncSession, changes: Mapping[str, object]
+) -> dict[str, Any]:
+    """Committed setting values with a batch's ``changes`` applied."""
+    return {**await _load_registry_values(db), **changes}
+
+
+def provider_model_kwargs(
+    cfg: PersistentConfig[Any], snapshot: Mapping[str, object]
+) -> dict[str, Any]:
+    """The ``settings=`` argument for a set/reset of ``cfg`` in a batch."""
+    return {"settings": snapshot} if isinstance(cfg, _ProviderModelConfig) else {}
+
+
 class _ProviderModelConfig(PersistentConfig[str]):
     """A model setting whose default follows the selected LLM provider.
 
@@ -659,11 +690,13 @@ class _ProviderModelConfig(PersistentConfig[str]):
         db: AsyncSession,
         provider: str,
         runtime_config: dict[str, object] | None = None,
+        settings: Mapping[str, object] | None = None,
     ) -> str:
         """The model ``provider`` uses when no admin override is set.
 
         A caller that already resolved the provider's runtime config passes it,
-        so the model and endpoint come from one snapshot.
+        so the model and endpoint come from one snapshot. ``settings`` resolves
+        the provider against values not yet committed.
 
         An extension provider, or an overlay under a built-in name, supplies its
         own ``default_model`` through ``resolve_runtime_config``; without one
@@ -690,7 +723,12 @@ class _ProviderModelConfig(PersistentConfig[str]):
             config = runtime_config
             if config is None:
                 try:
-                    config = await ext.resolve_runtime_config(db)
+                    config = (
+                        await ext.resolve_runtime_config(db, settings=settings)
+                        if settings is not None
+                        and _accepts_settings(ext.resolve_runtime_config)
+                        else await ext.resolve_runtime_config(db)
+                    )
                 except OpenAICredentialDestinationError:
                     config = {}
             model = config.get("default_model")
@@ -698,8 +736,15 @@ class _ProviderModelConfig(PersistentConfig[str]):
                 return model
         return llm_model_default(provider, light=self.light)
 
-    async def resolved_default(self, db: AsyncSession) -> str:
-        return await self.default_for(db, await LLM_PROVIDER.get(db))
+    async def resolved_default(
+        self, db: AsyncSession, settings: Mapping[str, object] | None = None
+    ) -> str:
+        provider = (
+            settings[LLM_PROVIDER.key]
+            if settings is not None and LLM_PROVIDER.key in settings
+            else await LLM_PROVIDER.get(db)
+        )
+        return await self.default_for(db, provider, settings=settings)
 
     async def override(self, db: AsyncSession) -> str:
         """The admin's model, or ``""`` when none is set."""
@@ -732,6 +777,7 @@ class _ProviderModelConfig(PersistentConfig[str]):
         ip_address: str | None = None,
         commit: bool = True,
         old_value: Any = _UNSET,
+        settings: Mapping[str, object] | None = None,
     ) -> None:
         if not value.strip():
             await self.reset(
@@ -740,6 +786,7 @@ class _ProviderModelConfig(PersistentConfig[str]):
                 ip_address=ip_address,
                 commit=commit,
                 old_value=old_value,
+                settings=settings,
             )
             return
         await super().set(
@@ -897,19 +944,8 @@ MAX_DATASETS_PER_USER = PersistentConfig[int](
 )
 
 
-async def get_all_registry_values(db: AsyncSession) -> dict[str, Any]:
-    """Batch-load all registry settings in a single DB query.
-
-    Returns a dict mapping each registered key to its effective value
-    (DB override if present, otherwise env_default). Bypassed when
-    ENV_ONLY_CONFIG is set — returns env_defaults directly without
-    hitting the DB.
-
-    .. note::
-        Consumed only by tests today; kept as a forward-looking helper for
-        an admin/settings dump endpoint that needs an atomic snapshot
-        without N round-trips.
-    """
+async def _load_registry_values(db: AsyncSession) -> dict[str, Any]:
+    """Every registered key's override or env_default, model defaults unresolved."""
     settings_dict: dict[str, Any] = {cfg.key: cfg.env_default for cfg in _registry}
 
     if not _is_env_only():
@@ -924,6 +960,23 @@ async def get_all_registry_values(db: AsyncSession) -> dict[str, Any]:
                 )
                 value, _ok = _validate_or_fallback(cfg, unwrapped)
                 settings_dict[cfg.key] = value
+    return settings_dict
+
+
+async def get_all_registry_values(db: AsyncSession) -> dict[str, Any]:
+    """Batch-load all registry settings in a single DB query.
+
+    Returns a dict mapping each registered key to its effective value
+    (DB override if present, otherwise env_default). Bypassed when
+    ENV_ONLY_CONFIG is set — returns env_defaults directly without
+    hitting the DB.
+
+    .. note::
+        Consumed only by tests today; kept as a forward-looking helper for
+        an admin/settings dump endpoint that needs an atomic snapshot
+        without N round-trips.
+    """
+    settings_dict = await _load_registry_values(db)
 
     # A model without an override resolves against this snapshot's provider.
     for model in (LLM_MODEL, LLM_MODEL_LIGHT):

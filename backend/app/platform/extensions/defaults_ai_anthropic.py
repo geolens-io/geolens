@@ -7,6 +7,8 @@ owns ``DefaultAnthropicProvider``. Import it via the
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from app.platform.ai_tool_payloads import tool_result_content
 
 
@@ -353,7 +355,9 @@ class DefaultAnthropicProvider:
 
         raise ValueError("No tool_use block in Anthropic response")
 
-    async def resolve_runtime_config(self, db) -> dict[str, object]:  # type: ignore[no-untyped-def]
+    async def resolve_runtime_config(  # type: ignore[no-untyped-def]
+        self, db, settings: Mapping[str, object] | None = None
+    ) -> dict[str, object]:
         from app.core.persistent_config import llm_model_default
 
         # The default without the admin override, which callers apply.
