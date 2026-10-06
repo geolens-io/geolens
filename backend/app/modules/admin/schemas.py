@@ -243,7 +243,7 @@ class AdminJobResponse(BaseModel):
     )
     source_url: str | None = Field(
         default=None,
-        description="Service URL a service import was started from, with userinfo and "
+        description="URL a service or file URL import was started from, with userinfo and "
         "credential query values redacted. Null for every other job.",
     )
     restart_source: Literal["url", "service"] | None = Field(

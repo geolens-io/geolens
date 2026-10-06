@@ -71,6 +71,24 @@ describe('JobList start again', () => {
     );
   });
 
+  it('prefills the file URL tab with the job source URL', async () => {
+    listJobs(
+      failedJob({
+        restart_source: 'url',
+        source_url: 'https://files.example.com/data/roads.geojson',
+      }),
+    );
+    const user = userEvent.setup();
+
+    render(<JobList />);
+    await user.click(screen.getByTestId('job-details-toggle'));
+
+    expect(screen.getByRole('link', { name: 'Start again' })).toHaveAttribute(
+      'href',
+      '/import?tab=url&url=https%3A%2F%2Ffiles.example.com%2Fdata%2Froads.geojson',
+    );
+  });
+
   it('offers no start-again link when the server names no restart source', async () => {
     listJobs(failedJob({ restart_source: null }));
     const user = userEvent.setup();

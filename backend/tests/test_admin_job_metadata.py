@@ -42,6 +42,7 @@ BOOKKEEPING = {
     **ARTIFACT_RECORDS,
     "fan_out_interrupted": True,
     "url_download_in_flight": True,
+    "url_import": "https://files.example.test/roads.geojson",
     "commit_attempted_at": "2026-09-25T00:00:00+00:00",
     "s3_key_reaped": True,
     "s3_key_reaped_final": True,
