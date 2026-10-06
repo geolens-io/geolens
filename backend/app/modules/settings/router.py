@@ -32,6 +32,8 @@ from app.core.persistent_config import (
     PASSWORD_LOGIN_ENABLED,
     _registry,
     apply_side_effects_batch,
+    prospective_settings,
+    provider_model_kwargs,
     is_unset_model,
 )
 from app.platform.ratelimit import limiter
@@ -588,6 +590,7 @@ async def update_settings(
             validated_settings, key=lambda k: _registry.index(registry_map[k])
         )
         before = {key: await registry_map[key].get(db) for key in ordered}
+        snapshot = await prospective_settings(db, validated_settings)
         for key in ordered:
             await registry_map[key].set(
                 db,
@@ -596,6 +599,7 @@ async def update_settings(
                 ip_address=ip,
                 commit=False,
                 old_value=before[key],
+                **provider_model_kwargs(registry_map[key], snapshot),
             )
 
         # Single commit for all setting writes
@@ -700,6 +704,9 @@ async def reset_settings(
 
         ip = get_client_ip(request)
         before = [await cfg.get(db) for cfg in configs_to_reset]
+        snapshot = await prospective_settings(
+            db, {cfg.key: cfg.env_default for cfg in configs_to_reset}
+        )
         for cfg, old_value in zip(configs_to_reset, before):
             await cfg.reset(
                 db,
@@ -707,6 +714,7 @@ async def reset_settings(
                 ip_address=ip,
                 commit=False,
                 old_value=old_value,
+                **provider_model_kwargs(cfg, snapshot),
             )
 
         # The setting deletes and their audit rows form one transaction. Runtime

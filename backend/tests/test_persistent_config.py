@@ -1483,6 +1483,76 @@ async def test_import_preview_resolves_a_blank_model_against_the_imported_endpoi
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("path", ["/settings/", "/config-ops/import/?mode=merge"])
+async def test_a_reset_audits_the_model_resolved_against_the_batch_endpoint(
+    client: AsyncClient, admin_auth_header: dict, _both_ai_keys, monkeypatch, path
+):
+    """A batch that repairs the endpoint and clears the model override audits
+    the overlay's default, not the one the stale committed endpoint yields."""
+    from app.api.main import app
+    from app.core.ai_credentials import bind_openai_credential_base_url
+    from app.core.db.models import AppSetting
+    from app.core.dependencies import get_db
+    from app.core.persistent_config import OPENAI_BASE_URL, settings
+
+    approved = "https://llm.example.com/v1"
+    monkeypatch.setattr(settings, "openai_base_url", approved)
+
+    class _Overlay:
+        async def resolve_runtime_config(self, db, settings=None):
+            configured = (
+                settings[OPENAI_BASE_URL.key]
+                if settings and OPENAI_BASE_URL.key in settings
+                else await OPENAI_BASE_URL.get(db)
+            )
+            base_url = bind_openai_credential_base_url(configured, purpose="chat")
+            return {"base_url": base_url, "default_model": "overlay-deployment"}
+
+    async for db in app.dependency_overrides[get_db]():
+        db.add(
+            AppSetting(key="openai_base_url", value={"v": "https://stale.example/v1"})
+        )
+        db.add(AppSetting(key="llm_model", value={"v": "pinned"}))
+        await db.commit()
+
+    payload = {
+        "settings": {
+            "llm_provider": "overlay",
+            "llm_model": "",
+            "openai_base_url": approved,
+        }
+    }
+    with patch("app.platform.extensions.get_ai_provider", return_value=_Overlay()):
+        if path == "/settings/":
+            resp = await client.put(path, json=payload, headers=admin_auth_header)
+        else:
+            resp = await client.post(path, json=payload, headers=admin_auth_header)
+    assert resp.status_code == 200, resp.text
+    assert await _latest_model_reset_value() == "overlay-deployment"
+
+
+@pytest.mark.anyio
+async def test_import_preview_works_for_an_overlay_that_ignores_settings(
+    client: AsyncClient, admin_auth_header: dict, _both_ai_keys
+):
+    """A provider whose resolver predates the ``settings`` parameter still
+    previews, resolving against committed configuration."""
+
+    class _Legacy:
+        async def resolve_runtime_config(self, db):
+            return {"base_url": None, "default_model": "legacy-deployment"}
+
+    payload = {"settings": {"llm_provider": "overlay", "llm_model": ""}}
+    with patch("app.platform.extensions.get_ai_provider", return_value=_Legacy()):
+        preview = await client.post(
+            "/config-ops/dry-run/?mode=merge", json=payload, headers=admin_auth_header
+        )
+    assert preview.status_code == 200, preview.text
+    changes = {c["key"]: c for c in preview.json()["settings"]["changes"]}
+    assert changes["llm_model"]["imported"] == "legacy-deployment"
+
+
+@pytest.mark.anyio
 async def test_an_overlay_under_a_built_in_name_chats_with_the_reported_model(
     client: AsyncClient, admin_auth_header: dict, _both_ai_keys
 ):

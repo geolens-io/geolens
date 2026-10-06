@@ -1159,6 +1159,8 @@ async def import_config(
         ENTERPRISE_ONLY_TABS,
         _registry,
         apply_side_effects_batch,
+        prospective_settings,
+        provider_model_kwargs,
     )
     from app.modules.audit.service import (
         AuditEvent,
@@ -1245,6 +1247,13 @@ async def import_config(
                 if cfg.key in plan.settings_to_apply or cfg in resets
             ]
             before = {cfg.key: await cfg.get(db) for cfg in touched}
+            snapshot = await prospective_settings(
+                db,
+                {
+                    **{cfg.key: cfg.env_default for cfg in resets},
+                    **plan.validated_settings,
+                },
+            )
             # An import that names the width reconciles the column even when the
             # setting already holds it; the rebuild compares against the live
             # column.
@@ -1273,6 +1282,7 @@ async def import_config(
                         ip_address=ip_address,
                         commit=False,
                         old_value=before[cfg.key],
+                        **provider_model_kwargs(cfg, snapshot),
                     )
                     deferred_side_effects.append((cfg, value))
                 else:
@@ -1282,6 +1292,7 @@ async def import_config(
                         ip_address=ip_address,
                         commit=False,
                         old_value=before[cfg.key],
+                        **provider_model_kwargs(cfg, snapshot),
                     )
                     deferred_side_effects.append((cfg, cfg.env_default))
 

@@ -10,7 +10,8 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from collections.abc import Mapping, Sequence
+import inspect
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Generic, TypeVar, cast
 
 import structlog
@@ -129,8 +130,14 @@ class PersistentConfig(Generic[T]):
         # intentionally cast rather than assert non-None here.
         return cast(T, self._env_default_static)
 
-    async def resolved_default(self, db: AsyncSession) -> T:
-        """The value this key takes when it has no override."""
+    async def resolved_default(
+        self, db: AsyncSession, settings: Mapping[str, object] | None = None
+    ) -> T:
+        """The value this key takes when it has no override.
+
+        ``settings`` is a prospective snapshot for keys whose default depends
+        on other settings; this one doesn't.
+        """
         return self.env_default
 
     async def get(self, db: AsyncSession) -> T:
@@ -290,8 +297,12 @@ class PersistentConfig(Generic[T]):
         ip_address: str | None = None,
         commit: bool = True,
         old_value: Any = _UNSET,
+        settings: Mapping[str, object] | None = None,
     ) -> None:
         """Delete DB override, reverting to env_default. Audit and invalidate cache.
+
+        ``settings`` is the batch's prospective snapshot, so the audited new
+        value is the default that takes effect once the whole batch commits.
 
         fix(#430): pass ``commit=False`` to defer the DB commit to a caller's
         terminal commit (config-import overwrite mode), so a mid-import failure
@@ -321,7 +332,7 @@ class PersistentConfig(Generic[T]):
                         details={
                             "setting_key": self.key,
                             "old_value": old_value,
-                            "new_value": await self.resolved_default(db),
+                            "new_value": await self.resolved_default(db, settings),
                         },
                         ip_address=ip_address,
                     ),
@@ -637,6 +648,26 @@ def llm_model_default(provider: str, *, light: bool = False) -> str:
     return settings.openai_model
 
 
+def _accepts_settings(resolver: Callable[..., object]) -> bool:
+    """Whether an extension's resolver takes the prospective ``settings``."""
+    params = inspect.signature(resolver).parameters.values()
+    return any(p.name == "settings" or p.kind is p.VAR_KEYWORD for p in params)
+
+
+async def prospective_settings(
+    db: AsyncSession, changes: Mapping[str, object]
+) -> dict[str, Any]:
+    """Committed setting values with a batch's ``changes`` applied."""
+    return {**await get_all_registry_values(db), **changes}
+
+
+def provider_model_kwargs(
+    cfg: PersistentConfig[Any], snapshot: Mapping[str, object]
+) -> dict[str, Any]:
+    """The ``settings=`` argument for a set/reset of ``cfg`` in a batch."""
+    return {"settings": snapshot} if isinstance(cfg, _ProviderModelConfig) else {}
+
+
 class _ProviderModelConfig(PersistentConfig[str]):
     """A model setting whose default follows the selected LLM provider.
 
@@ -693,9 +724,10 @@ class _ProviderModelConfig(PersistentConfig[str]):
             if config is None:
                 try:
                     config = (
-                        await ext.resolve_runtime_config(db)
-                        if settings is None
-                        else await ext.resolve_runtime_config(db, settings)
+                        await ext.resolve_runtime_config(db, settings)
+                        if settings is not None
+                        and _accepts_settings(ext.resolve_runtime_config)
+                        else await ext.resolve_runtime_config(db)
                     )
                 except OpenAICredentialDestinationError:
                     config = {}
@@ -704,8 +736,15 @@ class _ProviderModelConfig(PersistentConfig[str]):
                 return model
         return llm_model_default(provider, light=self.light)
 
-    async def resolved_default(self, db: AsyncSession) -> str:
-        return await self.default_for(db, await LLM_PROVIDER.get(db))
+    async def resolved_default(
+        self, db: AsyncSession, settings: Mapping[str, object] | None = None
+    ) -> str:
+        provider = (
+            settings[LLM_PROVIDER.key]
+            if settings is not None and LLM_PROVIDER.key in settings
+            else await LLM_PROVIDER.get(db)
+        )
+        return await self.default_for(db, provider, settings=settings)
 
     async def override(self, db: AsyncSession) -> str:
         """The admin's model, or ``""`` when none is set."""
@@ -738,6 +777,7 @@ class _ProviderModelConfig(PersistentConfig[str]):
         ip_address: str | None = None,
         commit: bool = True,
         old_value: Any = _UNSET,
+        settings: Mapping[str, object] | None = None,
     ) -> None:
         if not value.strip():
             await self.reset(
@@ -746,6 +786,7 @@ class _ProviderModelConfig(PersistentConfig[str]):
                 ip_address=ip_address,
                 commit=commit,
                 old_value=old_value,
+                settings=settings,
             )
             return
         await super().set(

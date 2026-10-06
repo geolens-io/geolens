@@ -149,3 +149,19 @@ async def test_default_for_resolves_against_the_settings_override(monkeypatch, c
 
     assert committed == llm_model_default("ext", light=cfg.light)
     assert prospective == "overlay-model"
+
+
+@pytest.mark.asyncio
+async def test_a_resolver_without_the_settings_parameter_is_called_without_it(
+    monkeypatch,
+):
+    class _Legacy:
+        async def resolve_runtime_config(self, db):
+            return {"default_model": "legacy-model"}
+
+    monkeypatch.setattr("app.platform.extensions.get_ai_provider", lambda n: _Legacy())
+
+    assert (
+        await LLM_MODEL.default_for(None, "ext", settings={"openai_base_url": "x"})
+        == "legacy-model"
+    )
