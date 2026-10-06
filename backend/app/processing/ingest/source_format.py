@@ -24,7 +24,7 @@ _MEMBER_SUFFIX_FORMATS = (
     (".gpkg", "gpkg"),
     (".geojson", "geojson"),
     (".csv", "csv"),
-    (".json", "geojson"),
+    (".json", "json"),
 )
 
 # Cheap second bound for archives reaching this helper outside

@@ -263,7 +263,7 @@ class TestZipDataFormat:
         [
             (["parcels.csv"], "csv"),
             (["data/parcels.geojson"], "geojson"),
-            (["parcels.JSON"], "geojson"),
+            (["parcels.JSON"], "json"),
             (["parcels.gpkg"], "gpkg"),
             (["parcels.shp", "parcels.dbf", "parcels.shx"], "shapefile"),
             (["parcels.shp", "meta.csv", "style.json"], "shapefile"),
@@ -284,7 +284,7 @@ class TestZipDataFormat:
         ("members", "layer", "expected"),
         [
             (["points.csv", "metadata.json"], "points", "csv"),
-            (["points.csv", "metadata.json"], "metadata", "geojson"),
+            (["points.csv", "metadata.json"], "metadata", "json"),
             (["parcels.shp", "parcels.dbf", "points.csv"], "points", "csv"),
             (["parcels.shp", "parcels.dbf", "points.csv"], "parcels", "shapefile"),
             (["parcels.shp", "points.csv"], "unknown_layer", "shapefile"),
