@@ -658,7 +658,7 @@ async def prospective_settings(
     db: AsyncSession, changes: Mapping[str, object]
 ) -> dict[str, Any]:
     """Committed setting values with a batch's ``changes`` applied."""
-    return {**await get_all_registry_values(db), **changes}
+    return {**await _load_registry_values(db), **changes}
 
 
 def provider_model_kwargs(
@@ -944,19 +944,8 @@ MAX_DATASETS_PER_USER = PersistentConfig[int](
 )
 
 
-async def get_all_registry_values(db: AsyncSession) -> dict[str, Any]:
-    """Batch-load all registry settings in a single DB query.
-
-    Returns a dict mapping each registered key to its effective value
-    (DB override if present, otherwise env_default). Bypassed when
-    ENV_ONLY_CONFIG is set — returns env_defaults directly without
-    hitting the DB.
-
-    .. note::
-        Consumed only by tests today; kept as a forward-looking helper for
-        an admin/settings dump endpoint that needs an atomic snapshot
-        without N round-trips.
-    """
+async def _load_registry_values(db: AsyncSession) -> dict[str, Any]:
+    """Every registered key's override or env_default, model defaults unresolved."""
     settings_dict: dict[str, Any] = {cfg.key: cfg.env_default for cfg in _registry}
 
     if not _is_env_only():
@@ -971,6 +960,23 @@ async def get_all_registry_values(db: AsyncSession) -> dict[str, Any]:
                 )
                 value, _ok = _validate_or_fallback(cfg, unwrapped)
                 settings_dict[cfg.key] = value
+    return settings_dict
+
+
+async def get_all_registry_values(db: AsyncSession) -> dict[str, Any]:
+    """Batch-load all registry settings in a single DB query.
+
+    Returns a dict mapping each registered key to its effective value
+    (DB override if present, otherwise env_default). Bypassed when
+    ENV_ONLY_CONFIG is set — returns env_defaults directly without
+    hitting the DB.
+
+    .. note::
+        Consumed only by tests today; kept as a forward-looking helper for
+        an admin/settings dump endpoint that needs an atomic snapshot
+        without N round-trips.
+    """
+    settings_dict = await _load_registry_values(db)
 
     # A model without an override resolves against this snapshot's provider.
     for model in (LLM_MODEL, LLM_MODEL_LIGHT):

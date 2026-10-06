@@ -1532,6 +1532,40 @@ async def test_a_reset_audits_the_model_resolved_against_the_batch_endpoint(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("change", [{"log_level": "DEBUG"}, {"openai_base_url": ""}])
+async def test_a_put_that_clears_no_model_persists_when_the_provider_cannot_load(
+    client: AsyncClient, admin_auth_header: dict, _both_ai_keys, change
+):
+    """A provider whose committed config can't load must not stop a PUT that
+    touches neither model setting, such as one repairing the endpoint, from
+    persisting. Rendering the response may still hit the broken provider."""
+    from sqlalchemy import select
+
+    from app.api.main import app
+    from app.core.db.models import AppSetting
+    from app.core.dependencies import get_db
+
+    class _Broken:
+        async def resolve_runtime_config(self, db, settings=None):
+            raise RuntimeError("committed config can't load")
+
+    (key,) = change
+    async for db in app.dependency_overrides[get_db]():
+        db.add(AppSetting(key="llm_provider", value={"v": "overlay"}))
+        await db.commit()
+
+    with patch("app.platform.extensions.get_ai_provider", return_value=_Broken()):
+        with pytest.raises(RuntimeError):
+            await client.put(
+                "/settings/", json={"settings": change}, headers=admin_auth_header
+            )
+
+    async for db in app.dependency_overrides[get_db]():
+        stored = await db.scalar(select(AppSetting.value).where(AppSetting.key == key))
+        assert stored == {"v": change[key]}
+
+
+@pytest.mark.anyio
 async def test_import_preview_works_for_an_overlay_that_ignores_settings(
     client: AsyncClient, admin_auth_header: dict, _both_ai_keys
 ):
