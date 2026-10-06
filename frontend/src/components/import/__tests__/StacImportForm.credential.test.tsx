@@ -337,4 +337,61 @@ describe('StacImportForm credential block', () => {
     );
     clearStacImport();
   });
+
+  it('looks sizes up again after a reset and reconnect with a credential', async () => {
+    const user = userEvent.setup();
+    mockSearchStacItems.mockResolvedValue({
+      items: [
+        {
+          id: 'item-1',
+          collection: 'test-col',
+          item_href: null,
+          title: 'item-1',
+          bbox: null,
+          datetime: null,
+          datetime_start: null,
+          datetime_end: null,
+          epsg: null,
+          gsd: null,
+          cloud_cover: null,
+          data_asset_href: 'https://catalog.test/v1/assets/a.tif',
+          data_asset_type: null,
+          data_asset_key: 'data',
+          data_asset_size_bytes: null,
+          data_asset_import_refusal: null,
+          thumbnail_href: null,
+          asset_count: 1,
+        },
+      ],
+      matched: 1,
+      returned: 1,
+    });
+    mockFetchStacAssetSizes.mockResolvedValue({ sizes: [{ id: 'item-1', size_bytes: null }] });
+    render(<StacImportForm />, { wrapper: Wrapper });
+
+    await typeUrl(user);
+    await connect(user);
+    await user.click(await screen.findByText('Test Collection'));
+    await user.click((await screen.findAllByRole('checkbox'))[1]);
+    await user.click(screen.getByRole('button', { name: /stac.importItems/i }));
+    await waitFor(() => expect(mockFetchStacAssetSizes).toHaveBeenCalledTimes(1));
+
+    await user.click(await screen.findByRole('button', { name: 'stac.confirm.backToSelection' }));
+    await user.click(await screen.findByText('stac.collections'));
+    await user.click(await screen.findByText('stac.clear'));
+
+    await typeUrl(user);
+    await chooseMethod(user, 'stac.credentialMethodBearer');
+    await user.type(screen.getByLabelText('stac.credentialTokenLabel'), 'tok-secret');
+    await connect(user);
+    await user.click(await screen.findByText('Test Collection'));
+    await user.click((await screen.findAllByRole('checkbox'))[1]);
+    await user.click(screen.getByRole('button', { name: /stac.importItems/i }));
+
+    await waitFor(() => expect(mockFetchStacAssetSizes).toHaveBeenCalledTimes(2));
+    expect(mockFetchStacAssetSizes.mock.calls[1][2]).toEqual({
+      method: 'bearer',
+      token: 'tok-secret',
+    });
+  });
 });

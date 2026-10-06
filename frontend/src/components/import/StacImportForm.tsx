@@ -273,6 +273,7 @@ export function StacImportForm() {
     setFilterError(null);
     setNextPage(null);
     setAppliedFilters({});
+    setProbedSizes({});
     setImportResult(null);
     setError(null);
     // fix(#1712): defensive symmetry with the success/failure settlement
@@ -298,6 +299,7 @@ export function StacImportForm() {
 
     setStep('connecting');
     setError(null);
+    setProbedSizes({});
 
     try {
       const auth = buildStacAuth();
