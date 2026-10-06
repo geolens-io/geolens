@@ -729,6 +729,7 @@ export function StacImportForm() {
       });
     return () => {
       cancelled = true;
+      setProbingSizes(false);
     };
     // Only entering the review step should probe; the inputs it reads are
     // settled by then.

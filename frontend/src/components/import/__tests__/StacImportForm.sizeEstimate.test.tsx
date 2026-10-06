@@ -327,6 +327,26 @@ describe('StacImportForm — size-estimate confirmation step (EW-05)', () => {
     expect(screen.getByText(/stac\.confirm\.partialSizeNote/)).toBeInTheDocument();
   });
 
+  test('Test 9: leaving review mid-lookup does not strand the next review on "checking"', async () => {
+    mockFetchStacAssetSizes.mockReturnValue(new Promise(() => {}));
+    const items: StacItemSummary[] = [
+      makeItem({ id: 'item-1', data_asset_size_bytes: 1_000_000 }),
+      makeItem({ id: 'item-2', data_asset_href: 'https://example.com/two.tif' }),
+    ];
+    const user = await driveToItemsStep(items);
+    await user.click(screen.getAllByRole('checkbox')[0]);
+    await user.click(screen.getByRole('button', { name: /stac.importItems/i }));
+    await waitFor(() => expect(screen.getByText('stac.confirm.sizeChecking')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'stac.confirm.backToSelection' }));
+    await user.click(screen.getAllByRole('checkbox')[2]);
+    await user.click(screen.getByRole('button', { name: /stac.importItems/i }));
+
+    await waitFor(() => expect(screen.getByText(/[KM]B/)).toBeInTheDocument());
+    expect(screen.queryByText('stac.confirm.sizeChecking')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /stac\.confirm\.confirmImport/ })).toBeEnabled();
+  });
+
   test('Test 3: confirmation flow — back returns to items; confirm calls importStacItems', async () => {
     const items: StacItemSummary[] = [
       makeItem({ id: 'flow-item-1', data_asset_size_bytes: 500_000 }),
