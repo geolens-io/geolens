@@ -288,6 +288,8 @@ class TestZipDataFormat:
             (["parcels.shp", "parcels.dbf", "points.csv"], "points", "csv"),
             (["parcels.shp", "parcels.dbf", "points.csv"], "parcels", "shapefile"),
             (["parcels.shp", "points.csv"], "unknown_layer", "shapefile"),
+            (["Roads.shp", "roads.csv"], "roads", "csv"),
+            (["Roads.shp", "roads.csv"], "Roads", "shapefile"),
         ],
     )
     def test_selected_layer_decides(self, tmp_path: Path, members, layer, expected):

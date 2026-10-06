@@ -36,7 +36,7 @@ def zip_data_format(file_path: str, layer_name: str | None = None) -> str:
     """Classify a zip by its data member, defaulting to ``shapefile``.
 
     A ``layer_name`` selects the member whose stem matches it, since that is
-    the one GDAL imported; the suffix priority only settles archives where
+    the one GDAL imported (layer names are case-sensitive); the suffix priority only settles archives where
     no layer is chosen or none matches.
 
     Reads the central directory only; no member is decompressed. Any failure
@@ -44,7 +44,6 @@ def zip_data_format(file_path: str, layer_name: str | None = None) -> str:
     file by the time this runs, so this is a naming question, not a gate).
     """
     found: set[str] = set()
-    lowered = (layer_name or "").lower()
     selected: str | None = None
     try:
         with zipfile.ZipFile(file_path) as archive:
@@ -52,7 +51,8 @@ def zip_data_format(file_path: str, layer_name: str | None = None) -> str:
                 if index >= _MAX_MEMBERS_SCANNED:
                     break
                 # Windows zips may use `\` separators.
-                normalized = name.replace("\\", "/").lower()
+                slashed = name.replace("\\", "/")
+                normalized = slashed.lower()
                 if _FILEGDB_MARKER in normalized or normalized.endswith(".gdb"):
                     return "fgdb"
                 if normalized.startswith("__macosx/"):
@@ -60,7 +60,7 @@ def zip_data_format(file_path: str, layer_name: str | None = None) -> str:
                 for suffix, fmt in _MEMBER_SUFFIX_FORMATS:
                     if normalized.endswith(suffix):
                         found.add(suffix)
-                        if layer_name and PurePosixPath(normalized).stem == lowered:
+                        if layer_name and PurePosixPath(slashed).stem == layer_name:
                             selected = selected or fmt
     except (zipfile.BadZipFile, OSError, ValueError):
         logger.warning(
