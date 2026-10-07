@@ -5157,6 +5157,12 @@ export type JobStatusResponse = {
      */
     archive_failed?: boolean;
     /**
+     * Quicklook Pending
+     *
+     * True while the dataset's quicklook image is still owed after publication, so a client showing the thumbnail can poll again until the image has been replaced.
+     */
+    quicklook_pending?: boolean;
+    /**
      * Temporal Parse Errors
      */
     temporal_parse_errors?: {

@@ -61,6 +61,7 @@ from app.platform.jobs.models import (
 )
 from app.platform.jobs.ledger import Outcome, end_stale, run_stale_passes
 from app.platform.jobs.originals_reconcile import reconcile_orphaned_originals
+from app.platform.jobs.quicklook_reconcile import reconcile_orphaned_quicklooks
 from app.platform.jobs.staging_reconcile import reconcile_orphaned_staging_objects
 from app.platform.storage.titiler_url import resolve_current_storage_key
 
@@ -1657,10 +1658,10 @@ async def fail_stale_jobs(
         publish_refresh_reconciliation(outcome)
         outcome = await _reap_committed_staged_paths(outcome)
         outcome = await _sweep_expired_presigned_staging(db, outcome, now=now)
-        # fix(#1249): starts from the OBJECTS and asks whether any row owns
-        # them — the only direction that finds one nothing references.
+        # Starting from the objects is the only way to find one no row references.
         await reconcile_orphaned_staging_objects(db, now=now)
         await reconcile_orphaned_originals(db, now=now)
+        await reconcile_orphaned_quicklooks(db, now=now)
         await run_owed_publish_followups()
         await reclaim_retained_cogs()
     if detailed:

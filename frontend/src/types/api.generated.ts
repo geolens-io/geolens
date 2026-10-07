@@ -9450,6 +9450,12 @@ export interface components {
              * @default false
              */
             archive_failed: boolean;
+            /**
+             * Quicklook Pending
+             * @description True while the dataset's quicklook image is still owed after publication, so a client showing the thumbnail can poll again until the image has been replaced.
+             * @default false
+             */
+            quicklook_pending: boolean;
             /** Temporal Parse Errors */
             temporal_parse_errors?: {
                 [key: string]: string;

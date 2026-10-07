@@ -56,6 +56,8 @@ class JobStatusResponse:
         rows_processed (int | None | Unset):
         rows_failed (int | None | Unset):
         archive_failed (bool | Unset):  Default: False.
+        quicklook_pending (bool | Unset): True while the dataset's quicklook image is still owed after publication, so a
+            client showing the thumbnail can poll again until the image has been replaced. Default: False.
         temporal_parse_errors (JobStatusResponseTemporalParseErrors | Unset):
     """
 
@@ -82,6 +84,7 @@ class JobStatusResponse:
     rows_processed: int | None | Unset = UNSET
     rows_failed: int | None | Unset = UNSET
     archive_failed: bool | Unset = False
+    quicklook_pending: bool | Unset = False
     temporal_parse_errors: JobStatusResponseTemporalParseErrors | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -180,6 +183,8 @@ class JobStatusResponse:
 
         archive_failed = self.archive_failed
 
+        quicklook_pending = self.quicklook_pending
+
         temporal_parse_errors: dict[str, Any] | Unset = UNSET
         if not isinstance(self.temporal_parse_errors, Unset):
             temporal_parse_errors = self.temporal_parse_errors.to_dict()
@@ -216,6 +221,8 @@ class JobStatusResponse:
             field_dict["rows_failed"] = rows_failed
         if archive_failed is not UNSET:
             field_dict["archive_failed"] = archive_failed
+        if quicklook_pending is not UNSET:
+            field_dict["quicklook_pending"] = quicklook_pending
         if temporal_parse_errors is not UNSET:
             field_dict["temporal_parse_errors"] = temporal_parse_errors
 
@@ -423,6 +430,8 @@ class JobStatusResponse:
 
         archive_failed = d.pop("archive_failed", UNSET)
 
+        quicklook_pending = d.pop("quicklook_pending", UNSET)
+
         _temporal_parse_errors = d.pop("temporal_parse_errors", UNSET)
         temporal_parse_errors: JobStatusResponseTemporalParseErrors | Unset
         if isinstance(_temporal_parse_errors, Unset):
@@ -451,6 +460,7 @@ class JobStatusResponse:
             rows_processed=rows_processed,
             rows_failed=rows_failed,
             archive_failed=archive_failed,
+            quicklook_pending=quicklook_pending,
             temporal_parse_errors=temporal_parse_errors,
         )
 

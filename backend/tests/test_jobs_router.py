@@ -433,6 +433,26 @@ class TestGetJobStatus:
         assert resp.status_code == 200
         assert resp.json()["archive_failed"] is True
 
+    async def test_get_job_reports_a_quicklook_still_owed(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """quicklook_pending holds from publication until the image's pointer lands."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _create_job(test_db_session, created_by=admin_id, status="complete")
+        job.user_metadata = {
+            "publish_obligations": {"quicklook": "t_abc", "embedding": True}
+        }
+        await test_db_session.commit()
+
+        resp = await client.get(f"/jobs/{job.id}", headers=admin_auth_header)
+        assert resp.json()["quicklook_pending"] is True
+
+        job.user_metadata = {"publish_obligations": {"embedding": True}}
+        await test_db_session.commit()
+
+        resp = await client.get(f"/jobs/{job.id}", headers=admin_auth_header)
+        assert resp.json()["quicklook_pending"] is False
+
     async def test_get_job_surfaces_temporal_parse_errors(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):

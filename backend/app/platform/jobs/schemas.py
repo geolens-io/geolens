@@ -126,6 +126,12 @@ class JobStatusResponse(BaseModel):
     # backfill after a FORCE run). Read from generic `user_metadata["rows_failed"]`.
     rows_failed: Annotated[int, Field(ge=0)] | None = None
     archive_failed: bool = False
+    quicklook_pending: bool = Field(
+        default=False,
+        description="True while the dataset's quicklook image is still owed after "
+        "publication, so a client showing the thumbnail can poll again until the "
+        "image has been replaced.",
+    )
     # TYPE-3: the temporal parser only ever emits these two keys; pin the
     # shape so adding a third key requires touching the contract deliberately.
     temporal_parse_errors: dict[Literal["temporal_start", "temporal_end"], str] = Field(

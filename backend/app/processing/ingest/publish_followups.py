@@ -56,6 +56,7 @@ from app.platform.jobs.models import (
     OBLIGATIONS_HOLD_FIELD,
     PUBLISH_FOLLOWUPS_FIELD,
     PUBLISH_OBLIGATIONS_FIELD,
+    QUICKLOOK_ITEM,
     SUPERSEDED_COG_ITEM,
     IngestJob,
     holds_unarchived_original,
@@ -106,7 +107,6 @@ _SUPERSEDED_COG = SUPERSEDED_COG_ITEM
 _STORAGE_ITEMS = (_ARCHIVE_KEY, _REAPS_STAGED_UPLOAD, _SUPERSEDED_KEYS, _SUPERSEDED_COG)
 _CATALOG_CACHE = "catalog_cache"
 _TILE_CACHE = "tile_cache"
-_QUICKLOOK = "quicklook"
 _EMBEDDING = "embedding"
 _NOTICE = "notice"
 # The channels a notice still owes once others delivered it; without it, the
@@ -114,7 +114,7 @@ _NOTICE = "notice"
 _NOTICE_CHANNELS = "notice_channels"
 _USAGE = "usage"
 _PURGES = (_CATALOG_CACHE, _TILE_CACHE)
-_AFTER_STORAGE = (_QUICKLOOK, _EMBEDDING, _NOTICE, _USAGE)
+_AFTER_STORAGE = (QUICKLOOK_ITEM, _EMBEDDING, _NOTICE, _USAGE)
 _RUN_ONCE_ITEMS = _PURGES + _AFTER_STORAGE
 
 # Retry state kept in the record. A storage item has no last attempt, since
@@ -197,7 +197,7 @@ def owed_followups(
     run_once = {
         _CATALOG_CACHE: catalog_cache or None,
         _TILE_CACHE: tile_cache,
-        _QUICKLOOK: quicklook,
+        QUICKLOOK_ITEM: quicklook,
         _EMBEDDING: embedding or None,
         _NOTICE: notice,
         _USAGE: usage,
@@ -1049,7 +1049,7 @@ async def _run_item(item: str, value, job_uuid: uuid.UUID, row, dataset) -> bool
         settled = await invalidate_catalog_cache()
     elif item == _TILE_CACHE:
         settled = await invalidate_tile_cache_for_table(value)
-    elif item == _QUICKLOOK:
+    elif item == QUICKLOOK_ITEM:
         settled = await _redraw_quicklook(dataset.id, value)
     elif item == _EMBEDDING:
         settled = await defer_embedding(dataset)

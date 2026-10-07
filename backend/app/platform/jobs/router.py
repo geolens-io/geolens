@@ -31,6 +31,8 @@ from app.platform.jobs.ledger import Outcome, cancel, retry
 from app.platform.jobs.models import (
     EMBEDDING_BACKFILL_METADATA_KEY,
     FAN_OUT_INTERRUPTED_METADATA_KEY,
+    PUBLISH_OBLIGATIONS_FIELD,
+    QUICKLOOK_ITEM,
     TERMINAL_STATUSES,
     URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY,
     IngestJob,
@@ -594,6 +596,7 @@ async def _job_to_status_response(
                     temporal_parse_errors[cast(TemporalParseKey, key)] = str(v)
 
     can_retry, retry_reason = await _retry_capability(job)
+    obligations = (job.user_metadata or {}).get(PUBLISH_OBLIGATIONS_FIELD)
 
     return JobStatusResponse(
         id=job.id,
@@ -604,6 +607,8 @@ async def _job_to_status_response(
         error_code=job.error_code,
         can_retry=can_retry,
         retry_reason=retry_reason,
+        quicklook_pending=isinstance(obligations, dict)
+        and QUICKLOOK_ITEM in obligations,
         warning_message=warning_message,
         warnings=warnings,
         # REMED-02 / ingest-audit P2-07: surface worker-written progress fields.
