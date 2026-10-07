@@ -46,6 +46,7 @@ from app.platform.jobs.schemas import (
     StaleCleanupResponse,
 )
 from app.platform.jobs.originals_reconcile import reconcile_orphaned_originals
+from app.platform.jobs.quicklook_reconcile import reconcile_orphaned_quicklooks
 from app.platform.jobs.staging_reconcile import reconcile_orphaned_staging_objects
 from app.platform.jobs.sweep import (
     JOB_TIMEOUT_SECONDS,  # noqa: F401 -- re-exported, see __all__
@@ -217,6 +218,7 @@ async def cleanup_stale_jobs(
             # reconciles per tenant.
             await reconcile_orphaned_staging_objects(db)
             await reconcile_orphaned_originals(db)
+            await reconcile_orphaned_quicklooks(db)
             from app.processing.ingest.publish_followups import (
                 run_owed_publish_followups,
             )

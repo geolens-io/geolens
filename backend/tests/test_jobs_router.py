@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from typing import TYPE_CHECKING
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
@@ -1288,6 +1289,19 @@ class TestCleanupStaleJobs:
         """POST /jobs/cleanup/stale/ without auth returns 401."""
         resp = await client.post("/jobs/cleanup/stale/")
         assert resp.status_code == 401
+
+    async def test_cleanup_reconciles_orphaned_quicklooks(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """An operator's immediate cleanup also reaps unreferenced quicklook images."""
+        with patch(
+            "app.platform.jobs.router.reconcile_orphaned_quicklooks",
+            new_callable=AsyncMock,
+        ) as reconcile:
+            resp = await client.post("/jobs/cleanup/stale/", headers=admin_auth_header)
+
+        assert resp.status_code == 200
+        reconcile.assert_awaited_once()
 
     async def test_cleanup_returns_counts(
         self, client: AsyncClient, admin_auth_header: dict
