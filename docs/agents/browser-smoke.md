@@ -20,7 +20,7 @@ Copy locators from the spec for the area you're checking (`e2e/<area>.spec.ts`),
 
 ## Fixtures
 
-- Read rows with `docker compose exec -T db psql -U <POSTGRES_USER from .env> -d geolens`. Catalog tables live in the `catalog` schema and imported data in `data`. Run `\d catalog.<table>` before writing a query: a dataset's title and creation time are on `catalog.records`, not `catalog.datasets`.
+- Read rows with `docker compose exec -T db psql -U <POSTGRES_USER from .env> -d <POSTGRES_DB from .env>`. Catalog tables live in the `catalog` schema and imported data in `data`. Run `\d catalog.<table>` before writing a query: a dataset's title and creation time are on `catalog.records`, not `catalog.datasets`.
 - Feature editing is off by default. A check that edits features turns on **Admin → Settings → General → dataset editing**, and turns it off again when done.
 
 ## Screenshots
