@@ -86,7 +86,8 @@ async def measure(
         three_d = await detect_3d_metadata(session, table, schema=schema)
 
     declared = await _declared_geometry_type(session, schema=schema, table=table)
-    if declared is not None and metadata.get("geometry_type") is None:
+    measured = metadata.get("geometry_type")
+    if declared is not None and measured is None:
         three_d = await _three_d_without_rows(
             session, stored, schema=schema, table=table
         )
@@ -95,7 +96,7 @@ async def measure(
         sample_values=sample_values,
         three_d=three_d,
         geometry_type=_effective_geometry_type(
-            measured=metadata.get("geometry_type"),
+            measured=measured,
             declared=declared,
             stored=stored.geometry_type,
         ),

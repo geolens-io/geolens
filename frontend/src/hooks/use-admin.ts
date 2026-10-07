@@ -108,7 +108,10 @@ export function useAdminJobs(params: {
     refetchInterval: (q) => {
       const jobs = q.state.data?.jobs ?? [];
       const hasActive = jobs.some((j) => j.status === 'pending' || j.status === 'running');
-      return hasActive ? 3_000 : false;
+      if (hasActive) return 3_000;
+      // Accepting a held replacement changes no job status, so a page showing
+      // one is rechecked slowly.
+      return jobs.some((j) => j.review_state === 'awaiting') ? 15_000 : false;
     },
     refetchIntervalInBackground: false,
   });

@@ -56,3 +56,22 @@ describe('JobList status badge', () => {
     expect(screen.getByText('Unknown (quarantined)')).toBeInTheDocument();
   });
 });
+
+describe('JobList held replacement', () => {
+  it('labels a held replacement by its review state instead of Failed', () => {
+    mockJobs({ status: 'failed', error_code: 'review_required', review_state: 'awaiting' });
+
+    render(<JobList />);
+
+    expect(screen.getByText('Awaiting review', { selector: '[data-slot="badge"]' })).toBeInTheDocument();
+    expect(screen.queryByText('Failed', { selector: '[data-slot="badge"]' })).not.toBeInTheDocument();
+  });
+
+  it('shows an accepted replacement as reviewed', () => {
+    mockJobs({ status: 'failed', error_code: 'review_required', review_state: 'resolved' });
+
+    render(<JobList />);
+
+    expect(screen.getByText('Reviewed')).toBeInTheDocument();
+  });
+});

@@ -77,4 +77,19 @@ describe('useAdminJobs polling (#2033)', () => {
     // No further fetches — nothing left to watch.
     expect(mockListAdminJobs).toHaveBeenCalledTimes(1);
   });
+
+  it('keeps rechecking a row held for review until it is accepted', async () => {
+    const held = { ...makeJob('failed'), review_state: 'awaiting' as const };
+    mockListAdminJobs
+      .mockResolvedValueOnce({ jobs: [held], total: 1 })
+      .mockResolvedValueOnce({ jobs: [{ ...held, review_state: 'resolved' }], total: 1 });
+
+    const { result } = renderHook(() => useAdminJobs({}), { wrapper: createWrapper() });
+
+    await waitFor(() => expect(result.current.data?.jobs[0].review_state).toBe('awaiting'));
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    await waitFor(() => expect(result.current.data?.jobs[0].review_state).toBe('resolved'));
+    expect(mockListAdminJobs).toHaveBeenCalledTimes(2);
+  });
 });

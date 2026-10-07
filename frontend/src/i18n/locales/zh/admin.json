@@ -195,7 +195,8 @@
       "allUsers": "全部用户",
       "user": "用户",
       "status": "状态",
-      "clear": "清除"
+      "clear": "清除",
+      "awaitingReview": "等待审核"
     },
     "noJobs": "未找到任务",
     "table": {
@@ -218,7 +219,11 @@
     "startAgain": "重新开始",
     "retryAvailable": "可重试",
     "cancel": "取消",
-    "cancelling": "正在取消..."
+    "cancelling": "正在取消...",
+    "reviewState": {
+      "awaiting": "等待审核",
+      "resolved": "已审核"
+    }
   },
   "audit": {
     "title": "审计日志",

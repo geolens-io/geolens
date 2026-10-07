@@ -8,7 +8,8 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useAdminJobs, useCancelAdminJob, useRetryAdminJob, useUserNames } from '@/hooks/use-admin';
 import { formatDate } from '@/lib/format';
 import { paginationRange } from '@/lib/pagination';
-import { jobStatusColors } from '@/lib/status-colors';
+import { jobStatusColors, semanticBadgeColors } from '@/lib/status-colors';
+import type { AdminJobResponse } from '@/types/api';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -52,6 +53,7 @@ const STATUS_OPTIONS = [
   { value: 'running', labelKey: 'jobs.filters.running' },
   { value: 'complete', labelKey: 'jobs.filters.complete' },
   { value: 'failed', labelKey: 'jobs.filters.failed' },
+  { value: 'awaiting_review', labelKey: 'jobs.filters.awaitingReview' },
   { value: 'cancelled', labelKey: 'jobs.filters.cancelled' },
   { value: 'fanned_out', labelKey: 'jobs.filters.fannedOut' },
 ];
@@ -69,6 +71,24 @@ function jobStatusLabel(t: TFunction<'admin'>, status: string): string {
     case 'fanned_out': return t('import:jobProgress.status.fannedOut');
     default: return t('import:jobProgress.status.unknown', { status });
   }
+}
+
+// A replacement held for review keeps the stored status 'failed'; the list shows
+// what it is waiting on instead.
+function jobBadge(
+  t: TFunction<'admin'>,
+  job: Pick<AdminJobResponse, 'status' | 'review_state'>,
+): { label: string; className: string } {
+  if (job.review_state === 'awaiting') {
+    return { label: t('jobs.reviewState.awaiting'), className: semanticBadgeColors.warning };
+  }
+  if (job.review_state === 'resolved') {
+    return { label: t('jobs.reviewState.resolved'), className: 'bg-muted text-muted-foreground border-border' };
+  }
+  return {
+    label: jobStatusLabel(t, job.status),
+    className: jobStatusColors[job.status] ?? 'bg-muted text-muted-foreground border-border',
+  };
 }
 
 function formatDuration(startedAt: string | null, completedAt: string | null): string {
@@ -383,7 +403,9 @@ export function JobList() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(data?.jobs ?? []).map((job) => (
+                  {(data?.jobs ?? []).map((job) => {
+                    const badge = jobBadge(t, job);
+                    return (
                     <Fragment key={job.id}>
                       <TableRow
                         data-state={expandedId === job.id ? 'selected' : undefined}
@@ -439,9 +461,9 @@ export function JobList() {
                         <TableCell>
                           <Badge
                             variant="outline"
-                            className={`text-xs ${jobStatusColors[job.status] ?? 'bg-muted text-muted-foreground border-border'}`}
+                            className={`text-xs ${badge.className}`}
                           >
-                            {jobStatusLabel(t, job.status)}
+                            {badge.label}
                           </Badge>
                           {job.status === 'failed' && job.can_retry && (
                             <p className="mt-1 text-xs text-muted-foreground">
@@ -528,7 +550,8 @@ export function JobList() {
                         </TableRow>
                       )}
                     </Fragment>
-                  ))}
+                    );
+                  })}
                 </TableBody>
                 </Table>
               </>

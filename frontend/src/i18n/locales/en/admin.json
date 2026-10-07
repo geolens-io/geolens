@@ -195,7 +195,8 @@
       "allUsers": "All Users",
       "user": "User",
       "status": "Status",
-      "clear": "Clear"
+      "clear": "Clear",
+      "awaitingReview": "Awaiting review"
     },
     "noJobs": "No jobs found",
     "table": {
@@ -218,7 +219,11 @@
     "startAgain": "Start again",
     "retryAvailable": "Retry available",
     "cancel": "Cancel",
-    "cancelling": "Cancelling..."
+    "cancelling": "Cancelling...",
+    "reviewState": {
+      "awaiting": "Awaiting review",
+      "resolved": "Reviewed"
+    }
   },
   "audit": {
     "title": "Audit Logs",

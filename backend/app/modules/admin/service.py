@@ -9,6 +9,7 @@ from sqlalchemy import delete, func, nulls_last, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
+from app.modules.admin.job_review import job_status_filters
 from app.modules.admin.schemas import (
     CatalogStatsResponse,
     EmbeddingStatsResponse,
@@ -814,8 +815,7 @@ class AdminService:
         from app.platform.jobs.models import IngestJob
 
         filters = []
-        if status is not None:
-            filters.append(IngestJob.status == status)
+        filters.extend(job_status_filters(status))
         if user_id is not None:
             filters.append(IngestJob.created_by == user_id)
         if search is not None:

@@ -146,7 +146,7 @@ async def get_geometry_type(
         text(
             # codeql[py/sql-injection] fix(#1615): identifiers validated by _qtable (metadata_sql.py)
             f"SELECT GeometryType(geom) FROM "
-            f"{_qtable(table_name, schema=schema)} LIMIT 1"
+            f"{_qtable(table_name, schema=schema)} WHERE geom IS NOT NULL LIMIT 1"
         )
     )
     value = result.scalar_one_or_none()
@@ -172,6 +172,31 @@ async def get_geometry_types(
         )
     )
     return sorted({_normalize_geometry_type(value) for value in result.scalars()})
+
+
+async def _generic_column_type(
+    session: AsyncSession, sampled: str | None, table_name: str, schema: str
+) -> str | None:
+    """``sampled``, corrected for a ``geom`` column declared as generic GEOMETRY.
+
+    The generic type when the non-empty rows span several kinds. A multi-part
+    row and its single-part form count as one kind, so a file mixing POLYGON
+    and MULTIPOLYGON still reports a concrete type: the sampled one when some
+    row has it, since the sampled row may be empty.
+    """
+    declared = await session.scalar(
+        text(
+            "SELECT type FROM geometry_columns "
+            "WHERE f_table_schema = :schema AND f_table_name = :t "
+            "AND f_geometry_column = 'geom'"
+        ).bindparams(schema=schema, t=table_name)
+    )
+    if _normalize_geometry_type(declared) != "GEOMETRY":
+        return sampled
+    types = await get_geometry_types(session, table_name, schema=schema) or []
+    if len({t.removeprefix("MULTI") for t in types}) > 1:
+        return "GEOMETRY"
+    return sampled if sampled in types or not types else types[0]
 
 
 async def get_feature_count(
@@ -611,7 +636,9 @@ async def extract_metadata(
             ).bindparams(schema=schema, t=table_name)
         )
         row = result.one()
-        geometry_type = _normalize_geometry_type(row.geometry_type)
+        geometry_type = await _generic_column_type(
+            session, _normalize_geometry_type(row.geometry_type), table_name, schema
+        )
         # fix(#934): emit the two-ring MULTIPOLYGON for a Pacific-crossing
         # source instead of storing the naive fold; see get_extent above.
         extent_wkt = row.extent_wkt
@@ -636,7 +663,12 @@ async def extract_metadata(
             exc_info=True,
         )
         srid = await get_table_srid(session, table_name, schema=schema)
-        geometry_type = await get_geometry_type(session, table_name, schema=schema)
+        geometry_type = await _generic_column_type(
+            session,
+            await get_geometry_type(session, table_name, schema=schema),
+            table_name,
+            schema,
+        )
         extent_wkt = await get_extent(session, table_name, schema=schema)
         feature_count = await get_feature_count(session, table_name, schema=schema)
         return {

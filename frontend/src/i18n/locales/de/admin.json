@@ -195,7 +195,8 @@
       "allUsers": "Alle Benutzer",
       "user": "Benutzer",
       "status": "Status",
-      "clear": "Zurücksetzen"
+      "clear": "Zurücksetzen",
+      "awaitingReview": "Wartet auf Prüfung"
     },
     "noJobs": "Keine Aufträge gefunden",
     "table": {
@@ -218,7 +219,11 @@
     "cancel": "Abbrechen",
     "cancelling": "Wird abgebrochen...",
     "hideDetails": "Details ausblenden für {{name}}",
-    "showDetails": "Details anzeigen für {{name}}"
+    "showDetails": "Details anzeigen für {{name}}",
+    "reviewState": {
+      "awaiting": "Wartet auf Prüfung",
+      "resolved": "Geprüft"
+    }
   },
   "audit": {
     "title": "Protokoll",

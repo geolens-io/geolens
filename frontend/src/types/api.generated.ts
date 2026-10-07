@@ -5888,6 +5888,11 @@ export interface components {
              */
             error_code?: string | null;
             /**
+             * Review State
+             * @description Set on a replacement the pipeline held for review rather than failed: 'awaiting' while the held run still needs a decision, 'resolved' once it was accepted. Null for every other job.
+             */
+            review_state?: ("awaiting" | "resolved") | null;
+            /**
              * Can Retry
              * @description Whether the failed job can be retried with its retained source.
              */
@@ -15882,6 +15887,7 @@ export interface operations {
     list_admin_jobs_admin_jobs__get: {
         parameters: {
             query?: {
+                /** @description Job status to match. 'failed' leaves out replacements held for review, which 'awaiting_review' lists while their run still needs a decision. */
                 status?: string | null;
                 user_id?: string | null;
                 search?: string | null;

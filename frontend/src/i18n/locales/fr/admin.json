@@ -195,7 +195,8 @@
       "allUsers": "Tous les utilisateurs",
       "user": "Utilisateur",
       "status": "Statut",
-      "clear": "Effacer"
+      "clear": "Effacer",
+      "awaitingReview": "En attente de révision"
     },
     "noJobs": "Aucune tâche trouvée",
     "table": {
@@ -218,7 +219,11 @@
     "cancel": "Annuler",
     "cancelling": "Annulation...",
     "hideDetails": "Masquer les détails de {{name}}",
-    "showDetails": "Afficher les détails de {{name}}"
+    "showDetails": "Afficher les détails de {{name}}",
+    "reviewState": {
+      "awaiting": "En attente de révision",
+      "resolved": "Révisé"
+    }
   },
   "audit": {
     "title": "Journal d'audit",

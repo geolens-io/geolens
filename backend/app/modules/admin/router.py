@@ -16,6 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import StreamingResponse
 
+from app.modules.admin.job_review import REVIEW_REQUIRED, review_states
 from app.modules.admin.schemas import (
     AdminJobListResponse,
     AdminJobResponse,
@@ -815,7 +816,14 @@ async def get_catalog_stats(
     dependencies=[Depends(require_permission("manage_users"))],
 )
 async def list_admin_jobs(
-    status: str | None = Query(None),
+    status: str | None = Query(
+        None,
+        description=(
+            "Job status to match. 'failed' leaves out replacements held for "
+            "review, which 'awaiting_review' lists while their run still needs "
+            "a decision."
+        ),
+    ),
     user_id: uuid.UUID | None = Query(None),
     search: str | None = Query(None),
     skip: int = Query(0, ge=0),
@@ -848,6 +856,8 @@ async def list_admin_jobs(
     retry_capabilities = await asyncio.gather(
         *(get_retry_capability(job) for job, _username in rows)
     )
+    held = [job.id for job, _ in rows if job.error_code == REVIEW_REQUIRED]
+    states = await review_states(db, held)
     jobs = [
         AdminJobResponse(
             id=job.id,
@@ -856,6 +866,7 @@ async def list_admin_jobs(
             dataset_id=job.dataset_id,
             error_message=job.error_message,
             error_code=job.error_code,
+            review_state=states.get(job.id),
             can_retry=can_retry,
             retry_reason=retry_reason,
             source_url=_listed_source_url(job),

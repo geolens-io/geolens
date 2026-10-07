@@ -245,6 +245,12 @@ class AdminJobResponse(BaseModel):
         "it in the reader's language; `error_message` keeps its English text. "
         "Null when the reason is free text.",
     )
+    review_state: Literal["awaiting", "resolved"] | None = Field(
+        default=None,
+        description="Set on a replacement the pipeline held for review rather than "
+        "failed: 'awaiting' while the held run still needs a decision, 'resolved' "
+        "once it was accepted. Null for every other job.",
+    )
     can_retry: bool = Field(
         description="Whether the failed job can be retried with its retained source."
     )

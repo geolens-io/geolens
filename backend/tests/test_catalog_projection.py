@@ -34,6 +34,7 @@ from app.processing.ingest.catalog_projection import (
 from app.processing.ingest.metadata import (
     detect_3d_metadata,
     extract_metadata,
+    get_geometry_type,
     refresh_attribute_metadata,
 )
 from app.processing.ingest.tasks_staging import StagingResult
@@ -271,6 +272,59 @@ async def test_an_empty_generic_column_keeps_the_stored_type_or_says_geometry(
         _require_feature_table(projected)
     finally:
         await _drop(session, dataset.table_name)
+
+
+@pytest.mark.parametrize(
+    ("wkts", "expected"),
+    [
+        (
+            ["POINT(1 1)", "LINESTRING(0 0, 1 1)", "POLYGON((0 0, 1 0, 1 1, 0 0))"],
+            "GEOMETRY",
+        ),
+        (
+            ["POLYGON((0 0, 1 0, 1 1, 0 0))", "MULTIPOLYGON(((2 2, 3 2, 3 3, 2 2)))"],
+            "POLYGON",
+        ),
+        (["POINT EMPTY", "LINESTRING(0 0, 1 1)"], "LINESTRING"),
+    ],
+)
+async def test_a_generic_column_is_cataloged_by_all_its_rows_not_the_first(
+    test_db_session, wkts: list[str], expected: str
+) -> None:
+    """Mixed kinds record the generic type; single and multi forms of one kind stay concrete."""
+    session = test_db_session
+    dataset = await _dataset(session, geometry_type=None, record_type="table")
+    await _table(session, dataset.table_name, geometry="Geometry", wkts=wkts)
+    try:
+        await _measure_and_project(session, dataset, dataset.table_name)
+
+        assert (await _reload(session, dataset.id)).geometry_type == expected
+    finally:
+        await _drop(session, dataset.table_name)
+
+
+async def test_a_null_geometry_row_does_not_decide_the_sampled_type(
+    test_db_session,
+) -> None:
+    """The per-helper fallback samples a row that has a geometry, like the single query."""
+    session = test_db_session
+    name = f"ql_{uuid.uuid4().hex[:12]}"
+    await _table(session, name, geometry="Geometry")
+    await session.execute(
+        sa.text(f"INSERT INTO data.{name} (name) VALUES ('null row')")
+    )
+    await session.execute(
+        sa.text(
+            f"INSERT INTO data.{name} (name, geom, geom_4326) VALUES "
+            "('pt', ST_GeomFromText('POINT(1 1)', 4326), "
+            "ST_GeomFromText('POINT(1 1)', 4326))"
+        )
+    )
+    await session.commit()
+    try:
+        assert await get_geometry_type(session, name) == "POINT"
+    finally:
+        await _drop(session, name)
 
 
 async def test_3d_points_record_their_dimensions_and_z_range(test_db_session) -> None:

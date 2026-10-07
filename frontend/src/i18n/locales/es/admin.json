@@ -195,7 +195,8 @@
       "allUsers": "Todos los usuarios",
       "user": "Usuario",
       "status": "Estado",
-      "clear": "Limpiar"
+      "clear": "Limpiar",
+      "awaitingReview": "En espera de revisión"
     },
     "noJobs": "No se encontraron trabajos",
     "table": {
@@ -218,7 +219,11 @@
     "cancel": "Cancelar",
     "cancelling": "Cancelando...",
     "hideDetails": "Ocultar detalles de {{name}}",
-    "showDetails": "Mostrar detalles de {{name}}"
+    "showDetails": "Mostrar detalles de {{name}}",
+    "reviewState": {
+      "awaiting": "En espera de revisión",
+      "resolved": "Revisado"
+    }
   },
   "audit": {
     "title": "Registros de auditoría",
