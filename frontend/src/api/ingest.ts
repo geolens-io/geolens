@@ -34,6 +34,9 @@ import type {
 /** Byte-transfer progress callback (0–1). */
 export type UploadProgress = (fraction: number) => void;
 
+/** No upload progress and no server response within this window means a stalled connection. */
+const UPLOAD_INACTIVITY_TIMEOUT_MS = 120_000;
+
 /**
  * Rethrows err, rebuilding an ApiError's message through describeUploadRefusal
  * only when its status is a key of UPLOAD_REFUSAL_FALLBACK_KEYS and its body
@@ -66,6 +69,7 @@ async function xhrUpload<T>(
   path: string,
   formData: FormData,
   onProgress?: UploadProgress,
+  signal?: AbortSignal,
 ): Promise<T> {
   // A direct-POST upload (uploadFile) previously bypassed the problem
   // reporter entirely: it's called from a plain try/catch in UploadForm, not
@@ -78,20 +82,60 @@ async function xhrUpload<T>(
 
   const attempt = (jwt: string | null): Promise<{ status: number; body: string }> =>
     new Promise<{ status: number; body: string }>((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(new DOMException('Aborted', 'AbortError'));
+        return;
+      }
       const xhr = new XMLHttpRequest();
+      let settled = false;
+      let inactivityTimer: ReturnType<typeof setTimeout>;
+
+      const settle = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(inactivityTimer);
+        signal?.removeEventListener('abort', onAbort);
+        fn();
+      };
+      // Reset on every byte of progress, so a slow upload that keeps moving is
+      // never cut off; it also bounds the wait for the server's response.
+      const armInactivityTimer = () => {
+        clearTimeout(inactivityTimer);
+        inactivityTimer = setTimeout(() => {
+          settle(() => {
+            xhr.abort();
+            reject(new ApiError(i18n.t('common:errors.requestTimeout'), 0));
+          });
+        }, UPLOAD_INACTIVITY_TIMEOUT_MS);
+      };
+      const onAbort = () => {
+        settle(() => {
+          xhr.abort();
+          reject(new DOMException('Aborted', 'AbortError'));
+        });
+      };
+      signal?.addEventListener('abort', onAbort, { once: true });
+
       xhr.open('POST', `${API_BASE}${path}`);
       if (jwt) xhr.setRequestHeader('Authorization', `Bearer ${jwt}`);
-      if (onProgress) {
-        xhr.upload.onprogress = (e) => {
-          if (e.lengthComputable) onProgress(e.loaded / e.total);
-        };
-      }
-      xhr.onload = () => resolve({ status: xhr.status, body: xhr.responseText });
+      xhr.upload.onprogress = (e) => {
+        armInactivityTimer();
+        if (onProgress && e.lengthComputable) onProgress(e.loaded / e.total);
+      };
+      xhr.upload.onload = armInactivityTimer;
+      xhr.onload = () => settle(() => resolve({ status: xhr.status, body: xhr.responseText }));
       xhr.onerror = () =>
-        reject(new ApiError(i18n.t('common:errors.networkUnavailable'), 0));
+        settle(() => reject(new ApiError(i18n.t('common:errors.networkUnavailable'), 0)));
+      xhr.onabort = onAbort;
+      xhr.ontimeout = () =>
+        settle(() => reject(new ApiError(i18n.t('common:errors.requestTimeout'), 0)));
+      armInactivityTimer();
       xhr.send(formData);
     }).catch((err: unknown) => {
-      reportNetworkError({ status: 0, url: reportUrl, detail: err instanceof Error ? err.message : undefined });
+      // A caller's own cancellation is not a failure worth reporting.
+      if (!(err instanceof DOMException && err.name === 'AbortError')) {
+        reportNetworkError({ status: 0, url: reportUrl, detail: err instanceof Error ? err.message : undefined });
+      }
       throw err;
     });
 
@@ -134,12 +178,13 @@ export async function uploadFile(
   file: File,
   onProgress?: UploadProgress,
   kind?: UploadKind | null,
+  signal?: AbortSignal,
 ): Promise<UploadResponse> {
   const formData = new FormData();
   formData.append('file', file);
   if (kind) formData.append('kind', kind);
 
-  return xhrUpload<UploadResponse>('/ingest/upload', formData, onProgress);
+  return xhrUpload<UploadResponse>('/ingest/upload', formData, onProgress, signal);
 }
 
 /**
