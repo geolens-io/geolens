@@ -61,7 +61,14 @@ function toSharedLayer(layer: MapLayerResponse): SharedLayerResponse {
   };
 }
 
+// Keyed by map id so the basemap choice and drawn layers start fresh when the
+// route switches to another map without a remount.
 export function PublicMapViewerPage() {
+  const { id } = useParams<{ id: string }>();
+  return <PublicMapViewer key={id} />;
+}
+
+function PublicMapViewer() {
   const { t } = useTranslation('common');
   const { id } = useParams<{ id: string }>();
   useDocumentTitle(t('common:pageTitle.map'));
