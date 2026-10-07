@@ -21,18 +21,22 @@ export function VerificationPending({ email }: VerificationPendingProps) {
   const { t } = useTranslation('auth');
   const [resending, setResending] = useState(false);
   const [resendSent, setResendSent] = useState(false);
+  const [resendFailed, setResendFailed] = useState(false);
 
   async function handleResend() {
     setResending(true);
+    setResendFailed(false);
     try {
-      // The backend is enumeration-safe: always returns 200 — show generic
-      // confirmation regardless of outcome (T-1231-11).
+      // The backend answers every accepted request with the same 200, whether
+      // or not the email is registered, so only that 200 earns the generic
+      // confirmation. A failure says nothing about the account and keeps the
+      // button for another try.
       await resendVerification(email);
+      setResendSent(true);
     } catch {
-      // Swallow errors to preserve enumeration-safety on the frontend.
+      setResendFailed(true);
     } finally {
       setResending(false);
-      setResendSent(true);
     }
   }
 
@@ -51,21 +55,28 @@ export function VerificationPending({ email }: VerificationPendingProps) {
             {t('verificationPending.resendSent')}
           </p>
         ) : (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleResend}
-            disabled={resending}
-          >
-            {resending ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                {t('verificationPending.resending')}
-              </>
-            ) : (
-              t('verificationPending.resend')
+          <>
+            {resendFailed && (
+              <p role="alert" className="text-destructive text-center text-sm">
+                {t('verificationPending.resendFailed')}
+              </p>
             )}
-          </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleResend}
+              disabled={resending}
+            >
+              {resending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  {t('verificationPending.resending')}
+                </>
+              ) : (
+                t('verificationPending.resend')
+              )}
+            </Button>
+          </>
         )}
         <Link
           to="/login"
