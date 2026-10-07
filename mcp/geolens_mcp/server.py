@@ -9,15 +9,42 @@ README.md for client configuration.
 
 from __future__ import annotations
 
-from typing import Any, Optional
+import asyncio
+import functools
+from typing import Annotated, Any, Callable, Optional, TypeVar
 
 from mcp.server.fastmcp import FastMCP
+from pydantic import Field
 
 from .client import GeoLensReadOnlyAPI, build_httpx_client
 
 mcp = FastMCP("geolens")
 
 _api: Optional[GeoLensReadOnlyAPI] = None
+
+
+_F = TypeVar("_F", bound=Callable[..., Any])
+
+
+def _tool(fn: _F) -> _F:
+    """Register ``fn`` as an MCP tool and return it unchanged.
+
+    The tool bodies make blocking HTTP calls. FastMCP runs sync tools on the
+    event loop, which stalls ping and cancellation handling for the length of
+    the call, so the registered wrapper runs them in a worker thread. A
+    cancelled request stops awaiting the thread and sends no result. Arguments
+    outside the advertised schema are rejected instead of dropped.
+    """
+
+    @functools.wraps(fn)
+    async def run_off_loop(*args: Any, **kwargs: Any) -> Any:
+        return await asyncio.to_thread(fn, *args, **kwargs)
+
+    mcp.tool(name=fn.__name__)(run_off_loop)
+    arg_model = mcp._tool_manager.get_tool(fn.__name__).fn_metadata.arg_model
+    arg_model.model_config["extra"] = "forbid"
+    arg_model.model_rebuild(force=True)
+    return fn
 
 
 def _get_api() -> GeoLensReadOnlyAPI:
@@ -29,8 +56,12 @@ def _get_api() -> GeoLensReadOnlyAPI:
     return _api
 
 
-@mcp.tool()
-def search_datasets(query: str, limit: int = 10, offset: int = 0) -> Any:
+@_tool
+def search_datasets(
+    query: str,
+    limit: Annotated[int, Field(ge=1, le=200)] = 10,
+    offset: Annotated[int, Field(ge=0)] = 0,
+) -> Any:
     """Search the GeoLens catalog for datasets by free text.
 
     Matches title, description, and keywords (semantic ranking is used
@@ -56,7 +87,7 @@ def search_datasets(query: str, limit: int = 10, offset: int = 0) -> Any:
     return _get_api().search_datasets(query, limit=limit, offset=offset)
 
 
-@mcp.tool()
+@_tool
 def get_dataset_schema(dataset_id: str) -> Any:
     """Get a dataset's schema and source trust metadata.
 
@@ -78,17 +109,18 @@ def get_dataset_schema(dataset_id: str) -> Any:
     return _get_api().get_dataset_schema(dataset_id)
 
 
-@mcp.tool()
+@_tool
 def get_features(
     dataset_id: str,
-    limit: int = 10,
-    offset: int = 0,
+    limit: Annotated[int, Field(ge=1, le=200)] = 10,
+    offset: Annotated[int, Field(ge=0)] = 0,
     bbox: Optional[str] = None,
 ) -> Any:
     """Get GeoJSON features for a dataset (bounded).
 
     Returns an OGC-API FeatureCollection. Raster datasets have no features and
-    will error. Results are capped by `limit`; page with `offset`.
+    will error. Results are capped by `limit`; page with `offset`. Only the arguments
+    listed below are supported; anything else is rejected.
 
     Args:
         dataset_id: Dataset id.
@@ -99,8 +131,12 @@ def get_features(
     return _get_api().get_features(dataset_id, limit=limit, offset=offset, bbox=bbox)
 
 
-@mcp.tool()
-def list_maps(search: Optional[str] = None, limit: int = 50, offset: int = 0) -> Any:
+@_tool
+def list_maps(
+    search: Optional[str] = None,
+    limit: Annotated[int, Field(ge=1, le=200)] = 50,
+    offset: Annotated[int, Field(ge=0)] = 0,
+) -> Any:
     """List saved maps (read-only metadata: id, name, visibility, layer count).
 
     Args:
@@ -111,7 +147,7 @@ def list_maps(search: Optional[str] = None, limit: int = 50, offset: int = 0) ->
     return _get_api().list_maps(search=search, limit=limit, offset=offset)
 
 
-@mcp.tool()
+@_tool
 def get_map(map_id: str) -> Any:
     """Get one saved map's full metadata, including its layers, view state,
     basemap, and terrain configuration.
@@ -122,8 +158,12 @@ def get_map(map_id: str) -> Any:
     return _get_api().get_map(map_id)
 
 
-@mcp.tool()
-def query(sql: str, restrict_tables: list[str], row_limit: int = 100) -> Any:
+@_tool
+def query(
+    sql: str,
+    restrict_tables: list[str],
+    row_limit: Annotated[int, Field(ge=1, le=1000)] = 100,
+) -> Any:
     """Run one read-only SQL SELECT against accessible datasets.
 
     Executes through the server's hardened SQL sandbox: a single SELECT over

@@ -69,7 +69,7 @@ def test_search_datasets_path_and_params():
     api, seen = _api(_ok({"type": "FeatureCollection", "features": []}))
     out = api.search_datasets("roads", limit=5, offset=10)
     assert out == {"type": "FeatureCollection", "features": []}
-    req = seen[-1]
+    req = seen[0]
     assert req.url.path == "/api/search/datasets"  # /api preserved, no trailing slash
     assert req.url.params["q"] == "roads"
     assert req.url.params["limit"] == "5"
@@ -103,6 +103,23 @@ def test_search_datasets_drops_collection_features():
     ids = [f["id"] for f in out["features"]]
     assert ids == ["d1", "r1"]  # collection c1 removed; raster kept
     assert out["numberReturned"] == 2  # count kept consistent
+    assert out["numberMatched"] == 2  # the collection no longer inflates the total
+
+
+def test_search_datasets_total_excludes_collections_on_later_pages():
+    def handler(request: httpx.Request) -> httpx.Response:
+        page0 = request.url.params["offset"] == "0"
+        feats = [{"id": "d1", "properties": {"record_type": "vector_dataset"}}]
+        if page0:
+            feats.append({"id": "c1", "properties": {"record_type": "collection"}})
+        return httpx.Response(
+            200,
+            json={"features": feats, "numberMatched": 12, "numberReturned": len(feats)},
+        )
+
+    api, _ = _api(handler)
+    assert api.search_datasets("parks", offset=0)["numberMatched"] == 11
+    assert api.search_datasets("parks", limit=1, offset=1)["numberMatched"] == 11
 
 
 @pytest.mark.parametrize(
@@ -310,7 +327,9 @@ def test_query_posts_json_to_the_slashed_route():
 
 
 def test_query_defaults_row_limit():
-    api, seen = _api(_ok({"columns": [], "rows": [], "row_count": 0, "truncated": False}))
+    api, seen = _api(
+        _ok({"columns": [], "rows": [], "row_count": 0, "truncated": False})
+    )
     api.query("SELECT gid FROM data.roads", restrict_tables=["roads"])
     import json as _json
 
