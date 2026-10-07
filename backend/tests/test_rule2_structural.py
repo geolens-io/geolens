@@ -520,7 +520,7 @@ VECTOR_CLI_DRIVER_POLICY: dict[
         SAFE_VECTOR_ENV_HELPER,
         "the preview, which returns sample rows to the caller",
     ),
-    ("processing/ingest/ogr.py", "_csv_geometry_is_3d", "ogrinfo"): (
+    ("processing/ingest/ogr.py", "_csv_geometry_is_3d", "ogr2ogr"): (
         1,
         STAGED_UPLOAD,
         SAFE_VECTOR_ENV_HELPER,

@@ -33,20 +33,31 @@ async def _drop(session, table: str) -> None:
 
 
 async def _export_table(
-    session, client, headers, *, srid: int, geom_sql: str, render_sql: str
+    session,
+    client,
+    headers,
+    *,
+    srid: int,
+    geom_sql: str,
+    render_sql: str,
+    geom_type: str = "GeometryZ",
+    attributes: bool = True,
 ):
     table = f"dim_pq_{uuid.uuid4().hex[:12]}"
     await session.execute(
         text(
-            f"CREATE TABLE data.{table} (gid serial PRIMARY KEY, name text, "
-            f"geom geometry(GeometryZ, {srid}), "
+            f"CREATE TABLE data.{table} (gid serial PRIMARY KEY, "
+            f"{'name text, ' if attributes else ''}"
+            f"geom geometry({geom_type}, {srid}), "
             "geom_4326 geometry(Geometry, 4326))"
         )
     )
     await session.execute(
         text(
-            f"INSERT INTO data.{table} (name, geom, geom_4326) VALUES "
-            f"('a', {geom_sql}, {render_sql})"
+            f"INSERT INTO data.{table} ({'name, ' if attributes else ''}"
+            f"geom, geom_4326) VALUES "
+            f"({'' if not attributes else chr(39) + 'a' + chr(39) + ', '}"
+            f"{geom_sql}, {render_sql})"
         )
     )
     await session.commit()
@@ -61,7 +72,7 @@ async def _export_table(
         feature_count=1,
         column_info=[
             {"name": "gid", "type": "integer"},
-            {"name": "name", "type": "text"},
+            *([{"name": "name", "type": "text"}] if attributes else []),
         ],
     )
     resp = await client.get(
@@ -86,6 +97,46 @@ async def test_parquet_export_keeps_z(
         geom = shapely_wkb.loads(out.column("geometry")[0].as_py())
         assert geom.has_z
         assert list(geom.coords[0]) == [10, 20, 30]
+    finally:
+        await _drop(test_db_session, table)
+
+
+async def test_parquet_export_keeps_m(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    table, out = await _export_table(
+        test_db_session,
+        client,
+        admin_auth_header,
+        srid=4326,
+        geom_sql="ST_SetSRID(ST_MakePointM(10, 20, 7), 4326)",
+        render_sql="ST_SetSRID(ST_MakePoint(10, 20), 4326)",
+        geom_type="GeometryM",
+    )
+    try:
+        wkb = out.column("geometry")[0].as_py()
+        # ISO WKB: type 1001 (POINT M) then x, y, m.
+        assert wkb == bytes.fromhex(
+            "01d1070000000000000000244000000000000034400000000000001c40"
+        )
+    finally:
+        await _drop(test_db_session, table)
+
+
+async def test_parquet_export_of_a_geometry_only_table_keeps_z(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    table, out = await _export_table(
+        test_db_session,
+        client,
+        admin_auth_header,
+        srid=4326,
+        geom_sql="ST_SetSRID(ST_MakePoint(10, 20, 30), 4326)",
+        render_sql="ST_SetSRID(ST_MakePoint(10, 20), 4326)",
+        attributes=False,
+    )
+    try:
+        assert shapely_wkb.loads(out.column("geometry")[0].as_py()).has_z
     finally:
         await _drop(test_db_session, table)
 

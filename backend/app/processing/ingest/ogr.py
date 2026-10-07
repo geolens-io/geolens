@@ -1021,7 +1021,7 @@ async def run_ogrinfo_preview(
     return info
 
 
-_CSV_DIMENSION_PROBE_ROWS = 1000
+_CSV_DIMENSION_PROBE_ROWS = 200
 
 
 def _has_z(coordinates: object) -> bool:
@@ -1043,17 +1043,19 @@ async def _csv_geometry_is_3d(
     as 2D, since forcing three dimensions would invent an elevation of 0.
     """
     await run_in_thread_draining(validate_content_directives, file_path)
+    # ogr2ogr rather than ogrinfo: both its -limit and the GeoJSON writer
+    # exist on every GDAL this runs on, which ogrinfo's -json -limit do not.
     cmd = [
-        "ogrinfo",
-        "-ro",
-        "-json",
-        "-features",
+        "ogr2ogr",
+        *local_input_driver_args(file_path),
+        "-f",
+        "GeoJSON",
+        "/vsistdout/",
+        source,
         "-limit",
         str(_CSV_DIMENSION_PROBE_ROWS),
-        *local_input_driver_args(file_path),
         "-oo",
         "GEOM_POSSIBLE_NAMES=WKT,wkt,geometry,geom,the_geom,shape",
-        source,
     ]
     if layer_name:
         cmd.append(layer_name)
@@ -1064,14 +1066,13 @@ async def _csv_geometry_is_3d(
         env=gdal_vector_safe_env(),
     )
     stdout, _ = await _communicate_with_timeout(
-        proc, OGRINFO_TIMEOUT_SECONDS, tool_name="ogrinfo"
+        proc, OGRINFO_TIMEOUT_SECONDS, tool_name="ogr2ogr"
     )
     if proc.returncode != 0:
         return False
     try:
-        layers = json.loads(stdout.decode()).get("layers") or []
-        features = layers[0].get("features") or []
-    except (json.JSONDecodeError, AttributeError, IndexError):
+        features = json.loads(stdout.decode()).get("features") or []
+    except (json.JSONDecodeError, AttributeError):
         return False
     geometries = [
         g
