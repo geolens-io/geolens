@@ -87,10 +87,6 @@ async def measure(
 
     declared = await _declared_geometry_type(session, schema=schema, table=table)
     measured = metadata.get("geometry_type")
-    if declared == _GENERIC_GEOMETRY_TYPE:
-        measured = await _generic_column_type(
-            session, measured, schema=schema, table=table
-        )
     if declared is not None and measured is None:
         three_d = await _three_d_without_rows(
             session, stored, schema=schema, table=table
@@ -244,24 +240,6 @@ async def _declared_geometry_type(
         {"schema": schema, "table": table},
     )
     return _normalize_geometry_type(declared)
-
-
-async def _generic_column_type(
-    session: AsyncSession, sampled: str | None, *, schema: str, table: str
-) -> str | None:
-    """The type a generic ``geom`` column's non-empty rows support.
-
-    The generic type when they span several kinds. A multi-part row and its
-    single-part form count as one kind, so a file that mixes POLYGON and
-    MULTIPOLYGON still reports a concrete type: the sampled one when some row
-    has it, since the sampled row may be empty.
-    """
-    from app.processing.ingest.metadata import get_geometry_types
-
-    types = await get_geometry_types(session, table, schema=schema) or []
-    if len({t.removeprefix("MULTI") for t in types}) > 1:
-        return _GENERIC_GEOMETRY_TYPE
-    return sampled if sampled in types or not types else types[0]
 
 
 async def _three_d_without_rows(
