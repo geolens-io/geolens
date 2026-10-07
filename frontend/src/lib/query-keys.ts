@@ -320,6 +320,7 @@ export const queryKeys = {
   // Dataset search (builder panel)
   // -------------------------------------------------------------------------
   datasetSearch: {
+    all: ['dataset-search'] as const,
     results: (query: string, recordType: string) =>
       ['dataset-search', query, recordType] as const,
   },

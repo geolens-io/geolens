@@ -28,6 +28,7 @@ export function useRefreshSearchWhenQuicklookLands(jobId: string | null) {
         if (cancelled) return;
         if (!job.quicklook_pending) {
           void queryClient.invalidateQueries({ queryKey: queryKeys.search.all });
+          void queryClient.invalidateQueries({ queryKey: queryKeys.datasetSearch.all });
           return;
         }
       } catch (err) {

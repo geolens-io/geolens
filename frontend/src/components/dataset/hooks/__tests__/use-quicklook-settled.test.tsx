@@ -46,6 +46,7 @@ describe('useRefreshSearchWhenQuicklookLands', () => {
 
     await act(() => vi.advanceTimersByTimeAsync(2000));
     expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.search.all });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.datasetSearch.all });
     expect(mockGetJobStatus).toHaveBeenCalledTimes(2);
   });
 
