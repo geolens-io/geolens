@@ -47,11 +47,13 @@ reset-db:
 	docker compose down -v
 	docker compose up --build
 
+# The one-shot migrate service carries the privileged migration identity, which the api lacks
+# when GEOLENS_RUNTIME_DB_ROLE is set.
 migrate:
-	docker compose exec api uv run alembic upgrade heads
+	docker compose run --rm migrate
 
 migration:
-	docker compose exec api uv run alembic revision --autogenerate -m "$(msg)"
+	docker compose exec -T -e UV_CACHE_DIR=/tmp/uv-cache api uv run --no-sync alembic revision --autogenerate -m "$(msg)"
 
 # MIG-03: autogenerate drift gate. `alembic check` exits non-zero if the ORM
 # models have drifted from the migration scripts (a model column added without
