@@ -782,7 +782,7 @@ services:
 
   valkey:
     logging: *bounded-logs
-    image: valkey/valkey:8.1.7-alpine
+    image: valkey/valkey:8.1.10-alpine
     profiles: ["cloud-dev"]
     # fix(#1746): cap_drop ALL removes CAP_SETUID, so the entrypoint's setpriv fails; a non-root user skips setpriv.
     user: "valkey"
