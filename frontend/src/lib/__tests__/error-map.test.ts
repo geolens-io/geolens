@@ -42,6 +42,18 @@ describe('API error localization boundary', () => {
     expect(translateApiErrorDetail(detail, 422)).toContain('approved, draft');
   });
 
+  it("reads a status that holds an apostrophe, which Python quotes with double quotes", () => {
+    expect(
+      classifyApiError(
+        "Cannot transition from 'draft' to 'published'. Allowed: {\"reviewer's approval\"}",
+        422,
+      ),
+    ).toEqual({
+      key: 'errors.workflowTransitionDenied',
+      values: { from: 'draft', to: 'published', allowed: "reviewer's approval" },
+    });
+  });
+
   it('says so when no workflow step is open to the caller', () => {
     expect(
       classifyApiError("Cannot transition from 'draft' to 'published'. Allowed: set()", 422),

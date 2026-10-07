@@ -46,6 +46,7 @@ describe('looksLikeArcGisPortalUrl', () => {
     'https://services6.arcgis.com/abcd1234/arcgis/rest/services/Foo/FeatureServer/0',
     'https://myorg.maps.arcgis.com/arcgis/rest/services/Foo/FeatureServer',
     'https://example.com/wfs',
+    'https://geo.example/home/ogc-api.html',
     'not a url',
   ])('leaves %s alone', (url) => {
     expect(looksLikeArcGisPortalUrl(url)).toBe(false);

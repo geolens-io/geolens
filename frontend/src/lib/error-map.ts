@@ -428,13 +428,14 @@ function descriptorForMessage(message: string, status: number): ApiErrorDescript
 
   // The workflow seam names the refused edge and the steps this actor may
   // take instead; the allowed set is Python's set repr, so it arrives
-  // unordered and `set()` when nothing is open to the caller.
+  // unordered, quoted with double quotes when a name holds an apostrophe, and
+  // `set()` when nothing is open to the caller.
   const workflowDenied = message.match(
     /^Cannot transition from '(.+?)' to '(.+?)'\. Allowed: (?:set\(\)|\{(.*)\})$/,
   );
   if (workflowDenied) {
-    const allowed = [...(workflowDenied[3] ?? '').matchAll(/'([^']+)'/g)]
-      .map((m) => m[1])
+    const allowed = [...(workflowDenied[3] ?? '').matchAll(/'([^']+)'|"([^"]+)"/g)]
+      .map((m) => m[1] ?? m[2])
       .sort();
     const values = { from: workflowDenied[1], to: workflowDenied[2] };
     return allowed.length > 0
