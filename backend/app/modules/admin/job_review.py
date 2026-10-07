@@ -21,7 +21,11 @@ _ACCEPTED = "acceptance_consumed_by_run_id"
 
 
 def _accepted_run_succeeded(held: Any) -> Any:
-    """Whether the run that accepted ``held`` finished, so the acceptance cannot be given back."""
+    """Whether the run that accepted ``held`` ended where the acceptance stays spent.
+
+    A run that succeeded or was held again keeps it; one still in flight, failed
+    or cancelled gives it back.
+    """
     from app.platform.refresh.models import DatasetRefreshRun
 
     accepting = aliased(DatasetRefreshRun)
@@ -29,7 +33,7 @@ def _accepted_run_succeeded(held: Any) -> Any:
         select(accepting.id)
         .where(
             cast(accepting.id, Text) == held.verification[_ACCEPTED].astext,
-            accepting.status == "succeeded",
+            accepting.status.in_(("succeeded", "blocked")),
         )
         .exists()
     )

@@ -118,6 +118,15 @@ async def test_an_acceptance_still_in_flight_keeps_the_review_awaiting(test_db_s
     assert await review_states(test_db_session, [job.id]) == {job.id: "awaiting"}
 
 
+async def test_an_accepting_run_that_was_held_again_resolves_the_review(
+    test_db_session,
+):
+    token = f"held{uuid.uuid4().hex[:10]}"
+    job = await _held_job(test_db_session, token=token, accepted_by="blocked")
+
+    assert await review_states(test_db_session, [job.id]) == {job.id: "resolved"}
+
+
 async def test_a_review_required_job_whose_run_is_gone_stays_a_failure(
     test_db_session,
 ):
