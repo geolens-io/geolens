@@ -1079,17 +1079,28 @@ async def _csv_geometry_is_3d(
     assert proc.stdout is not None
     seen = False
     try:
-        async with asyncio.timeout(OGRINFO_TIMEOUT_SECONDS):
+        async with asyncio.timeout(OGR2OGR_FILE_TIMEOUT_SECONDS):
             async for line in proc.stdout:
-                if not line.startswith(b'{"type":"Feature"'):
+                # The writer's spacing differs between GDAL versions, so
+                # anything that is not one whole feature is skipped.
+                try:
+                    feature = json.loads(line.strip().removesuffix(b","))
+                except ValueError:
                     continue
-                geometry = json.loads(line.rstrip().removesuffix(b",")).get("geometry")
+                if not isinstance(feature, dict) or feature.get("type") != "Feature":
+                    continue
+                geometry = feature.get("geometry")
                 z = _geometry_z(geometry) if geometry else None
                 if z is False:
                     return False
                 seen = seen or z is True
-    except (ValueError, TimeoutError):
+    except ValueError:  # a feature line longer than the stream limit
         return False
+    except TimeoutError:
+        raise IngestionError(
+            f"ogr2ogr timed out after {OGR2OGR_FILE_TIMEOUT_SECONDS}s reading the "
+            "file's geometry"
+        )
     finally:
         if proc.returncode is None:
             proc.kill()

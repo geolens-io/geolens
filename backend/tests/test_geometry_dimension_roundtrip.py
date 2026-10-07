@@ -1,6 +1,7 @@
 """Z and M dimensions survive the GeoParquet export and the CSV WKT imports."""
 
 import shutil
+from unittest.mock import patch
 import uuid
 
 import pyarrow as pa
@@ -260,3 +261,62 @@ async def test_auto_detected_wkt_keeps_z_only_when_every_row_has_it(
         assert [n for n, _ in await _dims(test_db_session, table)] == ndims
     finally:
         await _drop(test_db_session, table)
+
+
+class _Stream:
+    def __init__(self, lines: list[bytes]) -> None:
+        self._lines = iter(lines)
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self) -> bytes:
+        try:
+            return next(self._lines)
+        except StopIteration:
+            raise StopAsyncIteration from None
+
+
+class _Probe:
+    returncode = 0
+
+    def __init__(self, lines: list[bytes]) -> None:
+        self.stdout = _Stream(lines)
+
+    async def wait(self) -> int:
+        return 0
+
+
+@pytest.mark.parametrize(
+    ("feature", "expected"),
+    [
+        (
+            b'{ "type": "Feature", "properties": { "id": "1" }, "geometry": { "type": "Point", "coordinates": [ 1.0, 2.0, 3.0 ] } },\n',
+            True,
+        ),
+        (
+            b'{ "type": "Feature", "properties": { "id": "1" }, "geometry": { "type": "Point", "coordinates": [ 1.0, 2.0 ] } }\n',
+            False,
+        ),
+    ],
+)
+async def test_csv_z_probe_reads_a_spaced_geojson_writer(feature, expected):
+    lines = [
+        b"{\n",
+        b'"type": "FeatureCollection",\n',
+        b'"features": [\n',
+        feature,
+        b"]\n",
+        b"}\n",
+    ]
+
+    async def spawn(*_args, **_kwargs):
+        return _Probe(lines)
+
+    with patch("asyncio.create_subprocess_exec", side_effect=spawn):
+        assert (
+            await ogr._csv_geometry_is_3d(
+                "/staging/shapes.csv", "/staging/shapes.csv", None
+            )
+            is expected
+        )
