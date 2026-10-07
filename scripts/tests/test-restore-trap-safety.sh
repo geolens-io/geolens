@@ -1,21 +1,7 @@
 #!/bin/sh
-# Regression test for scripts/restore.sh's EXIT trap (fix(#1778)).
-#
-# Pure shell with a stubbed `docker` on PATH that records call order to a log;
-# no real stack, no DB, no network. Real restore.sh, real common.sh — only
-# `docker` is faked.
-#
-# Asserts:
-#   - a HARD pg_restore failure (stderr carries "ERROR:") leaves api/worker
-#     STOPPED — before the fix, the EXIT trap restarted them unconditionally,
-#     starting the app's boot-time migrations against a database that has
-#     already been --clean-dropped and only partly repopulated, with no ACLs
-#     re-applied
-#   - a failed post-restore grant verification (geolens_reader USAGE) ALSO
-#     leaves api/worker stopped, for the identical reason
-#   - the ordinary warnings-only pg_restore exit (--clean --if-exists on a
-#     fresh DB) still restarts api/worker once the mandatory grant
-#     reconciliation has run and verified
+# restore.sh restarts api/worker only after a clean restore and verified
+# grants; every other exit leaves them stopped and fails. Real restore.sh and
+# common.sh with a stubbed `docker` that records call order; no stack or DB.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -174,39 +160,52 @@ else
 fi
 
 # ============================================================================
-# CASE 3 — the ordinary warnings-only pg_restore exit (--clean --if-exists on
-# a fresh DB, no "ERROR:" in stderr) must still restart api/worker once the
-# mandatory reconciliation has run and every grant verified — the fix must
-# not regress the BUG-022 behavior this trap exists for.
+# CASE 3 — a nonzero restore exit with empty or non-error stderr: a killed exec
+# (137/143), a Docker CLI failure (125, or a daemon message) or a bare warning
+# summary must fail and leave api/worker stopped without reconciling.
 # ============================================================================
-RESTORE_EXIT=1
-RESTORE_STDERR_TEXT='pg_restore: warning: errors ignored on restore: 1'
-run_restore
-RESTORE_EXIT=0
-RESTORE_STDERR_TEXT=
+for spec in \
+  '137|' \
+  '143|' \
+  '125|' \
+  '1|Error response from daemon: container db is not running' \
+  '1|pg_restore: warning: errors ignored on restore: 1'
+do
+  RESTORE_EXIT="${spec%%|*}"
+  RESTORE_STDERR_TEXT="${spec#*|}"
+  label="restore exit ${RESTORE_EXIT} with stderr '${RESTORE_STDERR_TEXT}'"
+  run_restore
+  RESTORE_EXIT=0
+  RESTORE_STDERR_TEXT=
 
-if [ "$(cat "$WORK/code.txt")" = "0" ]; then
-  ok "warnings-only pg_restore exit does not fail restore.sh"
-else
-  bad "warnings-only pg_restore exit failed restore.sh: $(cat "$WORK/out.txt")"
-fi
+  if [ "$(cat "$WORK/code.txt")" != "0" ]; then
+    ok "${label} makes restore.sh exit non-zero"
+  else
+    bad "${label} did not fail restore.sh"
+  fi
+  if [ -z "$(pos_of reconcile)" ] && [ -z "$(pos_of restart_app)" ]; then
+    ok "${label} neither reconciles nor restarts api/worker"
+  else
+    bad "${label} reconciled or restarted api/worker"
+    sed 's/^/    # /' "$WORK/calls.log"
+  fi
+  if grep -q 'Leaving api/worker STOPPED' "$WORK/out.txt"; then
+    ok "${label} explains why the app was left stopped"
+  else
+    bad "${label} did not explain the stopped app"
+  fi
+done
+
+# ============================================================================
+# CASE 4 — clean pg_restore success reconciles grants, then restarts
+# api/worker.
+# ============================================================================
+run_restore
 r="$(pos_of restart_app)"; c="$(pos_of reconcile)"
-if [ -n "$r" ] && [ -n "$c" ] && [ "$c" -lt "$r" ]; then
-  ok "warnings-only path reconciles grants THEN restarts api/worker ($c < $r)"
+if [ "$(cat "$WORK/code.txt")" = "0" ] && [ -n "$r" ] && [ -n "$c" ] && [ "$c" -lt "$r" ]; then
+  ok "clean pg_restore success reconciles grants THEN restarts api/worker ($c < $r)"
 else
-  bad "warnings-only path did not reconcile-then-restart (reconcile=$c restart=$r)"
-  sed 's/^/    # /' "$WORK/out.txt"
-fi
-
-# ============================================================================
-# CASE 4 — happy path (pg_restore exits 0 cleanly): same restart-at-the-end
-# contract.
-# ============================================================================
-run_restore
-if [ "$(cat "$WORK/code.txt")" = "0" ] && [ -n "$(pos_of restart_app)" ]; then
-  ok "clean pg_restore success restarts api/worker"
-else
-  bad "clean pg_restore success did not restart api/worker (exit=$(cat "$WORK/code.txt"))"
+  bad "clean pg_restore success did not reconcile-then-restart (exit=$(cat "$WORK/code.txt") reconcile=$c restart=$r)"
   sed 's/^/    # /' "$WORK/out.txt"
 fi
 

@@ -853,8 +853,8 @@ jobs:
           docker compose -f "$COMPOSE_FILE" up -d --build --wait db
 
           # The script validates the archive end-to-end, runs the pre-restore
-          # DDL, pg_restore --clean --if-exists --no-owner, classifies
-          # warnings vs errors, and re-applies the geolens_reader grants.
+          # DDL, pg_restore --clean --if-exists --no-owner (any nonzero exit
+          # fails), and re-applies the geolens_reader grants.
           # Its exit code is the gate (set -e).
           bash scripts/restore.sh "$DUMP_FILE"
 

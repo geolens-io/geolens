@@ -550,7 +550,13 @@ mandatory post-restore reconciliation reapplies that boundary.
    `data.*` runtime relations. `--clean` drops schema ACLs/default privileges
    and `--no-owner` makes the restore login own every restored relation, so this
    post-restore step is mandatory.
-7. Restarts `api` and `worker` on exit (including on failure — via a trap).
+7. Restarts `api` and `worker` on exit, but only after steps 5 and 6 both
+   succeed. Any nonzero `pg_restore` exit (an error, a killed or interrupted
+   `docker compose exec`, a Docker CLI failure) or a failed reconciliation
+   leaves them stopped and makes the script exit nonzero, because the database
+   has already been `--clean`-dropped and may be only partly restored. Fix the
+   cause and re-run the restore, or restore a different dump, before starting
+   them.
 8. Runs a post-restore row-count check (`catalog.records`, `catalog.datasets`).
 9. Auto-detects any sibling `staging-<timestamp>.tar.gz` next to the dump and
    prints the exact manual object-storage extract command.
