@@ -14324,7 +14324,7 @@ export interface components {
         UserUpdate: {
             /**
              * Email
-             * @description New email address. Set to update; omit to leave unchanged.
+             * @description New email address. Set to update, send null or an empty string to clear it, omit to leave unchanged.
              */
             email?: string | null;
             /**

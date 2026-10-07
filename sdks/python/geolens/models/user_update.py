@@ -20,7 +20,8 @@ T = TypeVar("T", bound="UserUpdate")
 class UserUpdate:
     """
     Attributes:
-        email (None | str | Unset): New email address. Set to update; omit to leave unchanged.
+        email (None | str | Unset): New email address. Set to update, send null or an empty string to clear it, omit to
+            leave unchanged.
         is_active (bool | None | Unset): Legacy account-state toggle. False maps to 'deactivated' and true maps to
             'active'. Prefer the explicit status field.
         status (None | Unset | UserUpdateStatusType0): Explicit account lifecycle state. Pending registrations must use
