@@ -474,6 +474,8 @@ services:
     entrypoint: ["/app/scripts/worker-entrypoint.sh"]
     volumes:
       - ./backend/app:/app/app
+      # The boot-time schema check compares the DB with these scripts, so they follow the checkout like the api's.
+      - ./backend/alembic:/app/alembic:ro
       - ./backend/tests:/app/tests
       - upload_staging:/app/staging
     environment:

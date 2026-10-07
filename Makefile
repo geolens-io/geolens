@@ -48,10 +48,10 @@ reset-db:
 	docker compose up --build
 
 migrate:
-	docker compose exec api uv run alembic upgrade heads
+	docker compose exec -T -e UV_CACHE_DIR=/tmp/uv-cache api uv run --no-sync alembic upgrade heads
 
 migration:
-	docker compose exec api uv run alembic revision --autogenerate -m "$(msg)"
+	docker compose exec -T -e UV_CACHE_DIR=/tmp/uv-cache api uv run --no-sync alembic revision --autogenerate -m "$(msg)"
 
 # MIG-03: autogenerate drift gate. `alembic check` exits non-zero if the ORM
 # models have drifted from the migration scripts (a model column added without
