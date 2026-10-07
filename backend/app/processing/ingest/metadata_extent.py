@@ -146,7 +146,7 @@ async def get_geometry_type(
         text(
             # codeql[py/sql-injection] fix(#1615): identifiers validated by _qtable (metadata_sql.py)
             f"SELECT GeometryType(geom) FROM "
-            f"{_qtable(table_name, schema=schema)} LIMIT 1"
+            f"{_qtable(table_name, schema=schema)} WHERE geom IS NOT NULL LIMIT 1"
         )
     )
     value = result.scalar_one_or_none()

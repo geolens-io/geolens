@@ -87,7 +87,7 @@ async def measure(
 
     declared = await _declared_geometry_type(session, schema=schema, table=table)
     measured = metadata.get("geometry_type")
-    if declared == _GENERIC_GEOMETRY_TYPE and measured is not None:
+    if declared == _GENERIC_GEOMETRY_TYPE:
         measured = await _generic_column_type(
             session, measured, schema=schema, table=table
         )
@@ -247,8 +247,8 @@ async def _declared_geometry_type(
 
 
 async def _generic_column_type(
-    session: AsyncSession, sampled: str, *, schema: str, table: str
-) -> str:
+    session: AsyncSession, sampled: str | None, *, schema: str, table: str
+) -> str | None:
     """The type a generic ``geom`` column's non-empty rows support.
 
     The generic type when they span several kinds. A multi-part row and its

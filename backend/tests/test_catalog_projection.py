@@ -34,6 +34,7 @@ from app.processing.ingest.catalog_projection import (
 from app.processing.ingest.metadata import (
     detect_3d_metadata,
     extract_metadata,
+    get_geometry_type,
     refresh_attribute_metadata,
 )
 from app.processing.ingest.tasks_staging import StagingResult
@@ -300,6 +301,30 @@ async def test_a_generic_column_is_cataloged_by_all_its_rows_not_the_first(
         assert (await _reload(session, dataset.id)).geometry_type == expected
     finally:
         await _drop(session, dataset.table_name)
+
+
+async def test_a_null_geometry_row_does_not_decide_the_sampled_type(
+    test_db_session,
+) -> None:
+    """The per-helper fallback samples a row that has a geometry, like the single query."""
+    session = test_db_session
+    name = f"ql_{uuid.uuid4().hex[:12]}"
+    await _table(session, name, geometry="Geometry")
+    await session.execute(
+        sa.text(f"INSERT INTO data.{name} (name) VALUES ('null row')")
+    )
+    await session.execute(
+        sa.text(
+            f"INSERT INTO data.{name} (name, geom, geom_4326) VALUES "
+            "('pt', ST_GeomFromText('POINT(1 1)', 4326), "
+            "ST_GeomFromText('POINT(1 1)', 4326))"
+        )
+    )
+    await session.commit()
+    try:
+        assert await get_geometry_type(session, name) == "POINT"
+    finally:
+        await _drop(session, name)
 
 
 async def test_3d_points_record_their_dimensions_and_z_range(test_db_session) -> None:
