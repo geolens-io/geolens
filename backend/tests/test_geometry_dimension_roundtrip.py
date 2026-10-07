@@ -320,3 +320,20 @@ async def test_csv_z_probe_reads_a_spaced_geojson_writer(feature, expected):
             )
             is expected
         )
+
+
+async def test_csv_z_probe_fails_on_an_oversized_feature_rather_than_flattening():
+    class _Overrun(_Probe):
+        def __init__(self) -> None:
+            super().__init__([])
+            self.stdout = self
+
+        def __aiter__(self):
+            raise ValueError("Separator is not found, and chunk exceed the limit")
+
+    async def spawn(*_args, **_kwargs):
+        return _Overrun()
+
+    with patch("asyncio.create_subprocess_exec", side_effect=spawn):
+        with pytest.raises(ogr.IngestionError):
+            await ogr._csv_geometry_is_3d("/staging/s.csv", "/staging/s.csv", None)

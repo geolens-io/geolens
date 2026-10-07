@@ -1021,7 +1021,7 @@ async def run_ogrinfo_preview(
     return info
 
 
-# One GeoJSON feature per line, so a feature wider than this is read as no Z.
+# One GeoJSON feature per line; a feature wider than this fails the probe.
 _CSV_PROBE_LINE_LIMIT = 32 * 1024 * 1024
 
 
@@ -1094,8 +1094,10 @@ async def _csv_geometry_is_3d(
                 if z is False:
                     return False
                 seen = seen or z is True
-    except ValueError:  # a feature line longer than the stream limit
-        return False
+    except ValueError:
+        raise IngestionError(
+            "A geometry in this CSV is too large to check for elevation values"
+        )
     except TimeoutError:
         raise IngestionError(
             f"ogr2ogr timed out after {OGR2OGR_FILE_TIMEOUT_SECONDS}s reading the "
