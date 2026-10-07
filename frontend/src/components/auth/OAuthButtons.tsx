@@ -83,7 +83,7 @@ function getButtonLabel(
 
 export function OAuthButtons({ showDivider = true }: { showDivider?: boolean } = {}) {
   const { t } = useTranslation('auth');
-  const { isEnterprise } = useEdition();
+  const { isEnterprise, isResolved, isLoading: editionLoading } = useEdition();
   const { data: allProviders, isLoading, isError } = useQuery({
     queryKey: queryKeys.authConfig.oauthProviders,
     queryFn: getOAuthProviders,
@@ -95,10 +95,12 @@ export function OAuthButtons({ showDivider = true }: { showDivider?: boolean } =
     return <p className="text-xs text-muted-foreground">{t('oauth.unavailable')}</p>;
   }
 
-  // The SAML entry point only exists in the Enterprise runtime; elsewhere a
-  // leftover SAML row would be a button that 404s.
+  // The SAML entry point only exists in the Enterprise runtime; a leftover
+  // SAML row elsewhere would be a button that 404s. If the edition lookup
+  // fails, keep the button rather than lock out SAML-only deployments.
+  const samlAvailable = editionLoading ? false : isEnterprise || !isResolved;
   const providers = allProviders?.filter(
-    (p) => p.provider_type !== 'saml' || isEnterprise,
+    (p) => p.provider_type !== 'saml' || samlAvailable,
   );
 
   // Adaptive layout (per design handoff):

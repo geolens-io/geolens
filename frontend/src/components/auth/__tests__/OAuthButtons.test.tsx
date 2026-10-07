@@ -12,8 +12,14 @@ vi.mock('@/api/auth', () => ({
 }));
 
 let mockIsEnterprise = false;
+let mockEditionResolved = true;
+let mockEditionLoading = false;
 vi.mock('@/hooks/use-edition', () => ({
-  useEdition: () => ({ isEnterprise: mockIsEnterprise }),
+  useEdition: () => ({
+    isEnterprise: mockIsEnterprise,
+    isResolved: mockEditionResolved,
+    isLoading: mockEditionLoading,
+  }),
 }));
 
 async function clickAndCaptureHref(button: HTMLElement): Promise<string[]> {
@@ -35,6 +41,8 @@ async function clickAndCaptureHref(button: HTMLElement): Promise<string[]> {
 describe('OAuthButtons', () => {
   beforeEach(() => {
     mockIsEnterprise = false;
+    mockEditionResolved = true;
+    mockEditionLoading = false;
     mockAwaitPendingLogout.mockReset();
     mockAwaitPendingLogout.mockResolvedValue(undefined);
   });
@@ -153,5 +161,17 @@ describe('OAuthButtons', () => {
 
     await screen.findByRole('button', { name: /corp oidc/i });
     expect(screen.queryByRole('button', { name: /corp sso/i })).not.toBeInTheDocument();
+  });
+
+  it('keeps SAML providers when the edition lookup failed', async () => {
+    mockEditionResolved = false;
+    const { getOAuthProviders } = await import('@/api/auth');
+    (getOAuthProviders as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      { slug: 'corp-saml', display_name: 'Corp SSO', provider_type: 'saml' },
+    ]);
+
+    render(<OAuthButtons />);
+
+    expect(await screen.findByRole('button', { name: /corp sso/i })).toBeInTheDocument();
   });
 });
