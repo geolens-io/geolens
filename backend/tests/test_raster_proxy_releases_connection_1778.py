@@ -49,6 +49,7 @@ def _row(dataset_id: uuid.UUID) -> dict:
         "nodata": None,
         "tile_cache_version": 1,
         "publication_version": 0,
+        "member_sources": {},
     }
 
 

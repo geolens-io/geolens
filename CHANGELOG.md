@@ -7,6 +7,18 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- Titiler now reads remote (STAC by-reference) rasters through an internal
+  API route that checks every connection and redirect and serves only
+  GeoTIFF or COG bytes, instead of fetching the remote URL itself. Titiler
+  must be able to reach the API at `REMOTE_RASTER_RELAY_BASE_URL`, which
+  defaults to `http://api:8000` and needs no change under either Compose
+  file; set it for other deployments. Remote VRT assets and assets that are
+  not GeoTIFF or COG are refused at STAC import, a remote raster can no
+  longer be a VRT member, and a mosaic that names a remote member answers
+  409 until it is rebuilt from managed rasters.
+
 ## [1.22.0] - 2026-10-05
 
 ### Added

@@ -1,13 +1,16 @@
 """Structural metadata for a remote COG, read through Titiler.
 
-feat(#1266): lifted out of ``stac_router`` (importing an API-edge module
-registers routes as a side effect) so the STAC refresh path can re-probe a
-moved asset href rather than carry over stale band/dtype/nodata/statistics.
+Lives outside ``stac_router`` (importing an API-edge module registers routes
+as a side effect) so the STAC refresh path can re-probe a moved asset href
+rather than carry over stale band/dtype/nodata/statistics. Titiler reads the
+asset through the API relay, never from its URL.
 """
 
 from __future__ import annotations
 
 import re
+import uuid
+from urllib.parse import urlsplit
 
 import httpx
 import structlog
@@ -15,6 +18,8 @@ import structlog
 from app.core.crs_uri import parse_crs_uri
 from app.core.geo import crs_facts_of, pixel_size_from_affine
 from app.core.url_redaction import redact_exception_text
+from app.platform.http.remote_raster import RemoteRasterFormat, remote_raster_format
+from app.platform.storage.raster_relay import relay_url
 from app.platform.storage.titiler_url import build_titiler_cog_url
 
 logger = structlog.get_logger(__name__)
@@ -139,6 +144,29 @@ def reconcile_epsg(probe: dict, declared: int | None) -> int | None:
     return declared
 
 
+_UNIDENTIFIED_CRS_MESSAGE = (
+    "GeoLens imports remote COGs whose CRS has an EPSG code or is OGC CRS84, "
+    "and this item's asset has neither. Reproject the file to an EPSG CRS, "
+    "for example with gdalwarp -t_srs EPSG:<code>, and import it again."
+)
+_NOT_GEOTIFF_MESSAGE = (
+    "GeoLens reads remote rasters only as GeoTIFF or COG, and this item's "
+    "asset is neither. Remote VRT files are not supported; import a COG of "
+    "the data instead."
+)
+
+
+def import_refusal(probed: dict | None) -> str | None:
+    """Why a probed asset can't be imported, or None when it can."""
+    if probed is None:
+        return None
+    if probed.get("not_geotiff"):
+        return _NOT_GEOTIFF_MESSAGE
+    if probed.get("crs_unidentified"):
+        return _UNIDENTIFIED_CRS_MESSAGE
+    return None
+
+
 def _nodata_of(info: dict) -> float | None:
     """The scalar nodata value from a raw ``/cog/info`` reply, if it has one.
 
@@ -149,32 +177,38 @@ def _nodata_of(info: dict) -> float | None:
     return info.get("nodata_value") if info.get("nodata_type") == "Nodata" else None
 
 
-async def fetch_cog_info(url: str) -> dict | None:
+async def fetch_cog_info(
+    url: str, *, dataset_id: uuid.UUID | None = None
+) -> dict | None:
     """Fetch COG metadata + statistics from Titiler for a remote asset URL.
 
     Returns dict with band_count, dtype, width, height, crs_wkt, band_info
     (min/max per band), res_x/res_y/is_rotated, or None on failure.
     Georeferencing keys are absent, not None, when their endpoint could not
-    be read — see ``_georeferencing``/``_geotransform``.
+    be read — see ``_georeferencing``/``_geotransform``. Returns
+    ``{"not_geotiff": True}`` when Titiler could not read the asset because it
+    is not a GeoTIFF, which the relay refuses to serve.
 
-    fix(#1271): None collapses every failure shape deliberately — a
-    non-200 from Titiler isn't proof the origin was contacted (the
-    CPL_VSIL_CURL_ALLOWED_EXTENSIONS allowlist rejects some assets before
-    any upstream fetch), so ``last_checked_at`` is stamped only on success;
-    every failure leaves it NULL for the probe to settle.
+    None collapses every other failure shape: a non-200 from Titiler isn't
+    proof the origin was contacted, so ``last_checked_at`` is stamped only on
+    success and every failure leaves it NULL for the probe to settle.
 
-    SEC-OBSV-02 (#1927): dual SSRF gate, both halves required. Gate 1
-    (caller-side) is ``validate_url_for_ssrf`` before calling this; Gate 2
-    (Titiler-side) is its own CPL_VSIL_CURL_ALLOWED_EXTENSIONS clamp.
+    The caller validates ``url`` with ``validate_url_for_ssrf`` first; the
+    relay then checks and pins every connection Titiler's read makes.
     """
+    if urlsplit(url).path.lower().endswith(".vrt"):
+        return {"not_geotiff": True}
+    source = relay_url(url, dataset_id)
     try:
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(15.0, connect=5.0)
         ) as client:
             info_resp = await client.get(
-                build_titiler_cog_url("info", query={"url": url})
+                build_titiler_cog_url("info", query={"url": source})
             )
             if info_resp.status_code != 200:
+                if await remote_raster_format(url) is RemoteRasterFormat.OTHER:
+                    return {"not_geotiff": True}
                 return None
             info = info_resp.json()
 
@@ -185,7 +219,7 @@ async def fetch_cog_info(url: str) -> dict | None:
             band_info = []
             try:
                 stats_resp = await client.get(
-                    build_titiler_cog_url("statistics", query={"url": url})
+                    build_titiler_cog_url("statistics", query={"url": source})
                 )
                 if stats_resp.status_code == 200:
                     stats = stats_resp.json()
@@ -215,7 +249,7 @@ async def fetch_cog_info(url: str) -> dict | None:
                     build_titiler_cog_url(
                         "stac",
                         query={
-                            "url": url,
+                            "url": source,
                             "with_raster": "false",
                             "with_eo": "false",
                         },
@@ -239,13 +273,15 @@ async def fetch_cog_info(url: str) -> dict | None:
     except Exception as exc:  # broad: httpx/JSON errors vary, degrade to None
         logger.debug(
             "Failed to fetch COG info from Titiler",
-            url=url,
+            dataset_id=str(dataset_id) if dataset_id else None,
             error=redact_exception_text(exc),
         )
         return None
 
 
-async def fetch_cog_nodata(url: str) -> float | None:
+async def fetch_cog_nodata(
+    url: str, *, dataset_id: uuid.UUID | None = None
+) -> float | None:
     """The scalar nodata Titiler's ``/cog/info`` reports, or None.
 
     One header read, none of ``fetch_cog_info``'s statistics or transform
@@ -259,7 +295,7 @@ async def fetch_cog_nodata(url: str) -> float | None:
             timeout=httpx.Timeout(15.0, connect=5.0)
         ) as client:
             info_resp = await client.get(
-                build_titiler_cog_url("info", query={"url": url})
+                build_titiler_cog_url("info", query={"url": relay_url(url, dataset_id)})
             )
             if info_resp.status_code != 200:
                 return None
@@ -267,7 +303,7 @@ async def fetch_cog_nodata(url: str) -> float | None:
     except Exception as exc:  # broad: httpx/JSON errors vary, degrade to None
         logger.debug(
             "Failed to fetch COG nodata from Titiler",
-            url=url,
+            dataset_id=str(dataset_id) if dataset_id else None,
             error=redact_exception_text(exc),
         )
         return None

@@ -920,6 +920,9 @@ def test_band_stats_cache_eviction():
 @pytest.mark.asyncio
 async def test_band_stats_cache_hit(monkeypatch):
     """Cached path: _titiler_client.get called exactly once across two calls."""
+    monkeypatch.setattr(
+        "app.platform.storage.titiler_url._managed_prefix", lambda: "/data/"
+    )
     from app.processing.tiles.router import _band_stats_cache, _fetch_band_statistics
 
     _band_stats_cache.clear()
@@ -952,6 +955,9 @@ async def test_band_stats_cache_hit(monkeypatch):
 @pytest.mark.asyncio
 async def test_band_stats_cache_negative(monkeypatch):
     """Negative caching: None is stored and returned without a second Titiler call."""
+    monkeypatch.setattr(
+        "app.platform.storage.titiler_url._managed_prefix", lambda: "/data/"
+    )
     from app.processing.tiles.router import _band_stats_cache, _fetch_band_statistics
 
     _band_stats_cache.clear()

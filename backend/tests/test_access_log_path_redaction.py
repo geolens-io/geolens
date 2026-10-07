@@ -22,6 +22,14 @@ from app.api.middleware.logging import safe_access_log_path
         # redacted at the edge and the Python regex did not.
         ("/m/SYNTHETIC_SENTINEL", "/m/[REDACTED]"),
         ("/m/SYNTHETIC_SENTINEL/anything", "/m/[REDACTED]/anything"),
+        (
+            "/internal/raster-relay/SYNTHETIC_SENTINEL/raster.tif",
+            "/internal/raster-relay/[REDACTED]/raster.tif",
+        ),
+        (
+            "/api/internal/raster-relay/SYNTHETIC_SENTINEL/raster.tif",
+            "/api/internal/raster-relay/[REDACTED]/raster.tif",
+        ),
         ("/maps/ordinary-map-id", "/maps/ordinary-map-id"),
         ("/maps/shared", "/maps/shared"),
         ("/m/", "/m/"),

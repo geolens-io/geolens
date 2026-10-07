@@ -140,9 +140,12 @@ class TestRasterColormapProxy:
                 self._auth_band_count,
             )
 
+        from app.platform.storage import titiler_url
         from app.processing.tiles import router as tiles_router
 
         monkeypatch.setattr(tiles_router, "raster_auth_check", _fake_auth_check)
+        # The fake check answers with a path under this managed root.
+        monkeypatch.setattr(titiler_url, "_managed_prefix", lambda: "/app/staging/")
 
     @pytest.fixture(autouse=True)
     def _patch_titiler_client(self, monkeypatch):

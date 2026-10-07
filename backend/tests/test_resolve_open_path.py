@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 
 def _mock_settings(
     *,
@@ -151,35 +153,32 @@ class TestResolveOpenPathProviderMatrix:
 
     # --- Row 6: remote http(s) pass-through --------------------------------
 
-    def test_http_asset_passthrough(self):
-        """http:// asset_uri is returned unchanged regardless of provider."""
-        url = "http://stac.example.com/assets/cog.tif"
-        result = self._call(
-            url,
-            tenant_id=None,
-            settings_kwargs=dict(storage_provider="local"),
-        )
-        assert result == url
+    @pytest.mark.parametrize(
+        ("url", "settings_kwargs", "tenant_id"),
+        [
+            (
+                "http://stac.example.com/assets/cog.tif",
+                {"storage_provider": "local"},
+                None,
+            ),
+            (
+                "https://stac.example.com/data/img.tif",
+                {"storage_provider": "s3", "s3_bucket": "bkt"},
+                None,
+            ),
+            (
+                "HTTPS://stac.example.com/file.tif",
+                {"storage_provider": "azure", "azure_storage_container": "c"},
+                "some-tenant",
+            ),
+        ],
+    )
+    def test_remote_asset_has_no_open_path(self, url, settings_kwargs, tenant_id):
+        """A remote asset_uri is refused: GDAL never opens a remote raster itself."""
+        from app.platform.storage.titiler_url import RemoteRasterPathError
 
-    def test_https_asset_passthrough(self):
-        """https:// asset_uri is returned unchanged regardless of provider."""
-        url = "https://stac.example.com/data/img.tif"
-        result = self._call(
-            url,
-            tenant_id=None,
-            settings_kwargs=dict(storage_provider="s3", s3_bucket="bkt"),
-        )
-        assert result == url
-
-    def test_https_passthrough_with_tenant(self):
-        """Remote URL is never prefixed even when tenant_id is provided."""
-        url = "https://stac.example.com/file.tif"
-        result = self._call(
-            url,
-            tenant_id="some-tenant",
-            settings_kwargs=dict(storage_provider="azure", azure_storage_container="c"),
-        )
-        assert result == url
+        with pytest.raises(RemoteRasterPathError):
+            self._call(url, tenant_id=tenant_id, settings_kwargs=settings_kwargs)
 
     # --- Path traversal / scheme injection guard (WR-01) -------------------
 

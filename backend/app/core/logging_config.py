@@ -106,13 +106,13 @@ _MAX_REDACT_DEPTH = 8
 # `format_exc_info` pops it before this processor runs today.
 _NEVER_WALKED_FIELDS: frozenset[str] = frozenset({"exc_info", "positional_args"})
 
-# fix(#1778): share-link and embed paths carry a bearer capability as a PATH
-# segment, unreachable to the key-based `_redact_sensitive_fields`. Two 5xx
-# handlers (api/main.py's 503, standards/ogc/errors.py's 500) logged
-# `request.url.path` raw, writing the full replayable token on any server
-# error for a shared-map request. `/m/` joins the two `maps/shared/` shapes
-# since frontend/nginx.conf already redacts all three at the edge.
-_CAPABILITY_PATH_RE = re.compile(r"^(?P<prefix>/(?:api/)?maps/shared/|/m/)[^/]+")
+# Share-link, embed and raster-relay paths carry a bearer capability as a PATH
+# segment, which the key-based `_redact_sensitive_fields` can't reach. The
+# access log and the 5xx handlers (api/main.py's 503, standards/ogc/errors.py's
+# 500) write the path, so the segment is replaced there.
+_CAPABILITY_PATH_RE = re.compile(
+    r"^(?P<prefix>/(?:api/)?(?:maps/shared|internal/raster-relay)/|/m/)[^/]+"
+)
 
 
 def safe_access_log_path(path: str) -> str:

@@ -92,6 +92,7 @@ APP_RUNTIME_KEYS = frozenset(
         "BANNER_TEXT",
         "BANNER_COLOR",
         "TITILER_BASE_URL",
+        "REMOTE_RASTER_RELAY_BASE_URL",
     }
 )
 AZURE_APP_KEYS = frozenset(
