@@ -47,8 +47,10 @@ reset-db:
 	docker compose down -v
 	docker compose up --build
 
+# The one-shot migrate service carries the privileged migration identity, which the api lacks
+# when GEOLENS_RUNTIME_DB_ROLE is set.
 migrate:
-	docker compose exec -T -e UV_CACHE_DIR=/tmp/uv-cache api uv run --no-sync alembic upgrade heads
+	docker compose run --rm migrate
 
 migration:
 	docker compose exec -T -e UV_CACHE_DIR=/tmp/uv-cache api uv run --no-sync alembic revision --autogenerate -m "$(msg)"

@@ -56,7 +56,7 @@ A non-zero exit there (a failed migration, schema drift) is what blocks the rest
 
 - **Backend (FastAPI):** Edit files under `backend/`. The API container mounts the source directory and reloads on changes.
 - **Frontend (React):** Edit files under `frontend/`. The `frontend` Docker service runs Vite, which provides hot module replacement automatically — edits to `frontend/src/` reload in the browser within a second.
-- **Migrations:** Add new Alembic migrations under `backend/alembic/versions/`. Run them with `make migrate`, which applies `alembic upgrade heads` (plural: the stack can carry several migration heads) inside the running api container.
+- **Migrations:** Add new Alembic migrations under `backend/alembic/versions/`. Run them with `make migrate`, which reruns the one-shot `migrate` service to apply `alembic upgrade heads` (plural: the stack can carry several migration heads).
 
 ### Running tests
 
