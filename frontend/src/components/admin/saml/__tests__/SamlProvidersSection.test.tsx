@@ -207,9 +207,9 @@ describe('SamlProvidersSection provider mutations', () => {
 
   it('shows a certificate field error when the server rejects the certificate', async () => {
     vi.mocked(createSamlProvider).mockRejectedValueOnce(
-      new ApiError('Unprocessable', 422, {
-        detail: [{ loc: ['body', 'idp_certificate'], msg: 'invalid', type: 'value_error' }],
-      }),
+      new ApiError('Unprocessable', 422, [
+        { loc: ['body', 'idp_certificate'], msg: 'invalid', type: 'value_error' },
+      ]),
     );
     const user = userEvent.setup();
 

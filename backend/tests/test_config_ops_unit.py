@@ -6,6 +6,7 @@ import uuid
 from contextlib import nullcontext
 from dataclasses import replace
 from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -461,7 +462,9 @@ async def test_overwrite_saml_uses_certificate_not_oauth_client_secret(
         provider_type="saml",
         idp_entity_id="https://idp.example.com/entity",
         idp_sso_url="https://idp.example.com/sso",
-        idp_certificate="test-certificate",
+        idp_certificate=(
+            Path(__file__).parent / "fixtures" / "saml" / "idp_cert.pem"
+        ).read_text(),
         sp_entity_id="https://geolens.example.com/saml/metadata",
     )
     db = AsyncMock()

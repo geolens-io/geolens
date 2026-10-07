@@ -32,7 +32,8 @@ def _validate_optional_http_url(value: str | None) -> str | None:
 
 def _validate_idp_certificate(value: str | None) -> str | None:
     """Reject an IdP certificate that is neither a PEM nor a bare base64 DER body."""
-    if value is None:
+    # Community rejects every SAML field in the gate validators, with a clearer message.
+    if value is None or not is_enterprise():
         return value
     try:
         if "-----BEGIN" in value:

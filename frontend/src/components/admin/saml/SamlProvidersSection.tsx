@@ -245,7 +245,7 @@ export function SamlProvidersSection() {
   }
 
   function handleSaveError(err: unknown) {
-    const detail = err instanceof ApiError && err.status === 422 ? (err.body as { detail?: unknown })?.detail : null;
+    const detail = err instanceof ApiError && err.status === 422 ? err.body : null;
     if (
       Array.isArray(detail) &&
       detail.some((d) => Array.isArray(d?.loc) && d.loc.includes('idp_certificate'))
