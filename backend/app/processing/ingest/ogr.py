@@ -19,6 +19,10 @@ from app.core.runtime.staging import (
     ensure_staging_ready,
     gdal_header_dir,
 )
+from app.processing.ingest.shapefile_source import (
+    declares_dbf_encoding,
+    zip_single_folder,
+)
 from app.platform.service_items import materialise_oapif_items
 from app.platform.service_endpoints import (
     assert_endpoints_stay_on_origin,
@@ -654,7 +658,8 @@ def _tenant_reader_subprocess_env(
 def _resolve_source_path(file_path: str) -> str:
     """Wrap file path with /vsizip/ if it is a zip file."""
     if file_path.endswith(".zip"):
-        return f"/vsizip/{file_path}"
+        folder = zip_single_folder(file_path)
+        return f"/vsizip/{file_path}" + (f"/{folder}" if folder else "")
     return file_path
 
 
@@ -872,13 +877,13 @@ async def run_ogrinfo(
 
         return await parquet_info(file_path)
 
-    source = _resolve_source_path(file_path)
     # fix(#1846, GHSA-hrf5-v3cq-frx5): all three layers, on every staged-file
     # argv — this is the last point before GDAL sees the file, and preview
     # runs before the door that validates a presigned upload's whole body.
     await run_in_thread_draining(
         validate_content_directives, file_path, original_filename
     )
+    source = await run_in_thread_draining(_resolve_source_path, file_path)
     driver_args = local_input_driver_args(file_path)
     driver_env = gdal_vector_safe_env()
 
@@ -903,7 +908,7 @@ async def run_ogrinfo(
 
     if proc.returncode == 0:
         try:
-            data = json.loads(stdout.decode())
+            data = json.loads(stdout.decode(errors="replace"))
             _, metadata = _extract_common_layer_metadata(data, layer_name)
             return metadata
         except KeyError:
@@ -935,10 +940,13 @@ async def run_ogrinfo(
 
     if proc.returncode != 0:
         _raise_gdal_failure(
-            "ogrinfo", proc.returncode, stderr.decode().strip(), original_filename
+            "ogrinfo",
+            proc.returncode,
+            stderr.decode(errors="replace").strip(),
+            original_filename,
         )
 
-    result = _parse_text_ogrinfo(stdout.decode())
+    result = _parse_text_ogrinfo(stdout.decode(errors="replace"))
     # Text-fallback parse doesn't extract field definitions, so the DBF
     # collision detector will still have to fall back to ogrinfo_preview
     # on GDAL < 3.7. Keep the key present so callers can rely on it.
@@ -965,11 +973,11 @@ async def run_ogrinfo_preview(
 
         return await parquet_info(file_path, sample_limit=sample_limit)
 
-    source = _resolve_source_path(file_path)
     # fix(#1846, GHSA-hrf5-v3cq-frx5): preview returns rows to the caller, so
     # it must not ask an unrestricted driver set what the file is, and a
     # database whose schema reads from outside the file must not reach it.
     await run_in_thread_draining(validate_content_directives, file_path)
+    source = await run_in_thread_draining(_resolve_source_path, file_path)
     driver_args = local_input_driver_args(file_path)
 
     cmd = ["ogrinfo", "-json", "-features", "-limit", str(sample_limit), *driver_args]
@@ -992,7 +1000,7 @@ async def run_ogrinfo_preview(
 
     if proc.returncode == 0:
         try:
-            data = json.loads(stdout.decode())
+            data = json.loads(stdout.decode(errors="replace"))
             target_layer, metadata = _extract_common_layer_metadata(data, layer_name)
             # Preview also extracts sample rows; columns come from the
             # shared helper (PERF-1).
@@ -1171,7 +1179,7 @@ async def run_ogr2ogr(
     await run_in_thread_draining(
         validate_content_directives, file_path, original_filename
     )
-    source = _resolve_source_path(file_path)
+    source = await run_in_thread_draining(_resolve_source_path, file_path)
     is_csv = _is_csv_source(file_path, layer_name)
     is_non_spatial = geometry_type is None
 
@@ -1200,10 +1208,11 @@ async def run_ogr2ogr(
         "--config",
         "PG_USE_COPY",
         "YES",
-        "--config",
-        "SHAPE_ENCODING",
-        "UTF-8",
     ]
+    if not await run_in_thread_draining(declares_dbf_encoding, file_path, layer_name):
+        # Undeclared Shapefile text is taken as UTF-8; forcing it over a
+        # declared encoding would store the original bytes unconverted.
+        cmd.extend(["--config", "SHAPE_ENCODING", "UTF-8"])
 
     if not is_non_spatial:
         cmd.extend(
@@ -1278,7 +1287,10 @@ async def run_ogr2ogr(
 
     if proc.returncode != 0:
         _raise_gdal_failure(
-            "ogr2ogr", proc.returncode, stderr.decode().strip(), original_filename
+            "ogr2ogr",
+            proc.returncode,
+            stderr.decode(errors="replace").strip(),
+            original_filename,
         )
 
 
@@ -1560,7 +1572,7 @@ async def run_ogr2ogr_service(
                 _PG_DESTINATION_ECHO_RE.sub(
                     "PG:***",
                     redact_url_credentials(
-                        _strip_ogr_driver_list(stderr.decode()).strip()
+                        _strip_ogr_driver_list(stderr.decode(errors="replace")).strip()
                     ),
                 ),
                 header_line,
