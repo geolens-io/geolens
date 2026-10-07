@@ -63,6 +63,15 @@ describe('API error localization boundary', () => {
     ).toMatchObject({ values: { allowed: 'reviewer\'s "ok"' } });
   });
 
+  it('decodes control escapes in a status name', () => {
+    expect(
+      classifyApiError(
+        "Cannot transition from 'draft' to 'published'. Allowed: {'a\\tb\\x07'}",
+        422,
+      ),
+    ).toMatchObject({ values: { allowed: 'a\tb\x07' } });
+  });
+
   it('says so when no workflow step is open to the caller', () => {
     expect(
       classifyApiError("Cannot transition from 'draft' to 'published'. Allowed: set()", 422),

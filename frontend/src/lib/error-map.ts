@@ -294,6 +294,22 @@ function formatInteger(raw: string): string {
   }
 }
 
+const PYTHON_ESCAPE = /\\(?:x([0-9a-f]{2})|u([0-9a-f]{4})|U([0-9a-f]{8})|(.))/gi;
+const PYTHON_SIMPLE_ESCAPES: Record<string, string> = { n: '\n', t: '\t', r: '\r' };
+
+// Decodes one backslash escape from a Python repr() string literal.
+function pythonEscape(
+  _match: string,
+  hex2?: string,
+  hex4?: string,
+  hex8?: string,
+  char?: string,
+): string {
+  const hex = hex2 ?? hex4 ?? hex8;
+  if (hex) return String.fromCodePoint(parseInt(hex, 16));
+  return PYTHON_SIMPLE_ESCAPES[char ?? ''] ?? char ?? '';
+}
+
 function descriptorForMessage(message: string, status: number): ApiErrorDescriptor {
   const exactKey = EXACT_ERROR_KEYS[message.trim()];
   if (exactKey) return { key: exactKey };
@@ -436,7 +452,7 @@ function descriptorForMessage(message: string, status: number): ApiErrorDescript
   );
   if (workflowDenied) {
     const allowed = [...(workflowDenied[3] ?? '').matchAll(/'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)"/g)]
-      .map((m) => (m[1] ?? m[2]).replace(/\\(.)/g, '$1'))
+      .map((m) => (m[1] ?? m[2]).replace(PYTHON_ESCAPE, pythonEscape))
       .sort();
     const values = { from: workflowDenied[1], to: workflowDenied[2] };
     return allowed.length > 0
