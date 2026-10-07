@@ -371,3 +371,42 @@ def test_query_stringifies_structured_validation_detail():
         api.query("SELECT 1", restrict_tables=[])
     assert "422" in str(exc.value)
     assert "Field required" in str(exc.value)
+
+
+def test_search_paging_after_page_zero_makes_no_extra_request():
+    def handler(request: httpx.Request) -> httpx.Response:
+        feats = [{"id": "d1", "properties": {"record_type": "vector_dataset"}}]
+        if request.url.params["offset"] == "0":
+            feats.append({"id": "c1", "properties": {"record_type": "collection"}})
+        return httpx.Response(
+            200, json={"features": feats, "numberMatched": 12, "numberReturned": 1}
+        )
+
+    api, seen = _api(handler)
+    api.search_datasets("parks", offset=0)
+    out = api.search_datasets("parks", limit=1, offset=1)
+    out2 = api.search_datasets("parks", limit=1, offset=2)
+
+    assert len(seen) == 3  # no page-0 probe for the later pages
+    assert out["numberMatched"] == out2["numberMatched"] == 11
+
+
+def test_search_total_probe_failure_does_not_discard_the_page():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.params["limit"] == "1" and request.url.params["offset"] == "0":
+            return httpx.Response(429, json={"detail": "slow down"})
+        return httpx.Response(
+            200,
+            json={
+                "features": [
+                    {"id": "d1", "properties": {"record_type": "vector_dataset"}}
+                ],
+                "numberMatched": 12,
+                "numberReturned": 1,
+            },
+        )
+
+    api, _ = _api(handler)
+    out = api.search_datasets("parks", limit=5, offset=5)
+
+    assert [f["id"] for f in out["features"]] == ["d1"]

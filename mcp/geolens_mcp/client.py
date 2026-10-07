@@ -27,6 +27,7 @@ from uuid import UUID
 import httpx
 
 DEFAULT_TIMEOUT = 30.0
+_MAX_REMEMBERED_QUERIES = 64
 
 # Kept local because catalog search currently exposes ``source_format`` but not
 # the backend's computed ``origin`` field. These values mirror the public source
@@ -246,6 +247,7 @@ class GeoLensReadOnlyAPI:
 
     def __init__(self, http: httpx.Client) -> None:
         self._http = http
+        self._collections_by_query: dict[str, int] = {}
 
     def _request(
         self,
@@ -293,12 +295,31 @@ class GeoLensReadOnlyAPI:
         # them so every returned id is usable by the dataset tools.
         fc = self._get("/search/datasets", _params(q=query, limit=limit, offset=offset))
         collections_matched = None
-        if offset > 0:
-            # numberMatched counts the page-0 collections on every page, but
-            # only page 0 carries them, so ask page 0 how many there are.
-            first = self._get("/search/datasets", _params(q=query, limit=1, offset=0))
-            collections_matched = _collection_count(first)
+        if offset == 0:
+            self._collections_by_query[query] = _collection_count(fc)
+            if len(self._collections_by_query) > _MAX_REMEMBERED_QUERIES:
+                self._collections_by_query.pop(next(iter(self._collections_by_query)))
+        else:
+            collections_matched = self._page0_collections(query)
         return _with_search_source_state(_datasets_only(fc, collections_matched))
+
+    def _page0_collections(self, query: str) -> int | None:
+        """Collections page 0 of ``query`` carries, which ``numberMatched`` counts.
+
+        Remembered from the page-0 call that normally precedes paging. When the
+        caller jumps straight to a later page it costs one extra request, and a
+        failure of that request leaves the total as the API reported it rather
+        than discarding the page already fetched.
+        """
+        if query not in self._collections_by_query:
+            try:
+                first = self._get(
+                    "/search/datasets", _params(q=query, limit=1, offset=0)
+                )
+            except RuntimeError:
+                return None
+            self._collections_by_query[query] = _collection_count(first)
+        return self._collections_by_query[query]
 
     def get_dataset_schema(self, dataset_id: str) -> Any:
         # No trailing-slash sibling on this route — must omit it.
