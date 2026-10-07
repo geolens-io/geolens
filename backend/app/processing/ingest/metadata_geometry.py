@@ -199,11 +199,18 @@ async def construct_wkt_geometry(
             # still isolated by the validation savepoint.
             sample = await session.execute(
                 text(
-                    f"SELECT GeometryType({parsed_geom}) "
+                    f"SELECT GeometryType({parsed_geom}), ST_Zmflag({parsed_geom}) "
                     f"FROM {tref} WHERE {wkt_col} IS NOT NULL LIMIT 1"
                 )
             )
-            geom_type = sample.scalar_one_or_none() or "GEOMETRY"
+            row = sample.first()
+            geom_type = "GEOMETRY"
+            if row:
+                # GeometryType spells M but not Z, and a typmod that omits the
+                # dimensions rejects the rows that carry them.
+                geom_type = row[0].removesuffix("M") + {1: "M", 2: "Z", 3: "ZM"}.get(
+                    row[1], ""
+                )
     except DBAPIError as exc:
         raise ValueError("WKT column contains malformed geometry text") from exc
 

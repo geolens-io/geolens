@@ -653,6 +653,7 @@ async def ingest_file(
                     table_name=staging_table_name,
                     user_metadata=um,
                     effective_srid=effective_srid,
+                    renamed_columns=reserved_renames,
                 )
                 if override_geom_type is not None:
                     has_geometry = True

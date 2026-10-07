@@ -1021,6 +1021,95 @@ async def run_ogrinfo_preview(
     return info
 
 
+# One GeoJSON feature per line; a feature wider than this fails the probe.
+_CSV_PROBE_LINE_LIMIT = 32 * 1024 * 1024
+
+
+def _geometry_z(geometry: dict) -> bool | None:
+    """Whether a GeoJSON geometry carries Z, or None when it is empty."""
+    if geometry.get("type") == "GeometryCollection":
+        parts = [_geometry_z(g) for g in geometry.get("geometries") or []]
+        parts = [p for p in parts if p is not None]
+        return all(parts) if parts else None
+    return _coordinates_z(geometry.get("coordinates"))
+
+
+def _coordinates_z(coordinates: object) -> bool | None:
+    if not isinstance(coordinates, list) or not coordinates:
+        return None
+    if isinstance(coordinates[0], (int, float)):
+        return len(coordinates) >= 3
+    parts = [z for z in map(_coordinates_z, coordinates) if z is not None]
+    return all(parts) if parts else None
+
+
+async def _csv_geometry_is_3d(
+    file_path: str, source: str, layer_name: str | None
+) -> bool:
+    """Whether every geometry in a CSV's geometry column has Z.
+
+    The CSV driver reports a WKT column as an untyped 2D layer, so the loaded
+    column would drop Z that the text carries. A mix of 2D and 3D rows counts
+    as 2D, since forcing three dimensions would invent an elevation of 0. The
+    read stops at the first 2D geometry.
+    """
+    await run_in_thread_draining(validate_content_directives, file_path)
+    # ogr2ogr rather than ogrinfo: the GeoJSON writer exists on every GDAL
+    # this runs on, and it writes one feature per line, so the file is read
+    # as a stream.
+    cmd = [
+        "ogr2ogr",
+        *local_input_driver_args(file_path),
+        "-f",
+        "GeoJSON",
+        "/vsistdout/",
+        source,
+        "-oo",
+        "GEOM_POSSIBLE_NAMES=WKT,wkt,geometry,geom,the_geom,shape",
+    ]
+    if layer_name:
+        cmd.append(layer_name)
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+        env=gdal_vector_safe_env(),
+        limit=_CSV_PROBE_LINE_LIMIT,
+    )
+    assert proc.stdout is not None
+    seen = False
+    try:
+        async with asyncio.timeout(OGR2OGR_FILE_TIMEOUT_SECONDS):
+            async for line in proc.stdout:
+                # The writer's spacing differs between GDAL versions, so
+                # anything that is not one whole feature is skipped.
+                try:
+                    feature = json.loads(line.strip().removesuffix(b","))
+                except ValueError:
+                    continue
+                if not isinstance(feature, dict) or feature.get("type") != "Feature":
+                    continue
+                geometry = feature.get("geometry")
+                z = _geometry_z(geometry) if geometry else None
+                if z is False:
+                    return False
+                seen = seen or z is True
+    except ValueError:
+        raise IngestionError(
+            "A geometry in this CSV is too large to check for elevation values"
+        )
+    except TimeoutError:
+        raise IngestionError(
+            f"ogr2ogr timed out after {OGR2OGR_FILE_TIMEOUT_SECONDS}s reading the "
+            "file's geometry"
+        )
+    finally:
+        if proc.returncode is None:
+            proc.kill()
+        await proc.wait()
+    return seen
+
+
 async def run_ogr2ogr(
     file_path: str,
     table_name: str,
@@ -1151,6 +1240,13 @@ async def run_ogr2ogr(
                 "GEOM_POSSIBLE_NAMES=WKT,wkt,geometry,geom,the_geom,shape",
             ]
         )
+
+    if (
+        is_csv
+        and not is_non_spatial
+        and await _csv_geometry_is_3d(file_path, source, layer_name)
+    ):
+        cmd.extend(["-dim", "XYZ"])
 
     if not is_non_spatial:
         assigned_srid = effective_srid

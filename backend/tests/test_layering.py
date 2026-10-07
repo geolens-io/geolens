@@ -1319,7 +1319,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # ArcGIS requests, lifecycle context, the quicklook draw that ingest and
     # replacement share, and the swap that keeps the replaced table and records
     # the version it keeps.
-    "backend/app/processing/ingest/tasks_common.py": 1890,
+    "backend/app/processing/ingest/tasks_common.py": 1901,
     # File and remote-source replacement strategies own retrieval, staging and
     # verification, including the live geometry read and its witness.
     "backend/app/processing/ingest/tasks_reupload.py": 1492,
@@ -1353,10 +1353,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_raster_replace.py": 614,
     # File and remote-source imports own publication fencing, heartbeat phases
     # and failure settlement.
-    "backend/app/processing/ingest/tasks_vector.py": 1167,
+    "backend/app/processing/ingest/tasks_vector.py": 1168,
     # GDAL environments, timeouts, reaping and error sanitization share one process
     # boundary.
-    "backend/app/processing/ingest/ogr.py": 1487,
+    "backend/app/processing/ingest/ogr.py": 1583,
     # Archive and GDAL content validation remain centralized at the upload security
     # boundary.
     "backend/app/processing/ingest/validation.py": 1206,

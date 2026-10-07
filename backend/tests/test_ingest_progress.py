@@ -259,8 +259,14 @@ async def test_vector_worker_geometry_override_uses_helper_contract(
             )
 
     call_kwargs = geometry_override.await_args.kwargs
-    assert set(call_kwargs) == {"table_name", "user_metadata", "effective_srid"}
+    assert set(call_kwargs) == {
+        "table_name",
+        "user_metadata",
+        "effective_srid",
+        "renamed_columns",
+    }
     assert call_kwargs["user_metadata"] == job.user_metadata
+    assert call_kwargs["renamed_columns"] == []
     assert call_kwargs["effective_srid"] == 4326
 
 
