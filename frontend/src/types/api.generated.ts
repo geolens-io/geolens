@@ -6704,12 +6704,18 @@ export interface components {
         };
         /** Body_reupload_dataset_datasets__dataset_id__reupload_post */
         Body_reupload_dataset_datasets__dataset_id__reupload_post: {
-            /** File */
+            /**
+             * File
+             * Format: binary
+             */
             file: string;
         };
         /** Body_upload_file_ingest_upload_post */
         Body_upload_file_ingest_upload_post: {
-            /** File */
+            /**
+             * File
+             * Format: binary
+             */
             file: string;
             /**
              * Kind
@@ -6719,7 +6725,10 @@ export interface components {
         };
         /** Body_upload_map_icon_endpoint_maps_icons_post */
         Body_upload_map_icon_endpoint_maps_icons_post: {
-            /** File */
+            /**
+             * File
+             * Format: binary
+             */
             file: string;
         };
         /**
@@ -15284,12 +15293,14 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description The CSV file, or a JSON file when the format is json */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "text/csv": string;
+                };
             };
             /** @description Bad request — invalid query parameters or payload */
             400: {
@@ -16475,12 +16486,14 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description The CSV file */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "text/csv": string;
+                };
             };
             /** @description Bad request — invalid query parameters or payload */
             400: {
@@ -27203,12 +27216,14 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description The quicklook image */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "image/png": string;
+                };
             };
             /** @description Bad request — invalid payload */
             400: {
@@ -33034,13 +33049,14 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description The icon image */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "image/png": string;
+                    "image/svg+xml": string;
                 };
             };
             /** @description Bad request — invalid payload */
@@ -33441,13 +33457,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description The sprite sheet */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "image/png": string;
                 };
             };
             /** @description Bad request — invalid query parameters or payload */
@@ -35015,12 +35031,15 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description The social preview image */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "image/jpeg": string;
+                    "image/png": string;
+                };
             };
             /** @description Bad request — invalid payload */
             400: {
@@ -35767,12 +35786,15 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description The thumbnail image */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "image/jpeg": string;
+                    "image/png": string;
+                };
             };
             /** @description Bad request — invalid payload */
             400: {
@@ -41703,12 +41725,14 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description The vector tile */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/vnd.mapbox-vector-tile": string;
+                };
             };
             /** @description Bad request — invalid query parameters or payload */
             400: {
@@ -41803,12 +41827,16 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description The raster tile image */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "image/jpeg": string;
+                    "image/png": string;
+                    "image/webp": string;
+                };
             };
             /** @description Bad request — invalid query parameters or payload */
             400: {
@@ -42041,12 +42069,14 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description The vector tile */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/vnd.mapbox-vector-tile": string;
+                };
             };
             /** @description Bad request — invalid query parameters or payload */
             400: {

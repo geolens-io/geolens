@@ -7,7 +7,7 @@
  *
  *   GET  /search/datasets/         (200 expected)
  *   GET  /datasets/{dataset_id}    (404 expected for fake UUID — proves auth + route)
- *   POST /ingest/upload            (any non-5xx ok — proves request shape)
+ *   POST /ingest/upload            (201 expected for a real file part)
  *
  * Exits 0 on success; non-zero on any failure with a descriptive console.error.
  *
@@ -59,10 +59,7 @@ async function main() {
     `get-single-dataset (fake UUID) status: ${dr.response.status}`,
   );
 
-  // 3. /ingest/upload  → any non-5xx (round-trip means the SDK reached the handler).
-  // We send a tiny GeoJSON via a Node FormData; backend will likely 422 on
-  // extension/filename validation (the @hey-api SDK's body type is loose for
-  // this endpoint), which is fine — non-5xx proves the request shape works.
+  // 3. /ingest/upload  → 201 with a job id for a real file part.
   const tinyGeoJson = JSON.stringify({
     type: 'FeatureCollection',
     features: [
@@ -73,18 +70,20 @@ async function main() {
       },
     ],
   });
-  const blob = new Blob([tinyGeoJson], { type: 'application/geo+json' });
-  const formData = new FormData();
-  formData.append('file', blob, 'tiny.geojson');
+  const file = new File([tinyGeoJson], 'tiny.geojson', {
+    type: 'application/geo+json',
+  });
 
   const ur = await uploadFileIngestUploadPost({
     client: sdk.client,
-    body: formData,
+    body: { file },
   });
   assert(
-    ur.response.status < 500,
-    `ingest/upload 5xx — SDK request shape rejected by server: ${ur.response.status}`,
+    ur.response.status === 201,
+    `ingest/upload status: ${ur.response.status} ${JSON.stringify(ur.error)}`,
   );
+  assert(ur.data && ur.data.job_id, 'ingest/upload returned no job_id');
+  console.log(`UPLOAD_JOB_ID=${ur.data.job_id}`);
 
   console.log('OK');
 }

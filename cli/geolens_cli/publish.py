@@ -146,13 +146,11 @@ def guess_mime(path: Path) -> str:
 
 
 def upload_file(client: Any, path: Path) -> Any:
-    """Upload a file via the SDK-owned httpx client (multipart workaround).
+    """Upload a file via the SDK-owned httpx client.
 
-    The generated ``BodyUploadFileIngestUploadPost.to_multipart()`` packs
-    ``(None, str(self.file).encode(), 'text/plain')`` instead of a real
-    multipart file — backend rejects with 400 "Upload missing filename"
-    (Pitfall 1). We bypass it by building the multipart payload directly
-    on the SDK's httpx client.
+    The multipart payload is built directly on the client so the file streams
+    from disk under ``long_request_timeout`` instead of being wrapped in the
+    generated body model.
 
     OCCLI-06: ``client.get_httpx_client()`` is the SDK's public surface;
     the CLI never imports httpx directly to construct a Client. The dep

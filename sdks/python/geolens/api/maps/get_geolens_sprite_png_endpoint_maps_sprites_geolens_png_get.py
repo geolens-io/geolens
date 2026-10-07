@@ -8,6 +8,8 @@ from ...types import Response
 from ... import errors
 
 from ...models.problem_detail import ProblemDetail
+from ...types import File
+from io import BytesIO
 
 
 def _get_kwargs() -> dict[str, Any]:
@@ -22,9 +24,10 @@ def _get_kwargs() -> dict[str, Any]:
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Any | ProblemDetail | None:
+) -> File | ProblemDetail | None:
     if response.status_code == 200:
-        response_200 = response.json()
+        response_200 = File(payload=BytesIO(response.content))
+
         return response_200
 
     if response.status_code == 400:
@@ -65,7 +68,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[Any | ProblemDetail]:
+) -> Response[File | ProblemDetail]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -77,7 +80,7 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
-) -> Response[Any | ProblemDetail]:
+) -> Response[File | ProblemDetail]:
     """Get Geolens Sprite Png Endpoint
 
      Serve the generated GeoLens sprite sheet for stable icon IDs.
@@ -87,7 +90,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | ProblemDetail]
+        Response[File | ProblemDetail]
     """
 
     kwargs = _get_kwargs()
@@ -102,7 +105,7 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient | Client,
-) -> Any | ProblemDetail | None:
+) -> File | ProblemDetail | None:
     """Get Geolens Sprite Png Endpoint
 
      Serve the generated GeoLens sprite sheet for stable icon IDs.
@@ -112,7 +115,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | ProblemDetail
+        File | ProblemDetail
     """
 
     return sync_detailed(
@@ -123,7 +126,7 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
-) -> Response[Any | ProblemDetail]:
+) -> Response[File | ProblemDetail]:
     """Get Geolens Sprite Png Endpoint
 
      Serve the generated GeoLens sprite sheet for stable icon IDs.
@@ -133,7 +136,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | ProblemDetail]
+        Response[File | ProblemDetail]
     """
 
     kwargs = _get_kwargs()
@@ -146,7 +149,7 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient | Client,
-) -> Any | ProblemDetail | None:
+) -> File | ProblemDetail | None:
     """Get Geolens Sprite Png Endpoint
 
      Serve the generated GeoLens sprite sheet for stable icon IDs.
@@ -156,7 +159,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | ProblemDetail
+        File | ProblemDetail
     """
 
     return (

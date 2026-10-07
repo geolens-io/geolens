@@ -304,6 +304,32 @@ def _walk(
     return node, 0, 0
 
 
+def _mark_binary_uploads(node: Any) -> int:
+    """Add ``format: binary`` to string schemas typed only by ``contentMediaType``.
+
+    FastAPI emits an ``UploadFile`` multipart field as
+    ``{"type": "string", "contentMediaType": "application/octet-stream"}``.
+    openapi-python-client reads only ``format: binary`` as a file and
+    otherwise sends the field as a plain-text form value, which the server
+    rejects with a 422.
+    """
+    count = 0
+    if isinstance(node, dict):
+        if (
+            node.get("type") == "string"
+            and node.get("contentMediaType") == "application/octet-stream"
+            and "format" not in node
+        ):
+            node["format"] = "binary"
+            count += 1
+        for value in node.values():
+            count += _mark_binary_uploads(value)
+    elif isinstance(node, list):
+        for value in node:
+            count += _mark_binary_uploads(value)
+    return count
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -347,6 +373,8 @@ def main() -> int:
                 # Already there with same body (verified earlier); no-op.
                 continue
             flat_components[name] = schema
+
+    _mark_binary_uploads(flattened)
 
     # Same serialization style as dump_openapi.py: sorted keys except each
     # schema's `properties` map, whose order drives generated SDK

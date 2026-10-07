@@ -90,6 +90,7 @@ from app.modules.embed_tokens.service import (
     revoke_embed_tokens_by_map,
     revoke_embed_tokens_for_dropped_datasets,
 )
+from app.platform.binary_response import binary_response
 from app.platform.storage.titiler_url import (
     resolve_current_storage_key as _map_asset_storage_key,
 )
@@ -1085,7 +1086,10 @@ async def upload_thumbnail(
 @router.get(
     "/{map_id}/thumbnail/",
     response_class=Response,
-    responses={403: FORBIDDEN_RESPONSE},
+    responses={
+        200: binary_response("The thumbnail image", "image/png", "image/jpeg"),
+        403: FORBIDDEN_RESPONSE,
+    },
 )
 async def get_thumbnail(
     map_id: uuid.UUID,
@@ -1245,7 +1249,10 @@ async def upload_og_image(
 @router.get(
     "/{map_id}/og-image/",
     response_class=Response,
-    responses={403: FORBIDDEN_RESPONSE},
+    responses={
+        200: binary_response("The social preview image", "image/png", "image/jpeg"),
+        403: FORBIDDEN_RESPONSE,
+    },
 )
 async def get_og_image(
     map_id: uuid.UUID,

@@ -62,12 +62,9 @@ class ReplaceRequestError(Exception):
 def upload_file(client: Any, dataset_id: UUID, path: Path) -> Any:
     """Upload a replacement file via the SDK-owned httpx client.
 
-    Same multipart workaround as ``publish.upload_file``: the generated
-    ``BodyReuploadDatasetDatasetsDatasetIdReuploadPost.to_multipart()`` packs
-    a text field instead of a real file, so this builds the multipart
-    payload directly on the SDK's httpx client instead. OCCLI-06: the client
-    comes from ``client.get_httpx_client()``, never a direct ``httpx``
-    construction.
+    The multipart payload is built directly on the SDK's httpx client so the
+    file streams from disk. OCCLI-06: the client comes from
+    ``client.get_httpx_client()``, never a direct ``httpx`` construction.
 
     fix(#1778 review round 5): the backend saves and validates the
     replacement before responding, so a large file posted through

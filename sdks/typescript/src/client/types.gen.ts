@@ -12534,10 +12534,12 @@ export type ExportAuditLogsAdminAuditLogsExportFormatGetError = ExportAuditLogsA
 
 export type ExportAuditLogsAdminAuditLogsExportFormatGetResponses = {
     /**
-     * Successful Response
+     * The CSV file, or a JSON file when the format is json
      */
-    200: unknown;
+    200: Blob | File;
 };
+
+export type ExportAuditLogsAdminAuditLogsExportFormatGetResponse = ExportAuditLogsAdminAuditLogsExportFormatGetResponses[keyof ExportAuditLogsAdminAuditLogsExportFormatGetResponses];
 
 export type TriggerBackfillAdminBackfillEmbeddingsPostData = {
     body?: never;
@@ -13308,10 +13310,12 @@ export type ExportUsersCsvAdminUsersExportCsvGetError = ExportUsersCsvAdminUsers
 
 export type ExportUsersCsvAdminUsersExportCsvGetResponses = {
     /**
-     * Successful Response
+     * The CSV file
      */
-    200: unknown;
+    200: Blob | File;
 };
+
+export type ExportUsersCsvAdminUsersExportCsvGetResponse = ExportUsersCsvAdminUsersExportCsvGetResponses[keyof ExportUsersCsvAdminUsersExportCsvGetResponses];
 
 export type ListUserNamesAdminUsersNamesGetData = {
     body?: never;
@@ -20160,10 +20164,12 @@ export type GetQuicklookDatasetsDatasetIdQuicklookGetError = GetQuicklookDataset
 
 export type GetQuicklookDatasetsDatasetIdQuicklookGetResponses = {
     /**
-     * Successful Response
+     * The quicklook image
      */
-    200: unknown;
+    200: Blob | File;
 };
+
+export type GetQuicklookDatasetsDatasetIdQuicklookGetResponse = GetQuicklookDatasetsDatasetIdQuicklookGetResponses[keyof GetQuicklookDatasetsDatasetIdQuicklookGetResponses];
 
 export type RefreshDatasetDatasetsDatasetIdRefreshPostData = {
     /**
@@ -23593,10 +23599,12 @@ export type GetMapIconAssetEndpointMapsIconsIconIdAssetGetError = GetMapIconAsse
 
 export type GetMapIconAssetEndpointMapsIconsIconIdAssetGetResponses = {
     /**
-     * Successful Response
+     * The icon image
      */
-    200: unknown;
+    200: Blob | File;
 };
+
+export type GetMapIconAssetEndpointMapsIconsIconIdAssetGetResponse = GetMapIconAssetEndpointMapsIconsIconIdAssetGetResponses[keyof GetMapIconAssetEndpointMapsIconsIconIdAssetGetResponses];
 
 export type ImportMapStyleEndpointMapsImportPostData = {
     body: MapStyleImportRequest;
@@ -23818,10 +23826,12 @@ export type GetGeolensSpritePngEndpointMapsSpritesGeolensPngGetError = GetGeolen
 
 export type GetGeolensSpritePngEndpointMapsSpritesGeolensPngGetResponses = {
     /**
-     * Successful Response
+     * The sprite sheet
      */
-    200: unknown;
+    200: Blob | File;
 };
+
+export type GetGeolensSpritePngEndpointMapsSpritesGeolensPngGetResponse = GetGeolensSpritePngEndpointMapsSpritesGeolensPngGetResponses[keyof GetGeolensSpritePngEndpointMapsSpritesGeolensPngGetResponses];
 
 export type DeleteMapEndpointMapsMapIdDeleteData = {
     body?: never;
@@ -24767,10 +24777,12 @@ export type GetOgImageMapsMapIdOgImageGetError = GetOgImageMapsMapIdOgImageGetEr
 
 export type GetOgImageMapsMapIdOgImageGetResponses = {
     /**
-     * Successful Response
+     * The social preview image
      */
-    200: unknown;
+    200: Blob | File;
 };
+
+export type GetOgImageMapsMapIdOgImageGetResponse = GetOgImageMapsMapIdOgImageGetResponses[keyof GetOgImageMapsMapIdOgImageGetResponses];
 
 export type UploadOgImageMapsMapIdOgImagePutData = {
     body: OgImageUploadRequest;
@@ -25210,10 +25222,12 @@ export type GetThumbnailMapsMapIdThumbnailGetError = GetThumbnailMapsMapIdThumbn
 
 export type GetThumbnailMapsMapIdThumbnailGetResponses = {
     /**
-     * Successful Response
+     * The thumbnail image
      */
-    200: unknown;
+    200: Blob | File;
 };
+
+export type GetThumbnailMapsMapIdThumbnailGetResponse = GetThumbnailMapsMapIdThumbnailGetResponses[keyof GetThumbnailMapsMapIdThumbnailGetResponses];
 
 export type UploadThumbnailMapsMapIdThumbnailPutData = {
     body: ThumbnailUploadRequest;
@@ -28970,10 +28984,12 @@ export type ClusterTileEndpointTilesClustersTablePathZxyPbfGetError = ClusterTil
 
 export type ClusterTileEndpointTilesClustersTablePathZxyPbfGetResponses = {
     /**
-     * Successful Response
+     * The vector tile
      */
-    200: unknown;
+    200: Blob | File;
 };
+
+export type ClusterTileEndpointTilesClustersTablePathZxyPbfGetResponse = ClusterTileEndpointTilesClustersTablePathZxyPbfGetResponses[keyof ClusterTileEndpointTilesClustersTablePathZxyPbfGetResponses];
 
 export type RasterTileProxyTilesRasterProxyDatasetIdZxyFmtGetData = {
     body?: never;
@@ -29065,10 +29081,12 @@ export type RasterTileProxyTilesRasterProxyDatasetIdZxyFmtGetError = RasterTileP
 
 export type RasterTileProxyTilesRasterProxyDatasetIdZxyFmtGetResponses = {
     /**
-     * Successful Response
+     * The raster tile image
      */
-    200: unknown;
+    200: Blob | File;
 };
+
+export type RasterTileProxyTilesRasterProxyDatasetIdZxyFmtGetResponse = RasterTileProxyTilesRasterProxyDatasetIdZxyFmtGetResponses[keyof RasterTileProxyTilesRasterProxyDatasetIdZxyFmtGetResponses];
 
 export type GetTileTokenTilesTokenDatasetIdGetData = {
     body?: never;
@@ -29249,7 +29267,9 @@ export type TileEndpointTilesTablePathZxyPbfGetError = TileEndpointTilesTablePat
 
 export type TileEndpointTilesTablePathZxyPbfGetResponses = {
     /**
-     * Successful Response
+     * The vector tile
      */
-    200: unknown;
+    200: Blob | File;
 };
+
+export type TileEndpointTilesTablePathZxyPbfGetResponse = TileEndpointTilesTablePathZxyPbfGetResponses[keyof TileEndpointTilesTablePathZxyPbfGetResponses];
