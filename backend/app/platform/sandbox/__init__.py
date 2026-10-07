@@ -18,7 +18,11 @@ import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
-from app.platform.sandbox.executor import DEFAULT_TIMEOUT_MS, execute_safe
+from app.platform.sandbox.executor import (
+    DEFAULT_MAX_RESULT_BYTES,
+    DEFAULT_TIMEOUT_MS,
+    execute_safe,
+)
 from app.platform.sandbox.schemas import SandboxError, SandboxResult
 from app.platform.sandbox.validator import (
     _folded_identifier as folded_identifier,
@@ -47,6 +51,7 @@ async def validate_and_execute(
     extra_blocked_functions: frozenset[str] | None = None,
     max_values_rows: int | None = None,
     max_output_columns: int | None = None,
+    max_result_bytes: int | None = DEFAULT_MAX_RESULT_BYTES,
 ) -> SandboxResult:
     """Validate and safely execute a SQL query.
 
@@ -91,6 +96,8 @@ async def validate_and_execute(
             lock (which only stops one user stacking queries, not N distinct
             users each holding a connection). At capacity the query is
             refused with ``query_at_capacity`` rather than queued.
+        max_result_bytes: cap on the result's text-form size, enforced in the
+            database (see execute_safe). On by default for both surfaces.
 
     Returns:
         SandboxResult with query results.
@@ -179,6 +186,7 @@ async def validate_and_execute(
                 timeout_ms=timeout_ms,
                 concurrency_key=concurrency_key,
                 require_reader_role=require_reader_role,
+                max_result_bytes=max_result_bytes,
             )
 
     except SandboxError:

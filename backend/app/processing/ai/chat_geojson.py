@@ -291,19 +291,31 @@ def _safe_value(v: object) -> object:
     return str(v)
 
 
+_CELL_MAX_CHARS = 1_000
+_ROWS_MAX_CHARS = 64_000
+
+
 def safe_rows(rows: list[list]) -> list[list]:
-    """Normalize a tabular result's cells for the browser (fix(#1778)).
+    """Normalize and bound a tabular result for the model's prompt and the table.
 
-    ``_safe_value`` reached only the GeoJSON property copy — a NaN or
-    Infinity in an ordinary column still hit ``show_query_result``'s
-    ``rows`` as a bare token, which ``parseSSEBody`` silently dropped (SSE)
-    or 500'd (non-streaming, Starlette's ``allow_nan=False``). Same
-    normalization now runs on both halves, at the point rows reach a frame.
-
+    NaN/Infinity become null. A string cell is cut to ``_CELL_MAX_CHARS`` plus
+    "…", and rows past ``_ROWS_MAX_CHARS`` of JSON are dropped after the first,
+    so a shorter return means rows were cut. Overlay geometry is not bounded here.
     Call on the way OUT, never before ``_extract_geojson``: geometry is
     detected by value, and stringifying a cell first would hide it.
     """
-    return [[_safe_value(cell) for cell in row] for row in rows]
+    out: list[list] = []
+    used = 0
+    for row in rows:
+        cells = [_safe_value(cell) for cell in row]
+        for i, cell in enumerate(cells):
+            if isinstance(cell, str) and len(cell) > _CELL_MAX_CHARS:
+                cells[i] = cell[:_CELL_MAX_CHARS] + "…"
+        used += len(json.dumps(cells))
+        if out and used > _ROWS_MAX_CHARS:
+            break
+        out.append(cells)
+    return out
 
 
 def _parse_row_geometry(raw: object) -> tuple[object, dict] | None:

@@ -52444,7 +52444,7 @@
     },
     "/query/": {
       "post": {
-        "description": "Execute one SELECT through the read-only SQL sandbox.\n\nThe statement must be a single SELECT over `data.*` tables you can\naccess, name every table in `restrict_tables`, and fit the sandbox's\nfunction allowlist and cost bounds. Rows are capped by `row_limit` and\nexecution by a server-side statement timeout.",
+        "description": "Execute one SELECT through the read-only SQL sandbox.\n\nThe statement must be a single SELECT over `data.*` tables you can\naccess, name every table in `restrict_tables`, and fit the sandbox's\nfunction allowlist and cost bounds. Rows are capped by `row_limit`,\nexecution by a server-side statement timeout, and the result's size before\nit leaves the database: `truncated` is true when either cap cut rows. A\nresult whose first row alone exceeds the size cap, or whose response would\nexceed 8 MiB, is refused with 422.",
         "operationId": "sandbox_query_endpoint_query__post",
         "requestBody": {
           "content": {

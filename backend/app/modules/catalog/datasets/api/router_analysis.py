@@ -91,6 +91,7 @@ _SANDBOX_STATUS = {
     "query_at_capacity": status.HTTP_429_TOO_MANY_REQUESTS,
     "query_timeout": status.HTTP_422_UNPROCESSABLE_CONTENT,
     "query_data_error": status.HTTP_422_UNPROCESSABLE_CONTENT,
+    "result_too_large": status.HTTP_422_UNPROCESSABLE_CONTENT,
 }
 
 

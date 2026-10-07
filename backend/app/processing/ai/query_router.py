@@ -195,6 +195,7 @@ _SANDBOX_STATUS = {
     "table_not_accessible": status.HTTP_404_NOT_FOUND,
     "query_timeout": status.HTTP_422_UNPROCESSABLE_CONTENT,
     "query_data_error": status.HTTP_422_UNPROCESSABLE_CONTENT,
+    "result_too_large": status.HTTP_422_UNPROCESSABLE_CONTENT,
     "query_busy": status.HTTP_429_TOO_MANY_REQUESTS,
     "query_at_capacity": status.HTTP_429_TOO_MANY_REQUESTS,
 }
@@ -335,8 +336,11 @@ async def sandbox_query_endpoint(
 
     The statement must be a single SELECT over `data.*` tables you can
     access, name every table in `restrict_tables`, and fit the sandbox's
-    function allowlist and cost bounds. Rows are capped by `row_limit` and
-    execution by a server-side statement timeout.
+    function allowlist and cost bounds. Rows are capped by `row_limit`,
+    execution by a server-side statement timeout, and the result's size before
+    it leaves the database: `truncated` is true when either cap cut rows. A
+    result whose first row alone exceeds the size cap, or whose response would
+    exceed 8 MiB, is refused with 422.
     """
     restrict = frozenset(body.restrict_tables)
     try:

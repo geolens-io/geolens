@@ -7,6 +7,8 @@ for end users while full details are logged server-side.
 
 from __future__ import annotations
 
+import secrets
+
 import structlog
 import sqlglot
 from sqlglot import exp
@@ -23,6 +25,12 @@ logger = structlog.stdlib.get_logger(__name__)
 
 DEFAULT_ROW_LIMIT = 1000
 DEFAULT_TIMEOUT_MS = 10_000
+# Text-form bytes a caller-written query may return. Sized for overlay geometry;
+# a row limit and a timeout leave one generated cell free to reach a gigabyte.
+DEFAULT_MAX_RESULT_BYTES = 16 * 1024 * 1024
+
+# Columns the byte-bounded wrapper appends after the caller's own.
+_BYTE_META_COLUMNS = 3
 
 # Single-tenant restricted execution role (migration 0007 + init-db.sh).
 # Module-level so tests can point it at a nonexistent role to exercise both
@@ -113,6 +121,45 @@ def _rewrite_logical_data_schema(sql: str, physical_schema: str) -> str:
     return sql
 
 
+def _limited_sql(
+    sql: str, fetch_limit: int, max_result_bytes: int | None, token: str
+) -> str:
+    """Wrap validated SQL in the row cap and, when given, the result-byte cap.
+
+    The byte cap is measured and enforced inside PostgreSQL, so rows past it never
+    cross the wire: a running total of each row's text size keeps rows while the
+    total fits, refuses a first row that alone exceeds it, and reports through the
+    trailing ``more`` column that a later row existed but was cut. The row cap sits
+    below the window, so dropped rows never extend the scan past ``fetch_limit``.
+    ``token`` is fresh per call so neither the meta-column names nor the refusal
+    marker can be matched by a caller's own columns or values.
+    """
+    # The closing paren and LIMIT go on their own line: `--` runs to end of line,
+    # so a validated query ending in a line comment would swallow the wrapper.
+    limited = f"SELECT * FROM (\n{sql}\n) AS _q LIMIT {fetch_limit}"
+    if max_result_bytes is None:
+        return limited
+    row_bytes, total_bytes = f"_geolens_{token}_row", f"_geolens_{token}_total"
+    return (
+        f"SELECT * FROM (SELECT _l.*, _s.b AS {row_bytes}, "
+        f"pg_catalog.sum(_s.b) OVER _gw AS {total_bytes}, "
+        f"pg_catalog.lead(true, 1, false) OVER _gw AS _geolens_{token}_more "
+        f"FROM ({limited}) AS _l "
+        # `_l.*`, not bare `_l`: a caller's column named _l would shadow the row.
+        "CROSS JOIN LATERAL (SELECT pg_catalog.octet_length(CAST(_l.* AS text))) "
+        "AS _s(b) "
+        "WINDOW _gw AS (ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)) AS _w "
+        f"WHERE CASE WHEN _w.{total_bytes} <= {int(max_result_bytes)} THEN true "
+        f"WHEN _w.{total_bytes} = _w.{row_bytes} "
+        f"THEN ('{_too_large_marker(token)} ' || _w.{row_bytes})::int IS NULL "
+        "ELSE false END"
+    )
+
+
+def _too_large_marker(token: str) -> str:
+    return f"geolens_result_too_large_{token}"
+
+
 async def execute_safe(
     db: AsyncSession,
     sql: str,
@@ -121,6 +168,7 @@ async def execute_safe(
     timeout_ms: int = DEFAULT_TIMEOUT_MS,
     concurrency_key: str | None = None,
     require_reader_role: bool = False,
+    max_result_bytes: int | None = None,
 ) -> SandboxResult:
     """Execute validated SQL inside a READ ONLY transaction with timeout and row cap.
 
@@ -139,12 +187,16 @@ async def execute_safe(
             of running with the application login's (superuser) privileges.
             Default False preserves the legacy best-effort fallback for AI
             chat. Multi-tenant binding is unconditionally fail-closed.
+        max_result_bytes: when set, cap the result's text-form size in the
+            database. Rows past the cap are cut and ``truncated`` is set; a
+            first row that alone exceeds it raises ``result_too_large``.
 
     Returns:
         SandboxResult with rows, columns, row_count, and truncated flag.
 
     Raises:
-        SandboxError: On timeout, read-only violation, or any DB error.
+        SandboxError: On timeout, read-only violation, oversized result, or any
+            DB error.
     """
     multi_tenant = is_multi_tenant()
     tenant_id = current_tenant_var.get() if multi_tenant else None
@@ -157,10 +209,9 @@ async def execute_safe(
         sql = _rewrite_logical_data_schema(sql, tenant_data_schema(tenant_id))
 
     fetch_limit = row_limit + 1
-    # fix(#1778): the closing paren and LIMIT go on their own line. `--` runs to
-    # end of line, so a validated query ending in a trailing line comment used
-    # to comment out the wrapper's own tail and fail with a bare syntax error.
-    limited_sql = f"SELECT * FROM (\n{sql}\n) AS _q LIMIT {fetch_limit}"
+    # Hex, so it is a valid identifier fragment in the wrapper's column names.
+    token = secrets.token_hex(6)
+    limited_sql = _limited_sql(sql, fetch_limit, max_result_bytes, token)
 
     # Use the engine from the database module (patched in tests)
     import app.core.db as db_module
@@ -241,13 +292,17 @@ async def execute_safe(
     except SandboxError:
         raise
     except Exception as exc:  # broad: varied DB errors; classify in handler
-        _handle_execution_error(exc, sql)
+        _handle_execution_error(exc, sql, token)
 
     # Convert rows to list-of-lists
     rows = [list(row) for row in all_rows]
     truncated = len(rows) > row_limit
     if truncated:
         rows = rows[:row_limit]
+    if max_result_bytes is not None:
+        columns = columns[:-_BYTE_META_COLUMNS]
+        truncated = truncated or bool(rows and rows[-1][-1])
+        rows = [row[:-_BYTE_META_COLUMNS] for row in rows]
 
     return SandboxResult(
         rows=rows,
@@ -257,7 +312,7 @@ async def execute_safe(
     )
 
 
-def _handle_execution_error(exc: Exception, sql: str) -> None:
+def _handle_execution_error(exc: Exception, sql: str, token: str | None = None) -> None:
     """Classify and re-raise DB exceptions as SandboxError.
 
     Always logs full details server-side at WARNING level.
@@ -271,6 +326,13 @@ def _handle_execution_error(exc: Exception, sql: str) -> None:
         error=str(exc),
         error_type=exc_type,
     )
+
+    # The driver error alone: the wrapped exception's text also quotes the
+    # statement, which carries the marker on every bounded query.
+    if token is not None and _too_large_marker(token) in str(getattr(exc, "orig", "")):
+        raise SandboxError(
+            "result_too_large", "Query result is too large to return"
+        ) from exc
 
     # Timeout detection (asyncpg.exceptions.QueryCanceledError or message match)
     if "querycancelederror" in exc_type.lower() or "statement timeout" in exc_str:
