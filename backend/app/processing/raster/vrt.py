@@ -244,19 +244,26 @@ def _seam_frame_origin(spans: list[tuple[float, float]]) -> float | None:
 
 
 def resolve_vrt_source_path(asset_uri: str, *, tenant_id: str | None = None) -> str:
-    """Delegate to the storage seam's resolve_open_path (STOR-01 / Phase 1210).
-
-    Kept for backward compatibility with existing callers; new callers
-    should import resolve_open_path from app.platform.storage.titiler_url
-    directly.
+    """The storage path a VRT names for one member, via ``resolve_open_path``.
 
     tenant_id: when provided (multi_tenant), prepend tenants/{tenant_id}/ to
-        the object key. Always None in single_tenant; the returned path is
-        byte-identical to the pre-1210 inline code.
-    """
-    from app.platform.storage.titiler_url import resolve_open_path
+        the object key. Always None in single_tenant.
 
-    return resolve_open_path(asset_uri, tenant_id=tenant_id)
+    Raises ValueError for a remote member: the VRT file would name its URL,
+    and every later read of the VRT would fetch it without the relay.
+    """
+    from app.platform.storage.titiler_url import (
+        RemoteRasterPathError,
+        resolve_open_path,
+    )
+
+    try:
+        return resolve_open_path(asset_uri, tenant_id=tenant_id)
+    except RemoteRasterPathError:
+        raise ValueError(
+            "A remote (by-reference) raster can't be a VRT member; rebuild the "
+            "VRT without it or import a copy of the raster"
+        ) from None
 
 
 def shift_vrt_longitude_frame(vrt_path: str) -> None:

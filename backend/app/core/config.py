@@ -465,10 +465,10 @@ class Settings(BaseSettings):
     # Revealed only at the SDK boundary in init_storage(); never logged.
     azure_storage_account_key: SecretStr | None = None
 
-    # IN-01: env-overridable Titiler base URL, matching the Docker Compose
-    # service name by default; override via TITILER_BASE_URL for bare-metal
-    # or alternative service names.
+    # Compose service origins by default: the API reaches Titiler at the first,
+    # and Titiler reads every remote raster through the API relay at the second.
     titiler_base_url: str = "http://titiler:8000"
+    remote_raster_relay_base_url: str = "http://api:8000"
 
     redis_url: str | None = None
     cdn_base_url: str | None = None

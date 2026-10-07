@@ -292,7 +292,7 @@ async def _resolve_from_item(
         # so a credentialed asset that MOVED reads as unreadable rather than
         # re-describing. Carrying a key to the tiler is overlay work.
         metadata = await fetch_cog_info(href)
-        if metadata is None:
+        if metadata is None or metadata.get("not_geotiff"):
             # fix(#1266): the probe may have already settled this — 404/410
             # is conclusively gone, so keep that verdict rather than replace
             # it with an inconclusive one. Pointer is not adopted either way.

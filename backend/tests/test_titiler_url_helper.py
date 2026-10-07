@@ -18,12 +18,13 @@ def test_build_titiler_cog_url_no_query():
     assert build_titiler_cog_url("info") == "http://titiler:8000/cog/info"
 
 
-def test_build_titiler_cog_url_with_query():
-    """User-supplied URL is URL-encoded into the query string."""
-    result = build_titiler_cog_url("info", query={"url": "https://example.com/foo.tif"})
-    assert (
-        result == "http://titiler:8000/cog/info?url=https%3A%2F%2Fexample.com%2Ffoo.tif"
+def test_build_titiler_cog_url_with_query(monkeypatch):
+    """The source path is URL-encoded into the query string."""
+    monkeypatch.setattr(
+        "app.platform.storage.titiler_url._managed_prefix", lambda: "/vsis3/bucket/"
     )
+    result = build_titiler_cog_url("info", query={"url": "/vsis3/bucket/a b.tif"})
+    assert result == "http://titiler:8000/cog/info?url=%2Fvsis3%2Fbucket%2Fa+b.tif"
 
 
 def test_build_titiler_cog_url_with_raw_suffix():
@@ -38,16 +39,19 @@ def test_build_titiler_cog_url_with_raw_suffix():
     )
 
 
-def test_build_titiler_cog_url_combines_query_and_raw_suffix():
+def test_build_titiler_cog_url_combines_query_and_raw_suffix(monkeypatch):
     """Both query and raw_query_suffix supplied — combined with `&`."""
+    monkeypatch.setattr(
+        "app.platform.storage.titiler_url._managed_prefix", lambda: "/vsis3/bucket/"
+    )
     result = build_titiler_cog_url(
         "tiles/WebMercatorQuad/5/10/15.png",
-        query={"url": "https://example.com/foo.tif"},
+        query={"url": "/vsis3/bucket/foo.tif"},
         raw_query_suffix="bidx=1&bidx=2&rescale=0,255",
     )
     assert result == (
         "http://titiler:8000/cog/tiles/WebMercatorQuad/5/10/15.png"
-        "?url=https%3A%2F%2Fexample.com%2Ffoo.tif"
+        "?url=%2Fvsis3%2Fbucket%2Ffoo.tif"
         "&bidx=1&bidx=2&rescale=0,255"
     )
 

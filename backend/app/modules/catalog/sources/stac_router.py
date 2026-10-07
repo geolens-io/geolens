@@ -51,7 +51,11 @@ from app.modules.catalog.sources.stac_next_page import (
     issue_cursor,
     open_cursor,
 )
-from app.modules.catalog.sources.cog_info import fetch_cog_info, reconcile_epsg
+from app.modules.catalog.sources.cog_info import (
+    fetch_cog_info,
+    import_refusal,
+    reconcile_epsg,
+)
 from app.modules.catalog.sources.schemas import (
     DEPRECATED_TOKEN_SUFFIX,
     SERVICE_AUTH_FIELD_DESCRIPTION,
@@ -144,12 +148,6 @@ router = APIRouter(
 _OFF_ORIGIN_ITEM_HREF_MESSAGE = (
     "This item's own URL is on a different host than the STAC catalog it was "
     "imported from, so GeoLens will not record it as the item's address."
-)
-
-_UNIDENTIFIED_CRS_MESSAGE = (
-    "GeoLens imports remote COGs whose CRS has an EPSG code or is OGC CRS84, "
-    "and this item's asset has neither. Reproject the file to an EPSG CRS, "
-    "for example with gdalwarp -t_srs EPSG:<code>, and import it again."
 )
 
 _STAC_TOKEN_DESCRIPTION = (
@@ -807,12 +805,10 @@ async def stac_import(
     from app.modules.quota.service import reserve_dataset_slot
 
     for item in importable:
-        probed = cog_info_map.get(item.data_asset_href)
-        if probed is not None and probed.get("crs_unidentified"):
+        refusal = import_refusal(cog_info_map.get(item.data_asset_href))
+        if refusal is not None:
             results.append(
-                StacImportResult(
-                    item_id=item.id, status="error", error=_UNIDENTIFIED_CRS_MESSAGE
-                )
+                StacImportResult(item_id=item.id, status="error", error=refusal)
             )
             errors += 1
             continue

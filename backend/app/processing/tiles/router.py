@@ -57,7 +57,8 @@ from app.platform.extensions import (
     get_processing_port,
 )
 from app.platform.service_endpoints import MAX_QUERY_FIELDS
-from app.platform.storage.titiler_url import build_titiler_cog_url, resolve_open_path
+from app.platform.storage.titiler_url import build_titiler_cog_url
+from app.processing.tiles import remote_sources
 from app.processing.raster.models import RasterAsset
 from app.core.db.tenant_schema import tenant_data_schema
 from app.core.db.tenant_session import current_tenant_var
@@ -296,6 +297,7 @@ class _RasterMeta(NamedTuple):
     tile_cache_version: int
     # fix(#1963): the signed scope binds this, not `tile_cache_version` above.
     publication_version: int
+    member_sources: dict
 
 
 # Bounded LRU mirroring the vector `_dataset_cache`. An
@@ -680,7 +682,7 @@ async def _read_raster_meta(
                 ra.band_info,
                 ra.nodata,
                 d.tile_cache_version,
-                d.publication_version
+                d.publication_version, {remote_sources.MEMBER_SOURCES_COLUMN}
             FROM catalog.datasets d
             JOIN catalog.records r ON d.record_id = r.id
             LEFT JOIN catalog.raster_assets ra ON ra.dataset_id = d.id
@@ -720,6 +722,7 @@ async def _read_raster_meta(
         nodata=row["nodata"],
         tile_cache_version=row["tile_cache_version"] or 1,
         publication_version=row["publication_version"] or 0,
+        member_sources=row["member_sources"] or {},
     )
 
 
@@ -909,7 +912,7 @@ async def raster_auth_check(
 
     Returns 200 with the open-path/cache-status headers, 401 if auth is
     missing, 403 if the embed token is invalid, 404 if not found/not
-    raster/no asset.
+    raster/no asset, 409 for a mosaic naming a remote member.
     """
     # fix(#1372): nginx keys on the FIRST occurrence of `v` and matches the
     # name case-insensitively; `QueryParams.get()` returns the LAST occurrence
@@ -923,11 +926,8 @@ async def raster_auth_check(
         requested_version=v_values[0] if v_values else None,
     )
 
-    # `resolve_open_path` is the single storage seam (local/s3/azure
-    # dispatch, http(s) pass-through). In multi_tenant the key is prefixed
-    # `tenants/{tenant_id}/`; in single_tenant the path is byte-identical.
-    tenant_id = current_tenant_var.get() if is_multi_tenant() else None
-    open_path = resolve_open_path(meta.asset_uri, tenant_id=tenant_id)
+    tenant_id = _require_tile_tenant_context()
+    open_path = await remote_sources.titiler_open_path(meta, dataset_id, tenant_id)
 
     cache_status = (
         "public"
@@ -973,7 +973,7 @@ async def raster_auth_check(
     return Response(
         status_code=status.HTTP_200_OK,
         headers={
-            "X-GeoLens-Asset-OpenPath": open_path,
+            **remote_sources.open_path_header(request, open_path, raster_tile_proxy),
             "X-GeoLens-Cache-Status": cache_status,
             "X-GeoLens-Render-Params": render_params,
             "X-GeoLens-Band-Count": str(meta.band_count or 1),
@@ -1239,7 +1239,6 @@ async def raster_tile_proxy(
                     z=z,
                     x=x,
                     y=y,
-                    titiler_url=titiler_url,
                     error=redact_exception_text(exc),
                     exc_info=True,
                 )
@@ -1289,7 +1288,6 @@ async def raster_tile_proxy(
             x=x,
             y=y,
             status_code=resp.status_code,
-            titiler_url=titiler_url,
         )
         raise HTTPException(status_code=resp.status_code, detail="Tile fetch failed")
 

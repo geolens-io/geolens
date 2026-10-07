@@ -128,6 +128,7 @@ x-app-runtime-env: &app-runtime-env
   BANNER_TEXT: "${BANNER_TEXT:-}"
   BANNER_COLOR: "${BANNER_COLOR:-warning}"
   TITILER_BASE_URL: "${TITILER_BASE_URL:-http://titiler:8000}"
+  REMOTE_RASTER_RELAY_BASE_URL: "${REMOTE_RASTER_RELAY_BASE_URL:-http://api:8000}"
 
 # Shared hardening profile for the FastAPI-image trio (api, worker, migrate).
 # All three run the same Dockerfile target and use the same setpriv-based

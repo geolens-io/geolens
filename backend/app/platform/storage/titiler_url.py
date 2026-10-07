@@ -1,22 +1,26 @@
-"""Single source of truth for Titiler proxy URL construction (REMED-04/P2-01).
+"""Single source of truth for Titiler proxy URL construction.
 
 Callers: processing/tiles/router.py (raster tile proxy) and
-modules/catalog/sources/stac_router.py (cog/info, cog/statistics for STAC
-band/dtype probing). Centralizing here means one place for a future
-TITILER_BASE_URL override, consistent URL-encoding of the `url` query
-param, and one seam to mock in tests.
+modules/catalog/sources/cog_info.py (cog/info, cog/statistics for STAC
+band/dtype probing). Titiler is handed managed storage paths and relay
+addresses only; ``build_titiler_cog_url`` refuses any other URL, so a remote
+raster always reaches Titiler through the API relay
+(``platform/storage/raster_relay.py``).
 
 Named `titiler_url.py`, not `cog_url.py`: the host is the Titiler service
 even though the path is `/cog/...`, and `asset_uri` also appears in
 router_export.py for a different concern (signed export redirect).
-
-Titiler is currently internal-only (no `ports:` in docker-compose). If that
-changes, re-audit the security stance at tiles/router.py::_titiler_client
-(SEC-OBSV-01) and sources/cog_info.py::fetch_cog_info (SEC-OBSV-02); see
-#1927.
 """
 
+import uuid
 from urllib.parse import urlencode
+
+from app.platform.service_endpoints import bounded_parse_qsl
+from app.platform.storage.raster_relay import (
+    is_relay_url,
+    is_remote_asset_uri,
+    relay_url,
+)
 
 # IN-01: env-overridable TITILER_BASE_URL, read lazily (in
 # _get_titiler_base_url) so the module can import before FastAPI settings
@@ -108,11 +112,15 @@ def resolve_current_storage_key(asset_uri: str) -> str:
     return resolve_storage_key(asset_uri, tenant_id=tenant_id)
 
 
+class RemoteRasterPathError(ValueError):
+    """A remote raster was asked for a path GDAL would open directly."""
+
+
 def resolve_open_path(asset_uri: str, *, tenant_id: str | None = None) -> str:
     """Resolve a logical asset_uri to a GDAL-open-able VSI path.
 
-    Single source of truth for VSI prefix construction (STOR-01). A provider
-    swap (s3<->azure<->local) changes only this function.
+    Single source of truth for VSI prefix construction. A provider swap
+    (s3<->azure<->local) changes only this function.
 
     tenant_id: in multi_tenant mode, prepends ``tenants/{tenant_id}/`` to the
     key. In single_tenant mode it is always None and asset_uri is used as-is.
@@ -121,27 +129,59 @@ def resolve_open_path(asset_uri: str, *, tenant_id: str | None = None) -> str:
         local  -> {upload_staging_dir}/{asset_uri}
         s3     -> /vsis3/{s3_bucket}/{asset_uri}
         azure  -> /vsiaz/{azure_storage_container}/{asset_uri}
-        remote -> asset_uri unchanged (already a full URL — STAC import)
 
-    Raises ValueError if asset_uri contains path-traversal or injection
-    patterns (WR-01, checked BEFORE VSI prefix construction).
+    Raises RemoteRasterPathError for a remote (http/https) asset, which GDAL
+    must never open itself; Titiler reads one through
+    :func:`resolve_titiler_source`. Raises ValueError if asset_uri contains
+    path-traversal or injection patterns, checked before any VSI prefix is
+    built.
     """
-    from app.core.config import settings
+    if is_remote_asset_uri(asset_uri):
+        raise RemoteRasterPathError(
+            "A remote raster has no storage path; it is read through the relay"
+        )
 
-    # Remote STAC import: asset_uri is already a full URL — pass through unchanged.
-    if asset_uri.startswith("http://") or asset_uri.startswith("https://"):
-        return asset_uri
-
-    # WR-01: validate before building any VSI path.
     key = resolve_storage_key(asset_uri, tenant_id=tenant_id)
+    return f"{_managed_prefix()}{key}"
+
+
+def _managed_prefix() -> str:
+    """Where the configured provider's objects open from, ending in ``/``."""
+    from app.core.config import settings
 
     provider = settings.storage_provider
     if provider == "s3":
-        return f"/vsis3/{settings.s3_bucket}/{key}"
+        return f"/vsis3/{settings.s3_bucket}/"
     if provider == "azure":
-        return f"/vsiaz/{settings.azure_storage_container}/{key}"
+        return f"/vsiaz/{settings.azure_storage_container}/"
     # local (default): same tenant-prefixed key convention as S3/Azure.
-    return f"{settings.upload_staging_dir}/{key}"
+    return f"{settings.upload_staging_dir}/"
+
+
+def resolve_titiler_source(
+    asset_uri: str, *, dataset_id: uuid.UUID | None, tenant_id: str | None = None
+) -> str:
+    """The ``url`` Titiler opens for an asset: its storage path, or a relay
+    address when the asset is remote."""
+    if is_remote_asset_uri(asset_uri):
+        return relay_url(asset_uri, dataset_id)
+    return resolve_open_path(asset_uri, tenant_id=tenant_id)
+
+
+def is_managed_open_path(value: str) -> bool:
+    """Whether ``value`` is a path under the managed storage prefix that
+    ``resolve_open_path`` builds."""
+    prefix = _managed_prefix()
+    key = value[len(prefix) :] if value.startswith(prefix) else ""
+    return bool(key) and "://" not in key and ".." not in key.split("/")
+
+
+def _refuse_unmanaged_source(value: str) -> None:
+    """Raise unless ``value`` is a relay address or a managed storage path."""
+    if not (is_relay_url(value) or is_managed_open_path(value)):
+        raise RemoteRasterPathError(
+            "Titiler opens only managed storage paths and relay addresses"
+        )
 
 
 def build_titiler_cog_url(
@@ -155,16 +195,24 @@ def build_titiler_cog_url(
     Args:
         endpoint: Path segment after /cog/ (e.g. "info", "statistics",
             "tiles/WebMercatorQuad/5/10/15.png"). Must not start with "/".
-        query: dict of query parameters, URL-encoded. Use for caller-supplied
-            user input like `url=...`.
+        query: dict of query parameters, URL-encoded. Its ``url`` must come
+            from :func:`resolve_titiler_source`.
         raw_query_suffix: pre-built query fragment without the leading "?".
             Use for upstream-rendered fragments that already encode their
             values and may repeat keys (e.g. bidx=1&bidx=2 from
-            _titiler_render_params).
+            _titiler_render_params). It may not carry a ``url``.
 
     Returns:
         Fully-built URL string.
+
+    Raises:
+        RemoteRasterPathError: if ``url`` is not a managed path or relay address.
     """
+    if query and "url" in query:
+        _refuse_unmanaged_source(query["url"])
+    suffix_fields = bounded_parse_qsl((raw_query_suffix or "").lstrip("?&"))
+    if any(key.lower() == "url" for key, _ in suffix_fields):
+        raise RemoteRasterPathError("the source url belongs in query, not the suffix")
     base = f"{_get_titiler_base_url()}/cog/{endpoint}"
     parts: list[str] = []
     if query:

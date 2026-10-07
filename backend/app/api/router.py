@@ -67,6 +67,7 @@ from app.modules.settings.router import (
 )
 from app.standards.stac.router import stac_router
 from app.processing.tiles.router import router as tiles_router
+from app.processing.tiles.raster_relay import router as raster_relay_router
 
 
 api_router = APIRouter()
@@ -130,6 +131,7 @@ api_router.include_router(embed_tokens_admin_router)
 # /m/{token} embed shell (consumed by the nginx auth_request edge wiring).
 api_router.include_router(embed_frame_policy_router)
 api_router.include_router(tiles_router)
+api_router.include_router(raster_relay_router)
 api_router.include_router(stac_router)
 
 __all__ = ["api_router"]

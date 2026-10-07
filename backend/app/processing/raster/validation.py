@@ -87,6 +87,24 @@ def _check_crs(
     return errors
 
 
+def _check_managed_storage(sources: list[Any]) -> list[SourceValidationError]:
+    """A VRT names each member's path in its own file, which is read without
+    the relay, so a member must be stored by GeoLens."""
+    return [
+        SourceValidationError(
+            source_id=src.id,
+            code="remote_source",
+            message=(
+                "A remote (by-reference) raster can't be a VRT member; "
+                "import a copy of it instead"
+            ),
+            field="storage_backend",
+        )
+        for src in sources
+        if getattr(src, "storage_backend", None) == "remote"
+    ]
+
+
 def _check_band_count_mosaic(sources: list[Any]) -> list[SourceValidationError]:
     """VAL-02: All mosaic sources must share the same band count."""
     errors: list[SourceValidationError] = []
@@ -303,14 +321,13 @@ def validate_sources(
         list of SourceValidationError — empty list means all sources compatible.
 
     Notes:
-        - 0 or 1 sources always returns empty (minimum-count is the
-          caller's responsibility)
+        - 0 or 1 sources get only the managed-storage check (minimum-count
+          is the caller's responsibility)
         - All checks run exhaustively — no fail-fast
     """
+    errors = _check_managed_storage(sources)
     if len(sources) < 2:
-        return []
-
-    errors: list[SourceValidationError] = []
+        return errors
 
     # Checks that apply to both vrt_types
     errors.extend(_check_crs(sources, same_crs))
