@@ -448,7 +448,7 @@ function descriptorForMessage(message: string, status: number): ApiErrorDescript
   // backslash-escaped when it holds both, and
   // `set()` when nothing is open to the caller.
   const workflowDenied = message.match(
-    /^Cannot transition from '(.+?)' to '(.+?)'\. Allowed: (?:set\(\)|\{(.*)\})$/,
+    /^Cannot transition from '([\s\S]+?)' to '([\s\S]+?)'\. Allowed: (?:set\(\)|\{([\s\S]*)\})$/,
   );
   if (workflowDenied) {
     const allowed = [...(workflowDenied[3] ?? '').matchAll(/'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)"/g)]

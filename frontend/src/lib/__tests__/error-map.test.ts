@@ -72,6 +72,18 @@ describe('API error localization boundary', () => {
     ).toMatchObject({ values: { allowed: 'a\tb\x07' } });
   });
 
+  it('matches a refused edge whose status name holds a line break', () => {
+    expect(
+      classifyApiError(
+        "Cannot transition from 'pending\nreview' to 'published'. Allowed: set()",
+        422,
+      ),
+    ).toEqual({
+      key: 'errors.workflowTransitionDeniedNoneAllowed',
+      values: { from: 'pending\nreview', to: 'published' },
+    });
+  });
+
   it('says so when no workflow step is open to the caller', () => {
     expect(
       classifyApiError("Cannot transition from 'draft' to 'published'. Allowed: set()", 422),

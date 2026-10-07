@@ -38,6 +38,7 @@ describe('looksLikeArcGisPortalUrl', () => {
     'https://www.arcgis.com/home/item.html?id=abc123',
     'https://www.arcgis.com/apps/mapviewer/index.html?url=https://services6.arcgis.com/x/arcgis/rest/services/Foo/FeatureServer/0',
     'https://gis.example-city.gov/portal/home/',
+    'https://gis.example.gov/portal/apps/mapviewer/index.html?id=abc',
     'https://gis.example-city.gov/arcgis/home/webmap/viewer.html',
   ])('flags %s as a portal page', (url) => {
     expect(looksLikeArcGisPortalUrl(url)).toBe(true);
