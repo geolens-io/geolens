@@ -4,8 +4,9 @@ import uuid
 from datetime import datetime, timezone
 
 import pytest
+from sqlalchemy import delete
 
-from app.modules.admin.job_review import awaiting_review_job_ids
+from app.modules.admin.job_review import review_states
 from app.modules.admin.service import AdminService
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
@@ -76,8 +77,8 @@ async def test_a_held_replacement_is_awaiting_review_not_failed(test_db_session)
 
     assert await _listed(svc, token, "failed") == {broken.id}
     assert await _listed(svc, token, "awaiting_review") == {held.id}
-    assert await awaiting_review_job_ids(test_db_session, [held.id, broken.id]) == {
-        held.id
+    assert await review_states(test_db_session, [held.id, broken.id]) == {
+        held.id: "awaiting"
     }
 
 
@@ -88,7 +89,25 @@ async def test_an_accepted_replacement_is_neither_failed_nor_awaiting(test_db_se
 
     assert await _listed(svc, token, "failed") == set()
     assert await _listed(svc, token, "awaiting_review") == set()
-    assert await awaiting_review_job_ids(test_db_session, [accepted.id]) == set()
+    assert await review_states(test_db_session, [accepted.id]) == {
+        accepted.id: "resolved"
+    }
+
+
+async def test_a_review_required_job_whose_run_is_gone_stays_a_failure(
+    test_db_session,
+):
+    """Deleting the dataset removes the held run, and with it the claim to be held."""
+    token = f"held{uuid.uuid4().hex[:10]}"
+    job = await _held_job(test_db_session, token=token, consumed=False)
+    await test_db_session.execute(
+        delete(DatasetRefreshRun).where(DatasetRefreshRun.ingest_job_id == job.id)
+    )
+    await test_db_session.commit()
+    svc = AdminService(test_db_session)
+
+    assert await _listed(svc, token, "failed") == {job.id}
+    assert await review_states(test_db_session, [job.id]) == {}
 
 
 async def test_the_job_list_reports_each_held_jobs_review_state(

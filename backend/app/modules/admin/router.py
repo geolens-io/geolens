@@ -16,7 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import StreamingResponse
 
-from app.modules.admin.job_review import REVIEW_REQUIRED, awaiting_review_job_ids
+from app.modules.admin.job_review import REVIEW_REQUIRED, review_states
 from app.modules.admin.schemas import (
     AdminJobListResponse,
     AdminJobResponse,
@@ -855,7 +855,7 @@ async def list_admin_jobs(
         *(get_retry_capability(job) for job, _username in rows)
     )
     held = [job.id for job, _ in rows if job.error_code == REVIEW_REQUIRED]
-    awaiting = await awaiting_review_job_ids(db, held)
+    states = await review_states(db, held)
     jobs = [
         AdminJobResponse(
             id=job.id,
@@ -864,13 +864,7 @@ async def list_admin_jobs(
             dataset_id=job.dataset_id,
             error_message=job.error_message,
             error_code=job.error_code,
-            review_state=(
-                None
-                if job.id not in held
-                else "awaiting"
-                if job.id in awaiting
-                else "resolved"
-            ),
+            review_state=states.get(job.id),
             can_retry=can_retry,
             retry_reason=retry_reason,
             source_url=_listed_source_url(job),
