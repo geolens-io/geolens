@@ -59,7 +59,7 @@ BOOKKEEPING = {
     "accepted_refresh_run_id": str(uuid.uuid4()),
     "accepted_refresh_fingerprint": "sha256:4567",
     "expected_previous_version": 2,
-    "preview_data_revision": 3,
+    "start_data_revision": 3,
     "archive_error": "Could not archive staging/job/original.tif",
     "archive_pending": True,
     "superseded_keys": [f"rasters/{uuid.uuid4()}/attempt/source.cog.tif"],

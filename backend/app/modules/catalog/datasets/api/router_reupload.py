@@ -16,8 +16,7 @@ from fastapi import (
     UploadFile,
     status,
 )
-from sqlalchemy import BigInteger, func, select, text, update
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.failure_reason import redact_failure_reason
@@ -217,15 +216,25 @@ def _pending_reupload_update(job_id: uuid.UUID, dataset_id: uuid.UUID):
     )
 
 
-# The dataset's data revision at the job's first preview. The commit compares
-# edits made since, and a commit cannot name which of several previews it
-# followed, so the earliest one stands.
-_PREVIEW_DATA_REVISION = "preview_data_revision"
+# The dataset's data revision when the job was created, which its publication
+# compares edits with.
+_START_DATA_REVISION = "start_data_revision"
 
 
-def _preview_data_revision(metadata: dict) -> int | None:
-    revision = metadata.get(_PREVIEW_DATA_REVISION)
-    return revision if type(revision) is int else None
+def _new_reupload_metadata(dataset_id: uuid.UUID, dataset) -> dict:
+    return {
+        "reupload": True,
+        "dataset_id": str(dataset_id),
+        _START_DATA_REVISION: dataset.data_revision,
+    }
+
+
+def _start_data_revision(metadata: dict) -> int:
+    """The job's start revision; a job created before it was recorded has none."""
+    revision = metadata.get(_START_DATA_REVISION)
+    if type(revision) is int:
+        return revision
+    return refresh_policy.UNKNOWN_DATA_REVISION
 
 
 def _reupload_bind_refusal() -> HTTPException:
@@ -413,7 +422,7 @@ async def reupload_dataset(
 
     job = await get_catalog_port().create_ingest_job(db, file.filename, "", user.id)
     job.dataset_id = dataset_id
-    job.user_metadata = {"reupload": True, "dataset_id": str(dataset_id)}
+    job.user_metadata = _new_reupload_metadata(dataset_id, dataset)
 
     max_size_mb = await UPLOAD_MAX_SIZE_MB.get(db)
     max_size_bytes = max_size_mb * 1024 * 1024
@@ -518,7 +527,7 @@ async def reupload_service_preview(
     # facts the diff needs and the job's owner are read off them first.
     prior_columns = dataset.column_info or []
     prior_feature_count = dataset.feature_count
-    prior_data_revision = dataset.data_revision
+    start_data_revision = dataset.data_revision
     user_id = user.id
     await db.rollback()
 
@@ -586,7 +595,7 @@ async def reupload_service_preview(
             "layer_id": request.layer_id,
             "source_type": "service_url",
             "object_id_field": request.object_id_field,
-            _PREVIEW_DATA_REVISION: prior_data_revision,
+            _START_DATA_REVISION: start_data_revision,
         },
     )
     await db.flush()
@@ -683,7 +692,6 @@ async def reupload_preview(
     prior_geometry_type = dataset.geometry_type
     prior_table_name = dataset.table_name
     prior_geometry = (dataset.srid, dataset.is_3d, dataset.n_dims)
-    prior_data_revision = dataset.data_revision
     await db.rollback()
 
     # Resolve S3 key to local file for ogrinfo
@@ -806,24 +814,6 @@ async def reupload_preview(
     )
     prior_job = prior_result.scalar_one_or_none()
     previous_source_layer = prior_job.source_layer if prior_job else None
-    await db.execute(
-        _pending_reupload_update(job_pk, dataset_id).values(
-            user_metadata=func.coalesce(
-                IngestJob.user_metadata, text("'{}'::jsonb")
-            ).op("||", return_type=JSONB)(
-                func.jsonb_build_object(
-                    _PREVIEW_DATA_REVISION,
-                    func.least(
-                        IngestJob.user_metadata[_PREVIEW_DATA_REVISION].astext.cast(
-                            BigInteger
-                        ),
-                        prior_data_revision,
-                    ),
-                )
-            )
-        )
-    )
-    await db.commit()
 
     return ReuploadPreviewResponse(
         job_id=job_pk,
@@ -1108,7 +1098,7 @@ async def reupload_commit(
     # is a durable JSONB column and this model_dump is a whitelist by
     # omission, so a nested credential object would land in it in full.
     existing_meta = dict(job.user_metadata or {})
-    previewed_revision = _preview_data_revision(existing_meta)
+    start_revision = _start_data_revision(existing_meta)
     existing_meta.update(
         request.model_dump(exclude_none=True, exclude={"token", "auth", "layer_name"})
     )
@@ -1143,7 +1133,7 @@ async def reupload_commit(
             triggered_by=user.id,
             ingest_job_id=job.id,
             feature_count_before=dataset.feature_count,
-            data_revision_baseline=previewed_revision,
+            data_revision_baseline=start_revision,
         )
     except DatasetBusyError as exc:
         # Nothing this request wrote is committed, so the job row it merged
@@ -1349,7 +1339,7 @@ async def request_presigned_reupload(
     # fix(#1848): the markers the binding gate reads are committed with the
     # row; the presigned facts land through the guarded bind once storage
     # has answered, so a row cancelled or unbound meanwhile is refused.
-    job.user_metadata = {"reupload": True, "dataset_id": str(dataset_id)}
+    job.user_metadata = _new_reupload_metadata(dataset_id, dataset)
     job_id = job.id
     job_created_at = job.created_at
     job_metadata = job.user_metadata

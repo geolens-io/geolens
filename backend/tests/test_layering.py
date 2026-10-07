@@ -1323,7 +1323,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # File and remote-source replacement strategies own retrieval, staging and
     # verification, including the live geometry read and its witness, and the
     # live-edit comparison each publication makes.
-    "backend/app/processing/ingest/tasks_reupload.py": 1566,
+    "backend/app/processing/ingest/tasks_reupload.py": 1568,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection.
     "backend/app/modules/catalog/datasets/api/router_refresh.py": 1354,
@@ -1346,7 +1346,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # semantics.
     "backend/app/processing/embeddings/backfill.py": 919,
     # Reupload preview, compatibility, review and staged commit share an endpoint lifecycle.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1623,
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1613,
     # VRT creation and regeneration share publication, owed-object records and
     # superseded-object cleanup.
     "backend/app/processing/ingest/tasks_vrt.py": 1650,

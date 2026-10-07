@@ -113,7 +113,13 @@ class _Harness:
             source_filename=filename,
             file_path=file_path,
             created_by=self.admin_id,
-            user_metadata={"reupload": True, "dataset_id": str(dataset.id)},
+            user_metadata={
+                "reupload": True,
+                "dataset_id": str(dataset.id),
+                "start_data_revision": await self.session.scalar(
+                    select(Dataset.data_revision).where(Dataset.id == dataset.id)
+                ),
+            },
         )
         self.session.add(job)
         await self.session.commit()
@@ -1416,19 +1422,23 @@ async def test_a_feature_edited_while_the_replacement_stages_holds_it_for_review
     assert await _live_rows(harness, dataset) == edited
 
 
-@pytest.mark.parametrize("previewed_again", [False, True], ids=["once", "twice"])
-async def test_a_feature_edited_after_the_preview_holds_the_commit_for_review(
-    harness: _Harness, previewed_again: bool
+async def test_a_feature_edited_after_the_upload_holds_the_commit_for_review(
+    harness: _Harness,
 ):
-    """The commit is compared with what the job's first preview showed."""
+    """The commit is compared with the dataset as the upload found it."""
     dataset = await _published(harness, _geojson(harness.tmp_path / "a.geojson", _BASE))
     path = _geojson(harness.tmp_path / "b.geojson", _BASE)
-    job_id = await harness.upload_job(dataset, str(path), path.name)
+    response = await harness.client.post(
+        f"/datasets/{dataset.id}/reupload",
+        headers=harness.headers,
+        files={"file": (path.name, path.read_bytes(), "application/geo+json")},
+    )
+    assert response.status_code in (200, 201, 202), response.text
+    job_id = uuid.UUID(response.json()["job_id"])
     await harness.preview(dataset, job_id)
     await _edit_features(harness, dataset, "insert")
     edited = await _live_rows(harness, dataset)
-    if previewed_again:
-        await harness.preview(dataset, job_id)
+    await harness.preview(dataset, job_id)
 
     await harness.commit(dataset, job_id)
     await harness.run_worker()
@@ -1437,6 +1447,35 @@ async def test_a_feature_edited_after_the_preview_holds_the_commit_for_review(
     assert run.status == "blocked", run.verification
     assert run.verification["review_reasons"] == ["live_data_changed"]
     assert await _live_rows(harness, dataset) == edited
+
+
+async def test_a_job_created_before_its_start_was_recorded_holds_once(
+    harness: _Harness,
+):
+    """With no known start, the commit is held, and accepting it publishes."""
+    dataset = await _published(harness, _geojson(harness.tmp_path / "a.geojson", _BASE))
+    path = _geojson(harness.tmp_path / "b.geojson", _BASE)
+    job_id = await harness.upload_job(dataset, str(path), path.name)
+    await harness.session.execute(
+        text(
+            "UPDATE catalog.ingest_jobs "
+            "SET user_metadata = user_metadata - 'start_data_revision' WHERE id = :id"
+        ),
+        {"id": job_id},
+    )
+    await harness.session.commit()
+
+    await harness.commit(dataset, job_id)
+    await harness.run_worker()
+    held = await harness.run_for(job_id)
+    assert held.status == "blocked", held.verification
+    assert held.verification["review_reasons"] == ["live_data_changed"]
+
+    response = await harness.accept(dataset, held.id)
+    assert response.status_code == 202, response.text
+    await harness.run_worker()
+    accepted = await harness.run_for(uuid.UUID(response.json()["job_id"]))
+    assert accepted.status == "succeeded", accepted.verification
 
 
 async def test_a_feature_edited_before_the_replacement_is_previewed_is_replaced(

@@ -128,6 +128,10 @@ _GEOMETRY_REASONS = frozenset(
 
 LIVE_DATA_CHANGED = "live_data_changed"
 
+# The baseline of a replacement whose start predates the count, so every write
+# counts as later.
+UNKNOWN_DATA_REVISION = -1
+
 
 def live_data_revision(baseline: int | None, current: int | None) -> int | None:
     """``current`` when the live table was written since ``baseline``, else None.

@@ -264,7 +264,9 @@ async def _data_revision_baseline(
             if isinstance(verification, dict)
             else None
         )
-        return baseline if type(baseline) is int else -1
+        return (
+            baseline if type(baseline) is int else refresh_policy.UNKNOWN_DATA_REVISION
+        )
     return await session.scalar(
         select(DatasetRefreshRun.data_revision_baseline).where(
             DatasetRefreshRun.ingest_job_id == job_id
