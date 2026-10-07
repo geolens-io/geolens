@@ -286,7 +286,7 @@ def _looks_like_geojson(path: Path, *, peek_bytes: int = 1 << 20) -> bool:
     A file that fits in ``peek_bytes`` is parsed, so malformed JSON and JSON
     without a GeoJSON ``type`` are rejected wherever the member sits. A larger
     file is never loaded whole (multi-GB exports would exhaust memory); its
-    prefix must open an object and name a Feature or FeatureCollection.
+    prefix must open an object whose root ``type`` is a GeoJSON type.
     """
     try:
         with path.open("rb") as fh:
@@ -301,7 +301,4 @@ def _looks_like_geojson(path: Path, *, peek_bytes: int = 1 << 20) -> bool:
             return False
         return isinstance(doc, dict) and doc.get("type") in _GEOJSON_TYPES
     head = head.removeprefix(b"\xef\xbb\xbf").lstrip()
-    return head.startswith(b"{") and _root_type(head) in (
-        "FeatureCollection",
-        "Feature",
-    )
+    return head.startswith(b"{") and _root_type(head) in _GEOJSON_TYPES

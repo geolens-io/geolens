@@ -337,3 +337,9 @@ class TestJsonDetectionEdgeCases:
             '{"ty\\u0070e":"Feature\\u0043ollection","pad":"' + "a" * 200
         )
         assert _scan._looks_like_geojson(path, peek_bytes=96) is True
+
+    def test_large_root_geometry_is_geojson_like_a_small_one(self, tmp_path) -> None:
+        path = tmp_path / "poly.json"
+        path.write_text('{"type":"Polygon","coordinates":[[' + "[0,0]," * 100 + "[0,0]]]}")
+        assert _scan._looks_like_geojson(path, peek_bytes=64) is True
+        assert _scan._looks_like_geojson(path) is True
