@@ -7,7 +7,7 @@ import subprocess
 
 from tests.repo_paths import repo_root
 
-SCRIPT = repo_root(__file__) / "frontend" / "docker-dev-entrypoint.sh"
+SCRIPT = repo_root(__file__) / "frontend/docker-dev-entrypoint.sh"
 STAMP = "node_modules/.package-lock.sha256"
 
 
