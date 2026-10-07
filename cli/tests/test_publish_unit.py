@@ -621,6 +621,8 @@ class TestPublishCli:
             "/datasets/00000000-0000-0000-0000-000000000042"
         )
         assert payload["job_id"] == "00000000-0000-0000-0000-000000000001"
+        # The commit response said "pending"; the wait finished successfully.
+        assert payload["status"] == "completed"
 
     def test_publish_uses_filename_stem_when_no_name(
         self,

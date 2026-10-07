@@ -795,11 +795,13 @@ def whoami(ctx: typer.Context) -> None:
         getattr(user, "email", None) or getattr(user, "username", None) or "<unknown>"
     )
     if state.json_mode:
+        roles = list(getattr(user, "roles", None) or [])
         payload = {
             "instance": instance,
             "email": email,
             "id": getattr(user, "id", None),
-            "role": getattr(user, "role", None),
+            "roles": roles,
+            "role": "admin" if "admin" in roles else (roles[0] if roles else None),
         }
         state.output.json(payload)
     else:
@@ -1212,6 +1214,9 @@ def publish(
                         f"after {int(_publish._DEFAULT_POLL_TIMEOUT_SECONDS)}s "
                         f"and has not finished. Check GET /jobs/{job_id}."
                     )
+            else:
+                wait_outcome_known = True
+                publish_status = late_status or outcome.status
 
         # Stage 5 — fix(#569): apply --tags / --collection now that the
         # dataset id exists. Failures here are PARTIAL: the dataset was
@@ -1955,8 +1960,8 @@ def analysis_materialize(
     materialize_failure: Optional[str] = None
     materialize_message: Optional[str] = None
     materialize_exit_code = EXIT_GENERIC
+    late_status: Optional[str] = None
     if resolved is None:
-        late_status: Optional[str] = None
         if outcome.stopped_because in ("timeout", "poll_failed"):
             # fix(#1778, codex round 3): resolve_dataset_id now reports WHY
             # it stopped instead of collapsing every reason into None — see
@@ -2081,6 +2086,8 @@ def analysis_materialize(
                     f"Check GET /jobs/{job_id}."
                 )
 
+    if resolved is not None:
+        materialize_status = late_status or outcome.status
     url = _publish.construct_dataset_url(
         instance, dataset_id=resolved, job_id=job_id
     )

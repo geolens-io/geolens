@@ -226,3 +226,173 @@ class TestGeojsonSnifferBoundedRead:
         plain = tmp_path / "plain.json"
         plain.write_text('{"foo": 1, "bar": 2}')
         assert _scan._looks_like_geojson(plain) is False
+
+
+class TestIndependentDatasetsSharingABasename:
+    def test_geojson_and_gpkg_beside_a_shapefile_are_listed(self, tmp_path) -> None:
+        for name in ("cities.shp", "cities.shx", "cities.dbf", "cities.prj"):
+            (tmp_path / name).write_bytes(b"x")
+        (tmp_path / "cities.geojson").write_text('{"type":"FeatureCollection"}')
+        (tmp_path / "cities.gpkg").write_bytes(b"SQLite format 3\x00")
+
+        items = {i.path.name: i for i in _scan.walk(tmp_path)}
+
+        assert set(items) == {"cities.shp", "cities.geojson", "cities.gpkg"}
+        assert items["cities.shp"].ingest is True
+        assert {p.name for p in items["cities.shp"].sidecar_files} == {
+            "cities.shx",
+            "cities.dbf",
+            "cities.prj",
+        }
+        assert items["cities.geojson"].format == "geojson"
+        assert items["cities.gpkg"].format == "geopackage"
+
+    def test_include_exts_without_shp_still_lists_the_geojson(self, tmp_path) -> None:
+        for name in ("cities.shp", "cities.shx", "cities.dbf"):
+            (tmp_path / name).write_bytes(b"x")
+        (tmp_path / "cities.geojson").write_text('{"type":"FeatureCollection"}')
+
+        items = list(_scan.walk(tmp_path, include_exts={".geojson"}))
+
+        assert [i.path.name for i in items] == ["cities.geojson"]
+
+
+class TestRasterAuxSidecar:
+    def test_aux_xml_is_a_sidecar_not_an_unsupported_file(self, tmp_path) -> None:
+        (tmp_path / "dem.tif").write_bytes(b"II*\x00")
+        (tmp_path / "dem.tif.aux.xml").write_text("<PAMDataset/>")
+
+        items = list(_scan.walk(tmp_path))
+
+        assert [(i.path.name, i.format) for i in items] == [
+            ("dem.tif", "cog-candidate")
+        ]
+
+
+class TestJsonDetection:
+    def _scan_one(self, tmp_path, text: str):
+        (tmp_path / "x.json").write_text(text)
+        (item,) = _scan.walk(tmp_path)
+        return item
+
+    def test_type_after_a_long_leading_member_is_still_geojson(self, tmp_path) -> None:
+        pad = "a" * 5000
+        item = self._scan_one(
+            tmp_path, '{"name":"%s","type":"FeatureCollection","features":[]}' % pad
+        )
+        assert item.format == "geojson" and item.ingest is True
+
+    def test_malformed_json_is_not_ingestable(self, tmp_path) -> None:
+        item = self._scan_one(tmp_path, '{"type": "FeatureCollection", "features": [')
+        assert item.ingest is False
+
+    def test_non_geojson_type_is_not_ingestable(self, tmp_path) -> None:
+        item = self._scan_one(tmp_path, '{"type": "config", "foo": 1}')
+        assert item.ingest is False
+
+    def test_oversized_file_is_judged_from_its_prefix(self, tmp_path) -> None:
+        path = tmp_path / "big.json"
+        path.write_text('{"type":"FeatureCollection","features":[' + "1," * 100)
+        assert _scan._looks_like_geojson(path, peek_bytes=64) is True
+        path.write_text('{"foo":' + "1," * 100)
+        assert _scan._looks_like_geojson(path, peek_bytes=64) is False
+
+
+class TestJsonDetectionEdgeCases:
+    def test_deeply_nested_json_is_unsupported_not_a_crash(self, tmp_path) -> None:
+        path = tmp_path / "deep.json"
+        path.write_text("[" * 100_000 + "]" * 100_000)
+        assert _scan._looks_like_geojson(path) is False
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            '{"payload":{"type":"Feature","x":1},"pad":"' + "a" * 200,
+            '{"note":"\\"type\\": \\"Feature\\"","pad":"' + "a" * 200,
+            '{"items":[{"type":"Feature"}],"pad":"' + "a" * 200,
+        ],
+    )
+    def test_nested_or_quoted_type_in_a_truncated_file_is_not_geojson(
+        self, tmp_path, text
+    ) -> None:
+        path = tmp_path / "wrapper.json"
+        path.write_text(text)
+        assert _scan._looks_like_geojson(path, peek_bytes=64) is False
+
+    def test_root_type_after_other_members_in_a_truncated_file_is_geojson(
+        self, tmp_path
+    ) -> None:
+        path = tmp_path / "big.json"
+        path.write_text(
+            '{"name":"a {brace}","crs":{"type":"name"},"type":"Feature","pad":"'
+            + "a" * 200
+        )
+        assert _scan._looks_like_geojson(path, peek_bytes=96) is True
+
+    def test_escaped_key_and_value_in_a_truncated_file_still_match(
+        self, tmp_path
+    ) -> None:
+        path = tmp_path / "escaped.json"
+        path.write_text(
+            '{"ty\\u0070e":"Feature\\u0043ollection","pad":"' + "a" * 200
+        )
+        assert _scan._looks_like_geojson(path, peek_bytes=96) is True
+
+    def test_large_root_geometry_is_geojson_like_a_small_one(self, tmp_path) -> None:
+        path = tmp_path / "poly.json"
+        path.write_text('{"type":"Polygon","coordinates":[[' + "[0,0]," * 100 + "[0,0]]]}")
+        assert _scan._looks_like_geojson(path, peek_bytes=64) is True
+        assert _scan._looks_like_geojson(path) is True
+
+
+class TestScanRobustness:
+    def test_unrecognised_shapefile_sidecars_stay_grouped(self, tmp_path) -> None:
+        for name in ("roads.shp", "roads.shx", "roads.dbf", "roads.qpj"):
+            (tmp_path / name).write_bytes(b"x")
+
+        items = list(_scan.walk(tmp_path))
+
+        assert [i.path.name for i in items] == ["roads.shp"]
+        assert "roads.qpj" in {p.name for p in items[0].sidecar_files}
+
+    def test_prefix_cut_inside_a_string_of_escaped_quotes_is_fast(
+        self, tmp_path
+    ) -> None:
+        import time
+
+        path = tmp_path / "evil.json"
+        path.write_bytes(b'{"a":"' + b'\\"' * 200_000 + b'"}')
+        start = time.monotonic()
+        assert _scan._looks_like_geojson(path, peek_bytes=64 * 1024) is False
+        assert time.monotonic() - start < 2
+
+    def test_repeated_root_type_uses_the_last_value_like_a_full_parse(
+        self, tmp_path
+    ) -> None:
+        path = tmp_path / "dup.json"
+        path.write_text('{"type":"Feature","type":"config","pad":"' + "a" * 200)
+        assert _scan._looks_like_geojson(path, peek_bytes=96) is False
+        path.write_text('{"type":"config","type":"Feature","pad":"' + "a" * 200)
+        assert _scan._looks_like_geojson(path, peek_bytes=96) is True
+
+    def test_prefix_ending_on_a_dangling_backslash_is_fast(self, tmp_path) -> None:
+        import time
+
+        path = tmp_path / "evil2.json"
+        path.write_bytes(b'{"a":"' + b'\\"' * 200_000 + b"\\" + b'x"}')
+        start = time.monotonic()
+        assert _scan._looks_like_geojson(path, peek_bytes=len(b'{"a":"') + 400_000 + 1) is False
+        assert time.monotonic() - start < 2
+
+    @pytest.mark.parametrize("value", ['{"name":"config"}', "[]", "1"])
+    def test_non_string_root_type_is_unsupported_not_a_crash(
+        self, tmp_path, value
+    ) -> None:
+        path = tmp_path / "odd.json"
+        path.write_text('{"type":' + value + "}")
+        assert _scan._looks_like_geojson(path) is False
+
+    def test_structured_root_type_value_keeps_nesting_depth(self, tmp_path) -> None:
+        path = tmp_path / "nested.json"
+        path.write_text('{"type":{"type":"Feature"},"pad":"' + "a" * 200)
+        assert _scan._looks_like_geojson(path, peek_bytes=96) is False
