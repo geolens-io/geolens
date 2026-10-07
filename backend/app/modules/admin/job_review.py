@@ -10,13 +10,29 @@ from __future__ import annotations
 import uuid
 from typing import Any, Literal
 
-from sqlalchemy import select
+from sqlalchemy import Text, cast, select
+from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
 
 REVIEW_REQUIRED = "review_required"
 
 
 _ACCEPTED = "acceptance_consumed_by_run_id"
+
+
+def _accepted_run_succeeded(held: Any) -> Any:
+    """Whether the run that accepted ``held`` finished, so the acceptance cannot be given back."""
+    from app.platform.refresh.models import DatasetRefreshRun
+
+    accepting = aliased(DatasetRefreshRun)
+    return (
+        select(accepting.id)
+        .where(
+            cast(accepting.id, Text) == held.verification[_ACCEPTED].astext,
+            accepting.status == "succeeded",
+        )
+        .exists()
+    )
 
 
 def _held_runs(job_id: Any, *conditions: Any) -> Any:
@@ -36,7 +52,8 @@ def _held_runs(job_id: Any, *conditions: Any) -> Any:
 def job_status_filters(status: str | None) -> list[Any]:
     """WHERE clauses for the job list's ``status`` value.
 
-    ``awaiting_review`` is a filter value only, not a stored status. A job
+    ``awaiting_review`` is a filter value only, not a stored status, and holds
+    until the accepting run succeeds, since a failed one gives the acceptance back. A job
     whose held run is gone, as when its dataset was deleted, stays a failure.
     """
     from app.platform.jobs.models import IngestJob
@@ -47,9 +64,7 @@ def job_status_filters(status: str | None) -> list[Any]:
         return [
             IngestJob.status == "failed",
             held,
-            _held_runs(
-                IngestJob.id, ~DatasetRefreshRun.verification.has_key(_ACCEPTED)
-            ),
+            _held_runs(IngestJob.id, ~_accepted_run_succeeded(DatasetRefreshRun)),
         ]
     if status == "failed":
         return [IngestJob.status == "failed", ~(held & _held_runs(IngestJob.id))]
@@ -67,7 +82,7 @@ async def review_states(
     rows = await db.execute(
         select(
             DatasetRefreshRun.ingest_job_id,
-            DatasetRefreshRun.verification.has_key(_ACCEPTED),
+            _accepted_run_succeeded(DatasetRefreshRun),
         ).where(
             DatasetRefreshRun.ingest_job_id.in_(job_ids),
             DatasetRefreshRun.status == "blocked",

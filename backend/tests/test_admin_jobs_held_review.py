@@ -15,7 +15,9 @@ from tests.factories import create_dataset, get_user_id
 pytestmark = pytest.mark.anyio
 
 
-async def _held_job(session, *, token: str, consumed: bool) -> IngestJob:
+async def _held_job(
+    session, *, token: str, accepted_by: str | None = None
+) -> IngestJob:
     admin_id = await get_user_id(session, "admin")
     dataset = await create_dataset(session, created_by=admin_id)
     job = IngestJob(
@@ -30,8 +32,20 @@ async def _held_job(session, *, token: str, consumed: bool) -> IngestJob:
     await session.flush()
     now = datetime.now(timezone.utc)
     verification = {"review_fingerprint": "fp"}
-    if consumed:
-        verification["acceptance_consumed_by_run_id"] = str(uuid.uuid4())
+    if accepted_by is not None:
+        accepting_id = uuid.uuid4()
+        verification["acceptance_consumed_by_run_id"] = str(accepting_id)
+        session.add(
+            DatasetRefreshRun(
+                id=accepting_id,
+                dataset_id=dataset.id,
+                origin_kind="upload",
+                trigger="api",
+                status=accepted_by,
+                started_at=now,
+                created_at=now,
+            )
+        )
     session.add(
         DatasetRefreshRun(
             dataset_id=dataset.id,
@@ -71,7 +85,7 @@ async def _listed(svc: AdminService, token: str, status: str) -> set[uuid.UUID]:
 
 async def test_a_held_replacement_is_awaiting_review_not_failed(test_db_session):
     token = f"held{uuid.uuid4().hex[:10]}"
-    held = await _held_job(test_db_session, token=f"{token}a", consumed=False)
+    held = await _held_job(test_db_session, token=f"{token}a", accepted_by=None)
     broken = await _failed_job(test_db_session, token=f"{token}b")
     svc = AdminService(test_db_session)
 
@@ -84,7 +98,7 @@ async def test_a_held_replacement_is_awaiting_review_not_failed(test_db_session)
 
 async def test_an_accepted_replacement_is_neither_failed_nor_awaiting(test_db_session):
     token = f"held{uuid.uuid4().hex[:10]}"
-    accepted = await _held_job(test_db_session, token=token, consumed=True)
+    accepted = await _held_job(test_db_session, token=token, accepted_by="succeeded")
     svc = AdminService(test_db_session)
 
     assert await _listed(svc, token, "failed") == set()
@@ -94,12 +108,22 @@ async def test_an_accepted_replacement_is_neither_failed_nor_awaiting(test_db_se
     }
 
 
+async def test_an_acceptance_still_in_flight_keeps_the_review_awaiting(test_db_session):
+    """A failed or cancelled accepting run gives the acceptance back."""
+    token = f"held{uuid.uuid4().hex[:10]}"
+    job = await _held_job(test_db_session, token=token, accepted_by="running")
+    svc = AdminService(test_db_session)
+
+    assert await _listed(svc, token, "awaiting_review") == {job.id}
+    assert await review_states(test_db_session, [job.id]) == {job.id: "awaiting"}
+
+
 async def test_a_review_required_job_whose_run_is_gone_stays_a_failure(
     test_db_session,
 ):
     """Deleting the dataset removes the held run, and with it the claim to be held."""
     token = f"held{uuid.uuid4().hex[:10]}"
-    job = await _held_job(test_db_session, token=token, consumed=False)
+    job = await _held_job(test_db_session, token=token, accepted_by=None)
     await test_db_session.execute(
         delete(DatasetRefreshRun).where(DatasetRefreshRun.ingest_job_id == job.id)
     )
@@ -114,8 +138,8 @@ async def test_the_job_list_reports_each_held_jobs_review_state(
     test_db_session, client, admin_auth_header
 ):
     token = f"held{uuid.uuid4().hex[:10]}"
-    await _held_job(test_db_session, token=f"{token}a", consumed=False)
-    await _held_job(test_db_session, token=f"{token}b", consumed=True)
+    await _held_job(test_db_session, token=f"{token}a", accepted_by=None)
+    await _held_job(test_db_session, token=f"{token}b", accepted_by="succeeded")
     await _failed_job(test_db_session, token=f"{token}c")
 
     resp = await client.get(
