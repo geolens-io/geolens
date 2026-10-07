@@ -1449,6 +1449,29 @@ class TestOAuthLoginEndpoint:
         # PKCE: should contain code_challenge param
         assert "code_challenge" in location
 
+    async def test_oauth_login_saml_provider_is_not_found(
+        self, client, client_session, _ensure_public_app_url
+    ):
+        """A SAML row has no OAuth endpoints, so the OAuth login route is a 404."""
+        from app.modules.auth.oauth.encryption import encrypt_secret
+        from app.modules.auth.oauth.models import OAuthProvider
+
+        slug = f"saml-login-{uuid.uuid4().hex[:6]}"
+        client_session.add(
+            OAuthProvider(
+                slug=slug,
+                display_name="SAML Test",
+                provider_type="saml",
+                client_id="saml-no-client-id",
+                client_secret_encrypted=encrypt_secret("saml-no-client-secret"),
+                enabled=True,
+            )
+        )
+        await client_session.commit()
+
+        resp = await client.get(f"/auth/oauth/{slug}/login", follow_redirects=False)
+        assert resp.status_code == 404
+
     async def test_oauth_login_not_found(self, client):
         """Login with nonexistent provider returns 404."""
         resp = await client.get(

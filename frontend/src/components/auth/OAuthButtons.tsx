@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { awaitPendingLogout, getOAuthProviders } from '@/api/auth';
 import { queryKeys } from '@/lib/query-keys';
 import { Button } from '@/components/ui/button';
+import { useEdition } from '@/hooks/use-edition';
 import { API_BASE } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 
@@ -82,7 +83,8 @@ function getButtonLabel(
 
 export function OAuthButtons({ showDivider = true }: { showDivider?: boolean } = {}) {
   const { t } = useTranslation('auth');
-  const { data: providers, isLoading, isError } = useQuery({
+  const { isEnterprise, isResolved, isLoading: editionLoading } = useEdition();
+  const { data: allProviders, isLoading, isError } = useQuery({
     queryKey: queryKeys.authConfig.oauthProviders,
     queryFn: getOAuthProviders,
     staleTime: 5 * 60_000,
@@ -92,6 +94,14 @@ export function OAuthButtons({ showDivider = true }: { showDivider?: boolean } =
   if (isError) {
     return <p className="text-xs text-muted-foreground">{t('oauth.unavailable')}</p>;
   }
+
+  // The SAML entry point only exists in the Enterprise runtime; a leftover
+  // SAML row elsewhere would be a button that 404s. If the edition lookup
+  // fails, keep the button rather than lock out SAML-only deployments.
+  const samlAvailable = editionLoading ? false : isEnterprise || !isResolved;
+  const providers = allProviders?.filter(
+    (p) => p.provider_type !== 'saml' || samlAvailable,
+  );
 
   // Adaptive layout (per design handoff):
   //   0 providers        → render nothing (no block, no divider, no SSO note)
@@ -149,7 +159,10 @@ export function OAuthButtons({ showDivider = true }: { showDivider?: boolean } =
                 // cookies, so a fast callback could install the new session
                 // only for the older logout to revoke it.
                 await awaitPendingLogout();
-                window.location.href = `${API_BASE}/auth/oauth/${provider.slug}/login`;
+                // SAML is a top-level navigation to the overlay route, which
+                // sets its browser-binding cookie before redirecting to the IdP.
+                const flow = provider.provider_type === 'saml' ? 'saml' : 'oauth';
+                window.location.href = `${API_BASE}/auth/${flow}/${provider.slug}/login`;
               }}
             >
               <ProviderIcon providerType={provider.provider_type} />
