@@ -74,7 +74,8 @@ def split(
 
 def _file_of(classname: str) -> str | None:
     """Map a JUnit classname (``tests.pkg.test_mod.TestCls``) to its file."""
-    parts = classname.split(".")
+    # A module-level skip or collection error has no classname.
+    parts = classname.split(".") if classname else []
     for end in range(len(parts), 0, -1):
         candidate = Path(*parts[:end]).with_suffix(".py")
         if (BACKEND / candidate).is_file():
