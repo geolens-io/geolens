@@ -1,13 +1,7 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef } from 'react';
 
-type CloseAutoFocusHandler = (event: Event) => void;
+type FocusEventHandler = (event: Event) => void;
 
-/**
- * Radix returns focus on close only to a `Dialog.Trigger`. Dialogs opened from a
- * plain button or a menu item have none, so focus would fall to <body>. This
- * remembers the element focused when the content mounted and restores it. A
- * focused menu item unmounts with its menu, so its trigger stands in.
- */
 function findOpener(): HTMLElement | null {
   const active = document.activeElement;
   if (!(active instanceof HTMLElement) || active === document.body) return null;
@@ -15,16 +9,37 @@ function findOpener(): HTMLElement | null {
   return (triggerId && document.getElementById(triggerId)) || active;
 }
 
-export function useReturnFocusOnClose(onCloseAutoFocus?: CloseAutoFocusHandler) {
-  const [opener] = useState(findOpener);
+/**
+ * Radix returns focus on close only to a `Dialog.Trigger`. Dialogs opened from a
+ * plain button or a menu item have none, so focus would fall to <body>. This
+ * records the focused element each time the dialog opens and restores it on
+ * close. A focused menu item unmounts with its menu, so its trigger stands in.
+ */
+export function useReturnFocusOnClose(
+  onOpenAutoFocus?: FocusEventHandler,
+  onCloseAutoFocus?: FocusEventHandler,
+) {
+  const opener = useRef<HTMLElement | null>(null);
 
-  return useCallback(
+  const handleOpen = useCallback(
+    (event: Event) => {
+      opener.current = findOpener();
+      onOpenAutoFocus?.(event);
+    },
+    [onOpenAutoFocus],
+  );
+
+  const handleClose = useCallback(
     (event: Event) => {
       onCloseAutoFocus?.(event);
-      if (event.defaultPrevented || !opener?.isConnected) return;
+      const target = opener.current;
+      opener.current = null;
+      if (event.defaultPrevented || !target?.isConnected) return;
       event.preventDefault();
-      opener.focus();
+      target.focus();
     },
-    [opener, onCloseAutoFocus],
+    [onCloseAutoFocus],
   );
+
+  return { onOpenAutoFocus: handleOpen, onCloseAutoFocus: handleClose };
 }
