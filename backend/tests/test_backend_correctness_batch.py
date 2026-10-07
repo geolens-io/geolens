@@ -2,6 +2,7 @@
 column validation and clearing an optional user email."""
 
 import uuid
+from datetime import date
 
 import pytest
 from httpx import AsyncClient
@@ -82,6 +83,24 @@ async def test_relationship_with_unknown_column_is_rejected(
     assert (await post("k", "nope")).status_code == 422
     assert (await post("k", "gid")).status_code == 201
 
+    only_internal = await create_dataset(
+        test_db_session, created_by=admin_id, name="Rel Internal"
+    )
+    await test_db_session.execute(
+        text(f"CREATE TABLE data.{only_internal.table_name} (gid integer PRIMARY KEY)")
+    )
+    await test_db_session.commit()
+    resp = await client.post(
+        f"/datasets/{only_internal.id}/relationships/",
+        json={
+            "target_dataset_id": str(target.record_id),
+            "source_column": "missing",
+            "target_column": "k",
+        },
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 422
+
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("clear", [None, ""])
@@ -132,3 +151,9 @@ async def test_date_to_includes_the_whole_utc_day(client: AsyncClient, test_db_s
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["numberMatched"] >= 1
+
+
+def test_utc_midnight_saturates_at_the_maximum_date():
+    from app.modules.catalog.search.service_filters import utc_midnight
+
+    assert utc_midnight(date.max, 1).year == 9999

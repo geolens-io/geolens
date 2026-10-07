@@ -224,12 +224,16 @@ def _build_text_filter(q: str):
 
 
 def utc_midnight(day: date, days: int = 0) -> datetime:
-    """Midnight UTC starting ``day`` plus ``days``.
+    """Midnight UTC starting ``day`` plus ``days``, saturating at year 9999.
 
     timestamptz columns compared with a bare ``date`` bind use the database
     session's TimeZone, which shifts the day on non-UTC servers.
     """
-    return datetime.combine(day + timedelta(days=days), time.min, tzinfo=timezone.utc)
+    try:
+        shifted = day + timedelta(days=days)
+    except OverflowError:
+        return datetime.max.replace(tzinfo=timezone.utc)
+    return datetime.combine(shifted, time.min, tzinfo=timezone.utc)
 
 
 def parse_ogc_datetime(datetime_str: str) -> tuple[date | None, date | None]:
