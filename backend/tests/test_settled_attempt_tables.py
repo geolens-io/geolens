@@ -243,3 +243,58 @@ async def test_the_retention_purge_keeps_a_row_whose_table_remains(
     assert await _exists(test_db_session, staging)
     await test_db_session.execute(text(f'DROP VIEW data."{view}"'))
     await _drop(test_db_session, staging)
+
+
+async def test_only_the_drop_takes_a_tenant_role(monkeypatch) -> None:
+    """Catalog reads keep the runtime role; the drop runs as the tenant writer."""
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    from app.core.db.tenant_session import (
+        _before_tenant_cursor_execute,
+        current_tenant_var,
+    )
+
+    tenant = "00000000-0000-0000-0000-000000000001"
+    schema = "data_t_00000000_0000_0000_0000_000000000001"
+    writer = "geolens_writer_t_00000000_0000_0000_0000_000000000001"
+    name = attempt_scoped_staging_table("roads", uuid.uuid4())
+    executed: list[tuple[str, dict]] = []
+
+    class _Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_exc):
+            return False
+
+        async def execute(self, statement, parameters=None):
+            executed.append((str(statement), parameters or {}))
+            return SimpleNamespace(scalars=lambda: [name])
+
+        async def scalar(self, statement, parameters=None):
+            executed.append((str(statement), parameters or {}))
+            return 1 if "FOR UPDATE" in str(statement) else None
+
+        async def commit(self):
+            return None
+
+    monkeypatch.setattr("app.core.db.async_session", _Session)
+    monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: True)
+    token = current_tenant_var.set(tenant)
+    try:
+        assert await reap_settled_attempt_tables() == 1
+        roles = []
+        for statement, parameters in executed:
+            cursor = MagicMock()
+            _before_tenant_cursor_execute(
+                object(), cursor, statement, parameters, SimpleNamespace(), False
+            )
+            roles.append(
+                cursor.execute.call_args.args[0] if cursor.execute.call_args else None
+            )
+    finally:
+        current_tenant_var.reset(token)
+
+    assert executed[-1][0] == f'DROP TABLE IF EXISTS "{schema}"."{name}"'
+    assert roles == [None] * (len(executed) - 1) + [f'SET LOCAL ROLE "{writer}"']

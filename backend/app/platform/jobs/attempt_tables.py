@@ -43,13 +43,14 @@ _cursors: dict[str, str] = {}
 
 # The CASE keeps the cast off any name the pattern does not match. The
 # LIMIT counts only tables a settled attempt owns, so tables nothing proves
-# an owner for can never fill the batch.
+# an owner for can never fill the batch. The schema is bound as `namespace`
+# so the statement keeps the runtime role, which alone can read the catalog.
 _CANDIDATES_SQL = text(
     """
     SELECT c.relname
     FROM pg_catalog.pg_class c
     JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-    WHERE n.nspname = :schema
+    WHERE n.nspname = :namespace
       AND c.relkind = 'r'
       AND c.relname ~ :pattern
       AND EXISTS (
@@ -135,7 +136,7 @@ async def reap_settled_attempt_tables() -> int:
                 await session.execute(
                     _CANDIDATES_SQL,
                     {
-                        "schema": schema,
+                        "namespace": schema,
                         "pattern": _OWNED_NAME_PATTERN,
                         "after": _cursors.get(schema, ""),
                         "limit": _TABLES_PER_PASS,
