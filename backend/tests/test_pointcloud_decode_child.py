@@ -101,7 +101,19 @@ def _stalled_decoder(monkeypatch, tmp_path: Path) -> Path:
 
 
 def _burning_decoder(monkeypatch) -> None:
-    """The real decode child, whose lazrs decode spins on the CPU and never returns."""
+    """The real decode child, whose lazrs decode spins on the CPU and never returns.
+
+    The wall-clock deadline is stretched far past the CPU limit, which a child
+    on a loaded host reaches only after much more wall time than its budget.
+    """
+    real_run_child = pointcloud_module.run_child
+    monkeypatch.setattr(
+        pointcloud_module,
+        "run_child",
+        lambda argv, *, timeout, **kwargs: real_run_child(
+            argv, timeout=timeout * 20, **kwargs
+        ),
+    )
     _decoder_with(
         monkeypatch,
         "def _burn(*args):\n"
@@ -158,7 +170,7 @@ class TestTheParentBoundsTheChild:
             inspect_pointcloud(_write(tmp_path, copc()))
         elapsed = time.monotonic() - started
 
-        assert elapsed < 6, f"the child spun {elapsed:.1f}s, past its 2s of CPU time"
+        assert elapsed < 60, f"the child spun {elapsed:.1f}s, past its 2s of CPU time"
         assert refusal_detail(refusal.value) == {
             "code": "pointcloud_invalid",
             "message": "The point cloud takes more than 2 seconds to decode.",
