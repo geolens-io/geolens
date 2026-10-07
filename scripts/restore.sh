@@ -184,38 +184,9 @@ EOSQL
 echo "Stopping API to prevent write conflicts during restore..."
 compose stop api worker 2>/dev/null || true
 
-# BUG-022 (Phase 1184): ensure api/worker are always restarted, even on failure.
-# pg_restore --clean --if-exists exits nonzero on EXPECTED warnings (e.g. "object
-# does not exist" when dropping objects absent from a fresh DB). Under `set -e`
-# that nonzero exit aborted the script, leaving api/worker stopped and skipping
-# post-restore validation.
-#
-# Fix strategy:
-#   1. A trap on EXIT restarts api/worker on every exit path (normal + error).
-#   2. pg_restore is run with `|| RESTORE_RC=$?` (disabling -e for that call)
-#      so we can inspect its exit code manually.
-#   3. pg_restore exit code handling:
-#      - 0            → success
-#      - nonzero with ONLY warning lines (no "ERROR:" lines in stderr) → treat as
-#        success (expected warnings from --clean --if-exists on a fresh DB)
-#      - nonzero with real ERROR lines in stderr → hard failure, abort
-#
-# The trap fires before the EXIT signal is delivered to the shell, so
-# api/worker are restarted regardless of whether the script exits normally
-# or via another `set -e` abort.
-#
-# fix(#1778): that restart is only correct once the restore AND the mandatory
-# grant reconciliation below have both succeeded — RESTORE_SUCCEEDED gates it.
-# BUG-022's own trap comment said the restart runs "including on failure",
-# but it was never meant to cover the HARD pg_restore error path: there the
-# database has already been --clean-dropped and only partly repopulated, no
-# ACLs have been re-granted, and starting api/worker on top of it runs their
-# boot-time `alembic upgrade heads` against the wreckage — potentially
-# stamping revisions onto a half-restored schema. RUNBOOK.md says this
-# reconciliation step is mandatory and "start runtime services only after
-# that command succeeds"; the same reasoning applies if the reconciliation
-# itself fails or its grant is not verified. RESTORE_SUCCEEDED flips to 1
-# only after every one of those checks has passed.
+# The EXIT trap restarts api/worker only after the restore and the grant
+# reconciliation below both succeed; before that the database is --clean-dropped
+# and partly repopulated, and their boot-time migrations would run against it.
 RESTORE_SUCCEEDED=0
 _cleanup() {
     # fix(#1778 round 20, P1 class): `trap` holds only ONE handler per
@@ -241,36 +212,20 @@ trap _cleanup EXIT
 
 echo "Restoring from: $BACKUP_FILE"
 
-# Capture pg_restore stderr for warning vs error analysis; also capture exit code.
-RESTORE_STDERR="$(mktemp)"
+# Any nonzero exit is a failed restore: pg_restore exits nonzero only after an
+# `error:` report, and a killed exec (137/143) or a Docker CLI failure (125)
+# reports nothing while leaving the database partly restored.
 RESTORE_RC=0
-set +e
 compose exec -T db \
     pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner \
-    < "$BACKUP_FILE" 2>"$RESTORE_STDERR"
-RESTORE_RC=$?
-set -e
+    < "$BACKUP_FILE" || RESTORE_RC=$?
 
 if [ "$RESTORE_RC" -ne 0 ]; then
-    # Distinguish expected warnings (nonzero due to --clean on a fresh DB) from
-    # hard errors. pg_restore prefixes hard errors with "pg_restore: error:" or
-    # "ERROR:" (the latter from psql-layer output forwarded through pg_restore).
-    if grep -qi "error:" "$RESTORE_STDERR" 2>/dev/null; then
-        echo "" >&2
-        echo "ERROR: pg_restore failed (exit code ${RESTORE_RC}). Stderr:" >&2
-        cat "$RESTORE_STDERR" >&2
-        rm -f "$RESTORE_STDERR"
-        # fix(#1778): RESTORE_SUCCEEDED is still 0 — the _cleanup trap leaves
-        # api/worker stopped rather than restarting them onto a half-restored
-        # database with no ACLs re-applied.
-        exit 1
-    else
-        echo "pg_restore exited with code ${RESTORE_RC} (warnings only — --clean --if-exists on fresh DB is expected)."
-        echo "Warnings:"
-        cat "$RESTORE_STDERR"
-    fi
+    echo "" >&2
+    echo "ERROR: pg_restore failed (exit code ${RESTORE_RC}); the database may be" >&2
+    echo "only partly restored." >&2
+    exit 1
 fi
-rm -f "$RESTORE_STDERR"
 
 # Reconcile runtime ownership/grants AFTER pg_restore, not before: --clean drops
 # schema ACLs/default privileges and --no-owner makes POSTGRES_USER own restored
