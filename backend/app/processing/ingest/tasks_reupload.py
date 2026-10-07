@@ -246,7 +246,9 @@ async def _data_revision_baseline(
     """The live data revision this attempt's replacement is compared with.
 
     Its own run's. An acceptance keeps the one the accepted run compared
-    with, so the writes that run was held over are the ones it covers.
+    with, so the writes that run was held over are the ones it covers. An
+    accepted run that compared none has no known start, so its acceptance
+    counts every write as later and is held again with the revision found.
     """
     from app.platform.refresh.models import DatasetRefreshRun
 
@@ -262,8 +264,7 @@ async def _data_revision_baseline(
             if isinstance(verification, dict)
             else None
         )
-        if isinstance(baseline, int) and not isinstance(baseline, bool):
-            return baseline
+        return baseline if type(baseline) is int else -1
     return await session.scalar(
         select(DatasetRefreshRun.data_revision_baseline).where(
             DatasetRefreshRun.ingest_job_id == job_id

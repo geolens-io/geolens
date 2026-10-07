@@ -1522,3 +1522,39 @@ async def test_a_column_dropped_while_the_replacement_stages_holds_it_for_review
     assert run.status == "blocked", run.verification
     assert run.verification["review_reasons"] == ["live_data_changed"]
     assert "legacy" not in await harness.live_columns(dataset)
+
+
+async def test_accepting_a_run_held_before_edits_were_counted_holds_it_again(
+    harness: _Harness,
+):
+    """With no known start, the acceptance is held once more, then publishes."""
+    dataset, _job_id, held = await _blocked_dataset(harness)
+    await harness.session.execute(
+        text(
+            "UPDATE catalog.dataset_refresh_runs "
+            "SET verification = verification - 'data_revision_baseline' "
+            "WHERE id = :id"
+        ),
+        {"id": held.id},
+    )
+    await harness.session.commit()
+    await _edit_features(harness, dataset, "attribute")
+    edited = await _live_rows(harness, dataset)
+
+    response = await harness.accept(dataset, held.id)
+    assert response.status_code == 202, response.text
+    await harness.run_worker()
+    again = await harness.run_for(uuid.UUID(response.json()["job_id"]))
+    assert again.status == "blocked", again.verification
+    assert again.verification["review_reasons"] == [
+        "destructive_schema_change",
+        "live_data_changed",
+    ]
+    assert await _live_rows(harness, dataset) == edited
+
+    response = await harness.accept(dataset, again.id)
+    assert response.status_code == 202, response.text
+    await harness.run_worker()
+    accepted = await harness.run_for(uuid.UUID(response.json()["job_id"]))
+    assert accepted.status == "succeeded", accepted.verification
+    assert "legacy" not in await harness.live_columns(dataset)
