@@ -245,6 +245,7 @@
     "version": "Version {{number}}",
     "current": "Aktuell",
     "unknownFile": "Unbekannte Datei",
+    "detailsUnrecorded": "Die Details dieser Version wurden nicht erfasst.",
     "features": "{{count}} Features",
     "srid": "SRID {{value}}"
   },

@@ -18,32 +18,38 @@ export function VersionHistory({ datasetId, dataset }: VersionHistoryProps) {
   const { t } = useTranslation('dataset');
   const { data, isLoading, isError } = useDatasetVersions(datasetId);
 
-  const versions = useMemo(() => {
+  const { versions, originalUnrecorded } = useMemo(() => {
     const fetched = data?.versions ?? [];
-
-    // Synthesize Version 1 if not present in the API response
     const hasVersion1 = fetched.some((v) => v.version_number === 1);
-    const allVersions: DatasetVersionResponse[] = hasVersion1
-      ? [...fetched]
-      : [
-          ...fetched,
-          {
-            id: 'v1-synthetic',
-            dataset_id: datasetId,
-            version_number: 1,
-            source_filename: dataset.source_filename,
-            source_format: dataset.source_format,
-            feature_count: dataset.feature_count,
-            srid: dataset.srid,
-            geometry_type: dataset.geometry_type,
-            file_hash: null,
-            uploaded_by: dataset.created_by,
-            uploaded_at: dataset.created_at,
-          },
-        ];
+    // Version 1 is synthesized only when the whole history is loaded, so a
+    // page that stops short of it never invents a row that may exist.
+    const wholeHistory = data !== undefined && fetched.length >= data.total;
+    // A replaced dataset's own facts describe its latest data, not its first.
+    const unrecorded = dataset.current_version > 1;
+    const allVersions: DatasetVersionResponse[] =
+      hasVersion1 || !wholeHistory
+        ? [...fetched]
+        : [
+            ...fetched,
+            {
+              id: 'v1-synthetic',
+              dataset_id: datasetId,
+              version_number: 1,
+              source_filename: unrecorded ? null : dataset.source_filename,
+              source_format: unrecorded ? null : dataset.source_format,
+              feature_count: unrecorded ? null : dataset.feature_count,
+              srid: unrecorded ? null : dataset.srid,
+              geometry_type: unrecorded ? null : dataset.geometry_type,
+              file_hash: null,
+              uploaded_by: dataset.created_by,
+              uploaded_at: dataset.created_at,
+            },
+          ];
 
-    // Sort newest first
-    return allVersions.sort((a, b) => b.version_number - a.version_number);
+    return {
+      versions: allVersions.sort((a, b) => b.version_number - a.version_number),
+      originalUnrecorded: !hasVersion1 && wholeHistory && unrecorded,
+    };
   }, [data, datasetId, dataset]);
 
   return (
@@ -112,6 +118,11 @@ export function VersionHistory({ datasetId, dataset }: VersionHistoryProps) {
                   {metaParts.length > 0 && (
                     <p className="text-xs text-muted-foreground">
                       {metaParts.join(' \u00B7 ')}
+                    </p>
+                  )}
+                  {originalUnrecorded && version.version_number === 1 && (
+                    <p className="text-xs text-muted-foreground">
+                      {t('versionHistory.detailsUnrecorded')}
                     </p>
                   )}
                 </div>

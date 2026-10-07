@@ -245,6 +245,7 @@
     "version": "版本 {{number}}",
     "current": "当前",
     "unknownFile": "未知文件",
+    "detailsUnrecorded": "未记录此版本的详细信息。",
     "features": "{{count}} 个要素",
     "srid": "SRID {{value}}"
   },

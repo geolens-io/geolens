@@ -40,6 +40,7 @@ from app.core.tiles3d import (
     tileset_attempt_dataset,
 )
 from app.observability.metrics.refresh import refresh_sweep_reconciled_total
+from app.platform.jobs import attempt_tables
 from app.platform.jobs.heartbeat import ANALYSIS_MATERIALIZE_LEASE_SECONDS
 from app.platform.jobs.models import (
     ACTIVE_STATUSES,
@@ -531,9 +532,9 @@ async def _reap_committed_staged_paths(
     staged_paths_skipped += skipped
     staged_cleanup_failures += failures
 
-    # fix(#1778): the analysis peer of the loop above. Same rule, same reason:
-    # the table is dropped only once the row that stopped owning it is durable.
+    # Tables go only once the row that stopped owning them is durable.
     await _reap_unadopted_analysis_outputs(outcome._unadopted_analysis_tables)
+    await attempt_tables.reap_settled_attempt_tables()
 
     return replace(
         outcome,
@@ -1597,6 +1598,7 @@ async def fail_stale_jobs(
             IngestJob.id.not_in(latest_manifest_ids),
             not_(presigned_url_may_still_be_live),
             not_(holds_unarchived_original()),
+            attempt_tables.owns_no_staging_table(),
         ]
         # A row still naming an unreaped artifact is the pending-reap record,
         # so it stays. One statement, so a retry can't flip a candidate

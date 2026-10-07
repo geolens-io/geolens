@@ -40,8 +40,7 @@ def attempt_scoped_staging_table(base_table: str, attempt_id: uuid.UUID) -> str:
 def is_attempt_scoped_staging_table(table_name: str) -> bool:
     """Whether *table_name* is a physical staging table owned by an attempt.
 
-    fix(#1858): a survivor of a SIGKILLed/OOM-killed worker (created in an
-    import, dropped in its ``finally``; nothing else reaps it). Left
+    A killed worker's table outlives it until the stale sweep drops it. Left
     unrecognised, table discovery would let bulk registration bind a
     permanent dataset to a table the next attempt can rename away.
     """
