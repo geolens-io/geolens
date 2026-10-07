@@ -263,6 +263,8 @@ services:
       - /app/staging:size=8m,uid=1001,gid=1001
     volumes:
       - ./backend/alembic:/app/alembic
+      # env.py and some migrations import application code, so it follows the checkout too.
+      - ./backend/app:/app/app:ro
     environment:
       <<: [*db-env, *auth-env, *db-ssl-env, *edition-env]
       # Migration authority is distinct from DATABASE_URL_OVERRIDE, which is
