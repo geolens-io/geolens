@@ -85,13 +85,14 @@ export function looksLikeArcGisServiceUrl(url: string): boolean {
  * pages are not.
  */
 export function looksLikeArcGisPortalUrl(url: string): boolean {
-  if (looksLikeArcGisServiceUrl(url)) return false;
   let parsed: URL;
   try {
     parsed = new URL(url.trim());
   } catch {
     return false;
   }
+  // A viewer link can carry a service URL in its query string; only the path says what this page is.
+  if (/\/(FeatureServer|MapServer)\b/i.test(parsed.pathname)) return false;
   const host = parsed.hostname.toLowerCase();
   if (
     host === 'arcgis.com' ||

@@ -54,6 +54,15 @@ describe('API error localization boundary', () => {
     });
   });
 
+  it('unescapes a status holding both quote characters', () => {
+    expect(
+      classifyApiError(
+        "Cannot transition from 'draft' to 'published'. Allowed: {'reviewer\\'s \"ok\"'}",
+        422,
+      ),
+    ).toMatchObject({ values: { allowed: 'reviewer\'s "ok"' } });
+  });
+
   it('says so when no workflow step is open to the caller', () => {
     expect(
       classifyApiError("Cannot transition from 'draft' to 'published'. Allowed: set()", 422),
