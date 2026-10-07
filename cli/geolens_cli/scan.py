@@ -35,6 +35,9 @@ SINGLE_FILE_VECTOR_FORMATS = {
     ".kml": "kml",
     ".kmz": "kmz",
 }
+# Extensions that start a dataset of their own, so they are never absorbed as
+# a sidecar of a same-named shapefile.
+PRIMARY_EXTS = VECTOR_EXTS | RASTER_EXTS | {".json"}
 SHAPEFILE_REQUIRED_SIDECARS = {".dbf", ".shx"}
 # .prj is recommended-but-optional per gdal/ogr semantics — its absence
 # does not block ingest (the server defaults to EPSG:4326 if missing) but
@@ -164,13 +167,13 @@ def _classify_group(
     shapefile_emitted = ".shp" in exts and (
         include_exts is None or ".shp" in include_exts
     )
+    absorbed: set[str] = set()
     if shapefile_emitted:
         shp = exts[".shp"]
-        siblings = [
-            p
-            for ext, p in exts.items()
-            if ext in SHAPEFILE_REQUIRED_SIDECARS | SHAPEFILE_OPTIONAL_SIDECARS
-        ]
+        absorbed = {
+            ext for ext in exts if ext != ".shp" and ext not in PRIMARY_EXTS
+        }
+        siblings = [exts[ext] for ext in exts if ext in absorbed]
         missing = SHAPEFILE_REQUIRED_SIDECARS - set(exts.keys())
         if missing:
             yield ScanItem(
@@ -189,7 +192,7 @@ def _classify_group(
             )
 
     for ext, path in exts.items():
-        if ext == ".shp":
+        if ext == ".shp" or ext in absorbed:
             continue
         if include_exts is not None and ext not in include_exts:
             continue
@@ -240,7 +243,10 @@ _GEOJSON_TYPES = frozenset(
         "MultiPolygon",
     }
 )
-_JSON_TOKEN = re.compile(rb'"(?:[^"\\]|\\.)*"|[{}\[\]:,]')
+# A string cut off by the read bound still matches (to the end of the prefix),
+# and the possessive quantifier stops the engine retrying from every escaped
+# quote inside it, which would be quadratic.
+_JSON_TOKEN = re.compile(rb'"(?:[^"\\]|\\.)*+(?:"|\Z)|[{}\[\]:,]')
 
 
 def _decode_string(token: bytes) -> Optional[str]:

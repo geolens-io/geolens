@@ -343,3 +343,25 @@ class TestJsonDetectionEdgeCases:
         path.write_text('{"type":"Polygon","coordinates":[[' + "[0,0]," * 100 + "[0,0]]]}")
         assert _scan._looks_like_geojson(path, peek_bytes=64) is True
         assert _scan._looks_like_geojson(path) is True
+
+
+class TestScanRobustness:
+    def test_unrecognised_shapefile_sidecars_stay_grouped(self, tmp_path) -> None:
+        for name in ("roads.shp", "roads.shx", "roads.dbf", "roads.qpj"):
+            (tmp_path / name).write_bytes(b"x")
+
+        items = list(_scan.walk(tmp_path))
+
+        assert [i.path.name for i in items] == ["roads.shp"]
+        assert "roads.qpj" in {p.name for p in items[0].sidecar_files}
+
+    def test_prefix_cut_inside_a_string_of_escaped_quotes_is_fast(
+        self, tmp_path
+    ) -> None:
+        import time
+
+        path = tmp_path / "evil.json"
+        path.write_bytes(b'{"a":"' + b'\\"' * 200_000 + b'"}')
+        start = time.monotonic()
+        assert _scan._looks_like_geojson(path, peek_bytes=64 * 1024) is False
+        assert time.monotonic() - start < 2
