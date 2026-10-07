@@ -241,16 +241,77 @@ export async function safeFetch(input: RequestInfo | URL, init?: RequestInit): P
   }
 }
 
+/** A response, and how its 401 was handled (null when nothing was refreshed). */
+export interface SessionResponse<R> {
+  response: R;
+  refresh: RefreshOutcome | null;
+}
+
+/**
+ * Send a request under the session current at the call: refresh a token about
+ * to expire first, and on a 401 refresh once and resend. A terminal 401 ends
+ * the session through notifySessionExpired.
+ *
+ * Once a logout or another sign-in replaces that session, the request stops
+ * acting on it: it is not dispatched, and a 401 comes back untouched (refresh
+ * null), so an older request can neither spend, resend under nor end the
+ * session that replaced it. `send` receives the token to authenticate with.
+ */
+export async function sendInSession<R extends { status: number }>(
+  send: (token: string | null) => Promise<R>,
+): Promise<SessionResponse<R>> {
+  const epochAtStart = useAuthStore.getState().sessionEpoch;
+  const isCurrent = () => useAuthStore.getState().sessionEpoch === epochAtStart;
+
+  // Proactively refresh if token expires within 30 seconds
+  const { token: currentToken, expiresAt } = useAuthStore.getState();
+  if (currentToken && expiresAt && Date.now() > expiresAt - 30_000) {
+    await tryRefresh();
+  }
+  if (!isCurrent()) {
+    const superseded = new ApiError(i18n.t('common:errors.unauthorized'), 401);
+    superseded.unconfirmed = true;
+    throw superseded;
+  }
+
+  const response = await send(useAuthStore.getState().token);
+  if (response.status !== 401 || !isCurrent()) return { response, refresh: null };
+
+  // Only a session that existed can expire; an anonymous 401 must not raise
+  // the signed-out prompt. Captured before refreshing so every concurrent
+  // failure holds the same dead value.
+  const deadSessionKey = useAuthStore.getState().token;
+  const outcome = await attemptRefresh();
+  if (!isCurrent()) return { response, refresh: null };
+
+  let final = response;
+  if (outcome === 'refreshed') {
+    const refreshedToken = useAuthStore.getState().token;
+    final = await send(refreshedToken);
+    // BUG-016: only a retry that is STILL 401 is an auth failure; anything
+    // else goes back to the caller to handle normally.
+    if (final.status !== 401) return { response: final, refresh: 'refreshed' };
+    if (refreshedToken) void revokeCurrentSession(refreshedToken).catch(() => {});
+    if (!isCurrent()) return { response: final, refresh: null };
+  }
+  // A transiently failed refresh leaves the session alive.
+  if (outcome === 'transient') return { response: final, refresh: 'transient' };
+  if (deadSessionKey) {
+    notifySessionExpired(deadSessionKey);
+  } else {
+    useAuthStore.getState().logout();
+  }
+  return { response: final, refresh: 'rejected' };
+}
+
 /**
  * BUG-035: Shared refresh-aware fetch core that returns the RAW Response.
  *
  * Streaming/download helpers (AI SSE streams, blob exports) can't go through
  * apiFetch because they need the live Response/ReadableStream/Blob rather than
- * a parsed JSON body. Previously they issued a bare `fetch()` with a possibly
- * stale JWT, so a stream/download issued as the FIRST request after a long idle
- * hit a hard 401 with no retry. This core applies the SAME proactive-refresh +
- * 401→tryRefresh→retry machinery as authenticatedFetch while leaving the
- * response body untouched, so callers keep their streaming semantics.
+ * a parsed JSON body. This core applies sendInSession's refresh and retry
+ * while leaving the response body untouched, so callers keep their streaming
+ * semantics.
  *
  * `target` is a fully-qualified URL or absolute path (already including
  * API_BASE) — unlike authenticatedFetch, the caller owns URL construction.
@@ -260,82 +321,35 @@ export async function authenticatedRawFetch(
   options: RequestInit = {},
   prepareHeaders?: (headers: Headers) => void,
 ): Promise<Response> {
-  // fix(#1515): the embedded viewer does not participate in the session. See
-  // isEmbedViewer's docstring — the share token is the capability, and once the
-  // frame is same-origin an embed on a third-party page would otherwise run as
-  // whoever is signed in, and could sign them out.
-  const embedded = isEmbedViewer();
-  const epochAtStart = useAuthStore.getState().sessionEpoch;
-
-  // Proactively refresh if token expires within 30 seconds
-  const { token: currentToken, expiresAt } = useAuthStore.getState();
-  if (!embedded && currentToken && expiresAt && Date.now() > expiresAt - 30_000) {
-    await tryRefresh();
-  }
-
-  function buildHeaders(): Headers {
+  function request(token: string | null): Promise<Response> {
     const headers = new Headers(options.headers);
-    const token = embedded ? null : useAuthStore.getState().token;
     if (token) {
       headers.set('Authorization', `Bearer ${token}`);
     }
     prepareHeaders?.(headers);
-    return headers;
+    return safeFetch(target, { ...options, headers });
   }
 
-  const response = await safeFetch(target, {
-    ...options,
-    headers: buildHeaders(),
-  });
+  // fix(#1515): the embedded viewer does not participate in the session. See
+  // isEmbedViewer's docstring — the share token is the capability, and once the
+  // frame is same-origin an embed on a third-party page would otherwise run as
+  // whoever is signed in, and could sign them out. A 401 here is the share or
+  // embed token failing to authorize, so it goes back to the viewer untouched.
+  if (isEmbedViewer()) return request(null);
 
-  if (response.status === 401) {
-    // fix(#1515): an embed never sent a session, so a 401 here is the share or
-    // embed token failing to authorize — not an expired login. Returning it
-    // keeps the viewer's own error handling and, more importantly, keeps a
-    // frame on someone else's page from refreshing or destroying the session
-    // of whoever is signed in.
-    if (embedded || useAuthStore.getState().sessionEpoch !== epochAtStart) return response;
-
-    // fix(#628): only a session that existed can expire; an anonymous 401 must
-    // not raise the signed-out prompt. Captured BEFORE tryRefresh so every
-    // concurrent failure holds the same dead value.
-    // fix(#1302): keyed on the access token now that the refresh token is a
-    // cookie. Every real session has one, and it is cleared on logout.
-    const deadSessionKey = useAuthStore.getState().token;
-    const outcome = await attemptRefresh();
-    if (useAuthStore.getState().sessionEpoch !== epochAtStart) return response;
-    if (outcome === 'refreshed') {
-      const refreshedToken = useAuthStore.getState().token;
-      const retry = await safeFetch(target, {
-        ...options,
-        headers: buildHeaders(),
-      });
-      // BUG-016: only treat a retry that is STILL 401 as an auth failure.
-      // Non-auth errors (403, 404, 422, 500, …) must be returned to the
-      // caller so they can be handled normally — not silently converted into
-      // a spurious logout.
-      if (retry.status !== 401) return retry;
-      if (refreshedToken) void revokeCurrentSession(refreshedToken).catch(() => {});
-      // A newer login must survive an older request's delayed failure.
-      if (useAuthStore.getState().sessionEpoch !== epochAtStart) return retry;
-    }
-    // fix(#2038): a transiently-failed refresh leaves the session alive, so keep
-    // it and hand the caller a 401 flagged as unconfirmed, which the sign-in
-    // catches must not read as a rejected credential.
-    if (outcome === 'transient') {
-      const unverified = new ApiError(i18n.t('common:errors.unauthorized'), 401);
-      unverified.unconfirmed = true;
-      throw unverified;
-    }
-    if (deadSessionKey) {
-      notifySessionExpired(deadSessionKey);
-    } else {
-      useAuthStore.getState().logout();
-    }
+  const { response, refresh } = await sendInSession(request);
+  // fix(#2038): a transiently-failed refresh leaves the session alive, so keep
+  // it and hand the caller a 401 flagged as unconfirmed, which the sign-in
+  // catches must not read as a rejected credential.
+  if (refresh === 'transient') {
+    const unverified = new ApiError(i18n.t('common:errors.unauthorized'), 401);
+    unverified.unconfirmed = true;
+    throw unverified;
+  }
+  if (refresh === 'rejected') {
     // fix(#438): UX-10 — was hardcoded English.
     throw new ApiError(i18n.t('common:errors.unauthorized'), 401);
   }
-
   return response;
 }
 

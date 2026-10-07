@@ -1,9 +1,8 @@
-import { apiFetch, ApiError, attemptRefresh, notifySessionExpired, tryRefresh, type RefreshOutcome } from './client';
+import { apiFetch, ApiError, sendInSession } from './client';
 import { uploadChunks } from './_presignedUpload';
 import { API_BASE } from '@/lib/constants';
 import { describeUploadRefusal, UPLOAD_REFUSAL_FALLBACK_KEYS } from '@/lib/error-map';
 import i18n from '@/i18n/i18n';
-import { useAuthStore } from '@/stores/auth-store';
 import { reportNetworkError } from '@/lib/report';
 import type {
   UploadResponse,
@@ -58,8 +57,8 @@ export function rethrowAsUploadRefusal(err: unknown): never {
 
 /**
  * XHR-based POST so we can report upload-byte progress — `fetch()` cannot.
- * Mirrors authenticatedRawFetch's proactive-refresh + single 401 retry so a
- * first-after-idle upload doesn't hard-fail on a stale JWT.
+ * Sent through sendInSession, so a first-after-idle upload refreshes a stale
+ * JWT and an upload outliving its session never acts on the next one.
  * A 401 retry re-sends the whole body — acceptable, since the proactive refresh
  * makes it rare.
  */
@@ -68,11 +67,6 @@ async function xhrUpload<T>(
   formData: FormData,
   onProgress?: UploadProgress,
 ): Promise<T> {
-  const { token, expiresAt } = useAuthStore.getState();
-  if (token && expiresAt && Date.now() > expiresAt - 30_000) {
-    await tryRefresh();
-  }
-
   // A direct-POST upload (uploadFile) previously bypassed the problem
   // reporter entirely: it's called from a plain try/catch in UploadForm, not
   // a TanStack mutation, so the shared MutationCache.onError tap in main.tsx
@@ -82,11 +76,10 @@ async function xhrUpload<T>(
   const filename = uploadedFile instanceof File ? uploadedFile.name : undefined;
   const reportUrl = filename ? `${path} (${filename})` : path;
 
-  const attempt = (): Promise<{ status: number; body: string }> =>
-    new Promise((resolve, reject) => {
+  const attempt = (jwt: string | null): Promise<{ status: number; body: string }> =>
+    new Promise<{ status: number; body: string }>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('POST', `${API_BASE}${path}`);
-      const jwt = useAuthStore.getState().token;
       if (jwt) xhr.setRequestHeader('Authorization', `Bearer ${jwt}`);
       if (onProgress) {
         xhr.upload.onprogress = (e) => {
@@ -97,32 +90,12 @@ async function xhrUpload<T>(
       xhr.onerror = () =>
         reject(new ApiError(i18n.t('common:errors.networkUnavailable'), 0));
       xhr.send(formData);
+    }).catch((err: unknown) => {
+      reportNetworkError({ status: 0, url: reportUrl, detail: err instanceof Error ? err.message : undefined });
+      throw err;
     });
 
-  let res: { status: number; body: string };
-  try {
-    res = await attempt();
-  } catch (err) {
-    reportNetworkError({ status: 0, url: reportUrl, detail: err instanceof Error ? err.message : undefined });
-    throw err;
-  }
-  // fix(#1446): capture the dead session BEFORE refreshing, matching
-  // authenticatedRawFetch — every concurrent failure then keys the
-  // notification latch on the same value.
-  let deadSessionKey: string | null = null;
-  let refreshOutcome: RefreshOutcome | null = null;
-  if (res.status === 401) {
-    deadSessionKey = useAuthStore.getState().token;
-    refreshOutcome = await attemptRefresh();
-    if (refreshOutcome === 'refreshed') {
-      try {
-        res = await attempt();
-      } catch (err) {
-        reportNetworkError({ status: 0, url: reportUrl, detail: err instanceof Error ? err.message : undefined });
-        throw err;
-      }
-    }
-  }
+  const { response: res, refresh } = await sendInSession(attempt);
 
   if (res.status < 200 || res.status >= 300) {
     let detail: unknown;
@@ -133,20 +106,10 @@ async function xhrUpload<T>(
       // Non-JSON failures use the localized status category below.
     }
     reportNetworkError({ status: res.status, url: reportUrl, detail });
-    // fix(#1446): route terminal auth failure through the shared path, so
-    // uploads get the same single signed-out prompt every other surface shows.
-    // fix(#2038): and only when the refresh credential was actually rejected.
-    if (res.status === 401 && refreshOutcome !== 'transient') {
-      if (deadSessionKey) {
-        notifySessionExpired(deadSessionKey);
-      } else {
-        useAuthStore.getState().logout();
-      }
-    }
     const failure = new ApiError(describeUploadRefusal(detail, res.status), res.status, detail);
-    // fix(#2038): same flag as authenticatedRawFetch — a 401 whose refresh only
-    // failed transiently is no evidence the credential was rejected.
-    if (res.status === 401 && refreshOutcome === 'transient') failure.unconfirmed = true;
+    // Same flag as authenticatedRawFetch: only a 401 that ended the session is
+    // evidence the credential was rejected.
+    if (res.status === 401 && refresh !== 'rejected') failure.unconfirmed = true;
     throw failure;
   }
 

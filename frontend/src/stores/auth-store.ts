@@ -4,6 +4,7 @@ import { persist, type PersistOptions } from 'zustand/middleware';
 // neither module touches the other at import time, and a hoisted function
 // declaration is initialized before either body runs.
 import { abortInflightRefresh } from '@/api/client';
+import { randomId } from '@/lib/random-id';
 import type { UserResponse } from '@/types/api';
 
 interface AuthState {
@@ -12,22 +13,27 @@ interface AuthState {
   expiresAt: number | null;
   user: UserResponse | null;
   /**
-   * fix(#1446): bumped on every logout so a refresh that was already in flight
-   * can tell its session ended and decline to write rotated tokens back. Without
-   * it, a slow refresh resolving after teardown re-populates the store (and
-   * localStorage), signing the browser back in on the login page.
+   * Bumped whenever the session changes identity: a sign-in, a logout, or
+   * another tab installing or ending one. Work started under one session
+   * captures it and refuses to write, refresh, resend or sign out once it has
+   * moved, so a late result can neither revive an ended session nor act on a
+   * newer one. A token refresh keeps it.
    *
-   * In-memory and per-tab: deliberately absent from `partialize`, since it
-   * orders events within one tab's lifetime and means nothing across reloads.
-   * Cross-tab logout therefore cannot propagate through the persisted blob —
-   * the `storage` listener below bumps it explicitly instead.
+   * In-memory and per-tab: it orders events within one tab's lifetime, so the
+   * `storage` listener below bumps it for changes made by other tabs.
    */
   sessionEpoch: number;
+  /**
+   * Persisted identity of the installed session, shared by every tab. A new
+   * value means a different sign-in rather than a refresh of the same one.
+   */
+  sessionId: string | null;
+  /** Install a new session. `user` is null while its profile is still loading. */
   setAuth: (
     token: string,
     refreshToken: string | null,
     expiresIn: number,
-    user: UserResponse,
+    user: UserResponse | null,
   ) => void;
   setTokens: (token: string, refreshToken: string | null, expiresIn: number) => void;
   logout: () => void;
@@ -114,6 +120,7 @@ const persistConfig: PersistOptions<AuthState> = {
       ...(state.refreshToken ? { refreshToken: state.refreshToken } : {}),
       expiresAt: state.expiresAt,
       user: state.user,
+      sessionId: state.sessionId,
     }) as unknown as AuthState,
 };
 
@@ -125,13 +132,16 @@ export const useAuthStore = create<AuthState>()(
       expiresAt: null,
       user: null,
       sessionEpoch: 0,
+      sessionId: null,
       setAuth: (token, refreshToken, expiresIn, user) =>
-        set({
+        set((state) => ({
           token,
           refreshToken,
           expiresAt: Date.now() + expiresIn * 1000,
           user,
-        }),
+          sessionId: randomId(),
+          sessionEpoch: state.sessionEpoch + 1,
+        })),
       setTokens: (token, refreshToken, expiresIn) =>
         set({
           token,
@@ -144,6 +154,7 @@ export const useAuthStore = create<AuthState>()(
           refreshToken: null,
           expiresAt: null,
           user: null,
+          sessionId: null,
           sessionEpoch: state.sessionEpoch + 1,
         })),
       isAdmin: () => get().user?.roles.includes('admin') ?? false,
@@ -173,26 +184,24 @@ export const useAuthStore = create<AuthState>()(
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', (e) => {
     if (e.key !== persistConfig.name) return;
-    const hadToken = !!useAuthStore.getState().token;
+    const { token: previousToken, sessionId: previousSessionId } = useAuthStore.getState();
     void Promise.resolve(useAuthStore.persist.rehydrate()).then(() => {
-      // fix(#438): DATA-09 — when another tab logs out, rehydrating clears this
-      // tab's token, but React only re-checks auth on its next render, so the
-      // tab kept showing protected chrome. On a present→absent transition, send
-      // it to /login. Skip if already on a public auth route so we don't loop.
-      const stillLoggedIn = !!useAuthStore.getState().token;
-      if (hadToken && !stillLoggedIn) {
-        // fix(#1446): another tab logged out. Rehydration clears this tab's
-        // token but cannot touch its epoch, which is per-tab — so a refresh
-        // already in flight here would still see a matching epoch and write
-        // its rotated tokens back, resurrecting the session the other tab just
-        // ended (and re-persisting it for every tab). Bump on the
-        // present->absent transition so that write is refused.
+      const { token, sessionId } = useAuthStore.getState();
+      const loggedOut = !!previousToken && !token;
+      if (loggedOut || sessionId !== previousSessionId) {
+        // Rehydration replaced the session but cannot touch this tab's epoch,
+        // so work in flight here would still write, refresh or sign out
+        // against the session another tab just ended or replaced.
         useAuthStore.setState((s) => ({ sessionEpoch: s.sessionEpoch + 1 }));
         // The epoch only blocks the store write. Abort the request too, so the
-        // browser never processes a response whose Set-Cookie could later
-        // overwrite a cookie issued by a subsequent login — the same reason
-        // the in-tab logout path aborts.
+        // browser never processes a response whose Set-Cookie could overwrite
+        // the cookie of the session that replaced it.
         abortInflightRefresh();
+      }
+      // React only re-checks auth on its next render, so a tab another tab
+      // signed out would keep showing protected chrome. Skip public auth
+      // routes so this cannot loop.
+      if (loggedOut) {
         const path = window.location.pathname;
         if (path !== '/login' && path !== '/register') {
           window.location.assign('/login');

@@ -36,6 +36,25 @@ describe('useAuthStore', () => {
     expect(useAuthStore.getState().user).toEqual(user);
   });
 
+  it('starts a new session generation on every sign-in and logout, not on refresh', () => {
+    const user = mockUser();
+    useAuthStore.getState().setAuth('token-a', null, 900, user);
+    const signedIn = useAuthStore.getState();
+
+    useAuthStore.getState().setTokens('token-a2', null, 900);
+    expect(useAuthStore.getState().sessionEpoch).toBe(signedIn.sessionEpoch);
+    expect(useAuthStore.getState().sessionId).toBe(signedIn.sessionId);
+
+    useAuthStore.getState().setAuth('token-b', null, 900, user);
+    const again = useAuthStore.getState();
+    expect(again.sessionEpoch).toBe(signedIn.sessionEpoch + 1);
+    expect(again.sessionId).not.toBe(signedIn.sessionId);
+
+    useAuthStore.getState().logout();
+    expect(useAuthStore.getState().sessionEpoch).toBe(again.sessionEpoch + 1);
+    expect(useAuthStore.getState().sessionId).toBeNull();
+  });
+
   it('setTokens updates tokens without changing user', () => {
     const user = mockUser();
     useAuthStore.setState({ token: 'old', refreshToken: 'old-refresh', expiresAt: 1, user });
