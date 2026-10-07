@@ -320,6 +320,8 @@
     "analysisVectorRequired": "Analysis needs a vector dataset — this layer is not one.",
     "analysisMaskPolygonRequired": "The clip mask must be a polygon layer.",
     "datasetVisibilityBlockedByMaps": "These maps share the dataset with an audience that would lose it: {{maps}}. Remove the layer there, or narrow those maps first.",
+    "workflowTransitionDeniedNoneAllowed": "This dataset can't move from “{{from}}” to “{{to}}” under the publication workflow, and no other step is open to you. Ask a reviewer or an administrator with the required role.",
+    "workflowTransitionDenied": "This dataset can't move from “{{from}}” to “{{to}}” under the publication workflow. Steps open to you from here: {{allowed}}.",
     "analysisUnknownDissolveColumn": "The column “{{column}}” does not exist on this dataset. Pick a different group-by field.",
     "corsWildcardNotAllowed": "Wildcard origins are not accepted. Credentialed requests require every origin listed in full, for example https://example.com.",
     "embedDomainLockUnenforceable": "This deployment cannot enforce a domain lock yet: its public app URL is set to {{resolved}}, but you reached it at {{origin}}. An embed loads the map through GeoLens itself, so the lock would block every viewer. Set PUBLIC_APP_URL to {{origin}}, then create the token.",

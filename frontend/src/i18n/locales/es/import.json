@@ -238,6 +238,7 @@
     "label": "URL de servicio",
     "placeholder": "https://example.com/wfs, ArcGIS FeatureServer o endpoint OGC API",
     "helpText": "Pegue una URL de servicio WFS, ArcGIS Feature Service u OGC API Features",
+    "arcgisPortalUrlHint": "Esto parece una página de organización o portal de ArcGIS, no una capa. Abre la página del elemento de la capa, copia su URL REST (termina en /FeatureServer/0 o /MapServer/0) y pégala aquí. Las capas protegidas piden iniciar sesión después de pegar la URL de la capa.",
     "tokenPlaceholder": "Token de ArcGIS, clave API o token de acceso WFS",
     "credentialMethodLabel": "Autenticación",
     "credentialMethodNone": "Sin autenticación",

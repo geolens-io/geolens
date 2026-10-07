@@ -78,6 +78,36 @@ export function looksLikeArcGisServiceUrl(url: string): boolean {
   return /\/(FeatureServer|MapServer)\b/i.test(url);
 }
 
+const PORTAL_PATH =
+  /\/(?:[^/]+\/home\/?$|home\/(?:(?:index|item|signin|organization|user|group|gallery|content)|webmap\/viewer)\.html$|(?:portal\w*|arcgis)\/(?:home|apps)(?:\/|$)|apps\/(?:mapviewer|webappviewer|experiencebuilder|dashboards|instant|storymaps|webappbuilder)(?:\/|$))/i;
+
+/**
+ * An ArcGIS organization or portal homepage (the arcgis.com org site or an
+ * Enterprise `/portal/home` or `/portal/apps` page) rather than a layer endpoint.
+ * The importer needs a FeatureServer/MapServer layer REST URL, which these
+ * pages are not.
+ */
+export function looksLikeArcGisPortalUrl(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url.trim());
+  } catch {
+    return false;
+  }
+  // A viewer link can carry a service URL in its query string; only the path says what this page is.
+  if (/\/(FeatureServer|MapServer)\b/i.test(parsed.pathname)) return false;
+  const host = parsed.hostname.toLowerCase();
+  if (
+    host === 'arcgis.com' ||
+    host === 'www.arcgis.com' ||
+    host.endsWith('.maps.arcgis.com')
+  ) {
+    return true;
+  }
+  // Enterprise web adaptors can have any name, so the portal's own page names stand in for it.
+  return PORTAL_PATH.test(parsed.pathname);
+}
+
 /** Origin of a service URL. */
 export function originOf(url: string): string {
   try {

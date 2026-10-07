@@ -1,4 +1,5 @@
 import {
+  ambiguousWorkflowDenial,
   classifyApiError,
   describeUploadRefusal,
   translateApiErrorDetail,
@@ -29,6 +30,77 @@ describe('API error localization boundary', () => {
         403,
       ),
     ).toBe('This service requires authentication. Provide an access token and try again.');
+  });
+
+  it('names the refused workflow edge and the steps still open to the caller', () => {
+    const detail =
+      "Cannot transition from 'pending_review' to 'published'. Allowed: {'draft', 'approved'}";
+    expect(classifyApiError(detail, 422)).toEqual({
+      key: 'errors.workflowTransitionDenied',
+      values: { from: 'pending_review', to: 'published', allowed: 'approved, draft' },
+    });
+    expect(translateApiErrorDetail(detail, 422)).toContain('“pending_review” to “published”');
+    expect(translateApiErrorDetail(detail, 422)).toContain('approved, draft');
+  });
+
+  it("reads a status that holds an apostrophe, which Python quotes with double quotes", () => {
+    expect(
+      classifyApiError(
+        "Cannot transition from 'draft' to 'published'. Allowed: {\"reviewer's approval\"}",
+        422,
+      ),
+    ).toEqual({
+      key: 'errors.workflowTransitionDenied',
+      values: { from: 'draft', to: 'published', allowed: "reviewer's approval" },
+    });
+  });
+
+  it('unescapes a status holding both quote characters', () => {
+    expect(
+      classifyApiError(
+        "Cannot transition from 'draft' to 'published'. Allowed: {'reviewer\\'s \"ok\"'}",
+        422,
+      ),
+    ).toMatchObject({ values: { allowed: 'reviewer\'s "ok"' } });
+  });
+
+  it('decodes control escapes in a status name', () => {
+    expect(
+      classifyApiError(
+        "Cannot transition from 'draft' to 'published'. Allowed: {'a\\tb\\x07'}",
+        422,
+      ),
+    ).toMatchObject({ values: { allowed: 'a\tb\x07' } });
+  });
+
+  it('matches a refused edge whose status name holds a line break', () => {
+    expect(
+      classifyApiError(
+        "Cannot transition from 'pending\nreview' to 'published'. Allowed: set()",
+        422,
+      ),
+    ).toEqual({
+      key: 'errors.workflowTransitionDeniedNoneAllowed',
+      values: { from: 'pending\nreview', to: 'published' },
+    });
+  });
+
+  it("returns the server's text when a stage name holds the edge delimiter", () => {
+    const detail = "Cannot transition from 'a' to 'b' to 'published'. Allowed: {'draft'}";
+    expect(ambiguousWorkflowDenial(detail)).toBe(detail);
+    expect(classifyApiError(detail, 422)).toEqual({ key: 'errors.validationFailed' });
+    expect(
+      ambiguousWorkflowDenial("Cannot transition from 'draft' to 'published'. Allowed: {'ready'}"),
+    ).toBeUndefined();
+  });
+
+  it('says so when no workflow step is open to the caller', () => {
+    expect(
+      classifyApiError("Cannot transition from 'draft' to 'published'. Allowed: set()", 422),
+    ).toEqual({
+      key: 'errors.workflowTransitionDeniedNoneAllowed',
+      values: { from: 'draft', to: 'published' },
+    });
   });
 
   it('does not render unknown backend prose', () => {

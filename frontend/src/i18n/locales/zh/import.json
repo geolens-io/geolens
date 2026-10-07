@@ -261,6 +261,7 @@
     "label": "服务 URL",
     "placeholder": "https://example.com/wfs、ArcGIS 要素服务或 OGC API 端点",
     "helpText": "粘贴 WFS、ArcGIS 要素服务或 OGC API Features URL",
+    "arcgisPortalUrlHint": "这看起来是 ArcGIS 组织或门户页面，而不是图层。请打开图层的项目页面，复制其 REST URL（以 /FeatureServer/0 或 /MapServer/0 结尾）并粘贴到此处。受保护的图层会在粘贴图层 URL 后要求登录。",
     "detectedLabel": "服务 URL；已检测到",
     "clear": "清空",
     "layersAvailable_one": "{{count}} 个可用图层",

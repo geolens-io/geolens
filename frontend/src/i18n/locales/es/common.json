@@ -192,6 +192,8 @@
     "analysisVectorRequired": "El análisis necesita un conjunto de datos vectorial; esta capa no lo es.",
     "analysisMaskPolygonRequired": "La máscara de recorte debe ser una capa de polígonos.",
     "datasetVisibilityBlockedByMaps": "Estos mapas comparten el conjunto de datos con un público que lo perdería: {{maps}}. Quita la capa allí o restringe primero esos mapas.",
+    "workflowTransitionDeniedNoneAllowed": "Este conjunto de datos no puede pasar de «{{from}}» a «{{to}}» con el flujo de publicación, y no tienes otro paso disponible. Pide ayuda a un revisor o administrador con el rol necesario.",
+    "workflowTransitionDenied": "Este conjunto de datos no puede pasar de «{{from}}» a «{{to}}» con el flujo de publicación. Pasos disponibles para ti desde aquí: {{allowed}}.",
     "analysisUnknownDissolveColumn": "La columna «{{column}}» no existe en este conjunto de datos. Elige otro campo de agrupación.",
     "corsWildcardNotAllowed": "No se aceptan orígenes comodín. Las solicitudes con credenciales requieren cada origen indicado por completo, por ejemplo https://example.com.",
     "embedDomainLockUnenforceable": "Esta instalación aún no puede aplicar un bloqueo de dominio: su URL pública está configurada como {{resolved}}, pero has accedido desde {{origin}}. Un embebido carga el mapa a través de GeoLens, así que el bloqueo impediría el acceso a todos los visitantes. Configura PUBLIC_APP_URL como {{origin}} y crea el token de nuevo.",

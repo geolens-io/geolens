@@ -294,6 +294,42 @@ function formatInteger(raw: string): string {
   }
 }
 
+const PYTHON_ESCAPE = /\\(?:x([0-9a-f]{2})|u([0-9a-f]{4})|U([0-9a-f]{8})|(.))/gi;
+const PYTHON_SIMPLE_ESCAPES: Record<string, string> = { n: '\n', t: '\t', r: '\r' };
+
+// Decodes one backslash escape from a Python repr() string literal.
+function pythonEscape(
+  _match: string,
+  hex2?: string,
+  hex4?: string,
+  hex8?: string,
+  char?: string,
+): string {
+  const hex = hex2 ?? hex4 ?? hex8;
+  if (hex) return String.fromCodePoint(parseInt(hex, 16));
+  return PYTHON_SIMPLE_ESCAPES[char ?? ''] ?? char ?? '';
+}
+
+const WORKFLOW_DENIED_PATTERN =
+  /^Cannot transition from '([\s\S]+?)' to '([\s\S]+?)'\. Allowed: (?:set\(\)|\{([\s\S]*)\})$/;
+const WORKFLOW_EDGE_DELIMITER = "' to '";
+
+// A stage name holding the delimiter text splits the edge in more than one way.
+function isAmbiguousWorkflowEdge(match: RegExpMatchArray): boolean {
+  return match[2].includes(WORKFLOW_EDGE_DELIMITER);
+}
+
+/**
+ * The server's own text for a workflow refusal whose stage names can't be
+ * told apart from its delimiters, so a localized template would misname the
+ * transition. Undefined for any other detail.
+ */
+export function ambiguousWorkflowDenial(detail: unknown): string | undefined {
+  if (typeof detail !== 'string') return undefined;
+  const match = detail.match(WORKFLOW_DENIED_PATTERN);
+  return match && isAmbiguousWorkflowEdge(match) ? detail : undefined;
+}
+
 function descriptorForMessage(message: string, status: number): ApiErrorDescriptor {
   const exactKey = EXACT_ERROR_KEYS[message.trim()];
   if (exactKey) return { key: exactKey };
@@ -424,6 +460,25 @@ function descriptorForMessage(message: string, status: number): ApiErrorDescript
       key: 'errors.analysisUnknownDissolveColumn',
       values: { column: unknownDissolveColumn[1] },
     };
+  }
+
+  // The workflow seam names the refused edge and the steps this actor may
+  // take instead; the allowed set is Python's set repr, so it arrives
+  // unordered, quoted with double quotes when a name holds an apostrophe and
+  // backslash-escaped when it holds both, and
+  // `set()` when nothing is open to the caller.
+  const workflowDenied = message.match(WORKFLOW_DENIED_PATTERN);
+  if (workflowDenied && !isAmbiguousWorkflowEdge(workflowDenied)) {
+    const allowed = [...(workflowDenied[3] ?? '').matchAll(/'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)"/g)]
+      .map((m) => (m[1] ?? m[2]).replace(PYTHON_ESCAPE, pythonEscape))
+      .sort();
+    const values = { from: workflowDenied[1], to: workflowDenied[2] };
+    return allowed.length > 0
+      ? {
+          key: 'errors.workflowTransitionDenied',
+          values: { ...values, allowed: allowed.join(', ') },
+        }
+      : { key: 'errors.workflowTransitionDeniedNoneAllowed', values };
   }
 
   // fix(#931): the backend names the offending maps precisely so a human can go

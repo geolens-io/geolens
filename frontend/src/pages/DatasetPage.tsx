@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { PageShell } from '@/components/layout/PageShell';
 import { ErrorState } from '@/components/layout/ErrorState';
 import { ApiError } from '@/api/client';
+import { ambiguousWorkflowDenial } from '@/lib/error-map';
 import { useDataset, useUpdateDataset, useSetTargetStatus, useValidation, useDatasetRefreshWatch } from '@/components/dataset/hooks/use-dataset';
 import { useDatasetJobStatus } from '@/components/import/hooks/use-ingest';
 import { IngestWarningsBanner } from '@/components/import/IngestWarningsBanner';
@@ -424,6 +425,12 @@ export function DatasetPage() {
   // Metadata editing (overview/metadata tabs) and management actions remain ungated.
   const canEditData = canEdit && dataEditingEnabled;
 
+  // A 422 carries the workflow's own refusal, already localized by the API client.
+  const publishFailureMessage = (err: unknown) =>
+    err instanceof ApiError && err.status === 422
+      ? (ambiguousWorkflowDenial(err.body) ?? err.message)
+      : t('publish.failed');
+
   const handlePublishToggle = async () => {
     if (!id) return;
     if (isPublished) {
@@ -443,8 +450,8 @@ export function DatasetPage() {
       if (result.metadata_warnings?.length) {
         toast.warning(result.metadata_warnings[0]);
       }
-    } catch {
-      toast.error(t('publish.failed'));
+    } catch (err) {
+      toast.error(publishFailureMessage(err));
     }
   };
 
@@ -453,8 +460,8 @@ export function DatasetPage() {
     try {
       await setTargetStatus.mutateAsync({ datasetId: id, status: UNPUBLISH_TARGET });
       toast.success(t('publish.unpublished'));
-    } catch {
-      toast.error(t('publish.failed'));
+    } catch (err) {
+      toast.error(publishFailureMessage(err));
     } finally {
       setActiveDialog(null);
     }

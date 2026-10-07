@@ -238,6 +238,7 @@
     "label": "URL de service",
     "placeholder": "https://example.com/wfs, ArcGIS FeatureServer, ou endpoint OGC API",
     "helpText": "Collez une URL de service WFS, ArcGIS Feature Service ou OGC API Features",
+    "arcgisPortalUrlHint": "Il semble s’agir d’une page d’organisation ou de portail ArcGIS, pas d’une couche. Ouvrez la page de l’élément de la couche, copiez son URL REST (elle se termine par /FeatureServer/0 ou /MapServer/0) et collez-la ici. Les couches protégées demandent une connexion une fois l’URL de la couche collée.",
     "tokenPlaceholder": "Jeton ArcGIS, clé API ou jeton d'accès WFS",
     "credentialMethodLabel": "Authentification",
     "credentialMethodNone": "Aucune authentification",
