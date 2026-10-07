@@ -1,20 +1,8 @@
-"""fix(#1858): attempt-scoped staging tables are hidden and unregisterable.
+"""Attempt-scoped staging tables are hidden from table discovery and refused by registration.
 
-``attempt_scoped_staging_table`` (``platform/jobs/heartbeat.py``) produces
-``<base>_staging_<32 hex>``. Table discovery excluded ``%_staging`` and
-``%_old``, and neither pattern matches that name, so a staging table left
-behind by a worker killed between ``run_ogr2ogr`` and the swap was listed by
-``GET /ingest/discover/`` and registerable through
-``POST /ingest/register/bulk/`` as a permanent dataset. Nothing reaps such a
-table: the sweeps in ``platform/jobs/sweep.py`` cover storage objects,
-analysis outputs and VRT generations, and none of them looks at PostGIS
-tables. Reaping orphans is deliberately out of scope here; hiding and refusing
-them is what this pins.
-
-The predicate is one POSIX regular expression evaluated by two engines --
-PostgreSQL's ``~`` in the discovery query, Python's ``re`` in the registration
-refusal -- so the first test checks the two against each other rather than
-trusting that they agree.
+The predicate is one POSIX regular expression evaluated by PostgreSQL's ``~``
+in discovery and Python's ``re`` in the refusal, so the first test checks the
+two against each other.
 """
 
 import uuid as _uuid

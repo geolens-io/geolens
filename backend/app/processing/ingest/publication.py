@@ -423,7 +423,7 @@ async def _claim(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
             )
             return False
         # Named before the claim: a redelivery that loses it still drops the
-        # table its dead worker left, and nothing else reaps attempt tables.
+        # table its dead worker left.
         attempt.staging_table = (
             attempt_scoped_staging_table(dataset.table_name, attempt.attempt_id)
             if strategy.staging
