@@ -804,9 +804,9 @@ async def _end_refresh_run(session: AsyncSession, end: JobEnd) -> uuid.UUID | No
         record_refresh_failure,
     )
 
-    if end.transition == "settle_stale":
-        # A stale job's run keeps its own proof: its stale pass cancels it
-        # only when no task can still finish it.
+    if end.transition == "settle_stale" and end.code != "worker_lost":
+        # A job that never started leaves its run to the run's stale pass. A
+        # lost worker's attempt is fenced off by this end, so its run fails now.
         return None
     if end.transition == "cancel":
         return await cancel_active_run_for_job(
