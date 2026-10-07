@@ -126,6 +126,23 @@ _GEOMETRY_REASONS = frozenset(
     {"geometry_type_changed", "srid_changed", "coordinate_dimension_reduced"}
 )
 
+LIVE_DATA_CHANGED = "live_data_changed"
+
+# The baseline of a replacement whose start predates the count, so every write
+# counts as later.
+UNKNOWN_DATA_REVISION = -1
+
+
+def live_data_revision(baseline: int | None, current: int | None) -> int | None:
+    """``current`` when the live table was written since ``baseline``, else None.
+
+    A replacement admitted before the dataset counted its writes has no
+    baseline and is not compared.
+    """
+    if baseline is None or current is None or current == baseline:
+        return None
+    return current
+
 
 def declared_geometry_contract(
     declared_type: str | None, *, srid: int | None
@@ -217,12 +234,17 @@ def verify_file_replacement(
     reviewed_fingerprint: str | None,
     accepted_fingerprint: str | None,
     accepted_run_id: str | None,
+    data_revision_baseline: int | None = None,
+    data_revision: int | None = None,
 ) -> dict[str, Any]:
     """Return the evidence and decision for a staged file replacement.
 
     A replacement with review reasons publishes only when a client sent the
     fingerprint of the subject it showed, or a person accepted a blocked run
-    with the same subject. A file run is never rejected.
+    with the same subject. When the live table was written since
+    ``data_revision_baseline``, the subject names the revision found, so an
+    acceptance covers only the writes its run saw. A file run is never
+    rejected.
     """
     reasons = review_reasons(
         schema_diff=schema_diff,
@@ -230,7 +252,13 @@ def verify_file_replacement(
         live=live,
         staged=staged,
     )
-    fingerprint = review_fingerprint(review_subject(reasons, schema_diff, live, staged))
+    changed = live_data_revision(data_revision_baseline, data_revision)
+    if changed is not None:
+        reasons.append(LIVE_DATA_CHANGED)
+    subject = review_subject(reasons, schema_diff, live, staged)
+    if changed is not None:
+        subject["data_revision"] = changed
+    fingerprint = review_fingerprint(subject)
     acknowledged_by = None
     if fingerprint is not None and reviewed_fingerprint == fingerprint:
         acknowledged_by = "preview"
@@ -251,6 +279,8 @@ def verify_file_replacement(
         "accepted_blocked_run_id": (
             accepted_run_id if acknowledged_by == "accepted_run" else None
         ),
+        "data_revision_baseline": data_revision_baseline,
+        "data_revision": data_revision,
     }
 
 
@@ -297,8 +327,14 @@ def verify_service_refresh(
     staged: GeometryContract,
     accepted_fingerprint: str | None = None,
     accepted_run_id: str | None = None,
+    data_revision_baseline: int | None = None,
+    data_revision: int | None = None,
 ) -> dict[str, Any]:
-    """Return durable evidence and a publication decision for a staged fetch."""
+    """Return durable evidence and a publication decision for a staged fetch.
+
+    A write to the live table since ``data_revision_baseline`` is a review
+    reason, and the fingerprint names the revision found.
+    """
     if expected_feature_count is None:
         count_status = "unavailable"
     elif fetched_feature_count == expected_feature_count:
@@ -333,6 +369,9 @@ def verify_service_refresh(
         reasons.append("arcgis_id_coverage_unavailable")
     if strong_arcgis_policy and membership_status != "matched":
         reasons.append("arcgis_source_membership_changed")
+    changed = live_data_revision(data_revision_baseline, data_revision)
+    if changed is not None:
+        reasons.append(LIVE_DATA_CHANGED)
 
     geometry_evidence = _geometry_evidence(live, staged)
     fingerprint_payload = {
@@ -347,6 +386,8 @@ def verify_service_refresh(
         "review_reasons": reasons,
         "geometry_contract": geometry_evidence,
     }
+    if changed is not None:
+        fingerprint_payload["data_revision"] = changed
     fingerprint = hashlib.sha256(
         json.dumps(
             fingerprint_payload,
@@ -396,6 +437,8 @@ def verify_service_refresh(
         "accepted_blocked_run_id": (
             accepted_run_id if accepted and decision == "allowed" else None
         ),
+        "data_revision_baseline": data_revision_baseline,
+        "data_revision": data_revision,
     }
 
 

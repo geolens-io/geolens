@@ -3504,16 +3504,25 @@ class TestNoCatalogModuleWritesAnAbsoluteTileVersion:
             "which increments the row at write time."
         )
 
-    def test_the_scan_sees_the_known_request_sites(self):
+    def _by_file(self, name: str) -> dict[str, int]:
         by_file: dict[str, int] = {}
-        for site in self._sites(self.ATOMIC):
+        for site in self._sites(name):
             rel = site.rsplit(":", 1)[0]
             by_file[rel] = by_file.get(rel, 0) + 1
-        assert by_file == {
-            "features/router.py": 6,
-            "layers/router.py": 4,
+        return by_file
+
+    def test_the_scan_sees_the_known_request_sites(self):
+        assert self._by_file(self.ATOMIC) == {
+            "features/router.py": 1,
             "datasets/api/router.py": 1,
-        }, by_file
+        }
+        # Every feature and column write also rolls the data revision a
+        # replacement compares; the remaining feature-router site rolls tiles
+        # for a table replaced outside GeoLens and writes nothing.
+        assert self._by_file("record_live_data_write") == {
+            "features/router.py": 5,
+            "layers/router.py": 4,
+        }
 
     def test_the_scan_catches_the_absolute_spelling(self):
         tree = ast.parse(

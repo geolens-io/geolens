@@ -216,6 +216,27 @@ def _pending_reupload_update(job_id: uuid.UUID, dataset_id: uuid.UUID):
     )
 
 
+# The dataset's data revision when the job was created, which its publication
+# compares edits with.
+_START_DATA_REVISION = "start_data_revision"
+
+
+def _new_reupload_metadata(dataset_id: uuid.UUID, dataset) -> dict:
+    return {
+        "reupload": True,
+        "dataset_id": str(dataset_id),
+        _START_DATA_REVISION: dataset.data_revision,
+    }
+
+
+def _start_data_revision(metadata: dict) -> int:
+    """The job's start revision; a job created before it was recorded has none."""
+    revision = metadata.get(_START_DATA_REVISION)
+    if type(revision) is int:
+        return revision
+    return refresh_policy.UNKNOWN_DATA_REVISION
+
+
 def _reupload_bind_refusal() -> HTTPException:
     """The 409 for a guarded write that matched no row."""
     return HTTPException(
@@ -401,7 +422,7 @@ async def reupload_dataset(
 
     job = await get_catalog_port().create_ingest_job(db, file.filename, "", user.id)
     job.dataset_id = dataset_id
-    job.user_metadata = {"reupload": True, "dataset_id": str(dataset_id)}
+    job.user_metadata = _new_reupload_metadata(dataset_id, dataset)
 
     max_size_mb = await UPLOAD_MAX_SIZE_MB.get(db)
     max_size_bytes = max_size_mb * 1024 * 1024
@@ -506,6 +527,7 @@ async def reupload_service_preview(
     # facts the diff needs and the job's owner are read off them first.
     prior_columns = dataset.column_info or []
     prior_feature_count = dataset.feature_count
+    start_data_revision = dataset.data_revision
     user_id = user.id
     await db.rollback()
 
@@ -573,6 +595,7 @@ async def reupload_service_preview(
             "layer_id": request.layer_id,
             "source_type": "service_url",
             "object_id_field": request.object_id_field,
+            _START_DATA_REVISION: start_data_revision,
         },
     )
     await db.flush()
@@ -1075,6 +1098,7 @@ async def reupload_commit(
     # is a durable JSONB column and this model_dump is a whitelist by
     # omission, so a nested credential object would land in it in full.
     existing_meta = dict(job.user_metadata or {})
+    start_revision = _start_data_revision(existing_meta)
     existing_meta.update(
         request.model_dump(exclude_none=True, exclude={"token", "auth", "layer_name"})
     )
@@ -1109,6 +1133,7 @@ async def reupload_commit(
             triggered_by=user.id,
             ingest_job_id=job.id,
             feature_count_before=dataset.feature_count,
+            data_revision_baseline=start_revision,
         )
     except DatasetBusyError as exc:
         # Nothing this request wrote is committed, so the job row it merged
@@ -1314,7 +1339,7 @@ async def request_presigned_reupload(
     # fix(#1848): the markers the binding gate reads are committed with the
     # row; the presigned facts land through the guarded bind once storage
     # has answered, so a row cancelled or unbound meanwhile is refused.
-    job.user_metadata = {"reupload": True, "dataset_id": str(dataset_id)}
+    job.user_metadata = _new_reupload_metadata(dataset_id, dataset)
     job_id = job.id
     job_created_at = job.created_at
     job_metadata = job.user_metadata

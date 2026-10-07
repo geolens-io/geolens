@@ -12017,10 +12017,10 @@ export interface components {
                 [key: string]: unknown;
             } | null;
             /** Review Reasons */
-            review_reasons: ("source_count_unavailable" | "empty_result" | "destructive_schema_change" | "geometry_type_changed" | "srid_changed" | "coordinate_dimension_reduced" | "arcgis_id_coverage_unavailable" | "arcgis_source_membership_changed")[];
+            review_reasons: ("source_count_unavailable" | "empty_result" | "destructive_schema_change" | "geometry_type_changed" | "srid_changed" | "coordinate_dimension_reduced" | "arcgis_id_coverage_unavailable" | "arcgis_source_membership_changed" | "live_data_changed")[];
             /**
              * Review Fingerprint
-             * @description Identifies what a blocked run asks a person to accept. A service refresh fingerprints all of its evidence, so its acceptance must fetch the same data again. A file replacement fingerprints only its review reasons, removed columns, type changes and, for a geometry reason, the geometry facts, which is what its preview shows.
+             * @description Identifies what a blocked run asks a person to accept. A service refresh fingerprints all of its evidence, so its acceptance must fetch the same data again. A file replacement fingerprints only its review reasons, removed columns, type changes and, for a geometry reason, the geometry facts, which is what its preview shows. Either one, held because features were edited while it ran, also names the edits it found, so accepting it does not cover a later edit.
              */
             review_fingerprint: string | null;
             /**
@@ -12230,7 +12230,7 @@ export interface components {
              * Review Reasons
              * @description Changes in this file replacement that hold it for review. Empty for a service re-upload, which is not judged at preview.
              */
-            review_reasons?: ("source_count_unavailable" | "empty_result" | "destructive_schema_change" | "geometry_type_changed" | "srid_changed" | "coordinate_dimension_reduced" | "arcgis_id_coverage_unavailable" | "arcgis_source_membership_changed")[];
+            review_reasons?: ("source_count_unavailable" | "empty_result" | "destructive_schema_change" | "geometry_type_changed" | "srid_changed" | "coordinate_dimension_reduced" | "arcgis_id_coverage_unavailable" | "arcgis_source_membership_changed" | "live_data_changed")[];
             /**
              * Review Fingerprint
              * @description Fingerprint of the reviewed changes. Send it as the commit's `review_fingerprint` once a person has seen them; null when nothing needs review.

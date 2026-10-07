@@ -577,6 +577,12 @@ class Dataset(Base):
         Integer, server_default="0", default=0
     )
 
+    # Rolls with every feature or column write to the live table, in that
+    # write's transaction, so a replacement can tell it would discard one.
+    data_revision: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default="0", default=0
+    )
+
     # Per-dataset tile cache TTL override (null = use global settings.tile_cache_ttl)
     tile_cache_ttl: Mapped[int | None] = mapped_column(Integer, nullable=True)
 

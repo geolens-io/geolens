@@ -905,7 +905,8 @@
           "srid_changed": "新数据会更改坐标系。",
           "coordinate_dimension_reduced": "新数据会丢弃高程等坐标维度。",
           "arcgis_id_coverage_unavailable": "GeoLens 无法验证 ArcGIS 对象 ID 的覆盖情况。",
-          "arcgis_source_membership_changed": "此次刷新运行期间，ArcGIS 数据源发生了变化。"
+          "arcgis_source_membership_changed": "此次刷新运行期间，ArcGIS 数据源发生了变化。",
+          "live_data_changed": "此替换运行期间有要素被编辑。发布它将丢弃这些编辑。"
         },
         "reviewAndRetry": "审核并重试",
         "loadMore": "加载更早的运行"

@@ -33,6 +33,7 @@ from app.platform.catalog_locks import (
     CatalogLockConflict,
     bump_tile_cache_version_on,
     lock_request_key,
+    record_live_data_write,
 )
 from app.core.record_types import capabilities
 from app.modules.auth.dependencies import (
@@ -394,7 +395,7 @@ async def _finish_repeat(
                 },
             ),
         )
-        tile_version = await bump_tile_cache_version_on(db, dataset)
+        tile_version = await record_live_data_write(db, dataset)
     else:
         await db.refresh(dataset, ["tile_cache_version"])
         tile_version = dataset.tile_cache_version
@@ -940,9 +941,7 @@ async def create_feature(
             },
         ),
     )
-    # fix(#1902): evaluated at write time, so a counter read before the lock
-    # wait is never written back over a peer's commit.
-    tile_version = await bump_tile_cache_version_on(db, dataset)
+    tile_version = await record_live_data_write(db, dataset)
     await db.commit()
 
     # Invalidate cached tiles so the new feature appears immediately
@@ -1060,9 +1059,7 @@ async def replace_single_feature(
             },
         ),
     )
-    # fix(#1902): evaluated at write time, so a counter read before the lock
-    # wait is never written back over a peer's commit.
-    tile_version = await bump_tile_cache_version_on(db, dataset)
+    tile_version = await record_live_data_write(db, dataset)
     await db.commit()
 
     # Invalidate cached tiles so the replaced feature renders correctly
@@ -1187,9 +1184,7 @@ async def patch_single_feature(
             },
         ),
     )
-    # fix(#1902): evaluated at write time, so a counter read before the lock
-    # wait is never written back over a peer's commit.
-    tile_version = await bump_tile_cache_version_on(db, dataset)
+    tile_version = await record_live_data_write(db, dataset)
     await db.commit()
 
     # Invalidate cached tiles so the updated feature renders correctly
@@ -1291,9 +1286,7 @@ async def delete_single_feature(
             details={"gid": gid},
         ),
     )
-    # fix(#1902): evaluated at write time, so a counter read before the lock
-    # wait is never written back over a peer's commit.
-    tile_version = await bump_tile_cache_version_on(db, dataset)
+    tile_version = await record_live_data_write(db, dataset)
     await db.commit()
 
     # Invalidate cached tiles so the deleted feature disappears immediately

@@ -158,6 +158,11 @@ class DatasetRefreshRun(Base):
     local_edit_baseline: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # The dataset's ``data_revision`` the run's publication is compared with:
+    # what its preview showed, else the one at admission.
+    data_revision_baseline: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True
+    )
     verification_policy: Mapped[str | None] = mapped_column(String(64), nullable=True)
     credential_reference: Mapped[str | None] = mapped_column(String(256), nullable=True)
     credential_version: Mapped[str | None] = mapped_column(String(128), nullable=True)

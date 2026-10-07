@@ -336,8 +336,12 @@ async def create_pending_run(
     verification_policy: str | None = None,
     credential_reference: str | None = None,
     credential_version: str | None = None,
+    data_revision_baseline: int | None = None,
 ) -> DatasetRefreshRun:
     """Insert the ``pending`` row in the caller's transaction, before ``defer``.
+
+    ``data_revision_baseline`` is the dataset revision the run's publication is
+    compared with, the current one when None.
 
     The caller must NOT commit inside this function: the run row and
     whatever else the request writes must land together, and the task is
@@ -376,10 +380,16 @@ async def create_pending_run(
     # the stamping trigger fills `datasets.tenant_id` in the DB while the ORM
     # attribute stays None, so copying it would write NULL. This table has
     # no trigger of its own (not in migration 0018's set).
-    tenant_id = await session.scalar(
-        text("SELECT tenant_id FROM catalog.datasets WHERE id = :dataset_id"),
-        {"dataset_id": dataset_id},
-    )
+    parent = (
+        await session.execute(
+            text(
+                "SELECT tenant_id, data_revision FROM catalog.datasets "
+                "WHERE id = :dataset_id"
+            ),
+            {"dataset_id": dataset_id},
+        )
+    ).one_or_none()
+    tenant_id, data_revision = parent if parent is not None else (None, None)
 
     # A reupload queued by an API pod older than run admission (pre-migration,
     # or a manifest apply from before it created runs) has a live task but no
@@ -451,6 +461,9 @@ async def create_pending_run(
         execution_key=execution_key,
         source_binding_fingerprint=source_binding_fingerprint,
         local_edit_baseline=local_edit_baseline,
+        data_revision_baseline=(
+            data_revision if data_revision_baseline is None else data_revision_baseline
+        ),
         verification_policy=verification_policy,
         credential_reference=credential_reference,
         credential_version=credential_version,

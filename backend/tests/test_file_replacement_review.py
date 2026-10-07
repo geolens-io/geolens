@@ -113,7 +113,13 @@ class _Harness:
             source_filename=filename,
             file_path=file_path,
             created_by=self.admin_id,
-            user_metadata={"reupload": True, "dataset_id": str(dataset.id)},
+            user_metadata={
+                "reupload": True,
+                "dataset_id": str(dataset.id),
+                "start_data_revision": await self.session.scalar(
+                    select(Dataset.data_revision).where(Dataset.id == dataset.id)
+                ),
+            },
         )
         self.session.add(job)
         await self.session.commit()
@@ -1331,3 +1337,266 @@ async def test_a_manifest_apply_that_drops_a_column_ends_blocked(
     ).scalar_one()
     assert run.status == "blocked"
     assert run.verification["review_reasons"] == ["destructive_schema_change"]
+
+
+# 10: feature edits made while a replacement runs
+
+
+async def _live_rows(harness: _Harness, dataset: Dataset) -> list[tuple]:
+    rows = await harness.session.execute(
+        text(
+            "SELECT name, population, ST_AsText(geom) "
+            f'FROM "data"."{dataset.table_name}" ORDER BY name, ST_AsText(geom)'
+        )
+    )
+    await harness.session.commit()
+    return [tuple(row) for row in rows]
+
+
+async def _edit_features(harness: _Harness, dataset: Dataset, kind: str) -> None:
+    """One feature write of ``kind`` through the features API."""
+    base = f"/datasets/{dataset.id}/features"
+    gid = await harness.session.scalar(
+        text(f'SELECT min(gid) FROM "data"."{dataset.table_name}"')
+    )
+    await harness.session.commit()
+    point = {"type": "Point", "coordinates": [-73.5, 40.5]}
+    if kind == "insert":
+        response = await harness.client.post(
+            f"{base}/",
+            headers=harness.headers,
+            json={"geometry": point, "properties": {"name": "edited"}},
+        )
+    elif kind == "delete":
+        response = await harness.client.delete(f"{base}/{gid}", headers=harness.headers)
+    elif kind == "attribute":
+        response = await harness.client.patch(
+            f"{base}/{gid}",
+            headers=harness.headers,
+            json={"properties": {"name": "edited"}},
+        )
+    else:
+        response = await harness.client.patch(
+            f"{base}/{gid}", headers=harness.headers, json={"geometry": point}
+        )
+    assert response.status_code in (200, 201, 204), response.text
+
+
+async def _replace_while_editing(
+    harness: _Harness, dataset: Dataset, path: Path, kind: str, **kwargs
+) -> tuple[DatasetRefreshRun, list[tuple]]:
+    """Replace with ``path``, making one ``kind`` edit while the upload stages."""
+    from app.processing.ingest import catalog_projection
+
+    real_measure = catalog_projection.measure
+    edited: list[list[tuple]] = []
+
+    async def _measure_after_an_edit(*args, **measure_kwargs):
+        await _edit_features(harness, dataset, kind)
+        edited.append(await _live_rows(harness, dataset))
+        return await real_measure(*args, **measure_kwargs)
+
+    with patch.object(
+        catalog_projection, "measure", side_effect=_measure_after_an_edit
+    ):
+        _preview, run = await harness.replace(dataset, path, **kwargs)
+    return run, edited[0]
+
+
+@pytest.mark.parametrize("kind", ["insert", "delete", "attribute", "geometry"])
+async def test_a_feature_edited_while_the_replacement_stages_holds_it_for_review(
+    harness: _Harness, kind: str
+):
+    """The edit stays live and the run waits for review with live_data_changed."""
+    dataset = await _published(harness, _geojson(harness.tmp_path / "a.geojson", _BASE))
+    before = await _live_rows(harness, dataset)
+
+    run, edited = await _replace_while_editing(
+        harness, dataset, _geojson(harness.tmp_path / "b.geojson", _BASE), kind
+    )
+
+    assert edited != before
+    assert run.status == "blocked", run.verification
+    assert run.verification["review_reasons"] == ["live_data_changed"]
+    assert (await harness.reload(dataset)).current_version == dataset.current_version
+    assert await _live_rows(harness, dataset) == edited
+
+
+async def test_a_feature_edited_after_the_upload_holds_the_commit_for_review(
+    harness: _Harness,
+):
+    """The commit is compared with the dataset as the upload found it."""
+    dataset = await _published(harness, _geojson(harness.tmp_path / "a.geojson", _BASE))
+    path = _geojson(harness.tmp_path / "b.geojson", _BASE)
+    response = await harness.client.post(
+        f"/datasets/{dataset.id}/reupload",
+        headers=harness.headers,
+        files={"file": (path.name, path.read_bytes(), "application/geo+json")},
+    )
+    assert response.status_code in (200, 201, 202), response.text
+    job_id = uuid.UUID(response.json()["job_id"])
+    await harness.preview(dataset, job_id)
+    await _edit_features(harness, dataset, "insert")
+    edited = await _live_rows(harness, dataset)
+    await harness.preview(dataset, job_id)
+
+    await harness.commit(dataset, job_id)
+    await harness.run_worker()
+
+    run = await harness.run_for(job_id)
+    assert run.status == "blocked", run.verification
+    assert run.verification["review_reasons"] == ["live_data_changed"]
+    assert await _live_rows(harness, dataset) == edited
+
+
+async def test_a_job_created_before_its_start_was_recorded_holds_once(
+    harness: _Harness,
+):
+    """With no known start, the commit is held, and accepting it publishes."""
+    dataset = await _published(harness, _geojson(harness.tmp_path / "a.geojson", _BASE))
+    path = _geojson(harness.tmp_path / "b.geojson", _BASE)
+    job_id = await harness.upload_job(dataset, str(path), path.name)
+    await harness.session.execute(
+        text(
+            "UPDATE catalog.ingest_jobs "
+            "SET user_metadata = user_metadata - 'start_data_revision' WHERE id = :id"
+        ),
+        {"id": job_id},
+    )
+    await harness.session.commit()
+
+    await harness.commit(dataset, job_id)
+    await harness.run_worker()
+    held = await harness.run_for(job_id)
+    assert held.status == "blocked", held.verification
+    assert held.verification["review_reasons"] == ["live_data_changed"]
+
+    response = await harness.accept(dataset, held.id)
+    assert response.status_code == 202, response.text
+    await harness.run_worker()
+    accepted = await harness.run_for(uuid.UUID(response.json()["job_id"]))
+    assert accepted.status == "succeeded", accepted.verification
+
+
+async def test_a_feature_edited_before_the_replacement_is_previewed_is_replaced(
+    harness: _Harness,
+):
+    dataset = await _published(harness, _geojson(harness.tmp_path / "a.geojson", _BASE))
+    before = await _live_rows(harness, dataset)
+    await _edit_features(harness, dataset, "attribute")
+
+    _preview, run = await harness.replace(
+        dataset, _geojson(harness.tmp_path / "b.geojson", _BASE)
+    )
+
+    assert run.status == "succeeded", run.verification
+    assert run.verification["review_reasons"] == []
+    assert await _live_rows(harness, dataset) == before
+
+
+async def test_accepting_a_run_held_over_live_edits_publishes_it(harness: _Harness):
+    """Acceptance covers the edits the held run found, with its other reasons."""
+    dataset = await _published(harness, _geojson(harness.tmp_path / "a.geojson", _BASE))
+    held, _edited = await _replace_while_editing(
+        harness,
+        dataset,
+        _geojson(harness.tmp_path / "b.geojson", _DROPPED),
+        "insert",
+        reviewed=False,
+    )
+    assert held.status == "blocked", held.verification
+    assert held.verification["review_reasons"] == [
+        "destructive_schema_change",
+        "live_data_changed",
+    ]
+
+    response = await harness.accept(dataset, held.id)
+    assert response.status_code == 202, response.text
+    await harness.run_worker()
+
+    accepted = await harness.run_for(uuid.UUID(response.json()["job_id"]))
+    assert accepted.status == "succeeded", accepted.verification
+    assert accepted.verification["review_acknowledged_by"] == "accepted_run"
+    assert "legacy" not in await harness.live_columns(dataset)
+    assert ("edited",) not in [row[:1] for row in await _live_rows(harness, dataset)]
+
+
+async def test_an_edit_after_a_run_was_held_holds_its_acceptance(harness: _Harness):
+    """An acceptance does not cover an edit made after the run it accepts."""
+    dataset, _job_id, held = await _blocked_dataset(harness)
+    await _edit_features(harness, dataset, "attribute")
+    edited = await _live_rows(harness, dataset)
+
+    response = await harness.accept(dataset, held.id)
+    assert response.status_code == 202, response.text
+    await harness.run_worker()
+
+    accepted = await harness.run_for(uuid.UUID(response.json()["job_id"]))
+    assert accepted.status == "blocked", accepted.verification
+    assert accepted.verification["review_reasons"] == [
+        "destructive_schema_change",
+        "live_data_changed",
+    ]
+    assert await _live_rows(harness, dataset) == edited
+
+
+async def test_a_column_dropped_while_the_replacement_stages_holds_it_for_review(
+    harness: _Harness,
+):
+    """A dropped column is a write the replacement would undo."""
+    from app.processing.ingest import catalog_projection
+
+    dataset = await _published(harness, _geojson(harness.tmp_path / "a.geojson", _BASE))
+    real_measure = catalog_projection.measure
+
+    async def _measure_after_a_drop(*args, **kwargs):
+        response = await harness.client.delete(
+            f"/layers/{dataset.id}/columns/legacy", headers=harness.headers
+        )
+        assert response.status_code == 200, response.text
+        return await real_measure(*args, **kwargs)
+
+    with patch.object(catalog_projection, "measure", side_effect=_measure_after_a_drop):
+        _preview, run = await harness.replace(
+            dataset, _geojson(harness.tmp_path / "b.geojson", _BASE)
+        )
+
+    assert run.status == "blocked", run.verification
+    assert run.verification["review_reasons"] == ["live_data_changed"]
+    assert "legacy" not in await harness.live_columns(dataset)
+
+
+async def test_accepting_a_run_held_before_edits_were_counted_holds_it_again(
+    harness: _Harness,
+):
+    """With no known start, the acceptance is held once more, then publishes."""
+    dataset, _job_id, held = await _blocked_dataset(harness)
+    await harness.session.execute(
+        text(
+            "UPDATE catalog.dataset_refresh_runs "
+            "SET verification = verification - 'data_revision_baseline' "
+            "WHERE id = :id"
+        ),
+        {"id": held.id},
+    )
+    await harness.session.commit()
+    await _edit_features(harness, dataset, "attribute")
+    edited = await _live_rows(harness, dataset)
+
+    response = await harness.accept(dataset, held.id)
+    assert response.status_code == 202, response.text
+    await harness.run_worker()
+    again = await harness.run_for(uuid.UUID(response.json()["job_id"]))
+    assert again.status == "blocked", again.verification
+    assert again.verification["review_reasons"] == [
+        "destructive_schema_change",
+        "live_data_changed",
+    ]
+    assert await _live_rows(harness, dataset) == edited
+
+    response = await harness.accept(dataset, again.id)
+    assert response.status_code == 202, response.text
+    await harness.run_worker()
+    accepted = await harness.run_for(uuid.UUID(response.json()["job_id"]))
+    assert accepted.status == "succeeded", accepted.verification
+    assert "legacy" not in await harness.live_columns(dataset)

@@ -296,7 +296,13 @@ class TestReuploadUpload:
         assert job.user_metadata["reupload"] is True
         assert job.user_metadata["dataset_id"] == str(dataset.id)
         assert job.user_metadata["staged_at"]
-        assert set(job.user_metadata) == {"reupload", "dataset_id", "staged_at"}
+        assert job.user_metadata["start_data_revision"] == dataset.data_revision
+        assert set(job.user_metadata) == {
+            "reupload",
+            "dataset_id",
+            "staged_at",
+            "start_data_revision",
+        }
 
     async def test_reupload_stream_limit_error_leaves_a_reapable_job(
         self,
