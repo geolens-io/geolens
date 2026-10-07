@@ -842,6 +842,8 @@ export interface JobStatusResponse {
   // as a clean success.
   rows_failed?: number | null;
   archive_failed: boolean;
+  /** True until the dataset's quicklook has been redrawn after publication. */
+  quicklook_pending?: boolean;
   temporal_parse_errors: Partial<
     Record<'temporal_start' | 'temporal_end', string>
   >;

@@ -31,6 +31,8 @@ from app.platform.jobs.ledger import Outcome, cancel, retry
 from app.platform.jobs.models import (
     EMBEDDING_BACKFILL_METADATA_KEY,
     FAN_OUT_INTERRUPTED_METADATA_KEY,
+    PUBLISH_OBLIGATIONS_FIELD,
+    QUICKLOOK_ITEM,
     TERMINAL_STATUSES,
     URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY,
     IngestJob,
@@ -44,6 +46,7 @@ from app.platform.jobs.schemas import (
     StaleCleanupResponse,
 )
 from app.platform.jobs.originals_reconcile import reconcile_orphaned_originals
+from app.platform.jobs.quicklook_reconcile import reconcile_orphaned_quicklooks
 from app.platform.jobs.staging_reconcile import reconcile_orphaned_staging_objects
 from app.platform.jobs.sweep import (
     JOB_TIMEOUT_SECONDS,  # noqa: F401 -- re-exported, see __all__
@@ -215,6 +218,7 @@ async def cleanup_stale_jobs(
             # reconciles per tenant.
             await reconcile_orphaned_staging_objects(db)
             await reconcile_orphaned_originals(db)
+            await reconcile_orphaned_quicklooks(db)
             from app.processing.ingest.publish_followups import (
                 run_owed_publish_followups,
             )
@@ -594,6 +598,7 @@ async def _job_to_status_response(
                     temporal_parse_errors[cast(TemporalParseKey, key)] = str(v)
 
     can_retry, retry_reason = await _retry_capability(job)
+    obligations = (job.user_metadata or {}).get(PUBLISH_OBLIGATIONS_FIELD)
 
     return JobStatusResponse(
         id=job.id,
@@ -604,6 +609,8 @@ async def _job_to_status_response(
         error_code=job.error_code,
         can_retry=can_retry,
         retry_reason=retry_reason,
+        quicklook_pending=isinstance(obligations, dict)
+        and QUICKLOOK_ITEM in obligations,
         warning_message=warning_message,
         warnings=warnings,
         # REMED-02 / ingest-audit P2-07: surface worker-written progress fields.

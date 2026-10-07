@@ -10,6 +10,7 @@ import {
 } from '@/components/dataset/hooks/use-dataset';
 import { useJobStatus, useUploadConfig } from '@/components/import/hooks/use-ingest';
 import { probeService } from '@/api/ingest';
+import { useRefreshSearchWhenQuicklookLands } from '@/components/dataset/hooks/use-quicklook-settled';
 import { getDataset } from '@/api/datasets';
 import { ApiError } from '@/api/client';
 import { queryKeys } from '@/lib/query-keys';
@@ -41,6 +42,10 @@ vi.mock('@/components/dataset/hooks/use-dataset', () => ({
 vi.mock('@/components/import/hooks/use-ingest', () => ({
   useUploadConfig: vi.fn(),
   useJobStatus: vi.fn(),
+}));
+
+vi.mock('@/components/dataset/hooks/use-quicklook-settled', () => ({
+  useRefreshSearchWhenQuicklookLands: vi.fn(),
 }));
 
 vi.mock('@/api/ingest', () => ({
@@ -1506,6 +1511,26 @@ describe('ReuploadDialog raster reupload', () => {
 
     await waitFor(() => {
       expect(onReplaceComplete).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('keeps watching for the new thumbnail when the job completes before its quicklook lands', async () => {
+    const user = userEvent.setup();
+    mockUseJobStatus.mockReturnValue({
+      data: { status: 'complete', quicklook_pending: true },
+    } as unknown as ReturnType<typeof useJobStatus>);
+
+    render(
+      <ReuploadDialog dataset={makeRasterDataset()} open onOpenChange={vi.fn()} />,
+    );
+
+    await openFileSource(user);
+    await dropFile('ortho.tif');
+    await screen.findByRole('button', { name: 'Confirm Re-Upload' });
+    await user.click(screen.getByRole('button', { name: 'Confirm Re-Upload' }));
+
+    await waitFor(() => {
+      expect(useRefreshSearchWhenQuicklookLands).toHaveBeenLastCalledWith('raster-job');
     });
   });
 

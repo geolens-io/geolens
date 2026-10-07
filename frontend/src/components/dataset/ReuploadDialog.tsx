@@ -9,6 +9,7 @@ import {
   useReuploadCommit,
 } from '@/components/dataset/hooks/use-dataset';
 import { useJobStatus, useUploadConfig } from '@/components/import/hooks/use-ingest';
+import { useRefreshSearchWhenQuicklookLands } from '@/components/dataset/hooks/use-quicklook-settled';
 import { queryKeys } from '@/lib/query-keys';
 import { buildAcceptMap, deriveFormatBadges } from '@/lib/file-utils';
 import { describeFailureReason, fixedFailureReason } from '@/lib/failure-reason';
@@ -218,6 +219,8 @@ export function ReuploadDialog({
   // Only poll when tracking
   const trackingJobId = step === 'tracking' ? jobId : null;
   const { data: jobData } = useJobStatus(trackingJobId);
+  const [quicklookJobId, setQuicklookJobId] = useState<string | null>(null);
+  useRefreshSearchWhenQuicklookLands(quicklookJobId);
 
   // Watch job status for completion
   useEffect(() => {
@@ -231,6 +234,7 @@ export function ReuploadDialog({
     }
 
     if (jobData.status === 'complete') {
+      if (jobData.quicklook_pending) setQuicklookJobId(jobId);
       // fix(#1362 codex r3): the await below leaves this continuation
       // in flight across a render where `step`/`jobId` can change under it —
       // closing the dialog (resetState) or starting a second reupload before
@@ -293,7 +297,7 @@ export function ReuploadDialog({
       setError(fixedFailureReason(jobData.error_code) ?? t('reupload.jobCancelled'));
       setStep('error');
     }
-  }, [step, jobData, dataset.id, queryClient, sourceType, isRaster, onReplaceComplete, appendRetryGuidance, t]);
+  }, [step, jobId, jobData, dataset.id, queryClient, sourceType, isRaster, onReplaceComplete, appendRetryGuidance, t]);
 
   const handleSelectSource = useCallback((nextSource: ReuploadSourceType) => {
     setSourceType(nextSource);

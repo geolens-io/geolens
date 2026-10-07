@@ -8716,6 +8716,12 @@
             "title": "Archive Failed",
             "type": "boolean"
           },
+          "quicklook_pending": {
+            "default": false,
+            "description": "True while the dataset's quicklook image is still owed after publication, so a client showing the thumbnail can poll again until the image has been replaced.",
+            "title": "Quicklook Pending",
+            "type": "boolean"
+          },
           "temporal_parse_errors": {
             "additionalProperties": {
               "type": "string"

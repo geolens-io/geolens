@@ -124,6 +124,9 @@ PUBLISH_FOLLOWUPS_FIELD = "publish_followups"
 PUBLISH_OBLIGATIONS_FIELD = "publish_obligations"
 # The owed follow-up item naming the COG a raster replacement superseded.
 SUPERSEDED_COG_ITEM = "superseded_cog"
+# The run-once item that redraws the dataset's quicklook; present until the new
+# image's pointer has landed.
+QUICKLOOK_ITEM = "quicklook"
 UNREAPED_ARTIFACT_FIELDS = (
     UNPUBLISHED_STORAGE_KEYS_FIELD,
     ANALYSIS_OUTPUT_TABLE_FIELD,
