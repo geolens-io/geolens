@@ -692,6 +692,7 @@ async def _detect_and_override_geometry(
     table_name: str,
     user_metadata: dict[str, Any],
     effective_srid: int,
+    renamed_columns: list[dict] | None = None,
 ) -> str | None:
     """Apply user x/y or WKT geometry overrides to a freshly-loaded table.
 
@@ -701,15 +702,25 @@ async def _detect_and_override_geometry(
     of the ogrinfo-detected value (or ``None`` if neither override is set —
     callers guard on ``user_wants_geom`` so this branch is defensive only).
 
+    ``renamed_columns`` is what ``rename_reserved_columns`` returned: a column
+    the user picked may have moved to ``src_<name>`` since the preview, and the
+    override must read it under its new name.
+
     Callers are responsible for importing the file as non-spatial (see the
     ``ogr_geometry_type = None if user_wants_geom else ...`` branch in
     ``ingest_file``) before invoking this helper. K1/KISS-3 extraction.
     """
     from app.processing.ingest.metadata import _qtable
 
-    x_column = (user_metadata.get("x_column") or "").lower() or None
-    y_column = (user_metadata.get("y_column") or "").lower() or None
-    geom_column = (user_metadata.get("geom_column") or "").lower() or None
+    moved = {r["original"]: r["renamed"] for r in renamed_columns or []}
+
+    def _chosen(key: str) -> str | None:
+        name = (user_metadata.get(key) or "").lower()
+        return moved.get(name, name) or None
+
+    x_column = _chosen("x_column")
+    y_column = _chosen("y_column")
+    geom_column = _chosen("geom_column")
 
     if x_column and y_column:
         from app.processing.ingest.metadata import construct_point_geometry

@@ -520,6 +520,13 @@ VECTOR_CLI_DRIVER_POLICY: dict[
         SAFE_VECTOR_ENV_HELPER,
         "the preview, which returns sample rows to the caller",
     ),
+    ("processing/ingest/ogr.py", "_csv_geometry_is_3d", "ogrinfo"): (
+        1,
+        STAGED_UPLOAD,
+        SAFE_VECTOR_ENV_HELPER,
+        "reads the geometry of the staged CSV the commit is about to load, "
+        "under the same driver clamp as that load",
+    ),
     ("processing/ingest/ogr.py", "run_ogr2ogr", "ogr2ogr"): (
         1,
         STAGED_UPLOAD,

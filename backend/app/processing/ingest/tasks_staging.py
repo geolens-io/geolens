@@ -607,6 +607,7 @@ async def _ingest_vector_into_staging(
             table_name=target_table,
             user_metadata=user_metadata or {},
             effective_srid=effective_srid or 4326,
+            renamed_columns=reserved_renames,
         )
         if override_geom_type is not None:
             has_geometry = True

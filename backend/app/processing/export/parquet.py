@@ -34,7 +34,7 @@ from app.processing.export.ogr import (
 )
 from app.processing.export.service import export_descriptor, validate_where_clause
 from app.processing.export.where_validator import canonical_where
-from app.processing.ingest.metadata import _qtable, get_column_info
+from app.processing.ingest.metadata import _qtable, get_column_info, probe_geom_4326
 
 # Re-exported from `ogr.py`, which owns it so `api/main.py` can read the whole
 # set of export media types without importing pyarrow (fix(#1532)).
@@ -55,6 +55,17 @@ _BATCH_MAX_BYTES = 32 * 1024 * 1024
 # measured, so a fixed small window bounds prefetch by the widest rows.
 # SQLAlchemy's asyncpg cursor reads 50 per round trip whatever is asked.
 _FETCH_ROWS = 50
+
+
+# geom_4326 is always 2D (it backs rendering), so a Z source is read from
+# ``geom`` and reprojected. A table with no geometry ``geom``, or one without
+# a usable SRID, keeps the render geometry.
+_RENDER_WKB_SQL = "ST_AsBinary(geom_4326)"
+_SOURCE_WKB_SQL = (
+    "CASE WHEN ST_Zmflag(geom) IN (2, 3) AND ST_SRID(geom) > 0 "
+    "THEN ST_AsBinary(ST_Transform(ST_CurveToLine(geom), 4326)) "
+    f"ELSE {_RENDER_WKB_SQL} END"
+)
 
 
 class ExportTooLargeError(Exception):
@@ -643,12 +654,9 @@ async def export_parquet(
         select_parts.append(
             f"to_json({ident})::text" if name in json_columns else ident
         )
-    select_parts.append("ST_AsBinary(geom_4326)")
-    sql = (
-        f"SELECT {', '.join(select_parts)} "
-        f"FROM {_qtable(table_name, schema=schema)} t WHERE {where_sql}"
-    )
     geom_idx = len(attr_names)
+    select_sql = f"SELECT {', '.join(select_parts)}"
+    from_sql = f"FROM {_qtable(table_name, schema=schema)} t WHERE {where_sql}"
 
     exports_root = ensure_staging_ready(
         os.path.join(settings.upload_staging_dir, "exports")
@@ -670,6 +678,9 @@ async def export_parquet(
                 f"LOCK TABLE {_qtable(table_name, schema=schema)} IN ACCESS SHARE MODE"
             )
         )
+        state = await probe_geom_4326(db, table_name, schema=schema)
+        wkb_sql = _SOURCE_WKB_SQL if state.source_is_geometry else _RENDER_WKB_SQL
+        sql = f"{select_sql}, {wkb_sql} {from_sql}"
         sink.declare(
             await _declared_column_types(
                 db, table_name, schema, attr_names, json_columns

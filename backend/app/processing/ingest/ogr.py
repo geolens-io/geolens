@@ -1021,6 +1021,66 @@ async def run_ogrinfo_preview(
     return info
 
 
+_CSV_DIMENSION_PROBE_ROWS = 1000
+
+
+def _has_z(coordinates: object) -> bool:
+    """Whether a GeoJSON coordinates value ends in positions of three or more ordinates."""
+    if not isinstance(coordinates, list) or not coordinates:
+        return False
+    if isinstance(coordinates[0], (int, float)):
+        return len(coordinates) >= 3
+    return all(_has_z(part) for part in coordinates)
+
+
+async def _csv_geometry_is_3d(
+    file_path: str, source: str, layer_name: str | None
+) -> bool:
+    """Whether every geometry in the first rows of a CSV's geometry column has Z.
+
+    The CSV driver reports a WKT column as an untyped 2D layer, so the loaded
+    column would drop Z that the text carries. A mix of 2D and 3D rows counts
+    as 2D, since forcing three dimensions would invent an elevation of 0.
+    """
+    await run_in_thread_draining(validate_content_directives, file_path)
+    cmd = [
+        "ogrinfo",
+        "-ro",
+        "-json",
+        "-features",
+        "-limit",
+        str(_CSV_DIMENSION_PROBE_ROWS),
+        *local_input_driver_args(file_path),
+        "-oo",
+        "GEOM_POSSIBLE_NAMES=WKT,wkt,geometry,geom,the_geom,shape",
+        source,
+    ]
+    if layer_name:
+        cmd.append(layer_name)
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env=gdal_vector_safe_env(),
+    )
+    stdout, _ = await _communicate_with_timeout(
+        proc, OGRINFO_TIMEOUT_SECONDS, tool_name="ogrinfo"
+    )
+    if proc.returncode != 0:
+        return False
+    try:
+        layers = json.loads(stdout.decode()).get("layers") or []
+        features = layers[0].get("features") or []
+    except (json.JSONDecodeError, AttributeError, IndexError):
+        return False
+    geometries = [
+        g
+        for f in features
+        if (g := f.get("geometry")) and g.get("type") != "GeometryCollection"
+    ]
+    return bool(geometries) and all(_has_z(g.get("coordinates")) for g in geometries)
+
+
 async def run_ogr2ogr(
     file_path: str,
     table_name: str,
@@ -1151,6 +1211,13 @@ async def run_ogr2ogr(
                 "GEOM_POSSIBLE_NAMES=WKT,wkt,geometry,geom,the_geom,shape",
             ]
         )
+
+    if (
+        is_csv
+        and not is_non_spatial
+        and await _csv_geometry_is_3d(file_path, source, layer_name)
+    ):
+        cmd.extend(["-dim", "XYZ"])
 
     if not is_non_spatial:
         assigned_srid = effective_srid
