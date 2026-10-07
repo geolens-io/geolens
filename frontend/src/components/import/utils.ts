@@ -78,6 +78,31 @@ export function looksLikeArcGisServiceUrl(url: string): boolean {
   return /\/(FeatureServer|MapServer)\b/i.test(url);
 }
 
+/**
+ * An ArcGIS organization or portal homepage (the maps.arcgis.com org site, an
+ * Enterprise `/portal/home`, or an item page) rather than a layer endpoint.
+ * The importer needs a FeatureServer/MapServer layer REST URL, which these
+ * pages are not.
+ */
+export function looksLikeArcGisPortalUrl(url: string): boolean {
+  if (looksLikeArcGisServiceUrl(url)) return false;
+  let parsed: URL;
+  try {
+    parsed = new URL(url.trim());
+  } catch {
+    return false;
+  }
+  const host = parsed.hostname.toLowerCase();
+  if (
+    host === 'arcgis.com' ||
+    host === 'www.arcgis.com' ||
+    host.endsWith('.maps.arcgis.com')
+  ) {
+    return true;
+  }
+  return /\/(?:(?:portal|arcgis)\/home(?:\/|$)|home\/[\w-]+\.html$)/i.test(parsed.pathname);
+}
+
 /** Origin of a service URL. */
 export function originOf(url: string): string {
   try {

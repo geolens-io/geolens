@@ -320,6 +320,8 @@
     "analysisVectorRequired": "分析需要矢量数据集——此图层不是矢量数据集。",
     "analysisMaskPolygonRequired": "裁剪掩膜必须是多边形图层。",
     "datasetVisibilityBlockedByMaps": "这些地图正将该数据集共享给即将失去访问权的受众：{{maps}}。请移除其中的图层，或先收窄这些地图的共享范围。",
+    "workflowTransitionDeniedNoneAllowed": "在发布工作流中，此数据集不能从“{{from}}”转为“{{to}}”，且您没有其他可用步骤。请联系具备所需角色的审核人或管理员。",
+    "workflowTransitionDenied": "在发布工作流中，此数据集不能从“{{from}}”转为“{{to}}”。您当前可执行的步骤：{{allowed}}。",
     "analysisUnknownDissolveColumn": "列“{{column}}”在此数据集中不存在。请选择其他分组字段。",
     "corsWildcardNotAllowed": "不接受通配符来源。带凭据的请求必须完整列出每个来源，例如 https://example.com。",
     "embedDomainLockUnenforceable": "此部署尚无法强制执行域名锁定：其公开应用 URL 设置为 {{resolved}}，而您是通过 {{origin}} 访问的。嵌入地图会经由 GeoLens 本身加载，因此该锁定会拦截所有查看者。请将 PUBLIC_APP_URL 设置为 {{origin}}，然后再创建令牌。",

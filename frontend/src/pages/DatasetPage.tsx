@@ -424,6 +424,10 @@ export function DatasetPage() {
   // Metadata editing (overview/metadata tabs) and management actions remain ungated.
   const canEditData = canEdit && dataEditingEnabled;
 
+  // A 422 carries the workflow's own refusal, already localized by the API client.
+  const publishFailureMessage = (err: unknown) =>
+    err instanceof ApiError && err.status === 422 ? err.message : t('publish.failed');
+
   const handlePublishToggle = async () => {
     if (!id) return;
     if (isPublished) {
@@ -443,8 +447,8 @@ export function DatasetPage() {
       if (result.metadata_warnings?.length) {
         toast.warning(result.metadata_warnings[0]);
       }
-    } catch {
-      toast.error(t('publish.failed'));
+    } catch (err) {
+      toast.error(publishFailureMessage(err));
     }
   };
 
@@ -453,8 +457,8 @@ export function DatasetPage() {
     try {
       await setTargetStatus.mutateAsync({ datasetId: id, status: UNPUBLISH_TARGET });
       toast.success(t('publish.unpublished'));
-    } catch {
-      toast.error(t('publish.failed'));
+    } catch (err) {
+      toast.error(publishFailureMessage(err));
     } finally {
       setActiveDialog(null);
     }

@@ -192,6 +192,8 @@
     "analysisVectorRequired": "Die Analyse benötigt einen Vektordatensatz – diese Ebene ist keiner.",
     "analysisMaskPolygonRequired": "Die Zuschneidemaske muss eine Polygon-Ebene sein.",
     "datasetVisibilityBlockedByMaps": "Diese Karten teilen den Datensatz mit einem Publikum, das ihn verlieren würde: {{maps}}. Entfernen Sie dort den Layer oder schränken Sie zuerst diese Karten ein.",
+    "workflowTransitionDeniedNoneAllowed": "Dieser Datensatz kann im Veröffentlichungs-Workflow nicht von „{{from}}“ zu „{{to}}“ wechseln, und für Sie ist kein anderer Schritt offen. Wenden Sie sich an eine Prüfperson oder einen Administrator mit der nötigen Rolle.",
+    "workflowTransitionDenied": "Dieser Datensatz kann im Veröffentlichungs-Workflow nicht von „{{from}}“ zu „{{to}}“ wechseln. Für Sie offene Schritte von hier aus: {{allowed}}.",
     "analysisUnknownDissolveColumn": "Die Spalte „{{column}}“ existiert in diesem Datensatz nicht. Wähle ein anderes Gruppierungsfeld.",
     "corsWildcardNotAllowed": "Platzhalter-Ursprünge werden nicht akzeptiert. Anfragen mit Anmeldedaten erfordern jeden Ursprung vollständig, zum Beispiel https://example.com.",
     "embedDomainLockUnenforceable": "Diese Installation kann eine Domain-Sperre noch nicht durchsetzen: Ihre öffentliche App-URL ist auf {{resolved}} gesetzt, aufgerufen wurde sie aber über {{origin}}. Eine Einbettung lädt die Karte über GeoLens selbst, die Sperre würde also jeden Betrachter aussperren. Setze PUBLIC_APP_URL auf {{origin}} und erstelle das Token erneut.",

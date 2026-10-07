@@ -238,6 +238,7 @@
     "label": "Service-URL",
     "placeholder": "https://example.com/wfs, ArcGIS FeatureServer oder OGC-API-Endpunkt",
     "helpText": "WFS-, ArcGIS-Feature-Service- oder OGC-API-Features-URL einfügen",
+    "arcgisPortalUrlHint": "Das sieht nach einer ArcGIS-Organisations- oder Portalseite aus, nicht nach einem Layer. Öffnen Sie die Elementseite des Layers, kopieren Sie dessen REST-URL (sie endet auf /FeatureServer/0 oder /MapServer/0) und fügen Sie sie hier ein. Geschützte Layer verlangen die Anmeldung, nachdem Sie die Layer-URL eingefügt haben.",
     "tokenPlaceholder": "ArcGIS-Token, API-Schlüssel oder WFS-Zugriffstoken",
     "credentialMethodLabel": "Authentifizierung",
     "credentialMethodNone": "Keine Authentifizierung",

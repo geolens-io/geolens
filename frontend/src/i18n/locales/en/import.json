@@ -261,6 +261,7 @@
     "label": "Service URL",
     "placeholder": "https://example.com/wfs, ArcGIS FeatureServer, or OGC API endpoint",
     "helpText": "Paste a WFS, ArcGIS Feature Service, or OGC API Features URL",
+    "arcgisPortalUrlHint": "This looks like an ArcGIS organization or portal page, not a layer. Open the layer's item page, copy its REST URL (it ends in /FeatureServer/0 or /MapServer/0) and paste that here. Protected layers ask for sign-in after you paste the layer URL.",
     "detectedLabel": "Service URL; detected",
     "clear": "Clear",
     "layersAvailable_one": "{{count}} layer available",

@@ -35,7 +35,12 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { TypeTag } from './TypeTag';
-import { defaultPortalFor, looksLikeArcGisServiceUrl, originOf } from './utils';
+import {
+  defaultPortalFor,
+  looksLikeArcGisPortalUrl,
+  looksLikeArcGisServiceUrl,
+  originOf,
+} from './utils';
 
 type ServiceStep =
   | 'idle'
@@ -110,6 +115,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
   const signinGenerationRef = useRef(0);
   const authOrigin = originOf(url);
   const isArcGisShaped = looksLikeArcGisServiceUrl(url);
+  const isArcGisPortalShaped = looksLikeArcGisPortalUrl(url);
   // fix(#1712): guards every `setState` reached after an `await` in the
   // preview/commit session helpers below, mirroring UrlImportForm's
   // identical ref (`url-import-session.ts`'s consumer) — the module-scoped
@@ -426,7 +432,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
     }
 
     const trimmed = url.trim();
-    if (!trimmed) return;
+    if (!trimmed || isArcGisPortalShaped) return;
 
     setStep('probing');
     setError(null);
@@ -828,7 +834,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
             />
             <button
               type="submit"
-              disabled={!url.trim()}
+              disabled={!url.trim() || isArcGisPortalShaped}
               className="bg-primary px-4 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
             >
               {t('serviceUrl.probe', { defaultValue: 'Probe →' })}
@@ -844,7 +850,15 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
           </div>
         </div>
 
-        {isArcGisShaped ? (
+        {isArcGisPortalShaped ? (
+          <p
+            role="status"
+            data-testid="arcgis-portal-url-hint"
+            className="text-sm text-muted-foreground"
+          >
+            {t('serviceUrl.arcgisPortalUrlHint')}
+          </p>
+        ) : isArcGisShaped ? (
           <div className="space-y-3" data-testid="arcgis-auth-block">
             <div className="space-y-2">
               <Label htmlFor="arcgis-auth-method" className="text-xs text-muted-foreground">

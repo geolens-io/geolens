@@ -31,6 +31,26 @@ describe('API error localization boundary', () => {
     ).toBe('This service requires authentication. Provide an access token and try again.');
   });
 
+  it('names the refused workflow edge and the steps still open to the caller', () => {
+    const detail =
+      "Cannot transition from 'pending_review' to 'published'. Allowed: {'draft', 'approved'}";
+    expect(classifyApiError(detail, 422)).toEqual({
+      key: 'errors.workflowTransitionDenied',
+      values: { from: 'pending_review', to: 'published', allowed: 'approved, draft' },
+    });
+    expect(translateApiErrorDetail(detail, 422)).toContain('“pending_review” to “published”');
+    expect(translateApiErrorDetail(detail, 422)).toContain('approved, draft');
+  });
+
+  it('says so when no workflow step is open to the caller', () => {
+    expect(
+      classifyApiError("Cannot transition from 'draft' to 'published'. Allowed: set()", 422),
+    ).toEqual({
+      key: 'errors.workflowTransitionDeniedNoneAllowed',
+      values: { from: 'draft', to: 'published' },
+    });
+  });
+
   it('does not render unknown backend prose', () => {
     const backendDetail = 'Name is required according to an internal rule';
     const rendered = translateApiErrorDetail(backendDetail, 400);

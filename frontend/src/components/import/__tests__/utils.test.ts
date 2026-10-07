@@ -6,7 +6,7 @@
  * against the untouched default then failed. See utils.ts for the full
  * reasoning per case.
  */
-import { defaultPortalFor } from '../utils';
+import { defaultPortalFor, looksLikeArcGisPortalUrl } from '../utils';
 
 describe('defaultPortalFor', () => {
   it('prefills www.arcgis.com for an ArcGIS Online service host that is not *.maps.arcgis.com', () => {
@@ -29,5 +29,25 @@ describe('defaultPortalFor', () => {
     expect(
       defaultPortalFor('https://gis.example-city.gov/server/rest/services/Foo/FeatureServer'),
     ).toBe('');
+  });
+});
+
+describe('looksLikeArcGisPortalUrl', () => {
+  it.each([
+    'https://myorg.maps.arcgis.com/home/index.html',
+    'https://www.arcgis.com/home/item.html?id=abc123',
+    'https://gis.example-city.gov/portal/home/',
+    'https://gis.example-city.gov/arcgis/home/webmap/viewer.html',
+  ])('flags %s as a portal page', (url) => {
+    expect(looksLikeArcGisPortalUrl(url)).toBe(true);
+  });
+
+  it.each([
+    'https://services6.arcgis.com/abcd1234/arcgis/rest/services/Foo/FeatureServer/0',
+    'https://myorg.maps.arcgis.com/arcgis/rest/services/Foo/FeatureServer',
+    'https://example.com/wfs',
+    'not a url',
+  ])('leaves %s alone', (url) => {
+    expect(looksLikeArcGisPortalUrl(url)).toBe(false);
   });
 });

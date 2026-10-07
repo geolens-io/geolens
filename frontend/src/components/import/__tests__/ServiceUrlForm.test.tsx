@@ -759,3 +759,20 @@ describe('ServiceUrlForm ArcGIS sign-in', () => {
     }
   });
 });
+
+describe('ServiceUrlForm portal URL guidance', () => {
+  it('explains that a portal homepage needs a layer URL and does not probe it', async () => {
+    const user = userEvent.setup();
+    render(<ServiceUrlForm />);
+
+    await user.type(
+      screen.getByPlaceholderText('serviceUrl.placeholder'),
+      'https://myorg.maps.arcgis.com/home/index.html',
+    );
+
+    expect(screen.getByTestId('arcgis-portal-url-hint')).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Authentication' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Probe →' })).toBeDisabled();
+    expect(mockProbeService).not.toHaveBeenCalled();
+  });
+});

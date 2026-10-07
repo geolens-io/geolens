@@ -426,6 +426,25 @@ function descriptorForMessage(message: string, status: number): ApiErrorDescript
     };
   }
 
+  // The workflow seam names the refused edge and the steps this actor may
+  // take instead; the allowed set is Python's set repr, so it arrives
+  // unordered and `set()` when nothing is open to the caller.
+  const workflowDenied = message.match(
+    /^Cannot transition from '(.+?)' to '(.+?)'\. Allowed: (?:set\(\)|\{(.*)\})$/,
+  );
+  if (workflowDenied) {
+    const allowed = [...(workflowDenied[3] ?? '').matchAll(/'([^']+)'/g)]
+      .map((m) => m[1])
+      .sort();
+    const values = { from: workflowDenied[1], to: workflowDenied[2] };
+    return allowed.length > 0
+      ? {
+          key: 'errors.workflowTransitionDenied',
+          values: { ...values, allowed: allowed.join(', ') },
+        }
+      : { key: 'errors.workflowTransitionDeniedNoneAllowed', values };
+  }
+
   // fix(#931): the backend names the offending maps precisely so a human can go
   // and fix them, and unmapped that list fell through to the generic 422 —
   // which drops exactly the part that makes the refusal actionable.
