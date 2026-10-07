@@ -240,9 +240,35 @@ _GEOJSON_TYPES = frozenset(
         "MultiPolygon",
     }
 )
-_COLLECTION_OR_FEATURE_TYPE = re.compile(
-    rb'"type"\s*:\s*"(?:FeatureCollection|Feature)"'
-)
+_JSON_TOKEN = re.compile(rb'"(?:[^"\\]|\\.)*"|[{}\[\]:,]')
+
+
+def _root_type(head: bytes) -> Optional[bytes]:
+    """Return the raw ``type`` string of the root object in a truncated prefix.
+
+    Tokenizes strings and structural characters so a ``type`` nested deeper, or
+    quoted inside a string value, is never mistaken for the root member.
+    """
+    depth = 0
+    previous = b""
+    tokens = _JSON_TOKEN.finditer(head)
+    for match in tokens:
+        token = match.group()
+        if token in (b"{", b"["):
+            depth += 1
+        elif token in (b"}", b"]"):
+            depth -= 1
+            if depth <= 0:
+                return None
+        elif token[:1] == b'"' and depth == 1 and previous in (b"{", b","):
+            if token == b'"type"':
+                colon = next(tokens, None)
+                value = next(tokens, None)
+                if colon and colon.group() == b":" and value:
+                    return value.group()[1:-1] if value.group()[:1] == b'"' else None
+                return None
+        previous = token
+    return None
 
 
 def _looks_like_geojson(path: Path, *, peek_bytes: int = 1 << 20) -> bool:
@@ -262,8 +288,11 @@ def _looks_like_geojson(path: Path, *, peek_bytes: int = 1 << 20) -> bool:
     if not truncated:
         try:
             doc = json.loads(head.decode("utf-8-sig"))
-        except ValueError:
+        except (ValueError, RecursionError):
             return False
         return isinstance(doc, dict) and doc.get("type") in _GEOJSON_TYPES
     head = head.removeprefix(b"\xef\xbb\xbf").lstrip()
-    return head.startswith(b"{") and bool(_COLLECTION_OR_FEATURE_TYPE.search(head))
+    return head.startswith(b"{") and _root_type(head) in (
+        b"FeatureCollection",
+        b"Feature",
+    )

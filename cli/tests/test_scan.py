@@ -296,3 +296,35 @@ class TestJsonDetection:
         assert _scan._looks_like_geojson(path, peek_bytes=64) is True
         path.write_text('{"foo":' + "1," * 100)
         assert _scan._looks_like_geojson(path, peek_bytes=64) is False
+
+
+class TestJsonDetectionEdgeCases:
+    def test_deeply_nested_json_is_unsupported_not_a_crash(self, tmp_path) -> None:
+        path = tmp_path / "deep.json"
+        path.write_text("[" * 100_000 + "]" * 100_000)
+        assert _scan._looks_like_geojson(path) is False
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            '{"payload":{"type":"Feature","x":1},"pad":"' + "a" * 200,
+            '{"note":"\\"type\\": \\"Feature\\"","pad":"' + "a" * 200,
+            '{"items":[{"type":"Feature"}],"pad":"' + "a" * 200,
+        ],
+    )
+    def test_nested_or_quoted_type_in_a_truncated_file_is_not_geojson(
+        self, tmp_path, text
+    ) -> None:
+        path = tmp_path / "wrapper.json"
+        path.write_text(text)
+        assert _scan._looks_like_geojson(path, peek_bytes=64) is False
+
+    def test_root_type_after_other_members_in_a_truncated_file_is_geojson(
+        self, tmp_path
+    ) -> None:
+        path = tmp_path / "big.json"
+        path.write_text(
+            '{"name":"a {brace}","crs":{"type":"name"},"type":"Feature","pad":"'
+            + "a" * 200
+        )
+        assert _scan._looks_like_geojson(path, peek_bytes=96) is True
