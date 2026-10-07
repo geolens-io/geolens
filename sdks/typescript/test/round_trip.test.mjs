@@ -15,6 +15,7 @@
  * conversion of FastAPI operationIds. Verified against
  * sdks/typescript/dist/client/sdk.gen.d.ts on 2026-07-10.
  */
+import { File } from 'node:buffer';
 import { createGeolensClient } from '../dist/index.js';
 import {
   searchDatasetsEndpointSearchDatasetsGet,
