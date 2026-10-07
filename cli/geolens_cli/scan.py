@@ -270,24 +270,33 @@ def _root_type(head: bytes) -> Optional[str]:
     depth = 0
     previous = b""
     found: Optional[str] = None
-    tokens = _JSON_TOKEN.finditer(head)
-    for match in tokens:
+    awaiting: Optional[str] = None
+    for match in _JSON_TOKEN.finditer(head):
         token = match.group()
+        if awaiting == "colon":
+            awaiting = "value" if token == b":" else None
+            if awaiting:
+                previous = token
+                continue
+        elif awaiting == "value":
+            awaiting = None
+            found = _decode_string(token) if token[:1] == b'"' else None
+            if token[:1] == b'"':
+                previous = token
+                continue
         if token in (b"{", b"["):
             depth += 1
         elif token in (b"}", b"]"):
             depth -= 1
             if depth <= 0:
                 break
-        elif token[:1] == b'"' and depth == 1 and previous in (b"{", b","):
-            if _decode_string(token) == "type":
-                colon = next(tokens, None)
-                value = next(tokens, None)
-                if colon and colon.group() == b":" and value:
-                    found = _decode_string(value.group())
-                    previous = value.group()
-                    continue
-                break
+        elif (
+            token[:1] == b'"'
+            and depth == 1
+            and previous in (b"{", b",")
+            and _decode_string(token) == "type"
+        ):
+            awaiting = "colon"
         previous = token
     return found
 
@@ -311,6 +320,7 @@ def _looks_like_geojson(path: Path, *, peek_bytes: int = 1 << 20) -> bool:
             doc = json.loads(head.decode("utf-8-sig"))
         except (ValueError, RecursionError):
             return False
-        return isinstance(doc, dict) and doc.get("type") in _GEOJSON_TYPES
+        root_type = doc.get("type") if isinstance(doc, dict) else None
+        return isinstance(root_type, str) and root_type in _GEOJSON_TYPES
     head = head.removeprefix(b"\xef\xbb\xbf").lstrip()
     return head.startswith(b"{") and _root_type(head) in _GEOJSON_TYPES

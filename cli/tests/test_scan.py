@@ -383,3 +383,16 @@ class TestScanRobustness:
         start = time.monotonic()
         assert _scan._looks_like_geojson(path, peek_bytes=len(b'{"a":"') + 400_000 + 1) is False
         assert time.monotonic() - start < 2
+
+    @pytest.mark.parametrize("value", ['{"name":"config"}', "[]", "1"])
+    def test_non_string_root_type_is_unsupported_not_a_crash(
+        self, tmp_path, value
+    ) -> None:
+        path = tmp_path / "odd.json"
+        path.write_text('{"type":' + value + "}")
+        assert _scan._looks_like_geojson(path) is False
+
+    def test_structured_root_type_value_keeps_nesting_depth(self, tmp_path) -> None:
+        path = tmp_path / "nested.json"
+        path.write_text('{"type":{"type":"Feature"},"pad":"' + "a" * 200)
+        assert _scan._looks_like_geojson(path, peek_bytes=96) is False
