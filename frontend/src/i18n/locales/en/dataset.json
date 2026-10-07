@@ -466,7 +466,8 @@
       "publisher": "Publisher",
       "distributor": "Distributor",
       "custodian": "Custodian"
-    }
+    },
+    "remove": "Remove contact {{name}}"
   },
   "keywords": {
     "title": "Keywords",
@@ -485,7 +486,8 @@
     "inheritedConfirmTitle": "Share inherited keywords?",
     "inheritedConfirmBody": "These keywords were copied from a source dataset the wider audience cannot open. Continue to share them, or cancel and remove them first.",
     "inheritedConfirmContinue": "Change visibility",
-    "inheritedGeneric": "This dataset carries keywords inherited from its source. Review the full keyword list before sharing."
+    "inheritedGeneric": "This dataset carries keywords inherited from its source. Review the full keyword list before sharing.",
+    "remove": "Remove keyword {{keyword}}"
   },
   "validation": {
     "title": "Validation Status",

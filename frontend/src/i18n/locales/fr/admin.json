@@ -847,6 +847,7 @@
     "deleteFailed": "Échec de la suppression du fournisseur SAML",
     "invalidJson": "Le mapping groupes-rôles doit être du JSON valide",
     "certRequired": "Le certificat IdP est requis pour enregistrer un fournisseur SAML",
+    "certInvalid": "Le certificat IdP doit être un certificat X.509 valide (PEM)",
     "roles": {
       "viewer": "Visualiseur",
       "editor": "Éditeur",

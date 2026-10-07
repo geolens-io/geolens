@@ -1,10 +1,13 @@
 """Pydantic schemas for OAuth provider CRUD operations."""
 
+import base64
+import binascii
 import uuid
 from datetime import datetime
 from typing import Literal
 from urllib.parse import urlparse
 
+from cryptography import x509
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.edition import is_enterprise
@@ -24,6 +27,22 @@ def _validate_optional_http_url(value: str | None) -> str | None:
         raise ValueError("URL must use http or https scheme")
     if not parsed.netloc:
         raise ValueError("URL must include a host")
+    return value
+
+
+def _validate_idp_certificate(value: str | None) -> str | None:
+    """Reject an IdP certificate that is neither a PEM nor a bare base64 DER body."""
+    if value is None:
+        return value
+    try:
+        if "-----BEGIN" in value:
+            x509.load_pem_x509_certificate(value.encode())
+        else:
+            x509.load_der_x509_certificate(
+                base64.b64decode("".join(value.split()), validate=True)
+            )
+    except (ValueError, binascii.Error) as exc:
+        raise ValueError("IdP certificate must be a valid X.509 certificate") from exc
     return value
 
 
@@ -149,6 +168,11 @@ class OAuthProviderCreate(BaseModel):
     @classmethod
     def _check_idp_url(cls, value: str | None) -> str | None:
         return _validate_optional_http_url(value)
+
+    @field_validator("idp_certificate")
+    @classmethod
+    def _check_idp_certificate(cls, value: str | None) -> str | None:
+        return _validate_idp_certificate(value)
 
     @model_validator(mode="after")
     def _validate_per_type(self):
@@ -302,6 +326,11 @@ class OAuthProviderUpdate(BaseModel):
     @classmethod
     def _check_idp_url(cls, value: str | None) -> str | None:
         return _validate_optional_http_url(value)
+
+    @field_validator("idp_certificate")
+    @classmethod
+    def _check_idp_certificate(cls, value: str | None) -> str | None:
+        return _validate_idp_certificate(value)
 
     @model_validator(mode="after")
     def _validate_saml_gate(self):

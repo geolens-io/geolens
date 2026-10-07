@@ -3,6 +3,7 @@ import { render, screen, waitFor, within } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { SamlProvidersSection } from '../SamlProvidersSection';
 import { queryKeys } from '@/lib/query-keys';
+import { ApiError } from '@/api/client';
 import {
   listSamlProviders,
   createSamlProvider,
@@ -178,5 +179,54 @@ describe('SamlProvidersSection provider mutations', () => {
 
     await waitFor(() => expect(createSamlProvider).toHaveBeenCalledOnce());
     await waitFor(() => expect(listSamlProviders).toHaveBeenCalledTimes(2));
+  });
+  it('opens the editor with the persisted entity IDs and SSO URL, and keeps the certificate blank', async () => {
+    vi.mocked(listSamlProviders).mockResolvedValueOnce([SAML_PROVIDER]);
+    const user = userEvent.setup();
+
+    render(<SamlProvidersSection />);
+
+    const providerRow = (await screen.findByText('Okta')).closest('tr');
+    await user.click(within(providerRow!).getByRole('button', { name: 'Edit provider' }));
+
+    expect(await screen.findByLabelText('IdP Entity ID')).toHaveValue(SAML_PROVIDER.idp_entity_id);
+    expect(screen.getByLabelText('IdP SSO URL')).toHaveValue(SAML_PROVIDER.idp_sso_url);
+    expect(screen.getByLabelText('SP Entity ID')).toHaveValue(SAML_PROVIDER.sp_entity_id);
+    expect(screen.getByLabelText(/IdP Signing Certificate/)).toHaveValue('');
+    expect(screen.getByRole('button', { name: 'Save Changes' })).toBeEnabled();
+  });
+
+  it('gives the default role select an accessible name', async () => {
+    const user = userEvent.setup();
+
+    render(<SamlProvidersSection />);
+
+    await user.click(await screen.findByRole('button', { name: /Add/ }));
+    expect(await screen.findByRole('combobox', { name: 'Default Role' })).toBeInTheDocument();
+  });
+
+  it('shows a certificate field error when the server rejects the certificate', async () => {
+    vi.mocked(createSamlProvider).mockRejectedValueOnce(
+      new ApiError('Unprocessable', 422, {
+        detail: [{ loc: ['body', 'idp_certificate'], msg: 'invalid', type: 'value_error' }],
+      }),
+    );
+    const user = userEvent.setup();
+
+    render(<SamlProvidersSection />);
+
+    await fillAndSubmitCreateForm(user);
+
+    const field = await screen.findByLabelText('IdP Signing Certificate (PEM)');
+    const error = await screen.findByText(
+      'IdP certificate must be a valid X.509 certificate (PEM)',
+    );
+    expect(field).toHaveAttribute('aria-invalid', 'true');
+    expect(field.getAttribute('aria-describedby')).toContain(error.id);
+
+    await user.type(field, 'x');
+    expect(
+      screen.queryByText('IdP certificate must be a valid X.509 certificate (PEM)'),
+    ).not.toBeInTheDocument();
   });
 });

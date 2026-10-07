@@ -978,7 +978,9 @@ async def list_oauth_providers(
     db: AsyncSession = Depends(get_db),
 ) -> list[OAuthProviderResponse]:
     """List all OAuth providers (admin only)."""
-    providers = await oauth_service.list_providers(db)
+    providers = await oauth_service.list_providers(
+        db, include_saml_fields=is_enterprise()
+    )
     return [OAuthProviderResponse.model_validate(p) for p in providers]
 
 

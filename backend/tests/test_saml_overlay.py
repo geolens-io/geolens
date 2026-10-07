@@ -57,6 +57,30 @@ FIXTURE_DIR = Path(__file__).parent / "fixtures" / "saml"
 FIXTURE_CERT_PEM = (FIXTURE_DIR / "idp_cert.pem").read_text()
 
 
+def _self_signed_pem() -> str:
+    from datetime import datetime, timedelta, timezone
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.x509.oid import NameOID
+
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "idp.geolens.test")])
+    now = datetime.now(timezone.utc)
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now)
+        .not_valid_after(now + timedelta(days=30))
+        .sign(key, hashes.SHA256())
+    )
+    return cert.public_bytes(serialization.Encoding.PEM).decode()
+
+
 @pytest.fixture(autouse=True)
 def _registration_on(monkeypatch):
     """fix(#1778): the SAML overlay provisions through find_or_create_oauth_user
@@ -803,7 +827,7 @@ def test_oauth_provider_create_saml_accepts_all_4_fields(enterprise_edition):
         provider_type="saml",
         idp_entity_id="https://fixture-idp.geolens.test/idp",
         idp_sso_url="https://fixture-idp.geolens.test/sso",
-        idp_certificate="-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----",
+        idp_certificate=FIXTURE_CERT_PEM,
         sp_entity_id="https://geolens.test/auth/saml/complete-saml",
     )
     assert m.provider_type == "saml"
@@ -825,7 +849,7 @@ def test_oauth_provider_create_saml_rejects_community(community_edition):
             provider_type="saml",
             idp_entity_id="https://fixture-idp.geolens.test/idp",
             idp_sso_url="https://fixture-idp.geolens.test/sso",
-            idp_certificate="-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----",
+            idp_certificate=FIXTURE_CERT_PEM,
             sp_entity_id="https://geolens.test/auth/saml/community-saml",
         )
     assert "SAML SSO is not enabled for this deployment" in str(excinfo.value)
@@ -996,7 +1020,8 @@ async def test_saml_provider_update_redacts_secret_fields(
 
     from app.modules.audit.models import AuditLog
 
-    new_pem = "-----BEGIN CERTIFICATE-----\nMOCKNEWCERT\n-----END CERTIFICATE-----"
+    new_pem = _self_signed_pem()
+    pem_body = "".join(new_pem.splitlines()[1:-1])
 
     provider = await _seed_saml_provider(
         test_db_session,
@@ -1038,12 +1063,72 @@ async def test_saml_provider_update_redacts_secret_fields(
 
         # Defensive: the raw PEM must NOT appear ANYWHERE in the audit details.
         details_str = str(entry.details)
-        assert "MOCKNEWCERT" not in details_str, (
+        assert pem_body[:40] not in details_str, (
             f"raw PEM leaked into audit details: {details_str}"
         )
         assert "-----BEGIN" not in details_str, (
             f"PEM markers leaked into audit details: {details_str}"
         )
+
+
+def test_oauth_provider_create_saml_rejects_non_certificate_text(enterprise_edition):
+    from pydantic import ValidationError
+
+    from app.modules.auth.oauth.schemas import OAuthProviderCreate
+
+    for bad in (
+        "not a certificate",
+        "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----",
+    ):
+        with pytest.raises(ValidationError) as excinfo:
+            OAuthProviderCreate(
+                slug="bad-cert",
+                display_name="Bad cert",
+                provider_type="saml",
+                idp_entity_id="https://fixture-idp.geolens.test/idp",
+                idp_sso_url="https://fixture-idp.geolens.test/sso",
+                idp_certificate=bad,
+                sp_entity_id="https://geolens.test/auth/saml/bad-cert",
+            )
+        assert "idp_certificate" in str(excinfo.value)
+
+
+def test_oauth_provider_update_rejects_non_certificate_text(enterprise_edition):
+    from pydantic import ValidationError
+
+    from app.modules.auth.oauth.schemas import OAuthProviderUpdate
+
+    with pytest.raises(ValidationError):
+        OAuthProviderUpdate(idp_certificate="not a certificate")
+
+
+def test_oauth_provider_accepts_bare_base64_certificate_body(enterprise_edition):
+    from app.modules.auth.oauth.schemas import OAuthProviderUpdate
+
+    body = "".join(FIXTURE_CERT_PEM.splitlines()[1:-1])
+    assert OAuthProviderUpdate(idp_certificate=body).idp_certificate == body
+
+
+async def test_oauth_provider_list_returns_nonsecret_saml_fields_only(
+    client,
+    test_db_session,
+    admin_auth_header,
+    enterprise_edition,
+    _cleanup_saml_providers,
+):
+    """Admin list returns the persisted non-secret SAML fields, never the certificate."""
+    provider = await _seed_saml_provider(
+        test_db_session, slug=f"list-{uuid.uuid4().hex[:6]}"
+    )
+
+    resp = await client.get("/settings/oauth-providers", headers=admin_auth_header)
+    assert resp.status_code == 200, resp.text
+    row = next(p for p in resp.json() if p["id"] == str(provider.id))
+    assert row["idp_entity_id"] == FIXTURE_IDP_ENTITY_ID
+    assert row["idp_sso_url"] == "https://fixture-idp.geolens.test/sso"
+    assert row["sp_entity_id"] == FIXTURE_SP_ENTITY_ID
+    assert "idp_certificate" not in row
+    assert "BEGIN CERTIFICATE" not in resp.text
 
 
 # ---------------------------------------------------------------------------

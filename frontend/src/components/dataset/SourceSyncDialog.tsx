@@ -173,7 +173,7 @@ export function SourceSyncDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="grid-cols-[minmax(0,1fr)]">
         <DialogHeader>
           <DialogTitle>{automation ? t('sourcePanel.sync.editTitle') : t('sourcePanel.sync.setupTitle')}</DialogTitle>
           <DialogDescription>{t('sourcePanel.sync.dialogDescription')}</DialogDescription>
@@ -226,7 +226,7 @@ export function SourceSyncDialog({
           <div className="flex flex-col gap-2">
             <Label htmlFor="sync-credential">{t('sourcePanel.sync.form.credential')}</Label>
             <Select value={credentialChoice} onValueChange={setCredentialChoice}>
-              <SelectTrigger id="sync-credential" aria-label={t('sourcePanel.sync.form.credential')} className="w-full"><SelectValue /></SelectTrigger>
+              <SelectTrigger id="sync-credential" aria-label={t('sourcePanel.sync.form.credential')} className="w-full min-w-0"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectGroup>
                   <SelectItem value="public">{t('sourcePanel.sync.form.publicSource')}</SelectItem>

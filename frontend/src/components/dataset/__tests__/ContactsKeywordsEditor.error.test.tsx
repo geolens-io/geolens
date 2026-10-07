@@ -58,3 +58,25 @@ describe('KeywordsEditor error state (GAP-034)', () => {
     expect(screen.getByRole('alert')).toBeInTheDocument();
   });
 });
+
+describe('ContactsEditor and KeywordsEditor remove controls', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('names each remove button after the item it removes', async () => {
+    vi.mocked(listContacts).mockResolvedValue({
+      contacts: [{ id: 'c-1', record_id: 'rec-1', role: 'author', name: 'Ada Lovelace' }],
+    } as never);
+    vi.mocked(listKeywords).mockResolvedValue({
+      keywords: [{ id: 'k-1', record_id: 'rec-1', keyword: 'riverine', inherited: false }],
+    } as never);
+    render(
+      <>
+        <ContactsEditor recordId="rec-1" canEdit />
+        <KeywordsEditor recordId="rec-1" canEdit />
+      </>,
+    );
+
+    expect(await screen.findByRole('button', { name: 'Remove contact Ada Lovelace' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Remove keyword riverine' })).toBeInTheDocument();
+  });
+});

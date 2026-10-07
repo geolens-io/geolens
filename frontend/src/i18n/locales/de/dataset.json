@@ -576,7 +576,8 @@
       "publisher": "Herausgeber",
       "distributor": "Verteiler",
       "custodian": "Verwalter"
-    }
+    },
+    "remove": "Kontakt {{name}} entfernen"
   },
   "keywords": {
     "title": "Schlüsselwörter",
@@ -595,7 +596,8 @@
     "inheritedConfirmTitle": "Geerbte Schlüsselwörter teilen?",
     "inheritedConfirmBody": "Diese Schlüsselwörter wurden aus einem Quelldatensatz kopiert, den das erweiterte Publikum nicht öffnen kann. Fahren Sie fort, um sie zu teilen, oder brechen Sie ab und entfernen Sie sie zuerst.",
     "inheritedConfirmContinue": "Sichtbarkeit ändern",
-    "inheritedGeneric": "Dieser Datensatz enthält Schlüsselwörter, die vom Quelldatensatz geerbt wurden. Prüfen Sie die vollständige Schlüsselwortliste vor dem Teilen."
+    "inheritedGeneric": "Dieser Datensatz enthält Schlüsselwörter, die vom Quelldatensatz geerbt wurden. Prüfen Sie die vollständige Schlüsselwortliste vor dem Teilen.",
+    "remove": "Schlüsselwort {{keyword}} entfernen"
   },
   "attributeMetadata": {
     "title": "Attribut-Metadaten",

@@ -74,6 +74,7 @@ import {
 import { queryKeys } from '@/lib/query-keys';
 import { useInvalidateAuthProviders } from '@/hooks/use-auth-providers';
 import { triggerDownload } from '@/lib/download';
+import { ApiError } from '@/api/client';
 import { Textarea } from '@/components/ui/textarea';
 
 function slugify(name: string): string {
@@ -174,6 +175,7 @@ export function SamlProvidersSection() {
   const [editingProvider, setEditingProvider] = useState<SamlProviderConfig | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<SamlProviderConfig | null>(null);
   const [form, setForm] = useState<SamlFormData>(EMPTY_FORM);
+  const [certError, setCertError] = useState<string | null>(null);
 
   /**
    * Build a sensible default sp_entity_id for the current slug, using the
@@ -207,12 +209,14 @@ export function SamlProvidersSection() {
 
   function openAddDialog() {
     setEditingProvider(null);
+    setCertError(null);
     setForm({ ...EMPTY_FORM });
     setDialogOpen(true);
   }
 
   function openEditDialog(provider: SamlProviderConfig) {
     setEditingProvider(provider);
+    setCertError(null);
     setForm({
       display_name: provider.display_name,
       slug: provider.slug,
@@ -237,6 +241,16 @@ export function SamlProvidersSection() {
       triggerDownload(blob, `${slug}-metadata.xml`);
     } catch {
       toast.error(t('saml.metadataFailed'));
+    }
+  }
+
+  function handleSaveError(err: unknown) {
+    const detail = err instanceof ApiError && err.status === 422 ? (err.body as { detail?: unknown })?.detail : null;
+    if (
+      Array.isArray(detail) &&
+      detail.some((d) => Array.isArray(d?.loc) && d.loc.includes('idp_certificate'))
+    ) {
+      setCertError(t('saml.certInvalid'));
     }
   }
 
@@ -271,7 +285,7 @@ export function SamlProvidersSection() {
       }
       updateMutation.mutate(
         { id: editingProvider.id, data },
-        { onSuccess: () => setDialogOpen(false) },
+        { onSuccess: () => setDialogOpen(false), onError: handleSaveError },
       );
     } else {
       if (!form.idp_certificate) {
@@ -291,7 +305,10 @@ export function SamlProvidersSection() {
         group_role_mapping: groupMapping,
         enabled: form.enabled,
       };
-      createMutation.mutate(data, { onSuccess: () => setDialogOpen(false) });
+      createMutation.mutate(data, {
+        onSuccess: () => setDialogOpen(false),
+        onError: handleSaveError,
+      });
     }
   }
 
@@ -458,8 +475,13 @@ export function SamlProvidersSection() {
                 id="saml-idp-certificate"
                 className="min-h-[140px] text-xs font-mono"
                 value={form.idp_certificate}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, idp_certificate: e.target.value }))
+                onChange={(e) => {
+                  setCertError(null);
+                  setForm((prev) => ({ ...prev, idp_certificate: e.target.value }));
+                }}
+                aria-invalid={certError ? true : undefined}
+                aria-describedby={
+                  certError ? 'saml-idp-certificate-hint saml-idp-certificate-error' : 'saml-idp-certificate-hint'
                 }
                 placeholder={
                   editingProvider
@@ -467,7 +489,14 @@ export function SamlProvidersSection() {
                     : '-----BEGIN CERTIFICATE-----\nMIIC...\n-----END CERTIFICATE-----'
                 }
               />
-              <p className="text-xs text-muted-foreground">{t('saml.idpCertificateHint')}</p>
+              <p id="saml-idp-certificate-hint" className="text-xs text-muted-foreground">
+                {t('saml.idpCertificateHint')}
+              </p>
+              {certError && (
+                <p id="saml-idp-certificate-error" role="alert" className="text-xs text-destructive">
+                  {certError}
+                </p>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -486,14 +515,14 @@ export function SamlProvidersSection() {
             </div>
 
             <div className="space-y-2">
-              <Label>{t('saml.defaultRole')}</Label>
+              <Label htmlFor="saml-default-role">{t('saml.defaultRole')}</Label>
               <Select
                 value={form.default_role}
                 onValueChange={(v) =>
                   setForm((prev) => ({ ...prev, default_role: v }))
                 }
               >
-                <SelectTrigger className="w-full">
+                <SelectTrigger id="saml-default-role" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

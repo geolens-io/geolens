@@ -847,6 +847,7 @@
     "deleteFailed": "Error al eliminar el proveedor SAML",
     "invalidJson": "El mapeo de grupos a roles debe ser JSON válido",
     "certRequired": "Se requiere el certificado del IdP para registrar un proveedor SAML",
+    "certInvalid": "El certificado del IdP debe ser un certificado X.509 válido (PEM)",
     "roles": {
       "viewer": "Visor",
       "editor": "Editor",

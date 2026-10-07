@@ -134,6 +134,7 @@ export function ContactsEditor({ recordId, canEdit }: ContactsEditorProps) {
               variant="ghost"
               size="sm"
               className="ms-auto h-6 w-6 p-0"
+              aria-label={t('contacts.remove', { name: contact.name })}
               onClick={() => handleDelete(contact.id)}
             >
               <X className="h-3.5 w-3.5" />
@@ -146,9 +147,9 @@ export function ContactsEditor({ recordId, canEdit }: ContactsEditorProps) {
         <div className="space-y-2 border rounded-md p-3 bg-muted/30">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <div className="space-y-1">
-              <Label className="text-xs">{t('contacts.role')}</Label>
+              <Label htmlFor="contact-role" className="text-xs">{t('contacts.role')}</Label>
               <Select value={role} onValueChange={setRole}>
-                <SelectTrigger className="h-8">
+                <SelectTrigger id="contact-role" className="h-8">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
