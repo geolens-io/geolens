@@ -170,10 +170,9 @@ def validate_relationship_columns(
 ) -> None:
     """Raise ``ValueError`` for a join column absent from a dataset's stored schema."""
     for dataset, column in ((source, rel.source_column), (target, rel.target_column)):
-        if dataset.column_info is not None:
-            known = {"gid", *(c["name"] for c in dataset.column_info)}
-            if column not in known:
-                raise ValueError(f"Column {column!r} not found in its dataset")
+        known = {"gid", *(c["name"] for c in dataset.column_info or [])}
+        if dataset.column_info is None or column not in known:
+            raise ValueError(f"Column {column!r} not found in its dataset")
 
 
 async def create_relationship(

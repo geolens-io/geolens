@@ -95,6 +95,21 @@ async def test_relationship_with_unknown_column_is_rejected(
     )
     assert resp.status_code == 422
 
+    raster = await create_dataset(
+        test_db_session, created_by=admin_id, name="Rel Raster", column_info=None
+    )
+    assert (
+        await client.post(
+            f"/datasets/{raster.id}/relationships/",
+            json={
+                "target_dataset_id": str(target.record_id),
+                "source_column": "k",
+                "target_column": "k",
+            },
+            headers=admin_auth_header,
+        )
+    ).status_code == 422
+
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("clear", [None, ""])
