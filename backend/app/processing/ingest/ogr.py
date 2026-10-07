@@ -1208,6 +1208,11 @@ async def run_ogr2ogr(
         "--config",
         "PG_USE_COPY",
         "YES",
+        # Otherwise GDAL creates an ogr_system_tables metadata schema on first
+        # write, concurrent first writes race on it, and nothing reads it.
+        "--config",
+        "OGR_PG_ENABLE_METADATA",
+        "NO",
     ]
     if not await run_in_thread_draining(declares_dbf_encoding, file_path, layer_name):
         # Undeclared Shapefile text is taken as UTF-8; forcing it over a
@@ -1391,6 +1396,9 @@ async def run_ogr2ogr_service(
         "--config",
         "PG_USE_COPY",
         "YES",
+        "--config",
+        "OGR_PG_ENABLE_METADATA",
+        "NO",
         "--config",
         "GDAL_HTTP_TIMEOUT",
         str(settings.ingest_http_timeout_seconds),  # configurable, default 300
