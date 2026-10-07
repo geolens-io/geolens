@@ -54,6 +54,7 @@ from app.core.csv_safety import escape_csv_formula
 from app.core.dependencies import get_client_ip, get_db
 from app.core.url_redaction import redact_url_credentials
 from app.modules.admin.router_operations import router as operations_router
+from app.platform.binary_response import binary_response
 from app.platform.extensions import get_catalog_port
 from app.platform.jobs.defer_guard import (
     DeferFailed,
@@ -279,6 +280,7 @@ async def list_users(
 @router.get(
     "/users/export.csv",
     response_class=StreamingResponse,
+    responses={200: binary_response("The CSV file", "text/csv")},
     summary="Export registered users as CSV",
     tags=["Admin"],
 )

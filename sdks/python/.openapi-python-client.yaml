@@ -37,6 +37,9 @@ content_type_overrides:
   image/jpeg: application/octet-stream
   image/webp: application/octet-stream
   image/ktx2: application/octet-stream
+  # maps, tiles
+  image/svg+xml: application/octet-stream
+  application/vnd.mapbox-vector-tile: application/octet-stream
 
 # Format generated code with ruff so it matches project style.
 post_hooks:

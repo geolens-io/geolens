@@ -1,5 +1,5 @@
 from http import HTTPStatus
-from typing import Any, cast
+from typing import Any
 from urllib.parse import quote
 
 import httpx
@@ -9,7 +9,9 @@ from ...types import Response, UNSET
 from ... import errors
 
 from ...models.problem_detail import ProblemDetail
+from ...types import File
 from ...types import Unset
+from io import BytesIO
 
 
 def _get_kwargs(
@@ -78,9 +80,10 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Any | ProblemDetail | None:
+) -> File | ProblemDetail | None:
     if response.status_code == 200:
-        response_200 = cast(Any, None)
+        response_200 = File(payload=BytesIO(response.content))
+
         return response_200
 
     if response.status_code == 400:
@@ -126,7 +129,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[Any | ProblemDetail]:
+) -> Response[File | ProblemDetail]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -148,7 +151,7 @@ def sync_detailed(
     cols: None | str | Unset = UNSET,
     cluster_radius: int | Unset = 48,
     cluster_max_zoom: int | Unset = 14,
-) -> Response[Any | ProblemDetail]:
+) -> Response[File | ProblemDetail]:
     """Cluster Tile Endpoint
 
      Serve a server-side clustered vector tile for a point dataset.
@@ -205,7 +208,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | ProblemDetail]
+        Response[File | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -241,7 +244,7 @@ def sync(
     cols: None | str | Unset = UNSET,
     cluster_radius: int | Unset = 48,
     cluster_max_zoom: int | Unset = 14,
-) -> Any | ProblemDetail | None:
+) -> File | ProblemDetail | None:
     """Cluster Tile Endpoint
 
      Serve a server-side clustered vector tile for a point dataset.
@@ -298,7 +301,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | ProblemDetail
+        File | ProblemDetail
     """
 
     return sync_detailed(
@@ -329,7 +332,7 @@ async def asyncio_detailed(
     cols: None | str | Unset = UNSET,
     cluster_radius: int | Unset = 48,
     cluster_max_zoom: int | Unset = 14,
-) -> Response[Any | ProblemDetail]:
+) -> Response[File | ProblemDetail]:
     """Cluster Tile Endpoint
 
      Serve a server-side clustered vector tile for a point dataset.
@@ -386,7 +389,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | ProblemDetail]
+        Response[File | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -420,7 +423,7 @@ async def asyncio(
     cols: None | str | Unset = UNSET,
     cluster_radius: int | Unset = 48,
     cluster_max_zoom: int | Unset = 14,
-) -> Any | ProblemDetail | None:
+) -> File | ProblemDetail | None:
     """Cluster Tile Endpoint
 
      Serve a server-side clustered vector tile for a point dataset.
@@ -477,7 +480,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | ProblemDetail
+        File | ProblemDetail
     """
 
     return (

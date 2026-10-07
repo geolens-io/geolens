@@ -40,9 +40,9 @@ class GeolensClient:
 
     Example:
         >>> from geolens import GeolensClient
-        >>> from geolens.api.search import search_datasets_endpoint_search_datasets__get
+        >>> from geolens.api.search import search_datasets_endpoint_search_datasets_get
         >>> c = GeolensClient(base_url="https://geolens.example.com/api", bearer_token="...")
-        >>> resp = search_datasets_endpoint_search_datasets__get.sync_detailed(client=c.client)
+        >>> resp = search_datasets_endpoint_search_datasets_get.sync_detailed(client=c.client)
     """
 
     def __init__(

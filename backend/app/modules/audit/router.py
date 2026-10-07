@@ -44,6 +44,7 @@ from app.modules.audit.service import (
     resolve_resource_names,
     stream_audit_logs,
 )
+from app.platform.binary_response import binary_response
 from app.core.identity import Identity
 from app.modules.auth.dependencies import get_current_active_user, require_permission
 from app.core.csv_safety import escape_csv_formula
@@ -347,6 +348,11 @@ async def list_audit_logs(
 @router.get(
     "/audit-logs/export/{format}",
     response_class=StreamingResponse,
+    responses={
+        200: binary_response(
+            "The CSV file, or a JSON file when the format is json", "text/csv"
+        )
+    },
     # fix(scripts/deployed_surface_gate.json#export_audit_op): neutral summary
     # replacing the auto-derived "Export Audit Logs" banned public-copy id;
     # operationId/path unchanged.

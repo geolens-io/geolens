@@ -21712,7 +21712,15 @@
         ],
         "responses": {
           "200": {
-            "description": "Successful Response"
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The CSV file, or a JSON file when the format is json"
           },
           "400": {
             "content": {
@@ -23634,7 +23642,15 @@
         "operationId": "export_users_csv_admin_users_export_csv_get",
         "responses": {
           "200": {
-            "description": "Successful Response"
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The CSV file"
           },
           "400": {
             "content": {
@@ -39862,7 +39878,15 @@
         ],
         "responses": {
           "200": {
-            "description": "Successful Response"
+            "content": {
+              "image/png": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The quicklook image"
           },
           "400": {
             "content": {
@@ -48167,11 +48191,20 @@
         "responses": {
           "200": {
             "content": {
-              "application/json": {
-                "schema": {}
+              "image/png": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/svg+xml": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
               }
             },
-            "description": "Successful Response"
+            "description": "The icon image"
           },
           "400": {
             "content": {
@@ -48708,11 +48741,14 @@
         "responses": {
           "200": {
             "content": {
-              "application/json": {
-                "schema": {}
+              "image/png": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
               }
             },
-            "description": "Successful Response"
+            "description": "The sprite sheet"
           },
           "400": {
             "content": {
@@ -50915,7 +50951,21 @@
         ],
         "responses": {
           "200": {
-            "description": "Successful Response"
+            "content": {
+              "image/jpeg": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The social preview image"
           },
           "400": {
             "content": {
@@ -51953,7 +52003,21 @@
         ],
         "responses": {
           "200": {
-            "description": "Successful Response"
+            "content": {
+              "image/jpeg": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The thumbnail image"
           },
           "400": {
             "content": {
@@ -60851,7 +60915,15 @@
         ],
         "responses": {
           "200": {
-            "description": "Successful Response"
+            "content": {
+              "application/vnd.mapbox-vector-tile": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The vector tile"
           },
           "400": {
             "content": {
@@ -61110,7 +61182,33 @@
         ],
         "responses": {
           "200": {
-            "description": "Successful Response"
+            "content": {
+              "image/jpeg": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/tiff": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The raster tile image"
           },
           "400": {
             "content": {
@@ -61535,7 +61633,15 @@
         ],
         "responses": {
           "200": {
-            "description": "Successful Response"
+            "content": {
+              "application/vnd.mapbox-vector-tile": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The vector tile"
           },
           "400": {
             "content": {

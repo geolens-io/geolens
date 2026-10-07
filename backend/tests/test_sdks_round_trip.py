@@ -39,6 +39,7 @@ import shutil
 import socket
 import subprocess
 import sys as _sys
+from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
 
@@ -1048,81 +1049,174 @@ class TestPythonRoundTrip:
         assert resp.status_code == 404, resp.content
 
     @pytest.mark.anyio
-    async def test_ingest_upload(self, client, admin_auth_header) -> None:
-        """ROADMAP SC#1: POST /ingest/upload round-trip.
+    async def test_ingest_upload(
+        self, client, admin_auth_header, test_db_session
+    ) -> None:
+        """POST /ingest/upload with a real file creates the staged ingest job."""
+        from sqlalchemy import select, text
 
-        The generated ``BodyUploadFileIngestUploadPost.to_multipart()`` packs
-        the file field as ``str(self.file).encode()`` with ``text/plain`` MIME
-        — that's a known generator quirk for OpenAPI ``binary`` form fields.
-        Backend's ``upload_file`` handler validates filename + extension; we
-        accept any non-5xx status as proof the SDK's request shape reaches the
-        handler. ROADMAP SC#1 says "round-trip succeeds" — we read that as
-        "request reaches the route, gets a structured response".
-        """
         from app.api.main import app
+        from app.platform.jobs.models import IngestJob
         from geolens.api.datasets import upload_file_ingest_upload_post
         from geolens.models.body_upload_file_ingest_upload_post import (
             BodyUploadFileIngestUploadPost,
         )
+        from geolens.types import File
 
         token = admin_auth_header["Authorization"].removeprefix("Bearer ")
         sdk = GeolensClient(base_url="http://test", bearer_token=token)
         _wire_asgi_transport(sdk, app)
 
-        # Tiny GeoJSON payload as the file body. The generator's to_multipart()
-        # will encode this as text/plain — backend will parse the multipart and
-        # then likely 422 on extension check (filename is None per generator),
-        # but the request shape itself is round-tripped.
+        payload = json.dumps(
+            {
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "geometry": {"type": "Point", "coordinates": [0, 0]},
+                        "properties": {"name": "origin"},
+                    }
+                ],
+            }
+        ).encode()
         body = BodyUploadFileIngestUploadPost(
-            file=json.dumps(
-                {
-                    "type": "FeatureCollection",
-                    "features": [
-                        {
-                            "type": "Feature",
-                            "geometry": {
-                                "type": "Point",
-                                "coordinates": [0, 0],
-                            },
-                            "properties": {"name": "origin"},
-                        }
-                    ],
-                }
+            file=File(
+                payload=BytesIO(payload),
+                file_name="origin.geojson",
+                mime_type="application/geo+json",
             )
         )
         resp = await upload_file_ingest_upload_post.asyncio_detailed(
             client=sdk.client,
             body=body,
         )
-        assert resp.status_code < 500, (
-            f"5xx from /ingest/upload — SDK request shape reached the server "
-            f"as malformed: {resp.status_code} {resp.content!r}"
+        assert resp.status_code == 201, resp.content
+        job_id = resp.parsed.job_id
+        try:
+            job = (
+                await test_db_session.execute(
+                    select(IngestJob).where(IngestJob.id == job_id)
+                )
+            ).scalar_one()
+            assert job.source_filename == "origin.geojson"
+        finally:
+            await test_db_session.rollback()
+            await test_db_session.execute(
+                text("DELETE FROM catalog.ingest_jobs WHERE id = :id"), {"id": job_id}
+            )
+            await test_db_session.commit()
+
+    @pytest.mark.anyio
+    async def test_reupload_body_reaches_the_handler(
+        self, client, admin_auth_header
+    ) -> None:
+        """A real file part passes request validation, so an unknown dataset is a 404."""
+        from app.api.main import app
+        from geolens.api.datasets_reupload import (
+            reupload_dataset_datasets_dataset_id_reupload_post,
         )
+        from geolens.models.body_reupload_dataset_datasets_dataset_id_reupload_post import (
+            BodyReuploadDatasetDatasetsDatasetIdReuploadPost,
+        )
+        from geolens.types import File
+
+        token = admin_auth_header["Authorization"].removeprefix("Bearer ")
+        sdk = GeolensClient(base_url="http://test", bearer_token=token)
+        _wire_asgi_transport(sdk, app)
+
+        resp = (
+            await reupload_dataset_datasets_dataset_id_reupload_post.asyncio_detailed(
+                dataset_id=uuid4(),
+                client=sdk.client,
+                body=BodyReuploadDatasetDatasetsDatasetIdReuploadPost(
+                    file=File(payload=BytesIO(b"{}"), file_name="new.geojson")
+                ),
+            )
+        )
+        assert resp.status_code == 404, resp.content
+
+    @pytest.mark.anyio
+    async def test_icon_upload_and_png_endpoints_return_bytes(
+        self, client, admin_auth_header, test_db_session
+    ) -> None:
+        """An uploaded icon is served back as bytes, and so is the sprite sheet."""
+        from sqlalchemy import text
+
+        from app.api.main import app
+        from geolens.api.maps import (
+            get_geolens_sprite_png_endpoint_maps_sprites_geolens_png_get as sprite_png,
+        )
+        from geolens.api.maps import (
+            get_map_icon_asset_endpoint_maps_icons_icon_id_asset_get as icon_asset,
+        )
+        from geolens.api.maps import upload_map_icon_endpoint_maps_icons_post
+        from geolens.models.body_upload_map_icon_endpoint_maps_icons_post import (
+            BodyUploadMapIconEndpointMapsIconsPost,
+        )
+        from geolens.types import File
+
+        token = admin_auth_header["Authorization"].removeprefix("Bearer ")
+        sdk = GeolensClient(base_url="http://test", bearer_token=token)
+        _wire_asgi_transport(sdk, app)
+
+        svg = b'<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"></svg>'
+        created = await upload_map_icon_endpoint_maps_icons_post.asyncio_detailed(
+            client=sdk.client,
+            body=BodyUploadMapIconEndpointMapsIconsPost(
+                file=File(
+                    payload=BytesIO(svg),
+                    file_name="dot.svg",
+                    mime_type="image/svg+xml",
+                )
+            ),
+        )
+        assert created.status_code == 201, created.content
+        icon_id = created.parsed.id
+        try:
+            served = await icon_asset.asyncio_detailed(
+                icon_id=icon_id, client=sdk.client
+            )
+            assert served.status_code == 200
+            assert served.content.startswith(b"<svg")
+            assert served.parsed.payload.read() == served.content
+
+            sheet = await sprite_png.asyncio_detailed(client=sdk.client)
+            assert sheet.status_code == 200
+            assert sheet.content.startswith(b"\x89PNG\r\n\x1a\n")
+            assert sheet.parsed.payload.read() == sheet.content
+        finally:
+            await test_db_session.rollback()
+            await test_db_session.execute(
+                text("DELETE FROM catalog.map_icon_assets WHERE id = :id"),
+                {"id": icon_id},
+            )
+            await test_db_session.commit()
 
     @pytest.mark.anyio
     async def test_a_tileset_upload_body_carries_its_kind(
         self, client, admin_auth_header, test_db_session
     ) -> None:
-        """The generated multipart body sends kind, and the upload door takes it."""
+        """The generated multipart body sends a named file and kind, and the door takes them."""
         from sqlalchemy import select, text
 
         from app.platform.jobs.models import IngestJob
         from geolens.models.body_upload_file_ingest_upload_post import (
             BodyUploadFileIngestUploadPost,
         )
+        from geolens.types import File
         from tests.tiles3d_archives import tileset_json, zip_bytes
 
-        parts = BodyUploadFileIngestUploadPost(file="", kind="tiles3d").to_multipart()
-        kind = [part for part in parts if part[0] == "kind"]
-        assert [(name, value[1]) for name, value in kind] == [("kind", b"tiles3d")]
-
-        # The generator sends `file` as a text field, so a named .zip part
-        # stands in for it; the kind part goes as the SDK built it.
         archive = zip_bytes([("tileset.json", tileset_json()), ("0/0.glb", b"glb")])
+        parts = BodyUploadFileIngestUploadPost(
+            file=File(
+                payload=BytesIO(archive),
+                file_name="campus.zip",
+                mime_type="application/zip",
+            ),
+            kind="tiles3d",
+        ).to_multipart()
         resp = await client.post(
-            "/ingest/upload",
-            files=[("file", ("campus.zip", archive, "application/zip")), *kind],
-            headers=admin_auth_header,
+            "/ingest/upload", files=parts, headers=admin_auth_header
         )
         assert resp.status_code == 201, resp.text
         job_id = resp.json()["job_id"]
@@ -1184,7 +1278,9 @@ class TestPythonRoundTrip:
     not _UVICORN_AVAILABLE,
     reason="uvicorn not installed (TS half needs a real HTTP server)",
 )
-async def test_typescript_round_trip(client, admin_auth_header) -> None:
+async def test_typescript_round_trip(
+    client, admin_auth_header, test_db_session
+) -> None:
     """Spawn a Node subprocess that exercises the TypeScript SDK against a
     uvicorn instance bound to a free port on 127.0.0.1.
 
@@ -1198,6 +1294,7 @@ async def test_typescript_round_trip(client, admin_auth_header) -> None:
     node = shutil.which("node")
 
     import uvicorn
+    from sqlalchemy import text
 
     from app.api.main import app
 
@@ -1255,6 +1352,25 @@ async def test_typescript_round_trip(client, admin_auth_header) -> None:
             f"STDOUT:\n{result.stdout}\n"
             f"STDERR:\n{result.stderr}"
         )
+        match = re.search(r"^UPLOAD_JOB_ID=(\S+)$", result.stdout, re.MULTILINE)
+        assert match, f"TS upload printed no job id:\n{result.stdout}"
+        job_id = match.group(1)
+        try:
+            row = (
+                await test_db_session.execute(
+                    text(
+                        "SELECT source_filename FROM catalog.ingest_jobs WHERE id = :id"
+                    ),
+                    {"id": job_id},
+                )
+            ).one()
+            assert row.source_filename == "tiny.geojson"
+        finally:
+            await test_db_session.rollback()
+            await test_db_session.execute(
+                text("DELETE FROM catalog.ingest_jobs WHERE id = :id"), {"id": job_id}
+            )
+            await test_db_session.commit()
     finally:
         server.should_exit = True
         try:

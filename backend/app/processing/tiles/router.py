@@ -45,6 +45,7 @@ from app.modules.auth.dependencies import (
 from app.core.config import settings
 from app.core.dependencies import get_db
 from app.modules.embed_tokens.service import validate_embed_token_access
+from app.platform.binary_response import binary_response
 from app.platform.cache.provider import (
     get_tile_cache,
     register_table_invalidation_listener,
@@ -981,7 +982,17 @@ async def raster_auth_check(
 
 
 @router.get(
-    "/raster-proxy/{dataset_id}/{z:int}/{x:int}/{y:int}.{fmt}", response_class=Response
+    "/raster-proxy/{dataset_id}/{z:int}/{x:int}/{y:int}.{fmt}",
+    response_class=Response,
+    responses={
+        200: binary_response(
+            "The raster tile image",
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+            "image/tiff",
+        )
+    },
 )
 @limiter.exempt
 async def raster_tile_proxy(
@@ -2255,7 +2266,10 @@ async def _acquire_and_serve_tile(
 @router.get(
     "/clusters/{table_path:path}/{z:int}/{x:int}/{y:int}.pbf",
     response_class=Response,
-    responses={429: RATE_LIMIT_RESPONSE},
+    responses={
+        200: binary_response("The vector tile", "application/vnd.mapbox-vector-tile"),
+        429: RATE_LIMIT_RESPONSE,
+    },
 )
 @limiter.exempt
 async def cluster_tile_endpoint(
@@ -2451,7 +2465,10 @@ async def cluster_tile_endpoint(
 @router.get(
     "/{table_path:path}/{z:int}/{x:int}/{y:int}.pbf",
     response_class=Response,
-    responses={429: RATE_LIMIT_RESPONSE},
+    responses={
+        200: binary_response("The vector tile", "application/vnd.mapbox-vector-tile"),
+        429: RATE_LIMIT_RESPONSE,
+    },
 )
 @limiter.exempt
 async def tile_endpoint(

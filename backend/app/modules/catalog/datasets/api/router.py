@@ -21,6 +21,7 @@ from sqlalchemy.exc import NoInspectionAvailable
 
 from app.core.identity import Identity
 from app.core.db.sqlstate import is_lock_conflict
+from app.platform.binary_response import binary_response
 from app.platform.catalog_locks import (
     CATALOG_LOCK_CONFLICT_CODE,
     CatalogLockConflict,
@@ -226,7 +227,10 @@ _QUICKLOOK_READ_ATTEMPTS = 3
 @router.get(
     "/{dataset_id}/quicklook",
     response_class=Response,
-    responses={403: FORBIDDEN_RESPONSE},
+    responses={
+        200: binary_response("The quicklook image", "image/png"),
+        403: FORBIDDEN_RESPONSE,
+    },
 )
 async def get_quicklook(
     dataset_id: uuid.UUID,

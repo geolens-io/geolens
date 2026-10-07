@@ -22,6 +22,7 @@ from app.modules.catalog.maps.sprites import (
     list_icons,
 )
 from app.modules.catalog.maps.service import map_asset_publication
+from app.platform.binary_response import binary_response
 from app.standards.ogc.errors import ERROR_RESPONSES_PUBLIC, FORBIDDEN_RESPONSE
 
 router = APIRouter()
@@ -77,7 +78,14 @@ async def upload_map_icon_endpoint(
     return next(icon for icon in await list_icons(db) if icon.id == str(asset.id))
 
 
-@router.get("/icons/{icon_id}/asset", responses={403: FORBIDDEN_RESPONSE})
+@router.get(
+    "/icons/{icon_id}/asset",
+    response_class=Response,
+    responses={
+        200: binary_response("The icon image", "image/png", "image/svg+xml"),
+        403: FORBIDDEN_RESPONSE,
+    },
+)
 async def get_map_icon_asset_endpoint(
     icon_id: str,
     db: AsyncSession = Depends(get_db),
@@ -125,7 +133,11 @@ async def get_geolens_sprite_index_2x_endpoint(
     return await build_sprite_index(db)
 
 
-@sprites_router.get("/sprites/geolens.png")
+@sprites_router.get(
+    "/sprites/geolens.png",
+    response_class=Response,
+    responses={200: binary_response("The sprite sheet", "image/png")},
+)
 async def get_geolens_sprite_png_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> Response:

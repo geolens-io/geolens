@@ -1263,7 +1263,7 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/maps/style_json.py": 1624,
     "backend/app/modules/catalog/maps/style_import.py": 605,
     "backend/app/modules/catalog/maps/style_sanitizers.py": 192,
-    "backend/app/modules/catalog/maps/router_assets.py": 149,
+    "backend/app/modules/catalog/maps/router_assets.py": 161,
     "backend/app/modules/catalog/maps/router_sharing.py": 435,
     "backend/app/modules/catalog/search/query_params.py": 205,
     "backend/app/modules/catalog/search/router_saved.py": 97,
@@ -1377,14 +1377,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # lifecycle.
     "backend/app/processing/analysis/tasks.py": 1401,
     # Map endpoints share response assembly, visibility and ownership checks.
-    "backend/app/modules/catalog/maps/router.py": 1530,
+    "backend/app/modules/catalog/maps/router.py": 1537,
     # Native search and OGC Records share visibility, query parsing and pagination.
     "backend/app/modules/catalog/search/router.py": 1452,
     # STAC endpoints share visibility, extent, lineage and pagination conformance rules.
     "backend/app/standards/stac/router.py": 1826,
     # Authorization, acquisition order and cache rehydration share this route boundary;
     # the Enterprise overlay pins _check_cold_rehydrate here.
-    "backend/app/processing/tiles/router.py": 2641,
+    "backend/app/processing/tiles/router.py": 2658,
     # SQL allowlisting and cost validation must share canonical AST resolution.
     "backend/app/platform/sandbox/validator.py": 1706,
     # AI orchestration coordinates tool execution, usage accounting and SSE failures.

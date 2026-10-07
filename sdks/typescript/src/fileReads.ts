@@ -14,7 +14,7 @@
  * `text/csv` for a CSV export — parses as JSON or text instead, never
  * matching the Blob case. Fixed below, scoped by request path to the
  * routes that declare a binary body: COG download, dataset export, a 3D
- * Tiles file and a COPC point cloud file.
+ * Tiles file, a COPC point cloud file and the admin user and audit exports.
  *
  * A 304 from a conditional read (`If-None-Match` or `If-Modified-Since`) on
  * these same routes is a successful revalidation with no body, but the
@@ -31,6 +31,8 @@ const FILE_READ_PATHS = [
   /\/datasets\/[^/]+\/export$/,
   /\/datasets\/[^/]+\/tiles3d\/.+$/,
   /\/datasets\/[^/]+\/copc\/[^/]+\/[^/]+\.copc\.laz$/,
+  /\/admin\/users\/export\.csv$/,
+  /\/admin\/audit-logs\/export\/[^/]+$/,
 ];
 
 function isFileReadPath(pathname: string): boolean {
