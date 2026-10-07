@@ -20,6 +20,7 @@ from app.modules.catalog.search.service_filters import (
     SearchFilters,
     _apply_common_filters,
     _build_text_filter,
+    utc_midnight,
 )
 from app.modules.catalog.search.service_semantic import (
     SemanticArm,
@@ -54,9 +55,9 @@ def _apply_search_only_filters(stmt: Select, filters: SearchFilters) -> Select:
             )
         )
     if filters.date_from:
-        stmt = stmt.where(Record.created_at >= filters.date_from)
+        stmt = stmt.where(Record.created_at >= utc_midnight(filters.date_from))
     if filters.date_to:
-        stmt = stmt.where(Record.created_at <= filters.date_to)
+        stmt = stmt.where(Record.created_at <= utc_midnight(filters.date_to))
     if filters.vintage_start:
         stmt = stmt.where(Record.temporal_start >= filters.vintage_start)
     if filters.vintage_end:

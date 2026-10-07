@@ -5,7 +5,7 @@ import re
 from typing import Literal
 
 import structlog
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -286,7 +286,13 @@ class MapGenerateResponse(BaseModel):
     datasets_used: list[str]
 
 
-# Internal — structured output the LLM produces
+def _clamp(value: float, low: float, high: float) -> float:
+    return min(max(value, low), high)
+
+
+# Internal — structured output the LLM produces. Values are clamped to the
+# ranges the map save API enforces, so a generated map can be re-saved from
+# the editor.
 class LLMLayerSpec(BaseModel):
     dataset_id: str
     sort_order: int = 0
@@ -294,6 +300,16 @@ class LLMLayerSpec(BaseModel):
     opacity: float = 1.0
     paint: dict | None = None
     layout: dict | None = None
+
+    @field_validator("sort_order")
+    @classmethod
+    def _bound_sort_order(cls, v: int) -> int:
+        return int(_clamp(v, 0, 32767))
+
+    @field_validator("opacity")
+    @classmethod
+    def _bound_opacity(cls, v: float) -> float:
+        return _clamp(v, 0.0, 1.0)
 
 
 class LLMMapSpec(BaseModel):
@@ -305,6 +321,34 @@ class LLMMapSpec(BaseModel):
     basemap_style: str = "openfreemap-positron"
     layers: list[LLMLayerSpec]
     explanation: str = ""
+
+    @field_validator("name")
+    @classmethod
+    def _bound_name(cls, v: str) -> str:
+        v = v.strip()[:255].strip()
+        if not v:
+            raise ValueError("name must not be empty")
+        return v
+
+    @field_validator("description")
+    @classmethod
+    def _bound_description(cls, v: str | None) -> str | None:
+        return v[:2000] if v is not None else None
+
+    @field_validator("center_lat")
+    @classmethod
+    def _bound_center_lat(cls, v: float) -> float:
+        return _clamp(v, -90.0, 90.0)
+
+    @field_validator("zoom")
+    @classmethod
+    def _bound_zoom(cls, v: float) -> float:
+        return _clamp(v, 0.0, 24.0)
+
+    @field_validator("layers")
+    @classmethod
+    def _bound_layers(cls, v: list[LLMLayerSpec]) -> list[LLMLayerSpec]:
+        return v[:200]
 
 
 # Bounds on client-supplied chat context. Without them the

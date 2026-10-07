@@ -61,6 +61,7 @@ from app.modules.catalog.datasets.domain.service_relationships import (
     get_relationship_datasets,
     list_relationships,
     list_relationships_with_total,
+    validate_relationship_columns,
 )
 
 __all__ = [
@@ -96,6 +97,7 @@ __all__ = [
     "list_datasets",
     "list_relationships",
     "list_relationships_with_total",
+    "validate_relationship_columns",
     "reset_attribute",
     "sample_example_values",
     "resolve_source_feature_count",

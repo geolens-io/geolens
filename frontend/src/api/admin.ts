@@ -121,7 +121,7 @@ export async function createUser(data: {
 }
 
 export async function updateUser(userId: string, data: {
-  email?: string;
+  email?: string | null;
   is_active?: boolean;
   status?: 'active' | 'suspended' | 'deactivated';
   role?: string;

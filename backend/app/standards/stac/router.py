@@ -1781,6 +1781,7 @@ def _apply_datetime_filter(stmt, datetime_str: str):
     masked client mistakes).
     """
     from app.modules.catalog.search.service import parse_ogc_datetime
+    from app.modules.catalog.search.service_filters import utc_midnight
 
     datetime_str = _validate_stac_datetime(datetime_str.strip())
     start, end = parse_ogc_datetime(datetime_str)
@@ -1797,7 +1798,7 @@ def _apply_datetime_filter(stmt, datetime_str: str):
                 # missing temporal_start so interval and instant queries agree.
                 | (Record.temporal_end.is_(None) & Record.temporal_start.isnot(None))
                 | (Record.temporal_start >= start)
-                | (null_temporal & (Record.created_at >= start))
+                | (null_temporal & (Record.created_at >= utc_midnight(start)))
             )
         if end is not None:
             stmt = stmt.where(
@@ -1806,7 +1807,10 @@ def _apply_datetime_filter(stmt, datetime_str: str):
                 # always within any end bound. Null-null uses created_at,
                 # day-inclusive on the end bound.
                 | (Record.temporal_start.is_(None) & Record.temporal_end.isnot(None))
-                | (null_temporal & (Record.created_at < end + timedelta(days=1)))
+                | (
+                    null_temporal
+                    & (Record.created_at < utc_midnight(end + timedelta(days=1)))
+                )
             )
     elif start is not None:
         # Single instant (day-granular) — match records whose temporal range
@@ -1819,8 +1823,8 @@ def _apply_datetime_filter(stmt, datetime_str: str):
             (range_contains & ~null_temporal)
             | (
                 null_temporal
-                & (Record.created_at >= start)
-                & (Record.created_at < start + timedelta(days=1))
+                & (Record.created_at >= utc_midnight(start))
+                & (Record.created_at < utc_midnight(start + timedelta(days=1)))
             )
         )
     return stmt
