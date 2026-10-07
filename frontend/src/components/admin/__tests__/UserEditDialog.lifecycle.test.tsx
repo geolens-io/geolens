@@ -63,6 +63,26 @@ describe('UserEditDialog lifecycle state', () => {
     });
   });
 
+  it('sends null when the email field is emptied', async () => {
+    const mutateAsync = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(useUpdateUser).mockReturnValue({
+      mutateAsync,
+      isPending: false,
+      error: null,
+    } as unknown as ReturnType<typeof useUpdateUser>);
+    render(<UserEditDialog user={user} open onOpenChange={vi.fn()} />);
+
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => {
+      expect(mutateAsync).toHaveBeenCalledWith({
+        userId: user.id,
+        data: { email: null },
+      });
+    });
+  });
+
   it('keeps self role and status read-only while allowing email updates', async () => {
     const self = { ...user, roles: ['admin'] };
     useAuthStore.setState({ user: self });

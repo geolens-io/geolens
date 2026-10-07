@@ -203,7 +203,7 @@ export function useCreateUser() {
 export function useUpdateUser() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ userId, data }: { userId: string; data: { email?: string; is_active?: boolean; status?: 'active' | 'suspended' | 'deactivated'; role?: string } }) =>
+    mutationFn: ({ userId, data }: { userId: string; data: { email?: string | null; is_active?: boolean; status?: 'active' | 'suspended' | 'deactivated'; role?: string } }) =>
       updateUser(userId, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.admin.allUsers });

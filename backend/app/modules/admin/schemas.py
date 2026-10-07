@@ -112,7 +112,10 @@ class ApproveRequest(BaseModel):
 class UserUpdate(BaseModel):
     email: EmailStr | None = Field(
         default=None,
-        description="New email address. Set to update; omit to leave unchanged.",
+        description=(
+            "New email address. Set to update, send null or an empty string to "
+            "clear it, omit to leave unchanged."
+        ),
     )
     is_active: bool | None = Field(
         default=None,
@@ -133,6 +136,13 @@ class UserUpdate(BaseModel):
         max_length=50,
         description="New role: 'admin', 'editor', or 'viewer'. Omit to leave unchanged.",
     )
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def blank_email_clears(cls, v: Any) -> Any:
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
 
     @field_validator("role")
     @classmethod

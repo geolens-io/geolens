@@ -1364,7 +1364,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # boundary.
     "backend/app/modules/auth/oauth/service.py": 1111,
     # Admin mutations share locking and audit outcomes.
-    "backend/app/modules/admin/service.py": 1022,
+    "backend/app/modules/admin/service.py": 1021,
     # Ingest admission, staging, job settlement and table registration share one
     # orchestration boundary.
     "backend/app/processing/ingest/service.py": 1586,

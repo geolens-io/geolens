@@ -445,7 +445,10 @@ async def create_dataset_relationship(
     current_user: Identity = Depends(require_permission("edit_metadata")),
 ) -> DatasetRelationshipResponse:
     """Create a new FK relationship. Editor+ required."""
-    from app.modules.catalog.datasets.domain.service import create_relationship
+    from app.modules.catalog.datasets.domain.service import (
+        create_relationship,
+        validate_relationship_columns,
+    )
 
     # Resolve dataset_id to record_id (FK references catalog.records.id)
     dataset = await get_dataset(db, dataset_id)
@@ -481,6 +484,12 @@ async def create_dataset_relationship(
     # Normalize the target to its record_id (the FK column references
     # catalog.records.id) regardless of which id form the client supplied.
     body = body.model_copy(update={"target_dataset_id": target_dataset.record_id})
+    try:
+        validate_relationship_columns(dataset, target_dataset, body)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        )
     rel = await create_relationship(db, dataset.record_id, body)
     await db.commit()
     # fix(#315): FK columns store catalog.records.id, but the response

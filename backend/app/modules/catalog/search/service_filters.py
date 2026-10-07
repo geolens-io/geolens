@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid as uuid_mod
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Literal, TypedDict
 
 from fastapi import HTTPException, status
@@ -223,6 +223,19 @@ def _build_text_filter(q: str):
     }
 
 
+def utc_midnight(day: date, days: int = 0) -> datetime:
+    """Midnight UTC starting ``day`` plus ``days``, saturating at year 9999.
+
+    timestamptz columns compared with a bare ``date`` bind use the database
+    session's TimeZone, which shifts the day on non-UTC servers.
+    """
+    try:
+        shifted = day + timedelta(days=days)
+    except OverflowError:
+        return datetime.max.replace(tzinfo=timezone.utc)
+    return datetime.combine(shifted, time.min, tzinfo=timezone.utc)
+
+
 def parse_ogc_datetime(datetime_str: str) -> tuple[date | None, date | None]:
     """Parse an OGC datetime interval string into (start, end) dates.
 
@@ -303,7 +316,7 @@ def _apply_common_filters(stmt, filters: SearchFilters, *, skip_text: bool = Fal
                     and_(
                         Record.temporal_end.is_(None), Record.temporal_start.isnot(None)
                     ),
-                    and_(null_temporal, Record.created_at >= dt_start),
+                    and_(null_temporal, Record.created_at >= utc_midnight(dt_start)),
                 )
             )
         if dt_end is not None:
@@ -315,7 +328,7 @@ def _apply_common_filters(stmt, filters: SearchFilters, *, skip_text: bool = Fal
                     ),
                     and_(
                         null_temporal,
-                        Record.created_at < dt_end + timedelta(days=1),
+                        Record.created_at < utc_midnight(dt_end, 1),
                     ),
                 )
             )

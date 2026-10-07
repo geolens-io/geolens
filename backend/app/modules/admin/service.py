@@ -383,14 +383,13 @@ class AdminService:
             await self._ensure_not_last_admin(user, action, lock_held=True)
 
         # Apply non-None scalar fields
-        if updates.email is not None:
-            await self._ensure_unique_user_field(
-                User.email,
-                updates.email,
-                "Email already registered",
-                exclude_id=user_id,
-            )
-            user.email = updates.email
+        if "email" in updates.model_fields_set:
+            email = updates.email
+            if email is not None:
+                await self._ensure_unique_user_field(
+                    User.email, email, "Email already registered", exclude_id=user_id
+                )
+            user.email = email
 
         if target_status is not None:
             user.status = target_status

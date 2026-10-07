@@ -41,6 +41,7 @@ __all__ = [
     "get_related_records",
     "get_relationship_datasets",
     "list_relationships",
+    "validate_relationship_columns",
 ]
 
 
@@ -162,6 +163,16 @@ async def get_related_datasets(
     except Exception:  # broad: related-datasets is informational; any DB/scoring error degrades to empty list
         logger.exception("Error fetching related datasets for %s", dataset_id)
         return []
+
+
+def validate_relationship_columns(
+    source: Dataset, target: Dataset, rel: "DatasetRelationshipCreate"
+) -> None:
+    """Raise ``ValueError`` for a join column absent from a dataset's stored schema."""
+    for dataset, column in ((source, rel.source_column), (target, rel.target_column)):
+        known = {"gid", *(c["name"] for c in dataset.column_info or [])}
+        if dataset.column_info is None or column not in known:
+            raise ValueError(f"Column {column!r} not found in its dataset")
 
 
 async def create_relationship(

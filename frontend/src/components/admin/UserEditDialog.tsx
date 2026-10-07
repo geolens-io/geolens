@@ -54,11 +54,11 @@ export function UserEditDialog({ user, open, onOpenChange }: UserEditDialogProps
 
     // Only send changed fields
     const data: {
-      email?: string;
+      email?: string | null;
       role?: string;
       status?: 'active' | 'suspended' | 'deactivated';
     } = {};
-    if (email !== (user.email ?? '')) data.email = email;
+    if (email !== (user.email ?? '')) data.email = email.trim() === '' ? null : email;
     if (canEditAuthority && role !== (user.roles[0] ?? 'viewer')) data.role = role;
     if (canEditAuthority && accountStatus !== user.status && accountStatus !== 'pending') {
       data.status = accountStatus;

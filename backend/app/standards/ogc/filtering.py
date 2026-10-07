@@ -12,7 +12,7 @@ Only CQL2 is supported; the legacy CQL1/WFS 2.0 syntax is rejected.
 import json
 import math
 import re
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -553,6 +553,12 @@ def _checked_value(value, pg_type: str | None, errors: list[str]):
             and value.tzinfo is not None
         ):
             return value.astimezone(timezone.utc).replace(tzinfo=None)
+        elif pg_type == "timestamp with time zone":
+            # Naive values bind in the database session's TimeZone; pin UTC.
+            if isinstance(value, datetime) and value.tzinfo is None:
+                return value.replace(tzinfo=timezone.utc)
+            if not isinstance(value, datetime):
+                return datetime.combine(value, time.min, tzinfo=timezone.utc)
         return value
     if pg_type in _STRING_PG_TYPES:
         ok = isinstance(value, str)

@@ -15,7 +15,27 @@ from app.modules.catalog.datasets.domain.models import (
     DatasetRelationship,
 )
 from app.modules.catalog.datasets.domain.service import auto_detect_relationships
-from tests.factories import create_dataset, get_user_id
+from tests.factories import create_dataset as _create_dataset
+from tests.factories import get_user_id
+
+_JOIN_COLUMNS = [
+    {"name": name, "type": "integer"}
+    for name in (
+        "del_col",
+        "fk_col",
+        "private_ref_id",
+        "ref_a",
+        "ref_b",
+        "ref_id",
+        "target_id",
+        "test_col",
+    )
+]
+
+
+def create_dataset(*args, **kwargs):
+    kwargs.setdefault("column_info", _JOIN_COLUMNS)
+    return _create_dataset(*args, **kwargs)
 
 
 # ---------------------------------------------------------------------------
