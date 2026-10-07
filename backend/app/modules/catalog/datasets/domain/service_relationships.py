@@ -171,10 +171,7 @@ async def validate_relationship_columns(
     target_table: str | None,
     rel: "DatasetRelationshipCreate",
 ) -> None:
-    """Raise ``ValueError`` when a join column is missing from its table.
-
-    Endpoints without a backing table (rasters, VRTs) are left to the read path.
-    """
+    """Raise ``ValueError`` for a join column missing from an existing table."""
     for table, column in (
         (source_table, rel.source_column),
         (target_table, rel.target_column),
@@ -182,8 +179,10 @@ async def validate_relationship_columns(
         if not table:
             continue
         columns = await get_catalog_port().get_column_info(session, table)
-        n = f"data.{table}"
-        exists = await session.scalar(text("SELECT to_regclass(:n)"), {"n": n})
+        exists = columns or await session.scalar(
+            text("SELECT 1 FROM information_schema.tables WHERE table_name = :n"),
+            {"n": table},
+        )
         if exists and column not in {"gid", *(c["name"] for c in columns)}:
             raise ValueError(f"Column {column!r} not found in its dataset")
 
