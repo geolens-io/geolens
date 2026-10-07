@@ -16,7 +16,7 @@ from fastapi import (
     UploadFile,
     status,
 )
-from sqlalchemy import func, select, text, update
+from sqlalchemy import BigInteger, func, select, text, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -217,8 +217,9 @@ def _pending_reupload_update(job_id: uuid.UUID, dataset_id: uuid.UUID):
     )
 
 
-# The dataset's data revision when the person last previewed the replacement,
-# so the commit compares edits made since what they saw.
+# The dataset's data revision at the job's first preview. The commit compares
+# edits made since, and a commit cannot name which of several previews it
+# followed, so the earliest one stands.
 _PREVIEW_DATA_REVISION = "preview_data_revision"
 
 
@@ -810,7 +811,15 @@ async def reupload_preview(
             user_metadata=func.coalesce(
                 IngestJob.user_metadata, text("'{}'::jsonb")
             ).op("||", return_type=JSONB)(
-                func.jsonb_build_object(_PREVIEW_DATA_REVISION, prior_data_revision)
+                func.jsonb_build_object(
+                    _PREVIEW_DATA_REVISION,
+                    func.least(
+                        IngestJob.user_metadata[_PREVIEW_DATA_REVISION].astext.cast(
+                            BigInteger
+                        ),
+                        prior_data_revision,
+                    ),
+                )
             )
         )
     )

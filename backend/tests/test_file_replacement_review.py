@@ -1416,16 +1416,19 @@ async def test_a_feature_edited_while_the_replacement_stages_holds_it_for_review
     assert await _live_rows(harness, dataset) == edited
 
 
+@pytest.mark.parametrize("previewed_again", [False, True], ids=["once", "twice"])
 async def test_a_feature_edited_after_the_preview_holds_the_commit_for_review(
-    harness: _Harness,
+    harness: _Harness, previewed_again: bool
 ):
-    """The commit is compared with what its preview showed."""
+    """The commit is compared with what the job's first preview showed."""
     dataset = await _published(harness, _geojson(harness.tmp_path / "a.geojson", _BASE))
     path = _geojson(harness.tmp_path / "b.geojson", _BASE)
     job_id = await harness.upload_job(dataset, str(path), path.name)
     await harness.preview(dataset, job_id)
     await _edit_features(harness, dataset, "insert")
     edited = await _live_rows(harness, dataset)
+    if previewed_again:
+        await harness.preview(dataset, job_id)
 
     await harness.commit(dataset, job_id)
     await harness.run_worker()
