@@ -9,6 +9,7 @@ import { useAdminJobs, useCancelAdminJob, useRetryAdminJob, useUserNames } from 
 import { formatDate } from '@/lib/format';
 import { paginationRange } from '@/lib/pagination';
 import { jobStatusColors, semanticBadgeColors } from '@/lib/status-colors';
+import type { AdminJobResponse } from '@/types/api';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -76,7 +77,7 @@ function jobStatusLabel(t: TFunction<'admin'>, status: string): string {
 // what it is waiting on instead.
 function jobBadge(
   t: TFunction<'admin'>,
-  job: { status: string; review_state?: 'awaiting' | 'resolved' | null },
+  job: Pick<AdminJobResponse, 'status' | 'review_state'>,
 ): { label: string; className: string } {
   if (job.review_state === 'awaiting') {
     return { label: t('jobs.reviewState.awaiting'), className: semanticBadgeColors.warning };

@@ -770,6 +770,8 @@ export interface AdminJobResponse {
   retry_reason: string | null;
   source_url?: string | null;
   restart_source?: 'url' | 'service' | null;
+  /** Set on a replacement held for review rather than failed. */
+  review_state?: 'awaiting' | 'resolved' | null;
   user_metadata: Record<string, unknown> | null;
   created_by: string | null;
   username: string | null;
