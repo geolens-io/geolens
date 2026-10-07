@@ -78,6 +78,9 @@ export function looksLikeArcGisServiceUrl(url: string): boolean {
   return /\/(FeatureServer|MapServer)\b/i.test(url);
 }
 
+const PORTAL_PATH =
+  /\/(?:(?:portal\w*|arcgis)\/(?:home|apps)(?:\/|$)|home\/(?:(?:index|item|signin|organization|user|group|gallery|content)|webmap\/viewer)\.html$)/i;
+
 /**
  * An ArcGIS organization or portal homepage (the arcgis.com org site or an
  * Enterprise `/portal/home` or `/portal/apps` page) rather than a layer endpoint.
@@ -101,7 +104,8 @@ export function looksLikeArcGisPortalUrl(url: string): boolean {
   ) {
     return true;
   }
-  return /\/(?:portal|arcgis)\/(?:home|apps)(?:\/|$)/i.test(parsed.pathname);
+  // Enterprise web adaptors can have any name, so the portal's own page names stand in for it.
+  return PORTAL_PATH.test(parsed.pathname);
 }
 
 /** Origin of a service URL. */
