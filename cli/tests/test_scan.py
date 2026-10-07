@@ -374,3 +374,12 @@ class TestScanRobustness:
         assert _scan._looks_like_geojson(path, peek_bytes=96) is False
         path.write_text('{"type":"config","type":"Feature","pad":"' + "a" * 200)
         assert _scan._looks_like_geojson(path, peek_bytes=96) is True
+
+    def test_prefix_ending_on_a_dangling_backslash_is_fast(self, tmp_path) -> None:
+        import time
+
+        path = tmp_path / "evil2.json"
+        path.write_bytes(b'{"a":"' + b'\\"' * 200_000 + b"\\" + b'x"}')
+        start = time.monotonic()
+        assert _scan._looks_like_geojson(path, peek_bytes=len(b'{"a":"') + 400_000 + 1) is False
+        assert time.monotonic() - start < 2

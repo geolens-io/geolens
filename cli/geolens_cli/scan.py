@@ -243,10 +243,12 @@ _GEOJSON_TYPES = frozenset(
         "MultiPolygon",
     }
 )
-# A string cut off by the read bound still matches (to the end of the prefix),
+# A string cut off by the read bound, even mid-escape, still matches to the end of the prefix,
 # and the possessive quantifier stops the engine retrying from every escaped
 # quote inside it, which would be quadratic.
-_JSON_TOKEN = re.compile(rb'"(?:[^"\\]|\\.)*+(?:"|\Z)|[{}\[\]:,]')
+_JSON_TOKEN = re.compile(
+    rb'"(?:[^"\\]|\\.)*+\\?(?:"|\Z)|[{}\[\]:,]', re.DOTALL
+)
 
 
 def _decode_string(token: bytes) -> Optional[str]:
