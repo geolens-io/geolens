@@ -243,11 +243,20 @@ _GEOJSON_TYPES = frozenset(
 _JSON_TOKEN = re.compile(rb'"(?:[^"\\]|\\.)*"|[{}\[\]:,]')
 
 
-def _root_type(head: bytes) -> Optional[bytes]:
-    """Return the raw ``type`` string of the root object in a truncated prefix.
+def _decode_string(token: bytes) -> Optional[str]:
+    try:
+        value = json.loads(token)
+    except ValueError:
+        return None
+    return value if isinstance(value, str) else None
+
+
+def _root_type(head: bytes) -> Optional[str]:
+    """Return the root object's ``type`` string from a truncated prefix.
 
     Tokenizes strings and structural characters so a ``type`` nested deeper, or
-    quoted inside a string value, is never mistaken for the root member.
+    quoted inside a string value, is never mistaken for the root member. String
+    tokens are decoded with JSON semantics, so ``"ty\\u0070e"`` still matches.
     """
     depth = 0
     previous = b""
@@ -261,11 +270,11 @@ def _root_type(head: bytes) -> Optional[bytes]:
             if depth <= 0:
                 return None
         elif token[:1] == b'"' and depth == 1 and previous in (b"{", b","):
-            if token == b'"type"':
+            if _decode_string(token) == "type":
                 colon = next(tokens, None)
                 value = next(tokens, None)
                 if colon and colon.group() == b":" and value:
-                    return value.group()[1:-1] if value.group()[:1] == b'"' else None
+                    return _decode_string(value.group())
                 return None
         previous = token
     return None
@@ -293,6 +302,6 @@ def _looks_like_geojson(path: Path, *, peek_bytes: int = 1 << 20) -> bool:
         return isinstance(doc, dict) and doc.get("type") in _GEOJSON_TYPES
     head = head.removeprefix(b"\xef\xbb\xbf").lstrip()
     return head.startswith(b"{") and _root_type(head) in (
-        b"FeatureCollection",
-        b"Feature",
+        "FeatureCollection",
+        "Feature",
     )

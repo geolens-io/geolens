@@ -328,3 +328,12 @@ class TestJsonDetectionEdgeCases:
             + "a" * 200
         )
         assert _scan._looks_like_geojson(path, peek_bytes=96) is True
+
+    def test_escaped_key_and_value_in_a_truncated_file_still_match(
+        self, tmp_path
+    ) -> None:
+        path = tmp_path / "escaped.json"
+        path.write_text(
+            '{"ty\\u0070e":"Feature\\u0043ollection","pad":"' + "a" * 200
+        )
+        assert _scan._looks_like_geojson(path, peek_bytes=96) is True
