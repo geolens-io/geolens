@@ -410,3 +410,17 @@ def test_search_total_probe_failure_does_not_discard_the_page():
     out = api.search_datasets("parks", limit=5, offset=5)
 
     assert [f["id"] for f in out["features"]] == ["d1"]
+
+
+def test_remembered_page_zero_counts_stay_bounded():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, json={"features": [], "numberMatched": 0, "numberReturned": 0}
+        )
+
+    api, _ = _api(handler)
+    for i in range(200):
+        api.search_datasets(f"q{i}", offset=5)
+        api.search_datasets(f"r{i}", offset=0)
+
+    assert len(api._collections_by_query) <= 64

@@ -296,12 +296,15 @@ class GeoLensReadOnlyAPI:
         fc = self._get("/search/datasets", _params(q=query, limit=limit, offset=offset))
         collections_matched = None
         if offset == 0:
-            self._collections_by_query[query] = _collection_count(fc)
-            if len(self._collections_by_query) > _MAX_REMEMBERED_QUERIES:
-                self._collections_by_query.pop(next(iter(self._collections_by_query)))
+            self._remember_collections(query, _collection_count(fc))
         else:
             collections_matched = self._page0_collections(query)
         return _with_search_source_state(_datasets_only(fc, collections_matched))
+
+    def _remember_collections(self, query: str, count: int) -> None:
+        self._collections_by_query[query] = count
+        if len(self._collections_by_query) > _MAX_REMEMBERED_QUERIES:
+            self._collections_by_query.pop(next(iter(self._collections_by_query)))
 
     def _page0_collections(self, query: str) -> int | None:
         """Collections page 0 of ``query`` carries, which ``numberMatched`` counts.
@@ -318,7 +321,7 @@ class GeoLensReadOnlyAPI:
                 )
             except RuntimeError:
                 return None
-            self._collections_by_query[query] = _collection_count(first)
+            self._remember_collections(query, _collection_count(first))
         return self._collections_by_query[query]
 
     def get_dataset_schema(self, dataset_id: str) -> Any:

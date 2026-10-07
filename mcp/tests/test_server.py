@@ -161,3 +161,8 @@ def test_cancelled_tool_call_returns_no_result(monkeypatch):
             slow.release.set()
 
     asyncio.run(scenario())
+
+
+def test_published_schemas_forbid_additional_properties():
+    for tool in _tools():
+        assert tool.inputSchema.get("additionalProperties") is False, tool.name

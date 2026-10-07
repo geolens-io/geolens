@@ -41,9 +41,11 @@ def _tool(fn: _F) -> _F:
         return await asyncio.to_thread(fn, *args, **kwargs)
 
     mcp.tool(name=fn.__name__)(run_off_loop)
-    arg_model = mcp._tool_manager.get_tool(fn.__name__).fn_metadata.arg_model
+    registered = mcp._tool_manager.get_tool(fn.__name__)
+    arg_model = registered.fn_metadata.arg_model
     arg_model.model_config["extra"] = "forbid"
     arg_model.model_rebuild(force=True)
+    registered.parameters = arg_model.model_json_schema()
     return fn
 
 
