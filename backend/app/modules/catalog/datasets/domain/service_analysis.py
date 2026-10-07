@@ -45,7 +45,7 @@ from app.platform.analysis_sql import (
     render_spatial_join_match_count,
     spatial_join_output_columns,
 )
-from app.platform.sandbox.executor import execute_safe
+from app.platform.sandbox.executor import DEFAULT_MAX_RESULT_BYTES, execute_safe
 from app.platform.sandbox.schemas import SandboxError
 
 PREVIEW_FEATURE_CAP = 500
@@ -349,6 +349,7 @@ async def run_analysis_preview(
             sql,
             row_limit=PREVIEW_FEATURE_CAP,
             concurrency_key=str(user_id),
+            max_result_bytes=DEFAULT_MAX_RESULT_BYTES,
         )
         # Inside the same slot as the geometry query, not after
         # it -- both open their own sandbox connection, so releasing the

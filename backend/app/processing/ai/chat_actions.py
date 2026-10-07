@@ -306,7 +306,10 @@ async def _handle_query_data(
         "truncated": result.truncated,
     }
     if len(out["rows"]) < len(rows):
-        out["truncated"] = True
+        # `truncated` describes the overlay when there is one, and the overlay
+        # still carries every row this table dropped.
+        out["rows_truncated"] = True
+        out["truncated"] = out["truncated"] or geojson_result is None
     if result.row_count == 0:
         out["note"] = (
             "No matching results found. The user may want to try different criteria."

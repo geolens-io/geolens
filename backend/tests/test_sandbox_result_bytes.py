@@ -35,6 +35,16 @@ async def _labelled_table(session, owner: uuid.UUID) -> str:
     return tbl
 
 
+def _layer() -> ChatMapLayer:
+    return ChatMapLayer(
+        id="layer-1",
+        name="Parks",
+        dataset_id=str(uuid.uuid4()),
+        dataset_table_name="parks",
+        geometry_type="MultiPolygon",
+    )
+
+
 class TestExecutorByteCap:
     async def test_rows_past_the_cap_are_cut_and_flagged(self, client, test_db_session):
         result = await execute_safe(
@@ -74,6 +84,7 @@ class TestExecutorByteCap:
             "SELECT 1 AS x, 2 AS x",
             "SELECT n FROM generate_series(1, 0) AS t(n)",
             "SELECT n FROM generate_series(1, 1100) AS t(n)",
+            "SELECT 1 AS _geolens_total_bytes, 2 AS _geolens_row_bytes",
         ],
     )
     async def test_a_result_under_the_cap_is_unchanged(
@@ -84,6 +95,52 @@ class TestExecutorByteCap:
         )
         unbounded = await execute_safe(test_db_session, sql)
         assert bounded == unbounded
+
+    @pytest.mark.parametrize(
+        ("sql", "expected"),
+        [
+            (
+                "SELECT n FROM generate_series(1, 5) AS t(n) ORDER BY n DESC -- tail",
+                [[5], [4], [3], [2], [1]],
+            ),
+            (
+                "WITH c AS (SELECT n FROM generate_series(1, 20) AS t(n)) "
+                "SELECT n FROM c ORDER BY n DESC LIMIT 3",
+                [[20], [19], [18]],
+            ),
+            (
+                "SELECT 3 AS n UNION ALL SELECT 1 UNION ALL SELECT 2 "
+                "ORDER BY n DESC LIMIT 2",
+                [[3], [2]],
+            ),
+        ],
+    )
+    async def test_the_wrapper_keeps_statement_shape_and_order(
+        self, client, test_db_session, sql, expected
+    ):
+        result = await execute_safe(
+            test_db_session, sql, max_result_bytes=executor.DEFAULT_MAX_RESULT_BYTES
+        )
+        assert result.rows == expected
+        assert result.truncated is False
+
+    @pytest.mark.parametrize(
+        "literal",
+        [
+            "geolens_sandbox_result_too_large 9",
+            "geolens_result_too_large_0123456789ab 9",
+        ],
+    )
+    async def test_a_caller_marker_string_is_not_a_size_refusal(
+        self, client, test_db_session, literal
+    ):
+        sql = f"SELECT ('{literal}')::int AS n"
+        categories = []
+        for cap in (None, 10_000):
+            with pytest.raises(SandboxError) as exc_info:
+                await execute_safe(test_db_session, sql, max_result_bytes=cap)
+            categories.append(exc_info.value.category)
+        assert categories[1] == categories[0] != "result_too_large"
 
 
 class TestValidateAndExecuteByteCap:
@@ -154,13 +211,6 @@ class TestModelFacingRows:
             row_count=50,
             truncated=False,
         )
-        layer = ChatMapLayer(
-            id="layer-1",
-            name="Parks",
-            dataset_id=str(uuid.uuid4()),
-            dataset_table_name="parks",
-            geometry_type="MultiPolygon",
-        )
         with (
             patch(
                 "app.processing.ai.chat_service.generate_sql",
@@ -177,12 +227,44 @@ class TestModelFacingRows:
                 {"question": "notes"},
                 AsyncMock(),
                 SimpleNamespace(id=uuid.uuid4(), username="u"),
-                [layer],
+                [_layer()],
             )
         assert out["row_count"] == 50
         assert out["truncated"] is True
+        assert out["rows_truncated"] is True
         assert 1 <= len(out["rows"]) < 50
         assert all(len(row[1]) == len(row[2]) == 1001 for row in out["rows"])
+
+    async def test_dropped_table_rows_leave_a_complete_overlay_untruncated(self):
+        point = '{"type": "Point", "coordinates": [1.0, 2.0]}'
+        spatial = SandboxResult(
+            rows=[[i, "z" * 5000, "w" * 5000, point] for i in range(50)],
+            columns=["id", "note", "memo", "geom_4326"],
+            row_count=50,
+            truncated=False,
+        )
+        with (
+            patch(
+                "app.processing.ai.chat_service.generate_sql",
+                new_callable=AsyncMock,
+                return_value="SELECT id, note, memo, geom_4326 FROM data.parks",
+            ),
+            patch(
+                "app.processing.ai.chat_service.validate_and_execute",
+                new_callable=AsyncMock,
+                return_value=spatial,
+            ),
+        ):
+            out = await _handle_query_data(
+                {"question": "notes"},
+                AsyncMock(),
+                SimpleNamespace(id=uuid.uuid4(), username="u"),
+                [_layer()],
+            )
+        assert len(out["geojson"]["features"]) == 50
+        assert out["truncated"] is False
+        assert out["rows_truncated"] is True
+        assert 1 <= len(out["rows"]) < 50
 
 
 async def test_raw_endpoint_maps_an_oversized_result_to_422(

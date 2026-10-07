@@ -767,6 +767,7 @@ class TestAnalysisPreviewEndpoint:
             ("query_at_capacity", 429),
             ("query_timeout", 422),
             ("query_data_error", 422),
+            ("result_too_large", 422),
             # Anything unmapped falls through the .get default. query_failed
             # also covers connection loss and role-binding failures, which are
             # server faults rather than bad requests.
@@ -817,6 +818,7 @@ class TestAnalysisPreviewEndpoint:
             "query_at_capacity",
             "query_timeout",
             "query_data_error",
+            "result_too_large",
         }
 
     async def test_truncation_at_feature_cap(
@@ -838,6 +840,29 @@ class TestAnalysisPreviewEndpoint:
         assert data["truncated"] is True
         # 1:1 op — the source total rides along so clients can say "500 of N".
         assert data["source_feature_count"] == 501
+
+    async def test_preview_is_cut_at_the_result_byte_cap(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+        monkeypatch,
+    ):
+        from app.modules.catalog.datasets.domain import service_analysis
+
+        monkeypatch.setattr(service_analysis, "DEFAULT_MAX_RESULT_BYTES", 2_000)
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_point_dataset(test_db_session, created_by=admin_id, n=50)
+        resp = await client.post(
+            _preview_url(ds.id),
+            json={"operation": "centroid"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert 0 < data["feature_count"] < 50
+        assert data["truncated"] is True
+        assert data["source_feature_count"] == 50
 
     async def test_nan_mask_rejected(
         self,

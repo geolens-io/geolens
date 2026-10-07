@@ -7,6 +7,8 @@ for end users while full details are logged server-side.
 
 from __future__ import annotations
 
+import secrets
+
 import structlog
 import sqlglot
 from sqlglot import exp
@@ -27,9 +29,6 @@ DEFAULT_TIMEOUT_MS = 10_000
 # a row limit and a timeout leave one generated cell free to reach a gigabyte.
 DEFAULT_MAX_RESULT_BYTES = 16 * 1024 * 1024
 
-# Carried by the wrapper's deliberate cast failure so the error handler can tell
-# an oversized first row from the caller's own data errors.
-_RESULT_TOO_LARGE_MARKER = "geolens_sandbox_result_too_large"
 # Columns the byte-bounded wrapper appends after the caller's own.
 _BYTE_META_COLUMNS = 3
 
@@ -122,7 +121,9 @@ def _rewrite_logical_data_schema(sql: str, physical_schema: str) -> str:
     return sql
 
 
-def _limited_sql(sql: str, fetch_limit: int, max_result_bytes: int | None) -> str:
+def _limited_sql(
+    sql: str, fetch_limit: int, max_result_bytes: int | None, token: str
+) -> str:
     """Wrap validated SQL in the row cap and, when given, the result-byte cap.
 
     The byte cap is measured and enforced inside PostgreSQL, so rows past it never
@@ -130,26 +131,33 @@ def _limited_sql(sql: str, fetch_limit: int, max_result_bytes: int | None) -> st
     total fits, refuses a first row that alone exceeds it, and reports through the
     trailing ``more`` column that a later row existed but was cut. The row cap sits
     below the window, so dropped rows never extend the scan past ``fetch_limit``.
+    ``token`` is fresh per call so neither the meta-column names nor the refusal
+    marker can be matched by a caller's own columns or values.
     """
     # The closing paren and LIMIT go on their own line: `--` runs to end of line,
     # so a validated query ending in a line comment would swallow the wrapper.
     limited = f"SELECT * FROM (\n{sql}\n) AS _q LIMIT {fetch_limit}"
     if max_result_bytes is None:
         return limited
+    row_bytes, total_bytes = f"_geolens_{token}_row", f"_geolens_{token}_total"
     return (
-        "SELECT * FROM (SELECT _l.*, _s.b AS _geolens_row_bytes, "
-        "pg_catalog.sum(_s.b) OVER _gw AS _geolens_total_bytes, "
-        "pg_catalog.lead(true, 1, false) OVER _gw AS _geolens_more "
+        f"SELECT * FROM (SELECT _l.*, _s.b AS {row_bytes}, "
+        f"pg_catalog.sum(_s.b) OVER _gw AS {total_bytes}, "
+        f"pg_catalog.lead(true, 1, false) OVER _gw AS _geolens_{token}_more "
         f"FROM ({limited}) AS _l "
         # `_l.*`, not bare `_l`: a caller's column named _l would shadow the row.
         "CROSS JOIN LATERAL (SELECT pg_catalog.octet_length(CAST(_l.* AS text))) "
         "AS _s(b) "
         "WINDOW _gw AS (ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)) AS _w "
-        f"WHERE CASE WHEN _w._geolens_total_bytes <= {int(max_result_bytes)} THEN true "
-        "WHEN _w._geolens_total_bytes = _w._geolens_row_bytes "
-        f"THEN ('{_RESULT_TOO_LARGE_MARKER} ' || _w._geolens_row_bytes)::int IS NULL "
+        f"WHERE CASE WHEN _w.{total_bytes} <= {int(max_result_bytes)} THEN true "
+        f"WHEN _w.{total_bytes} = _w.{row_bytes} "
+        f"THEN ('{_too_large_marker(token)} ' || _w.{row_bytes})::int IS NULL "
         "ELSE false END"
     )
+
+
+def _too_large_marker(token: str) -> str:
+    return f"geolens_result_too_large_{token}"
 
 
 async def execute_safe(
@@ -201,7 +209,9 @@ async def execute_safe(
         sql = _rewrite_logical_data_schema(sql, tenant_data_schema(tenant_id))
 
     fetch_limit = row_limit + 1
-    limited_sql = _limited_sql(sql, fetch_limit, max_result_bytes)
+    # Hex, so it is a valid identifier fragment in the wrapper's column names.
+    token = secrets.token_hex(6)
+    limited_sql = _limited_sql(sql, fetch_limit, max_result_bytes, token)
 
     # Use the engine from the database module (patched in tests)
     import app.core.db as db_module
@@ -282,7 +292,7 @@ async def execute_safe(
     except SandboxError:
         raise
     except Exception as exc:  # broad: varied DB errors; classify in handler
-        _handle_execution_error(exc, sql)
+        _handle_execution_error(exc, sql, token)
 
     # Convert rows to list-of-lists
     rows = [list(row) for row in all_rows]
@@ -302,7 +312,7 @@ async def execute_safe(
     )
 
 
-def _handle_execution_error(exc: Exception, sql: str) -> None:
+def _handle_execution_error(exc: Exception, sql: str, token: str | None = None) -> None:
     """Classify and re-raise DB exceptions as SandboxError.
 
     Always logs full details server-side at WARNING level.
@@ -319,7 +329,7 @@ def _handle_execution_error(exc: Exception, sql: str) -> None:
 
     # The driver error alone: the wrapped exception's text also quotes the
     # statement, which carries the marker on every bounded query.
-    if _RESULT_TOO_LARGE_MARKER in str(getattr(exc, "orig", "")):
+    if token is not None and _too_large_marker(token) in str(getattr(exc, "orig", "")):
         raise SandboxError(
             "result_too_large", "Query result is too large to return"
         ) from exc

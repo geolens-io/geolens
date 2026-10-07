@@ -4634,8 +4634,11 @@ export const visibilityCheckEndpointMapsMapIdVisibilityCheckGet = <ThrowOnError 
  *
  * The statement must be a single SELECT over `data.*` tables you can
  * access, name every table in `restrict_tables`, and fit the sandbox's
- * function allowlist and cost bounds. Rows are capped by `row_limit` and
- * execution by a server-side statement timeout.
+ * function allowlist and cost bounds. Rows are capped by `row_limit`,
+ * execution by a server-side statement timeout, and the result's size before
+ * it leaves the database: `truncated` is true when either cap cut rows. A
+ * result whose first row alone exceeds the size cap, or whose response would
+ * exceed 8 MiB, is refused with 422.
  */
 export const sandboxQueryEndpointQueryPost = <ThrowOnError extends boolean = false>(options: Options<SandboxQueryEndpointQueryPostData, ThrowOnError>): RequestResult<SandboxQueryEndpointQueryPostResponses, SandboxQueryEndpointQueryPostErrors, ThrowOnError> => (options.client ?? client).post<SandboxQueryEndpointQueryPostResponses, SandboxQueryEndpointQueryPostErrors, ThrowOnError>({
     security: [
