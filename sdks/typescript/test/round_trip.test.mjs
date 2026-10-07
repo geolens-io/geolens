@@ -15,13 +15,20 @@
  * conversion of FastAPI operationIds. Verified against
  * sdks/typescript/dist/client/sdk.gen.d.ts on 2026-07-10.
  */
-import { File } from 'node:buffer';
+import * as nodeBuffer from 'node:buffer';
 import { createGeolensClient } from '../dist/index.js';
 import {
   searchDatasetsEndpointSearchDatasetsGet,
   getSingleDatasetDatasetsDatasetIdGet,
   uploadFileIngestUploadPost,
 } from '../dist/client/sdk.gen.js';
+
+// File is exported by node:buffer from Node 18.13; the test needs a real File.
+const File = nodeBuffer.File;
+if (!File) {
+  console.error('This test needs Node 18.13 or later (node:buffer File)');
+  process.exit(2);
+}
 
 const baseUrl = process.env.GEOLENS_BASE_URL;
 const token = process.env.GEOLENS_TOKEN;
