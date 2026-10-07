@@ -12,8 +12,11 @@ under the job row's lock, right before the drop:
 - No dataset uses the name as its table.
 
 A plain DROP, never CASCADE, so a table something else depends on stays. A
-table whose attempt no job row names is left alone. The pass declines in
-multi-tenant mode without a tenant context, and is bounded.
+table whose attempt no job row names is left alone, so the retention purge
+keeps a row while a table carries its attempt. The pass declines in
+multi-tenant mode without a tenant context, and is bounded; each pass starts
+after the last name the previous one reached, so tables that cannot be
+dropped never hold the others back.
 """
 
 from __future__ import annotations
@@ -22,7 +25,7 @@ import re
 import uuid
 
 import structlog
-from sqlalchemy import text
+from sqlalchemy import false, text
 
 from app.platform.jobs.heartbeat import ATTEMPT_STAGING_NAME_PATTERN
 
@@ -34,6 +37,9 @@ _OWNED_NAME_PATTERN = rf"^[a-z0-9_]+{ATTEMPT_STAGING_NAME_PATTERN}"
 _OWNED_NAME_RE = re.compile(_OWNED_NAME_PATTERN)
 
 _TABLES_PER_PASS = 100
+
+# The last name each schema's previous pass reached, per process.
+_cursors: dict[str, str] = {}
 
 # The CASE keeps the cast off any name the pattern does not match. The
 # LIMIT counts only tables a settled attempt owns, so tables nothing proves
@@ -55,10 +61,22 @@ _CANDIDATES_SQL = text(
       AND NOT EXISTS (
           SELECT 1 FROM catalog.datasets d WHERE d.table_name = c.relname
       )
-    ORDER BY c.relname
+    ORDER BY c.relname <= :after, c.relname
     LIMIT :limit
     """
 )
+
+# The same name test as the candidate query, against the job row's attempt.
+_OWNS_NO_STAGING_TABLE_SQL = """
+NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_class c
+    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = :staging_schema
+      AND c.relkind = 'r'
+      AND c.relname ~ :staging_pattern
+      AND right(c.relname, 32) = replace(ingest_jobs.attempt_id::text, '-', '')
+)
+"""
 
 # The row lock keeps a retry or a fan-out restore from moving the job while
 # the table goes; a row a task or another pass holds is left for later.
@@ -77,6 +95,28 @@ def _attempt_of(table_name: str) -> uuid.UUID:
     return uuid.UUID(hex=table_name[-32:])
 
 
+def _current_schema() -> str:
+    from app.core.db.tenant_schema import tenant_data_schema
+    from app.core.db.tenant_session import current_tenant_var
+    from app.core.tenancy import is_multi_tenant
+
+    return tenant_data_schema(current_tenant_var.get() if is_multi_tenant() else None)
+
+
+def owns_no_staging_table():
+    """Predicate: no staging table in the tenant's schema carries this job row's attempt.
+
+    False for every row when the schema can't be resolved.
+    """
+    try:
+        schema = _current_schema()
+    except ValueError:
+        return false()
+    return text(_OWNS_NO_STAGING_TABLE_SQL).bindparams(
+        staging_schema=schema, staging_pattern=_OWNED_NAME_PATTERN
+    )
+
+
 async def reap_settled_attempt_tables() -> int:
     """Drop the staging tables of settled attempts in the current tenant's schema.
 
@@ -84,14 +124,9 @@ async def reap_settled_attempt_tables() -> int:
     dropped; a table that could not be dropped waits for the next pass.
     """
     from app.core.db import async_session
-    from app.core.db.tenant_schema import tenant_data_schema
-    from app.core.db.tenant_session import current_tenant_var
-    from app.core.tenancy import is_multi_tenant
 
     try:
-        schema = tenant_data_schema(
-            current_tenant_var.get() if is_multi_tenant() else None
-        )
+        schema = _current_schema()
     except ValueError:
         return 0
     try:
@@ -102,6 +137,7 @@ async def reap_settled_attempt_tables() -> int:
                     {
                         "schema": schema,
                         "pattern": _OWNED_NAME_PATTERN,
+                        "after": _cursors.get(schema, ""),
                         "limit": _TABLES_PER_PASS,
                     },
                 )
@@ -110,6 +146,8 @@ async def reap_settled_attempt_tables() -> int:
     except Exception:  # broad: an unreadable catalog must not license a drop
         log.warning("Skipped attempt staging table reap, candidate query failed")
         return 0
+    if names:
+        _cursors[schema] = names[-1]
 
     dropped = 0
     for name in names:

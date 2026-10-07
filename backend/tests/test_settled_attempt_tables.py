@@ -177,3 +177,69 @@ async def test_a_job_row_someone_holds_keeps_its_table(test_db_session) -> None:
     assert await _exists(test_db_session, staging)
     assert await reap_settled_attempt_tables() >= 1
     assert not await _exists(test_db_session, staging)
+
+
+async def test_tables_that_cannot_be_dropped_do_not_starve_the_rest(
+    test_db_session, monkeypatch
+) -> None:
+    """Each pass starts after the name the last one reached."""
+    from app.platform.jobs import attempt_tables
+
+    monkeypatch.setattr(attempt_tables, "_TABLES_PER_PASS", 1)
+    blocked_job = await _job(test_db_session, "failed")
+    blocked = await _table(
+        test_db_session,
+        attempt_scoped_staging_table(
+            f"a0_{uuid.uuid4().hex[:8]}", blocked_job.attempt_id
+        ),
+    )
+    view = f"{_base()}_view"
+    await test_db_session.execute(
+        text(f'CREATE VIEW data."{view}" AS SELECT * FROM data."{blocked}"')
+    )
+    free_job = await _job(test_db_session, "failed")
+    free = await _table(
+        test_db_session,
+        attempt_scoped_staging_table(f"a1_{uuid.uuid4().hex[:8]}", free_job.attempt_id),
+    )
+
+    for _ in range(10):
+        await reap_settled_attempt_tables()
+        if not await _exists(test_db_session, free):
+            break
+
+    assert not await _exists(test_db_session, free)
+    assert await _exists(test_db_session, blocked)
+    await test_db_session.execute(text(f'DROP VIEW data."{view}"'))
+    await _drop(test_db_session, blocked)
+
+
+async def test_the_retention_purge_keeps_a_row_whose_table_remains(
+    test_db_session, monkeypatch
+) -> None:
+    """The row is the only proof of the table's owner, so it outlives the table."""
+    from app.core.config import settings
+    from app.platform.jobs.sweep import fail_stale_jobs
+
+    monkeypatch.setattr(settings, "ingest_jobs_retention_days", 1)
+    old = datetime.now(timezone.utc) - timedelta(days=30)
+    kept = await _job(test_db_session, "failed", completed_at=old, created_at=old)
+    purged = await _job(test_db_session, "failed", completed_at=old, created_at=old)
+    staging = await _table(
+        test_db_session, attempt_scoped_staging_table(_base(), kept.attempt_id)
+    )
+    view = f"{_base()}_view"
+    await test_db_session.execute(
+        text(f'CREATE VIEW data."{view}" AS SELECT * FROM data."{staging}"')
+    )
+    await test_db_session.commit()
+    kept_id, purged_id = kept.id, purged.id
+
+    await fail_stale_jobs(test_db_session)
+
+    test_db_session.expire_all()
+    assert await test_db_session.get(IngestJob, kept_id) is not None
+    assert await test_db_session.get(IngestJob, purged_id) is None
+    assert await _exists(test_db_session, staging)
+    await test_db_session.execute(text(f'DROP VIEW data."{view}"'))
+    await _drop(test_db_session, staging)
