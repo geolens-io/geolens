@@ -398,7 +398,9 @@ async def saml_router_mounted(saml_overlay_registered, client):
     initialize edition manually so ``require_enterprise`` returns True
     while this test runs.
     """
-    del client  # Initializes the patched DB/session factory used by the router.
+    # httpx returns Secure cookies only over https, so the login and ACS calls
+    # use the public HTTPS origin the IdP posts back to, as a browser would.
+    client.base_url = "https://geolens.test"
 
     import app.core.edition as edition_mod
     import app.core.public_urls as public_urls_mod
