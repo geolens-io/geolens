@@ -295,57 +295,80 @@ export function SpatialFilterPanel({
     onClose();
   }, [pendingBbox, predicate, drawMode, onApply, onClose]);
 
+  const createDraw = useCallback((map: MaplibreMap) => {
+    const modeStyles = {
+      fillColor: MAP_COLORS.default.fill,
+      fillOpacity: MAP_COLORS.default.fillOpacity,
+      outlineColor: MAP_COLORS.default.stroke,
+      outlineWidth: MAP_COLORS.default.strokeWidth,
+    };
+
+    const td = new TerraDraw({
+      adapter: new TerraDrawMapLibreGLAdapter({ map }),
+      modes: [
+        new TerraDrawRectangleMode({ styles: modeStyles }),
+        new TerraDrawPolygonMode({ styles: modeStyles }),
+      ],
+    });
+
+    td.start();
+
+    td.on('finish', (id: string | number) => {
+      const feature = td.getSnapshotFeature(id);
+      if (!feature || feature.geometry.type !== 'Polygon') return;
+
+      // A click-click with no movement on one axis yields a line, not an area.
+      if (!hasArea(feature.geometry.coordinates[0])) {
+        td.removeFeatures([id]);
+        return;
+      }
+
+      restoredPolygonRef.current = null;
+
+      // Remove previous feature if exists
+      if (drawnFeatureIdRef.current != null && drawnFeatureIdRef.current !== id) {
+        try {
+          td.removeFeatures([drawnFeatureIdRef.current, ...extraDrawnIdsRef.current]);
+          extraDrawnIdsRef.current = [];
+        } catch {
+          // Already removed
+        }
+      }
+
+      drawnFeatureIdRef.current = id;
+      const coords = (feature.geometry as GeoJSON.Polygon).coordinates[0];
+      setPendingBbox(extractBbox(coords));
+    });
+
+    return td;
+  }, []);
+
   const handleMapLoad = useCallback(
     (e: { target: MaplibreMap }) => {
       const map = e.target;
       mapRef.current = map;
 
-      const modeStyles = {
-        fillColor: MAP_COLORS.default.fill,
-        fillOpacity: MAP_COLORS.default.fillOpacity,
-        outlineColor: MAP_COLORS.default.stroke,
-        outlineWidth: MAP_COLORS.default.strokeWidth,
-      };
-
-      const td = new TerraDraw({
-        adapter: new TerraDrawMapLibreGLAdapter({ map }),
-        modes: [
-          new TerraDrawRectangleMode({ styles: modeStyles }),
-          new TerraDrawPolygonMode({ styles: modeStyles }),
-        ],
-      });
-
-      td.start();
+      const td = createDraw(map);
       td.setMode('rectangle');
-
-      td.on('finish', (id: string | number) => {
-        const feature = td.getSnapshotFeature(id);
-        if (!feature || feature.geometry.type !== 'Polygon') return;
-
-        // A click-click with no movement on one axis yields a line, not an area.
-        if (!hasArea(feature.geometry.coordinates[0])) {
-          td.removeFeatures([id]);
-          return;
-        }
-
-        restoredPolygonRef.current = null;
-
-        // Remove previous feature if exists
-        if (drawnFeatureIdRef.current != null && drawnFeatureIdRef.current !== id) {
-          try {
-            td.removeFeatures([drawnFeatureIdRef.current, ...extraDrawnIdsRef.current]);
-            extraDrawnIdsRef.current = [];
-          } catch {
-            // Already removed
-          }
-        }
-
-        drawnFeatureIdRef.current = id;
-        const coords = (feature.geometry as GeoJSON.Polygon).coordinates[0];
-        setPendingBbox(extractBbox(coords));
-      });
-
       drawRef.current = td;
+
+      // A basemap swap replaces the style and drops Terra Draw's sources and
+      // layers, so the instance is rebuilt on the new style with its features.
+      map.on('style.load', () => {
+        const previous = drawRef.current;
+        if (!previous) return;
+        const mode = previous.getMode();
+        const features = previous.getSnapshot();
+        try {
+          previous.stop();
+        } catch {
+          // Its sources went with the old style
+        }
+        const next = createDraw(map);
+        next.setMode(mode);
+        if (features.length > 0) next.addFeatures(features);
+        drawRef.current = next;
+      });
 
       // Restore initial bbox after Terra Draw is ready
       if (initialBbox) {
@@ -356,16 +379,18 @@ export function SpatialFilterPanel({
         }
       }
     },
-    [initialBbox, restoreStoredArea],
+    [createDraw, initialBbox, restoreStoredArea],
   );
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (drawRef.current) {
-        drawRef.current.stop();
-        drawRef.current = null;
+      try {
+        drawRef.current?.stop();
+      } catch {
+        // The basemap style that held its sources is already gone
       }
+      drawRef.current = null;
     };
   }, []);
 

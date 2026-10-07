@@ -2396,3 +2396,51 @@ describe('DatasetMap basemap switch', () => {
     expect(merged.layers.map((layer) => layer.id)).toEqual(['background']);
   });
 });
+
+describe('DatasetMap read-only feature click', () => {
+  beforeEach(() => {
+    drawingState.isDrawing = false;
+    drawingState.activeMode = null;
+    mapSpy.reset();
+    mapSpy.attachMapInstance = true;
+    tileConfigState.data = { mvt_source_layer_prefix: '' };
+    (fakeMap.on as ReturnType<typeof vi.fn>).mockClear();
+    (fakeMap.getStyle as ReturnType<typeof vi.fn>).mockReturnValue({
+      layers: [{ id: 'l1', 'source-layer': 'example_table' }],
+    });
+  });
+
+  afterEach(() => {
+    mapSpy.reset();
+    tileConfigState.data = null;
+  });
+
+  function clickWith(feature: Record<string, unknown>) {
+    (fakeMap.queryRenderedFeatures as ReturnType<typeof vi.fn>).mockReturnValue([feature]);
+    const onFeatureClick = vi.fn();
+    render(
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName="example_table"
+        geometryType="Point"
+        datasetId="dataset-1"
+        recordType="vector_dataset"
+        onFeatureClick={onFeatureClick}
+      />,
+    );
+    const handler = (fakeMap.on as ReturnType<typeof vi.fn>).mock.calls
+      .filter(([event]) => event === 'click')
+      .map(([, fn]) => fn)
+      .at(-1);
+    handler({ point: { x: 1, y: 1 } });
+    return onFeatureClick;
+  }
+
+  it('resolves the feature id when the tile carries no gid property', () => {
+    expect(clickWith({ id: 2, properties: {} })).toHaveBeenCalledWith(2);
+  });
+
+  it('falls back to the gid property', () => {
+    expect(clickWith({ properties: { gid: 7 } })).toHaveBeenCalledWith(7);
+  });
+});

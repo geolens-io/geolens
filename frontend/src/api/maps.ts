@@ -513,9 +513,11 @@ export async function sendChatMessage(
   layers: MapLayerResponse[],
   language?: string,
   history?: ChatHistoryMessage[],
+  signal?: AbortSignal,
 ): Promise<ChatResponse> {
   return apiFetch<ChatResponse>('/ai/chat/', {
     method: 'POST',
+    signal,
     body: JSON.stringify({
       message,
       map_id: mapId,

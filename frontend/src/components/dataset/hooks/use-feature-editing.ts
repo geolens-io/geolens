@@ -21,7 +21,7 @@ import {
   PREVIEW_LAYER_IDS,
   previewSourceId,
 } from '@/components/maps/hooks/use-map-layers';
-import type { Map as MaplibreMap, GeoJSONSource, Point, VectorTileSource } from 'maplibre-gl';
+import type { Map as MaplibreMap, GeoJSONSource, MapGeoJSONFeature, Point, VectorTileSource } from 'maplibre-gl';
 import type { Feature, Geometry } from 'geojson';
 
 /**
@@ -190,6 +190,17 @@ function refuseIfWrongDataset(datasetId: string | undefined): boolean {
   if (targetDatasetId === null || targetDatasetId === (datasetId ?? null)) return false;
   state.clearDrawing();
   return true;
+}
+
+/**
+ * MVT feature ID is stored in _vectorTileFeature.id by MapLibre, promoted to
+ * feature.id via promoteId, or available as a property.
+ */
+export function renderedFeatureGid(
+  feature: Pick<MapGeoJSONFeature, 'id' | 'properties'>,
+): number | undefined {
+  const f = feature as typeof feature & { _vectorTileFeature?: { id?: number } };
+  return (f.id ?? f.properties?.gid ?? f._vectorTileFeature?.id) as number | undefined;
 }
 
 export function useFeatureEditing({
@@ -684,8 +695,7 @@ export function useFeatureEditing({
 
       // MVT feature ID is stored in _vectorTileFeature.id by MapLibre,
       // promoted to feature.id via promoteId, or available as a property.
-      const f0 = features[0] as typeof features[0] & { _vectorTileFeature?: { id?: number } };
-      const gid = features[0].id ?? features[0].properties?.gid ?? f0._vectorTileFeature?.id;
+      const gid = renderedFeatureGid(features[0]);
       if (gid === undefined || gid === null) {
         toast.info(t('map.featureNotSelectable'));
         return;

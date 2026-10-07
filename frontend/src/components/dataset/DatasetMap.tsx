@@ -15,7 +15,7 @@ import {
 import { BasemapToggle } from '@/components/map/BasemapToggle';
 import { useDrawingStore } from '@/stores/drawing-store';
 import { useTerraDraw } from '@/components/drawing/hooks/use-terra-draw';
-import { useFeatureEditing, showAllFeaturesInTiles } from '@/components/dataset/hooks/use-feature-editing';
+import { useFeatureEditing, showAllFeaturesInTiles, renderedFeatureGid } from '@/components/dataset/hooks/use-feature-editing';
 import { DrawingToolbar } from '@/components/drawing/DrawingToolbar';
 import { AttributeForm } from '@/components/drawing/AttributeForm';
 import { useTileToken, useInvalidateTileTokens } from '@/hooks/use-tile-token';
@@ -593,7 +593,7 @@ export const DatasetMap = memo(function DatasetMap({
           .map((l) => l.id) ?? [],
       });
       if (features.length > 0) {
-        const gid = features[0].properties?.gid;
+        const gid = renderedFeatureGid(features[0]);
         if (gid != null) onFeatureClick(Number(gid));
       }
     };

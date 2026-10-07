@@ -950,10 +950,13 @@ export function ChatPanel({
     userMsg: string;
     history: ChatHistoryMessage[];
     pendingActions: ChatAction[];
+    signal: AbortSignal;
   }) {
-    const { userMsg, history, pendingActions } = opts;
+    const { userMsg, history, pendingActions, signal } = opts;
     try {
-      const response = await sendChatMessage(mapId, userMsg, layers, i18n.language, [...history, { role: 'user', content: userMsg }]);
+      const response = await sendChatMessage(mapId, userMsg, layers, i18n.language, [...history, { role: 'user', content: userMsg }], signal);
+      // A cancel that lands after the response arrives must not apply its actions.
+      if (signal.aborted) throw signal.reason ?? new DOMException('Aborted', 'AbortError');
       const responseActions = getChatActions(response.actions);
       applyActions(responseActions, pendingActions, userMsg);
       // Phase 1135 AI-03: clear any existing error banner on non-streaming success.
@@ -971,6 +974,13 @@ export function ChatPanel({
         },
       ]);
     } catch (fallbackErr) {
+      if (signal.aborted) {
+        setMessages((prev) => [
+          ...prev,
+          { id: randomId(), role: 'assistant', content: t('chat.cancelled') },
+        ]);
+        return;
+      }
       // Phase 1135 AI-03: mirror streaming error classification — 403/503 → sticky banner.
       if (fallbackErr instanceof ApiError && (fallbackErr.status === 403 || fallbackErr.status === 503)) {
         setErrorBanner({
@@ -1065,7 +1075,7 @@ export function ChatPanel({
           break;
         case 'retry':
           // No actions applied yet — safe to retry via the non-streaming path.
-          await sendNonStreamingFallback({ userMsg, history, pendingActions });
+          await sendNonStreamingFallback({ userMsg, history, pendingActions, signal: controller.signal });
           break;
       }
     } finally {
