@@ -164,7 +164,8 @@ def sync_detailed(
     with a 422 and never reaches the query.
 
     Args:
-        status (None | str | Unset):
+        status (None | str | Unset): Job status to match. 'failed' leaves out replacements held
+            for review, which 'awaiting_review' lists while their run still needs a decision.
         user_id (None | Unset | UUID):
         search (None | str | Unset):
         skip (int | Unset):  Default: 0.
@@ -218,7 +219,8 @@ def sync(
     with a 422 and never reaches the query.
 
     Args:
-        status (None | str | Unset):
+        status (None | str | Unset): Job status to match. 'failed' leaves out replacements held
+            for review, which 'awaiting_review' lists while their run still needs a decision.
         user_id (None | Unset | UUID):
         search (None | str | Unset):
         skip (int | Unset):  Default: 0.
@@ -267,7 +269,8 @@ async def asyncio_detailed(
     with a 422 and never reaches the query.
 
     Args:
-        status (None | str | Unset):
+        status (None | str | Unset): Job status to match. 'failed' leaves out replacements held
+            for review, which 'awaiting_review' lists while their run still needs a decision.
         user_id (None | Unset | UUID):
         search (None | str | Unset):
         skip (int | Unset):  Default: 0.
@@ -319,7 +322,8 @@ async def asyncio(
     with a 422 and never reaches the query.
 
     Args:
-        status (None | str | Unset):
+        status (None | str | Unset): Job status to match. 'failed' leaves out replacements held
+            for review, which 'awaiting_review' lists while their run still needs a decision.
         user_id (None | Unset | UUID):
         search (None | str | Unset):
         skip (int | Unset):  Default: 0.

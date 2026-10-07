@@ -575,6 +575,22 @@
             "description": "Stable code for a fixed failure reason, so a client can show it in the reader's language; `error_message` keeps its English text. Null when the reason is free text.",
             "title": "Error Code"
           },
+          "review_state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "awaiting",
+                  "resolved"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set on a replacement the pipeline held for review rather than failed: 'awaiting' while the held run still needs a decision, 'resolved' once it was accepted. Null for every other job.",
+            "title": "Review State"
+          },
           "can_retry": {
             "description": "Whether the failed job can be retried with its retained source.",
             "title": "Can Retry",
@@ -22559,6 +22575,7 @@
         "operationId": "list_admin_jobs_admin_jobs__get",
         "parameters": [
           {
+            "description": "Job status to match. 'failed' leaves out replacements held for review, which 'awaiting_review' lists while their run still needs a decision.",
             "in": "query",
             "name": "status",
             "required": false,
@@ -22571,6 +22588,7 @@
                   "type": "null"
                 }
               ],
+              "description": "Job status to match. 'failed' leaves out replacements held for review, which 'awaiting_review' lists while their run still needs a decision.",
               "title": "Status"
             }
           },

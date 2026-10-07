@@ -375,6 +375,12 @@ export type AdminJobResponse = {
      */
     error_code?: string | null;
     /**
+     * Review State
+     *
+     * Set on a replacement the pipeline held for review rather than failed: 'awaiting' while the held run still needs a decision, 'resolved' once it was accepted. Null for every other job.
+     */
+    review_state?: 'awaiting' | 'resolved' | null;
+    /**
      * Can Retry
      *
      * Whether the failed job can be retried with its retained source.
@@ -12844,6 +12850,8 @@ export type ListAdminJobsAdminJobsGetData = {
     query?: {
         /**
          * Status
+         *
+         * Job status to match. 'failed' leaves out replacements held for review, which 'awaiting_review' lists while their run still needs a decision.
          */
         status?: string | null;
         /**

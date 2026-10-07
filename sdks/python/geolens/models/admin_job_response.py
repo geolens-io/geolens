@@ -14,6 +14,12 @@ from ..models.admin_job_response_restart_source_type_0 import (
 from ..models.admin_job_response_restart_source_type_0 import (
     check_admin_job_response_restart_source_type_0,
 )
+from ..models.admin_job_response_review_state_type_0 import (
+    AdminJobResponseReviewStateType0,
+)
+from ..models.admin_job_response_review_state_type_0 import (
+    check_admin_job_response_review_state_type_0,
+)
 from ..models.admin_job_response_status import AdminJobResponseStatus
 from ..models.admin_job_response_status import check_admin_job_response_status
 from dateutil.parser import isoparse
@@ -53,6 +59,9 @@ class AdminJobResponse:
         created_at (datetime.datetime): Timestamp when the job was queued.
         error_code (None | str | Unset): Stable code for a fixed failure reason, so a client can show it in the reader's
             language; `error_message` keeps its English text. Null when the reason is free text.
+        review_state (AdminJobResponseReviewStateType0 | None | Unset): Set on a replacement the pipeline held for
+            review rather than failed: 'awaiting' while the held run still needs a decision, 'resolved' once it was
+            accepted. Null for every other job.
         source_url (None | str | Unset): URL a service or file URL import was started from, with userinfo and credential
             query values redacted. Null for every other job.
         restart_source (AdminJobResponseRestartSourceType0 | None | Unset): Import tab a failed job whose retry is
@@ -73,6 +82,7 @@ class AdminJobResponse:
     completed_at: datetime.datetime | None
     created_at: datetime.datetime
     error_code: None | str | Unset = UNSET
+    review_state: AdminJobResponseReviewStateType0 | None | Unset = UNSET
     source_url: None | str | Unset = UNSET
     restart_source: AdminJobResponseRestartSourceType0 | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -138,6 +148,14 @@ class AdminJobResponse:
         else:
             error_code = self.error_code
 
+        review_state: None | str | Unset
+        if isinstance(self.review_state, Unset):
+            review_state = UNSET
+        elif isinstance(self.review_state, str):
+            review_state = self.review_state
+        else:
+            review_state = self.review_state
+
         source_url: None | str | Unset
         if isinstance(self.source_url, Unset):
             source_url = UNSET
@@ -173,6 +191,8 @@ class AdminJobResponse:
         )
         if error_code is not UNSET:
             field_dict["error_code"] = error_code
+        if review_state is not UNSET:
+            field_dict["review_state"] = review_state
         if source_url is not UNSET:
             field_dict["source_url"] = source_url
         if restart_source is not UNSET:
@@ -309,6 +329,25 @@ class AdminJobResponse:
 
         error_code = _parse_error_code(d.pop("error_code", UNSET))
 
+        def _parse_review_state(
+            data: object,
+        ) -> AdminJobResponseReviewStateType0 | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                review_state_type_0 = check_admin_job_response_review_state_type_0(data)
+
+                return review_state_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(AdminJobResponseReviewStateType0 | None | Unset, data)
+
+        review_state = _parse_review_state(d.pop("review_state", UNSET))
+
         def _parse_source_url(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -354,6 +393,7 @@ class AdminJobResponse:
             completed_at=completed_at,
             created_at=created_at,
             error_code=error_code,
+            review_state=review_state,
             source_url=source_url,
             restart_source=restart_source,
         )
