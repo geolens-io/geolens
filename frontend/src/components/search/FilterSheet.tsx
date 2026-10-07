@@ -225,7 +225,7 @@ export function FilterSheet({ totalResults, allTypesTotal }: FilterSheetProps) {
   return (
     <>
       {/* ---- Mobile bar + chip row ---- */}
-      <div className="space-y-4 md:hidden">
+      <div className="space-y-4 lg:hidden">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="text-sm text-muted-foreground">
             {totalResultsLabel ? <span>{totalResultsLabel}</span> : null}

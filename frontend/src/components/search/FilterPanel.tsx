@@ -834,7 +834,7 @@ export function FilterPanel({
   // Section 5: JSX layout
   // ----
   // The render is split into three responsive layers:
-  //   - Mobile (`md:hidden`): condensed bar with a "Filters" button that
+  //   - Mobile (`lg:hidden`): condensed bar with a "Filters" button that
   //     opens the AdvancedSheet, plus the active filter chip row
   //   - Desktop primary row (`hidden md:flex`): record-type tabs, keyword
   //     facets, collection select, location, date, temporal extent, sort,

@@ -125,4 +125,24 @@ test.describe('Search Flow', () => {
 
     expect(overflowing).toEqual([]);
   });
+
+  test('exactly one filter entry is visible across the tablet breakpoint', async ({ page }) => {
+    await page.setViewportSize({ width: 767, height: 900 });
+    await page.goto('/');
+    const trigger = page.getByRole('button', { name: /^Filters/i });
+    const rail = page.locator('aside');
+
+    for (const width of [767, 768, 800, 1023]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect(trigger.first(), `trigger at ${width}`).toBeVisible();
+      await expect(rail, `rail at ${width}`).toBeHidden();
+    }
+
+    await trigger.first().focus();
+    await expect(trigger.first()).toBeFocused();
+
+    await page.setViewportSize({ width: 1024, height: 900 });
+    await expect(rail).toBeVisible();
+    await expect(trigger.first()).toBeHidden();
+  });
 });
