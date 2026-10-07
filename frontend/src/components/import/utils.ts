@@ -79,7 +79,7 @@ export function looksLikeArcGisServiceUrl(url: string): boolean {
 }
 
 const PORTAL_PATH =
-  /\/(?:(?:portal\w*|arcgis)\/(?:home|apps)(?:\/|$)|home\/(?:(?:index|item|signin|organization|user|group|gallery|content)|webmap\/viewer)\.html$)/i;
+  /\/(?:home\/?$|home\/(?:(?:index|item|signin|organization|user|group|gallery|content)|webmap\/viewer)\.html$|(?:portal\w*|arcgis)\/(?:home|apps)(?:\/|$)|apps\/(?:mapviewer|webappviewer|experiencebuilder|dashboards|instant|storymaps|webappbuilder)(?:\/|$))/i;
 
 /**
  * An ArcGIS organization or portal homepage (the arcgis.com org site or an
