@@ -74,7 +74,7 @@ export function PublicMapViewerPage() {
   );
 
   const { visibleLayers, handleToggleVisibility, isLegendOpen, setIsLegendOpen } =
-    useViewerLayers(layers);
+    useViewerLayers(layers, { mapKey: id });
 
   const [basemapId, setBasemapId] = useState<string | null>(null);
   const [drawnLayers, setDrawnLayers] = useState<ReadonlyMap<string, DrawnLayer>>();

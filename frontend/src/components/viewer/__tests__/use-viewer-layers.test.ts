@@ -37,4 +37,44 @@ describe('useViewerLayers', () => {
 
     expect(result.current.visibleLayers).toEqual(new Set(['layer-a']));
   });
+
+  it('starts a different map from its saved visibility', () => {
+    const mapA = [layer({ id: 'a1' }), layer({ id: 'a2' })];
+    const mapB = [layer({ id: 'b1' }), layer({ id: 'b2' })];
+    const { result, rerender } = renderHook(
+      ({ layers, mapKey }) => useViewerLayers(layers, { mapKey }),
+      { initialProps: { layers: mapA, mapKey: 'map-a' } },
+    );
+
+    act(() => result.current.handleToggleVisibility('a1'));
+    rerender({ layers: mapB, mapKey: 'map-b' });
+
+    expect(result.current.visibleLayers).toEqual(new Set(['b1', 'b2']));
+  });
+
+  it('keeps toggles for surviving layers and shows layers added by a refetch', () => {
+    const before = [layer({ id: 'l1' }), layer({ id: 'l2' })];
+    const after = [layer({ id: 'l2' }), layer({ id: 'l3' })];
+    const { result, rerender } = renderHook(
+      ({ layers }) => useViewerLayers(layers, { mapKey: 'map-a' }),
+      { initialProps: { layers: before } },
+    );
+
+    act(() => result.current.handleToggleVisibility('l2'));
+    rerender({ layers: after });
+
+    expect(result.current.visibleLayers).toEqual(new Set(['l3']));
+  });
+
+  it('does not revive a toggle for a deleted layer that returns', () => {
+    const { result, rerender } = renderHook(
+      ({ layers }) => useViewerLayers(layers, { mapKey: 'map-a' }),
+      { initialProps: { layers: [layer({ id: 'l1' }), layer({ id: 'l2' })] } },
+    );
+
+    act(() => result.current.handleToggleVisibility('l1'));
+    expect(result.current.visibleLayers).toEqual(new Set(['l2']));
+    rerender({ layers: [layer({ id: 'l2' })] });
+    expect(result.current.visibleLayers).toEqual(new Set(['l2']));
+  });
 });

@@ -55,7 +55,7 @@ export function PublicViewerPage() {
   const effectiveShowLegend = legendParam !== null ? legendParam === 'true' : !isEmbed;
 
   const { visibleLayers, handleToggleVisibility, isLegendOpen, setIsLegendOpen } =
-    useViewerLayers(data?.layers, { showLegend: effectiveShowLegend });
+    useViewerLayers(data?.layers, { showLegend: effectiveShowLegend, mapKey: token });
 
   const [basemapId, setBasemapId] = useState<string | null>(null);
   const [drawnLayers, setDrawnLayers] = useState<ReadonlyMap<string, DrawnLayer>>();

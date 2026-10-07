@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@/test/test-utils';
+import { act, render, screen, waitFor, within } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { denySessionStorage } from '@/test/deny-storage';
 import { sendChatMessage, streamChatMessage } from '@/api/maps';
@@ -981,6 +981,35 @@ describe('ChatPanel', () => {
     expect(props.onPaintChange).not.toHaveBeenCalled();
     expect(screen.queryByText(/applied/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /undo/i })).not.toBeInTheDocument();
+  });
+
+  it('cancel during the non-streaming fallback applies nothing and shows no answer', async () => {
+    // eslint-disable-next-line require-yield
+    mockStreamChat.mockImplementation(async function* () {
+      throw new Error('stream failed');
+    });
+    let settle!: (r: { explanation: string; actions: unknown[] }) => void;
+    mockSendChat.mockImplementation(
+      () => new Promise((r) => { settle = r as typeof settle; }),
+    );
+
+    const user = userEvent.setup();
+    const props = renderPanel();
+    await typeAndSend(user, 'style it red');
+    await waitFor(() => expect(mockSendChat).toHaveBeenCalled());
+    const signal = mockSendChat.mock.calls[0][5] as AbortSignal;
+
+    await user.click(screen.getByRole('button', { name: /cancel/i }));
+    expect(signal.aborted).toBe(true);
+    await act(async () => {
+      settle({
+        explanation: 'Made it red',
+        actions: [{ type: 'set_style', layer_id: 'layer-1', paint: { 'fill-color': 'red' } }],
+      });
+    });
+
+    expect(props.onPaintChange).not.toHaveBeenCalled();
+    expect(screen.queryByText('Made it red')).not.toBeInTheDocument();
   });
 
   it('fix(#392): set_style preserves builder _outline-* keys on a polygon (backend allowlist accepts them)', async () => {

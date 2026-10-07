@@ -13,6 +13,9 @@ const draw = vi.hoisted(() => ({
   addResult: [{ id: 'restored', valid: true }] as Array<{ id?: string; valid: boolean }>,
   fitBounds: vi.fn(),
   setMode: vi.fn(),
+  mapHandlers: {} as Record<string, () => void>,
+  instances: [] as Array<{ stop: ReturnType<typeof vi.fn>; addFeatures: ReturnType<typeof vi.fn> }>,
+  stopThrows: false,
 }));
 
 vi.mock('@vis.gl/react-maplibre', () => ({
@@ -20,6 +23,9 @@ vi.mock('@vis.gl/react-maplibre', () => ({
     useEffect(() => {
       onLoad?.({
         target: {
+          on: (event: string, handler: () => void) => {
+            draw.mapHandlers[event] = handler;
+          },
           fitBounds: draw.fitBounds,
           getBounds: () => ({ getWest: () => -234.5, getSouth: () => -10.123456789012, getEast: () => 20, getNorth: () => 40 }),
         },
@@ -31,9 +37,13 @@ vi.mock('@vis.gl/react-maplibre', () => ({
 
 vi.mock('terra-draw', () => ({
   TerraDraw: vi.fn(function () {
-    return {
+    const instance = {
     start: vi.fn(),
-    stop: vi.fn(),
+    stop: vi.fn(() => {
+      if (draw.stopThrows) throw new Error('source gone');
+    }),
+    getMode: vi.fn(() => 'polygon'),
+    getSnapshot: vi.fn(() => [{ id: 'kept' }]),
     setMode: draw.setMode,
     on: vi.fn((event: string, handler: (id: string) => void) => {
       draw.handlers[event] = handler;
@@ -44,6 +54,8 @@ vi.mock('terra-draw', () => ({
       geometry: { type: 'Polygon', coordinates: [draw.ring] },
     })),
     };
+    draw.instances.push(instance as never);
+    return instance;
   }),
   TerraDrawRectangleMode: vi.fn(),
   TerraDrawPolygonMode: vi.fn(),
@@ -58,6 +70,26 @@ describe('SpatialFilterPanel drawing', () => {
     draw.addResult = [{ id: 'restored', valid: true }];
     draw.fitBounds.mockClear();
     draw.setMode.mockClear();
+    draw.instances = [];
+    draw.stopThrows = false;
+  });
+
+  it('rebuilds the drawing on the new style after a basemap swap, keeping the drawn area', () => {
+    render(<SpatialFilterPanel open onClose={vi.fn()} onApply={vi.fn()} />);
+    draw.stopThrows = true;
+
+    act(() => draw.mapHandlers['style.load']());
+
+    expect(draw.instances).toHaveLength(2);
+    expect(draw.instances[1].addFeatures).toHaveBeenCalledWith([{ id: 'kept' }]);
+    expect(draw.setMode).toHaveBeenLastCalledWith('polygon');
+  });
+
+  it('closes cleanly when Terra Draw cannot stop because its sources are gone', () => {
+    const { unmount } = render(<SpatialFilterPanel open onClose={vi.fn()} onApply={vi.fn()} />);
+    draw.stopThrows = true;
+
+    expect(() => unmount()).not.toThrow();
   });
 
   it('keeps the default click-then-click rectangle so dragging still pans, and says so', () => {
