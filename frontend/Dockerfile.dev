@@ -14,7 +14,9 @@ WORKDIR /app
 COPY --chown=node:node package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --prefer-offline && \
-    chown -R node:node /app/node_modules
+    sha256sum package-lock.json | cut -d' ' -f1 > node_modules/.package-lock.sha256 && \
+    cp -al node_modules /opt/geolens-node_modules && \
+    chown -R node:node /app/node_modules /opt/geolens-node_modules
 
 # Copy source as node user.
 COPY --chown=node:node . .
@@ -23,4 +25,5 @@ COPY --chown=node:node . .
 USER node
 
 EXPOSE 5173
+ENTRYPOINT ["sh", "/app/docker-dev-entrypoint.sh"]
 CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
