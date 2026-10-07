@@ -365,3 +365,12 @@ class TestScanRobustness:
         start = time.monotonic()
         assert _scan._looks_like_geojson(path, peek_bytes=64 * 1024) is False
         assert time.monotonic() - start < 2
+
+    def test_repeated_root_type_uses_the_last_value_like_a_full_parse(
+        self, tmp_path
+    ) -> None:
+        path = tmp_path / "dup.json"
+        path.write_text('{"type":"Feature","type":"config","pad":"' + "a" * 200)
+        assert _scan._looks_like_geojson(path, peek_bytes=96) is False
+        path.write_text('{"type":"config","type":"Feature","pad":"' + "a" * 200)
+        assert _scan._looks_like_geojson(path, peek_bytes=96) is True

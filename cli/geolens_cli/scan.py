@@ -258,14 +258,16 @@ def _decode_string(token: bytes) -> Optional[str]:
 
 
 def _root_type(head: bytes) -> Optional[str]:
-    """Return the root object's ``type`` string from a truncated prefix.
+    """Return the root object's last ``type`` string in a truncated prefix.
 
     Tokenizes strings and structural characters so a ``type`` nested deeper, or
     quoted inside a string value, is never mistaken for the root member. String
-    tokens are decoded with JSON semantics, so ``"ty\\u0070e"`` still matches.
+    tokens are decoded with JSON semantics, so ``"ty\\u0070e"`` still matches,
+    and a repeated member resolves to its last value as ``json.loads`` does.
     """
     depth = 0
     previous = b""
+    found: Optional[str] = None
     tokens = _JSON_TOKEN.finditer(head)
     for match in tokens:
         token = match.group()
@@ -274,16 +276,18 @@ def _root_type(head: bytes) -> Optional[str]:
         elif token in (b"}", b"]"):
             depth -= 1
             if depth <= 0:
-                return None
+                break
         elif token[:1] == b'"' and depth == 1 and previous in (b"{", b","):
             if _decode_string(token) == "type":
                 colon = next(tokens, None)
                 value = next(tokens, None)
                 if colon and colon.group() == b":" and value:
-                    return _decode_string(value.group())
-                return None
+                    found = _decode_string(value.group())
+                    previous = value.group()
+                    continue
+                break
         previous = token
-    return None
+    return found
 
 
 def _looks_like_geojson(path: Path, *, peek_bytes: int = 1 << 20) -> bool:
