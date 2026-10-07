@@ -16,11 +16,12 @@ if [ "$want" != "$have" ]; then
   # The image carries the dependencies it was built with, which works offline.
   baked="${BAKED_NODE_MODULES:-/opt/geolens-node_modules}"
   if [ "$(cat "$baked/.package-lock.sha256" 2>/dev/null || true)" = "$want" ]; then
-    cp -a "$baked/." node_modules/
+    find "$baked" -mindepth 1 -maxdepth 1 ! -name .package-lock.sha256 -exec cp -a {} node_modules/ \;
   else
     npm ci --prefer-offline
-    printf '%s\n' "$want" > "$stamp"
   fi
+  # The stamp marks a completed sync, so it is written last.
+  printf '%s\n' "$want" > "$stamp"
 fi
 
 exec "$@"
