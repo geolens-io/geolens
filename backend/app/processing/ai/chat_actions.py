@@ -305,6 +305,8 @@ async def _handle_query_data(
         "row_count": result.row_count,
         "truncated": result.truncated,
     }
+    if len(out["rows"]) < len(rows):
+        out["truncated"] = True
     if result.row_count == 0:
         out["note"] = (
             "No matching results found. The user may want to try different criteria."

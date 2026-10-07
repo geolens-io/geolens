@@ -163,6 +163,7 @@ ERROR_MESSAGES = {
     "query_at_capacity": "The server is running its maximum number of analysis previews. Try again in a moment.",
     "table_not_accessible": "You don't have access to one of the referenced datasets.",
     "invalid_query": "I couldn't generate a valid query for that. Try rephrasing your question.",
+    "result_too_large": "That result is too large to show. Try asking for fewer columns or rows.",
     "query_failed": "Something went wrong. Try rephrasing your question.",
 }
 

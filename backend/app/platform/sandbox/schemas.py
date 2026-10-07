@@ -15,6 +15,7 @@ class SandboxError(Exception):
         - table_not_accessible: Table not in user's RBAC allowlist
         - query_timeout: Query exceeded time limit
         - query_busy: Another query is already running for the caller
+        - result_too_large: A result row exceeds the result-byte cap
         - query_failed: Database execution error
     """
 

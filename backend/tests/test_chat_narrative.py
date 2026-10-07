@@ -122,6 +122,7 @@ def test_error_message_mapping():
         "query_at_capacity",
         "table_not_accessible",
         "invalid_query",
+        "result_too_large",
         "query_failed",
     }
     assert expected_categories == set(ERROR_MESSAGES.keys())
