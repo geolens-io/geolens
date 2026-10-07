@@ -5,16 +5,16 @@ import uuid
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import text
+from sqlalchemy import select, text
 
+from app.modules.catalog.datasets.domain.models import Record
 from app.processing.ai.schemas import LLMMapSpec
+from app.standards.stac.router import _apply_datetime_filter
 from tests.factories import create_dataset, get_user_id
 
 
 @pytest.mark.anyio
-async def test_stac_instant_filter_ignores_session_timezone(
-    client: AsyncClient, test_db_session
-):
+async def test_stac_instant_filter_ignores_session_timezone(test_db_session):
     admin_id = await get_user_id(test_db_session, "admin")
     ds = await create_dataset(
         test_db_session,
@@ -32,11 +32,10 @@ async def test_stac_instant_filter_ignores_session_timezone(
     await test_db_session.commit()
     # A New York session would read 2026-03-10 as 04:00 UTC and drop this record.
     await test_db_session.execute(text("SET TIME ZONE 'America/New_York'"))
-    resp = await client.get(
-        "/stac/search", params={"datetime": "2026-03-10T00:30:00Z", "ids": str(ds.id)}
+    stmt = _apply_datetime_filter(
+        select(Record.id).where(Record.id == ds.record_id), "2026-03-10T00:30:00Z"
     )
-    assert resp.status_code == 200, resp.text
-    assert [f["id"] for f in resp.json()["features"]] == [str(ds.id)]
+    assert (await test_db_session.execute(stmt)).scalar_one_or_none() == ds.record_id
 
 
 def test_generated_map_spec_is_clamped_to_save_bounds():

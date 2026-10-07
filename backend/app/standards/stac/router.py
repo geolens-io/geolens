@@ -11,7 +11,7 @@ import json
 import re
 import uuid
 from collections.abc import Sequence
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 from urllib.parse import urlencode
@@ -1780,8 +1780,7 @@ def _apply_datetime_filter(stmt, datetime_str: str):
     Malformed inputs raise HTTP 400 (was silently ignored before — that
     masked client mistakes).
     """
-    from app.modules.catalog.search.service import parse_ogc_datetime
-    from app.modules.catalog.search.service_filters import utc_midnight
+    from app.modules.catalog.search.service import parse_ogc_datetime, utc_midnight
 
     datetime_str = _validate_stac_datetime(datetime_str.strip())
     start, end = parse_ogc_datetime(datetime_str)
@@ -1807,10 +1806,7 @@ def _apply_datetime_filter(stmt, datetime_str: str):
                 # always within any end bound. Null-null uses created_at,
                 # day-inclusive on the end bound.
                 | (Record.temporal_start.is_(None) & Record.temporal_end.isnot(None))
-                | (
-                    null_temporal
-                    & (Record.created_at < utc_midnight(end + timedelta(days=1)))
-                )
+                | (null_temporal & (Record.created_at < utc_midnight(end, 1)))
             )
     elif start is not None:
         # Single instant (day-granular) — match records whose temporal range
@@ -1824,7 +1820,7 @@ def _apply_datetime_filter(stmt, datetime_str: str):
             | (
                 null_temporal
                 & (Record.created_at >= utc_midnight(start))
-                & (Record.created_at < utc_midnight(start + timedelta(days=1)))
+                & (Record.created_at < utc_midnight(start, 1))
             )
         )
     return stmt

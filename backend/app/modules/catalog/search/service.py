@@ -19,6 +19,7 @@ from app.modules.catalog.search.service_filters import (
     _apply_common_filters,
     _build_text_filter,
     parse_ogc_datetime,
+    utc_midnight,
 )
 from app.modules.catalog.search.record_metadata import (
     build_themes as _build_themes,
@@ -50,6 +51,7 @@ __all__ = [
     "build_assets",
     "dataset_to_ogc_record",
     "parse_ogc_datetime",
+    "utc_midnight",
     "consume_paired_query_claim",
     "record_paired_query_claim",
     "_build_text_filter",

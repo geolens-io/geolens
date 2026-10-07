@@ -223,13 +223,13 @@ def _build_text_filter(q: str):
     }
 
 
-def utc_midnight(day: date) -> datetime:
-    """Midnight UTC starting ``day``.
+def utc_midnight(day: date, days: int = 0) -> datetime:
+    """Midnight UTC starting ``day`` plus ``days``.
 
     timestamptz columns compared with a bare ``date`` bind use the database
     session's TimeZone, which shifts the day on non-UTC servers.
     """
-    return datetime.combine(day, time.min, tzinfo=timezone.utc)
+    return datetime.combine(day + timedelta(days=days), time.min, tzinfo=timezone.utc)
 
 
 def parse_ogc_datetime(datetime_str: str) -> tuple[date | None, date | None]:
@@ -324,7 +324,7 @@ def _apply_common_filters(stmt, filters: SearchFilters, *, skip_text: bool = Fal
                     ),
                     and_(
                         null_temporal,
-                        Record.created_at < utc_midnight(dt_end + timedelta(days=1)),
+                        Record.created_at < utc_midnight(dt_end, 1),
                     ),
                 )
             )

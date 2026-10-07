@@ -33,8 +33,6 @@ from app.platform.extensions import get_catalog_port, get_permission_extension
 
 logger = structlog.stdlib.get_logger(__name__)
 
-_UNDEFINED_COLUMN_SQLSTATE = "42703"
-
 __all__ = [
     "auto_detect_relationships",
     "create_relationship",
@@ -175,18 +173,17 @@ async def validate_relationship_columns(
 ) -> None:
     """Raise ``ValueError`` when a join column is missing from its table.
 
-    Endpoints without a backing table (rasters, VRTs) have no columns to
-    check and are left to the read path.
+    Endpoints without a backing table (rasters, VRTs) are left to the read path.
     """
-    for table, column, side in (
-        (source_table, rel.source_column, "source"),
-        (target_table, rel.target_column, "target"),
+    for table, column in (
+        (source_table, rel.source_column),
+        (target_table, rel.target_column),
     ):
-        if not table:
-            continue
-        columns = await get_catalog_port().get_column_info(session, table)
+        columns = (
+            await get_catalog_port().get_column_info(session, table) if table else []
+        )
         if columns and column not in {c["name"] for c in columns}:
-            raise ValueError(f"Column {column!r} not found in the {side} dataset")
+            raise ValueError(f"Column {column!r} not found in its dataset")
 
 
 async def create_relationship(
@@ -641,12 +638,7 @@ async def get_related_records(
         columns = await get_catalog_port().get_column_info(
             session, target_ds.table_name
         )
-    except (ProgrammingError, OperationalError) as exc:
-        if getattr(exc.orig, "sqlstate", None) == _UNDEFINED_COLUMN_SQLSTATE:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="A relationship column no longer exists in its dataset",
-            )
+    except (ProgrammingError, OperationalError):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="A related dataset table is temporarily unavailable",
