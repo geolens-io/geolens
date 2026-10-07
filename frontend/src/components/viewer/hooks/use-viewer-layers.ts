@@ -39,6 +39,16 @@ export function useViewerLayers(
   });
   const toggles = overrides.mapKey === mapKey ? overrides.toggles : EMPTY_TOGGLES;
 
+  // Drop toggles for layers that left the list, so one that comes back
+  // starts from its saved visibility again.
+  const hasStaleToggle = [...toggles.keys()].some((key) => !layerEntries.some((entry) => entry.key === key));
+  if (hasStaleToggle) {
+    setOverrides({
+      mapKey,
+      toggles: new Map([...toggles].filter(([key]) => layerEntries.some((entry) => entry.key === key))),
+    });
+  }
+
   const visibleLayers = useMemo(
     () =>
       new Set(

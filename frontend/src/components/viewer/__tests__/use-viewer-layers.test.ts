@@ -76,5 +76,7 @@ describe('useViewerLayers', () => {
     expect(result.current.visibleLayers).toEqual(new Set(['l2']));
     rerender({ layers: [layer({ id: 'l2' })] });
     expect(result.current.visibleLayers).toEqual(new Set(['l2']));
+    rerender({ layers: [layer({ id: 'l1' }), layer({ id: 'l2' })] });
+    expect(result.current.visibleLayers).toEqual(new Set(['l1', 'l2']));
   });
 });
