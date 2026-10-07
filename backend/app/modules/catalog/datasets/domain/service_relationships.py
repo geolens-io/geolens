@@ -182,7 +182,7 @@ async def validate_relationship_columns(
         columns = (
             await get_catalog_port().get_column_info(session, table) if table else []
         )
-        if columns and column not in {c["name"] for c in columns}:
+        if columns and column not in {"gid", *(c["name"] for c in columns)}:
             raise ValueError(f"Column {column!r} not found in its dataset")
 
 

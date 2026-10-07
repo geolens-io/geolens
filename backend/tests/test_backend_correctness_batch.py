@@ -80,7 +80,7 @@ async def test_relationship_with_unknown_column_is_rejected(
 
     assert (await post("nope", "k")).status_code == 422
     assert (await post("k", "nope")).status_code == 422
-    assert (await post("k", "k")).status_code == 201
+    assert (await post("k", "gid")).status_code == 201
 
 
 @pytest.mark.anyio
@@ -112,3 +112,23 @@ async def test_admin_can_clear_user_email(
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["email"] is None
+
+
+@pytest.mark.anyio
+async def test_date_to_includes_the_whole_utc_day(client: AsyncClient, test_db_session):
+    admin_id = await get_user_id(test_db_session, "admin")
+    ds = await create_dataset(test_db_session, created_by=admin_id, name="Date To")
+    await test_db_session.execute(
+        text(
+            "UPDATE catalog.records SET created_at = '2026-03-10 15:00:00+00' "
+            "WHERE id = :rid"
+        ),
+        {"rid": ds.record_id},
+    )
+    await test_db_session.commit()
+    resp = await client.get(
+        "/search/datasets/",
+        params={"date_to": "2026-03-10", "date_from": "2026-03-10", "limit": 100},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["numberMatched"] >= 1
