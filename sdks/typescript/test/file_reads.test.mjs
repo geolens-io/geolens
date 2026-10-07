@@ -14,6 +14,8 @@ import {
   getTilesetFileDatasetsDatasetIdTiles3dPathGet,
   exportDatasetEndpointDatasetsDatasetIdExportGet,
   getPointcloudFileDatasetsDatasetIdCopcAttemptIdNameCopcLazGet,
+  exportUsersCsvAdminUsersExportCsvGet,
+  exportAuditLogsAdminAuditLogsExportFormatGet,
 } from '../dist/client/sdk.gen.js';
 
 const BASE_URL = 'https://example.test';
@@ -147,4 +149,28 @@ test('a 200 on a file route reports modified, with a Blob', async () => {
   assert.equal(result.error, undefined);
   assert.ok(result.data instanceof Blob, 'expected a Blob, got ' + typeof result.data);
   assert.ok(!notModified(result), 'notModified() must be false for a fresh download');
+});
+
+test('the admin user CSV and audit exports parse as a Blob', async () => {
+  const sdk = createGeolensClient({ baseUrl: BASE_URL });
+  const csv = 'id,name\n1,a\n';
+  sdk.client.setConfig({
+    fetch: mockFetch(() => new Response(csv, { headers: { 'Content-Type': 'text/csv' } })),
+  });
+  const users = await exportUsersCsvAdminUsersExportCsvGet({ client: sdk.client });
+  assert.ok(users.data instanceof Blob, 'expected a Blob, got ' + typeof users.data);
+  assert.equal(await blobText(users.data), csv);
+
+  const json = '[{"id": 1}]';
+  sdk.client.setConfig({
+    fetch: mockFetch(
+      () => new Response(json, { headers: { 'Content-Type': 'application/json' } }),
+    ),
+  });
+  const audit = await exportAuditLogsAdminAuditLogsExportFormatGet({
+    client: sdk.client,
+    path: { format: 'json' },
+  });
+  assert.ok(audit.data instanceof Blob, 'expected a Blob, got ' + typeof audit.data);
+  assert.equal(await blobText(audit.data), json);
 });

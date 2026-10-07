@@ -41835,6 +41835,7 @@ export interface operations {
                 content: {
                     "image/jpeg": string;
                     "image/png": string;
+                    "image/tiff": string;
                     "image/webp": string;
                 };
             };

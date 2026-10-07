@@ -61195,6 +61195,12 @@
                   "type": "string"
                 }
               },
+              "image/tiff": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
               "image/webp": {
                 "schema": {
                   "format": "binary",

@@ -986,7 +986,11 @@ async def raster_auth_check(
     response_class=Response,
     responses={
         200: binary_response(
-            "The raster tile image", "image/png", "image/jpeg", "image/webp"
+            "The raster tile image",
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+            "image/tiff",
         )
     },
 )
