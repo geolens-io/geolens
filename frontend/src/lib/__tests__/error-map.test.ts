@@ -1,4 +1,5 @@
 import {
+  ambiguousWorkflowDenial,
   classifyApiError,
   describeUploadRefusal,
   translateApiErrorDetail,
@@ -82,6 +83,15 @@ describe('API error localization boundary', () => {
       key: 'errors.workflowTransitionDeniedNoneAllowed',
       values: { from: 'pending\nreview', to: 'published' },
     });
+  });
+
+  it("returns the server's text when a stage name holds the edge delimiter", () => {
+    const detail = "Cannot transition from 'a' to 'b' to 'published'. Allowed: {'draft'}";
+    expect(ambiguousWorkflowDenial(detail)).toBe(detail);
+    expect(classifyApiError(detail, 422)).toEqual({ key: 'errors.validationFailed' });
+    expect(
+      ambiguousWorkflowDenial("Cannot transition from 'draft' to 'published'. Allowed: {'ready'}"),
+    ).toBeUndefined();
   });
 
   it('says so when no workflow step is open to the caller', () => {

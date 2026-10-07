@@ -310,6 +310,26 @@ function pythonEscape(
   return PYTHON_SIMPLE_ESCAPES[char ?? ''] ?? char ?? '';
 }
 
+const WORKFLOW_DENIED_PATTERN =
+  /^Cannot transition from '([\s\S]+?)' to '([\s\S]+?)'\. Allowed: (?:set\(\)|\{([\s\S]*)\})$/;
+const WORKFLOW_EDGE_DELIMITER = "' to '";
+
+// A stage name holding the delimiter text splits the edge in more than one way.
+function isAmbiguousWorkflowEdge(match: RegExpMatchArray): boolean {
+  return match[2].includes(WORKFLOW_EDGE_DELIMITER);
+}
+
+/**
+ * The server's own text for a workflow refusal whose stage names can't be
+ * told apart from its delimiters, so a localized template would misname the
+ * transition. Undefined for any other detail.
+ */
+export function ambiguousWorkflowDenial(detail: unknown): string | undefined {
+  if (typeof detail !== 'string') return undefined;
+  const match = detail.match(WORKFLOW_DENIED_PATTERN);
+  return match && isAmbiguousWorkflowEdge(match) ? detail : undefined;
+}
+
 function descriptorForMessage(message: string, status: number): ApiErrorDescriptor {
   const exactKey = EXACT_ERROR_KEYS[message.trim()];
   if (exactKey) return { key: exactKey };
@@ -447,10 +467,8 @@ function descriptorForMessage(message: string, status: number): ApiErrorDescript
   // unordered, quoted with double quotes when a name holds an apostrophe and
   // backslash-escaped when it holds both, and
   // `set()` when nothing is open to the caller.
-  const workflowDenied = message.match(
-    /^Cannot transition from '([\s\S]+?)' to '([\s\S]+?)'\. Allowed: (?:set\(\)|\{([\s\S]*)\})$/,
-  );
-  if (workflowDenied) {
+  const workflowDenied = message.match(WORKFLOW_DENIED_PATTERN);
+  if (workflowDenied && !isAmbiguousWorkflowEdge(workflowDenied)) {
     const allowed = [...(workflowDenied[3] ?? '').matchAll(/'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)"/g)]
       .map((m) => (m[1] ?? m[2]).replace(PYTHON_ESCAPE, pythonEscape))
       .sort();
