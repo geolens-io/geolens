@@ -58,15 +58,13 @@ async def test_relationship_with_unknown_column_is_rejected(
     client: AsyncClient, admin_auth_header: dict, test_db_session
 ):
     admin_id = await get_user_id(test_db_session, "admin")
-    source = await create_dataset(test_db_session, created_by=admin_id, name="Rel Src")
-    target = await create_dataset(test_db_session, created_by=admin_id, name="Rel Tgt")
-    for ds in (source, target):
-        await test_db_session.execute(
-            text(
-                f"CREATE TABLE data.{ds.table_name} (gid integer PRIMARY KEY, k integer)"
-            )
-        )
-    await test_db_session.commit()
+    columns = [{"name": "k", "type": "integer"}]
+    source = await create_dataset(
+        test_db_session, created_by=admin_id, name="Rel Src", column_info=columns
+    )
+    target = await create_dataset(
+        test_db_session, created_by=admin_id, name="Rel Tgt", column_info=columns
+    )
 
     async def post(source_column: str, target_column: str):
         return await client.post(
@@ -83,15 +81,11 @@ async def test_relationship_with_unknown_column_is_rejected(
     assert (await post("k", "nope")).status_code == 422
     assert (await post("k", "gid")).status_code == 201
 
-    only_internal = await create_dataset(
-        test_db_session, created_by=admin_id, name="Rel Internal"
+    empty = await create_dataset(
+        test_db_session, created_by=admin_id, name="Rel Empty", column_info=[]
     )
-    await test_db_session.execute(
-        text(f"CREATE TABLE data.{only_internal.table_name} (gid integer PRIMARY KEY)")
-    )
-    await test_db_session.commit()
     resp = await client.post(
-        f"/datasets/{only_internal.id}/relationships/",
+        f"/datasets/{empty.id}/relationships/",
         json={
             "target_dataset_id": str(target.record_id),
             "source_column": "missing",

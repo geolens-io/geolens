@@ -485,9 +485,7 @@ async def create_dataset_relationship(
     # catalog.records.id) regardless of which id form the client supplied.
     body = body.model_copy(update={"target_dataset_id": target_dataset.record_id})
     try:
-        await validate_relationship_columns(
-            db, dataset.table_name, target_dataset.table_name, body
-        )
+        validate_relationship_columns(dataset, target_dataset, body)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)

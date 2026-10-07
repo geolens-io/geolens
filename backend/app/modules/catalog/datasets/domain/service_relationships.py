@@ -165,26 +165,15 @@ async def get_related_datasets(
         return []
 
 
-async def validate_relationship_columns(
-    session: AsyncSession,
-    source_table: str | None,
-    target_table: str | None,
-    rel: "DatasetRelationshipCreate",
+def validate_relationship_columns(
+    source: Dataset, target: Dataset, rel: "DatasetRelationshipCreate"
 ) -> None:
-    """Raise ``ValueError`` for a join column missing from an existing table."""
-    for table, column in (
-        (source_table, rel.source_column),
-        (target_table, rel.target_column),
-    ):
-        if not table:
-            continue
-        columns = await get_catalog_port().get_column_info(session, table)
-        exists = columns or await session.scalar(
-            text("SELECT 1 FROM information_schema.tables WHERE table_name = :n"),
-            {"n": table},
-        )
-        if exists and column not in {"gid", *(c["name"] for c in columns)}:
-            raise ValueError(f"Column {column!r} not found in its dataset")
+    """Raise ``ValueError`` for a join column absent from a dataset's stored schema."""
+    for dataset, column in ((source, rel.source_column), (target, rel.target_column)):
+        if dataset.column_info is not None:
+            known = {"gid", *(c["name"] for c in dataset.column_info)}
+            if column not in known:
+                raise ValueError(f"Column {column!r} not found in its dataset")
 
 
 async def create_relationship(
