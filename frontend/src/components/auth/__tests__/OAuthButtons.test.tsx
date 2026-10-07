@@ -11,8 +11,30 @@ vi.mock('@/api/auth', () => ({
   awaitPendingLogout: () => mockAwaitPendingLogout(),
 }));
 
+let mockIsEnterprise = false;
+vi.mock('@/hooks/use-edition', () => ({
+  useEdition: () => ({ isEnterprise: mockIsEnterprise }),
+}));
+
+async function clickAndCaptureHref(button: HTMLElement): Promise<string[]> {
+  const hrefs: string[] = [];
+  const original = Object.getOwnPropertyDescriptor(window, 'location');
+  Object.defineProperty(window, 'location', {
+    configurable: true,
+    value: { ...window.location, set href(v: string) { hrefs.push(v); } },
+  });
+  try {
+    await userEvent.click(button);
+    await waitFor(() => expect(hrefs).toHaveLength(1));
+  } finally {
+    if (original) Object.defineProperty(window, 'location', original);
+  }
+  return hrefs;
+}
+
 describe('OAuthButtons', () => {
   beforeEach(() => {
+    mockIsEnterprise = false;
     mockAwaitPendingLogout.mockReset();
     mockAwaitPendingLogout.mockResolvedValue(undefined);
   });
@@ -102,5 +124,34 @@ describe('OAuthButtons', () => {
       expect(button).toHaveAttribute('aria-label');
       expect(button.querySelector('span')).not.toBeInTheDocument();
     }
+  });
+
+  it('sends SAML providers to the SAML login route and OIDC providers to the OAuth route', async () => {
+    mockIsEnterprise = true;
+    const { getOAuthProviders } = await import('@/api/auth');
+    (getOAuthProviders as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      { slug: 'corp-saml', display_name: 'Corp SSO', provider_type: 'saml' },
+      { slug: 'corp-oidc', display_name: 'Corp OIDC', provider_type: 'oidc' },
+    ]);
+
+    render(<OAuthButtons />);
+
+    const saml = await screen.findByRole('button', { name: /corp sso/i });
+    const oidc = await screen.findByRole('button', { name: /corp oidc/i });
+    expect(await clickAndCaptureHref(saml)).toEqual(['/api/auth/saml/corp-saml/login']);
+    expect(await clickAndCaptureHref(oidc)).toEqual(['/api/auth/oauth/corp-oidc/login']);
+  });
+
+  it('hides SAML providers when the runtime is not Enterprise', async () => {
+    const { getOAuthProviders } = await import('@/api/auth');
+    (getOAuthProviders as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      { slug: 'corp-saml', display_name: 'Corp SSO', provider_type: 'saml' },
+      { slug: 'corp-oidc', display_name: 'Corp OIDC', provider_type: 'oidc' },
+    ]);
+
+    render(<OAuthButtons />);
+
+    await screen.findByRole('button', { name: /corp oidc/i });
+    expect(screen.queryByRole('button', { name: /corp sso/i })).not.toBeInTheDocument();
   });
 });

@@ -221,6 +221,13 @@ async def build_oauth_client(provider_slug: str, db: AsyncSession) -> tuple:
             status_code=status.HTTP_404_NOT_FOUND,
             detail="OAuth provider not found or not enabled",
         )
+    # SAML rows share the table but have no OAuth endpoints to build a client
+    # from; their sign-in entry point is the overlay's /auth/saml/{slug}/login.
+    if provider.provider_type == "saml":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="OAuth provider not found or not enabled",
+        )
 
     # Validate every persisted endpoint before decrypting the client secret,
     # covering legacy rows and CRUD/config-import writes. fix(#1861): covers
