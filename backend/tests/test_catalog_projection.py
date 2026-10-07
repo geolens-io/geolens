@@ -284,6 +284,7 @@ async def test_an_empty_generic_column_keeps_the_stored_type_or_says_geometry(
             ["POLYGON((0 0, 1 0, 1 1, 0 0))", "MULTIPOLYGON(((2 2, 3 2, 3 3, 2 2)))"],
             "POLYGON",
         ),
+        (["POINT EMPTY", "LINESTRING(0 0, 1 1)"], "LINESTRING"),
     ],
 )
 async def test_a_generic_column_is_cataloged_by_all_its_rows_not_the_first(
