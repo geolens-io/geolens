@@ -1608,6 +1608,7 @@ jobs:
         run: |
           mapfile -t FILES < <(python3 ../scripts/ci_backend_shards.py "$SHARD_COUNT" "${{ matrix.shard }}")
           uv run pytest -n 4 -v --tb=short --durations=25 -m 'not perf' \
+            --junitxml="junit-shard-${{ matrix.shard }}.xml" \
             --cov=app --cov-report= --cov-fail-under=0 "${FILES[@]}"
 
       - name: Verify SAML fixtures unchanged after pytest
@@ -1635,6 +1636,17 @@ jobs:
             backend/collected-shard-${{ matrix.shard }}.txt
           if-no-files-found: error
           retention-days: 1
+
+      - name: Upload shard test timings
+        # scripts/ci_backend_shards.py --timings reads these to refresh the
+        # per-file durations it balances the shards with.
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        with:
+          name: backend-junit-shard-${{ matrix.shard }}
+          path: backend/junit-shard-${{ matrix.shard }}.xml
+          if-no-files-found: warn
+          retention-days: 14
 
       # fix(#1633): the gpkg byte-determinism gate
       # (test_export_artifact_cache_1532.py::test_every_export_format_is_byte_deterministic)
@@ -2697,19 +2709,19 @@ jobs:
     # preserves the push gate: don't run the expensive a11y suite if an upstream
     # lint/test failed.
     #
-    # fix(#1096): merge_group added, and this job joined ci-ok's needs. Before,
-    # axe ran ONLY on a push that had already happened, and gated nothing even
-    # then, because it was absent from the aggregator. An a11y regression landed
-    # on main and painted it red with no owner. In the queue it now runs against
-    # the candidate merge and a failure keeps it out. Costs ~4.7 min on the
-    # critical path, measured, and only after backend-test's 27.5.
+    # This job gates ci-ok, so in the queue it runs against the candidate merge
+    # and a failure keeps it out. It needs only the lints and the security scan
+    # (a few minutes), not the test suites: the browser suite does not depend
+    # on them, and waiting for the slowest backend shard put ~8 min of a11y on
+    # the critical path after ~18 min of pytest. Now it runs alongside the
+    # shards and finishes before they do.
     if: >-
       always()
       && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group')
       && !contains(needs.*.result, 'failure')
       && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-26.04
-    needs: [backend-lint, backend-test, frontend-lint, frontend-test, security-scan]
+    needs: [backend-lint, frontend-lint, security-scan]
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -2894,17 +2906,16 @@ jobs:
     # push(main), evaluate on schedule/dispatch despite skipped needs, and stay
     # off PRs (per-PR Actions budget = 0).
     #
-    # fix(#1096): merge_group added here too, same reasoning. STAC conformance
-    # is a public API contract, and it previously could not block the commit
-    # that broke it. ~2.7 min, in parallel with axe, so it adds nothing to the
-    # critical path beyond what axe already costs.
+    # STAC conformance is a public API contract, so it gates ci-ok in the queue
+    # like the accessibility job above, with the same needs: lints and the
+    # security scan only, so it runs alongside the test shards.
     if: >-
       always()
       && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group')
       && !contains(needs.*.result, 'failure')
       && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-26.04
-    needs: [backend-lint, backend-test, frontend-lint, frontend-test, security-scan]
+    needs: [backend-lint, frontend-lint, security-scan]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1

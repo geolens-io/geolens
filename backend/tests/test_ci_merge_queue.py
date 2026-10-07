@@ -156,8 +156,7 @@ def _satisfied_by_merge_group_alone(part: str) -> bool:
     ``_runs_on_merge_group``. The safety argument is specific: a status guard
     is not an event gate. It can only be false when a job in this one's
     ``needs`` failed or was cancelled, and every such job (backend-lint,
-    backend-test, frontend-lint, frontend-test, security-scan) is itself a
-    ci-ok dependency. So the case where this conjunct suppresses the job is
+    frontend-lint, security-scan) is itself a ci-ok dependency. So the case where this conjunct suppresses the job is
     exactly the case where ci-ok is already failing for another reason, and the
     skip cannot manufacture a false all-clear. That is the property this file
     protects; anything else conjoined in still returns False.
