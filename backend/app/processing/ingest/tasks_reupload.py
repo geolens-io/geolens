@@ -235,7 +235,39 @@ async def _hold_live_table(session, dataset, *, schema: str) -> None:
             "is_3d",
             "n_dims",
             "current_version",
+            "data_revision",
         ],
+    )
+
+
+async def _data_revision_baseline(
+    session, *, job_id: uuid.UUID, dataset_id, accepted_run_id
+) -> int | None:
+    """The live data revision this attempt's replacement is compared with.
+
+    Its own run's. An acceptance keeps the one the accepted run compared
+    with, so the writes that run was held over are the ones it covers.
+    """
+    from app.platform.refresh.models import DatasetRefreshRun
+
+    if accepted_run_id is not None:
+        verification = await session.scalar(
+            select(DatasetRefreshRun.verification).where(
+                DatasetRefreshRun.id == uuid.UUID(str(accepted_run_id)),
+                DatasetRefreshRun.dataset_id == dataset_id,
+            )
+        )
+        baseline = (
+            verification.get("data_revision_baseline")
+            if isinstance(verification, dict)
+            else None
+        )
+        if isinstance(baseline, int) and not isinstance(baseline, bool):
+            return baseline
+    return await session.scalar(
+        select(DatasetRefreshRun.data_revision_baseline).where(
+            DatasetRefreshRun.ingest_job_id == job_id
+        )
     )
 
 
@@ -532,6 +564,13 @@ class _FileReupload:
             reviewed_fingerprint=self.reviewed_fingerprint,
             accepted_fingerprint=self.accepted_fingerprint,
             accepted_run_id=self.accepted_run_id,
+            data_revision_baseline=await _data_revision_baseline(
+                session,
+                job_id=uuid.UUID(self.job_id),
+                dataset_id=dataset.id,
+                accepted_run_id=self.accepted_run_id,
+            ),
+            data_revision=dataset.data_revision,
         )
         # What an acceptance of this run must still find live.
         self.verification["live_version"] = dataset.current_version
@@ -1035,6 +1074,29 @@ async def _enforce_refresh_publication_fence(
         )
 
 
+async def _refuse_over_live_writes(session, *, job_id: uuid.UUID, dataset) -> None:
+    """Refuse a replacement that has no review step when the live table was
+    written after it was admitted.
+
+    Called after ``install``, whose rename holds the live table, so no write
+    can land after this read.
+    """
+    current = await session.scalar(
+        select(dataset.__class__.data_revision).where(
+            dataset.__class__.id == dataset.id
+        )
+    )
+    baseline = await _data_revision_baseline(
+        session, job_id=job_id, dataset_id=dataset.id, accepted_run_id=None
+    )
+    if refresh_policy.live_data_revision(baseline, current) is not None:
+        raise RefreshPublicationFenceError(
+            "live_data_changed",
+            "Features were edited while this re-upload ran, so nothing was "
+            "replaced. Re-upload again to replace them.",
+        )
+
+
 async def _stage_service_table(
     session, job, dataset, *, table: str, schema: str
 ) -> StagingResult:
@@ -1311,6 +1373,13 @@ class _ServiceReupload:
             staged=self.staged_contract,
             accepted_fingerprint=self.accepted_fingerprint,
             accepted_run_id=self.accepted_run_id,
+            data_revision_baseline=await _data_revision_baseline(
+                session,
+                job_id=self.job_uuid,
+                dataset_id=dataset.id,
+                accepted_run_id=self.accepted_run_id,
+            ),
+            data_revision=dataset.data_revision,
         )
         if self.verification["decision"] == "allowed":
             return PUBLISH
@@ -1377,6 +1446,10 @@ class _ServiceReupload:
             dataset=dataset,
             verification=self.verification,
         )
+        if not self.is_refresh:
+            await _refuse_over_live_writes(
+                session, job_id=self.job_uuid, dataset=dataset
+            )
         source_binding_layer = service_layer_identity(
             self.source_format,
             layer_id=self.layer_id,

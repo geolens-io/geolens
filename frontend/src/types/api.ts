@@ -1048,7 +1048,8 @@ export type ReviewReason =
   | 'srid_changed'
   | 'coordinate_dimension_reduced'
   | 'arcgis_id_coverage_unavailable'
-  | 'arcgis_source_membership_changed';
+  | 'arcgis_source_membership_changed'
+  | 'live_data_changed';
 
 export interface ReuploadPreviewResponse {
   job_id: string;

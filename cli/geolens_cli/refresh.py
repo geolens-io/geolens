@@ -66,6 +66,10 @@ REVIEW_REASON_SENTENCES: dict[str, str] = {
     "destructive_schema_change": "Columns would be removed or change type.",
     "empty_result": "The replacement has no rows but the dataset does.",
     "geometry_type_changed": "The geometry type changes.",
+    "live_data_changed": (
+        "Features were edited while the replacement ran; publishing it would "
+        "discard those edits."
+    ),
     "source_count_unavailable": "The source did not report a row count to compare against.",
     "srid_changed": "The coordinate reference system (SRID) changes.",
 }

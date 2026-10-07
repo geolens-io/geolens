@@ -868,6 +868,7 @@ ReviewReason = Literal[
     "coordinate_dimension_reduced",
     "arcgis_id_coverage_unavailable",
     "arcgis_source_membership_changed",
+    "live_data_changed",
 ]
 
 
@@ -1635,7 +1636,9 @@ class RefreshVerification(BaseModel):
             "fetch the same data again. A file replacement fingerprints only "
             "its review reasons, removed columns, type changes and, for a "
             "geometry reason, the geometry facts, which is what its preview "
-            "shows."
+            "shows. Either one, held because features were edited while it "
+            "ran, also names the edits it found, so accepting it does not "
+            "cover a later edit."
         )
     )
     review_acknowledged_by: Literal["preview", "accepted_run"] | None = Field(

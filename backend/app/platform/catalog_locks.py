@@ -345,6 +345,34 @@ async def bump_tile_cache_version_on(session: AsyncSession, dataset: Any) -> int
     return version
 
 
+async def record_live_data_write(session: AsyncSession, dataset: Any) -> int | None:
+    """Roll ``data_revision`` and ``tile_cache_version`` for a live-table write.
+
+    For a write to the rows or columns of a loaded ``Dataset``'s live table, in
+    the write's transaction. One UPDATE, evaluated at write time like
+    :func:`bump_tile_cache_version_atomic`. Returns the new tile cache version,
+    set on the instance without marking it dirty; None when the row is gone.
+    """
+    cls = type(dataset)
+    row = (
+        await session.execute(
+            update(cls)
+            .where(cls.id == dataset.id)
+            .values(
+                tile_cache_version=func.coalesce(cls.tile_cache_version, 1) + 1,
+                data_revision=cls.data_revision + 1,
+            )
+            .returning(cls.tile_cache_version, cls.data_revision)
+            .execution_options(synchronize_session=False)
+        )
+    ).one_or_none()
+    if row is None:
+        return None
+    set_committed_value(dataset, "tile_cache_version", row.tile_cache_version)
+    set_committed_value(dataset, "data_revision", row.data_revision)
+    return row.tile_cache_version
+
+
 def vrt_admission_lock_key(dataset_id: uuid.UUID) -> int:
     """The advisory-lock key a dataset's VRT mutations serialise on."""
     return dataset_id.int % (2**63)

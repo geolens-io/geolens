@@ -954,7 +954,8 @@
           "srid_changed": "Los nuevos datos cambian el sistema de coordenadas.",
           "coordinate_dimension_reduced": "Los nuevos datos eliminan dimensiones de coordenadas, como la elevación.",
           "arcgis_id_coverage_unavailable": "GeoLens no pudo verificar la cobertura de identificadores de objeto de ArcGIS.",
-          "arcgis_source_membership_changed": "La fuente de ArcGIS cambió mientras se ejecutaba esta actualización."
+          "arcgis_source_membership_changed": "La fuente de ArcGIS cambió mientras se ejecutaba esta actualización.",
+          "live_data_changed": "Se editaron entidades mientras se ejecutaba este reemplazo. Publicarlo descartaría esas ediciones."
         },
         "reviewAndRetry": "Revisar y reintentar",
         "loadMore": "Cargar ejecuciones anteriores"

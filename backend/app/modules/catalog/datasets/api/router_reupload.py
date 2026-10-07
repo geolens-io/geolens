@@ -16,7 +16,8 @@ from fastapi import (
     UploadFile,
     status,
 )
-from sqlalchemy import select, update
+from sqlalchemy import func, select, text, update
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.failure_reason import redact_failure_reason
@@ -214,6 +215,16 @@ def _pending_reupload_update(job_id: uuid.UUID, dataset_id: uuid.UUID):
         IngestJob.dataset_id == dataset_id,
         IngestJob.status == "pending",
     )
+
+
+# The dataset's data revision when the person last previewed the replacement,
+# so the commit compares edits made since what they saw.
+_PREVIEW_DATA_REVISION = "preview_data_revision"
+
+
+def _preview_data_revision(metadata: dict) -> int | None:
+    revision = metadata.get(_PREVIEW_DATA_REVISION)
+    return revision if type(revision) is int else None
 
 
 def _reupload_bind_refusal() -> HTTPException:
@@ -506,6 +517,7 @@ async def reupload_service_preview(
     # facts the diff needs and the job's owner are read off them first.
     prior_columns = dataset.column_info or []
     prior_feature_count = dataset.feature_count
+    prior_data_revision = dataset.data_revision
     user_id = user.id
     await db.rollback()
 
@@ -573,6 +585,7 @@ async def reupload_service_preview(
             "layer_id": request.layer_id,
             "source_type": "service_url",
             "object_id_field": request.object_id_field,
+            _PREVIEW_DATA_REVISION: prior_data_revision,
         },
     )
     await db.flush()
@@ -669,6 +682,7 @@ async def reupload_preview(
     prior_geometry_type = dataset.geometry_type
     prior_table_name = dataset.table_name
     prior_geometry = (dataset.srid, dataset.is_3d, dataset.n_dims)
+    prior_data_revision = dataset.data_revision
     await db.rollback()
 
     # Resolve S3 key to local file for ogrinfo
@@ -791,6 +805,16 @@ async def reupload_preview(
     )
     prior_job = prior_result.scalar_one_or_none()
     previous_source_layer = prior_job.source_layer if prior_job else None
+    await db.execute(
+        _pending_reupload_update(job_pk, dataset_id).values(
+            user_metadata=func.coalesce(
+                IngestJob.user_metadata, text("'{}'::jsonb")
+            ).op("||", return_type=JSONB)(
+                func.jsonb_build_object(_PREVIEW_DATA_REVISION, prior_data_revision)
+            )
+        )
+    )
+    await db.commit()
 
     return ReuploadPreviewResponse(
         job_id=job_pk,
@@ -1075,6 +1099,7 @@ async def reupload_commit(
     # is a durable JSONB column and this model_dump is a whitelist by
     # omission, so a nested credential object would land in it in full.
     existing_meta = dict(job.user_metadata or {})
+    previewed_revision = _preview_data_revision(existing_meta)
     existing_meta.update(
         request.model_dump(exclude_none=True, exclude={"token", "auth", "layer_name"})
     )
@@ -1109,6 +1134,7 @@ async def reupload_commit(
             triggered_by=user.id,
             ingest_job_id=job.id,
             feature_count_before=dataset.feature_count,
+            data_revision_baseline=previewed_revision,
         )
     except DatasetBusyError as exc:
         # Nothing this request wrote is committed, so the job row it merged

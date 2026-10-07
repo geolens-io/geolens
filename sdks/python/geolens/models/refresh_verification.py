@@ -64,7 +64,8 @@ class RefreshVerification:
         review_fingerprint (None | str): Identifies what a blocked run asks a person to accept. A service refresh
             fingerprints all of its evidence, so its acceptance must fetch the same data again. A file replacement
             fingerprints only its review reasons, removed columns, type changes and, for a geometry reason, the geometry
-            facts, which is what its preview shows.
+            facts, which is what its preview shows. Either one, held because features were edited while it ran, also names
+            the edits it found, so accepting it does not cover a later edit.
         accepted_blocked_run_id (None | UUID):
         source_binding_fingerprint (None | str | Unset):
         content_digest (None | str | Unset):

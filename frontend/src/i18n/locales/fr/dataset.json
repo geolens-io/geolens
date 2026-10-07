@@ -954,7 +954,8 @@
           "srid_changed": "Les nouvelles données modifient le système de coordonnées.",
           "coordinate_dimension_reduced": "Les nouvelles données suppriment des dimensions de coordonnées, comme l’altitude.",
           "arcgis_id_coverage_unavailable": "GeoLens n’a pas pu vérifier la couverture des identifiants d’objet ArcGIS.",
-          "arcgis_source_membership_changed": "La source ArcGIS a changé pendant cette actualisation."
+          "arcgis_source_membership_changed": "La source ArcGIS a changé pendant cette actualisation.",
+          "live_data_changed": "Des entités ont été modifiées pendant ce remplacement. Le publier supprimerait ces modifications."
         },
         "reviewAndRetry": "Examiner et relancer",
         "loadMore": "Charger les exécutions précédentes"

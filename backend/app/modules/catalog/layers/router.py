@@ -36,7 +36,7 @@ from app.modules.catalog.layers.service import (
     rename_column,
 )
 from app.platform.cache.provider import get_tile_cache
-from app.platform.catalog_locks import bump_tile_cache_version_on
+from app.platform.catalog_locks import record_live_data_write
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
 
@@ -197,9 +197,7 @@ async def add_column_endpoint(
             },
         ),
     )
-    # fix(#1902): evaluated at write time, so a counter read before the lock
-    # wait is never written back over a peer's commit.
-    await bump_tile_cache_version_on(db, dataset)
+    await record_live_data_write(db, dataset)
     await db.commit()
     await _invalidate_tiles(dataset.table_name)
 
@@ -257,9 +255,7 @@ async def rename_column_endpoint(
             details={"old_name": column_name, "new_name": body.new_name},
         ),
     )
-    # fix(#1902): evaluated at write time, so a counter read before the lock
-    # wait is never written back over a peer's commit.
-    await bump_tile_cache_version_on(db, dataset)
+    await record_live_data_write(db, dataset)
     await db.commit()
     await _invalidate_tiles(dataset.table_name)
     return ColumnListResponse(columns=columns)
@@ -323,9 +319,7 @@ async def alter_column_type_endpoint(
             details={"column_name": column_name, "new_type": body.new_type},
         ),
     )
-    # fix(#1902): evaluated at write time, so a counter read before the lock
-    # wait is never written back over a peer's commit.
-    await bump_tile_cache_version_on(db, dataset)
+    await record_live_data_write(db, dataset)
     await db.commit()
     await _invalidate_tiles(dataset.table_name)
     return ColumnListResponse(columns=columns)
@@ -380,9 +374,7 @@ async def drop_column_endpoint(
             details={"column_name": column_name},
         ),
     )
-    # fix(#1902): evaluated at write time, so a counter read before the lock
-    # wait is never written back over a peer's commit.
-    await bump_tile_cache_version_on(db, dataset)
+    await record_live_data_write(db, dataset)
     await db.commit()
     await _invalidate_tiles(dataset.table_name)
 

@@ -905,7 +905,8 @@
           "srid_changed": "The new data changes the coordinate system.",
           "coordinate_dimension_reduced": "The new data drops coordinate dimensions such as elevation.",
           "arcgis_id_coverage_unavailable": "GeoLens could not verify ArcGIS object ID coverage.",
-          "arcgis_source_membership_changed": "The ArcGIS source changed while this refresh was running."
+          "arcgis_source_membership_changed": "The ArcGIS source changed while this refresh was running.",
+          "live_data_changed": "Features were edited while this replacement ran. Publishing it would discard those edits."
         },
         "reviewAndRetry": "Review and retry",
         "loadMore": "Load older runs"

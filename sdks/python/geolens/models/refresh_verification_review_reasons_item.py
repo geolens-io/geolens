@@ -7,6 +7,7 @@ RefreshVerificationReviewReasonsItem = Literal[
     "destructive_schema_change",
     "empty_result",
     "geometry_type_changed",
+    "live_data_changed",
     "source_count_unavailable",
     "srid_changed",
 ]
@@ -20,6 +21,7 @@ REFRESH_VERIFICATION_REVIEW_REASONS_ITEM_VALUES: set[
     "destructive_schema_change",
     "empty_result",
     "geometry_type_changed",
+    "live_data_changed",
     "source_count_unavailable",
     "srid_changed",
 }
