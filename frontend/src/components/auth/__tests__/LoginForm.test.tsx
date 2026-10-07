@@ -171,4 +171,21 @@ describe('LoginForm', () => {
       restore();
     }
   });
+
+  it('does not navigate when sign-in finishes after the form is gone', async () => {
+    let finish!: () => void;
+    mockLogin.mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
+    const user = userEvent.setup();
+    const view = render(<LoginForm />);
+
+    await user.type(screen.getByLabelText(/username/i), 'someone');
+    await user.type(screen.getByLabelText('Password', { exact: true }), 'secret');
+    await user.click(screen.getByRole('button', { name: /sign in/i }));
+    await waitFor(() => expect(mockLogin).toHaveBeenCalled());
+    view.unmount();
+    finish();
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
 });

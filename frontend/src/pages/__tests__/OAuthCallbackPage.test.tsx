@@ -13,10 +13,35 @@ vi.mock('react-router', async () => {
 
 const mockGetMe = vi.fn<() => Promise<UserResponse>>();
 const mockLogoutSession = vi.fn<() => Promise<void>>();
+const mockRevokeCurrentSession = vi.fn<(token: string) => Promise<void>>();
 vi.mock('@/api/auth', () => ({
   getMe: () => mockGetMe(),
   logoutSession: () => mockLogoutSession(),
+  revokeCurrentSession: (token: string) => mockRevokeCurrentSession(token),
 }));
+
+const userA = { id: 'a', username: 'someone', roles: ['viewer'] } as UserResponse;
+const userB = { id: 'b', username: 'someone-else', roles: ['viewer'] } as UserResponse;
+
+function deferProfile() {
+  const settle: { resolve: (user: UserResponse) => void; reject: (err: unknown) => void } = {
+    resolve: () => {},
+    reject: () => {},
+  };
+  mockGetMe.mockImplementationOnce(
+    () => new Promise<UserResponse>((resolve, reject) => {
+      settle.resolve = resolve;
+      settle.reject = reject;
+    }),
+  );
+  return settle;
+}
+
+/** What another tab's write to the persisted session looks like here. */
+function peerTabWrites(state: Record<string, unknown>) {
+  void useAuthStore.persist.getOptions().storage?.setItem('geolens-auth', { state: state as never, version: 1 });
+  window.dispatchEvent(new StorageEvent('storage', { key: 'geolens-auth' }));
+}
 
 function setHash(hash: string) {
   window.history.replaceState({}, '', `/oauth/callback${hash}`);
@@ -26,7 +51,8 @@ describe('OAuthCallbackPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockLogoutSession.mockResolvedValue(undefined);
-    useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null });
+    mockRevokeCurrentSession.mockResolvedValue(undefined);
+    useAuthStore.getState().logout();
   });
 
   // With auth_mode=cookie, the refresh token arrives as an httpOnly
@@ -56,49 +82,131 @@ describe('OAuthCallbackPage', () => {
     expect(useAuthStore.getState().refreshToken).toBe('legacy-r1');
   });
 
-  // A transient /auth/me/ failure after SSO must not revoke the user's other sessions.
-  it('keeps the other sessions when getMe fails transiently after sign-in', async () => {
-    mockGetMe.mockRejectedValueOnce(new ApiError('server error', 500));
+  // A profile that failed without a rejection says nothing against the
+  // credential, so the user lands signed in and the app reloads the profile.
+  it.each([
+    ['a server error', new ApiError('server error', 500)],
+    ['a timeout', new ApiError('request timed out', 0)],
+    ['an unconfirmed 401', Object.assign(new ApiError('unauthorized', 401), { unconfirmed: true })],
+  ])('keeps the session when getMe fails with %s', async (_label, profileError) => {
+    mockGetMe.mockRejectedValueOnce(profileError);
     setHash('#token=access-1&expires_in=900&auth_mode=cookie');
 
     render(<OAuthCallbackPage />);
 
-    await waitFor(() =>
-      expect(mockNavigate).toHaveBeenCalledWith('/login', { replace: true }),
-    );
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/', { replace: true }));
+    expect(useAuthStore.getState().token).toBe('access-1');
     expect(mockLogoutSession).not.toHaveBeenCalled();
-    expect(useAuthStore.getState().token).toBeNull();
-  });
-
-  // An unconfirmed 401 is not a credential rejection and must not revoke other sessions.
-  it('keeps the other sessions when getMe answers an unconfirmed 401', async () => {
-    const unconfirmed = new ApiError('unauthorized', 401);
-    unconfirmed.unconfirmed = true;
-    mockGetMe.mockRejectedValueOnce(unconfirmed);
-    setHash('#token=access-1&expires_in=900&auth_mode=cookie');
-
-    render(<OAuthCallbackPage />);
-
-    await waitFor(() =>
-      expect(mockNavigate).toHaveBeenCalledWith('/login', { replace: true }),
-    );
-    expect(mockLogoutSession).not.toHaveBeenCalled();
-    expect(useAuthStore.getState().token).toBeNull();
+    expect(mockRevokeCurrentSession).not.toHaveBeenCalled();
   });
 
   // The cookie is already installed by the time this page runs, so a
   // rejected credential must be revoked — clearing the store cannot reach it.
-  it('revokes the session when getMe rejects the credential', async () => {
-    mockGetMe.mockRejectedValueOnce(new ApiError('unauthorized', 401));
+  it('revokes only the issued session when getMe rejects the credential', async () => {
+    mockGetMe.mockRejectedValueOnce(new ApiError('unauthorized', 403));
     setHash('#token=access-1&expires_in=900&auth_mode=cookie');
 
     render(<OAuthCallbackPage />);
 
-    await waitFor(() => expect(mockLogoutSession).toHaveBeenCalledTimes(1));
-    expect(useAuthStore.getState().token).toBeNull();
     await waitFor(() =>
       expect(mockNavigate).toHaveBeenCalledWith('/login', { replace: true }),
     );
+    expect(mockRevokeCurrentSession).toHaveBeenCalledExactlyOnceWith('access-1');
+    expect(mockLogoutSession).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().token).toBeNull();
+  });
+
+  it('does not restore a session that was logged out while the profile loaded', async () => {
+    const profile = deferProfile();
+    setHash('#token=access-1&expires_in=900&auth_mode=cookie');
+
+    const view = render(<OAuthCallbackPage />);
+    await waitFor(() => expect(mockGetMe).toHaveBeenCalled());
+    view.unmount();
+    useAuthStore.getState().logout();
+    profile.resolve(userA);
+
+    await waitFor(() => expect(mockRevokeCurrentSession).toHaveBeenCalledWith('access-1'));
+    expect(useAuthStore.getState().token).toBeNull();
+    expect(useAuthStore.getState().user).toBeNull();
+    expect(localStorage.getItem('geolens-auth')).not.toContain('access-1');
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('leaves a newer sign-in alone when the older one is rejected late', async () => {
+    const profile = deferProfile();
+    setHash('#token=access-1&expires_in=900&auth_mode=cookie');
+
+    render(<OAuthCallbackPage />);
+    await waitFor(() => expect(mockGetMe).toHaveBeenCalled());
+    useAuthStore.getState().logout();
+    useAuthStore.getState().setAuth('access-b', null, 900, userB);
+    profile.reject(new ApiError('unauthorized', 401));
+
+    await waitFor(() => expect(mockRevokeCurrentSession).toHaveBeenCalled());
+    expect(mockRevokeCurrentSession).not.toHaveBeenCalledWith('access-b');
+    expect(mockLogoutSession).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().token).toBe('access-b');
+    expect(useAuthStore.getState().user).toEqual(userB);
+  });
+
+  it('does not overwrite a newer sign-in of the same user', async () => {
+    const profile = deferProfile();
+    setHash('#token=access-1&expires_in=900&auth_mode=cookie');
+
+    render(<OAuthCallbackPage />);
+    await waitFor(() => expect(mockGetMe).toHaveBeenCalled());
+    useAuthStore.getState().setAuth('access-2', null, 900, userA);
+    profile.resolve(userA);
+
+    await waitFor(() => expect(mockRevokeCurrentSession).toHaveBeenCalledWith('access-1'));
+    expect(useAuthStore.getState().token).toBe('access-2');
+  });
+
+  it('does not restore a session another tab logged out', async () => {
+    const profile = deferProfile();
+    setHash('#token=access-1&expires_in=900&auth_mode=cookie');
+
+    render(<OAuthCallbackPage />);
+    await waitFor(() => expect(mockGetMe).toHaveBeenCalled());
+    const epoch = useAuthStore.getState().sessionEpoch;
+    peerTabWrites({ token: null, expiresAt: null, user: null, sessionId: null });
+    await waitFor(() => expect(useAuthStore.getState().sessionEpoch).not.toBe(epoch));
+    profile.resolve(userA);
+
+    await waitFor(() => expect(mockRevokeCurrentSession).toHaveBeenCalledWith('access-1'));
+    expect(useAuthStore.getState().token).toBeNull();
+    expect(useAuthStore.getState().user).toBeNull();
+  });
+
+  it('does not overwrite a session another tab signed in', async () => {
+    const profile = deferProfile();
+    setHash('#token=access-1&expires_in=900&auth_mode=cookie');
+
+    render(<OAuthCallbackPage />);
+    await waitFor(() => expect(mockGetMe).toHaveBeenCalled());
+    const epoch = useAuthStore.getState().sessionEpoch;
+    peerTabWrites({ token: 'access-b', expiresAt: Date.now() + 900_000, user: userB, sessionId: 'peer-session' });
+    await waitFor(() => expect(useAuthStore.getState().sessionEpoch).not.toBe(epoch));
+    profile.resolve(userA);
+
+    await waitFor(() => expect(mockRevokeCurrentSession).toHaveBeenCalledWith('access-1'));
+    expect(useAuthStore.getState().token).toBe('access-b');
+    expect(useAuthStore.getState().user).toEqual(userB);
+  });
+
+  it('keeps the session but does not navigate once the user has left the page', async () => {
+    const profile = deferProfile();
+    setHash('#token=access-1&expires_in=900&auth_mode=cookie');
+
+    const view = render(<OAuthCallbackPage />);
+    await waitFor(() => expect(mockGetMe).toHaveBeenCalled());
+    view.unmount();
+    profile.resolve(userA);
+
+    await waitFor(() => expect(useAuthStore.getState().user).toEqual(userA));
+    expect(useAuthStore.getState().token).toBe('access-1');
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   // A fragment too incomplete to finish sign-in is no evidence the
