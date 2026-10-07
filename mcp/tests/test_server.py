@@ -10,6 +10,7 @@ test_live_contract.py invokes them as normal functions).
 from __future__ import annotations
 
 import asyncio
+import threading
 
 import pytest
 
@@ -81,3 +82,87 @@ def test_tools_require_config_only_when_invoked(monkeypatch):
     assert {t.name for t in _tools()} == set(EXPECTED_TOOLS)
     with pytest.raises(ConfigError):
         server.list_maps()
+
+
+def _call(name, arguments):
+    return asyncio.run(server.mcp.call_tool(name, arguments))
+
+
+def test_limit_schemas_advertise_and_enforce_the_documented_maximum():
+    schemas = {t.name: t.inputSchema["properties"] for t in _tools()}
+    for name in ("search_datasets", "get_features", "list_maps"):
+        assert schemas[name]["limit"]["maximum"] == 200, name
+        assert schemas[name]["limit"]["minimum"] == 1, name
+    assert schemas["query"]["row_limit"]["maximum"] == 1000
+
+
+def test_over_limit_call_is_rejected_before_any_request(monkeypatch):
+    monkeypatch.setattr(server, "_api", _Recorder())
+    with pytest.raises(Exception, match="200"):
+        _call("get_features", {"dataset_id": "x", "limit": 201})
+    assert server._api.calls == []
+
+
+def test_unsupported_argument_is_rejected_not_ignored(monkeypatch):
+    monkeypatch.setattr(server, "_api", _Recorder())
+    with pytest.raises(Exception, match="filter"):
+        _call("get_features", {"dataset_id": "x", "filter": "pop > 5"})
+    assert server._api.calls == []
+
+
+class _Recorder:
+    def __init__(self):
+        self.calls = []
+
+    def get_features(self, *args, **kwargs):
+        self.calls.append((args, kwargs))
+        return {"features": []}
+
+
+class _Slow:
+    def __init__(self):
+        self.release = threading.Event()
+        self.started = threading.Event()
+
+    def get_map(self, map_id):
+        self.started.set()
+        self.release.wait(5)
+        return {"id": map_id}
+
+
+def test_slow_tool_call_does_not_block_the_event_loop(monkeypatch):
+    slow = _Slow()
+    monkeypatch.setattr(server, "_api", slow)
+
+    async def scenario():
+        call = asyncio.create_task(server.mcp.call_tool("get_map", {"map_id": "m"}))
+        await asyncio.to_thread(slow.started.wait, 2)
+        # A blocked loop would never get past this sleep until release fires.
+        await asyncio.wait_for(asyncio.sleep(0.05), timeout=1)
+        assert not call.done()
+        slow.release.set()
+        await call
+
+    asyncio.run(scenario())
+
+
+def test_cancelled_tool_call_returns_no_result(monkeypatch):
+    slow = _Slow()
+    monkeypatch.setattr(server, "_api", slow)
+
+    async def scenario():
+        call = asyncio.create_task(server.mcp.call_tool("get_map", {"map_id": "m"}))
+        await asyncio.to_thread(slow.started.wait, 2)
+        call.cancel()
+        try:
+            with pytest.raises(asyncio.CancelledError):
+                await call
+        finally:
+            slow.release.set()
+
+    asyncio.run(scenario())
+
+
+def test_published_schemas_forbid_additional_properties():
+    for tool in _tools():
+        assert tool.inputSchema.get("additionalProperties") is False, tool.name

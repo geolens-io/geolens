@@ -69,7 +69,7 @@ def test_search_datasets_path_and_params():
     api, seen = _api(_ok({"type": "FeatureCollection", "features": []}))
     out = api.search_datasets("roads", limit=5, offset=10)
     assert out == {"type": "FeatureCollection", "features": []}
-    req = seen[-1]
+    req = seen[0]
     assert req.url.path == "/api/search/datasets"  # /api preserved, no trailing slash
     assert req.url.params["q"] == "roads"
     assert req.url.params["limit"] == "5"
@@ -103,6 +103,23 @@ def test_search_datasets_drops_collection_features():
     ids = [f["id"] for f in out["features"]]
     assert ids == ["d1", "r1"]  # collection c1 removed; raster kept
     assert out["numberReturned"] == 2  # count kept consistent
+    assert out["numberMatched"] == 2  # the collection no longer inflates the total
+
+
+def test_search_datasets_total_excludes_collections_on_later_pages():
+    def handler(request: httpx.Request) -> httpx.Response:
+        page0 = request.url.params["offset"] == "0"
+        feats = [{"id": "d1", "properties": {"record_type": "vector_dataset"}}]
+        if page0:
+            feats.append({"id": "c1", "properties": {"record_type": "collection"}})
+        return httpx.Response(
+            200,
+            json={"features": feats, "numberMatched": 12, "numberReturned": len(feats)},
+        )
+
+    api, _ = _api(handler)
+    assert api.search_datasets("parks", offset=0)["numberMatched"] == 11
+    assert api.search_datasets("parks", limit=1, offset=1)["numberMatched"] == 11
 
 
 @pytest.mark.parametrize(
@@ -310,7 +327,9 @@ def test_query_posts_json_to_the_slashed_route():
 
 
 def test_query_defaults_row_limit():
-    api, seen = _api(_ok({"columns": [], "rows": [], "row_count": 0, "truncated": False}))
+    api, seen = _api(
+        _ok({"columns": [], "rows": [], "row_count": 0, "truncated": False})
+    )
     api.query("SELECT gid FROM data.roads", restrict_tables=["roads"])
     import json as _json
 
@@ -352,3 +371,56 @@ def test_query_stringifies_structured_validation_detail():
         api.query("SELECT 1", restrict_tables=[])
     assert "422" in str(exc.value)
     assert "Field required" in str(exc.value)
+
+
+def test_search_paging_after_page_zero_makes_no_extra_request():
+    def handler(request: httpx.Request) -> httpx.Response:
+        feats = [{"id": "d1", "properties": {"record_type": "vector_dataset"}}]
+        if request.url.params["offset"] == "0":
+            feats.append({"id": "c1", "properties": {"record_type": "collection"}})
+        return httpx.Response(
+            200, json={"features": feats, "numberMatched": 12, "numberReturned": 1}
+        )
+
+    api, seen = _api(handler)
+    api.search_datasets("parks", offset=0)
+    out = api.search_datasets("parks", limit=1, offset=1)
+    out2 = api.search_datasets("parks", limit=1, offset=2)
+
+    assert len(seen) == 3  # no page-0 probe for the later pages
+    assert out["numberMatched"] == out2["numberMatched"] == 11
+
+
+def test_search_total_probe_failure_does_not_discard_the_page():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.params["limit"] == "1" and request.url.params["offset"] == "0":
+            return httpx.Response(429, json={"detail": "slow down"})
+        return httpx.Response(
+            200,
+            json={
+                "features": [
+                    {"id": "d1", "properties": {"record_type": "vector_dataset"}}
+                ],
+                "numberMatched": 12,
+                "numberReturned": 1,
+            },
+        )
+
+    api, _ = _api(handler)
+    out = api.search_datasets("parks", limit=5, offset=5)
+
+    assert [f["id"] for f in out["features"]] == ["d1"]
+
+
+def test_remembered_page_zero_counts_stay_bounded():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, json={"features": [], "numberMatched": 0, "numberReturned": 0}
+        )
+
+    api, _ = _api(handler)
+    for i in range(200):
+        api.search_datasets(f"q{i}", offset=5)
+        api.search_datasets(f"r{i}", offset=0)
+
+    assert len(api._collections_by_query) <= 64

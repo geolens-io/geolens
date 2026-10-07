@@ -20,6 +20,7 @@ With neither credential the client is anonymous and sees only public data.
 from __future__ import annotations
 
 import os
+import threading
 from typing import Any, Optional
 from urllib.parse import urlsplit
 from uuid import UUID
@@ -27,6 +28,7 @@ from uuid import UUID
 import httpx
 
 DEFAULT_TIMEOUT = 30.0
+_MAX_REMEMBERED_QUERIES = 64
 
 # Kept local because catalog search currently exposes ``source_format`` but not
 # the backend's computed ``origin`` field. These values mirror the public source
@@ -106,7 +108,19 @@ def _params(**kwargs: Any) -> dict[str, Any]:
     return {k: v for k, v in kwargs.items() if v is not None}
 
 
-def _datasets_only(fc: Any) -> Any:
+def _is_collection(feature: Any) -> bool:
+    return (
+        isinstance(feature, dict)
+        and (feature.get("properties") or {}).get("record_type") == "collection"
+    )
+
+
+def _collection_count(fc: Any) -> int:
+    feats = fc.get("features") if isinstance(fc, dict) else None
+    return sum(_is_collection(f) for f in feats) if isinstance(feats, list) else 0
+
+
+def _datasets_only(fc: Any, collections_matched: int | None = None) -> Any:
     """Drop catalog-collection features from a ``/search/datasets`` response.
 
     The endpoint augments page 0 of a text search with up to five ``collection``
@@ -114,25 +128,26 @@ def _datasets_only(fc: Any) -> Any:
     and a collection id 404s in ``get_dataset_schema`` / ``get_features``, so
     strip collections and keep the ``numberReturned`` count consistent. All
     dataset kinds (vector/raster/vrt) are retained — only ``collection`` goes.
+    ``numberMatched`` also counts those collections; ``collections_matched``
+    is subtracted from it so the total describes the datasets returned.
     """
     if not isinstance(fc, dict):
         return fc
     feats = fc.get("features")
     if not isinstance(feats, list):
         return fc
-    kept = [
-        f
-        for f in feats
-        if not (
-            isinstance(f, dict)
-            and (f.get("properties") or {}).get("record_type") == "collection"
-        )
-    ]
-    if len(kept) == len(feats):
+    kept = [f for f in feats if not _is_collection(f)]
+    removed = len(feats) - len(kept)
+    if collections_matched is None:
+        collections_matched = removed
+    if not removed and not collections_matched:
         return fc
     out = {**fc, "features": kept}
     if isinstance(out.get("numberReturned"), int):
         out["numberReturned"] = len(kept)
+    matched = out.get("numberMatched")
+    if isinstance(matched, int):
+        out["numberMatched"] = max(0, matched - collections_matched)
     return out
 
 
@@ -233,6 +248,8 @@ class GeoLensReadOnlyAPI:
 
     def __init__(self, http: httpx.Client) -> None:
         self._http = http
+        self._collections_by_query: dict[str, int] = {}
+        self._cache_lock = threading.Lock()
 
     def _request(
         self,
@@ -278,14 +295,40 @@ class GeoLensReadOnlyAPI:
     def search_datasets(self, query: str, limit: int = 10, offset: int = 0) -> Any:
         # /search/datasets augments page 0 with up to 5 collection records; drop
         # them so every returned id is usable by the dataset tools.
-        return _with_search_source_state(
-            _datasets_only(
-                self._get(
-                    "/search/datasets",
-                    _params(q=query, limit=limit, offset=offset),
-                )
-            )
-        )
+        fc = self._get("/search/datasets", _params(q=query, limit=limit, offset=offset))
+        collections_matched = None
+        if offset == 0:
+            self._remember_collections(query, _collection_count(fc))
+        else:
+            collections_matched = self._page0_collections(query)
+        return _with_search_source_state(_datasets_only(fc, collections_matched))
+
+    def _remember_collections(self, query: str, count: int) -> None:
+        with self._cache_lock:
+            self._collections_by_query[query] = count
+            while len(self._collections_by_query) > _MAX_REMEMBERED_QUERIES:
+                self._collections_by_query.pop(next(iter(self._collections_by_query)))
+
+    def _page0_collections(self, query: str) -> int | None:
+        """Collections page 0 of ``query`` carries, which ``numberMatched`` counts.
+
+        Remembered from the page-0 call that normally precedes paging. When the
+        caller jumps straight to a later page it costs one extra request, and a
+        failure of that request leaves the total as the API reported it rather
+        than discarding the page already fetched. Tool calls run on worker
+        threads, so the cache is guarded by a lock.
+        """
+        with self._cache_lock:
+            known = self._collections_by_query.get(query)
+        if known is not None:
+            return known
+        try:
+            first = self._get("/search/datasets", _params(q=query, limit=1, offset=0))
+        except RuntimeError:
+            return None
+        count = _collection_count(first)
+        self._remember_collections(query, count)
+        return count
 
     def get_dataset_schema(self, dataset_id: str) -> Any:
         # No trailing-slash sibling on this route — must omit it.
@@ -315,9 +358,7 @@ class GeoLensReadOnlyAPI:
         # No trailing-slash sibling on this route — must omit it.
         return self._get(f"/maps/{_id_segment(map_id)}")
 
-    def query(
-        self, sql: str, restrict_tables: list[str], row_limit: int = 100
-    ) -> Any:
+    def query(self, sql: str, restrict_tables: list[str], row_limit: int = 100) -> Any:
         # feat(#565): raw read-only SQL through the backend sandbox. The
         # trailing slash is the canonical registration of this route.
         return self._post(
