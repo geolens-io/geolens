@@ -31,6 +31,7 @@ export function VerifyEmailPage() {
   const [pageState, setPageState] = useState<PageState>('loading');
   const [email, setEmail] = useState('');
   const [resendSent, setResendSent] = useState(false);
+  const [resendFailed, setResendFailed] = useState(false);
   const [resending, setResending] = useState(false);
 
   // Use a ref to guard against StrictMode double-invocations.
@@ -49,30 +50,38 @@ export function VerifyEmailPage() {
       .then(() => {
         setPageState('success');
         toast.success(t('verifyEmail.success'));
-        // Brief pause so the toast is visible before the redirect.
-        setTimeout(() => {
-          navigate('/login', { replace: true });
-        }, 1500);
       })
       .catch(() => {
         setPageState('error');
       });
-  }, [token, navigate, t]);
+  }, [token, t]);
+
+  // Brief pause so the toast is visible before the redirect. Cleared on
+  // unmount, so a user who already followed a link keeps their destination.
+  useEffect(() => {
+    if (pageState !== 'success') return;
+    const timer = setTimeout(() => {
+      navigate('/login', { replace: true });
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [pageState, navigate]);
 
   async function handleResend(e: React.FormEvent) {
     e.preventDefault();
     if (!email.trim()) return;
     setResending(true);
+    setResendFailed(false);
     try {
-      // The backend is enumeration-safe: always returns 200 regardless of
-      // whether the email is registered/unverified — we always show the
-      // generic confirmation (T-1231-11).
+      // The backend answers every accepted request with the same 200, whether
+      // or not the email is registered, so only that 200 earns the generic
+      // confirmation. A failure (rate limit, outage, network) says nothing
+      // about the account and leaves the form up for another try.
       await resendVerification(email.trim());
+      setResendSent(true);
     } catch {
-      // Swallow errors to preserve enumeration-safety on the frontend.
+      setResendFailed(true);
     } finally {
       setResending(false);
-      setResendSent(true);
     }
   }
 
@@ -131,6 +140,11 @@ export function VerifyEmailPage() {
               </p>
             ) : (
               <form onSubmit={handleResend} className="flex flex-col gap-3">
+                {resendFailed && (
+                  <p role="alert" className="text-destructive text-sm">
+                    {t('verifyEmail.resendFailed')}
+                  </p>
+                )}
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor="resend-email">{t('verifyEmail.emailLabel')}</Label>
                   <Input

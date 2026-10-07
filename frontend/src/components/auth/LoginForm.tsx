@@ -1,4 +1,4 @@
-import { type FormEvent, useState } from 'react';
+import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Loader2 } from 'lucide-react';
@@ -27,6 +27,14 @@ export function LoginForm() {
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useTranslation('auth');
+  const mountedRef = useRef(false);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -41,7 +49,9 @@ export function LoginForm() {
       // Keep storage cleanup exception-safe after authentication so it cannot
       // turn a successful login into an inline error before navigation.
       removeSessionStorage('geolens-login-redirect');
-      navigate(target, { replace: true });
+      // The login page already forwards a signed-in tab, and the user may have
+      // moved on while the profile loaded.
+      if (mountedRef.current) navigate(target, { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : t('loginFailed'));
     } finally {

@@ -3,8 +3,9 @@ import { queryKeys } from '@/lib/query-keys';
 import { useNavigate } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/auth-store';
-import { login as apiLogin, getMe, logoutSession, revokeCurrentSession } from '@/api/auth';
+import { login as apiLogin, getMe, logoutSession } from '@/api/auth';
 import { abortInflightRefresh, tryRefresh } from '@/api/client';
+import { completeSignIn } from '@/lib/sign-in';
 
 export function useAuth() {
   const navigate = useNavigate();
@@ -14,7 +15,6 @@ export function useAuth() {
   const expiresAt = useAuthStore((s) => s.expiresAt);
   const isAdmin = useAuthStore((s) => s.isAdmin());
   const isEditor = useAuthStore((s) => s.isEditor());
-  const setAuth = useAuthStore((s) => s.setAuth);
   const storeLogout = useAuthStore((s) => s.logout);
 
   // Validate token on mount by fetching current user.
@@ -57,38 +57,21 @@ export function useAuth() {
   const login = useCallback(
     async (username: string, password: string) => {
       const tokenResponse = await apiLogin(username, password);
-      // Temporarily set token so getMe can use it
-      useAuthStore.setState({ token: tokenResponse.access_token });
-      // BUG-021: invalidate the ['auth','me'] cache so a new login never shows
-      // the previous user's stale identity. Must happen BEFORE setAuth so the
-      // meQuery re-fetch races the new token, not the old cached data.
-      await queryClient.invalidateQueries({ queryKey: queryKeys.auth.me });
-      // Drop the previous user's cached permissions too (usePermissions caches
-      // ['auth','permissions'] with a 60s staleTime). Without this, a no-upload
-      // viewer logging in right after an uploader would read the uploader's
-      // stale capabilities. Remove (not invalidate) so capability gates fail
-      // closed until the new user's permissions are fetched.
-      queryClient.removeQueries({ queryKey: queryKeys.auth.permissions });
-      let userResponse;
-      try {
-        userResponse = await getMe();
-      } catch (err) {
-        // A failed sign-in may discard a freshly issued family; preserve every
-        // other device and target the captured credential, even if state moved.
-        void revokeCurrentSession(tokenResponse.access_token).catch(() => {});
-        useAuthStore.getState().logout();
-        throw err;
-      }
-      setAuth(
-        tokenResponse.access_token,
-        // fix(#1302): null in cookie mode — the refresh token arrived as an
-        // httpOnly cookie and is never held in JS.
-        tokenResponse.refresh_token ?? null,
-        tokenResponse.expires_in,
-        userResponse,
-      );
+      await completeSignIn(tokenResponse, async () => {
+        // BUG-021: invalidate the ['auth','me'] cache so a new login never shows
+        // the previous user's stale identity. Runs once the new token is
+        // installed, so the meQuery re-fetch races the new token, not the old
+        // cached data.
+        await queryClient.invalidateQueries({ queryKey: queryKeys.auth.me });
+        // Drop the previous user's cached permissions too (usePermissions caches
+        // ['auth','permissions'] with a 60s staleTime). Without this, a no-upload
+        // viewer logging in right after an uploader would read the uploader's
+        // stale capabilities. Remove (not invalidate) so capability gates fail
+        // closed until the new user's permissions are fetched.
+        queryClient.removeQueries({ queryKey: queryKeys.auth.permissions });
+      });
     },
-    [setAuth, queryClient],
+    [queryClient],
   );
 
   const logout = useCallback(async () => {

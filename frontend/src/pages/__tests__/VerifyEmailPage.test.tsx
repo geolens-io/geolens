@@ -1,5 +1,5 @@
-import { render, screen, waitFor } from '@/test/test-utils';
-import { MemoryRouter, Routes, Route } from 'react-router';
+import { act, render, screen, waitFor } from '@/test/test-utils';
+import { Link, MemoryRouter, Routes, Route } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import userEvent from '@testing-library/user-event';
@@ -40,7 +40,11 @@ function makeWrapper(initialUrl: string) {
           <MemoryRouter initialEntries={[initialUrl]}>
             <Routes>
               <Route path="/verify-email" element={<VerifyEmailPage />} />
-              <Route path="/login" element={<div>LOGIN PAGE</div>} />
+              <Route
+                path="/login"
+                element={<div>LOGIN PAGE <Link to="/catalog">Catalog</Link></div>}
+              />
+              <Route path="/catalog" element={<div>CATALOG PAGE</div>} />
             </Routes>
           </MemoryRouter>
         </TooltipProvider>
@@ -152,5 +156,46 @@ describe('VerifyEmailPage', () => {
     // With no token param the error state should render.
     await screen.findByRole('button', { name: /resend/i });
     expect(mockedVerifyEmail).not.toHaveBeenCalled();
+  });
+
+  it('keeps the page the user navigated to after verifying', async () => {
+    mockedVerifyEmail.mockResolvedValue({ message: 'verified' });
+
+    const Wrapper = makeWrapper('/verify-email?token=valid-token');
+    render(<VerifyEmailPage />, { wrapper: Wrapper });
+
+    const user = userEvent.setup({ delay: null, advanceTimers: vi.advanceTimersByTime });
+    await user.click(await screen.findByRole('link', { name: /sign in/i }));
+    await user.click(await screen.findByRole('link', { name: 'Catalog' }));
+    expect(screen.getByText('CATALOG PAGE')).toBeInTheDocument();
+
+    await act(async () => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    expect(screen.getByText('CATALOG PAGE')).toBeInTheDocument();
+    expect(screen.queryByText(/LOGIN PAGE/)).not.toBeInTheDocument();
+  });
+
+  it('keeps the resend form and announces a failed resend', async () => {
+    mockedVerifyEmail.mockRejectedValue(new Error('Invalid or expired verification link'));
+    mockedResendVerification.mockRejectedValueOnce(new Error('Service unavailable'));
+
+    const Wrapper = makeWrapper('/verify-email?token=expired-token');
+    render(<VerifyEmailPage />, { wrapper: Wrapper });
+
+    const user = userEvent.setup({ delay: null });
+    await user.type(await screen.findByLabelText(/email/i), 'user@example.com');
+    await user.click(screen.getByRole('button', { name: /resend/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/couldn.t send a new link/i);
+    expect(screen.queryByText(/a new link has been sent/i)).not.toBeInTheDocument();
+
+    mockedResendVerification.mockResolvedValueOnce({ message: 'sent' });
+    await user.click(screen.getByRole('button', { name: /resend/i }));
+
+    expect(await screen.findByText(/a new link has been sent/i)).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(mockedResendVerification).toHaveBeenCalledTimes(2);
   });
 });

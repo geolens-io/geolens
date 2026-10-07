@@ -3,8 +3,7 @@ import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '@/stores/auth-store';
 import { useDocumentTitle } from '@/hooks/use-document-title';
-import { getMe, logoutSession } from '@/api/auth';
-import { isCredentialRejected } from '@/api/client';
+import { completeSignIn } from '@/lib/sign-in';
 import { readSessionStorage, removeSessionStorage } from '@/lib/storage';
 import { Loader2 } from 'lucide-react';
 
@@ -13,6 +12,14 @@ export function OAuthCallbackPage() {
   useDocumentTitle(t('common:pageTitle.signingIn'));
   const navigate = useNavigate();
   const processedRef = useRef(false);
+  const mountedRef = useRef(false);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (processedRef.current) return;
@@ -47,12 +54,19 @@ export function OAuthCallbackPage() {
       return;
     }
 
-    // Set token temporarily so getMe() can authenticate
-    useAuthStore.setState({ token });
-
-    getMe()
-      .then((user) => {
-        useAuthStore.getState().setAuth(token, refreshToken ?? null, parseInt(expiresIn, 10), user);
+    completeSignIn({
+      access_token: token,
+      refresh_token: refreshToken,
+      expires_in: parseInt(expiresIn, 10),
+    })
+      .then((outcome) => {
+        // The user may have navigated away while the profile loaded.
+        if (!mountedRef.current) return;
+        if (outcome === 'superseded') {
+          // The login page forwards a tab that is still signed in.
+          navigate('/login', { replace: true });
+          return;
+        }
         // Denied storage must not turn a valid SSO round-trip into a failed
         // session. Without a stored redirect, land on the root route.
         const redirect = readSessionStorage('geolens-login-redirect');
@@ -60,12 +74,8 @@ export function OAuthCallbackPage() {
         const target = redirect && redirect.startsWith('/') ? redirect : '/';
         navigate(target, { replace: true });
       })
-      .catch((err: unknown) => {
-        // A rejected credential must revoke the installed refresh cookie, but
-        // transient failures must not revoke every session owned by the user.
-        if (isCredentialRejected(err)) void logoutSession().catch(() => {});
-        useAuthStore.getState().logout();
-        navigate('/login', { replace: true });
+      .catch(() => {
+        if (mountedRef.current) navigate('/login', { replace: true });
       });
   }, [navigate]);
 

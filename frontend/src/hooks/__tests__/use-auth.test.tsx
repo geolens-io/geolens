@@ -100,13 +100,14 @@ describe('useAuth', () => {
     ).rejects.toThrow('Invalid credentials');
   });
 
-  // fix(#2038): /auth/me/ answering 500 after a good sign-in used to revoke
-  // every session of the user, signing them out on every other device.
+  // Only a rejected credential ends a sign-in; the app's profile query
+  // retries anything else against the session that is still valid.
   it.each([
     new ApiError('server error', 500),
     new SyntaxError('malformed profile response'),
     new TypeError('network unavailable'),
-  ])('revokes only the discarded family when the profile fails: %s', async (profileError) => {
+    new ApiError('request timed out', 0),
+  ])('keeps the issued session when the profile fails without a rejection: %s', async (profileError) => {
     mockLogin.mockResolvedValueOnce({
       access_token: 'abc',
       refresh_token: null,
@@ -119,15 +120,42 @@ describe('useAuth', () => {
 
     const { result } = renderHook(() => useAuth());
 
-    await expect(
-      act(async () => {
-        await result.current.login('user', 'pass');
-      }),
-    ).rejects.toThrow(profileError);
+    await act(async () => {
+      await result.current.login('user', 'pass');
+    });
 
     expect(mockLogoutSession).not.toHaveBeenCalled();
-    expect(mockRevokeCurrentSession).toHaveBeenCalledExactlyOnceWith('abc');
+    expect(mockRevokeCurrentSession).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().token).toBe('abc');
+  });
+
+  it('does not reinstall a sign-in whose profile arrives after a logout', async () => {
+    mockLogin.mockResolvedValueOnce({
+      access_token: 'issued-a',
+      refresh_token: null,
+      token_type: 'bearer',
+      expires_in: 900,
+    });
+    let resolveProfile!: (user: UserResponse) => void;
+    mockGetMe.mockImplementation(() => new Promise((resolve) => { resolveProfile = resolve; }));
+
+    const { result } = renderHook(() => useAuth());
+
+    let pending!: Promise<void>;
+    act(() => {
+      pending = result.current.login('user', 'pass');
+    });
+    await waitFor(() => expect(mockGetMe).toHaveBeenCalled());
+    useAuthStore.getState().logout();
+
+    await act(async () => {
+      resolveProfile(mockUser());
+      await pending;
+    });
+
     expect(useAuthStore.getState().token).toBeNull();
+    expect(useAuthStore.getState().user).toBeNull();
+    expect(mockRevokeCurrentSession).toHaveBeenCalledExactlyOnceWith('issued-a');
   });
 
   // fix(#1446): login installs the refresh cookie before getMe() runs, so a
