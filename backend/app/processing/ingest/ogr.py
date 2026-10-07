@@ -1021,30 +1021,42 @@ async def run_ogrinfo_preview(
     return info
 
 
-_CSV_DIMENSION_PROBE_ROWS = 200
+# One GeoJSON feature per line, so a feature wider than this is read as no Z.
+_CSV_PROBE_LINE_LIMIT = 32 * 1024 * 1024
 
 
-def _has_z(coordinates: object) -> bool:
-    """Whether a GeoJSON coordinates value ends in positions of three or more ordinates."""
+def _geometry_z(geometry: dict) -> bool | None:
+    """Whether a GeoJSON geometry carries Z, or None when it is empty."""
+    if geometry.get("type") == "GeometryCollection":
+        parts = [_geometry_z(g) for g in geometry.get("geometries") or []]
+        parts = [p for p in parts if p is not None]
+        return all(parts) if parts else None
+    return _coordinates_z(geometry.get("coordinates"))
+
+
+def _coordinates_z(coordinates: object) -> bool | None:
     if not isinstance(coordinates, list) or not coordinates:
-        return False
+        return None
     if isinstance(coordinates[0], (int, float)):
         return len(coordinates) >= 3
-    return all(_has_z(part) for part in coordinates)
+    parts = [z for z in map(_coordinates_z, coordinates) if z is not None]
+    return all(parts) if parts else None
 
 
 async def _csv_geometry_is_3d(
     file_path: str, source: str, layer_name: str | None
 ) -> bool:
-    """Whether every geometry in the first rows of a CSV's geometry column has Z.
+    """Whether every geometry in a CSV's geometry column has Z.
 
     The CSV driver reports a WKT column as an untyped 2D layer, so the loaded
     column would drop Z that the text carries. A mix of 2D and 3D rows counts
-    as 2D, since forcing three dimensions would invent an elevation of 0.
+    as 2D, since forcing three dimensions would invent an elevation of 0. The
+    read stops at the first 2D geometry.
     """
     await run_in_thread_draining(validate_content_directives, file_path)
-    # ogr2ogr rather than ogrinfo: both its -limit and the GeoJSON writer
-    # exist on every GDAL this runs on, which ogrinfo's -json -limit do not.
+    # ogr2ogr rather than ogrinfo: the GeoJSON writer exists on every GDAL
+    # this runs on, and it writes one feature per line, so the file is read
+    # as a stream.
     cmd = [
         "ogr2ogr",
         *local_input_driver_args(file_path),
@@ -1052,8 +1064,6 @@ async def _csv_geometry_is_3d(
         "GeoJSON",
         "/vsistdout/",
         source,
-        "-limit",
-        str(_CSV_DIMENSION_PROBE_ROWS),
         "-oo",
         "GEOM_POSSIBLE_NAMES=WKT,wkt,geometry,geom,the_geom,shape",
     ]
@@ -1062,24 +1072,29 @@ async def _csv_geometry_is_3d(
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
         env=gdal_vector_safe_env(),
+        limit=_CSV_PROBE_LINE_LIMIT,
     )
-    stdout, _ = await _communicate_with_timeout(
-        proc, OGRINFO_TIMEOUT_SECONDS, tool_name="ogr2ogr"
-    )
-    if proc.returncode != 0:
-        return False
+    assert proc.stdout is not None
+    seen = False
     try:
-        features = json.loads(stdout.decode()).get("features") or []
-    except (json.JSONDecodeError, AttributeError):
+        async with asyncio.timeout(OGRINFO_TIMEOUT_SECONDS):
+            async for line in proc.stdout:
+                if not line.startswith(b'{"type":"Feature"'):
+                    continue
+                geometry = json.loads(line.rstrip().removesuffix(b",")).get("geometry")
+                z = _geometry_z(geometry) if geometry else None
+                if z is False:
+                    return False
+                seen = seen or z is True
+    except (ValueError, TimeoutError):
         return False
-    geometries = [
-        g
-        for f in features
-        if (g := f.get("geometry")) and g.get("type") != "GeometryCollection"
-    ]
-    return bool(geometries) and all(_has_z(g.get("coordinates")) for g in geometries)
+    finally:
+        if proc.returncode is None:
+            proc.kill()
+        await proc.wait()
+    return seen
 
 
 async def run_ogr2ogr(

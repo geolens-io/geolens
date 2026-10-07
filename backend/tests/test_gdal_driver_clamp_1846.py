@@ -165,9 +165,21 @@ class _FakeProc:
 
     def __init__(self, stdout=b"{}"):
         self._stdout = stdout
+        self.stdout = _Lines()
 
     async def communicate(self):
         return self._stdout, b""
+
+    async def wait(self):
+        return self.returncode
+
+
+class _Lines:
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        raise StopAsyncIteration
 
 
 @pytest.fixture
@@ -216,9 +228,11 @@ async def test_run_ogr2ogr_clamps_both_ways(spawned):
         schema="data",
         geometry_type="POINT",
     )
-    argv, env = spawned[0]
-    assert "OGR_VRT" in env["GDAL_SKIP"]
-    assert argv[argv.index("-if") + 1] == "CSV"
+    # A CSV load first probes its geometry, and both runs carry the clamps.
+    assert len(spawned) == 2
+    for argv, env in spawned:
+        assert "OGR_VRT" in env["GDAL_SKIP"]
+        assert argv[argv.index("-if") + 1] == "CSV"
 
 
 @pytest.mark.anyio

@@ -237,11 +237,26 @@ async def test_selected_reserved_geom_column_is_remapped(test_db_session, tmp_pa
         await _drop(test_db_session, table)
 
 
-async def test_auto_detected_wkt_keeps_z(test_db_session, tmp_path):
+@pytest.mark.parametrize(
+    ("rows", "ndims"),
+    [
+        (['"LINESTRING Z (0 0 5, 1 1 6)"'], [3]),
+        (['"GEOMETRYCOLLECTION Z (POINT Z (0 0 5))"'], [3]),
+        (['"POINT Z (0 0 5)"', '"POINT (1 1)"'], [2, 2]),
+        (['"POINT Z (0 0 5)"', '"GEOMETRYCOLLECTION (POINT (1 1))"'], [2, 2]),
+        (['"POINT (0 0)"', '"POINT (1 1)"'], [2, 2]),
+    ],
+)
+async def test_auto_detected_wkt_keeps_z_only_when_every_row_has_it(
+    test_db_session, tmp_path, rows, ndims
+):
     table = await _load_wkt_csv(
-        test_db_session, tmp_path, "id,wkt", ['1,"LINESTRING Z (0 0 5, 1 1 6)"']
+        test_db_session,
+        tmp_path,
+        "id,wkt",
+        [f"{i},{wkt}" for i, wkt in enumerate(rows)],
     )
     try:
-        assert [n for n, _ in await _dims(test_db_session, table)] == [3]
+        assert [n for n, _ in await _dims(test_db_session, table)] == ndims
     finally:
         await _drop(test_db_session, table)
