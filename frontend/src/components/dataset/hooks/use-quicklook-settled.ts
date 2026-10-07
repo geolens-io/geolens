@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { getJobStatus } from '@/api/ingest';
+import { isDefinitiveJobError } from '@/components/import/hooks/use-ingest';
 import { queryKeys } from '@/lib/query-keys';
 
 const POLL_INTERVAL_MS = 2000;
@@ -29,9 +30,11 @@ export function useRefreshSearchWhenQuicklookLands(jobId: string | null) {
           void queryClient.invalidateQueries({ queryKey: queryKeys.search.all });
           return;
         }
-      } catch {
-        // A failed read ends the watch; the thumbnail then refreshes on remount.
-        return;
+      } catch (err) {
+        // Only a read that can never succeed ends the watch; a transient failure
+        // is retried so the refresh still happens once the image lands.
+        if (isDefinitiveJobError(err)) return;
+        if (cancelled) return;
       }
       if (attempt + 1 < MAX_POLLS) {
         timer = setTimeout(() => void poll(attempt + 1), POLL_INTERVAL_MS);
