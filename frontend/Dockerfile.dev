@@ -15,7 +15,8 @@ COPY --chown=node:node package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --prefer-offline && \
     sha256sum package-lock.json | cut -d' ' -f1 > node_modules/.package-lock.sha256 && \
-    chown -R node:node /app/node_modules
+    cp -al node_modules /opt/geolens-node_modules && \
+    chown -R node:node /app/node_modules /opt/geolens-node_modules
 
 # Copy source as node user.
 COPY --chown=node:node . .

@@ -10,11 +10,17 @@ want="$(sha256sum package-lock.json | cut -d' ' -f1)"
 have="$(cat "$stamp" 2>/dev/null || true)"
 
 if [ "$want" != "$have" ]; then
-  echo "package-lock.json changed since node_modules was installed; running npm ci" >&2
+  echo "package-lock.json changed since node_modules was installed; resyncing" >&2
   # node_modules is a mount point and cannot be removed itself.
   find node_modules -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-  npm ci --prefer-offline
-  printf '%s\n' "$want" > "$stamp"
+  # The image carries the dependencies it was built with, which works offline.
+  baked="${BAKED_NODE_MODULES:-/opt/geolens-node_modules}"
+  if [ "$(cat "$baked/.package-lock.sha256" 2>/dev/null || true)" = "$want" ]; then
+    cp -a "$baked/." node_modules/
+  else
+    npm ci --prefer-offline
+    printf '%s\n' "$want" > "$stamp"
+  fi
 fi
 
 exec "$@"

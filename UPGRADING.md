@@ -181,7 +181,7 @@ docker compose -f docker-compose.yml ps
 
 The frontend container keeps `node_modules` in an anonymous volume that survives
 rebuilds. Its entrypoint compares `package-lock.json` with the lockfile the
-volume was installed from and runs `npm ci` on a mismatch, so the first start
+volume was installed from and restores the dependencies baked into the rebuilt image (or runs `npm ci` if the image lacks them), so the first start
 after an upgrade can take a minute longer while dependencies sync. If the map
 builder fails to load after an upgrade from an older release, recreate the
 container with `docker compose -f docker-compose.yml up -d --force-recreate frontend`
