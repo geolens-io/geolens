@@ -20,6 +20,7 @@ With neither credential the client is anonymous and sees only public data.
 from __future__ import annotations
 
 import os
+import threading
 from typing import Any, Optional
 from urllib.parse import urlsplit
 from uuid import UUID
@@ -248,6 +249,7 @@ class GeoLensReadOnlyAPI:
     def __init__(self, http: httpx.Client) -> None:
         self._http = http
         self._collections_by_query: dict[str, int] = {}
+        self._cache_lock = threading.Lock()
 
     def _request(
         self,
@@ -302,9 +304,10 @@ class GeoLensReadOnlyAPI:
         return _with_search_source_state(_datasets_only(fc, collections_matched))
 
     def _remember_collections(self, query: str, count: int) -> None:
-        self._collections_by_query[query] = count
-        if len(self._collections_by_query) > _MAX_REMEMBERED_QUERIES:
-            self._collections_by_query.pop(next(iter(self._collections_by_query)))
+        with self._cache_lock:
+            self._collections_by_query[query] = count
+            while len(self._collections_by_query) > _MAX_REMEMBERED_QUERIES:
+                self._collections_by_query.pop(next(iter(self._collections_by_query)))
 
     def _page0_collections(self, query: str) -> int | None:
         """Collections page 0 of ``query`` carries, which ``numberMatched`` counts.
@@ -312,17 +315,20 @@ class GeoLensReadOnlyAPI:
         Remembered from the page-0 call that normally precedes paging. When the
         caller jumps straight to a later page it costs one extra request, and a
         failure of that request leaves the total as the API reported it rather
-        than discarding the page already fetched.
+        than discarding the page already fetched. Tool calls run on worker
+        threads, so the cache is guarded by a lock.
         """
-        if query not in self._collections_by_query:
-            try:
-                first = self._get(
-                    "/search/datasets", _params(q=query, limit=1, offset=0)
-                )
-            except RuntimeError:
-                return None
-            self._remember_collections(query, _collection_count(first))
-        return self._collections_by_query[query]
+        with self._cache_lock:
+            known = self._collections_by_query.get(query)
+        if known is not None:
+            return known
+        try:
+            first = self._get("/search/datasets", _params(q=query, limit=1, offset=0))
+        except RuntimeError:
+            return None
+        count = _collection_count(first)
+        self._remember_collections(query, count)
+        return count
 
     def get_dataset_schema(self, dataset_id: str) -> Any:
         # No trailing-slash sibling on this route — must omit it.
