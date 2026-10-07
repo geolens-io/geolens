@@ -281,7 +281,7 @@ export function SourceQualityTab({
           </div>
 
           <div className="space-y-1" data-field-anchor="update_frequency">
-            <Label className="text-sm font-medium text-muted-foreground">
+            <Label htmlFor="update-frequency" className="text-sm font-medium text-muted-foreground">
               {t('iso.updateFrequency')}
             </Label>
             <EditableFieldShell capability={capabilities.update_frequency} testId="editable-field-shell-update-frequency">
@@ -290,7 +290,7 @@ export function SourceQualityTab({
                   value={draftValues.update_frequency || undefined}
                   onValueChange={handleFrequencyChange}
                 >
-                  <SelectTrigger className="h-8 w-56">
+                  <SelectTrigger id="update-frequency" className="h-8 w-56">
                     <SelectValue placeholder={t('iso.updateFrequency')} />
                   </SelectTrigger>
                   <SelectContent>
@@ -506,7 +506,7 @@ export function SourceQualityTab({
           </div>
 
           <div className="space-y-1">
-            <Label className="text-sm font-medium text-muted-foreground">
+            <Label htmlFor="sensitivity-classification" className="text-sm font-medium text-muted-foreground">
               {t('iso.sensitivity')}
             </Label>
             <EditableFieldShell capability={capabilities.sensitivity_classification} testId="editable-field-shell-sensitivity">
@@ -515,7 +515,7 @@ export function SourceQualityTab({
                   value={draftValues.sensitivity_classification || undefined}
                   onValueChange={handleSensitivityChange}
                 >
-                  <SelectTrigger className="h-8 w-56">
+                  <SelectTrigger id="sensitivity-classification" className="h-8 w-56">
                     <SelectValue placeholder={t('iso.sensitivity')} />
                   </SelectTrigger>
                   <SelectContent>

@@ -847,6 +847,7 @@
     "deleteFailed": "Failed to delete SAML provider",
     "invalidJson": "Group role mapping must be valid JSON",
     "certRequired": "IdP certificate is required to register a SAML provider",
+    "certInvalid": "IdP certificate must be a valid X.509 certificate (PEM)",
     "roles": {
       "viewer": "Viewer",
       "editor": "Editor",

@@ -847,6 +847,7 @@
     "deleteFailed": "删除 SAML 提供商失败",
     "invalidJson": "组角色映射必须是有效的 JSON",
     "certRequired": "注册 SAML 提供商必须提供 IdP 证书",
+    "certInvalid": "IdP 证书必须是有效的 X.509 证书（PEM）",
     "roles": {
       "viewer": "查看者",
       "editor": "编辑者",

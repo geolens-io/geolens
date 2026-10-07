@@ -466,7 +466,8 @@
       "publisher": "发布者",
       "distributor": "分发者",
       "custodian": "保管者"
-    }
+    },
+    "remove": "移除联系人 {{name}}"
   },
   "keywords": {
     "title": "关键词",
@@ -485,7 +486,8 @@
     "inheritedConfirmTitle": "共享继承的关键词？",
     "inheritedConfirmBody": "这些关键词复制自更广泛受众无法打开的源数据集。可以继续共享，也可以取消并先将其移除。",
     "inheritedConfirmContinue": "更改可见性",
-    "inheritedGeneric": "此数据集带有从其源数据集继承的关键词。共享前请查看完整的关键词列表。"
+    "inheritedGeneric": "此数据集带有从其源数据集继承的关键词。共享前请查看完整的关键词列表。",
+    "remove": "移除关键词 {{keyword}}"
   },
   "validation": {
     "title": "校验状态",

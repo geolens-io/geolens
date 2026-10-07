@@ -847,6 +847,7 @@
     "deleteFailed": "SAML-Provider konnte nicht gelöscht werden",
     "invalidJson": "Group-Rollen-Mapping muss gültiges JSON sein",
     "certRequired": "IdP-Zertifikat ist zur Registrierung eines SAML-Providers erforderlich",
+    "certInvalid": "Das IdP-Zertifikat muss ein gültiges X.509-Zertifikat (PEM) sein",
     "roles": {
       "viewer": "Betrachter",
       "editor": "Bearbeiter",

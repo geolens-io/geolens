@@ -576,7 +576,8 @@
       "publisher": "Editor",
       "distributor": "Distribuidor",
       "custodian": "Custodio"
-    }
+    },
+    "remove": "Eliminar contacto {{name}}"
   },
   "keywords": {
     "title": "Palabras clave",
@@ -595,7 +596,8 @@
     "inheritedConfirmTitle": "¿Compartir las palabras clave heredadas?",
     "inheritedConfirmBody": "Estas palabras clave se copiaron de un conjunto de datos de origen que la nueva audiencia no puede abrir. Continúe para compartirlas, o cancele y elimínelas primero.",
     "inheritedConfirmContinue": "Cambiar visibilidad",
-    "inheritedGeneric": "Este conjunto de datos contiene palabras clave heredadas de su origen. Revise la lista completa de palabras clave antes de compartir."
+    "inheritedGeneric": "Este conjunto de datos contiene palabras clave heredadas de su origen. Revise la lista completa de palabras clave antes de compartir.",
+    "remove": "Eliminar palabra clave {{keyword}}"
   },
   "attributeMetadata": {
     "title": "Metadatos de atributos",
