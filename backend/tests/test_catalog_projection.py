@@ -273,6 +273,34 @@ async def test_an_empty_generic_column_keeps_the_stored_type_or_says_geometry(
         await _drop(session, dataset.table_name)
 
 
+@pytest.mark.parametrize(
+    ("wkts", "expected"),
+    [
+        (
+            ["POINT(1 1)", "LINESTRING(0 0, 1 1)", "POLYGON((0 0, 1 0, 1 1, 0 0))"],
+            "GEOMETRY",
+        ),
+        (
+            ["POLYGON((0 0, 1 0, 1 1, 0 0))", "MULTIPOLYGON(((2 2, 3 2, 3 3, 2 2)))"],
+            "POLYGON",
+        ),
+    ],
+)
+async def test_a_generic_column_is_cataloged_by_all_its_rows_not_the_first(
+    test_db_session, wkts: list[str], expected: str
+) -> None:
+    """Mixed kinds record the generic type; single and multi forms of one kind stay concrete."""
+    session = test_db_session
+    dataset = await _dataset(session, geometry_type=None, record_type="table")
+    await _table(session, dataset.table_name, geometry="Geometry", wkts=wkts)
+    try:
+        await _measure_and_project(session, dataset, dataset.table_name)
+
+        assert (await _reload(session, dataset.id)).geometry_type == expected
+    finally:
+        await _drop(session, dataset.table_name)
+
+
 async def test_3d_points_record_their_dimensions_and_z_range(test_db_session) -> None:
     """3D points record is_3d, n_dims and the z range, and no elev column is added."""
     session = test_db_session
