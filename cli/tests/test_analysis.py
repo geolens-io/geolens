@@ -543,6 +543,41 @@ class TestAnalysisMaterializeCli:
         assert result.exit_code == 0, result.output
         assert "/datasets/ds-new" in result.output
 
+    def test_wait_json_reports_the_terminal_status(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        from geolens_cli import publish as _publish
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com/api", mock_keyring)
+        monkeypatch.setattr(
+            "geolens_cli.analysis.run_materialize", lambda c, d, r: _FakeJob()
+        )
+        monkeypatch.setattr(
+            "geolens_cli.publish.resolve_dataset_id",
+            lambda c, j, **kw: _publish.PollOutcome(
+                dataset_id="ds-new", status="completed"
+            ),
+        )
+
+        result = runner.invoke(
+            app,
+            [
+                "--json",
+                "analysis",
+                "materialize",
+                "ds-1",
+                "--operation",
+                "centroid",
+                "--title",
+                "Centroids",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["dataset_id"] == "ds-new"
+        assert payload["status"] == "completed"
+
     def test_a_spatial_join_reaches_the_materialize_endpoint(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:

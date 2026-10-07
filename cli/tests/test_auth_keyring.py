@@ -786,3 +786,38 @@ class TestUnreadableCompetingCredentialDoesNotBlockANormalLogin:
         api_key_account = ("geolens", f"{canonical}:api_key")
         assert mock_keyring.get(api_key_account) == "new-api-key"
         assert _auth.load_active_credential_kind(canonical) == "api_key"
+
+
+def test_whoami_json_reports_the_roles_the_server_returns(
+    runner, tmp_xdg_home, mock_keyring, monkeypatch
+) -> None:
+    import json
+    from unittest.mock import MagicMock
+
+    import geolens
+    import geolens.api.auth.me_auth_me_get as _me_mod
+
+    from geolens_cli.main import app
+
+    monkeypatch.setenv("GEOLENS_TOKEN", "env-token")
+
+    class FakeUser:
+        email = "admin@example.com"
+        id = "u-1"
+        roles = ["editor", "admin"]
+
+    class FakeResp:
+        status_code = 200
+        parsed = FakeUser()
+
+    monkeypatch.setattr(geolens, "GeolensClient", MagicMock())
+    monkeypatch.setattr(_me_mod, "sync_detailed", MagicMock(return_value=FakeResp()))
+
+    result = runner.invoke(
+        app, ["--json", "--instance", "https://x.example.com/api", "whoami"]
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["roles"] == ["editor", "admin"]
+    assert payload["role"] == "admin"

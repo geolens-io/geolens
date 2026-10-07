@@ -226,3 +226,73 @@ class TestGeojsonSnifferBoundedRead:
         plain = tmp_path / "plain.json"
         plain.write_text('{"foo": 1, "bar": 2}')
         assert _scan._looks_like_geojson(plain) is False
+
+
+class TestIndependentDatasetsSharingABasename:
+    def test_geojson_and_gpkg_beside_a_shapefile_are_listed(self, tmp_path) -> None:
+        for name in ("cities.shp", "cities.shx", "cities.dbf", "cities.prj"):
+            (tmp_path / name).write_bytes(b"x")
+        (tmp_path / "cities.geojson").write_text('{"type":"FeatureCollection"}')
+        (tmp_path / "cities.gpkg").write_bytes(b"SQLite format 3\x00")
+
+        items = {i.path.name: i for i in _scan.walk(tmp_path)}
+
+        assert set(items) == {"cities.shp", "cities.geojson", "cities.gpkg"}
+        assert items["cities.shp"].ingest is True
+        assert {p.name for p in items["cities.shp"].sidecar_files} == {
+            "cities.shx",
+            "cities.dbf",
+            "cities.prj",
+        }
+        assert items["cities.geojson"].format == "geojson"
+        assert items["cities.gpkg"].format == "geopackage"
+
+    def test_include_exts_without_shp_still_lists_the_geojson(self, tmp_path) -> None:
+        for name in ("cities.shp", "cities.shx", "cities.dbf"):
+            (tmp_path / name).write_bytes(b"x")
+        (tmp_path / "cities.geojson").write_text('{"type":"FeatureCollection"}')
+
+        items = list(_scan.walk(tmp_path, include_exts={".geojson"}))
+
+        assert [i.path.name for i in items] == ["cities.geojson"]
+
+
+class TestRasterAuxSidecar:
+    def test_aux_xml_is_a_sidecar_not_an_unsupported_file(self, tmp_path) -> None:
+        (tmp_path / "dem.tif").write_bytes(b"II*\x00")
+        (tmp_path / "dem.tif.aux.xml").write_text("<PAMDataset/>")
+
+        items = list(_scan.walk(tmp_path))
+
+        assert [(i.path.name, i.format) for i in items] == [
+            ("dem.tif", "cog-candidate")
+        ]
+
+
+class TestJsonDetection:
+    def _scan_one(self, tmp_path, text: str):
+        (tmp_path / "x.json").write_text(text)
+        (item,) = _scan.walk(tmp_path)
+        return item
+
+    def test_type_after_a_long_leading_member_is_still_geojson(self, tmp_path) -> None:
+        pad = "a" * 5000
+        item = self._scan_one(
+            tmp_path, '{"name":"%s","type":"FeatureCollection","features":[]}' % pad
+        )
+        assert item.format == "geojson" and item.ingest is True
+
+    def test_malformed_json_is_not_ingestable(self, tmp_path) -> None:
+        item = self._scan_one(tmp_path, '{"type": "FeatureCollection", "features": [')
+        assert item.ingest is False
+
+    def test_non_geojson_type_is_not_ingestable(self, tmp_path) -> None:
+        item = self._scan_one(tmp_path, '{"type": "config", "foo": 1}')
+        assert item.ingest is False
+
+    def test_oversized_file_is_judged_from_its_prefix(self, tmp_path) -> None:
+        path = tmp_path / "big.json"
+        path.write_text('{"type":"FeatureCollection","features":[' + "1," * 100)
+        assert _scan._looks_like_geojson(path, peek_bytes=64) is True
+        path.write_text('{"foo":' + "1," * 100)
+        assert _scan._looks_like_geojson(path, peek_bytes=64) is False

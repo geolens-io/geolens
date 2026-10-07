@@ -19,6 +19,8 @@ File Geodatabase was not, because it arrives as .zip.
 """
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator, Optional
@@ -38,7 +40,8 @@ SHAPEFILE_REQUIRED_SIDECARS = {".dbf", ".shx"}
 # does not block ingest (the server defaults to EPSG:4326 if missing) but
 # is reported to the user via the sidecar_files list.
 SHAPEFILE_OPTIONAL_SIDECARS = {".prj", ".cpg", ".qix", ".sbn", ".sbx"}
-RASTER_OPTIONAL_SIDECARS = {".aux.xml", ".ovr", ".tfw"}
+RASTER_AUX_SUFFIX = ".aux.xml"
+RASTER_OPTIONAL_SIDECARS = {RASTER_AUX_SUFFIX, ".ovr", ".tfw"}
 HIDDEN_DIRS = {
     ".git",
     "__pycache__",
@@ -138,8 +141,13 @@ def _walk(
             continue
         if child.name.startswith("."):
             continue
-        ext = child.suffix.lower()
-        stem_path = child.with_suffix("")
+        if child.name.lower().endswith(RASTER_AUX_SUFFIX):
+            # `x.tif.aux.xml` belongs to `x.tif`, not to an `x.tif.aux` dataset.
+            ext = RASTER_AUX_SUFFIX
+            stem_path = child.with_name(child.name[: -len(RASTER_AUX_SUFFIX)])
+        else:
+            ext = child.suffix.lower()
+            stem_path = child.with_suffix("")
         files_by_stem.setdefault(stem_path, {})[ext] = child
 
     for _stem, exts in files_by_stem.items():
@@ -150,13 +158,20 @@ def _classify_group(
     exts: dict[str, Path],
     include_exts: Optional[set[str]],
 ) -> Iterator[ScanItem]:
-    # Shapefile grouping (D-18): one row for .shp, sidecars listed
-    if ".shp" in exts:
+    # Shapefile grouping (D-18): one row for .shp, sidecars listed. Only real
+    # sidecar extensions are absorbed; a same-named GeoJSON or GeoPackage is a
+    # separate dataset and falls through to the loop below.
+    shapefile_emitted = ".shp" in exts and (
+        include_exts is None or ".shp" in include_exts
+    )
+    if shapefile_emitted:
         shp = exts[".shp"]
-        siblings = [p for ext, p in exts.items() if ext != ".shp"]
+        siblings = [
+            p
+            for ext, p in exts.items()
+            if ext in SHAPEFILE_REQUIRED_SIDECARS | SHAPEFILE_OPTIONAL_SIDECARS
+        ]
         missing = SHAPEFILE_REQUIRED_SIDECARS - set(exts.keys())
-        if include_exts is not None and ".shp" not in include_exts:
-            return
         if missing:
             yield ScanItem(
                 path=shp,
@@ -172,9 +187,10 @@ def _classify_group(
                 ingest=True,
                 sidecar_files=siblings,
             )
-        return
 
     for ext, path in exts.items():
+        if ext == ".shp":
+            continue
         if include_exts is not None and ext not in include_exts:
             continue
         if ext == ".geojson":
@@ -211,16 +227,43 @@ def _classify_group(
             )
 
 
-def _looks_like_geojson(path: Path, *, peek_bytes: int = 1024) -> bool:
-    """Peek-read up to ``peek_bytes`` bytes to disambiguate GeoJSON from generic JSON.
+_GEOJSON_TYPES = frozenset(
+    {
+        "FeatureCollection",
+        "Feature",
+        "GeometryCollection",
+        "Point",
+        "MultiPoint",
+        "LineString",
+        "MultiLineString",
+        "Polygon",
+        "MultiPolygon",
+    }
+)
+_COLLECTION_OR_FEATURE_TYPE = re.compile(
+    rb'"type"\s*:\s*"(?:FeatureCollection|Feature)"'
+)
 
-    PERF-008: read only the bounded prefix instead of loading the whole file —
-    multi-GB ``.json`` exports next to geodata otherwise spike memory by the
-    full file size per file and can OOM constrained machines.
+
+def _looks_like_geojson(path: Path, *, peek_bytes: int = 1 << 20) -> bool:
+    """Decide whether a ``.json`` file is GeoJSON from a bounded read.
+
+    A file that fits in ``peek_bytes`` is parsed, so malformed JSON and JSON
+    without a GeoJSON ``type`` are rejected wherever the member sits. A larger
+    file is never loaded whole (multi-GB exports would exhaust memory); its
+    prefix must open an object and name a Feature or FeatureCollection.
     """
     try:
         with path.open("rb") as fh:
-            head = fh.read(peek_bytes).lstrip()
-        return head.startswith(b"{") and (b'"type"' in head[:200])
+            head = fh.read(peek_bytes)
+        truncated = path.stat().st_size > peek_bytes
     except OSError:
         return False
+    if not truncated:
+        try:
+            doc = json.loads(head.decode("utf-8-sig"))
+        except ValueError:
+            return False
+        return isinstance(doc, dict) and doc.get("type") in _GEOJSON_TYPES
+    head = head.removeprefix(b"\xef\xbb\xbf").lstrip()
+    return head.startswith(b"{") and bool(_COLLECTION_OR_FEATURE_TYPE.search(head))
