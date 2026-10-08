@@ -1,4 +1,5 @@
 import { API_BASE } from '@/lib/constants';
+import { signalWithTimeout } from '@/lib/abort';
 import { cookieAuthAvailable, cookieAuthHeaders, withCookieWrite } from '@/lib/auth-transport';
 import { useAuthStore } from '@/stores/auth-store';
 import { abortInflightRefresh, apiFetch, isCredentialRejected, safeFetch, ApiError } from './client';
@@ -297,9 +298,7 @@ export async function refreshAccessToken(
     // refresh outright. That matters beyond saving a request: an aborted
     // response is never processed, so its `Set-Cookie` cannot land and
     // overwrite a cookie issued by a later login.
-    signal: abortSignal
-      ? AbortSignal.any([abortSignal, AbortSignal.timeout(REFRESH_TIMEOUT_MS)])
-      : AbortSignal.timeout(REFRESH_TIMEOUT_MS),
+    signal: signalWithTimeout(abortSignal, REFRESH_TIMEOUT_MS),
     ...(refreshToken ? { body: JSON.stringify({ refresh_token: refreshToken }) } : {}),
   }), abortSignal);
 

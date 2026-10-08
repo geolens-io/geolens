@@ -1,4 +1,5 @@
 import { apiFetch } from './client';
+import { signalWithTimeout } from '@/lib/abort';
 import { API_BASE } from '@/lib/constants';
 import { translateApiErrorDetail } from '@/lib/error-map';
 
@@ -68,9 +69,7 @@ export async function fetchBoundedGeoJson(
   datasetId: string,
   options?: GeoJsonFetchOptions,
 ): Promise<BoundedGeoJsonResponse> {
-  const signal = options?.signal
-    ? AbortSignal.any([options.signal, AbortSignal.timeout(GEOJSON_TIMEOUT_MS)])
-    : AbortSignal.timeout(GEOJSON_TIMEOUT_MS);
+  const signal = signalWithTimeout(options?.signal, GEOJSON_TIMEOUT_MS);
 
   if (options?.embedToken) {
     const res = await fetch(directFetchPath(datasetId), {
