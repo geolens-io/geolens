@@ -189,7 +189,8 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
       onSuccess: (data) => {
         setBackfillJobId(data.job_id);
         setRegenPending(null);
-        toast.info(t('ai.backfillQueued'));
+        if (data.status === 'already_running') toast.warning(t('errors.backfillAlreadyRunning'));
+        else toast.info(t('ai.backfillQueued'));
         const missed = (data.other_tenants ?? []).filter((run) => run.status !== 'pending').length;
         if (missed > 0) toast.warning(t('ai.backfillOtherTenantsMissed', { count: missed }));
       },

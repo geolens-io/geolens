@@ -26,7 +26,8 @@ class BackfillResponse:
 
         Attributes:
             job_id (UUID): Identifier of the queued backfill job; poll /jobs/{job_id}.
-            status (str): Job status at enqueue time ('pending').
+            status (str): 'pending' when this request queued job_id. 'already_running' when an all_tenants request found a
+                run in flight in the calling tenant; job_id is then that run.
             other_tenants (list[BackfillTenantRun] | Unset): Runs queued for the other tenants by an all_tenants request in
                 a multi-tenant deployment. Empty otherwise.
     """

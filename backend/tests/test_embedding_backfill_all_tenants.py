@@ -255,6 +255,53 @@ async def test_a_tenant_with_a_run_in_flight_is_reported_and_the_rest_proceed(
     assert len(await _backfill_jobs_in(test_db_session, [tenants.caller])) == 1
 
 
+async def test_a_run_in_flight_in_the_callers_tenant_does_not_stop_the_fleet(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    tenants: _Tenants,
+    hosted,
+    deferred: AsyncMock,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "app.modules.auth.dependencies.get_permission_extension",
+        lambda: _FleetOperatorOnly(),
+    )
+    token = hosted(tenants.caller)
+    try:
+        in_flight = IngestJob(
+            source_filename="embedding-backfill",
+            file_path="",
+            status="running",
+            user_metadata={
+                EMBEDDING_BACKFILL_METADATA_KEY: {
+                    "force": False,
+                    "operation_id": "seed",
+                }
+            },
+        )
+        test_db_session.add(in_flight)
+        await test_db_session.commit()
+        resp = await client.post(_URL, headers=admin_auth_header)
+    finally:
+        current_tenant_var.reset(token)
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["job_id"] == str(in_flight.id)
+    assert body["status"] == "already_running"
+    [other_job] = await _backfill_jobs_in(test_db_session, [tenants.with_records])
+    assert body["other_tenants"] == [
+        {
+            "tenant_id": tenants.with_records,
+            "job_id": str(other_job.id),
+            "status": "pending",
+        }
+    ]
+    assert len(await _backfill_jobs_in(test_db_session, [tenants.caller])) == 1
+
+
 async def test_all_tenants_needs_the_fleet_permission(
     client: AsyncClient,
     admin_auth_header: dict,

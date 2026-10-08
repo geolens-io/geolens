@@ -1162,8 +1162,9 @@ async def trigger_backfill(
     leaves each tenant to regenerate. Pass ?all_tenants=true to also queue a
     run for every other tenant that has records; there it needs
     manage_tenants instead of manage_users, and ``other_tenants`` reports
-    each run. When the calling tenant's own run is refused, no other tenant is
-    queued. A single-tenant deployment ignores the flag.
+    each run. When the calling tenant already has a run in flight, that run's
+    id comes back with status ``already_running`` and the other tenants are
+    still queued. A single-tenant deployment ignores the flag.
 
     The run happens on the job queue because a full regeneration can exceed
     request timeouts. This endpoint returns the job id; poll
@@ -1176,13 +1177,25 @@ async def trigger_backfill(
     # One operation id across every tenant's run ties the system runs queued
     # elsewhere to this request's audited actor.
     operation_id = str(uuid.uuid4())
-    job = await _queue_backfill_run(
-        db,
-        force=force,
-        requested_by=current_user.id,
-        ip_address=ip_address,
-        operation_id=operation_id,
-    )
+    try:
+        job = await _queue_backfill_run(
+            db,
+            force=force,
+            requested_by=current_user.id,
+            ip_address=ip_address,
+            operation_id=operation_id,
+        )
+    except HTTPException as exc:
+        if not every_tenant or exc.status_code != status.HTTP_409_CONFLICT:
+            raise
+        from app.modules.admin.backfill_jobs import find_active_embedding_backfill
+
+        job = await find_active_embedding_backfill(db)
+        if job is None:
+            raise
+        job_status = "already_running"
+    else:
+        job_status = "pending"
     other_tenants = (
         await _queue_backfill_for_other_tenants(
             force=force, ip_address=ip_address, operation_id=operation_id
@@ -1191,7 +1204,7 @@ async def trigger_backfill(
         else []
     )
     return BackfillResponse(
-        job_id=job.id, status="pending", other_tenants=other_tenants
+        job_id=job.id, status=job_status, other_tenants=other_tenants
     )
 
 

@@ -1201,7 +1201,7 @@ export type BackfillResponse = {
     /**
      * Status
      *
-     * Job status at enqueue time ('pending').
+     * 'pending' when this request queued job_id. 'already_running' when an all_tenants request found a run in flight in the calling tenant; job_id is then that run.
      */
     status: string;
     /**

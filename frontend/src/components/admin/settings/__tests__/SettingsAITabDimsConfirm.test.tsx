@@ -140,6 +140,26 @@ describe('SettingsAITab embedding width confirmation', () => {
     );
   });
 
+  it('follows the run already in flight here and says so', async () => {
+    hoisted.isMultiTenant = true;
+    hoisted.capabilities = ['manage_tenants'];
+    hoisted.statsAvailable = false;
+    hoisted.backfillMutate.mockImplementation((_variables, opts) =>
+      opts.onSuccess({ job_id: '5f1e5b2a-0000-4000-8000-000000000009', status: 'already_running', other_tenants: [] }),
+    );
+    const user = userEvent.setup();
+    renderTab();
+
+    await changeWidth(user, '768');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await user.click(screen.getByRole('button', { name: 'Delete embeddings' }));
+
+    await waitFor(() =>
+      expect(toast.warning).toHaveBeenCalledWith('An embedding backfill is already running — wait for it to finish'),
+    );
+    expect(toast.info).not.toHaveBeenCalled();
+  });
+
   it('warns when another tenant could not start regenerating', async () => {
     hoisted.backfillMutate.mockImplementation((_variables, opts) =>
       opts.onSuccess({

@@ -498,7 +498,13 @@ class BackfillResponse(BaseModel):
     job_id: uuid.UUID = Field(
         description="Identifier of the queued backfill job; poll /jobs/{job_id}."
     )
-    status: str = Field(description="Job status at enqueue time ('pending').")
+    status: str = Field(
+        description=(
+            "'pending' when this request queued job_id. 'already_running' when an "
+            "all_tenants request found a run in flight in the calling tenant; "
+            "job_id is then that run."
+        )
+    )
     other_tenants: list[BackfillTenantRun] = Field(
         default_factory=list,
         description=(
