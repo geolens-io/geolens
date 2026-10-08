@@ -14,7 +14,7 @@
  *   each public API surface enough to prove:
  *     1. The module path resolves (CODE-05 — relocation complete)
  *     2. The store factory runs (zustand `create()` is invoked)
- *     3. The persisted auth store carries `version: 1` (CODE-04)
+ *     3. The persisted auth store carries `version: 2` (CODE-04)
  *     4. Each store's actions update its observable state correctly
  *
  * Manual UAT remains a checkpoint requirement — see SUMMARY.md "Playwright
@@ -49,9 +49,9 @@ describe('Plan 276-05 — store relocation smoke (CODE-04 + CODE-05)', () => {
     });
   });
 
-  describe('CODE-04: auth-store persist carries version: 1', () => {
-    it('persist option exposes version 1', () => {
-      expect(useAuthStore.persist.getOptions().version).toBe(1);
+  describe('CODE-04: auth-store persist carries version: 2', () => {
+    it('persist option exposes version 2', () => {
+      expect(useAuthStore.persist.getOptions().version).toBe(2);
     });
 
     it('persist option exposes a defined migrate function', () => {

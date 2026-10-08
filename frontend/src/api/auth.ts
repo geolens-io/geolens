@@ -260,13 +260,14 @@ export async function resendVerification(email: string): Promise<MessageResponse
 }
 
 /**
- * fix(#1302): in cookie mode the credential rides in the httpOnly cookie and
+ * In cookie mode the credential rides in the httpOnly cookie and
  * `refreshToken` is null, so the body is omitted entirely.
  *
- * The one exception is the transition: a session that logged in before this
- * shipped still holds a localStorage refresh token. Sending it once, under the
- * cookie-mode header, lets the backend rotate it and hand back a cookie instead
- * — the session migrates in place rather than being logged out.
+ * The one exception is the transition: a session that logged in before the
+ * cookie flow left a refresh token in storage, which the auth store moves into
+ * memory on load. Sending it once, under the cookie-mode header, lets the
+ * backend rotate it and hand back a cookie instead, so the session migrates in
+ * place rather than being logged out.
  */
 const REFRESH_TIMEOUT_MS = 30_000;
 

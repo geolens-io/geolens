@@ -1,5 +1,6 @@
 import { awaitPendingLogout, login, logoutSession, refreshAccessToken, revokeCurrentSession } from '@/api/auth';
 import { useAuthStore } from '@/stores/auth-store';
+import { otherTab } from '@/test/broadcast-channel';
 
 // fix(#1302): AC — after login the persisted `geolens-auth` value holds no
 // refresh token, and the refresh call carries the cookie plus its double-submit
@@ -274,10 +275,9 @@ describe('late refresh after logout', () => {
     expect(window.localStorage.getItem('geolens-auth') ?? '').not.toContain('rotated');
   });
 
-  // fix(#1446): sessionEpoch is per-tab, so a logout in ANOTHER tab cannot
-  // reach it through the persisted blob. The storage listener bumps it on the
-  // present->absent transition; without that, this tab's in-flight refresh
-  // writes its rotated tokens back and re-persists the session for every tab.
+  // sessionEpoch is per-tab, so another tab's logout reaches this one as a
+  // message. Without it, this tab's in-flight refresh writes its rotated token
+  // back and keeps a session the user ended.
   it('discards rotated tokens when another tab logged out', async () => {
     let resolveRefresh: (value: unknown) => void = () => {};
     let capturedSignal: AbortSignal | undefined;
@@ -291,31 +291,31 @@ describe('late refresh after logout', () => {
 
     const { tryRefresh } = await import('@/api/client');
     const { useAuthStore: store } = await import('@/stores/auth-store');
+    const { wireSessionSync } = await import('@/lib/session-sync');
+    const unwire = wireSessionSync();
+    const peer = otherTab();
 
-    store.setState({ token: 'live-access', refreshToken: null, expiresAt: Date.now() + 60_000 });
-    const pending = tryRefresh();
+    try {
+      store.getState().setAuth('live-access', null, 60, null);
+      const pending = tryRefresh();
 
-    // Tab A logged out: it wrote a token-less blob, and this tab's `storage`
-    // listener rehydrates from it.
-    window.localStorage.setItem(
-      'geolens-auth',
-      JSON.stringify({ state: { token: null, expiresAt: null, user: null }, version: 1 }),
-    );
-    window.dispatchEvent(new StorageEvent('storage', { key: 'geolens-auth' }));
-    await vi.waitFor(() => expect(store.getState().token).toBeNull());
+      peer.post({ type: 'logout', sessionId: store.getState().sessionId });
+      await vi.waitFor(() => expect(store.getState().token).toBeNull());
 
-    // fix(#1446): the request is abandoned too, not just its store write — a
-    // response the browser never processes cannot apply a stale Set-Cookie
-    // over a cookie a later login issued. Waited for rather than asserted
-    // directly: the token clears inside rehydrate(), which resolves before the
-    // listener's continuation runs the abort.
-    await vi.waitFor(() => expect(capturedSignal?.aborted).toBe(true));
+      // The request is abandoned too, not just its store write: a response the
+      // browser never processes cannot apply a stale Set-Cookie over a cookie
+      // a later login issued.
+      expect(capturedSignal?.aborted).toBe(true);
 
-    resolveRefresh({ access_token: 'rotated', refresh_token: null, expires_in: 900 });
-    await pending;
+      resolveRefresh({ access_token: 'rotated', refresh_token: null, expires_in: 900 });
+      await pending;
 
-    expect(store.getState().token).toBeNull();
-    expect(window.localStorage.getItem('geolens-auth') ?? '').not.toContain('rotated');
+      expect(store.getState().token).toBeNull();
+      expect(window.localStorage.getItem('geolens-auth') ?? '').not.toContain('rotated');
+    } finally {
+      peer.close();
+      unwire();
+    }
   });
 
   // fix(#1446): the epoch guard stops the store write, but the browser applies
@@ -393,16 +393,11 @@ describe('persisted auth state', () => {
     expect(useAuthStore.getState().refreshToken).toBeNull();
   });
 
-  // fix(#1446): zustand writes the persisted blob on its own after migrating a
-  // version-0 shape. Stripping the legacy token on that write would strand a
-  // tab closed before the migrating refresh ran — no body token on the next
-  // load, and no cookie either, so an otherwise-valid session dies at expiry.
-  it('keeps an unspent legacy refresh token across a store write', () => {
+  it('never writes an unspent legacy refresh token to storage', () => {
     useAuthStore.setState({ token: 'access-1', refreshToken: 'legacy-refresh-token' });
-    // Any unrelated write, as zustand performs post-migration.
     useAuthStore.setState({ expiresAt: Date.now() + 900_000 });
 
-    const raw = window.localStorage.getItem('geolens-auth') ?? '';
-    expect(JSON.parse(raw).state.refreshToken).toBe('legacy-refresh-token');
+    expect(window.localStorage.getItem('geolens-auth') ?? '').not.toContain('legacy-refresh-token');
+    expect(useAuthStore.getState().refreshToken).toBe('legacy-refresh-token');
   });
 });

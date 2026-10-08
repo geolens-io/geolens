@@ -1,14 +1,19 @@
 import { create } from 'zustand';
-import { persist, type PersistOptions } from 'zustand/middleware';
-// Cyclic with '@/api/client' (it imports this store), which is safe here:
-// neither module touches the other at import time, and a hoisted function
-// declaration is initialized before either body runs.
-import { abortInflightRefresh } from '@/api/client';
+import { createJSONStorage, persist, type PersistOptions } from 'zustand/middleware';
+import { postAuthMessage } from '@/lib/auth-channel';
 import { randomId } from '@/lib/random-id';
+import { readStorage, removeStorage, writeStorage } from '@/lib/storage';
 import type { UserResponse } from '@/types/api';
 
 interface AuthState {
+  /** Held in memory only; a reload recovers it from the refresh cookie. */
   token: string | null;
+  /**
+   * Set only for a body-token session (an API mounted on another origin or
+   * path, where the refresh cookie cannot reach it) and for the one refresh
+   * that migrates a legacy stored token. Held in memory only, so a reload ends
+   * a body-token session.
+   */
   refreshToken: string | null;
   expiresAt: number | null;
   user: UserResponse | null;
@@ -20,12 +25,13 @@ interface AuthState {
    * newer one. A token refresh keeps it.
    *
    * In-memory and per-tab: it orders events within one tab's lifetime, so the
-   * `storage` listener below bumps it for changes made by other tabs.
+   * cross-tab handlers in lib/session-sync.ts bump it for other tabs' changes.
    */
   sessionEpoch: number;
   /**
-   * Persisted identity of the installed session, shared by every tab. A new
-   * value means a different sign-in rather than a refresh of the same one.
+   * Identity of the installed session. A new value means a different sign-in
+   * rather than a refresh of the same one. Persisted for a cookie session, where
+   * it marks a session the next page load can recover.
    */
   sessionId: string | null;
   /** Install a new session. `user` is null while its profile is still loading. */
@@ -41,122 +47,127 @@ interface AuthState {
   isEditor: () => boolean;
 }
 
+export const SIGNED_OUT = {
+  token: null,
+  refreshToken: null,
+  expiresAt: null,
+  user: null,
+  sessionId: null,
+} as const;
+
 /**
  * Persist schema version for the auth store.
  *
- * When the persisted shape (token / refreshToken / expiresAt / user) needs a
- * breaking change in a future plan, bump this number AND add a corresponding
- * `if (fromVersion < N)` block inside `migrate` that transforms the
- * persisted blob from `N - 1` to `N`. Each version step should be additive:
- * never remove an old `if` block, even after newer versions exist, so users
- * who skip multiple releases still upgrade cleanly.
+ * A breaking change to the persisted shape bumps this number and adds an
+ * `if (fromVersion < N)` block to `migrate` that turns the `N - 1` shape into
+ * the `N` one. Keep every block, so a user who skipped releases still upgrades.
  */
-const PERSIST_VERSION = 1;
+const PERSIST_VERSION = 2;
+const STORAGE_KEY = 'geolens-auth';
 
-const persistConfig: PersistOptions<AuthState> = {
-  name: 'geolens-auth',
+interface PersistedAuth {
+  sessionId: string | null;
+  user: UserResponse | null;
+}
+
+/** The persisted user, if it belongs to `sessionId` and has the roles array role checks read. */
+export function readPersistedUser(sessionId: string): UserResponse | null {
+  const raw = readStorage(STORAGE_KEY);
+  try {
+    const state = raw ? (JSON.parse(raw) as { state?: Partial<PersistedAuth> }).state : undefined;
+    if (state?.sessionId !== sessionId) return null;
+    return Array.isArray(state.user?.roles) ? state.user : null;
+  } catch {
+    return null;
+  }
+}
+
+const persistConfig: PersistOptions<AuthState, PersistedAuth> = {
+  name: STORAGE_KEY,
   version: PERSIST_VERSION,
-  /**
-   * Forward migrations live here.
-   *
-   * Today we are at version 1 with no prior shape; legacy un-versioned blobs
-   * (zustand treats them as `fromVersion === 0`) are accepted as-is so that
-   * existing users do not lose their session on rollout. When you bump to
-   * version 2, add:
-   *
-   *   if (fromVersion < 2) {
-   *     // mutate persistedState into the v2 shape
-   *   }
-   *
-   * Always return the (possibly mutated) state at the end — zustand's
-   * middleware contract requires it.
-   */
+  // Zustand migrates only a blob that carries a version, so one written before
+  // versioning reads as version 0 and gets its tokens dropped like any other.
+  storage: createJSONStorage(
+    () => ({ getItem: readStorage, setItem: writeStorage, removeItem: removeStorage }),
+    {
+      reviver: (key, value) =>
+        key === '' && typeof value === 'object' && value !== null && !('version' in value)
+          ? { ...value, version: 0 }
+          : value,
+    },
+  ),
   migrate: (persistedState: unknown, fromVersion: number) => {
-    if (fromVersion < PERSIST_VERSION) {
-      // No transformations yet (version 1 is the baseline).
-      // Future authors: add `if (fromVersion < 2) { ... }` blocks here.
+    const state = (persistedState ?? {}) as Record<string, unknown>;
+    if (fromVersion < 2) {
+      // Versions 0 and 1 stored the access token, and a body-token session its
+      // refresh token too. The access token is dropped. A legacy refresh token
+      // is carried into memory for the refresh that runs on load, and the
+      // write zustand makes after a migration leaves it out of storage.
+      const legacyToken = typeof state.token === 'string' ? state.token : null;
+      const legacyRefresh = typeof state.refreshToken === 'string' ? state.refreshToken : null;
+      const sessionId =
+        typeof state.sessionId === 'string'
+          ? state.sessionId
+          : legacyToken || legacyRefresh
+            ? randomId()
+            : null;
+      return {
+        sessionId,
+        user: (state.user as UserResponse | null | undefined) ?? null,
+        ...(legacyRefresh ? { refreshToken: legacyRefresh } : {}),
+      } as PersistedAuth;
     }
-    return persistedState as AuthState;
+    return state as unknown as PersistedAuth;
   },
-  // The persisted blob is untrusted: a `user` without the `roles` array every
-  // role check reads throws during render instead of reaching the sign-in path.
+  // The persisted blob is untrusted: only these fields are read from it, and a
+  // `user` without the `roles` array every role check reads would throw during
+  // render instead of reaching the sign-in path.
   merge: (persistedState, currentState) => {
-    const persisted = (persistedState ?? {}) as Partial<AuthState>;
+    const persisted = (persistedState ?? {}) as Partial<PersistedAuth> & { refreshToken?: unknown };
     return {
       ...currentState,
-      ...persisted,
+      sessionId: typeof persisted.sessionId === 'string' ? persisted.sessionId : null,
       user: Array.isArray(persisted.user?.roles) ? persisted.user : null,
+      ...(typeof persisted.refreshToken === 'string' ? { refreshToken: persisted.refreshToken } : {}),
     };
   },
-  /**
-   * `partialize` makes the persisted surface explicit — only these auth fields
-   * are written, never any transient UI state that might later be added.
-   *
-   * fix(#1302): the refresh token is no longer among them for a cookie-mode
-   * session. It lives in an httpOnly cookie the browser attaches to /auth by
-   * itself, which also subsumes what the cross-tab `storage` listener below
-   * used to do for it — every tab shares one cookie jar, so rotation converges
-   * without any JS-visible copy.
-   *
-   * fix(#1446): the condition is "is there a token in memory", not "is cookie
-   * mode available". Two sessions legitimately still hold one, and stripping it
-   * from storage before it is spent loses the session on the next reload:
-   *   - a cross-origin deployment, which cannot use the cookie at all (see
-   *     lib/auth-transport.ts) and keeps using body tokens indefinitely;
-   *   - a pre-GH-1302 session mid-migration, whose legacy token is what the
-   *     next refresh trades for a cookie. Zustand writes the persisted blob on
-   *     its own after migrating a version-0 shape, so a tab closed before that
-   *     refresh ran would otherwise come back with neither credential.
-   * Once the migrating refresh spends it, `setTokens` stores null and it stops
-   * being persisted for good.
-   *
-   * fix(#438) DATA-05 still applies to the ACCESS token, which stays in
-   * localStorage for cross-tab convergence. Moving it to memory is tracked
-   * separately in GH-1302's remaining acceptance criteria.
-   */
+  // Never a token. A session holding its refresh token in memory cannot
+  // outlive the page, so nothing about it is persisted.
   partialize: (state) =>
-    ({
-      token: state.token,
-      ...(state.refreshToken ? { refreshToken: state.refreshToken } : {}),
-      expiresAt: state.expiresAt,
-      user: state.user,
-      sessionId: state.sessionId,
-    }) as unknown as AuthState,
+    state.refreshToken
+      ? { sessionId: null, user: null }
+      : { sessionId: state.sessionId, user: state.user },
 };
 
 export const useAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({
-      token: null,
-      refreshToken: null,
-      expiresAt: null,
-      user: null,
+      ...SIGNED_OUT,
       sessionEpoch: 0,
-      sessionId: null,
-      setAuth: (token, refreshToken, expiresIn, user) =>
+      setAuth: (token, refreshToken, expiresIn, user) => {
+        const sessionId = randomId();
         set((state) => ({
           token,
           refreshToken,
           expiresAt: Date.now() + expiresIn * 1000,
           user,
-          sessionId: randomId(),
+          sessionId,
           sessionEpoch: state.sessionEpoch + 1,
-        })),
+        }));
+        // Every tab shares the cookie this sign-in just replaced.
+        if (!refreshToken) postAuthMessage({ type: 'login', sessionId });
+      },
       setTokens: (token, refreshToken, expiresIn) =>
         set({
           token,
           refreshToken,
           expiresAt: Date.now() + expiresIn * 1000,
         }),
-      logout: () =>
-        set((state) => ({
-          token: null,
-          refreshToken: null,
-          expiresAt: null,
-          user: null,
-          sessionId: null,
-          sessionEpoch: state.sessionEpoch + 1,
-        })),
+      logout: () => {
+        const { sessionId, refreshToken } = get();
+        set((state) => ({ ...SIGNED_OUT, sessionEpoch: state.sessionEpoch + 1 }));
+        if (sessionId && !refreshToken) postAuthMessage({ type: 'logout', sessionId });
+      },
       isAdmin: () => get().user?.roles.includes('admin') ?? false,
       isEditor: () => {
         const roles = get().user?.roles ?? [];
@@ -166,47 +177,3 @@ export const useAuthStore = create<AuthState>()(
     persistConfig,
   ),
 );
-
-/**
- * Cross-tab token sync.
- *
- * Originally this existed because refresh tokens were single-use and lived in
- * localStorage: a refresh in one tab left every OTHER tab holding a revoked
- * token, and the next request there logged the tab out (e.g. "saved a map →
- * logged out" with two tabs open). fix(#1302) moved the refresh token into a
- * cookie, which all tabs already share, so that half is handled by the browser.
- *
- * The listener still earns its place for the ACCESS token, which remains in
- * localStorage: rehydrating keeps every tab on the freshest access token and
- * propagates logout. The `storage` event fires only in the tabs that did NOT
- * make the change.
- */
-if (typeof window !== 'undefined') {
-  window.addEventListener('storage', (e) => {
-    if (e.key !== persistConfig.name) return;
-    const { token: previousToken, sessionId: previousSessionId } = useAuthStore.getState();
-    void Promise.resolve(useAuthStore.persist.rehydrate()).then(() => {
-      const { token, sessionId } = useAuthStore.getState();
-      const loggedOut = !!previousToken && !token;
-      if (loggedOut || sessionId !== previousSessionId) {
-        // Rehydration replaced the session but cannot touch this tab's epoch,
-        // so work in flight here would still write, refresh or sign out
-        // against the session another tab just ended or replaced.
-        useAuthStore.setState((s) => ({ sessionEpoch: s.sessionEpoch + 1 }));
-        // The epoch only blocks the store write. Abort the request too, so the
-        // browser never processes a response whose Set-Cookie could overwrite
-        // the cookie of the session that replaced it.
-        abortInflightRefresh();
-      }
-      // React only re-checks auth on its next render, so a tab another tab
-      // signed out would keep showing protected chrome. Skip public auth
-      // routes so this cannot loop.
-      if (loggedOut) {
-        const path = window.location.pathname;
-        if (path !== '/login' && path !== '/register') {
-          window.location.assign('/login');
-        }
-      }
-    });
-  });
-}
