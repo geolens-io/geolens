@@ -34,8 +34,14 @@ import type {
 /** Byte-transfer progress callback (0–1). */
 export type UploadProgress = (fraction: number) => void;
 
-/** No upload progress and no server response within this window means a stalled connection. */
+/** No upload progress within this window means a stalled connection while bytes are still being sent. */
 const UPLOAD_INACTIVITY_TIMEOUT_MS = 120_000;
+/**
+ * Once the body is sent the server stages and validates it, which is not
+ * bounded by transfer speed. Outlive the proxy's 600s read timeout so the
+ * proxy's verdict reaches the caller instead of a client-side abort.
+ */
+const UPLOAD_RESPONSE_TIMEOUT_MS = 630_000;
 
 /**
  * Rethrows err, rebuilding an ApiError's message through describeUploadRefusal
@@ -98,16 +104,17 @@ async function xhrUpload<T>(
         fn();
       };
       // Reset on every byte of progress, so a slow upload that keeps moving is
-      // never cut off; it also bounds the wait for the server's response.
-      const armInactivityTimer = () => {
+      // never cut off.
+      const armTimer = (ms: number) => {
         clearTimeout(inactivityTimer);
         inactivityTimer = setTimeout(() => {
           settle(() => {
             xhr.abort();
             reject(new ApiError(i18n.t('common:errors.requestTimeout'), 0));
           });
-        }, UPLOAD_INACTIVITY_TIMEOUT_MS);
+        }, ms);
       };
+      const armInactivityTimer = () => armTimer(UPLOAD_INACTIVITY_TIMEOUT_MS);
       const onAbort = () => {
         settle(() => {
           xhr.abort();
@@ -122,7 +129,7 @@ async function xhrUpload<T>(
         armInactivityTimer();
         if (onProgress && e.lengthComputable) onProgress(e.loaded / e.total);
       };
-      xhr.upload.onload = armInactivityTimer;
+      xhr.upload.onload = () => armTimer(UPLOAD_RESPONSE_TIMEOUT_MS);
       xhr.onload = () => settle(() => resolve({ status: xhr.status, body: xhr.responseText }));
       xhr.onerror = () =>
         settle(() => reject(new ApiError(i18n.t('common:errors.networkUnavailable'), 0)));
@@ -139,7 +146,23 @@ async function xhrUpload<T>(
       throw err;
     });
 
-  const { response: res, refresh } = await sendInSession(attempt);
+  // sendInSession can wait on a shared token refresh before it sends anything;
+  // a cancel during that wait settles here without cancelling the refresh.
+  const sending = sendInSession(attempt);
+  const { response: res, refresh } = await (signal
+    ? Promise.race([
+        sending,
+        new Promise<never>((_, reject) => {
+          const onAbort = () => reject(new DOMException('Aborted', 'AbortError'));
+          if (signal.aborted) onAbort();
+          else signal.addEventListener('abort', onAbort, { once: true });
+          sending.then(
+            () => signal.removeEventListener('abort', onAbort),
+            () => signal.removeEventListener('abort', onAbort),
+          );
+        }),
+      ])
+    : sending);
 
   if (res.status < 200 || res.status >= 300) {
     let detail: unknown;

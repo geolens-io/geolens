@@ -1,5 +1,5 @@
 import { useAuthStore } from '@/stores/auth-store';
-import { ApiError } from '@/api/client';
+import { abortInflightRefresh, ApiError } from '@/api/client';
 import { uploadFile } from '@/api/ingest';
 import { clearUploadBatch, removeUploadSessionEntry, startUploadEntry } from '@/api/upload-session';
 
@@ -57,6 +57,7 @@ describe('direct-POST upload settles exactly once', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    abortInflightRefresh();
     mockRefresh.mockReset();
   });
 
@@ -101,6 +102,36 @@ describe('direct-POST upload settles exactly once', () => {
     expect(err.status).toBe(0);
     expect(err.message).toBe('The request took too long. Try again.');
     xhr.respond(200, '{}');
+  });
+
+  it('waits for server processing after the body is sent, up to the response deadline', async () => {
+    vi.useFakeTimers();
+    const p = settleOf(uploadFile(file()));
+    await vi.advanceTimersByTimeAsync(0);
+    const xhr = FakeXHR.sent[0];
+    xhr.upload.onload?.();
+    await vi.advanceTimersByTimeAsync(600_000);
+    expect(xhr.aborted).toBe(false);
+    xhr.respond(200, '{"job_id":"j"}');
+    expect(await p).toEqual({ ok: true, value: { job_id: 'j' } });
+  });
+
+  it('a cancel while a shared token refresh is pending rejects without waiting for it', async () => {
+    useAuthStore.setState({ token: 'old', expiresAt: Date.now() + 1_000 });
+    mockRefresh.mockImplementation(
+      (_token: unknown, refreshSignal?: AbortSignal) =>
+        new Promise((_, reject) => {
+          refreshSignal?.addEventListener('abort', () => reject(new Error('refresh aborted')));
+        }),
+    );
+    const abort = new AbortController();
+    const p = settleOf(uploadFile(file(), undefined, null, abort.signal));
+    await vi.waitFor(() => expect(mockRefresh).toHaveBeenCalled());
+    abort.abort();
+    const result = await p;
+    expect(result.ok).toBe(false);
+    expect((result.value as DOMException).name).toBe('AbortError');
+    expect(FakeXHR.sent).toHaveLength(0);
   });
 
   it('a browser timeout event rejects once as a timeout', async () => {
