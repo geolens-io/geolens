@@ -18908,7 +18908,14 @@ export type GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetRespon
     200: {
         type: 'FeatureCollection';
         features: Array<{
-            [key: string]: unknown;
+            type: 'Feature';
+            id: number;
+            geometry: {
+                [key: string]: unknown;
+            };
+            properties: {
+                [key: string]: unknown;
+            };
         }>;
         truncated: boolean;
         total_count: number;

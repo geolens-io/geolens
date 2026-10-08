@@ -36983,6 +36983,31 @@
                     },
                     "features": {
                       "items": {
+                        "properties": {
+                          "type": {
+                            "enum": [
+                              "Feature"
+                            ],
+                            "type": "string"
+                          },
+                          "id": {
+                            "type": "integer"
+                          },
+                          "geometry": {
+                            "additionalProperties": true,
+                            "type": "object"
+                          },
+                          "properties": {
+                            "type": "object",
+                            "additionalProperties": true
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "id",
+                          "geometry",
+                          "properties"
+                        ],
                         "type": "object"
                       },
                       "type": "array"

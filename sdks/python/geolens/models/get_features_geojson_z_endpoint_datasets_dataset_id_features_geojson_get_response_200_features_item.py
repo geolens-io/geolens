@@ -1,10 +1,26 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeVar
+from typing import Any, TypeVar, TYPE_CHECKING
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
+
+
+from ..models.get_features_geojson_z_endpoint_datasets_dataset_id_features_geojson_get_response_200_features_item_type import (
+    check_get_features_geojson_z_endpoint_datasets_dataset_id_features_geojson_get_response_200_features_item_type,
+)
+from ..models.get_features_geojson_z_endpoint_datasets_dataset_id_features_geojson_get_response_200_features_item_type import (
+    GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemType,
+)
+
+if TYPE_CHECKING:
+    from ..models.get_features_geojson_z_endpoint_datasets_dataset_id_features_geojson_get_response_200_features_item_geometry import (
+        GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemGeometry,
+    )
+    from ..models.get_features_geojson_z_endpoint_datasets_dataset_id_features_geojson_get_response_200_features_item_properties import (
+        GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemProperties,
+    )
 
 
 T = TypeVar(
@@ -15,21 +31,72 @@ T = TypeVar(
 
 @_attrs_define
 class GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItem:
-    """ """
+    """
+    Attributes:
+        type_ (GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemType):
+        id (int):
+        geometry (GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemGeometry):
+        properties (GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemProperties):
+    """
 
+    type_: GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemType
+    id: int
+    geometry: GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemGeometry
+    properties: GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemProperties
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        type_: str = self.type_
+
+        id = self.id
+
+        geometry = self.geometry.to_dict()
+
+        properties = self.properties.to_dict()
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
+        field_dict.update(
+            {
+                "type": type_,
+                "id": id,
+                "geometry": geometry,
+                "properties": properties,
+            }
+        )
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.get_features_geojson_z_endpoint_datasets_dataset_id_features_geojson_get_response_200_features_item_geometry import (
+            GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemGeometry,
+        )
+        from ..models.get_features_geojson_z_endpoint_datasets_dataset_id_features_geojson_get_response_200_features_item_properties import (
+            GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemProperties,
+        )
+
         d = dict(src_dict)
-        get_features_geojson_z_endpoint_datasets_dataset_id_features_geojson_get_response_200_features_item = cls()
+        type_ = check_get_features_geojson_z_endpoint_datasets_dataset_id_features_geojson_get_response_200_features_item_type(
+            d.pop("type")
+        )
+
+        id = d.pop("id")
+
+        geometry = GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemGeometry.from_dict(
+            d.pop("geometry")
+        )
+
+        properties = GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemProperties.from_dict(
+            d.pop("properties")
+        )
+
+        get_features_geojson_z_endpoint_datasets_dataset_id_features_geojson_get_response_200_features_item = cls(
+            type_=type_,
+            id=id,
+            geometry=geometry,
+            properties=properties,
+        )
 
         get_features_geojson_z_endpoint_datasets_dataset_id_features_geojson_get_response_200_features_item.additional_properties = d
         return get_features_geojson_z_endpoint_datasets_dataset_id_features_geojson_get_response_200_features_item

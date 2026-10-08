@@ -25534,7 +25534,17 @@ export interface operations {
                     "application/geo+json": {
                         /** @enum {string} */
                         type: "FeatureCollection";
-                        features: Record<string, never>[];
+                        features: {
+                            /** @enum {string} */
+                            type: "Feature";
+                            id: number;
+                            geometry: {
+                                [key: string]: unknown;
+                            };
+                            properties: {
+                                [key: string]: unknown;
+                            };
+                        }[];
                         truncated: boolean;
                         total_count: number;
                     };
