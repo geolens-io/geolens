@@ -288,9 +288,7 @@ def credential_store_refusal(
 
 def warn_if_credential_store_unconfigured() -> None:
     """Say at startup that protected-service dispatches are refused."""
-    from app.core.config import settings
-
-    if settings.redis_url:
+    if credential_store_available():
         return
     logger.warning(
         "credential_store_not_configured",

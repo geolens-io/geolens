@@ -222,9 +222,19 @@ class TestDispatchPolicy:
         from app.core.config import settings
 
         monkeypatch.setattr(settings, "redis_url", None, raising=False)
+        creds.set_credential_backend(None)
         with structlog.testing.capture_logs() as captured:
             creds.warn_if_credential_store_unconfigured()
         assert [e["event"] for e in captured] == ["credential_store_not_configured"]
+
+        # A backend the host installed directly counts as a store.
+        creds.set_credential_backend(_FakeCredentialBackend())
+        try:
+            with structlog.testing.capture_logs() as captured:
+                creds.warn_if_credential_store_unconfigured()
+        finally:
+            creds.set_credential_backend(None)
+        assert captured == []
 
         monkeypatch.setattr(settings, "redis_url", "redis://valkey:6379/0")
         with structlog.testing.capture_logs() as captured:
