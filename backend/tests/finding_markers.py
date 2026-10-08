@@ -335,7 +335,7 @@ UNANCHORED_MARKER_DEBT: dict[str, int] = {
     "processing/ai/chat_validation.py": 1,
     "processing/analysis/provenance.py": 2,
     "processing/analysis/tasks.py": 2,
-    "processing/export/router.py": 3,
+    "processing/export/router.py": 1,
     "processing/export/service.py": 3,
     "processing/export/where_validator.py": 3,
     "processing/ingest/manifest_service.py": 2,

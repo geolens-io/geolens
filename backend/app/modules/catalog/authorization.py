@@ -84,19 +84,25 @@ async def check_dataset_access_or_anonymous(
     Authenticated users follow the full RBAC rules via check_dataset_access().
     """
     if user is None:
-        allowed = await get_permission_extension().can_access_dataset(
-            db,
-            dataset,
-            dataset_id,
-            None,
-            user_roles=set(),
-        )
-        if not allowed:
+        if not await _anonymous_may_read(db, dataset, dataset_id):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
             )
         return set()
     return await check_dataset_access(db, dataset, dataset_id, user)
+
+
+async def _anonymous_may_read(
+    db: AsyncSession, dataset: Any, dataset_id: uuid.UUID
+) -> bool:
+    """Whether a caller with no identity may read *dataset*."""
+    return await get_permission_extension().can_access_dataset(
+        db,
+        dataset,
+        dataset_id,
+        None,
+        user_roles=set(),
+    )
 
 
 async def check_dataset_access(
@@ -535,20 +541,39 @@ async def can_download_raster_cog(
     may_export: bool | None = None,
 ) -> bool:
     """Whether the COG download route would serve *dataset* to a caller who
-    can already see it.
-
-    The route's own gate, without raising: an anonymous caller only gets a
-    public dataset, an authenticated one also needs the export capability.
-    ``may_export`` is that capability when the caller already resolved it
-    with :func:`can_export`.
+    can already see it: :func:`can_export_dataset` for a raster.
     """
     if dataset.record.record_type != "raster_dataset":
         return False
-    if user is None:
-        return dataset.record.visibility == DatasetVisibility.PUBLIC.value
-    if may_export is None:
-        may_export = await can_export(db, user, user_roles)
-    return may_export
+    return await can_export_dataset(
+        db, dataset, dataset.id, user, user_roles, may_export=may_export
+    )
+
+
+async def can_export_dataset(
+    db: AsyncSession,
+    dataset: Any,
+    dataset_id: uuid.UUID,
+    user: Identity | None,
+    user_roles: set[str] | None = None,
+    *,
+    may_export: bool | None = None,
+) -> bool:
+    """Whether a caller who can already see *dataset* may download its data.
+
+    Every caller may download a public dataset an anonymous caller can read,
+    so signing in never takes away what signing out gives; anything beyond
+    that needs the export capability. ``may_export`` is that capability when
+    the caller already resolved it with :func:`can_export`.
+    """
+    if user is not None:
+        if may_export is None:
+            may_export = await can_export(db, user, user_roles)
+        if may_export:
+            return True
+    return dataset.record.visibility == DatasetVisibility.PUBLIC.value and (
+        await _anonymous_may_read(db, dataset, dataset_id)
+    )
 
 
 async def can_export(

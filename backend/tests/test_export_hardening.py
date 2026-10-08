@@ -231,14 +231,9 @@ class TestMaskQuotedLiterals:
 
 class TestExportEndpointCapabilityGate:
     def test_export_endpoint_is_anonymous_capable_with_capability_gate(self):
-        """EXP-01: the export endpoint is anonymous-capable (get_optional_user),
-        NOT gated by require_permission at the signature level. The 'export'
-        capability check moved into the authenticated branch of the handler body
-        (via get_effective_permissions). This static-shape test pins both:
-        (1) the user param resolves via get_optional_user, and
-        (2) the handler source still enforces the export capability — guarding
-        against the gate being silently dropped.
-        Behavioral allow/deny coverage lives in test_export_access.py (EXP-02)."""
+        """The export endpoint resolves its caller with get_optional_user and
+        gates the body through can_export_dataset; behaviour lives in
+        test_export_access.py."""
         import inspect
 
         from app.processing.export.router import export_dataset_endpoint
@@ -256,14 +251,9 @@ class TestExportEndpointCapabilityGate:
             f"got {dep_callable.__name__}"
         )
 
-        # The export capability gate must still be enforced in the handler body
-        # (authenticated branch) — pin it so it cannot be silently removed.
         src = inspect.getsource(export_dataset_endpoint)
-        assert "get_effective_permissions" in src, (
-            "export capability gate (get_effective_permissions) missing from handler body"
-        )
-        assert '"export"' in src or "'export'" in src, (
-            "export capability key missing from handler body"
+        assert "can_export_dataset(" in src, (
+            "export gate (can_export_dataset) missing from handler body"
         )
 
 
@@ -455,15 +445,9 @@ async def _reset_permission_matrix(
 
 
 class TestExportRevokedViewerParity:
-    """v1015 Phase 1069 IA-P1-01 verified the dependency via signature
-    inspection + a live 401-for-anonymous smoke. KNOWN-05 closes the
-    remaining gap: an authenticated viewer whose `export` capability has
-    been REVOKED by admin gets 403 from GET /datasets/{id}/export — full
-    parity with the v1014 SEC-S04 capability-matrix contract.
-
-    Both tests are self-contained — they explicitly set the matrix they
-    need and reset it on exit — because the clean_tables fixture does NOT
-    truncate the persistent_config table.
+    """A viewer whose export capability an admin revoked keeps only the
+    anonymous baseline. Each test sets and resets its own matrix, because
+    clean_tables does not truncate persistent_config.
     """
 
     @pytest.mark.anyio
@@ -475,15 +459,16 @@ class TestExportRevokedViewerParity:
         test_db_session,
         mock_export_service_for_known05,
     ):
-        """Revoke viewer.export via admin matrix PUT, then attempt export
-        as viewer on a PUBLIC dataset. Expect 403.
-
-        Uses a PUBLIC dataset so the visibility filter passes and we
-        exercise the capability gate's 403 branch (NOT the visibility
-        filter's 404 branch — see test_export.py:163).
-        """
+        """A revoked viewer gets 403 on a dataset only signed-in users can
+        see, and still exports a public one."""
         admin_id = await get_user_id(test_db_session, "admin")
-        ds = await create_dataset(
+        internal = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility="internal",
+            name="InternalExportRevokedTest",
+        )
+        public = await create_dataset(
             test_db_session,
             created_by=admin_id,
             visibility="public",
@@ -491,38 +476,24 @@ class TestExportRevokedViewerParity:
         )
 
         try:
-            # Sanity: with default matrix (viewer.export=True), viewer CAN
-            # export a public dataset. Pins the baseline before we revoke.
-            resp = await client.get(
-                f"/datasets/{ds.id}/export", headers=viewer_auth_header
-            )
-            assert resp.status_code == 200, (
-                f"Default matrix should let viewer export public datasets; "
-                f"got {resp.status_code}: {resp.text}"
-            )
-
-            # Revoke export from viewer (everything else preserved).
             await _put_permission_matrix(
                 client, admin_auth_header, _VIEWER_EXPORT_REVOKED_MATRIX
             )
 
-            # As viewer, attempt the same export — expect 403.
             resp = await client.get(
-                f"/datasets/{ds.id}/export", headers=viewer_auth_header
+                f"/datasets/{internal.id}/export", headers=viewer_auth_header
             )
-            assert resp.status_code == 403, (
-                f"Revoked viewer must get 403 on export (NOT 401, NOT 404); "
-                f"got {resp.status_code}: {resp.text}"
-            )
-            # require_permission emits f"Missing permission: {cap}"
-            # (see dependencies.py:314).
+            assert resp.status_code == 403, resp.text
             detail = resp.json().get("detail", "")
             assert "permission" in detail.lower() and "export" in detail.lower(), (
                 f"Expected detail to mention 'permission' and 'export'; got {detail!r}"
             )
+
+            resp = await client.get(
+                f"/datasets/{public.id}/export", headers=viewer_auth_header
+            )
+            assert resp.status_code == 200, resp.text
         finally:
-            # Restore the matrix to defaults so the revoke doesn't leak
-            # into subsequent tests in the suite.
             await _reset_permission_matrix(client, admin_auth_header)
 
     @pytest.mark.anyio

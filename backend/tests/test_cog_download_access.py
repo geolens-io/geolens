@@ -27,11 +27,12 @@ Requirements:
                uv run pytest tests/test_cog_download_access.py -v
 """
 
+import pytest
 from httpx import AsyncClient
 
 from app.platform.storage import get_storage
 
-from tests.factories import create_raster_dataset, get_user_id
+from tests.factories import create_raster_dataset, create_roleless_user, get_user_id
 
 _COG_BYTES = b"GEOLENS-TEST-COG-BYTES" * 64
 
@@ -237,3 +238,81 @@ async def test_non_owner_cog_download_private_denied(
         f"Expected denial (401/403/404) for non-owner (viewer) download of "
         f"private raster, got {resp.status_code}: {resp.text}"
     )
+
+
+# ---------------------------------------------------------------------------
+# A signed-in caller without the export capability gets the anonymous baseline
+# ---------------------------------------------------------------------------
+
+
+async def test_roleless_cog_download_public_published_allowed(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """A role-less user downloads a public raster's COG, by header and by minted token."""
+    headers, _ = await create_roleless_user(client, admin_auth_header, test_db_session)
+    admin_id = await get_user_id(test_db_session, "admin")
+    ds = await _raster_dataset_with_bytes(
+        test_db_session,
+        visibility="public",
+        record_status="published",
+        created_by=admin_id,
+    )
+
+    resp = await client.get(f"/datasets/{ds.id}/download/cog", headers=headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.content == _COG_BYTES
+
+    minted = await client.post(f"/auth/download-token/{ds.id}", headers=headers)
+    assert minted.status_code == 200, minted.text
+    token = minted.json()["token"]
+    resp = await client.get(f"/datasets/{ds.id}/download/cog?token={token}")
+    assert resp.status_code == 200, resp.text
+    assert resp.content == _COG_BYTES
+
+
+@pytest.mark.parametrize(
+    ("visibility", "expected"), [("internal", 403), ("private", 404)]
+)
+async def test_roleless_cog_download_beyond_the_anonymous_baseline_denied(
+    visibility,
+    expected,
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """A role-less user is refused a raster an anonymous caller is refused."""
+    headers, _ = await create_roleless_user(client, admin_auth_header, test_db_session)
+    admin_id = await get_user_id(test_db_session, "admin")
+    ds = await _raster_dataset_with_bytes(
+        test_db_session,
+        visibility=visibility,
+        record_status="published",
+        created_by=admin_id,
+    )
+
+    resp = await client.get(f"/datasets/{ds.id}/download/cog", headers=headers)
+
+    assert resp.status_code == expected, resp.text
+
+
+async def test_viewer_with_export_downloads_internal_cog(
+    client: AsyncClient,
+    test_db_session,
+    viewer_auth_header: dict,
+):
+    """The export capability still reaches past the anonymous baseline."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    ds = await _raster_dataset_with_bytes(
+        test_db_session,
+        visibility="internal",
+        record_status="published",
+        created_by=admin_id,
+    )
+
+    resp = await client.get(
+        f"/datasets/{ds.id}/download/cog", headers=viewer_auth_header
+    )
+
+    assert resp.status_code == 200, resp.text

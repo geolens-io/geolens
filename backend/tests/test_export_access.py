@@ -20,6 +20,7 @@ Requirements:
 import os
 import shutil
 import tempfile
+import uuid
 
 import pytest
 from httpx import AsyncClient
@@ -27,7 +28,7 @@ from sqlalchemy import text
 
 from app.processing.export.ogr import FORMAT_MAP
 
-from tests.factories import create_dataset, get_user_id
+from tests.factories import create_dataset, create_roleless_user, get_user_id
 
 
 # ---------------------------------------------------------------------------
@@ -255,6 +256,125 @@ async def test_non_owner_export_private_denied(
         f"Expected denial (401/403/404) for non-owner (viewer) export of private dataset, "
         f"got {resp.status_code}: {resp.text}"
     )
+
+
+# ---------------------------------------------------------------------------
+# A signed-in caller gets at least the anonymous baseline, and no more
+# without the export capability
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def roleless_auth_header(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+) -> dict[str, str]:
+    headers, _ = await create_roleless_user(client, admin_auth_header, test_db_session)
+    return headers
+
+
+async def test_roleless_export_public_published_allowed(
+    client: AsyncClient,
+    test_db_session,
+    roleless_auth_header: dict,
+    mock_export_service,
+):
+    """A signed-in user with no role exports a public dataset like an anonymous caller."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    ds = await create_dataset(
+        test_db_session,
+        created_by=admin_id,
+        name="RolelessExportPublic",
+        visibility="public",
+        record_status="published",
+    )
+
+    resp = await client.get(
+        f"/datasets/{ds.id}/export?format=geojson", headers=roleless_auth_header
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.content == b"mock export data"
+
+
+@pytest.mark.parametrize(
+    ("visibility", "record_status", "expected"),
+    [
+        ("internal", "published", 403),
+        ("private", "published", 404),
+        ("restricted", "published", 404),
+        ("public", "internal", 404),
+    ],
+)
+async def test_roleless_export_beyond_the_anonymous_baseline_denied(
+    visibility,
+    record_status,
+    expected,
+    client: AsyncClient,
+    test_db_session,
+    roleless_auth_header: dict,
+    mock_export_service,
+):
+    """A role-less user is refused what an anonymous caller is refused: 403 where they can see the dataset, 404 where they cannot."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    ds = await create_dataset(
+        test_db_session,
+        created_by=admin_id,
+        name=f"RolelessExport {visibility}/{record_status}",
+        visibility=visibility,
+        record_status=record_status,
+    )
+
+    resp = await client.get(
+        f"/datasets/{ds.id}/export?format=geojson", headers=roleless_auth_header
+    )
+
+    assert resp.status_code == expected, resp.text
+
+
+async def test_roleless_owner_cannot_export_own_public_draft(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    mock_export_service,
+):
+    """An unpublished dataset is outside the anonymous baseline even for its role-less owner."""
+    headers, user_id = await create_roleless_user(
+        client, admin_auth_header, test_db_session
+    )
+    ds = await create_dataset(
+        test_db_session,
+        created_by=uuid.UUID(user_id),
+        name="RolelessOwnerPublicDraft",
+        visibility="public",
+        record_status="internal",
+    )
+
+    resp = await client.get(f"/datasets/{ds.id}/export?format=geojson", headers=headers)
+
+    assert resp.status_code == 403, resp.text
+
+
+async def test_viewer_with_export_exports_internal_dataset(
+    client: AsyncClient,
+    test_db_session,
+    viewer_auth_header: dict,
+    mock_export_service,
+):
+    """The export capability still reaches past the anonymous baseline."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    ds = await create_dataset(
+        test_db_session,
+        created_by=admin_id,
+        name="ViewerExportInternal",
+        visibility="internal",
+        record_status="published",
+    )
+
+    resp = await client.get(
+        f"/datasets/{ds.id}/export?format=geojson", headers=viewer_auth_header
+    )
+
+    assert resp.status_code == 200, resp.text
 
 
 # ---------------------------------------------------------------------------

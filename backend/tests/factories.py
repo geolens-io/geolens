@@ -17,10 +17,10 @@ from datetime import date, datetime
 
 from geoalchemy2 import WKTElement
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.auth.models import User
+from app.modules.auth.models import User, UserRole
 from app.modules.catalog.datasets.domain.models import (
     Dataset,
     Record,
@@ -63,6 +63,19 @@ async def create_user(
     )
     assert login.status_code == 200, f"Login failed for {username}: {login.text}"
     headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+    return headers, user_id
+
+
+async def create_roleless_user(
+    client: AsyncClient, admin_headers: dict, session: AsyncSession
+) -> tuple[dict[str, str], str]:
+    """A signed-in account holding no role, like a self-registered user
+    awaiting one. Returns (auth_header, user_id)."""
+    headers, user_id = await create_user(client, admin_headers, "viewer")
+    await session.execute(
+        delete(UserRole).where(UserRole.user_id == uuid.UUID(user_id))
+    )
+    await session.commit()
     return headers, user_id
 
 
