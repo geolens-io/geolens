@@ -301,11 +301,17 @@ class TestTheSerializationPointsStillExist:
     def test_login_assigns_last_login_at_before_minting_tokens(self):
         from pathlib import Path
 
-        for rel in (
-            "app/modules/auth/router.py",
-            "app/modules/auth/oauth/router.py",
+        backend = Path(__file__).resolve().parents[1]
+        helper = (backend / "app/modules/auth/oauth/sign_in_redirect.py").read_text()
+        assert "create_access_token(" in helper
+        assert "last_login_at" not in helper
+        # The OAuth callback mints inside sso_sign_in_redirect, so the call to
+        # it is the boundary there.
+        for rel, mint_call in (
+            ("app/modules/auth/router.py", "create_access_token("),
+            ("app/modules/auth/oauth/router.py", "sso_sign_in_redirect("),
         ):
-            source = (Path(__file__).resolve().parents[1] / rel).read_text()
+            source = (backend / rel).read_text()
             assign = source.find("last_login_at = func.now()")
             # fix(#1460 codex): compare against create_access_token, NOT
             # create_refresh_token. The boundary that matters is the version
@@ -316,9 +322,9 @@ class TestTheSerializationPointsStillExist:
             # access token has already been minted from pre-revocation state.
             # The behavioural test above only drives /auth/login, so an OAuth
             # reorder into that gap would be caught by nothing.
-            mint = source.find("create_access_token(")
+            mint = source.find(mint_call)
             assert assign != -1, f"{rel}: last_login_at assignment not found"
-            assert mint != -1, f"{rel}: create_access_token call not found"
+            assert mint != -1, f"{rel}: {mint_call} call not found"
             assert assign < mint, (
                 f"{rel}: the pending last_login_at write must precede "
                 "create_access_token. Its version re-SELECT is what flushes "
