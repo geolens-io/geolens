@@ -636,6 +636,7 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
               format="percent"
               onChange={setLocalOpacity}
             />
+            <p className="text-xs text-muted-foreground">{t('style.layerOpacityHelp')}</p>
           </>
         )}
 

@@ -110,7 +110,7 @@ export function MapTitleBar({
         <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0 rtl-mirror" />
 
         {/* Editable map name */}
-        <div className="group relative min-w-0 shrink-0 max-w-xs">
+        <div className="group relative min-w-0 shrink">
           <input
             type="text"
             value={name}
@@ -118,7 +118,7 @@ export function MapTitleBar({
             onBlur={() => { if (!name.trim()) onNameChange(t('titleBar.untitled', { defaultValue: 'Untitled Map' })); }}
             maxLength={255}
             aria-label={t('mapNameLabel', { defaultValue: 'Map name' })}
-            className="text-sm font-medium truncate bg-transparent border-none outline-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-sm px-1.5 py-0.5 -ms-1.5 w-full hover:bg-accent/40 transition-colors pe-5"
+            className="text-sm font-medium truncate bg-transparent border-none outline-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-sm px-1.5 py-0.5 -ms-1.5 w-auto max-w-full field-sizing-content hover:bg-accent/40 transition-colors pe-5"
             title={name}
           />
           <Pencil className="absolute end-1 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground/40 opacity-0 group-hover:opacity-100 group-focus-within:opacity-0 transition-opacity pointer-events-none" />

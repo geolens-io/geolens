@@ -114,6 +114,12 @@ describe('SamlProvidersSection provider mutations', () => {
     await user.click(screen.getByRole('button', { name: 'Create Provider' }));
   }
 
+  it('leaves the page title to the page header', async () => {
+    render(<SamlProvidersSection />);
+    await screen.findByRole('button', { name: /add saml provider/i });
+    expect(screen.queryByRole('heading', { name: 'SAML SSO' })).not.toBeInTheDocument();
+  });
+
   it('invalidates every provider cache after a create', async () => {
     vi.mocked(createSamlProvider).mockResolvedValueOnce(SAML_PROVIDER);
     const invalidateQueries = spyOnInvalidate();

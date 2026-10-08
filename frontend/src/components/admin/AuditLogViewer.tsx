@@ -9,7 +9,7 @@ import { paginationRange } from '@/lib/pagination';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardAction, CardContent, CardHeader } from '@/components/ui/card';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { DataTablePagination } from './DataTablePagination';
 import { SortableColumnHeader, type SortDirection } from './SortableColumnHeader';
@@ -308,7 +308,6 @@ export function AuditLogViewer() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle level={2} className="text-sm font-medium">{t('audit.title')}</CardTitle>
         <CardAction className="flex items-center gap-2">
           <ExportSplitButton
             disabled={!filtersValid}

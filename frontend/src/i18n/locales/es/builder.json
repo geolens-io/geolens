@@ -196,6 +196,8 @@
     "lineOpacity": "Opacidad de la línea",
     "pointOpacity": "Opacidad del punto",
     "layerOpacity": "Opacidad de la capa",
+    "pointOpacityHelp": "Opacidad del relleno de cada punto. La opacidad de la capa, más abajo, se multiplica sobre este valor.",
+    "layerOpacityHelp": "Escala toda la capa y se multiplica con los ajustes de opacidad anteriores.",
     "color": "Color",
     "hexValueFor": "Valor hexadecimal de {{label}}",
     "hexColorValue": "Valor de color hexadecimal",

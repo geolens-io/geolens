@@ -196,6 +196,8 @@
     "lineOpacity": "Deckkraft der Linie",
     "pointOpacity": "Deckkraft des Punkts",
     "layerOpacity": "Deckkraft des Layers",
+    "pointOpacityHelp": "Deckkraft der Füllung jedes Punkts. Die Ebenendeckkraft unten wird darauf multipliziert.",
+    "layerOpacityHelp": "Skaliert die gesamte Ebene und wird mit den Deckkraft-Einstellungen oben multipliziert.",
     "color": "Farbe",
     "hexValueFor": "Hexadezimalwert für {{label}}",
     "hexColorValue": "Hexadezimaler Farbwert",

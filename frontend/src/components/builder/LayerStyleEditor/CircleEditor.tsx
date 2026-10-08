@@ -49,6 +49,7 @@ export function CircleEditor({
         min={0} max={1} step={0.01} format="percent"
         onChange={(val) => onPaintProp('circle-opacity', val)}
       />
+      <p className="text-xs text-muted-foreground">{t('style.pointOpacityHelp')}</p>
       {!isRadiusDataDriven && (
         <ZoomExpressionEditor
           label={t('style.radius')}

@@ -317,11 +317,7 @@ export function SamlProvidersSection() {
   return (
     <>
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-base font-medium">{t('saml.title')}</h3>
-            <p className="text-sm text-muted-foreground">{t('saml.description')}</p>
-          </div>
+        <div className="flex items-center justify-end">
           <Button size="sm" onClick={openAddDialog}>
             <Plus className="me-1 h-4 w-4" />
             {t('saml.addProvider')}

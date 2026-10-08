@@ -43,6 +43,15 @@ function defaultProps(
 }
 
 describe('MapTitleBar', () => {
+  it('lets the map name grow and truncate instead of capping its width', () => {
+    render(<MapTitleBar {...defaultProps()} />);
+
+    const input = screen.getByRole('textbox', { name: 'Map name' });
+    expect(input.parentElement).not.toHaveClass('max-w-xs', 'shrink-0');
+    expect(input.parentElement).toHaveClass('min-w-0');
+    expect(input).toHaveClass('truncate');
+  });
+
   it('typing into the name input fires onNameChange and onMarkDirty', () => {
     const onNameChange = vi.fn();
     const onMarkDirty = vi.fn();
