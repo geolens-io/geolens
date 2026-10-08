@@ -329,7 +329,7 @@ async def test_status_route_denies_sod_self_approval_422(
             session,
         )
     assert exc.value.status_code == 422
-    assert "Cannot transition" in exc.value.detail
+    assert "Cannot transition" in exc.value.detail["message"]
 
     refreshed = await session.execute(
         select(Record.record_status).where(Record.id == dataset.record_id)

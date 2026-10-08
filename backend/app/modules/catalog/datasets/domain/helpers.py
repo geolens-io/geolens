@@ -333,3 +333,31 @@ async def dataset_geom_is_generic(db, table_name: str) -> bool:
     )
     col_type = result.scalar_one_or_none()
     return col_type is not None and col_type.strip().upper() == "GEOMETRY"
+
+
+class WorkflowTransitionDenied(ValueError):
+    """A refused publication stage change, with the stages as fields.
+
+    ``detail`` is the 422 body: ``message`` stays human-readable for clients
+    that only show text, and the stage names travel as fields so no reader
+    has to split them back out of the sentence.
+    """
+
+    def __init__(self, current: str, requested: str, allowed: Iterable[str]) -> None:
+        self.current = current
+        self.requested = requested
+        self.allowed = sorted(allowed)
+        super().__init__(
+            f"Cannot transition from '{current}' to '{requested}'. "
+            f"Allowed: {self.allowed}"
+        )
+
+    @property
+    def detail(self) -> dict[str, object]:
+        return {
+            "code": "workflow_transition_denied",
+            "message": str(self),
+            "current_stage": self.current,
+            "requested_stage": self.requested,
+            "allowed_stages": self.allowed,
+        }

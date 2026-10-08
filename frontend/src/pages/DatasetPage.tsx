@@ -7,7 +7,6 @@ import { toast } from 'sonner';
 import { PageShell } from '@/components/layout/PageShell';
 import { ErrorState } from '@/components/layout/ErrorState';
 import { ApiError } from '@/api/client';
-import { ambiguousWorkflowDenial } from '@/lib/error-map';
 import { useDataset, useUpdateDataset, useSetTargetStatus, useValidation, useDatasetRefreshWatch } from '@/components/dataset/hooks/use-dataset';
 import { useDatasetJobStatus } from '@/components/import/hooks/use-ingest';
 import { IngestWarningsBanner } from '@/components/import/IngestWarningsBanner';
@@ -428,7 +427,7 @@ export function DatasetPage() {
   // A 422 carries the workflow's own refusal, already localized by the API client.
   const publishFailureMessage = (err: unknown) =>
     err instanceof ApiError && err.status === 422
-      ? (ambiguousWorkflowDenial(err.body) ?? err.message)
+      ? err.message
       : t('publish.failed');
 
   const handlePublishToggle = async () => {

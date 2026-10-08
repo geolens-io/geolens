@@ -27,6 +27,7 @@ from app.modules.catalog.authorization import (
     check_dataset_access_or_anonymous,
     check_dataset_write_access,
 )
+from app.modules.catalog.datasets.domain.helpers import WorkflowTransitionDenied
 from app.modules.catalog.datasets.domain.models import Dataset as DatasetModel
 from app.modules.catalog.datasets.domain.schemas import (
     DatasetRowsResponse,
@@ -333,9 +334,7 @@ async def update_publication_status(
     if target not in allowed:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                f"Cannot transition from '{current}' to '{target}'. Allowed: {allowed}"
-            ),
+            detail=WorkflowTransitionDenied(current, target, allowed).detail,
         )
 
     # The transition rolls the signed-scope counter, so this
@@ -427,10 +426,9 @@ async def set_target_status(
         if next_status not in allowed:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=(
-                    f"Cannot transition from '{from_status}' to '{next_status}'. "
-                    f"Allowed: {allowed}"
-                ),
+                detail=WorkflowTransitionDenied(
+                    from_status, next_status, allowed
+                ).detail,
             )
         chain.append((next_status, context))
         idx = next_idx
