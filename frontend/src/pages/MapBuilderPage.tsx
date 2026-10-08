@@ -2083,10 +2083,12 @@ export function MapBuilderPage() {
         {isEditorHidden && isEditorOpen && (
           <Sheet
             open={true}
+            modal={false}
             onOpenChange={(open) => { if (!open) handleCloseEditor(); }}
           >
             <SheetContent
               side="right"
+              overlay={false}
               showCloseButton={false}
               /* RESP-03 (Phase 1051 Plan 10): suppress shadcn Sheet's
                  built-in auto-close X. The wrapped LayerEditorPanel already
