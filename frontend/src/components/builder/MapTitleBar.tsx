@@ -133,7 +133,7 @@ export function MapTitleBar({
             maxLength={500}
             placeholder={t('descriptionPlaceholder', { defaultValue: 'Add a description\u2026' })}
             aria-label={t('titleBar.description', { defaultValue: 'Description' })}
-            className="flex-1 min-w-32 text-xs text-muted-foreground bg-transparent border-none outline-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-sm px-1.5 py-0.5 truncate placeholder:text-muted-foreground/40 hover:bg-accent/40 transition-colors"
+            className="grow shrink-0 basis-0 min-w-32 text-xs text-muted-foreground bg-transparent border-none outline-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-sm px-1.5 py-0.5 truncate placeholder:text-muted-foreground/40 hover:bg-accent/40 transition-colors"
           />
         )}
 
