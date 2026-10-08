@@ -446,6 +446,8 @@ export function useDatasetRefreshWatch(datasetId: string): DatasetRefreshWatch {
     //   - relationships.recordsPrefix: the actual joined related-record
     //     ROWS a RelatedRecordsPanel section renders, fetched by feature —
     //     genuinely stale after a data replace.
+    //   - relationships.list: carries each relationship's `broken` flag,
+    //     which a replace that drops or restores a join column changes.
     //
     // Considered and excluded, and why:
     //   - refreshRunsPrefix: this IS the query driving this effect; already
@@ -457,8 +459,6 @@ export function useDatasetRefreshWatch(datasetId: string): DatasetRefreshWatch {
     //     data. datasets.all exists only to alias these two under the
     //     shared 'datasets' root (see useUpdateDataset), so it adds nothing
     //     once both are excluded.
-    //   - relationships.list: the relationship DEFINITION (source/target
-    //     column) is user-configured, not recomputed by a refresh.
     //   - search.facets / search.summary: different root than search.all
     //     (['facets', params] / ['catalog-summary'], not ['search', ...]) —
     //     confirmed no existing "this dataset's data changed" mutation in
@@ -479,6 +479,7 @@ export function useDatasetRefreshWatch(datasetId: string): DatasetRefreshWatch {
     queryClient.invalidateQueries({ queryKey: queryKeys.search.all });
     queryClient.invalidateQueries({ queryKey: queryKeys.ingest.jobStatusByDataset(datasetId) });
     queryClient.invalidateQueries({ queryKey: queryKeys.relationships.recordsPrefix(datasetId) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.relationships.list(datasetId) });
   }, [latestRunId, latestRunStatus, dispatchedRunId, datasetId, queryClient]);
 
   const trackDispatchedRun = useCallback((runId: string) => {

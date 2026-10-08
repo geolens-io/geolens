@@ -508,6 +508,8 @@ describe('useDatasetRefreshWatch', () => {
     // fix(#1285 codex round 5): the joined related-record rows a mounted
     // RelatedRecordsPanel section renders — stale after a data replace.
     queryKeys.relationships.recordsPrefix('ds-1'),
+    // The relationship list carries each relationship's broken flag.
+    queryKeys.relationships.list('ds-1'),
   ];
 
   function renderWithClient() {
