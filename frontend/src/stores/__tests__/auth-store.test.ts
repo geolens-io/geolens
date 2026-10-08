@@ -15,6 +15,12 @@ function mockUser(overrides?: Partial<UserResponse>): UserResponse {
   };
 }
 
+/** An unsigned token with the given claims; the store only compares them. */
+function jwt(claims: Record<string, unknown>): string {
+  const part = (value: unknown) => btoa(JSON.stringify(value)).replace(/=+$/, '');
+  return `${part({ alg: 'HS256' })}.${part(claims)}.signature`;
+}
+
 describe('useAuthStore', () => {
   beforeEach(() => {
     useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null });
@@ -73,6 +79,33 @@ describe('useAuthStore', () => {
     expect(useAuthStore.getState().refreshToken).toBeNull();
     expect(useAuthStore.getState().expiresAt).toBeNull();
     expect(useAuthStore.getState().user).toBeNull();
+  });
+
+  it('keeps the session across a refresh of the same sign-in', () => {
+    const user = mockUser({ id: 'user-a' });
+    useAuthStore.getState().setAuth(jwt({ sub: 'user-a', sid: 'family-1' }), null, 900, user);
+    const before = useAuthStore.getState();
+
+    useAuthStore.getState().setTokens(jwt({ sub: 'user-a', sid: 'family-1', n: 2 }), null, 900);
+
+    expect(useAuthStore.getState()).toMatchObject({
+      user,
+      sessionId: before.sessionId,
+      sessionEpoch: before.sessionEpoch,
+    });
+  });
+
+  it('installs a refresh that returns another account as a new identity', () => {
+    useAuthStore.getState().setAuth(jwt({ sub: 'user-a', sid: 'family-1' }), null, 900, mockUser({ id: 'user-a' }));
+    const before = useAuthStore.getState();
+
+    // Another tab signed in as someone else and replaced the shared cookie.
+    useAuthStore.getState().setTokens(jwt({ sub: 'user-b', sid: 'family-2' }), null, 900);
+
+    const after = useAuthStore.getState();
+    expect(after.user).toBeNull();
+    expect(after.sessionId).not.toBe(before.sessionId);
+    expect(after.sessionEpoch).toBe(before.sessionEpoch + 1);
   });
 
   it('isAdmin returns true for admin role', () => {

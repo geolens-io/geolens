@@ -70,15 +70,35 @@ interface PersistedAuth {
   user: UserResponse | null;
 }
 
-/** The persisted user, if it belongs to `sessionId` and has the roles array role checks read. */
-export function readPersistedUser(sessionId: string): UserResponse | null {
+function readPersisted(): PersistedAuth | null {
   const raw = readStorage(STORAGE_KEY);
   try {
     const state = raw ? (JSON.parse(raw) as { state?: Partial<PersistedAuth> }).state : undefined;
-    if (state?.sessionId !== sessionId) return null;
-    return Array.isArray(state.user?.roles) ? state.user : null;
+    if (typeof state?.sessionId !== 'string') return null;
+    return { sessionId: state.sessionId, user: Array.isArray(state.user?.roles) ? state.user : null };
   } catch {
     return null;
+  }
+}
+
+/** The persisted user, if it belongs to `sessionId` and has the roles array role checks read. */
+export function readPersistedUser(sessionId: string): UserResponse | null {
+  const persisted = readPersisted();
+  return persisted?.sessionId === sessionId ? persisted.user : null;
+}
+
+/** The access token's user (`sub`) and sign-in family (`sid`); unverified, for comparison only. */
+function tokenIdentity(token: string | null): { sub?: string; sid?: string } {
+  try {
+    const payload = token?.split('.')[1];
+    if (!payload) return {};
+    const claims = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/'))) as Record<string, unknown>;
+    return {
+      sub: typeof claims.sub === 'string' ? claims.sub : undefined,
+      sid: typeof claims.sid === 'string' ? claims.sid : undefined,
+    };
+  } catch {
+    return {};
   }
 }
 
@@ -163,7 +183,28 @@ export const useAuthStore = create<AuthState>()(
         if (!refreshToken) postAuthMessage({ type: 'login', sessionId });
       },
       setTokens: (token, refreshToken, expiresIn) => {
-        const { refreshToken: spent, sessionId } = get();
+        const { refreshToken: spent, sessionId, token: previous, user } = get();
+        const before = tokenIdentity(previous);
+        const after = tokenIdentity(token);
+        // The refresh cookie is shared, so another tab's sign-in that this tab
+        // never heard about comes back here as a different family or account.
+        // Install it as a new identity rather than under this tab's user.
+        const switched =
+          (!!before.sid && !!after.sid && before.sid !== after.sid) ||
+          (!!user && !!after.sub && after.sub !== user.id);
+        if (switched) {
+          const persisted = readPersisted();
+          const adopt = persisted?.user && persisted.user.id === after.sub ? persisted : null;
+          set((state) => ({
+            token,
+            refreshToken,
+            expiresAt: Date.now() + expiresIn * 1000,
+            sessionId: adopt?.sessionId ?? randomId(),
+            user: adopt?.user ?? null,
+            sessionEpoch: state.sessionEpoch + 1,
+          }));
+          return;
+        }
         set({
           token,
           refreshToken,
