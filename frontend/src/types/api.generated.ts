@@ -9658,13 +9658,24 @@ export interface components {
             dataset_key: string;
             /**
              * Action
+             * @description What apply did with the entry. `blocked` means the entry is unchanged since its last apply, whose replacement is held for review, so nothing was queued. Accept it by sending `run_id` as `accept_blocked_run_id` to the dataset's refresh endpoint, or change the entry.
              * @enum {string}
              */
-            action: "create" | "update" | "skip" | "error";
+            action: "create" | "update" | "skip" | "blocked" | "error";
             /** Job Id */
             job_id?: string | null;
             /** Dataset Id */
             dataset_id?: string | null;
+            /**
+             * Run Id
+             * @description The blocked refresh run to accept, when action is `blocked`.
+             */
+            run_id?: string | null;
+            /**
+             * Review Reasons
+             * @description Why the blocked run needs review, when action is `blocked`.
+             */
+            review_reasons?: string[];
             /** Message */
             message: string;
             /** Errors */

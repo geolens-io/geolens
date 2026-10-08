@@ -624,10 +624,12 @@ def test_summarize_results_counts_known_actions() -> None:
             {"dataset_key": "b", "action": "update"},
             {"dataset_key": "c", "action": "skip"},
             {"dataset_key": "d", "action": "error"},
+            {"dataset_key": "e", "action": "blocked"},
         ]
     )
 
     assert summarize_results(response) == {
+        "blocked": 1,
         "create": 1,
         "error": 1,
         "skip": 1,
@@ -1158,6 +1160,7 @@ def test_apply_json_output_is_deterministic(
     assert payload == {
         "accepted": True,
         "counts": {
+            "blocked": 0,
             "create": 1,
             "error": 0,
             "skip": 0,
@@ -1574,6 +1577,66 @@ class TestApplyWait:
         assert row["final_status"] == "blocked"
         assert row["run_id"] == "run-parks"
         assert row["review_reasons"] == ["srid_changed"]
+
+
+class TestApplyReportsAHeldEntry:
+    """An entry whose last apply is held for review comes back blocked, unqueued."""
+
+    DATASET = "00000000-0000-0000-0000-0000000000c1"
+    RUN = "00000000-0000-0000-0000-0000000000d1"
+
+    def _setup(self, monkeypatch):
+        held = {
+            "dataset_key": "roads",
+            "action": "blocked",
+            "job_id": "00000000-0000-0000-0000-0000000000e1",
+            "dataset_id": self.DATASET,
+            "run_id": self.RUN,
+            "review_reasons": ["destructive_schema_change"],
+            "message": "Manifest dataset entry is unchanged since its last apply.",
+            "errors": [],
+        }
+        sdk = _install_fake_sdk(
+            monkeypatch, FakeResponse(200, _apply_response(results=[held]))
+        )
+        sdk.credential_kind = "bearer"
+        sdk.credential_provenance = None
+        monkeypatch.setattr(AppState, "active_instance", lambda _self: "https://x.example.com")
+
+        def no_follow(*_args, **_kwargs):
+            raise AssertionError("a blocked entry queued no job to follow")
+
+        monkeypatch.setattr("geolens_cli.refresh.wait_for_refresh_run", no_follow)
+        monkeypatch.setattr("geolens_cli.refresh.wait_for_refresh", no_follow)
+
+    @pytest.mark.parametrize("flags", [[], ["--wait"]])
+    def test_prints_the_run_and_accept_command_and_exits_six(
+        self, runner, monkeypatch, flags
+    ) -> None:
+        self._setup(monkeypatch)
+
+        result = runner.invoke(app, ["apply", *flags, str(_remote_manifest_path())])
+
+        assert result.exit_code == 6, result.output
+        output = " ".join(result.output.split())
+        assert "blocked=1" in output
+        assert "RUN ID" in output
+        assert "roads is blocked for review" in output
+        assert "Columns would be removed or change type." in output
+        assert (
+            f"Accept with: geolens refresh {self.DATASET} --accept-blocked-run {self.RUN}"
+        ) in output
+
+    def test_json_counts_it_blocked_and_not_ok(self, runner, monkeypatch) -> None:
+        self._setup(monkeypatch)
+
+        result = runner.invoke(app, ["--json", "apply", str(_remote_manifest_path())])
+
+        assert result.exit_code == 6, result.output
+        report = json.loads(result.output)
+        assert report["ok"] is False
+        assert report["counts"]["blocked"] == 1
+        assert report["results"][0]["run_id"] == self.RUN
 
 
 class TestApplyWaitKeepsRefreshedCredentials:

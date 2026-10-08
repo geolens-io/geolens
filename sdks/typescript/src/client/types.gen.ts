@@ -5416,8 +5416,10 @@ export type ManifestApplyEntryResult = {
     dataset_key: string;
     /**
      * Action
+     *
+     * What apply did with the entry. `blocked` means the entry is unchanged since its last apply, whose replacement is held for review, so nothing was queued. Accept it by sending `run_id` as `accept_blocked_run_id` to the dataset's refresh endpoint, or change the entry.
      */
-    action: 'create' | 'update' | 'skip' | 'error';
+    action: 'create' | 'update' | 'skip' | 'blocked' | 'error';
     /**
      * Job Id
      */
@@ -5426,6 +5428,18 @@ export type ManifestApplyEntryResult = {
      * Dataset Id
      */
     dataset_id?: string | null;
+    /**
+     * Run Id
+     *
+     * The blocked refresh run to accept, when action is `blocked`.
+     */
+    run_id?: string | null;
+    /**
+     * Review Reasons
+     *
+     * Why the blocked run needs review, when action is `blocked`.
+     */
+    review_reasons?: Array<string>;
     /**
      * Message
      */

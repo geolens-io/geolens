@@ -525,28 +525,24 @@ def apply_manifest_command(
     if not response.get("accepted", False):
         state.output.error("Manifest apply response had accepted=false.")
         raise typer.Exit(EXIT_GENERIC)
-    if wait:
-        for result in response.get("results", []):
-            if (
-                not state.json_mode
-                and isinstance(result, dict)
-                and result.get("final_status") == "blocked"
-                and result.get("run_id")
-            ):
-                state.output.error(
-                    f"{result.get('dataset_key')} is blocked for review; nothing was published."
-                )
-                for reason in result.get("review_reasons", []):
-                    state.output.info(_refresh.review_reason_sentence(reason))
-                state.output.info(
-                    f"Accept with: geolens refresh {result.get('dataset_id')} "
-                    f"--accept-blocked-run {result.get('run_id')}"
-                )
-        code = _manifest_apply.apply_wait_exit_code(response)
-        if code:
-            raise typer.Exit(code)
-    elif _manifest_apply.has_apply_errors(response):
-        raise typer.Exit(EXIT_GENERIC)
+    for result in response.get("results", []):
+        if (
+            not state.json_mode
+            and _manifest_apply.is_blocked(result)
+            and result.get("run_id")
+        ):
+            state.output.error(
+                f"{result.get('dataset_key')} is blocked for review; nothing was published."
+            )
+            for reason in result.get("review_reasons", []):
+                state.output.info(_refresh.review_reason_sentence(reason))
+            state.output.info(
+                f"Accept with: geolens refresh {result.get('dataset_id')} "
+                f"--accept-blocked-run {result.get('run_id')}"
+            )
+    code = _manifest_apply.apply_exit_code(response)
+    if code:
+        raise typer.Exit(code)
 
 
 def _read_secret_from_stdin() -> str:

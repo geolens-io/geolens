@@ -24,10 +24,14 @@ class ManifestApplyEntryResult:
     """
     Attributes:
         dataset_key (str):
-        action (ManifestApplyEntryResultAction):
+        action (ManifestApplyEntryResultAction): What apply did with the entry. `blocked` means the entry is unchanged
+            since its last apply, whose replacement is held for review, so nothing was queued. Accept it by sending `run_id`
+            as `accept_blocked_run_id` to the dataset's refresh endpoint, or change the entry.
         message (str):
         job_id (None | Unset | UUID):
         dataset_id (None | Unset | UUID):
+        run_id (None | Unset | UUID): The blocked refresh run to accept, when action is `blocked`.
+        review_reasons (list[str] | Unset): Why the blocked run needs review, when action is `blocked`.
         errors (list[str] | Unset):
     """
 
@@ -36,6 +40,8 @@ class ManifestApplyEntryResult:
     message: str
     job_id: None | Unset | UUID = UNSET
     dataset_id: None | Unset | UUID = UNSET
+    run_id: None | Unset | UUID = UNSET
+    review_reasons: list[str] | Unset = UNSET
     errors: list[str] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -62,6 +68,18 @@ class ManifestApplyEntryResult:
         else:
             dataset_id = self.dataset_id
 
+        run_id: None | str | Unset
+        if isinstance(self.run_id, Unset):
+            run_id = UNSET
+        elif isinstance(self.run_id, UUID):
+            run_id = str(self.run_id)
+        else:
+            run_id = self.run_id
+
+        review_reasons: list[str] | Unset = UNSET
+        if not isinstance(self.review_reasons, Unset):
+            review_reasons = self.review_reasons
+
         errors: list[str] | Unset = UNSET
         if not isinstance(self.errors, Unset):
             errors = self.errors
@@ -79,6 +97,10 @@ class ManifestApplyEntryResult:
             field_dict["job_id"] = job_id
         if dataset_id is not UNSET:
             field_dict["dataset_id"] = dataset_id
+        if run_id is not UNSET:
+            field_dict["run_id"] = run_id
+        if review_reasons is not UNSET:
+            field_dict["review_reasons"] = review_reasons
         if errors is not UNSET:
             field_dict["errors"] = errors
 
@@ -127,6 +149,25 @@ class ManifestApplyEntryResult:
 
         dataset_id = _parse_dataset_id(d.pop("dataset_id", UNSET))
 
+        def _parse_run_id(data: object) -> None | Unset | UUID:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                run_id_type_0 = UUID(data)
+
+                return run_id_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | Unset | UUID, data)
+
+        run_id = _parse_run_id(d.pop("run_id", UNSET))
+
+        review_reasons = cast(list[str], d.pop("review_reasons", UNSET))
+
         errors = cast(list[str], d.pop("errors", UNSET))
 
         manifest_apply_entry_result = cls(
@@ -135,6 +176,8 @@ class ManifestApplyEntryResult:
             message=message,
             job_id=job_id,
             dataset_id=dataset_id,
+            run_id=run_id,
+            review_reasons=review_reasons,
             errors=errors,
         )
 

@@ -1,13 +1,15 @@
-"""Whether a manifest key is busy, and the reservation that claims it.
+"""Whether a manifest key is busy or held, and the reservation that claims it.
 
-fix(#1814): the key lock, the in-flight read, the staleness rule and the fenced
+The key lock, the in-flight and held reads, the staleness rule and the fenced
 stage exits answer one question, so they live together rather than in step.
 """
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 import structlog
 from sqlalchemy import desc, func, select, text
@@ -17,10 +19,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.platform.jobs import ledger
 from app.platform.jobs.models import (
     ACTIVE_STATUSES,
+    MANIFEST_FINGERPRINT_METADATA_KEY,
     MANIFEST_STAGE_METADATA_KEY,
     IngestJob,
 )
 from app.platform.jobs.sweep import settle_stale_jobs
+from app.platform.refresh.models import DatasetRefreshRun
+from app.processing.ingest.manifest_schemas import (
+    ManifestApplyEntryResult,
+    ManifestDataset,
+)
 
 log = structlog.get_logger()
 
@@ -63,6 +71,67 @@ async def latest_in_flight_manifest_job(db: AsyncSession, key: str) -> IngestJob
         .limit(1)
     )
     return result.scalar_one_or_none()
+
+
+async def held_entry(
+    db: AsyncSession,
+    entry: ManifestDataset,
+    fingerprint: str,
+    completed_job: IngestJob,
+    dataset: object,
+) -> ManifestApplyEntryResult | None:
+    """The ``blocked`` result for an entry whose last apply is held for review.
+
+    None unless applying the unchanged entry again would only repeat the hold:
+    the key's newest held job must carry ``fingerprint``, postdate the last
+    completed import, and still be acceptable: its acceptance unspent, the
+    dataset's data at the version it was held against, and the copy apply
+    staged still on disk. A raw seed is the entry's own source, so applying
+    again could not restage it.
+    """
+    row = (
+        await db.execute(
+            select(IngestJob, DatasetRefreshRun)
+            .join(DatasetRefreshRun, DatasetRefreshRun.ingest_job_id == IngestJob.id)
+            .where(
+                IngestJob.user_metadata["manifest_key"].astext == entry.key,
+                DatasetRefreshRun.status == "blocked",
+            )
+            .order_by(desc(IngestJob.created_at))
+            .limit(1)
+        )
+    ).one_or_none()
+    if row is None:
+        return None
+    job, run = row
+    verification = run.verification or {}
+    if (
+        (job.user_metadata or {}).get(MANIFEST_FINGERPRINT_METADATA_KEY) != fingerprint
+        or job.dataset_id != getattr(dataset, "id", None)
+        or job.created_at <= completed_job.created_at
+        or "acceptance_consumed_by_run_id" in verification
+        or verification.get("live_version") != getattr(dataset, "current_version", None)
+        or not job.file_path
+    ):
+        return None
+    staged = Path(job.file_path)
+    if staged.name.startswith(f"{job.id}_") and not await asyncio.to_thread(
+        staged.exists
+    ):
+        return None
+    return ManifestApplyEntryResult(
+        dataset_key=entry.key,
+        action="blocked",
+        job_id=job.id,
+        dataset_id=run.dataset_id,
+        run_id=run.id,
+        review_reasons=[str(r) for r in verification.get("review_reasons") or ()],
+        message=(
+            "Manifest dataset entry is unchanged since its last apply, which "
+            f"is blocked for review, so nothing was queued. Accept run {run.id} "
+            "to publish it, or change the entry."
+        ),
+    )
 
 
 def _without_stage_marker():

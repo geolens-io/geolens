@@ -29,7 +29,7 @@ from ._sdk_helpers import (
 )
 
 APPLY_ENDPOINT = "/ingest/manifest/apply"
-_COUNT_KEYS = ("create", "update", "skip", "error")
+_COUNT_KEYS = ("create", "update", "skip", "blocked", "error")
 
 # ---------------------------------------------------------------------------
 # fix(#1778 review round 18): batch-aware apply timeout
@@ -665,20 +665,25 @@ def wait_for_apply_jobs(
     return waited
 
 
-def apply_wait_exit_code(response: Mapping[str, Any]) -> int:
+def apply_exit_code(response: Mapping[str, Any]) -> int:
     """1 if anything errored or failed, else 6 if anything is blocked, else 0."""
     if has_apply_errors(response):
         return EXIT_GENERIC
     return EXIT_BLOCKED if has_blocked_results(response) else 0
 
 
-def has_blocked_results(response: Mapping[str, Any]) -> bool:
-    """True when any followed job ended blocked for review."""
-    results = response.get("results")
-    return isinstance(results, list) and any(
-        isinstance(result, Mapping) and result.get("final_status") == "blocked"
-        for result in results
+def is_blocked(result: Any) -> bool:
+    """True for an entry held for review: reported blocked, or followed to a hold."""
+    return isinstance(result, Mapping) and "blocked" in (
+        result.get("action"),
+        result.get("final_status"),
     )
+
+
+def has_blocked_results(response: Mapping[str, Any]) -> bool:
+    """True when any entry is held for review."""
+    results = response.get("results")
+    return isinstance(results, list) and any(is_blocked(result) for result in results)
 
 
 def has_apply_errors(response: Mapping[str, Any]) -> bool:
@@ -727,7 +732,8 @@ def render_apply_summary(
         (
             f"{mode}: {path} "
             f"(create={counts['create']}, update={counts['update']}, "
-            f"skip={counts['skip']}, error={counts['error']})"
+            f"skip={counts['skip']}, blocked={counts['blocked']}, "
+            f"error={counts['error']})"
         ),
         soft_wrap=True,
         markup=False,
@@ -744,6 +750,11 @@ def render_apply_summary(
     )
     if waited:
         table.add_column("STATUS")
+    with_run = isinstance(results, list) and any(
+        isinstance(result, Mapping) and result.get("run_id") for result in results
+    )
+    if with_run:
+        table.add_column("RUN ID", overflow="fold")
     table.add_column("MESSAGE", overflow="fold")
 
     if isinstance(results, list):
@@ -759,6 +770,7 @@ def render_apply_summary(
                         "dataset_id",
                         "job_id",
                         *(("final_status",) if waited else ()),
+                        *(("run_id",) if with_run else ()),
                         _message_key(result),
                     )
                 )

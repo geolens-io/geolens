@@ -1,8 +1,9 @@
 from typing import Literal, cast
 
-ManifestApplyEntryResultAction = Literal["create", "error", "skip", "update"]
+ManifestApplyEntryResultAction = Literal["blocked", "create", "error", "skip", "update"]
 
 MANIFEST_APPLY_ENTRY_RESULT_ACTION_VALUES: set[ManifestApplyEntryResultAction] = {
+    "blocked",
     "create",
     "error",
     "skip",
