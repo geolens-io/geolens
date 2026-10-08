@@ -120,7 +120,7 @@ describe('SettingsAITab embedding width confirmation', () => {
 
     expect(onSave).toHaveBeenCalledTimes(1);
     expect(onSave).toHaveBeenCalledWith({ embedding_dims: '768' });
-    await waitFor(() => expect(hoisted.backfillMutate).toHaveBeenCalledWith({ force: false, allTenants: true }, expect.anything()));
+    await waitFor(() => expect(hoisted.backfillMutate).toHaveBeenCalledWith({ force: false, allTenants: false }, expect.anything()));
   });
 
   it('lets a hosted operator with only manage_tenants regenerate every tenant', async () => {
@@ -351,7 +351,7 @@ describe('SettingsAITab embedding width confirmation', () => {
       await user.click(screen.getByRole('button', { name: 'Reset width' }));
 
       expect(onReset).toHaveBeenCalledWith('embedding_dims');
-      await waitFor(() => expect(hoisted.backfillMutate).toHaveBeenCalledWith({ force: false, allTenants: true }, expect.anything()));
+      await waitFor(() => expect(hoisted.backfillMutate).toHaveBeenCalledWith({ force: false, allTenants: false }, expect.anything()));
     });
 
     it('queues the backfill only after the reset resolves', async () => {
@@ -365,7 +365,7 @@ describe('SettingsAITab embedding width confirmation', () => {
       expect(hoisted.backfillMutate).not.toHaveBeenCalled();
 
       finish(true);
-      await waitFor(() => expect(hoisted.backfillMutate).toHaveBeenCalledWith({ force: false, allTenants: true }, expect.anything()));
+      await waitFor(() => expect(hoisted.backfillMutate).toHaveBeenCalledWith({ force: false, allTenants: false }, expect.anything()));
     });
 
     it('queues nothing when the reset fails', async () => {

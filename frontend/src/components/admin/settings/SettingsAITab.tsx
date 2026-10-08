@@ -33,6 +33,7 @@ import {
 } from '@/hooks/use-admin';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAIStatusReader } from '@/hooks/use-ai-status-reader';
+import { useEdition } from '@/hooks/use-edition';
 import { detectEmbeddingDims } from '@/api/settings';
 import type { SettingItem } from '@/api/settings';
 import { probeAIStatus } from '@/api/admin';
@@ -73,6 +74,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
   // takes the same mode permission: manage_tenants when hosted, manage_users
   // otherwise.
   const canRegenerateAfterChange = canProbe;
+  const { isMultiTenant } = useEdition();
   const { data: keyStatus } = useApiKeyStatus();
   // Coverage/backfill are manage_users operations in BOTH tenancy modes
   // (see /admin/embedding-stats + /admin/backfill-embeddings) — deliberately
@@ -182,8 +184,8 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
     }
     // The save already succeeded; a run that cannot start leaves the
     // embeddings to regenerate by hand. The width and model are shared by
-    // every tenant of a hosted deployment, so the run covers all of them.
-    backfill.mutate({ force: false, allTenants: true }, {
+    // every tenant of a hosted deployment, so there the run covers all of them.
+    backfill.mutate({ force: false, allTenants: isMultiTenant }, {
       onSuccess: (data) => {
         setBackfillJobId(data.job_id);
         setRegenPending(null);
