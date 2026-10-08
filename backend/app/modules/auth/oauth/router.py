@@ -606,7 +606,7 @@ async def exchange_sign_in_code(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"{AUTH_MODE_HEADER}: cookie is required",
         )
-    nonce = read_sso_exchange_cookie(request)
+    nonce = read_sso_exchange_cookie(request, body.code)
     if not nonce:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -627,7 +627,7 @@ async def exchange_sign_in_code(
             detail=_INVALID_EXCHANGE_DETAIL,
         )
     issue_browser_session(response, request, refresh_token, expire_days)
-    clear_sso_exchange_cookie(response, request)
+    clear_sso_exchange_cookie(response, request, body.code)
     return TokenResponse(
         access_token=access_token,
         refresh_token=None,

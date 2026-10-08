@@ -14,6 +14,7 @@ byte-identical to the pre-GH-1302 contract, keeping the CLI and generated
 SDKs working.
 """
 
+import hashlib
 import secrets
 from urllib.parse import urlsplit
 
@@ -26,7 +27,6 @@ CSRF_COOKIE_NAME = "geolens_csrf"
 CSRF_HEADER_NAME = "X-CSRF-Token"
 AUTH_MODE_HEADER = "X-GeoLens-Auth-Mode"
 COOKIE_AUTH_MODE = "cookie"
-SSO_EXCHANGE_COOKIE_NAME = "geolens_sso_exchange"
 
 # The CSRF cookie must be readable by the SPA (double-submit), so it is NOT
 # HttpOnly. It is not a credential: possession alone authenticates nothing.
@@ -132,8 +132,14 @@ def _sso_exchange_cookie_path(request: Request) -> str:
     return f"{root_path}/auth/oauth/exchange"
 
 
+def sso_exchange_cookie_name(code: str) -> str:
+    """One cookie per pending sign-in, so a second callback in this browser
+    leaves the first one's binding in place."""
+    return "geolens_sso_" + hashlib.sha256(code.encode()).hexdigest()[:16]
+
+
 def set_sso_exchange_cookie(
-    response: Response, request: Request, nonce: str, max_age: int
+    response: Response, request: Request, code: str, nonce: str, max_age: int
 ) -> None:
     """Bind a staged SSO sign-in to this browser.
 
@@ -141,7 +147,7 @@ def set_sso_exchange_cookie(
     ``SameSite=Lax`` keeps it off a cross-site POST to that route.
     """
     response.set_cookie(
-        SSO_EXCHANGE_COOKIE_NAME,
+        sso_exchange_cookie_name(code),
         nonce,
         max_age=max_age,
         httponly=True,
@@ -151,16 +157,17 @@ def set_sso_exchange_cookie(
     )
 
 
-def read_sso_exchange_cookie(request: Request) -> str | None:
+def read_sso_exchange_cookie(request: Request, code: str) -> str | None:
     """The binding nonce, or None when absent or duplicated (see read_refresh_cookie)."""
-    if _cookie_occurrences(request, SSO_EXCHANGE_COOKIE_NAME) > 1:
+    name = sso_exchange_cookie_name(code)
+    if _cookie_occurrences(request, name) > 1:
         return None
-    return request.cookies.get(SSO_EXCHANGE_COOKIE_NAME)
+    return request.cookies.get(name)
 
 
-def clear_sso_exchange_cookie(response: Response, request: Request) -> None:
+def clear_sso_exchange_cookie(response: Response, request: Request, code: str) -> None:
     response.delete_cookie(
-        SSO_EXCHANGE_COOKIE_NAME,
+        sso_exchange_cookie_name(code),
         path=_sso_exchange_cookie_path(request),
         httponly=True,
         secure=_secure_cookies(),

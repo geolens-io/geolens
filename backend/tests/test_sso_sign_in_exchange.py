@@ -12,12 +12,12 @@ import pytest
 from sqlalchemy import select, update
 
 from app.core.config import settings
+from app.modules.auth.cookies import sso_exchange_cookie_name
 from app.modules.auth.models import RefreshToken, User
 from app.modules.auth.service import AuthService
 from tests.factories import create_user
 
 COOKIE_MODE = {"X-GeoLens-Auth-Mode": "cookie"}
-EXCHANGE_COOKIE = "geolens_sso_exchange"
 PASSWORD = "TestPass1234!"
 
 
@@ -126,12 +126,14 @@ async def test_callback_redirects_with_a_code_and_no_session_cookie(
     response = await browser.sso_callback(viewer_id)
 
     assert response.headers["referrer-policy"] == "no-referrer"
-    assert len(_code(response)) == 43
+    code = _code(response)
+    assert len(code) == 43
     set_cookies = response.headers.get_list("set-cookie")
     assert not any(
         c.startswith(("geolens_refresh=", "geolens_csrf=")) for c in set_cookies
     )
-    [binding] = [c for c in set_cookies if c.startswith(f"{EXCHANGE_COOKIE}=")]
+    name = sso_exchange_cookie_name(code)
+    [binding] = [c for c in set_cookies if c.startswith(f"{name}=")]
     attributes = {part.strip().lower() for part in binding.split(";")}
     assert {"httponly", "samesite=lax", "max-age=60"} <= attributes
     assert "path=/api/auth/oauth/exchange" in attributes
@@ -150,12 +152,28 @@ async def test_exchange_sets_the_session_cookie_once(
     assert body["refresh_token"] is None
     assert _subject(body["access_token"]) == viewer_id
     assert {"geolens_refresh", "geolens_csrf"} <= set(browser.jar)
-    assert EXCHANGE_COOKIE not in browser.jar
+    assert sso_exchange_cookie_name(code) not in browser.jar
 
     assert (await browser.exchange(code)).status_code == 401
     refreshed = await browser.refresh()
     assert refreshed.status_code == 200, refreshed.text
     assert _subject(refreshed.json()["access_token"]) == viewer_id
+
+
+@pytest.mark.anyio
+async def test_two_pending_sign_ins_in_one_browser_both_redeem(
+    browser, client, admin_auth_header, viewer_id, same_origin_urls
+):
+    first = _code(await browser.sso_callback(viewer_id))
+    other_id = await _viewer(client, admin_auth_header)
+    second = _code(await browser.sso_callback(other_id))
+
+    first_session = await browser.exchange(first)
+    assert first_session.status_code == 200, first_session.text
+    assert _subject(first_session.json()["access_token"]) == viewer_id
+    second_session = await browser.exchange(second)
+    assert second_session.status_code == 200, second_session.text
+    assert _subject(second_session.json()["access_token"]) == other_id
 
 
 @pytest.mark.anyio
@@ -237,7 +255,8 @@ async def test_exchange_refuses_a_request_a_cross_site_page_could_send(
     browser, viewer_id, same_origin_urls
 ):
     code = _code(await browser.sso_callback(viewer_id))
-    nonce = browser.jar[EXCHANGE_COOKIE]
+    name = sso_exchange_cookie_name(code)
+    nonce = browser.jar[name]
 
     assert (await browser.exchange(code, headers={})).status_code == 400
     # A sibling host can add a parent-domain cookie of the same name but never
@@ -245,11 +264,11 @@ async def test_exchange_refuses_a_request_a_cross_site_page_could_send(
     browser.jar.clear()
     duplicated = {
         **COOKIE_MODE,
-        "Cookie": f"{EXCHANGE_COOKIE}=x; {EXCHANGE_COOKIE}={nonce}",
+        "Cookie": f"{name}=x; {name}={nonce}",
     }
     assert (await browser.exchange(code, headers=duplicated)).status_code == 401
 
-    browser.jar[EXCHANGE_COOKIE] = nonce
+    browser.jar[name] = nonce
     assert (await browser.exchange(code)).status_code == 200
 
 
@@ -258,7 +277,7 @@ async def test_code_and_refresh_token_are_not_interchangeable(
     browser, viewer_id, same_origin_urls
 ):
     code = _code(await browser.sso_callback(viewer_id))
-    nonce = browser.jar[EXCHANGE_COOKIE]
+    nonce = browser.jar[sso_exchange_cookie_name(code)]
 
     for candidate in (code, f"{code}.{nonce}", f"sso-exchange:{code}.{nonce}"):
         response = await browser.request(
@@ -268,7 +287,7 @@ async def test_code_and_refresh_token_are_not_interchangeable(
 
     assert (await browser.exchange(code)).status_code == 200
     refresh_token = browser.jar["geolens_refresh"]
-    browser.jar[EXCHANGE_COOKIE] = nonce
+    browser.jar[sso_exchange_cookie_name(refresh_token)] = nonce
     assert (await browser.exchange(refresh_token)).status_code == 401
 
 

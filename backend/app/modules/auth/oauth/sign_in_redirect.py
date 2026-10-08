@@ -60,7 +60,9 @@ async def sso_sign_in_redirect(
     ):
         code, nonce = await service.stage_sso_sign_in(user.id, family_id=family_id)
         response = _callback_redirect(f"{callback}#code={code}")
-        set_sso_exchange_cookie(response, request, nonce, SSO_EXCHANGE_TTL_SECONDS)
+        set_sso_exchange_cookie(
+            response, request, code, nonce, SSO_EXCHANGE_TTL_SECONDS
+        )
         return response
 
     expire_minutes = await ACCESS_TOKEN_EXPIRE_MINUTES.get(db)
