@@ -1,4 +1,4 @@
-import { awaitPendingLogout, login, logoutSession, refreshAccessToken, revokeCurrentSession } from '@/api/auth';
+import { awaitPendingLogout, exchangeSignInCode, login, logoutSession, refreshAccessToken, revokeCurrentSession } from '@/api/auth';
 import { useAuthStore } from '@/stores/auth-store';
 import { tryRefresh } from '@/api/client';
 import { otherTab } from '@/test/broadcast-channel';
@@ -273,6 +273,190 @@ describe('browser refresh transport', () => {
     } finally {
       Reflect.deleteProperty(navigator, 'locks');
     }
+  });
+
+  // An SSO sign-in sets its cookie through this exchange, so the same lock
+  // keeps a refresh another tab already sent from landing after it.
+  it('holds an SSO code exchange until a refresh holding the cookie lock has finished', async () => {
+    let held: Promise<unknown> = Promise.resolve();
+    const lockNames: string[] = [];
+    let lockHeld = false;
+    const locks = {
+      request: (name: string, _options: unknown, callback: () => Promise<unknown>) => {
+        lockNames.push(name);
+        const run = held.then(async () => {
+          lockHeld = true;
+          try {
+            return await callback();
+          } finally {
+            lockHeld = false;
+          }
+        });
+        held = run.catch(() => {});
+        return run;
+      },
+    };
+    Object.defineProperty(navigator, 'locks', { value: locks, configurable: true });
+    try {
+      let finishRefresh!: (r: Response) => void;
+      mockFetch.mockImplementationOnce(() => new Promise<Response>((resolve) => { finishRefresh = resolve; }));
+      const refresh = refreshAccessToken(null);
+      await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse({ access_token: 'sso-1', refresh_token: null, expires_in: 900 }),
+      );
+      let installedUnderLock: boolean | null = null;
+      const exchange = exchangeSignInCode('one-time-code', 'n'.repeat(43), (session) => {
+        installedUnderLock = lockHeld;
+        return session;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+
+      finishRefresh(jsonResponse({ access_token: 'r1', refresh_token: null, expires_in: 900 }));
+      await refresh;
+      await expect(exchange).resolves.toMatchObject({ access_token: 'sso-1' });
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(new Set(lockNames).size).toBe(1);
+      expect(installedUnderLock).toBe(true);
+      const [url, init] = mockFetch.mock.calls[1] as [string, RequestInit];
+      expect(url).toBe('/api/auth/oauth/exchange/');
+      expect(init).toMatchObject({ method: 'POST', credentials: 'same-origin' });
+      expect(init.headers).toMatchObject({ 'X-GeoLens-Auth-Mode': 'cookie' });
+      expect(JSON.parse(init.body as string)).toEqual({ code: 'one-time-code', nonce: 'n'.repeat(43) });
+    } finally {
+      Reflect.deleteProperty(navigator, 'locks');
+    }
+  });
+
+  // A 2xx exchange has already consumed the code and set the cookies, so a
+  // body this tab cannot use must not leave that session behind.
+  // A login holds the cookie lock, so it must not hold it without bound.
+  it('bounds the login request that holds the cookie lock', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    try {
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse({ access_token: 'a1', refresh_token: null, expires_in: 900 }),
+      );
+      await login('someone', 'secret');
+      expect(timeout).toHaveBeenCalledWith(30_000);
+      expect(lastInit().signal).toBe(timeout.mock.results[0].value);
+    } finally {
+      timeout.mockRestore();
+    }
+  });
+
+  it('revokes the cookie session when a login times out after its 2xx headers', async () => {
+    let lockHeld = false;
+    const locks = {
+      request: async (_name: string, _options: unknown, callback: () => Promise<unknown>) => {
+        lockHeld = true;
+        try {
+          return await callback();
+        } finally {
+          lockHeld = false;
+        }
+      },
+    };
+    Object.defineProperty(navigator, 'locks', { value: locks, configurable: true });
+    try {
+      document.cookie = 'geolens_csrf=csrf-login; path=/';
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.reject(new DOMException('The operation was aborted.', 'AbortError')),
+      } as Response);
+      let finishRevoke!: (r: Response) => void;
+      let revokedUnderLock: boolean | null = null;
+      mockFetch.mockImplementationOnce(() => {
+        revokedUnderLock = lockHeld;
+        return new Promise<Response>((resolve) => { finishRevoke = resolve; });
+      });
+      let settled = false;
+      const signIn = login('someone', 'secret').finally(() => { settled = true; });
+
+      await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(settled).toBe(false);
+      finishRevoke({ ok: true, status: 204 } as Response);
+
+      await expect(signIn).rejects.toMatchObject({ name: 'AbortError' });
+      expect(revokedUnderLock).toBe(true);
+      const [url, init] = mockFetch.mock.calls[1] as [string, RequestInit];
+      expect(url).toBe('/api/auth/logout/session/');
+      expect(init.headers).toMatchObject({ 'X-CSRF-Token': 'csrf-login' });
+      expect(init.headers).not.toHaveProperty('Authorization');
+    } finally {
+      Reflect.deleteProperty(navigator, 'locks');
+    }
+  });
+
+  it('does not revoke anything when the login itself is refused', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      json: () => Promise.resolve({ detail: 'Incorrect username or password' }),
+    } as Response);
+    await expect(login('someone', 'wrong')).rejects.toThrow();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('revokes the cookie session before giving up on an unreadable exchange body', async () => {
+    let lockHeld = false;
+    const locks = {
+      request: async (_name: string, _options: unknown, callback: () => Promise<unknown>) => {
+        lockHeld = true;
+        try {
+          return await callback();
+        } finally {
+          lockHeld = false;
+        }
+      },
+    };
+    Object.defineProperty(navigator, 'locks', { value: locks, configurable: true });
+    try {
+      document.cookie = 'geolens_csrf=csrf-new; path=/';
+      useAuthStore.setState({ token: 'older-access' });
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.reject(new SyntaxError('Unexpected end of JSON input')),
+      } as Response);
+      let finishRevoke!: (r: Response) => void;
+      let revokedUnderLock: boolean | null = null;
+      mockFetch.mockImplementationOnce(() => {
+        revokedUnderLock = lockHeld;
+        return new Promise<Response>((resolve) => { finishRevoke = resolve; });
+      });
+      const install = vi.fn();
+      let settled = false;
+      const exchange = exchangeSignInCode('one-time-code', 'n'.repeat(43), install).finally(() => { settled = true; });
+
+      await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(settled).toBe(false);
+      finishRevoke({ ok: true, status: 204 } as Response);
+
+      await expect(exchange).rejects.toThrow(SyntaxError);
+      expect(install).not.toHaveBeenCalled();
+      expect(revokedUnderLock).toBe(true);
+      const [url, init] = mockFetch.mock.calls[1] as [string, RequestInit];
+      expect(url).toBe('/api/auth/logout/session/');
+      expect(init).toMatchObject({ method: 'POST', credentials: 'same-origin' });
+      expect(init.headers).toMatchObject({ 'X-CSRF-Token': 'csrf-new' });
+      expect(init.headers).not.toHaveProperty('Authorization');
+      expect(useAuthStore.getState().token).toBeNull();
+    } finally {
+      Reflect.deleteProperty(navigator, 'locks');
+    }
+  });
+
+  it('rejects with the status when the exchange is refused', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 401, json: () => Promise.resolve({}) } as Response);
+    const install = vi.fn();
+    await expect(exchangeSignInCode('spent-code', 'n'.repeat(43), install)).rejects.toMatchObject({ status: 401 });
+    expect(install).not.toHaveBeenCalled();
   });
 
   it('reads the CSRF cookie only once it holds the cookie lock', async () => {

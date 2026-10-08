@@ -38,6 +38,16 @@ async function clickAndCaptureHref(button: HTMLElement): Promise<string[]> {
   return hrefs;
 }
 
+/** The sign-in URLs without the per-tab nonce, which is random. */
+function withoutNonce(hrefs: string[]): string[] {
+  return hrefs.map((href) => {
+    const [path, query] = href.split('?');
+    expect(query).toMatch(/^nonce=[A-Za-z0-9_-]{43}$/);
+    expect(sessionStorage.getItem('geolens-sso-nonce')).toBe(query.slice('nonce='.length));
+    return path;
+  });
+}
+
 describe('OAuthButtons', () => {
   beforeEach(() => {
     mockIsEnterprise = false;
@@ -74,7 +84,7 @@ describe('OAuthButtons', () => {
       expect(hrefs).toEqual([]);
 
       releaseLogout();
-      await waitFor(() => expect(hrefs).toEqual(['/api/auth/oauth/github/login']));
+      await waitFor(() => expect(withoutNonce(hrefs)).toEqual(['/api/auth/oauth/github/login']));
     } finally {
       if (original) Object.defineProperty(window, 'location', original);
     }
@@ -146,8 +156,8 @@ describe('OAuthButtons', () => {
 
     const saml = await screen.findByRole('button', { name: /corp sso/i });
     const oidc = await screen.findByRole('button', { name: /corp oidc/i });
-    expect(await clickAndCaptureHref(saml)).toEqual(['/api/auth/saml/corp-saml/login']);
-    expect(await clickAndCaptureHref(oidc)).toEqual(['/api/auth/oauth/corp-oidc/login']);
+    expect(withoutNonce(await clickAndCaptureHref(saml))).toEqual(['/api/auth/saml/corp-saml/login']);
+    expect(withoutNonce(await clickAndCaptureHref(oidc))).toEqual(['/api/auth/oauth/corp-oidc/login']);
   });
 
   it('hides SAML providers when the runtime is not Enterprise', async () => {

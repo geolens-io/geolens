@@ -309,7 +309,8 @@ test.describe('live demo read-only smoke', () => {
       const expectedHost = PROVIDER_AUTH_HOSTS[provider.provider_type];
       expect(expectedHost, `unrecognized provider_type "${provider.provider_type}" for ${provider.slug}`).toBeTruthy();
 
-      const loginResponse = await request.get(`/api/auth/oauth/${provider.slug}/login`, {
+      // The login route requires the starting page's nonce; any well-formed value starts the flow.
+      const loginResponse = await request.get(`/api/auth/oauth/${provider.slug}/login?nonce=${'n'.repeat(43)}`, {
         maxRedirects: 0,
       });
       expect(

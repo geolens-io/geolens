@@ -11,18 +11,29 @@ import structlog
 from authlib.integrations.httpx_client import AsyncOAuth2Client
 from authlib.integrations.starlette_client import OAuth
 from authlib.integrations.starlette_client.apps import StarletteOAuth2App
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    status,
+)
 from fastapi.responses import RedirectResponse
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.cookies import (
-    api_path_is_cookie_scoped,
-    is_same_origin,
+    AUTH_MODE_HEADER,
+    clear_sso_exchange_cookie,
     issue_browser_session,
+    read_sso_exchange_cookie,
+    wants_cookie_auth,
 )
 from app.modules.auth.oauth.encryption import decrypt_secret
-from app.modules.auth.oauth.schemas import OAuthProviderPublic
+from app.modules.auth.oauth.schemas import OAuthProviderPublic, SsoExchangeRequest
 from app.modules.auth.oauth.service import (
     _resolve_github_identity,
     get_enabled_providers,
@@ -31,8 +42,9 @@ from app.modules.auth.oauth.service import (
     validate_provider_server_endpoints,
     verify_azure_multitenant_issuer,
 )
-from app.modules.auth.providers import AuthenticatedIdentity
-from app.modules.auth.service import AuthService
+from app.modules.auth.oauth.sign_in_redirect import sso_sign_in_redirect
+from app.modules.auth.schemas import TokenResponse
+from app.modules.auth.service import SIGN_IN_NONCE_PATTERN, AuthService
 from app.core.dependencies import get_client_ip, get_db
 from app.core.edition import is_enterprise
 from app.core.persistent_config import (
@@ -41,6 +53,7 @@ from app.core.persistent_config import (
 )
 from app.core.public_urls import get_public_api_url, get_public_app_url
 from app.platform.audit import AuditEvent, audit_emit
+from app.platform.ratelimit import limiter
 from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -187,6 +200,31 @@ class _SSRFSafeOAuth2App(StarletteOAuth2App):
             self._endpoints_validated = True
         return metadata
 
+    async def authorize_redirect(
+        self, request, redirect_uri=None, *, sign_in_nonce: str, **kwargs
+    ) -> RedirectResponse:
+        """authlib's redirect, keeping the starting tab's nonce in the flow's state."""
+        rv = await self.create_authorization_url(redirect_uri, **kwargs)
+        await self.save_authorize_data(
+            request, redirect_uri=redirect_uri, sign_in_nonce=sign_in_nonce, **rv
+        )
+        return RedirectResponse(rv["url"], status_code=302)
+
+    async def authorize_access_token(self, request, **kwargs):
+        """authlib's token exchange; leaves the flow's nonce on ``request.state``.
+
+        The state data is read first because authlib clears it.
+        """
+        state = request.query_params.get("state")
+        state_data = (
+            await self.framework.get_state_data(request.session, state)
+            if state
+            else None
+        )
+        token = await super().authorize_access_token(request, **kwargs)
+        request.state.sso_sign_in_nonce = (state_data or {}).get("sign_in_nonce")
+        return token
+
 
 def _id_token_claims_options(
     provider_type: str, discovery_url: str | None
@@ -281,6 +319,12 @@ async def oauth_login(
     provider_slug: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    nonce: str = Query(
+        pattern=SIGN_IN_NONCE_PATTERN,
+        description="A random 256-bit value, base64url without padding, that "
+        "the page starting this sign-in keeps. The callback hands it back, and "
+        "the page completes only a sign-in carrying its own value.",
+    ),
 ) -> RedirectResponse:
     """Redirect user to the IdP authorization URL with PKCE parameters.
 
@@ -336,7 +380,7 @@ async def oauth_login(
             correlation_id=correlation_id,
         )
 
-    return await client.authorize_redirect(request, redirect_uri)
+    return await client.authorize_redirect(request, redirect_uri, sign_in_nonce=nonce)
 
 
 @router.get("/{provider_slug}/callback", response_class=Response)
@@ -345,13 +389,13 @@ async def oauth_callback(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    """Handle IdP callback: exchange code, find/create user, issue JWT, redirect to frontend.
+    """Handle IdP callback: exchange code, find/create user, redirect to frontend.
 
-    The frontend redirect carries access tokens in the URL
-    fragment. Without explicit-config resolution, an attacker controlling
-    ``X-Forwarded-Host`` could steer the post-callback redirect to
-    attacker.com and capture the tokens. Force explicit-config resolution
-    by passing ``for_external_use=True``.
+    The frontend redirect carries a one-time sign-in code, or on a
+    cross-origin deployment the tokens, in the URL fragment. Without
+    explicit-config resolution, an attacker controlling ``X-Forwarded-Host``
+    could steer the post-callback redirect to attacker.com and capture them.
+    Force explicit-config resolution by passing ``for_external_use=True``.
     """
     from app.modules.auth.oauth.service import find_or_create_oauth_user
     from app.core.public_urls import PublicUrlNotConfiguredError
@@ -420,19 +464,11 @@ async def oauth_callback(
 
         user.last_login_at = func.now()
 
-        expire_minutes = await ACCESS_TOKEN_EXPIRE_MINUTES.get(db)
-        expire_days = await REFRESH_TOKEN_EXPIRE_DAYS.get(db)
-
-        identity = AuthenticatedIdentity(
-            user_id=user.id, username=user.username, email=user.email
-        )
-        service = AuthService(db)
-        family_id = uuid.uuid4()
-        access_token = await service.create_access_token(
-            identity, expire_minutes=expire_minutes, family_id=family_id
-        )
-        refresh_token = service.create_refresh_token(
-            user.id, expire_days=expire_days, family_id=family_id
+        sign_in_nonce = getattr(request.state, "sso_sign_in_nonce", None)
+        if not sign_in_nonce:
+            raise ValueError("OAuth state carries no sign-in nonce")
+        redirect = await sso_sign_in_redirect(
+            db, request, user, frontend_url=frontend_url, sign_in_nonce=sign_in_nonce
         )
 
         # HARDEN-04: emit success audit entry before the commit so it persists
@@ -452,37 +488,6 @@ async def oauth_callback(
             ),
         )
         await db.commit()
-
-        # GH-1302: same-origin SPA gets the refresh token as an httpOnly
-        # cookie instead of in the fragment (readable by any script on the
-        # landing page, the same exfiltration surface as localStorage).
-        # `auth_mode=cookie` tells the callback page not to expect a body
-        # token; a cross-origin SPA can't send that cookie back, so it keeps
-        # pre-GH-1302 fragment delivery.
-        api_url = await get_public_api_url(db, request=request, for_external_use=True)
-        cookie_mode = is_same_origin(
-            frontend_url, api_url
-        ) and api_path_is_cookie_scoped(request, api_url)
-        redirect_url = (
-            f"{frontend_url}/oauth/callback"
-            f"#token={access_token}"
-            + ("" if cookie_mode else f"&refresh_token={refresh_token}")
-            + f"&expires_in={expire_minutes * 60}"
-            + ("&auth_mode=cookie" if cookie_mode else "")
-        )
-        # SEC-13/L-67: the redirect URL carries access_token (and, on the
-        # cross-origin fallback, refresh_token) in the fragment. Without
-        # Referrer-Policy: no-referrer, the browser may leak the full
-        # callback URL (with the IdP's code= param) to third-party assets on
-        # the post-redirect page. Per-redirect override of the global
-        # strict-origin-when-cross-origin from SecurityHeadersMiddleware.
-        redirect = RedirectResponse(
-            url=redirect_url,
-            status_code=302,
-            headers={"Referrer-Policy": "no-referrer"},
-        )
-        if cookie_mode:
-            issue_browser_session(redirect, request, refresh_token, expire_days)
         return redirect
 
     except HTTPException:
@@ -608,6 +613,71 @@ async def oauth_callback(
             status_code=302,
             headers={"Referrer-Policy": "no-referrer"},
         )
+
+
+_INVALID_EXCHANGE_DETAIL = "Invalid or expired sign-in code"
+
+
+@router.post("/exchange", response_model=TokenResponse, include_in_schema=False)
+@router.post("/exchange/", response_model=TokenResponse)
+@limiter.limit("30/minute")
+async def exchange_sign_in_code(
+    request: Request,
+    response: Response,
+    body: SsoExchangeRequest,
+    db: AsyncSession = Depends(get_db),
+    auth_mode: str | None = Header(
+        default=None,
+        alias=AUTH_MODE_HEADER,
+        description="Must be `cookie`: this call only establishes a browser "
+        "cookie session.",
+    ),
+) -> TokenResponse:
+    """Exchange a single sign-on code for a browser session.
+
+    When the SPA shares the API's origin, an OAuth or SAML callback redirects
+    with a one-time code in the URL fragment instead of setting the refresh
+    cookie. The sign-in page posts that code here, and the response sets the
+    httpOnly refresh cookie and its CSRF cookie the way ``/auth/login`` does
+    in cookie mode, with a null ``refresh_token`` in the body.
+
+    A code is valid once, for about a minute, only from the browser the
+    callback redirected, and only with the nonce the page started the sign-in
+    with. Every refusal is the same 401.
+    """
+    if not wants_cookie_auth(request):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{AUTH_MODE_HEADER}: cookie is required",
+        )
+    binding = read_sso_exchange_cookie(request, body.code)
+    if not binding:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=_INVALID_EXCHANGE_DETAIL,
+        )
+    expire_minutes = await ACCESS_TOKEN_EXPIRE_MINUTES.get(db)
+    expire_days = await REFRESH_TOKEN_EXPIRE_DAYS.get(db)
+    try:
+        access_token, refresh_token = await AuthService(db).redeem_sso_sign_in(
+            body.code,
+            binding,
+            body.nonce,
+            expire_minutes=expire_minutes,
+            expire_days=expire_days,
+        )
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=_INVALID_EXCHANGE_DETAIL,
+        )
+    issue_browser_session(response, request, refresh_token, expire_days)
+    clear_sso_exchange_cookie(response, request, body.code)
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=None,
+        expires_in=expire_minutes * 60,
+    )
 
 
 # ROUTE-01 (Phase 1092): dual-shape decorator — both trailing-slash and

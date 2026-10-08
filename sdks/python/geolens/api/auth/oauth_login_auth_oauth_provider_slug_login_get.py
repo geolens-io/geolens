@@ -5,7 +5,7 @@ from urllib.parse import quote
 import httpx
 
 from ...client import AuthenticatedClient, Client
-from ...types import Response
+from ...types import Response, UNSET
 from ... import errors
 
 from ...models.problem_detail import ProblemDetail
@@ -13,13 +13,22 @@ from ...models.problem_detail import ProblemDetail
 
 def _get_kwargs(
     provider_slug: str,
+    *,
+    nonce: str,
 ) -> dict[str, Any]:
+
+    params: dict[str, Any] = {}
+
+    params["nonce"] = nonce
+
+    params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
     _kwargs: dict[str, Any] = {
         "method": "get",
         "url": "/auth/oauth/{provider_slug}/login".format(
             provider_slug=quote(str(provider_slug), safe=""),
         ),
+        "params": params,
     }
 
     return _kwargs
@@ -93,6 +102,7 @@ def sync_detailed(
     provider_slug: str,
     *,
     client: AuthenticatedClient | Client,
+    nonce: str,
 ) -> Response[Any | ProblemDetail]:
     """Oauth Login
 
@@ -106,6 +116,9 @@ def sync_detailed(
 
     Args:
         provider_slug (str):
+        nonce (str): A random 256-bit value, base64url without padding, that the page starting
+            this sign-in keeps. The callback hands it back, and the page completes only a sign-in
+            carrying its own value.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -117,6 +130,7 @@ def sync_detailed(
 
     kwargs = _get_kwargs(
         provider_slug=provider_slug,
+        nonce=nonce,
     )
 
     response = client.get_httpx_client().request(
@@ -130,6 +144,7 @@ def sync(
     provider_slug: str,
     *,
     client: AuthenticatedClient | Client,
+    nonce: str,
 ) -> Any | ProblemDetail | None:
     """Oauth Login
 
@@ -143,6 +158,9 @@ def sync(
 
     Args:
         provider_slug (str):
+        nonce (str): A random 256-bit value, base64url without padding, that the page starting
+            this sign-in keeps. The callback hands it back, and the page completes only a sign-in
+            carrying its own value.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -155,6 +173,7 @@ def sync(
     return sync_detailed(
         provider_slug=provider_slug,
         client=client,
+        nonce=nonce,
     ).parsed
 
 
@@ -162,6 +181,7 @@ async def asyncio_detailed(
     provider_slug: str,
     *,
     client: AuthenticatedClient | Client,
+    nonce: str,
 ) -> Response[Any | ProblemDetail]:
     """Oauth Login
 
@@ -175,6 +195,9 @@ async def asyncio_detailed(
 
     Args:
         provider_slug (str):
+        nonce (str): A random 256-bit value, base64url without padding, that the page starting
+            this sign-in keeps. The callback hands it back, and the page completes only a sign-in
+            carrying its own value.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -186,6 +209,7 @@ async def asyncio_detailed(
 
     kwargs = _get_kwargs(
         provider_slug=provider_slug,
+        nonce=nonce,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -197,6 +221,7 @@ async def asyncio(
     provider_slug: str,
     *,
     client: AuthenticatedClient | Client,
+    nonce: str,
 ) -> Any | ProblemDetail | None:
     """Oauth Login
 
@@ -210,6 +235,9 @@ async def asyncio(
 
     Args:
         provider_slug (str):
+        nonce (str): A random 256-bit value, base64url without padding, that the page starting
+            this sign-in keeps. The callback hands it back, and the page completes only a sign-in
+            carrying its own value.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -223,5 +251,6 @@ async def asyncio(
         await asyncio_detailed(
             provider_slug=provider_slug,
             client=client,
+            nonce=nonce,
         )
     ).parsed

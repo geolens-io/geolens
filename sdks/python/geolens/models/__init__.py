@@ -756,6 +756,7 @@ from .sse_map_done_event import SSEMapDoneEvent
 from .sse_token_event import SSETokenEvent
 from .sse_tool_result_event import SSEToolResultEvent
 from .sse_tool_start_event import SSEToolStartEvent
+from .sso_exchange_request import SsoExchangeRequest
 from .stac_asset import StacAsset
 from .stac_asset_size import StacAssetSize
 from .stac_asset_size_target import StacAssetSizeTarget
@@ -1386,6 +1387,7 @@ __all__ = (
     "SSETokenEvent",
     "SSEToolResultEvent",
     "SSEToolStartEvent",
+    "SsoExchangeRequest",
     "StacAsset",
     "StacAssetSize",
     "StacAssetSizesRequest",

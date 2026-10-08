@@ -248,7 +248,7 @@ UNANCHORED_MARKER_DEBT: dict[str, int] = {
     "modules/auth/domain_validation.py": 7,
     "modules/auth/models.py": 10,
     "modules/auth/oauth/encryption.py": 1,
-    "modules/auth/oauth/router.py": 17,
+    "modules/auth/oauth/router.py": 15,
     "modules/auth/oauth/schemas.py": 7,
     "modules/auth/oauth/service.py": 27,
     "modules/auth/password_policy.py": 1,

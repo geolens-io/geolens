@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { removeSessionStorage } from '@/lib/storage';
+import { postSignInPath } from '@/lib/post-sign-in-path';
 
 /**
  * Login form for username + password authentication.
@@ -45,7 +46,7 @@ export function LoginForm() {
       await login(username, password);
       const from = (location.state as { from?: string } | null)?.from;
       // The root route is the canonical search workspace.
-      const target = from && from.startsWith('/') ? from : '/';
+      const target = postSignInPath(from);
       // Keep storage cleanup exception-safe after authentication so it cannot
       // turn a successful login into an inline error before navigation.
       removeSessionStorage('geolens-login-redirect');

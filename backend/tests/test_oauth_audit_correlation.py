@@ -115,7 +115,9 @@ async def test_login_init_emits_audit_entry(
         "app.modules.auth.oauth.router.build_oauth_client",
         AsyncMock(return_value=(mock_client, provider)),
     ):
-        resp = await client.get(f"/auth/oauth/{slug}/login", follow_redirects=False)
+        resp = await client.get(
+            f"/auth/oauth/{slug}/login?nonce={'n' * 43}", follow_redirects=False
+        )
 
     # We expect a redirect (302) out to the IdP
     assert resp.status_code in (302, 307, 200), f"Unexpected status: {resp.status_code}"
@@ -204,7 +206,9 @@ async def test_audit_entries_do_not_contain_secrets(
         "app.modules.auth.oauth.router.build_oauth_client",
         AsyncMock(return_value=(mock_client, provider)),
     ):
-        await client.get(f"/auth/oauth/{slug}/login", follow_redirects=False)
+        await client.get(
+            f"/auth/oauth/{slug}/login?nonce={'n' * 43}", follow_redirects=False
+        )
 
     # Fetch all audit rows for this provider
     result = await client_session.execute(

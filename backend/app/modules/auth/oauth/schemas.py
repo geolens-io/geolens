@@ -459,3 +459,15 @@ class OAuthProviderPublic(BaseModel):
     provider_type: str = Field(
         description="Provider type, used by the frontend to pick the right icon."
     )
+
+
+class SsoExchangeRequest(BaseModel):
+    code: str = Field(
+        max_length=64,
+        description="The one-time code from the `code` parameter of the "
+        "sign-in redirect's URL fragment.",
+    )
+    nonce: str = Field(
+        max_length=64,
+        description="The nonce the page sent when it started this sign-in.",
+    )

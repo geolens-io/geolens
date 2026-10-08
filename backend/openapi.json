@@ -17122,6 +17122,28 @@
         "title": "SourceHealthResponse",
         "type": "object"
       },
+      "SsoExchangeRequest": {
+        "properties": {
+          "code": {
+            "description": "The one-time code from the `code` parameter of the sign-in redirect's URL fragment.",
+            "maxLength": 64,
+            "title": "Code",
+            "type": "string"
+          },
+          "nonce": {
+            "description": "The nonce the page sent when it started this sign-in.",
+            "maxLength": 64,
+            "title": "Nonce",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "nonce"
+        ],
+        "title": "SsoExchangeRequest",
+        "type": "object"
+      },
       "StacAsset": {
         "properties": {
           "href": {
@@ -28281,6 +28303,147 @@
         ]
       }
     },
+    "/auth/oauth/exchange/": {
+      "post": {
+        "description": "Exchange a single sign-on code for a browser session.\n\nWhen the SPA shares the API's origin, an OAuth or SAML callback redirects\nwith a one-time code in the URL fragment instead of setting the refresh\ncookie. The sign-in page posts that code here, and the response sets the\nhttpOnly refresh cookie and its CSRF cookie the way ``/auth/login`` does\nin cookie mode, with a null ``refresh_token`` in the body.\n\nA code is valid once, for about a minute, only from the browser the\ncallback redirected, and only with the nonce the page started the sign-in\nwith. Every refusal is the same 401.",
+        "operationId": "exchange_sign_in_code_auth_oauth_exchange__post",
+        "parameters": [
+          {
+            "description": "Must be `cookie`: this call only establishes a browser cookie session.",
+            "in": "header",
+            "name": "X-GeoLens-Auth-Mode",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Must be `cookie`: this call only establishes a browser cookie session.",
+              "title": "X-Geolens-Auth-Mode"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SsoExchangeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Forbidden \u2014 caller lacks access to this resource"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many requests \u2014 retry after the advertised interval",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the request may be retried",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Internal server error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Service unavailable \u2014 the database could not serve the request"
+          }
+        },
+        "summary": "Exchange Sign In Code",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
     "/auth/oauth/providers/": {
       "get": {
         "description": "Return the list of enabled OAuth providers for the login page.",
@@ -28398,7 +28561,7 @@
     },
     "/auth/oauth/{provider_slug}/callback": {
       "get": {
-        "description": "Handle IdP callback: exchange code, find/create user, issue JWT, redirect to frontend.\n\nThe frontend redirect carries access tokens in the URL\nfragment. Without explicit-config resolution, an attacker controlling\n``X-Forwarded-Host`` could steer the post-callback redirect to\nattacker.com and capture the tokens. Force explicit-config resolution\nby passing ``for_external_use=True``.",
+        "description": "Handle IdP callback: exchange code, find/create user, redirect to frontend.\n\nThe frontend redirect carries a one-time sign-in code, or on a\ncross-origin deployment the tokens, in the URL fragment. Without\nexplicit-config resolution, an attacker controlling ``X-Forwarded-Host``\ncould steer the post-callback redirect to attacker.com and capture them.\nForce explicit-config resolution by passing ``for_external_use=True``.",
         "operationId": "oauth_callback_auth_oauth__provider_slug__callback_get",
         "parameters": [
           {
@@ -28522,6 +28685,18 @@
             "required": true,
             "schema": {
               "title": "Provider Slug",
+              "type": "string"
+            }
+          },
+          {
+            "description": "A random 256-bit value, base64url without padding, that the page starting this sign-in keeps. The callback hands it back, and the page completes only a sign-in carrying its own value.",
+            "in": "query",
+            "name": "nonce",
+            "required": true,
+            "schema": {
+              "description": "A random 256-bit value, base64url without padding, that the page starting this sign-in keeps. The callback hands it back, and the page completes only a sign-in carrying its own value.",
+              "pattern": "^[A-Za-z0-9_-]{43}$",
+              "title": "Nonce",
               "type": "string"
             }
           }

@@ -1033,6 +1033,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/oauth/exchange/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Exchange Sign In Code
+         * @description Exchange a single sign-on code for a browser session.
+         *
+         *     When the SPA shares the API's origin, an OAuth or SAML callback redirects
+         *     with a one-time code in the URL fragment instead of setting the refresh
+         *     cookie. The sign-in page posts that code here, and the response sets the
+         *     httpOnly refresh cookie and its CSRF cookie the way ``/auth/login`` does
+         *     in cookie mode, with a null ``refresh_token`` in the body.
+         *
+         *     A code is valid once, for about a minute, only from the browser the
+         *     callback redirected, and only with the nonce the page started the sign-in
+         *     with. Every refusal is the same 401.
+         */
+        post: operations["exchange_sign_in_code_auth_oauth_exchange__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/oauth/providers/": {
         parameters: {
             query?: never;
@@ -1062,13 +1092,13 @@ export interface paths {
         };
         /**
          * Oauth Callback
-         * @description Handle IdP callback: exchange code, find/create user, issue JWT, redirect to frontend.
+         * @description Handle IdP callback: exchange code, find/create user, redirect to frontend.
          *
-         *     The frontend redirect carries access tokens in the URL
-         *     fragment. Without explicit-config resolution, an attacker controlling
-         *     ``X-Forwarded-Host`` could steer the post-callback redirect to
-         *     attacker.com and capture the tokens. Force explicit-config resolution
-         *     by passing ``for_external_use=True``.
+         *     The frontend redirect carries a one-time sign-in code, or on a
+         *     cross-origin deployment the tokens, in the URL fragment. Without
+         *     explicit-config resolution, an attacker controlling ``X-Forwarded-Host``
+         *     could steer the post-callback redirect to attacker.com and capture them.
+         *     Force explicit-config resolution by passing ``for_external_use=True``.
          */
         get: operations["oauth_callback_auth_oauth__provider_slug__callback_get"];
         put?: never;
@@ -13018,6 +13048,19 @@ export interface components {
              */
             last_checked_at?: string | null;
         };
+        /** SsoExchangeRequest */
+        SsoExchangeRequest: {
+            /**
+             * Code
+             * @description The one-time code from the `code` parameter of the sign-in redirect's URL fragment.
+             */
+            code: string;
+            /**
+             * Nonce
+             * @description The nonce the page sent when it started this sign-in.
+             */
+            nonce: string;
+        };
         /** StacAsset */
         StacAsset: {
             /** Href */
@@ -19790,6 +19833,107 @@ export interface operations {
             };
         };
     };
+    exchange_sign_in_code_auth_oauth_exchange__post: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Must be `cookie`: this call only establishes a browser cookie session. */
+                "X-GeoLens-Auth-Mode"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SsoExchangeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenResponse"];
+                };
+            };
+            /** @description Bad request — invalid query parameters or payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks access to this resource */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
     list_public_providers_auth_oauth_providers__get: {
         parameters: {
             query?: never;
@@ -19980,7 +20124,10 @@ export interface operations {
     };
     oauth_login_auth_oauth__provider_slug__login_get: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description A random 256-bit value, base64url without padding, that the page starting this sign-in keeps. The callback hands it back, and the page completes only a sign-in carrying its own value. */
+                nonce: string;
+            };
             header?: never;
             path: {
                 provider_slug: string;

@@ -9956,6 +9956,24 @@ export type SourceHealthResponse = {
 };
 
 /**
+ * SsoExchangeRequest
+ */
+export type SsoExchangeRequest = {
+    /**
+     * Code
+     *
+     * The one-time code from the `code` parameter of the sign-in redirect's URL fragment.
+     */
+    code: string;
+    /**
+     * Nonce
+     *
+     * The nonce the page sent when it started this sign-in.
+     */
+    nonce: string;
+};
+
+/**
  * StacAsset
  */
 export type StacAsset = {
@@ -15233,6 +15251,67 @@ export type MeUsageAuthMeUsageGetResponses = {
 
 export type MeUsageAuthMeUsageGetResponse = MeUsageAuthMeUsageGetResponses[keyof MeUsageAuthMeUsageGetResponses];
 
+export type ExchangeSignInCodeAuthOauthExchangePostData = {
+    body: SsoExchangeRequest;
+    headers?: {
+        /**
+         * X-Geolens-Auth-Mode
+         *
+         * Must be `cookie`: this call only establishes a browser cookie session.
+         */
+        'X-GeoLens-Auth-Mode'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/auth/oauth/exchange/';
+};
+
+export type ExchangeSignInCodeAuthOauthExchangePostErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks access to this resource
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type ExchangeSignInCodeAuthOauthExchangePostError = ExchangeSignInCodeAuthOauthExchangePostErrors[keyof ExchangeSignInCodeAuthOauthExchangePostErrors];
+
+export type ExchangeSignInCodeAuthOauthExchangePostResponses = {
+    /**
+     * Successful Response
+     */
+    200: TokenResponse;
+};
+
+export type ExchangeSignInCodeAuthOauthExchangePostResponse = ExchangeSignInCodeAuthOauthExchangePostResponses[keyof ExchangeSignInCodeAuthOauthExchangePostResponses];
+
 export type ListPublicProvidersAuthOauthProvidersGetData = {
     body?: never;
     path?: never;
@@ -15352,7 +15431,14 @@ export type OauthLoginAuthOauthProviderSlugLoginGetData = {
          */
         provider_slug: string;
     };
-    query?: never;
+    query: {
+        /**
+         * Nonce
+         *
+         * A random 256-bit value, base64url without padding, that the page starting this sign-in keeps. The callback hands it back, and the page completes only a sign-in carrying its own value.
+         */
+        nonce: string;
+    };
     url: '/auth/oauth/{provider_slug}/login';
 };
 

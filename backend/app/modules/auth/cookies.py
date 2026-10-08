@@ -14,6 +14,7 @@ byte-identical to the pre-GH-1302 contract, keeping the CLI and generated
 SDKs working.
 """
 
+import hashlib
 import secrets
 from urllib.parse import urlsplit
 
@@ -121,6 +122,54 @@ def clear_browser_session(response: Response, request: Request) -> None:
     response.delete_cookie(
         CSRF_COOKIE_NAME,
         path="/",
+        secure=_secure_cookies(),
+        samesite="lax",
+    )
+
+
+def _sso_exchange_cookie_path(request: Request) -> str:
+    root_path = request.scope.get("root_path", "").rstrip("/")
+    return f"{root_path}/auth/oauth/exchange"
+
+
+def sso_exchange_cookie_name(code: str) -> str:
+    """One cookie per pending sign-in, so a second callback in this browser
+    leaves the first one's binding in place."""
+    return "geolens_sso_" + hashlib.sha256(code.encode()).hexdigest()[:16]
+
+
+def set_sso_exchange_cookie(
+    response: Response, request: Request, code: str, binding: str, max_age: int
+) -> None:
+    """Bind a staged SSO sign-in to this browser.
+
+    Scoped to the exchange route, so no refresh response ever rewrites it, and
+    ``SameSite=Lax`` keeps it off a cross-site POST to that route.
+    """
+    response.set_cookie(
+        sso_exchange_cookie_name(code),
+        binding,
+        max_age=max_age,
+        httponly=True,
+        secure=_secure_cookies(),
+        samesite="lax",
+        path=_sso_exchange_cookie_path(request),
+    )
+
+
+def read_sso_exchange_cookie(request: Request, code: str) -> str | None:
+    """The binding value, or None when absent or duplicated (see read_refresh_cookie)."""
+    name = sso_exchange_cookie_name(code)
+    if _cookie_occurrences(request, name) > 1:
+        return None
+    return request.cookies.get(name)
+
+
+def clear_sso_exchange_cookie(response: Response, request: Request, code: str) -> None:
+    response.delete_cookie(
+        sso_exchange_cookie_name(code),
+        path=_sso_exchange_cookie_path(request),
+        httponly=True,
         secure=_secure_cookies(),
         samesite="lax",
     )
