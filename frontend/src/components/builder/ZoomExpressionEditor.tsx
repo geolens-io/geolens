@@ -263,6 +263,7 @@ export function ZoomExpressionEditor({
             <div className="grid grid-cols-[1fr_5rem] items-center gap-2">
               <span className="text-xs text-muted-foreground">{t('style.zoomExpression.baseValue')}</span>
               <Input
+                aria-describedby={describedBy}
                 aria-label={t('style.zoomExpression.baseValueLabel', {
                   label,
                   defaultValue: '{{label}} base value',
@@ -303,6 +304,7 @@ export function ZoomExpressionEditor({
                   onChange={(event) => updateStop(index, { zoom: event.currentTarget.valueAsNumber })}
                 />
                 <Input
+                  aria-describedby={describedBy}
                   aria-label={t('style.zoomExpression.stopValueLabel', {
                     label,
                     index: index + 1,
