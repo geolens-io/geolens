@@ -5,7 +5,7 @@ Covers the 8 SAML test scenarios specified in 217-02-PLAN.md task 03:
 - Registration: extension dual-registers under ``identity`` and ``_routers``
 - Metadata: GET /auth/saml/{slug}/metadata returns valid samlmetadata+xml
 - ACS happy path: signed assertion JIT-provisions a user, issues JWTs,
-  redirects to /oauth/callback?source=saml#token=...
+  redirects to /oauth/callback?source=saml#token=...&nonce=<login's nonce>
 - ACS rejects: invalid signature, unsigned, expired, replayed, XSW
 
 The remaining 2 SAML tests (audit-log + role-mapping) land in Plan 03.
@@ -184,6 +184,8 @@ def saml_idp_server(saml_overlay_registered, saml_response_dir):
 FIXTURE_IDP_ENTITY_ID = "https://fixture-idp.geolens.test/idp"
 FIXTURE_SP_ENTITY_ID = "https://geolens.test/auth/saml/fixture"
 FIXTURE_SLUG = "fixture"
+# The value the login page keeps in sessionStorage and sends as ?nonce=.
+SIGN_IN_NONCE = "s" * 43
 FIXTURE_NAMEID = "user@example.com"
 
 
@@ -268,6 +270,7 @@ async def _start_saml_login(
     """Start the public SAML login flow and return request id plus relay state."""
     response = await client.get(
         f"/auth/saml/{FIXTURE_SLUG}/login",
+        params={"nonce": SIGN_IN_NONCE},
         follow_redirects=False,
     )
 
@@ -405,6 +408,7 @@ async def saml_router_mounted(saml_overlay_registered, client):
     import app.core.edition as edition_mod
     import app.core.public_urls as public_urls_mod
     from app.api.main import app
+    from app.modules.auth.oauth import sign_in_redirect
     from geolens_enterprise.auth.saml import router as saml_router_mod
 
     saved_info = edition_mod._info
@@ -440,6 +444,7 @@ async def saml_router_mounted(saml_overlay_registered, client):
         # host-header trust boundary while supplying a fixed trusted origin.
         saml_router_mod.get_public_api_url = _fixture_public_url
         saml_router_mod.get_public_app_url = _fixture_public_url
+        sign_in_redirect.get_public_api_url = _fixture_public_url
 
         yield saml_overlay_registered
     finally:
@@ -448,6 +453,7 @@ async def saml_router_mounted(saml_overlay_registered, client):
         public_urls_mod.get_public_app_url = saved_get_app_url
         saml_router_mod.get_public_api_url = saved_get_api_url
         saml_router_mod.get_public_app_url = saved_get_app_url
+        sign_in_redirect.get_public_api_url = saved_get_api_url
         if not router_was_mounted:
             _unmount_saml_router()
 
@@ -536,6 +542,7 @@ async def test_saml_acs_signed_assertion_jit_provisions_user(
     )
     assert "refresh_token" in frag_pairs and frag_pairs["refresh_token"]
     assert "expires_in" in frag_pairs and frag_pairs["expires_in"].isdigit()
+    assert frag_pairs.get("nonce") == SIGN_IN_NONCE
 
     # A new User row exists with the assertion email + auth_provider='oauth'.
     result = await test_db_session.execute(
