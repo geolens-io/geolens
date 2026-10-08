@@ -186,7 +186,9 @@ describe('SettingsAITab embedding width confirmation', () => {
     expect(hoisted.trackedJobIds).toContain('5f1e5b2a-0000-4000-8000-000000000009');
   });
 
-  it('warns when another tenant could not start regenerating', async () => {
+  it('keeps a fleet retry on screen when another tenant could not start regenerating', async () => {
+    hoisted.isMultiTenant = true;
+    hoisted.capabilities = ['manage_tenants', 'manage_users'];
     hoisted.backfillMutate.mockImplementation((_variables, opts) =>
       opts.onSuccess({
         job_id: '5f1e5b2a-0000-4000-8000-000000000001',
@@ -204,9 +206,9 @@ describe('SettingsAITab embedding width confirmation', () => {
     await user.click(screen.getByRole('button', { name: 'Save' }));
     await user.click(screen.getByRole('button', { name: 'Delete embeddings' }));
 
-    await waitFor(() =>
-      expect(toast.warning).toHaveBeenCalledWith('Regeneration could not be queued for 1 other tenant'),
-    );
+    expect(await screen.findByText('Regeneration could not be queued for 1 other tenant')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(hoisted.backfillMutate).toHaveBeenCalledTimes(2);
   });
 
   it('keeps the pending warning visible when the stats are unavailable', async () => {
