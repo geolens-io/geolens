@@ -289,9 +289,25 @@ class ManifestApplyRequest(_ManifestBaseModel):
 
 class ManifestApplyEntryResult(BaseModel):
     dataset_key: str
-    action: Literal["create", "update", "skip", "error"]
+    action: Literal["create", "update", "skip", "blocked", "error"] = Field(
+        description=(
+            "What apply did with the entry. `blocked` means the entry is "
+            "unchanged since its last apply, whose replacement is held for "
+            "review, so nothing was queued. Accept it by sending `run_id` as "
+            "`accept_blocked_run_id` to the dataset's refresh endpoint, or "
+            "change the entry."
+        )
+    )
     job_id: uuid.UUID | None = None
     dataset_id: uuid.UUID | None = None
+    run_id: uuid.UUID | None = Field(
+        default=None,
+        description="The blocked refresh run to accept, when action is `blocked`.",
+    )
+    review_reasons: list[str] = Field(
+        default_factory=list,
+        description="Why the blocked run needs review, when action is `blocked`.",
+    )
     message: str
     errors: list[str] = Field(default_factory=list)
 

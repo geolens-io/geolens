@@ -44,6 +44,7 @@ from app.processing.ingest.manifest_reservation import (
     bind_reservation_to_staged_source,
     downloading_stage_marker,
     expire_stale_manifest_reservations,
+    held_entry,
     latest_in_flight_manifest_job,
     lock_manifest_key,
     release_manifest_reservation,
@@ -1075,6 +1076,8 @@ async def _reserve_or_settle_entry(
     A result answers from what the key holds; a reservation means the caller
     owns it. fix(#1814): every exit commits, so no key lock outlives the entry.
     """
+    from app.modules.catalog.authorization import check_dataset_write_access
+
     (
         classification,
         prepared,
@@ -1102,10 +1105,6 @@ async def _reserve_or_settle_entry(
             # fix(#430): same gate as the update branch below —
             # raises 404/403 into the per-entry error wrapper, so the skip
             # response cannot disclose another user's job/dataset UUIDs.
-            from app.modules.catalog.authorization import (
-                check_dataset_write_access,
-            )
-
             await check_dataset_write_access(
                 db, existing_dataset, existing_dataset.id, user
             )
@@ -1121,14 +1120,15 @@ async def _reserve_or_settle_entry(
 
     update_dataset_id: uuid.UUID | None = None
     if classification == "update" and existing_dataset is not None:
-        # fix(#430): manifest_key is caller-supplied and globally namespaced, so
-        # the gate runs before the dry-run response too, which would otherwise
-        # leak another user's dataset id. Lazy import: PROCESS-02/04.
-        from app.modules.catalog.authorization import check_dataset_write_access
-
+        # manifest_key is caller-supplied and globally namespaced, so the gate
+        # runs before the blocked and dry-run responses, which would otherwise
+        # leak another user's dataset id.
         await check_dataset_write_access(
             db, existing_dataset, existing_dataset.id, user
         )
+        if held := await held_entry(db, dataset, fingerprint, job, existing_dataset):
+            await db.commit()
+            return held
         # Run after authorization (to avoid leaking another user's dataset
         # type) but before dry-run reporting, staging, or queue creation.
         _validate_existing_dataset_update(existing_dataset, prepared)
