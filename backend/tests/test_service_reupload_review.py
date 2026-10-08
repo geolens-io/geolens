@@ -6,7 +6,7 @@ import uuid
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
 
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.platform.jobs.models import IngestJob
@@ -207,3 +207,38 @@ async def test_accepting_a_held_service_reupload_after_the_source_moved_is_refus
     assert len(await _runs_ordered(test_db_session, dataset_id)) == runs_before
     held = await test_db_session.get(DatasetRefreshRun, held_id)
     assert "acceptance_consumed_by_run_id" not in held.verification
+
+
+async def test_accepting_a_held_service_reupload_keeps_a_feature_edited_since_the_hold(
+    client: AsyncClient, admin_auth_header, test_db_session, monkeypatch
+):
+    """The acceptance compares edits with the held run's start, not its own."""
+    dataset_id, held_id = await _held(
+        client, admin_auth_header, test_db_session, monkeypatch
+    )
+    edit = await client.post(
+        f"/datasets/{dataset_id}/features/",
+        headers=admin_auth_header,
+        json={
+            "geometry": {"type": "Point", "coordinates": [-73.5, 40.5]},
+            "properties": {"name": "edited"},
+        },
+    )
+    assert edit.status_code == 201, edit.text
+
+    with pytest.raises(Exception, match="edited"):
+        await _accept(
+            client, admin_auth_header, monkeypatch, dataset_id, held_id, _DROPPED
+        )
+
+    test_db_session.expire_all()
+    accepting = (await _runs_ordered(test_db_session, dataset_id))[-1]
+    assert (accepting.status, accepting.error_code) == ("failed", "live_data_changed")
+    dataset = await _dataset(test_db_session, dataset_id)
+    edited = await test_db_session.scalar(
+        text(
+            f"SELECT count(*) FROM data.\"{dataset.table_name}\" WHERE name = 'edited'"
+        )
+    )
+    assert edited == 1
+    assert "legacy" in await _live_columns(test_db_session, dataset.table_name)

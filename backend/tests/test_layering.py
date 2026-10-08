@@ -1324,7 +1324,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # verification, including the live geometry read and its witness, the
     # live-edit comparison each publication makes, and a service re-upload's
     # review of the changes its preview showed.
-    "backend/app/processing/ingest/tasks_reupload.py": 1587,
+    "backend/app/processing/ingest/tasks_reupload.py": 1592,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection and accepting a held run
     # by the door it came through.

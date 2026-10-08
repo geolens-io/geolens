@@ -1077,9 +1077,8 @@ async def _enforce_refresh_publication_fence(
         )
 
 
-async def _refuse_over_live_writes(session, *, job_id: uuid.UUID, dataset) -> None:
-    """Refuse a service re-upload when the live table was written after it
-    was admitted.
+async def _refuse_over_live_writes(session, *, dataset, baseline: int | None) -> None:
+    """Refuse a service re-upload when the live table was written since ``baseline``.
 
     Called after ``install``, whose rename holds the live table, so no write
     can land after this read.
@@ -1088,9 +1087,6 @@ async def _refuse_over_live_writes(session, *, job_id: uuid.UUID, dataset) -> No
         select(dataset.__class__.data_revision).where(
             dataset.__class__.id == dataset.id
         )
-    )
-    baseline = await _data_revision_baseline(
-        session, job_id=job_id, dataset_id=dataset.id, accepted_run_id=None
     )
     if refresh_policy.live_data_revision(baseline, current) is not None:
         raise RefreshPublicationFenceError(
@@ -1368,7 +1364,6 @@ class _ServiceReupload:
         if self.is_refresh:
             self.verification = await self._verify_refresh(session, dataset, live)
         else:
-            # Live edits made meanwhile are refused at write, not reviewed.
             self.verification = refresh_policy.verify_reviewed_replacement(
                 schema_diff=self.measured_schema_diff,
                 fetched_feature_count=self.measured_feature_count,
@@ -1377,6 +1372,14 @@ class _ServiceReupload:
                 source_binding=self.source_binding,
                 reviewed_fingerprint=self.reviewed_fingerprint,
                 accepted_fingerprint=self.accepted_fingerprint,
+                accepted_run_id=self.accepted_run_id,
+            )
+            # Live edits are refused at write rather than reviewed. An
+            # acceptance keeps the held run's baseline, so edits since the hold count.
+            self.verification["data_revision_baseline"] = await _data_revision_baseline(
+                session,
+                job_id=self.job_uuid,
+                dataset_id=dataset.id,
                 accepted_run_id=self.accepted_run_id,
             )
         if self.verification["decision"] == "allowed":
@@ -1477,7 +1480,9 @@ class _ServiceReupload:
         )
         if not self.is_refresh:
             await _refuse_over_live_writes(
-                session, job_id=self.job_uuid, dataset=dataset
+                session,
+                dataset=dataset,
+                baseline=self.verification["data_revision_baseline"],
             )
         version, schema_diff = await _write_reupload_catalog(
             session,
