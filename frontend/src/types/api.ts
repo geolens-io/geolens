@@ -1068,7 +1068,7 @@ export interface ReuploadPreviewResponse {
   // GPKG-01 Phase 1058: multi-layer support fields
   all_layers?: Array<{ name: string; feature_count: number; field_count: number }> | null;
   previous_source_layer?: string | null;
-  /** Changes that hold a file replacement for review; empty for a service. */
+  /** Changes that hold this replacement for review. */
   review_reasons?: ReviewReason[];
   /** Sent back on the commit once a person has seen `review_reasons`. */
   review_fingerprint?: string | null;

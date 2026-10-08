@@ -544,7 +544,7 @@ class _FileReupload:
             )
         # The function and transaction `project()` diffs with after the swap.
         self.schema_diff = catalog_projection.schema_diff(dataset, self.measurement)
-        self.verification = refresh_policy.verify_file_replacement(
+        self.verification = refresh_policy.verify_reviewed_replacement(
             schema_diff=self.schema_diff,
             fetched_feature_count=self.measurement.metadata.get("feature_count"),
             live=refresh_policy.geometry_contract(
@@ -1078,8 +1078,8 @@ async def _enforce_refresh_publication_fence(
 
 
 async def _refuse_over_live_writes(session, *, job_id: uuid.UUID, dataset) -> None:
-    """Refuse a replacement that has no review step when the live table was
-    written after it was admitted.
+    """Refuse a service re-upload when the live table was written after it
+    was admitted.
 
     Called after ``install``, whose rename holds the live table, so no write
     can land after this read.
@@ -1131,7 +1131,8 @@ async def _stage_service_table(
 class _ServiceReupload:
     """A remote service layer, fetched by ogr2ogr into this attempt's table.
 
-    A refresh is verified against its source binding before it publishes.
+    A refresh is verified against its source binding, and a re-upload against
+    the changes its preview showed, before either publishes.
     """
 
     task = "reupload_service"
@@ -1178,9 +1179,10 @@ class _ServiceReupload:
         self.source_layer_value = job.source_layer or self.source_layer
         self.source_filename = job.source_filename
         self.oid_field = um.get("object_id_field") or None
-        # router_refresh writes "refresh" into user_metadata, so the
-        # auth-failure copy can name the call the operator made.
+        # router_refresh writes "refresh" into user_metadata. A refresh is
+        # judged on the data it fetched, a re-upload on what its preview showed.
         self.is_refresh = bool(um.get("refresh"))
+        self.reviewed_fingerprint = um.get("review_fingerprint")
         self.accepted_fingerprint = um.get("accepted_refresh_fingerprint")
         self.accepted_run_id = um.get("accepted_refresh_run_id")
         self.verification_policy = self.options.get(
@@ -1272,8 +1274,6 @@ class _ServiceReupload:
             )
         except ValueError as exc:
             raise IngestionError(str(exc)) from exc
-        if not self.is_refresh:
-            return
         # Read while no publication session holds a pooled connection.
         self.live_scan = await _live_geometry_types(
             self.live_table, schema=_current_tenant_schema(), dataset_id=self.dataset_id
@@ -1306,13 +1306,14 @@ class _ServiceReupload:
             dataset, self.measurement
         )
         self.measured_feature_count = staged.metadata.get("feature_count")
-        if not self.is_refresh:
-            return PUBLISH
-
-        self.staged_geometry = await _staged_geometry_contract(
-            session, schema=schema, table=self.staging_table
+        self.staged_contract = refresh_policy.geometry_contract(
+            geometry_types=await get_geometry_types(
+                session, self.staging_table, schema=schema
+            ),
+            srid=self.measurement.metadata.get("srid"),
+            is_3d=self.measurement.three_d.get("is_3d"),
+            n_dims=self.measurement.three_d.get("n_dims"),
         )
-        credential_version = self.options.get("credential_version")
         self.source_binding = {
             "service_type": self.source_format,
             "url": self.source_url_value,
@@ -1321,6 +1322,15 @@ class _ServiceReupload:
                 layer_id=self.layer_id,
                 layer_name=self.source_layer_value,
             ),
+        }
+        if not self.is_refresh:
+            return Verdict(verify=self._verify)
+
+        self.staged_geometry = await _staged_geometry_contract(
+            session, schema=schema, table=self.staging_table
+        )
+        credential_version = self.options.get("credential_version")
+        self.source_binding |= {
             "verification_policy": self.verification_policy,
             "credential_version": (
                 credential_version if isinstance(credential_version, str) else None
@@ -1338,14 +1348,6 @@ class _ServiceReupload:
         self.content_digest = await compute_table_content_digest(
             session, self.staging_table, schema=schema, has_geometry=staged.has_geometry
         )
-        self.staged_contract = refresh_policy.geometry_contract(
-            geometry_types=await get_geometry_types(
-                session, self.staging_table, schema=schema
-            ),
-            srid=self.measurement.metadata.get("srid"),
-            is_3d=self.measurement.three_d.get("is_3d"),
-            n_dims=self.measurement.three_d.get("n_dims"),
-        )
         return Verdict(verify=self._verify)
 
     async def _verify(self, session, dataset) -> Verdict:
@@ -1357,33 +1359,26 @@ class _ServiceReupload:
         self.measured_schema_diff = catalog_projection.schema_diff(
             dataset, self.measurement
         )
-        geometry_type, srid, coordinate_dimension = self.staged_geometry
-        self.verification = refresh_policy.verify_service_refresh(
-            source_binding=self.source_binding,
-            schema_diff=self.measured_schema_diff,
-            expected_feature_count=self.expected_feature_count,
-            fetched_feature_count=self.measured_feature_count,
-            content_digest=self.content_digest,
-            staged_geometry_type=geometry_type,
-            staged_srid=srid,
-            staged_coordinate_dimension=coordinate_dimension,
-            live=refresh_policy.geometry_contract(
-                geometry_types=self.live_geometry_types,
-                srid=dataset.srid,
-                is_3d=dataset.is_3d,
-                n_dims=dataset.n_dims,
-            ),
-            staged=self.staged_contract,
-            accepted_fingerprint=self.accepted_fingerprint,
-            accepted_run_id=self.accepted_run_id,
-            data_revision_baseline=await _data_revision_baseline(
-                session,
-                job_id=self.job_uuid,
-                dataset_id=dataset.id,
-                accepted_run_id=self.accepted_run_id,
-            ),
-            data_revision=dataset.data_revision,
+        live = refresh_policy.geometry_contract(
+            geometry_types=self.live_geometry_types,
+            srid=dataset.srid,
+            is_3d=dataset.is_3d,
+            n_dims=dataset.n_dims,
         )
+        if self.is_refresh:
+            self.verification = await self._verify_refresh(session, dataset, live)
+        else:
+            # Live edits made meanwhile are refused at write, not reviewed.
+            self.verification = refresh_policy.verify_reviewed_replacement(
+                schema_diff=self.measured_schema_diff,
+                fetched_feature_count=self.measured_feature_count,
+                live=live,
+                staged=self.staged_contract,
+                source_binding=self.source_binding,
+                reviewed_fingerprint=self.reviewed_fingerprint,
+                accepted_fingerprint=self.accepted_fingerprint,
+                accepted_run_id=self.accepted_run_id,
+            )
         if self.verification["decision"] == "allowed":
             return PUBLISH
         rejected = self.verification["decision"] == "rejected"
@@ -1396,7 +1391,10 @@ class _ServiceReupload:
             message = "Review the detected changes before publication."
         return Verdict(
             publish=False,
-            reason=message,
+            # Coded as a held file replacement is, so it is listed as awaiting review.
+            reason=message
+            if self.is_refresh
+            else FixedReason(message, code=error_code),
             settle=partial(
                 self._hold_back,
                 dataset=dataset,
@@ -1408,11 +1406,39 @@ class _ServiceReupload:
             notify=rejected,
         )
 
+    async def _verify_refresh(self, session, dataset, live) -> dict:
+        geometry_type, srid, coordinate_dimension = self.staged_geometry
+        return refresh_policy.verify_service_refresh(
+            source_binding=self.source_binding,
+            schema_diff=self.measured_schema_diff,
+            expected_feature_count=self.expected_feature_count,
+            fetched_feature_count=self.measured_feature_count,
+            content_digest=self.content_digest,
+            staged_geometry_type=geometry_type,
+            staged_srid=srid,
+            staged_coordinate_dimension=coordinate_dimension,
+            live=live,
+            staged=self.staged_contract,
+            accepted_fingerprint=self.accepted_fingerprint,
+            accepted_run_id=self.accepted_run_id,
+            data_revision_baseline=await _data_revision_baseline(
+                session,
+                job_id=self.job_uuid,
+                dataset_id=dataset.id,
+                accepted_run_id=self.accepted_run_id,
+            ),
+            data_revision=dataset.data_revision,
+        )
+
     async def _hold_back(
         self, session, *, dataset, rejected: bool, error_code: str, message: str
     ) -> None:
-        dataset.last_checked_at = datetime.now(timezone.utc)
-        dataset.schema_drift_status = drift_status_from_diff(self.measured_schema_diff)
+        # A re-upload may have fetched another source than the stored one.
+        if self.is_refresh:
+            dataset.last_checked_at = datetime.now(timezone.utc)
+            dataset.schema_drift_status = drift_status_from_diff(
+                self.measured_schema_diff
+            )
         if rejected:
             await record_refresh_failure(
                 session,
@@ -1453,11 +1479,6 @@ class _ServiceReupload:
             await _refuse_over_live_writes(
                 session, job_id=self.job_uuid, dataset=dataset
             )
-        source_binding_layer = service_layer_identity(
-            self.source_format,
-            layer_id=self.layer_id,
-            layer_name=self.source_layer_value,
-        )
         version, schema_diff = await _write_reupload_catalog(
             session,
             dataset=dataset,
@@ -1474,7 +1495,7 @@ class _ServiceReupload:
             origin_ref={
                 "service_type": self.source_format,
                 "url": self.source_url_value,
-                "layer_id": source_binding_layer,
+                "layer_id": self.source_binding["layer_id"],
                 "auth_required": True if self.token else None,
             },
         )

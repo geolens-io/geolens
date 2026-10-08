@@ -1,4 +1,4 @@
-"""Pre-publication checks for service refreshes and file replacements."""
+"""Pre-publication checks for service refreshes and other replacements."""
 
 from __future__ import annotations
 
@@ -224,7 +224,7 @@ def _geometry_evidence(
     }
 
 
-def verify_file_replacement(
+def verify_reviewed_replacement(
     *,
     schema_diff: dict[str, Any],
     fetched_feature_count: int | None,
@@ -237,14 +237,13 @@ def verify_file_replacement(
     data_revision_baseline: int | None = None,
     data_revision: int | None = None,
 ) -> dict[str, Any]:
-    """Return the evidence and decision for a staged file replacement.
+    """Return the evidence and decision for a file replacement or service re-upload.
 
     A replacement with review reasons publishes only when a client sent the
     fingerprint of the subject it showed, or a person accepted a blocked run
     with the same subject. When the live table was written since
     ``data_revision_baseline``, the subject names the revision found, so an
-    acceptance covers only the writes its run saw. A file run is never
-    rejected.
+    acceptance covers only the writes its run saw. It is never rejected.
     """
     reasons = review_reasons(
         schema_diff=schema_diff,

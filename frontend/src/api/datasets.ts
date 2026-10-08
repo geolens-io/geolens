@@ -256,7 +256,7 @@ export async function reuploadCommit(
   // it is the pre-#1768 behaviour rather than an error.
   expectedOriginKind?: DatasetOrigin | null,
   // The preview's fingerprint of the changes the person was shown. Without
-  // it a file replacement that needs review ends blocked.
+  // it a replacement that needs review ends blocked.
   reviewFingerprint?: string | null,
 ): Promise<ReuploadCommitResponse> {
   const payload: ReuploadCommitRequest = {

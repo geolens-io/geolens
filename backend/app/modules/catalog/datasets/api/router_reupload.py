@@ -523,11 +523,13 @@ async def reupload_service_preview(
     # pipeline executes (vector→raster or any→VRT explodes deep otherwise).
     _assert_compatible_record_type(dataset, None, service_type=request.service_type)
 
-    # fix(#1848): hand the pooled connection back before DNS, the page fetches
-    # and ogrinfo. The rollback expires every ORM instance, so the two dataset
-    # facts the diff needs and the job's owner are read off them first.
+    # Hand the pooled connection back before DNS, the page fetches and
+    # ogrinfo. The rollback expires every ORM instance, so the dataset facts
+    # the review needs and the job's owner are read off them first.
     prior_columns = dataset.column_info or []
     prior_feature_count = dataset.feature_count
+    prior_table_name = dataset.table_name
+    prior_geometry = (dataset.srid, dataset.is_3d, dataset.n_dims)
     start_data_revision = dataset.data_revision
     user_id = user.id
     await db.rollback()
@@ -576,11 +578,20 @@ async def reupload_service_preview(
 
     diff = compute_schema_diff(
         prior_columns,
-        preview_data["columns"],
+        _diffable_columns(preview_data["columns"]),
         prior_feature_count,
         preview_data["feature_count"],
     )
     schema_diff = SchemaDiff(**diff)
+    review_reasons, review_fingerprint = await _preview_review(
+        db,
+        diff=diff,
+        info=preview_data,
+        # A service layer is always stored in 4326.
+        srid_override=4326,
+        live_table=prior_table_name,
+        live_geometry=prior_geometry,
+    )
 
     job = ledger.create(
         db,
@@ -614,6 +625,8 @@ async def reupload_service_preview(
         if request.service_type.startswith("ArcGIS")
         else preview_data["layer_name"],
         schema_diff=schema_diff,
+        review_reasons=review_reasons,
+        review_fingerprint=review_fingerprint,
     )
 
 
@@ -842,7 +855,7 @@ async def _preview_review(
     live_table: str,
     live_geometry: tuple[int | None, bool | None, int | None],
 ) -> tuple[list[str], str | None]:
-    """The review reasons and fingerprint the worker will compute for this file.
+    """The review reasons and fingerprint the worker will compute for this source.
 
     The staged geometry is the declared layer type, under the SRID the commit
     will store: the override, else the detected one, else 4326.
