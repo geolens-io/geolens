@@ -16,6 +16,15 @@ from typing import cast
 from uuid import UUID
 
 if TYPE_CHECKING:
+    from ..models.analysis_preview_request_filter_type_0 import (
+        AnalysisPreviewRequestFilterType0,
+    )
+    from ..models.analysis_preview_request_join_filter_type_0 import (
+        AnalysisPreviewRequestJoinFilterType0,
+    )
+    from ..models.analysis_preview_request_mask_filter_type_0 import (
+        AnalysisPreviewRequestMaskFilterType0,
+    )
     from ..models.analysis_preview_request_mask_type_0 import (
         AnalysisPreviewRequestMaskType0,
     )
@@ -49,6 +58,13 @@ class AnalysisPreviewRequest:
                 applies, so a capped result reflects what is on screen rather than an arbitrary sample in ingest order. Applies
                 to every operation, not just one, so it is deliberately absent from _ANALYSIS_PARAM_OWNERS — omit it to preview
                 the whole dataset, unchanged from before this field existed.
+            filter_ (AnalysisPreviewRequestFilterType0 | None | Unset): CQL2-JSON filter on the source dataset, in the
+                language /collections/{dataset_id}/items accepts as filter-lang=cql2-json. Only the features it keeps are
+                analysed, counted, and checked against the operation's size limit.
+            mask_filter (AnalysisPreviewRequestMaskFilterType0 | None | Unset): CQL2-JSON filter on the mask_dataset_id
+                layer: only its matching features form the mask or overlay. Requires mask_dataset_id.
+            join_filter (AnalysisPreviewRequestJoinFilterType0 | None | Unset): CQL2-JSON filter on the join layer: only its
+                matching features are joined (spatial_join only).
     """
 
     operation: AnalysisPreviewRequestOperation
@@ -58,9 +74,21 @@ class AnalysisPreviewRequest:
     join_dataset_id: None | Unset | UUID = UNSET
     join_fields: list[str] | None | Unset = UNSET
     bbox: list[float] | None | Unset = UNSET
+    filter_: AnalysisPreviewRequestFilterType0 | None | Unset = UNSET
+    mask_filter: AnalysisPreviewRequestMaskFilterType0 | None | Unset = UNSET
+    join_filter: AnalysisPreviewRequestJoinFilterType0 | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.analysis_preview_request_filter_type_0 import (
+            AnalysisPreviewRequestFilterType0,
+        )
+        from ..models.analysis_preview_request_join_filter_type_0 import (
+            AnalysisPreviewRequestJoinFilterType0,
+        )
+        from ..models.analysis_preview_request_mask_filter_type_0 import (
+            AnalysisPreviewRequestMaskFilterType0,
+        )
         from ..models.analysis_preview_request_mask_type_0 import (
             AnalysisPreviewRequestMaskType0,
         )
@@ -115,6 +143,30 @@ class AnalysisPreviewRequest:
         else:
             bbox = self.bbox
 
+        filter_: dict[str, Any] | None | Unset
+        if isinstance(self.filter_, Unset):
+            filter_ = UNSET
+        elif isinstance(self.filter_, AnalysisPreviewRequestFilterType0):
+            filter_ = self.filter_.to_dict()
+        else:
+            filter_ = self.filter_
+
+        mask_filter: dict[str, Any] | None | Unset
+        if isinstance(self.mask_filter, Unset):
+            mask_filter = UNSET
+        elif isinstance(self.mask_filter, AnalysisPreviewRequestMaskFilterType0):
+            mask_filter = self.mask_filter.to_dict()
+        else:
+            mask_filter = self.mask_filter
+
+        join_filter: dict[str, Any] | None | Unset
+        if isinstance(self.join_filter, Unset):
+            join_filter = UNSET
+        elif isinstance(self.join_filter, AnalysisPreviewRequestJoinFilterType0):
+            join_filter = self.join_filter.to_dict()
+        else:
+            join_filter = self.join_filter
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -134,11 +186,26 @@ class AnalysisPreviewRequest:
             field_dict["join_fields"] = join_fields
         if bbox is not UNSET:
             field_dict["bbox"] = bbox
+        if filter_ is not UNSET:
+            field_dict["filter"] = filter_
+        if mask_filter is not UNSET:
+            field_dict["mask_filter"] = mask_filter
+        if join_filter is not UNSET:
+            field_dict["join_filter"] = join_filter
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.analysis_preview_request_filter_type_0 import (
+            AnalysisPreviewRequestFilterType0,
+        )
+        from ..models.analysis_preview_request_join_filter_type_0 import (
+            AnalysisPreviewRequestJoinFilterType0,
+        )
+        from ..models.analysis_preview_request_mask_filter_type_0 import (
+            AnalysisPreviewRequestMaskFilterType0,
+        )
         from ..models.analysis_preview_request_mask_type_0 import (
             AnalysisPreviewRequestMaskType0,
         )
@@ -240,6 +307,67 @@ class AnalysisPreviewRequest:
 
         bbox = _parse_bbox(d.pop("bbox", UNSET))
 
+        def _parse_filter_(
+            data: object,
+        ) -> AnalysisPreviewRequestFilterType0 | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                filter_type_0 = AnalysisPreviewRequestFilterType0.from_dict(data)
+
+                return filter_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(AnalysisPreviewRequestFilterType0 | None | Unset, data)
+
+        filter_ = _parse_filter_(d.pop("filter", UNSET))
+
+        def _parse_mask_filter(
+            data: object,
+        ) -> AnalysisPreviewRequestMaskFilterType0 | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                mask_filter_type_0 = AnalysisPreviewRequestMaskFilterType0.from_dict(
+                    data
+                )
+
+                return mask_filter_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(AnalysisPreviewRequestMaskFilterType0 | None | Unset, data)
+
+        mask_filter = _parse_mask_filter(d.pop("mask_filter", UNSET))
+
+        def _parse_join_filter(
+            data: object,
+        ) -> AnalysisPreviewRequestJoinFilterType0 | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                join_filter_type_0 = AnalysisPreviewRequestJoinFilterType0.from_dict(
+                    data
+                )
+
+                return join_filter_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(AnalysisPreviewRequestJoinFilterType0 | None | Unset, data)
+
+        join_filter = _parse_join_filter(d.pop("join_filter", UNSET))
+
         analysis_preview_request = cls(
             operation=operation,
             distance_meters=distance_meters,
@@ -248,6 +376,9 @@ class AnalysisPreviewRequest:
             join_dataset_id=join_dataset_id,
             join_fields=join_fields,
             bbox=bbox,
+            filter_=filter_,
+            mask_filter=mask_filter,
+            join_filter=join_filter,
         )
 
         analysis_preview_request.additional_properties = d

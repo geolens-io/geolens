@@ -210,8 +210,8 @@ async def _can_access_dataset_id(
 # what describes it and must drop with it. A new dataset-id param must
 # add a row here — test_every_dataset_id_param_is_redactable enforces it.
 _DATASET_ID_PARAMS: dict[str, tuple[str, ...]] = {
-    "mask_dataset_id": (),
-    "join_dataset_id": ("join_fields",),
+    "mask_dataset_id": ("mask_filter",),
+    "join_dataset_id": ("join_fields", "join_filter"),
 }
 
 
@@ -247,8 +247,8 @@ async def visible_derived_from(
         if await _can_access_dataset_id(db, dataset_id, user, user_roles):
             continue
         params.pop(id_param)
-        # Dropping join_dataset_id alone would still publish join_fields —
-        # the private layer's column names.
+        # Dropping join_dataset_id alone would still publish join_fields and
+        # the layer filters: the private layer's column names and values.
         for dependent in dependent_params:
             params.pop(dependent, None)
     return {**derived_from, "params": params}

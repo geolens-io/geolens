@@ -6,6 +6,7 @@ import {
   extractFilterField,
   validateRawFilter,
   FilterValidationError,
+  maplibreFilterToCql2,
 } from '../maplibre-filter-utils';
 
 // ---------------------------------------------------------------------------
@@ -160,5 +161,65 @@ describe('validateRawFilter', () => {
   it('recurses combinators and normalizes nested legacy comparisons', () => {
     const result = validateRawFilter(['all', ['==', 'name', 'x'], ['has', 'y']]);
     expect(result).toEqual(['all', ['==', ['get', 'name'], 'x'], ['has', 'y']]);
+  });
+});
+
+describe('maplibreFilterToCql2', () => {
+  const p = (field: string) => ({ property: field });
+  const isNull = (field: string) => ({ op: 'isNull', args: [p(field)] });
+
+  it('returns null for no filter', () => {
+    expect(maplibreFilterToCql2(null)).toBeNull();
+    expect(maplibreFilterToCql2(['all'] as unknown as FilterSpecification)).toBeNull();
+  });
+
+  it.each([
+    [['==', ['get', 'kind'], 'a'], { op: '=', args: [p('kind'), 'a'] }],
+    [['>', ['to-number', ['get', 'mag'], -1e12], 5], { op: '>', args: [p('mag'), 5] }],
+    [['==', ['get', 'ok'], true], { op: '=', args: [p('ok'), true] }],
+    // A feature with no value passes a MapLibre `!=`, so SQL must keep nulls.
+    [
+      ['!=', ['get', 'kind'], 'a'],
+      { op: 'or', args: [isNull('kind'), { op: '<>', args: [p('kind'), 'a'] }] },
+    ],
+    [['in', ['get', 'kind'], ['literal', ['a', 'b']]], { op: 'in', args: [p('kind'), ['a', 'b']] }],
+    [
+      ['!', ['in', ['get', 'kind'], ['literal', ['a']]]],
+      {
+        op: 'or',
+        args: [isNull('kind'), { op: 'not', args: [{ op: 'in', args: [p('kind'), ['a']] }] }],
+      },
+    ],
+    // LIKE wildcards in the substring are literals in MapLibre's `in`.
+    [['in', '50%_a\\b', ['get', 'name']], { op: 'like', args: [p('name'), '%50\\%\\_a\\\\b%'] }],
+    [['has', 'kind'], { op: 'not', args: [isNull('kind')] }],
+    [['any', ['!', ['has', 'kind']], ['==', ['get', 'kind'], null]], isNull('kind')],
+  ])('translates %j', (filter, expected) => {
+    expect(maplibreFilterToCql2(filter as unknown as FilterSpecification)).toEqual(expected);
+  });
+
+  it('joins conditions with the combinator', () => {
+    expect(
+      maplibreFilterToCql2([
+        'any',
+        ['==', ['get', 'a'], 1],
+        ['==', ['get', 'b'], 2],
+      ] as unknown as FilterSpecification),
+    ).toEqual({
+      op: 'or',
+      args: [
+        { op: '=', args: [p('a'), 1] },
+        { op: '=', args: [p('b'), 2] },
+      ],
+    });
+  });
+
+  it.each([
+    ['an expression outside the editor subset', ['match', ['get', 'k'], 'a', true, false]],
+    ['a nested combinator', ['all', ['any', ['has', 'a'], ['has', 'b']]]],
+    ['a legacy pseudo-field', ['has', '$id']],
+    ['a non-scalar comparison value', ['==', ['get', 'a'], ['get', 'b']]],
+  ])('refuses %s', (_label, filter) => {
+    expect(maplibreFilterToCql2(filter as unknown as FilterSpecification)).toBe('unsupported');
   });
 });

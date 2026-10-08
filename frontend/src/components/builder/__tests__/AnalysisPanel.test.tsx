@@ -274,16 +274,136 @@ describe('AnalysisPanel', () => {
     useAnalysisAddedStore.setState({ addedDatasetIds: [], pendingAddIds: [] });
   });
 
-  it('notes that a layer filter is not applied to analysis', () => {
-    renderPanel([{ ...datasetLayer, filter: ['>=', ['get', 'mag'], 5] } as unknown as MapLayerResponse]);
-    expect(
-      screen.getByText("Analysis uses every feature in the dataset. This layer's filter isn't applied."),
-    ).toBeInTheDocument();
-  });
+  describe('layer filters', () => {
+    // What the structured filter editor writes for "mag >= 5 and kind != x".
+    const editorFilter = [
+      'all',
+      ['>=', ['to-number', ['get', 'mag'], -1_000_000_000_000], 5],
+      ['!=', ['get', 'kind'], 'x'],
+    ];
+    const cql2 = {
+      op: 'and',
+      args: [
+        { op: '>=', args: [{ property: 'mag' }, 5] },
+        {
+          op: 'or',
+          args: [
+            { op: 'isNull', args: [{ property: 'kind' }] },
+            { op: '<>', args: [{ property: 'kind' }, 'x'] },
+          ],
+        },
+      ],
+    };
+    const filteredLayer = { ...datasetLayer, filter: editorFilter } as unknown as MapLayerResponse;
 
-  it('shows no filter note for a layer without a filter', () => {
-    renderPanel([{ ...datasetLayer, filter: null } as unknown as MapLayerResponse]);
-    expect(screen.queryByText(/filter isn't applied/)).not.toBeInTheDocument();
+    beforeEach(() => {
+      vi.mocked(previewAnalysis).mockClear();
+      vi.mocked(materializeAnalysis).mockClear();
+    });
+
+    it("sends the source layer's filter with a preview", async () => {
+      renderPanel([filteredLayer]);
+      expect(
+        screen.getByText("Analysis uses only the features this layer's filter shows."),
+      ).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+
+      await waitFor(() =>
+        expect(previewAnalysis).toHaveBeenCalledWith(
+          'ds1',
+          { operation: 'buffer', distance_meters: 500, filter: cql2 },
+          expect.any(AbortSignal),
+        ),
+      );
+    });
+
+    it("sends the source layer's filter when creating a dataset", async () => {
+      renderPanel([filteredLayer]);
+      fireEvent.change(screen.getByLabelText('New dataset name'), {
+        target: { value: 'Big quakes' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Create dataset' }));
+
+      await waitFor(() =>
+        expect(materializeAnalysis).toHaveBeenCalledWith('ds1', {
+          operation: 'buffer',
+          title: 'Big quakes',
+          distance_meters: 500,
+          filter: cql2,
+        }),
+      );
+    });
+
+    it('sends the mask layer filter with a layer mask', async () => {
+      const user = userEvent.setup();
+      const mask = {
+        ...datasetLayer,
+        id: 'm1',
+        dataset_id: 'mask-ds',
+        dataset_name: 'Districts',
+        filter: ['==', ['get', 'name'], 'North'],
+      } as unknown as MapLayerResponse;
+      renderPanel([datasetLayer, mask]);
+
+      await user.click(screen.getAllByRole('combobox')[1]);
+      await user.click(await screen.findByRole('option', { name: 'Clip' }));
+      await user.click(screen.getByRole('combobox', { name: 'Or clip to a layer' }));
+      await user.click(await screen.findByRole('option', { name: 'Districts' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+
+      await waitFor(() =>
+        expect(previewAnalysis).toHaveBeenCalledWith(
+          'ds1',
+          {
+            operation: 'clip',
+            mask_dataset_id: 'mask-ds',
+            mask_filter: { op: '=', args: [{ property: 'name' }, 'North'] },
+          },
+          expect.any(AbortSignal),
+        ),
+      );
+    });
+
+    it('blocks a run whose layer filter analysis cannot apply', () => {
+      renderPanel([
+        {
+          ...datasetLayer,
+          filter: ['match', ['get', 'kind'], ['a', 'b'], true, false],
+        } as unknown as MapLayerResponse,
+      ]);
+
+      const preview = screen.getByRole('button', { name: 'Preview' });
+      expect(preview).toBeDisabled();
+      expect(preview).toHaveAccessibleDescription(
+        "A layer's filter uses an expression analysis can't apply. Simplify it in the layer's filter settings, or remove it.",
+      );
+    });
+
+    it('sends no filter and shows no note for an unfiltered layer', () => {
+      renderPanel([{ ...datasetLayer, filter: null } as unknown as MapLayerResponse]);
+      expect(screen.queryByText(/this layer's filter shows/)).not.toBeInTheDocument();
+    });
+
+    it("clears the panel's preview when a layer's filter changes", () => {
+      const onClearPreview = vi.fn();
+      const qc = new QueryClient();
+      const panel = (layer: MapLayerResponse) => (
+        <QueryClientProvider client={qc}>
+          <AnalysisPanel
+            layers={[layer]}
+            previewSource="analysis-panel"
+            onClearPreview={onClearPreview}
+          />
+        </QueryClientProvider>
+      );
+      const { rerender } = render(panel(filteredLayer));
+      onClearPreview.mockClear();
+
+      rerender(panel({ ...datasetLayer, filter: ['==', ['get', 'kind'], 'y'] } as unknown as MapLayerResponse));
+
+      expect(onClearPreview).toHaveBeenCalled();
+    });
   });
 
   it('does not offer a folder group, which copies its first child dataset', () => {

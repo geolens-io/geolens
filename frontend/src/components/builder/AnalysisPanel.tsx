@@ -34,6 +34,7 @@ import { isAnalysableLayer } from '@/components/builder/analysis-eligibility';
 import type { EphemeralAnalysisHandoff } from '@/components/builder/hooks/use-ephemeral-layers';
 import type { AnalysisOperation, MapLayerResponse } from '@/types/api';
 import { randomId } from '@/lib/random-id';
+import { maplibreFilterToCql2, type Cql2Expression } from '@/lib/maplibre-filter-utils';
 
 const MAX_BUFFER_METERS = 100_000;
 // shadcn Select items can't carry an empty value — sentinels for "none".
@@ -43,6 +44,15 @@ const MASK_LAYER_NONE = '__none__';
 // backend/app/modules/catalog/datasets/api/router_analysis.py — the server
 // rejects any other mask dataset with a 422.
 const POLYGONAL_GEOMETRY_TYPES = new Set(['POLYGON', 'MULTIPOLYGON']);
+
+/** The request field for one layer filter, omitted when there is none to send. */
+function cql2Field<K extends string>(
+  key: K,
+  value: Cql2Expression | null | 'unsupported',
+): Partial<Record<K, Cql2Expression>> {
+  if (value === null || value === 'unsupported') return {};
+  return { [key]: value } as Record<K, Cql2Expression>;
+}
 // fix(#1097 review): mirrors _ROW_FILTERING_OPERATIONS in
 // backend/app/modules/catalog/datasets/domain/service_analysis.py. These drop
 // or multiply source rows, so the source's feature count says nothing about
@@ -751,6 +761,23 @@ export function AnalysisPanel({
     joinLayerId !== MASK_LAYER_NONE
       ? joinLayerOptions.find((l) => l.id === joinLayerId)
       : undefined;
+  // Each layer is analysed as the map shows it: through its own filter, sent
+  // as CQL2-JSON. Only the layers the request names count.
+  const sourceCql2 = maplibreFilterToCql2(selectedLayer?.filter);
+  const maskCql2 =
+    usesMaskLayer && !mask && maskLayer ? maplibreFilterToCql2(maskLayer.filter) : null;
+  const joinCql2 =
+    operation === 'spatial_join' && joinLayer
+      ? maplibreFilterToCql2(joinLayer.filter)
+      : null;
+  const filterUnsupported = [sourceCql2, maskCql2, joinCql2].includes('unsupported');
+  const filterFields = {
+    ...cql2Field('filter', sourceCql2),
+    ...cql2Field('mask_filter', maskCql2),
+    ...cql2Field('join_filter', joinCql2),
+  };
+  // A filter edited in the layer panel changes what a preview or a run means.
+  const filterKey = JSON.stringify(filterFields);
   // fix(#1097 review): spatial_join needs the SOURCE's columns too, not just
   // dissolve. A transferred field lands as join_<name>, so a source that
   // already has join_zone — routinely, because it is the output of an earlier
@@ -871,6 +898,12 @@ export function AnalysisPanel({
       setOutputTitle('');
     }
   }, [onClearPreview]);
+  const lastFilterKeyRef = useRef(filterKey);
+  useEffect(() => {
+    if (lastFilterKeyRef.current === filterKey) return;
+    lastFilterKeyRef.current = filterKey;
+    handleInputsChanged();
+  }, [filterKey, handleInputsChanged]);
 
   // feat(#790): switching the source layer is now reachable from two places —
   // the Layer select below and the chain affordance in the completion state —
@@ -1072,6 +1105,7 @@ export function AnalysisPanel({
           // undefined) when the map ref is empty, matching every other
           // mapInstanceRef guard in this panel.
           ...(bbox ? { bbox } : {}),
+          ...filterFields,
         },
         controller.signal,
       );
@@ -1266,6 +1300,7 @@ export function AnalysisPanel({
                 : {}),
             }
           : {}),
+        ...filterFields,
       });
       // fix(#793 review): mark the job as this instance's own BEFORE the
       // store learns about it — the adoption effect must not treat it as a
@@ -1316,7 +1351,8 @@ export function AnalysisPanel({
     !!selectedLayer?.dataset_id &&
     !previewMutation.isPending &&
     operation !== 'dissolve' &&
-    paramsValid;
+    paramsValid &&
+    !filterUnsupported;
   const canSave =
     !!selectedLayer?.dataset_id &&
     !materializeMutation.isPending &&
@@ -1324,6 +1360,7 @@ export function AnalysisPanel({
     // letting the click earn a 429.
     !analysisJobRunning &&
     paramsValid &&
+    !filterUnsupported &&
     outputTitle.trim().length > 0;
   // Create dataset went disabled with no reason: the role="status" region
   // below explains only the job case. A validation reason lives in this
@@ -1333,7 +1370,9 @@ export function AnalysisPanel({
     ? ('name' as const)
     : !paramsValid
       ? ('params' as const)
-      : null;
+      : filterUnsupported
+        ? ('filter' as const)
+        : null;
 
   if (datasetLayers.length === 0) {
     return (
@@ -1405,11 +1444,18 @@ export function AnalysisPanel({
             ))}
           </SelectContent>
         </Select>
-        {Array.isArray(selectedLayer?.filter) && selectedLayer.filter.length > 0 && (
+        {sourceCql2 !== null && sourceCql2 !== 'unsupported' && (
           <p className="text-xs text-muted-foreground">
-            {t('analysisTools.layerFilterNote', {
+            {t('analysisTools.layerFilterApplied', {
+              defaultValue: "Analysis uses only the features this layer's filter shows.",
+            })}
+          </p>
+        )}
+        {filterUnsupported && (
+          <p id="analysis-filter-unsupported" className="text-xs text-destructive">
+            {t('analysisTools.layerFilterUnsupported', {
               defaultValue:
-                "Analysis uses every feature in the dataset. This layer's filter isn't applied.",
+                "A layer's filter uses an expression analysis can't apply. Simplify it in the layer's filter settings, or remove it.",
             })}
           </p>
         )}
@@ -1819,6 +1865,7 @@ export function AnalysisPanel({
           <Button
             type="submit"
             aria-busy={previewMutation.isPending || undefined}
+            aria-describedby={filterUnsupported ? 'analysis-filter-unsupported' : undefined}
             disabled={!canRun}
           >
             {previewMutation.isPending
@@ -1866,7 +1913,13 @@ export function AnalysisPanel({
               aria-busy={materializeMutation.isPending || undefined}
               // The validation hint below says WHY this is disabled; the
               // job cases are narrated by the status region instead.
-              aria-describedby={saveBlockedReason ? 'analysis-save-hint' : undefined}
+              aria-describedby={
+                saveBlockedReason === 'filter'
+                  ? 'analysis-filter-unsupported'
+                  : saveBlockedReason
+                    ? 'analysis-save-hint'
+                    : undefined
+              }
               onClick={() => {
                 // fix(#682 review): reset only this panel's local status line.
                 // Clearing the GLOBAL tracking here would orphan a job that is
@@ -1884,7 +1937,7 @@ export function AnalysisPanel({
             </Button>
             {/* Static hint, deliberately NOT in the role="status" region —
                 a polite live region would narrate it on every keystroke. */}
-            {saveBlockedReason && (
+            {saveBlockedReason && saveBlockedReason !== 'filter' && (
               <p id="analysis-save-hint" className="text-xs text-muted-foreground">
                 {saveBlockedReason === 'name'
                   ? t('analysisTools.saveHintNeedsName', {

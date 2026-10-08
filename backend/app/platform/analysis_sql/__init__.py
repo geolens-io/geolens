@@ -71,8 +71,10 @@ from .shared import (
     MAX_SOURCE_FEATURES,
     NON_GROUPABLE_COLUMN_TYPES,
     NOT_EMPTY_PREDICATE,
+    binds_referenced_by,
     render_bbox_predicate,
     render_dateline_safe,
+    render_filtered_table_ref,
     render_mask_expr,
 )
 from .spatial_join import (
@@ -123,14 +125,12 @@ def render_geometry_expr(
 # as the point of the module — this repo has had façade re-exports stripped
 # that way before.
 #
-# This is the pre-split module's 35-name API verbatim; the six private
-# `render_*_expr` helpers `render_geometry_expr` composes are not part of it.
-# `test_analysis_sql_facade_surface_matches_its_declared_api` diffs this list
-# so a symbol silently going missing (breaking `service_analysis.py`,
-# `tasks.py`, `router_analysis.py`, `schemas.py`, the sandbox validator or the
-# NL->SQL prompt) doesn't slip through unnoticed. A later PR growing this
-# list on purpose is fine — #1089 guarded against an UNSTATED change, not
-# growth.
+# The six private `render_*_expr` helpers `render_geometry_expr` composes are
+# not part of it. `test_analysis_sql_facade_surface_matches_its_declared_api`
+# diffs this list so a symbol silently going missing (breaking
+# `service_analysis.py`, `tasks.py`, `router_analysis.py`, `schemas.py`, the
+# sandbox validator or the NL->SQL prompt) doesn't slip through unnoticed.
+# Growing it on purpose is fine; the guard is against an unstated change.
 __all__ = [
     "BUFFER_LOCAL_SRID_SPAN_DEG",
     "BUFFER_SLICE_SEGMENTIZE_M",
@@ -154,9 +154,11 @@ __all__ = [
     "NOT_EMPTY_PREDICATE",
     "SPATIAL_JOIN_COUNT_COLUMN",
     "SPATIAL_JOIN_FIELD_PREFIX",
+    "binds_referenced_by",
     "render_bbox_predicate",
     "render_clip_layer_join",
     "render_dateline_safe",
+    "render_filtered_table_ref",
     "render_geodesic_buffer",
     "render_geometry_expr",
     "render_intersect_pairs",

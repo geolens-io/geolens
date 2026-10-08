@@ -1013,6 +1013,45 @@
             ],
             "description": "Columns to copy from the intersecting join feature, prefixed 'join_' in the output. Ties break on the lowest join-layer gid (spatial_join only)",
             "title": "Join Fields"
+          },
+          "filter": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "CQL2-JSON filter on the source dataset, in the language /collections/{dataset_id}/items accepts as filter-lang=cql2-json. Only the features it keeps are analysed, counted, and checked against the operation's size limit.",
+            "title": "Filter"
+          },
+          "mask_filter": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "CQL2-JSON filter on the mask_dataset_id layer: only its matching features form the mask or overlay. Requires mask_dataset_id.",
+            "title": "Mask Filter"
+          },
+          "join_filter": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "CQL2-JSON filter on the join layer: only its matching features are joined (spatial_join only).",
+            "title": "Join Filter"
           }
         },
         "required": [
@@ -1141,6 +1180,45 @@
             ],
             "description": "[minx, miny, maxx, maxy] in EPSG:4326, typically the map's current viewport. When present, only source features intersecting the envelope are considered before the preview's row cap applies, so a capped result reflects what is on screen rather than an arbitrary sample in ingest order. Applies to every operation, not just one, so it is deliberately absent from _ANALYSIS_PARAM_OWNERS \u2014 omit it to preview the whole dataset, unchanged from before this field existed.",
             "title": "Bbox"
+          },
+          "filter": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "CQL2-JSON filter on the source dataset, in the language /collections/{dataset_id}/items accepts as filter-lang=cql2-json. Only the features it keeps are analysed, counted, and checked against the operation's size limit.",
+            "title": "Filter"
+          },
+          "mask_filter": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "CQL2-JSON filter on the mask_dataset_id layer: only its matching features form the mask or overlay. Requires mask_dataset_id.",
+            "title": "Mask Filter"
+          },
+          "join_filter": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "CQL2-JSON filter on the join layer: only its matching features are joined (spatial_join only).",
+            "title": "Join Filter"
           }
         },
         "required": [
@@ -1188,7 +1266,7 @@
                 "type": "null"
               }
             ],
-            "description": "Total feature count of the source dataset (1:1 operations only; null when the operation filters rows, e.g. clip). When the request carried a bbox this is a live count of rows intersecting it rather than the dataset's cached whole-table total. It is also null, like match_count, when that live count could not be computed within the query budget",
+            "description": "Total feature count of the source dataset (1:1 operations only; null when the operation filters rows, e.g. clip). When the request carried a bbox or a filter this is a live count of the rows intersecting the bbox and matching the filter rather than the dataset's cached whole-table total. It is also null, like match_count, when that live count could not be computed within the query budget",
             "title": "Source Feature Count"
           },
           "match_count": {
@@ -1200,7 +1278,7 @@
                 "type": "null"
               }
             ],
-            "description": "Exact total across the WHOLE source, not just the previewed features \u2014 WHOLE meaning the request's bbox when one was sent, the same sense source_feature_count uses that word. What it counts is per-operation, so read it against the operation you sent rather than as one number: select_by_location gives the selected source features and intersect gives the output pieces, and for both of those it IS the output total; spatial_join gives intersecting source/join PAIRS, which is NOT the output total, because the join keeps every source row (use source_feature_count for that operation). intersect and spatial_join both scope this total to a bbox on the request; select_by_location's count is a separate uncapped query the request's bbox does not reach, so it stays unscoped even though its preview rows are viewport-limited too. Null for operations that report no such total, and when the count could not be computed within the query budget",
+            "description": "Exact total across the WHOLE source, not just the previewed features \u2014 WHOLE meaning the request's bbox when one was sent, the same sense source_feature_count uses that word, and always within the request's layer filters. What it counts is per-operation, so read it against the operation you sent rather than as one number: select_by_location gives the selected source features and intersect gives the output pieces, and for both of those it IS the output total; spatial_join gives intersecting source/join PAIRS, which is NOT the output total, because the join keeps every source row (use source_feature_count for that operation). intersect and spatial_join both scope this total to a bbox on the request; select_by_location's count is a separate uncapped query the request's bbox does not reach, so it stays unscoped even though its preview rows are viewport-limited too. Null for operations that report no such total, and when the count could not be computed within the query budget",
             "title": "Match Count"
           }
         },
@@ -6766,6 +6844,19 @@
             "format": "uuid",
             "title": "Dataset Id",
             "type": "string"
+          },
+          "source_filter": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "CQL2-JSON filter that selected the source features, or null when the whole source dataset was used",
+            "title": "Source Filter"
           },
           "operation": {
             "description": "Analysis operation that produced it",

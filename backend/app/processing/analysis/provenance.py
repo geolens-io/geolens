@@ -40,7 +40,13 @@ PARAM_KEYS = (
     "mask_dataset_id",
     "join_dataset_id",
     "join_fields",
+    "mask_filter",
+    "join_filter",
 )
+
+# Past this, a filter is summarized rather than spelled out in the sentence.
+_MAX_FILTER_TEXT = 200
+_COMPARISON_TEXT = {"=": "=", "<>": "<>", "<": "<", ">": ">", "<=": "<=", ">=": ">="}
 
 
 def _format_metres(value: Any) -> str:
@@ -61,6 +67,63 @@ def _format_metres(value: Any) -> str:
         return f"{value} m"
     text = repr(number)
     return f"{text.removesuffix('.0')} m"
+
+
+def _filter_operand(node: Any) -> str:
+    if isinstance(node, dict) and isinstance(node.get("property"), str):
+        return node["property"]
+    if isinstance(node, bool):
+        return "true" if node else "false"
+    if isinstance(node, (int, float)):
+        return repr(node)
+    if isinstance(node, str):
+        return "'" + node.replace("'", "''") + "'"
+    raise ValueError("unsupported operand")
+
+
+def _filter_text(node: Any, *, nested: bool = False) -> str:
+    """CQL2-text-like rendering of the CQL2-JSON subset the builder sends.
+
+    Raises ValueError on anything outside that subset.
+    """
+    op = node.get("op") if isinstance(node, dict) else None
+    args = node.get("args") if isinstance(node, dict) else None
+    if not isinstance(args, list) or not args:
+        raise ValueError("unsupported filter")
+    if op in ("and", "or"):
+        text = f" {op} ".join(_filter_text(arg, nested=True) for arg in args)
+        return f"({text})" if nested and len(args) > 1 else text
+    if op == "not":
+        inner = args[0]
+        if isinstance(inner, dict) and inner.get("op") == "isNull":
+            return f"{_filter_operand(inner['args'][0])} is not null"
+        return f"not ({_filter_text(inner)})"
+    if op == "isNull":
+        return f"{_filter_operand(args[0])} is null"
+    if op == "like" and len(args) == 2:
+        return f"{_filter_operand(args[0])} like {_filter_operand(args[1])}"
+    if op == "in" and len(args) == 2 and isinstance(args[1], list):
+        values = ", ".join(_filter_operand(v) for v in args[1])
+        return f"{_filter_operand(args[0])} in ({values})"
+    if op in _COMPARISON_TEXT and len(args) == 2:
+        return (
+            f"{_filter_operand(args[0])} {_COMPARISON_TEXT[op]} "
+            f"{_filter_operand(args[1])}"
+        )
+    raise ValueError("unsupported filter")
+
+
+def _source_filter_clause(source_filter: Mapping[str, Any] | None) -> str:
+    """The sentence's mention of the source filter, or "" for the whole source."""
+    if not source_filter:
+        return ""
+    try:
+        text = _filter_text(source_filter)
+    except (ValueError, KeyError, IndexError, TypeError):
+        text = ""
+    if not text or len(text) > _MAX_FILTER_TEXT:
+        return ", using a filtered subset of its features"
+    return f", using its features where {text}"
 
 
 def _quoted(title: str | None) -> str:
@@ -137,17 +200,23 @@ def build_lineage_sentence(
     created_at: datetime,
     mask_title: str | None = None,
     join_title: str | None = None,
+    source_filter: Mapping[str, Any] | None = None,
 ) -> str:
     """A human sentence describing how this dataset was produced.
 
     Reads as prose because it is exported as prose: DCAT serves it as
-    ``dcterms:provenance`` and the dataset page shows it verbatim.
+    ``dcterms:provenance`` and the dataset page shows it verbatim. The source
+    filter is spelled out; mask and join filters are not, for the reason
+    ``join_fields`` is left out of the spatial_join phrase.
     """
     params = params or {}
     phrase = _operation_phrase(
         operation, _quoted(source_title), params, mask_title, join_title
     )
-    return f"{phrase}, created by {actor} on {created_at.date().isoformat()}."
+    return (
+        f"{phrase}{_source_filter_clause(source_filter)}, created by {actor} on "
+        f"{created_at.date().isoformat()}."
+    )
 
 
 def build_derived_from(
@@ -156,16 +225,21 @@ def build_derived_from(
     operation: str,
     params: Mapping[str, Any] | None = None,
     created_at: datetime,
+    source_filter: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The durable reference stored on ``records.derived_from``.
 
     Only the parameters that shaped the output are kept; the drawn clip mask
     itself is deliberately excluded, as it is on the job metadata, because it
-    can be kilobytes of geometry.
+    can be kilobytes of geometry. ``source_filter`` sits beside the source id
+    because it says which of that dataset's features were used.
     """
     params = params or {}
+    reference: dict[str, Any] = {"dataset_id": source_dataset_id}
+    if source_filter:
+        reference["source_filter"] = dict(source_filter)
     return {
-        "dataset_id": source_dataset_id,
+        **reference,
         "operation": operation,
         "params": {k: params[k] for k in PARAM_KEYS if params.get(k) is not None},
         "created_at": created_at.isoformat(),
@@ -217,6 +291,7 @@ async def apply_analysis_provenance(
     user_id: str,
     operation: str,
     params: Mapping[str, Any] | None = None,
+    source_filter: Mapping[str, Any] | None = None,
 ) -> None:
     """Write lineage, the derived_from reference, and inherited keywords.
 
@@ -270,12 +345,14 @@ async def apply_analysis_provenance(
         created_at=now,
         mask_title=mask_title,
         join_title=join_title,
+        source_filter=source_filter,
     )
     record.derived_from = build_derived_from(
         source_dataset_id=source_dataset_id,
         operation=operation,
         params=params,
         created_at=now,
+        source_filter=source_filter,
     )
 
     # Keywords are child rows (catalog.record_keywords) with a keyword_type

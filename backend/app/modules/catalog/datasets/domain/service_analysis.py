@@ -34,8 +34,10 @@ from app.platform.analysis_sql import (
     INTERSECT_SOURCE_GID_COLUMN,
     MEASURE_OUTPUT_COLUMNS,
     NOT_EMPTY_PREDICATE,
+    binds_referenced_by,
     render_bbox_predicate,
     render_clip_layer_join,
+    render_filtered_table_ref,
     render_geometry_expr,
     render_intersect_preview,
     render_measure_columns,
@@ -45,10 +47,14 @@ from app.platform.analysis_sql import (
     render_spatial_join_match_count,
     spatial_join_output_columns,
 )
+from app.platform.extensions import get_catalog_port
 from app.platform.sandbox.executor import DEFAULT_MAX_RESULT_BYTES, execute_safe
 from app.platform.sandbox.schemas import SandboxError
 
 PREVIEW_FEATURE_CAP = 500
+
+# A compiled layer filter: a WHERE fragment and the bind parameters it names.
+LayerFilter = tuple[str, list[Any]]
 
 
 # Each AI preview may hold two connections, so cap each worker at one quarter
@@ -73,44 +79,107 @@ _preview_slots = asyncio.Semaphore(_MAX_CONCURRENT_PREVIEWS)
 _GEOJSON_PRECISION = 6
 
 
+async def compile_layer_filter(
+    db: AsyncSession,
+    dataset: Dataset,
+    cql2: dict[str, Any] | None,
+    *,
+    bind_prefix: str,
+) -> LayerFilter | None:
+    """Validate a layer's CQL2-JSON filter against its live columns and compile it.
+
+    The parser, whitelist and literal type checks are the ones the OGC items
+    ``filter`` parameter runs. Raises ValueError naming the problem when the
+    filter is malformed, too large, or reads a column the table lacks. The
+    caller has already checked access to ``dataset``.
+    """
+    if cql2 is None:
+        return None
+    from fastapi import HTTPException
+
+    from app.standards.ogc.filtering import (
+        compile_feature_cql2_ast,
+        feature_queryable_columns,
+        parse_feature_cql2,
+    )
+
+    try:
+        filter_expr = json.dumps(cql2, ensure_ascii=False, separators=(",", ":"))
+    except RecursionError as exc:
+        raise ValueError("Invalid CQL2 expression: filter nests too deeply") from exc
+    try:
+        ast_root = parse_feature_cql2(filter_expr, "cql2-json")
+        live_columns = await get_catalog_port().get_column_info(db, dataset.table_name)
+        queryables = feature_queryable_columns(live_columns, dataset.geometry_type)
+        where_sql, binds = compile_feature_cql2_ast(
+            ast_root, queryables, bind_prefix=bind_prefix
+        )
+    except HTTPException as exc:
+        raise ValueError(str(exc.detail)) from exc
+    return where_sql, binds
+
+
+def _filtered_ref(table_ref: str, layer_filter: LayerFilter | None) -> str:
+    return render_filtered_table_ref(
+        table_ref, layer_filter[0] if layer_filter else None
+    )
+
+
 async def resolve_source_feature_count(
-    db: AsyncSession, dataset: Dataset, *, cap: int
+    db: AsyncSession,
+    dataset: Dataset,
+    *,
+    cap: int,
+    layer_filter: LayerFilter | None = None,
 ) -> int:
     """Return the cached count, or probe live rows up to ``cap + 1``.
 
-    Unknown counts must be measured so enqueue limits cannot be bypassed.
+    Unknown counts must be measured so enqueue limits cannot be bypassed. A
+    filtered layer is always measured, since the cached count is the whole
+    table's.
     """
-    if dataset.feature_count is not None:
+    if dataset.feature_count is not None and layer_filter is None:
         return dataset.feature_count
     from app.core.db.tenant_schema import tenant_data_schema
     from app.core.db.tenant_session import current_tenant_var
     from app.core.tenancy import is_multi_tenant
 
     schema = tenant_data_schema(current_tenant_var.get() if is_multi_tenant() else None)
-    ref = _safe_table_ref(dataset.table_name, schema=schema)
+    ref = _filtered_ref(
+        _safe_table_ref(dataset.table_name, schema=schema), layer_filter
+    )
+    binds = layer_filter[1] if layer_filter else []
     result = await db.execute(
         text(
-            f"SELECT count(*) FROM (SELECT 1 FROM {ref} LIMIT :lim) AS _n"  # noqa: S608
-        ).bindparams(lim=cap + 1)
+            f"SELECT count(*) FROM (SELECT 1 FROM {ref} AS _t LIMIT :lim) AS _n"  # noqa: S608
+        ).bindparams(*binds, lim=cap + 1)
     )
     return int(result.scalar_one())
 
 
-async def _resolve_bbox_source_count(
-    db: AsyncSession, table_ref: str, bbox: list[float], user_id: uuid.UUID
+async def _resolve_live_source_count(
+    db: AsyncSession,
+    table_ref: str,
+    bbox: list[float] | None,
+    user_id: uuid.UUID,
+    binds: list[Any],
 ) -> int | None:
-    """Return an exact viewport-scoped source count, or None on query failure.
+    """Return an exact source count over the viewport and filter, or None on failure.
 
-    The cached feature_count covers the whole table and cannot describe a viewport.
-    Run through execute_safe inside _preview_slots so this query shares the
-    preview connection budget. Pass a logical data-schema table_ref; execute_safe
-    rewrites the tenant schema.
+    The cached feature_count covers the whole table and cannot describe a
+    viewport or a filtered layer. Run through execute_safe inside
+    _preview_slots so this query shares the preview connection budget. Pass a
+    logical data-schema table_ref; execute_safe rewrites the tenant schema.
     """
-    predicate = render_bbox_predicate(bbox, src="_t")
-    count_sql = f"SELECT count(*)::bigint AS source_count FROM {table_ref} AS _t WHERE {predicate}"
+    where = f" WHERE {render_bbox_predicate(bbox, src='_t')}" if bbox else ""
+    count_sql = f"SELECT count(*)::bigint AS source_count FROM {table_ref} AS _t{where}"
     try:
         result = await execute_safe(
-            db, count_sql, row_limit=1, concurrency_key=str(user_id)
+            db,
+            count_sql,
+            row_limit=1,
+            concurrency_key=str(user_id),
+            binds=binds_referenced_by(count_sql, binds),
         )
     except SandboxError:
         return None
@@ -264,6 +333,9 @@ async def run_analysis_preview(
     *,
     mask_dataset: Dataset | None = None,
     join_dataset: Dataset | None = None,
+    source_filter: LayerFilter | None = None,
+    mask_filter: LayerFilter | None = None,
+    join_filter: LayerFilter | None = None,
     release_session: bool = False,
 ) -> AnalysisPreviewResponse:
     """Execute a preview operation and assemble a GeoJSON FeatureCollection.
@@ -282,14 +354,28 @@ async def run_analysis_preview(
 
     ``request.bbox``, when present, scopes the row cap to the
     viewport before ``ORDER BY gid`` applies; the AI chat tool never sets it.
+
+    ``source_filter``/``mask_filter``/``join_filter`` come from
+    ``compile_layer_filter`` on the matching dataset, and every query reads
+    each layer through its filter.
     """
-    table_ref = _safe_table_ref(dataset.table_name)
+    table_ref = _filtered_ref(_safe_table_ref(dataset.table_name), source_filter)
     mask_table_ref = (
-        _safe_table_ref(mask_dataset.table_name) if mask_dataset is not None else None
+        _filtered_ref(_safe_table_ref(mask_dataset.table_name), mask_filter)
+        if mask_dataset is not None
+        else None
     )
     join_table_ref = (
-        _safe_table_ref(join_dataset.table_name) if join_dataset is not None else None
+        _filtered_ref(_safe_table_ref(join_dataset.table_name), join_filter)
+        if join_dataset is not None
+        else None
     )
+    filter_binds = [
+        bind
+        for layer_filter in (source_filter, mask_filter, join_filter)
+        if layer_filter is not None
+        for bind in layer_filter[1]
+    ]
     sql = build_preview_sql(table_ref, request, mask_table_ref, join_table_ref)
     # The uncapped total that goes beside the capped preview, or None when the
     # operation has no such number. Rendered here, with the table refs already
@@ -310,13 +396,13 @@ async def run_analysis_preview(
     # Read ORM state before rollback releases the caller's connection.
     # execute_safe needs its own connection for READ ONLY and SET LOCAL ROLE.
     source_feature_count = dataset.feature_count
-    # Whether the cached snapshot above gets overridden by a live,
-    # bbox-scoped count. Cheap check only; the count itself runs inside the
-    # _preview_slots block below via execute_safe, which opens its own
-    # connection and has no ordering dependency on the rollback below.
-    bbox_scoped_count_needed = (
-        request.bbox is not None and request.operation not in _ROW_FILTERING_OPERATIONS
-    )
+    # Whether the cached snapshot above gets overridden by a live count over
+    # the viewport and the source filter. Cheap check only; the count itself
+    # runs inside the _preview_slots block below via execute_safe, which opens
+    # its own connection and has no ordering dependency on the rollback below.
+    live_count_needed = (
+        request.bbox is not None or source_filter is not None
+    ) and request.operation not in _ROW_FILTERING_OPERATIONS
     if release_session:
         await db.rollback()
     # Fail fast at the bound rather than queueing -- the client
@@ -334,14 +420,15 @@ async def run_analysis_preview(
             "Try again in a moment.",
         )
     async with _preview_slots:
-        # The bbox-scoped denominator lives in this slot too, not
-        # before it. Read first, before the geometry query, so a preview
-        # whose denominator loses the race for the sandbox's per-user
-        # advisory lock still gets a geometry result even if the count
-        # comes back None.
+        # The live denominator lives in this slot too, not before it. Read
+        # first, before the geometry query, so a preview whose denominator
+        # loses the race for the sandbox's per-user advisory lock still gets
+        # a geometry result even if the count comes back None.
         source_feature_count = (
-            await _resolve_bbox_source_count(db, table_ref, request.bbox, user_id)
-            if bbox_scoped_count_needed and request.bbox is not None
+            await _resolve_live_source_count(
+                db, table_ref, request.bbox, user_id, filter_binds
+            )
+            if live_count_needed
             else source_feature_count
         )
         result = await execute_safe(
@@ -350,6 +437,7 @@ async def run_analysis_preview(
             row_limit=PREVIEW_FEATURE_CAP,
             concurrency_key=str(user_id),
             max_result_bytes=DEFAULT_MAX_RESULT_BYTES,
+            binds=binds_referenced_by(sql, filter_binds),
         )
         # Inside the same slot as the geometry query, not after
         # it -- both open their own sandbox connection, so releasing the
@@ -357,7 +445,7 @@ async def run_analysis_preview(
         # bounding connections while the uncapped, both-layer count query
         # is still running (the geometry query stops at PREVIEW_FEATURE_CAP).
         resolved_match_count = (
-            await _resolve_match_count(db, count_sql, user_id)
+            await _resolve_match_count(db, count_sql, user_id, filter_binds)
             if count_sql is not None
             else None
         )
@@ -414,7 +502,7 @@ _ROW_FILTERING_OPERATIONS = ("clip", "select_by_location", "intersect")
 
 
 async def _resolve_match_count(
-    db: AsyncSession, count_sql: str, user_id: uuid.UUID
+    db: AsyncSession, count_sql: str, user_id: uuid.UUID, binds: list[Any]
 ) -> int | None:
     """Return the full match count, or ``None`` if the count query fails.
 
@@ -427,6 +515,7 @@ async def _resolve_match_count(
             count_sql,
             row_limit=1,
             concurrency_key=str(user_id),
+            binds=binds_referenced_by(count_sql, binds),
         )
     except SandboxError:
         return None

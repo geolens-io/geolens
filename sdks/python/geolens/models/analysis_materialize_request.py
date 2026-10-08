@@ -18,6 +18,15 @@ from typing import cast
 from uuid import UUID
 
 if TYPE_CHECKING:
+    from ..models.analysis_materialize_request_filter_type_0 import (
+        AnalysisMaterializeRequestFilterType0,
+    )
+    from ..models.analysis_materialize_request_join_filter_type_0 import (
+        AnalysisMaterializeRequestJoinFilterType0,
+    )
+    from ..models.analysis_materialize_request_mask_filter_type_0 import (
+        AnalysisMaterializeRequestMaskFilterType0,
+    )
     from ..models.analysis_materialize_request_mask_type_0 import (
         AnalysisMaterializeRequestMaskType0,
     )
@@ -45,6 +54,13 @@ class AnalysisMaterializeRequest:
             features from it that intersect (spatial_join only)
         join_fields (list[str] | None | Unset): Columns to copy from the intersecting join feature, prefixed 'join_' in
             the output. Ties break on the lowest join-layer gid (spatial_join only)
+        filter_ (AnalysisMaterializeRequestFilterType0 | None | Unset): CQL2-JSON filter on the source dataset, in the
+            language /collections/{dataset_id}/items accepts as filter-lang=cql2-json. Only the features it keeps are
+            analysed, counted, and checked against the operation's size limit.
+        mask_filter (AnalysisMaterializeRequestMaskFilterType0 | None | Unset): CQL2-JSON filter on the mask_dataset_id
+            layer: only its matching features form the mask or overlay. Requires mask_dataset_id.
+        join_filter (AnalysisMaterializeRequestJoinFilterType0 | None | Unset): CQL2-JSON filter on the join layer: only
+            its matching features are joined (spatial_join only).
     """
 
     operation: AnalysisMaterializeRequestOperation
@@ -55,9 +71,21 @@ class AnalysisMaterializeRequest:
     by_field: None | str | Unset = UNSET
     join_dataset_id: None | Unset | UUID = UNSET
     join_fields: list[str] | None | Unset = UNSET
+    filter_: AnalysisMaterializeRequestFilterType0 | None | Unset = UNSET
+    mask_filter: AnalysisMaterializeRequestMaskFilterType0 | None | Unset = UNSET
+    join_filter: AnalysisMaterializeRequestJoinFilterType0 | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.analysis_materialize_request_filter_type_0 import (
+            AnalysisMaterializeRequestFilterType0,
+        )
+        from ..models.analysis_materialize_request_join_filter_type_0 import (
+            AnalysisMaterializeRequestJoinFilterType0,
+        )
+        from ..models.analysis_materialize_request_mask_filter_type_0 import (
+            AnalysisMaterializeRequestMaskFilterType0,
+        )
         from ..models.analysis_materialize_request_mask_type_0 import (
             AnalysisMaterializeRequestMaskType0,
         )
@@ -111,6 +139,30 @@ class AnalysisMaterializeRequest:
         else:
             join_fields = self.join_fields
 
+        filter_: dict[str, Any] | None | Unset
+        if isinstance(self.filter_, Unset):
+            filter_ = UNSET
+        elif isinstance(self.filter_, AnalysisMaterializeRequestFilterType0):
+            filter_ = self.filter_.to_dict()
+        else:
+            filter_ = self.filter_
+
+        mask_filter: dict[str, Any] | None | Unset
+        if isinstance(self.mask_filter, Unset):
+            mask_filter = UNSET
+        elif isinstance(self.mask_filter, AnalysisMaterializeRequestMaskFilterType0):
+            mask_filter = self.mask_filter.to_dict()
+        else:
+            mask_filter = self.mask_filter
+
+        join_filter: dict[str, Any] | None | Unset
+        if isinstance(self.join_filter, Unset):
+            join_filter = UNSET
+        elif isinstance(self.join_filter, AnalysisMaterializeRequestJoinFilterType0):
+            join_filter = self.join_filter.to_dict()
+        else:
+            join_filter = self.join_filter
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -131,11 +183,26 @@ class AnalysisMaterializeRequest:
             field_dict["join_dataset_id"] = join_dataset_id
         if join_fields is not UNSET:
             field_dict["join_fields"] = join_fields
+        if filter_ is not UNSET:
+            field_dict["filter"] = filter_
+        if mask_filter is not UNSET:
+            field_dict["mask_filter"] = mask_filter
+        if join_filter is not UNSET:
+            field_dict["join_filter"] = join_filter
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.analysis_materialize_request_filter_type_0 import (
+            AnalysisMaterializeRequestFilterType0,
+        )
+        from ..models.analysis_materialize_request_join_filter_type_0 import (
+            AnalysisMaterializeRequestJoinFilterType0,
+        )
+        from ..models.analysis_materialize_request_mask_filter_type_0 import (
+            AnalysisMaterializeRequestMaskFilterType0,
+        )
         from ..models.analysis_materialize_request_mask_type_0 import (
             AnalysisMaterializeRequestMaskType0,
         )
@@ -233,6 +300,67 @@ class AnalysisMaterializeRequest:
 
         join_fields = _parse_join_fields(d.pop("join_fields", UNSET))
 
+        def _parse_filter_(
+            data: object,
+        ) -> AnalysisMaterializeRequestFilterType0 | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                filter_type_0 = AnalysisMaterializeRequestFilterType0.from_dict(data)
+
+                return filter_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(AnalysisMaterializeRequestFilterType0 | None | Unset, data)
+
+        filter_ = _parse_filter_(d.pop("filter", UNSET))
+
+        def _parse_mask_filter(
+            data: object,
+        ) -> AnalysisMaterializeRequestMaskFilterType0 | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                mask_filter_type_0 = (
+                    AnalysisMaterializeRequestMaskFilterType0.from_dict(data)
+                )
+
+                return mask_filter_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(AnalysisMaterializeRequestMaskFilterType0 | None | Unset, data)
+
+        mask_filter = _parse_mask_filter(d.pop("mask_filter", UNSET))
+
+        def _parse_join_filter(
+            data: object,
+        ) -> AnalysisMaterializeRequestJoinFilterType0 | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                join_filter_type_0 = (
+                    AnalysisMaterializeRequestJoinFilterType0.from_dict(data)
+                )
+
+                return join_filter_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(AnalysisMaterializeRequestJoinFilterType0 | None | Unset, data)
+
+        join_filter = _parse_join_filter(d.pop("join_filter", UNSET))
+
         analysis_materialize_request = cls(
             operation=operation,
             title=title,
@@ -242,6 +370,9 @@ class AnalysisMaterializeRequest:
             by_field=by_field,
             join_dataset_id=join_dataset_id,
             join_fields=join_fields,
+            filter_=filter_,
+            mask_filter=mask_filter,
+            join_filter=join_filter,
         )
 
         analysis_materialize_request.additional_properties = d

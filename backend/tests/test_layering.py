@@ -1376,10 +1376,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # its catalog writes.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 699,
     # Dataset request and verification response families share this public contract.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1754,
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1799,
     # Analysis validation, bounded execution and fenced registration share one task
     # lifecycle.
-    "backend/app/processing/analysis/tasks.py": 1401,
+    "backend/app/processing/analysis/tasks.py": 1439,
     # Map endpoints share response assembly, visibility and ownership checks.
     "backend/app/modules/catalog/maps/router.py": 1537,
     # Native search and OGC Records share visibility, query parsing and pagination.

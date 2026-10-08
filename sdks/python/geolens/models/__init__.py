@@ -25,12 +25,28 @@ from .ai_status_response import AIStatusResponse
 from .ai_status_update import AIStatusUpdate
 from .alter_column_type_request import AlterColumnTypeRequest
 from .analysis_materialize_request import AnalysisMaterializeRequest
+from .analysis_materialize_request_filter_type_0 import (
+    AnalysisMaterializeRequestFilterType0,
+)
+from .analysis_materialize_request_join_filter_type_0 import (
+    AnalysisMaterializeRequestJoinFilterType0,
+)
+from .analysis_materialize_request_mask_filter_type_0 import (
+    AnalysisMaterializeRequestMaskFilterType0,
+)
 from .analysis_materialize_request_mask_type_0 import (
     AnalysisMaterializeRequestMaskType0,
 )
 from .analysis_materialize_request_operation import AnalysisMaterializeRequestOperation
 from .analysis_materialize_response import AnalysisMaterializeResponse
 from .analysis_preview_request import AnalysisPreviewRequest
+from .analysis_preview_request_filter_type_0 import AnalysisPreviewRequestFilterType0
+from .analysis_preview_request_join_filter_type_0 import (
+    AnalysisPreviewRequestJoinFilterType0,
+)
+from .analysis_preview_request_mask_filter_type_0 import (
+    AnalysisPreviewRequestMaskFilterType0,
+)
 from .analysis_preview_request_mask_type_0 import AnalysisPreviewRequestMaskType0
 from .analysis_preview_request_operation import AnalysisPreviewRequestOperation
 from .analysis_preview_response import AnalysisPreviewResponse
@@ -227,6 +243,9 @@ from .dbf_truncation_collision_warning import DbfTruncationCollisionWarning
 from .dbf_truncation_detail import DbfTruncationDetail
 from .derived_from_response import DerivedFromResponse
 from .derived_from_response_params import DerivedFromResponseParams
+from .derived_from_response_source_filter_type_0 import (
+    DerivedFromResponseSourceFilterType0,
+)
 from .detect_embedding_dims_response import DetectEmbeddingDimsResponse
 from .discover_response import DiscoverResponse
 from .discovered_table import DiscoveredTable
@@ -864,10 +883,16 @@ __all__ = (
     "AIStatusUpdate",
     "AlterColumnTypeRequest",
     "AnalysisMaterializeRequest",
+    "AnalysisMaterializeRequestFilterType0",
+    "AnalysisMaterializeRequestJoinFilterType0",
+    "AnalysisMaterializeRequestMaskFilterType0",
     "AnalysisMaterializeRequestMaskType0",
     "AnalysisMaterializeRequestOperation",
     "AnalysisMaterializeResponse",
     "AnalysisPreviewRequest",
+    "AnalysisPreviewRequestFilterType0",
+    "AnalysisPreviewRequestJoinFilterType0",
+    "AnalysisPreviewRequestMaskFilterType0",
     "AnalysisPreviewRequestMaskType0",
     "AnalysisPreviewRequestOperation",
     "AnalysisPreviewResponse",
@@ -1028,6 +1053,7 @@ __all__ = (
     "DbfTruncationDetail",
     "DerivedFromResponse",
     "DerivedFromResponseParams",
+    "DerivedFromResponseSourceFilterType0",
     "DetectEmbeddingDimsResponse",
     "DiscoveredTable",
     "DiscoverResponse",
