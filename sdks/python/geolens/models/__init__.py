@@ -76,6 +76,8 @@ from .backfill_estimate import BackfillEstimate
 from .backfill_response import BackfillResponse
 from .backfill_run_progress import BackfillRunProgress
 from .backfill_run_summary import BackfillRunSummary
+from .backfill_tenant_run import BackfillTenantRun
+from .backfill_tenant_run_status import BackfillTenantRunStatus
 from .basemap_config import BasemapConfig
 from .basemap_config_sublayer_overrides_type_0 import (
     BasemapConfigSublayerOverridesType0,
@@ -918,6 +920,8 @@ __all__ = (
     "BackfillResponse",
     "BackfillRunProgress",
     "BackfillRunSummary",
+    "BackfillTenantRun",
+    "BackfillTenantRunStatus",
     "BasemapConfig",
     "BasemapConfigSublayerOverridesType0",
     "BasemapLabelMode",

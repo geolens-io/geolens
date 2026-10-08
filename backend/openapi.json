@@ -1982,15 +1982,30 @@
         "description": "Acknowledgement that a backfill run was queued.\n\nThe response carries no counts because the work runs asynchronously. Poll\n``GET /jobs/{job_id}`` for status.",
         "properties": {
           "job_id": {
-            "description": "Identifier of the queued backfill job; poll /jobs/{job_id}.",
-            "format": "uuid",
-            "title": "Job Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Identifier of the queued backfill job; poll /jobs/{job_id}. Null only with status 'already_running' when the caller may not read that run.",
+            "title": "Job Id"
           },
           "status": {
-            "description": "Job status at enqueue time ('pending').",
+            "description": "'pending' when this request queued job_id. 'already_running' when an all_tenants request found a run in flight in the calling tenant; job_id is then that run, which this request did not queue. Run the backfill again once it ends.",
             "title": "Status",
             "type": "string"
+          },
+          "other_tenants": {
+            "description": "Runs queued for the other tenants by an all_tenants request in a multi-tenant deployment. Empty otherwise.",
+            "items": {
+              "$ref": "#/components/schemas/BackfillTenantRun"
+            },
+            "title": "Other Tenants",
+            "type": "array"
           }
         },
         "required": [
@@ -2142,6 +2157,47 @@
           "records_processed"
         ],
         "title": "BackfillRunSummary",
+        "type": "object"
+      },
+      "BackfillTenantRun": {
+        "description": "What an all-tenant backfill request did for one other tenant.",
+        "properties": {
+          "tenant_id": {
+            "description": "The tenant the run was queued for.",
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Identifier of the job queued in that tenant, or null when none was queued.",
+            "title": "Job Id"
+          },
+          "status": {
+            "description": "'pending' when a run was queued, 'already_running' when that tenant already had one in flight, 'not_queued' when queueing failed.",
+            "enum": [
+              "pending",
+              "already_running",
+              "not_queued"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "job_id",
+          "status"
+        ],
+        "title": "BackfillTenantRun",
         "type": "object"
       },
       "BasemapConfig": {
@@ -21975,7 +22031,7 @@
     },
     "/admin/backfill-embeddings/": {
       "post": {
-        "description": "Queue semantic-search embedding generation for records (admin only).\n\nPass ?force=true to delete all existing embeddings and regenerate from\nscratch (required after changing the embedding model or dimensions).\n\nThe run happens on the job queue because a full regeneration can exceed\nrequest timeouts. This endpoint returns the job id; poll\n``GET /jobs/{job_id}`` for the outcome.",
+        "description": "Queue semantic-search embedding generation for records (admin only).\n\nPass ?force=true to regenerate every record and replace its stored vectors.\nWithout it, the run embeds only records that lack a current-model embedding.\n\nThe run covers the calling tenant's records. In a multi-tenant deployment\nthe embedding model and width are shared by every tenant, so a change\nleaves each tenant to regenerate. Pass ?all_tenants=true to also queue a\nrun for every other registered tenant; there it needs\nmanage_tenants instead of manage_users, and ``other_tenants`` reports\neach run. When the calling tenant already has a run in flight, the status\nis ``already_running``, ``job_id`` is that run (null when the caller may\nnot read it) and the other tenants are still queued. This request did not queue that run and it may predate the\nchange, so run the backfill again once it ends. A single-tenant\ndeployment ignores the flag.\n\nThe run happens on the job queue because a full regeneration can exceed\nrequest timeouts. This endpoint returns the job id; poll\n``GET /jobs/{job_id}`` for the outcome.",
         "operationId": "trigger_backfill_admin_backfill_embeddings__post",
         "parameters": [
           {
@@ -21985,6 +22041,16 @@
             "schema": {
               "default": false,
               "title": "Force",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "all_tenants",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "All Tenants",
               "type": "boolean"
             }
           }

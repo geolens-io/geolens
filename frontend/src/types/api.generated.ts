@@ -150,8 +150,19 @@ export interface paths {
          * Trigger Backfill
          * @description Queue semantic-search embedding generation for records (admin only).
          *
-         *     Pass ?force=true to delete all existing embeddings and regenerate from
-         *     scratch (required after changing the embedding model or dimensions).
+         *     Pass ?force=true to regenerate every record and replace its stored vectors.
+         *     Without it, the run embeds only records that lack a current-model embedding.
+         *
+         *     The run covers the calling tenant's records. In a multi-tenant deployment
+         *     the embedding model and width are shared by every tenant, so a change
+         *     leaves each tenant to regenerate. Pass ?all_tenants=true to also queue a
+         *     run for every other registered tenant; there it needs
+         *     manage_tenants instead of manage_users, and ``other_tenants`` reports
+         *     each run. When the calling tenant already has a run in flight, the status
+         *     is ``already_running``, ``job_id`` is that run (null when the caller may
+         *     not read it) and the other tenants are still queued. This request did not queue that run and it may predate the
+         *     change, so run the backfill again once it ends. A single-tenant
+         *     deployment ignores the flag.
          *
          *     The run happens on the job queue because a full regeneration can exceed
          *     request timeouts. This endpoint returns the job id; poll
@@ -6521,15 +6532,19 @@ export interface components {
         BackfillResponse: {
             /**
              * Job Id
-             * Format: uuid
-             * @description Identifier of the queued backfill job; poll /jobs/{job_id}.
+             * @description Identifier of the queued backfill job; poll /jobs/{job_id}. Null only with status 'already_running' when the caller may not read that run.
              */
-            job_id: string;
+            job_id: string | null;
             /**
              * Status
-             * @description Job status at enqueue time ('pending').
+             * @description 'pending' when this request queued job_id. 'already_running' when an all_tenants request found a run in flight in the calling tenant; job_id is then that run, which this request did not queue. Run the backfill again once it ends.
              */
             status: string;
+            /**
+             * Other Tenants
+             * @description Runs queued for the other tenants by an all_tenants request in a multi-tenant deployment. Empty otherwise.
+             */
+            other_tenants?: components["schemas"]["BackfillTenantRun"][];
         };
         /**
          * BackfillRunProgress
@@ -6609,6 +6624,29 @@ export interface components {
              * @description Short code identifying how a run failed, when it failed.
              */
             error_code?: string | null;
+        };
+        /**
+         * BackfillTenantRun
+         * @description What an all-tenant backfill request did for one other tenant.
+         */
+        BackfillTenantRun: {
+            /**
+             * Tenant Id
+             * Format: uuid
+             * @description The tenant the run was queued for.
+             */
+            tenant_id: string;
+            /**
+             * Job Id
+             * @description Identifier of the job queued in that tenant, or null when none was queued.
+             */
+            job_id: string | null;
+            /**
+             * Status
+             * @description 'pending' when a run was queued, 'already_running' when that tenant already had one in flight, 'not_queued' when queueing failed.
+             * @enum {string}
+             */
+            status: "pending" | "already_running" | "not_queued";
         };
         /** BasemapConfig */
         BasemapConfig: {
@@ -15465,6 +15503,7 @@ export interface operations {
         parameters: {
             query?: {
                 force?: boolean;
+                all_tenants?: boolean;
             };
             header?: never;
             path?: never;

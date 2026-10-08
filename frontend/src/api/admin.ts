@@ -269,11 +269,20 @@ export async function getEmbeddingStats(): Promise<EmbeddingStatsResponse> {
   return apiFetch<EmbeddingStatsResponse>('/admin/embedding-stats/');
 }
 
+// An all-tenant backfill queues every tenant's run inside the request, which
+// grows with the fleet. Outlive the edge proxy so a slow fan-out reaches the
+// page as the proxy's verdict rather than a client-side abort.
+const ALL_TENANT_BACKFILL_TIMEOUT_MS = 630_000;
+
 // Backfill embeddings
-export async function triggerBackfill(force = false): Promise<BackfillResponse> {
-  const url = force ? '/admin/backfill-embeddings/?force=true' : '/admin/backfill-embeddings/';
-  return apiFetch<BackfillResponse>(url, {
+export async function triggerBackfill(force = false, allTenants = false): Promise<BackfillResponse> {
+  const params = new URLSearchParams();
+  if (force) params.set('force', 'true');
+  if (allTenants) params.set('all_tenants', 'true');
+  const query = params.toString();
+  return apiFetch<BackfillResponse>(`/admin/backfill-embeddings/${query ? `?${query}` : ''}`, {
     method: 'POST',
+    ...(allTenants ? { timeoutMs: ALL_TENANT_BACKFILL_TIMEOUT_MS } : {}),
   });
 }
 

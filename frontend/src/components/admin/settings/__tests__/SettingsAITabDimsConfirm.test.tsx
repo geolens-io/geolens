@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
+import { toast } from 'sonner';
 import type { SettingItem } from '@/api/settings';
 import { SettingsAITab } from '../SettingsAITab';
 
@@ -8,6 +9,9 @@ const hoisted = vi.hoisted(() => ({
   embedded: 50,
   stale: 0,
   statsAvailable: true,
+  capabilities: ['manage_users'] as string[],
+  isMultiTenant: false,
+  trackedJobIds: [] as (string | null)[],
 }));
 
 vi.mock('sonner', () => ({
@@ -15,7 +19,18 @@ vi.mock('sonner', () => ({
 }));
 
 vi.mock('@/hooks/use-permissions', () => ({
-  usePermissions: () => ({ can: (capability: string) => capability === 'manage_users' }),
+  usePermissions: () => ({ can: (capability: string) => hoisted.capabilities.includes(capability) }),
+}));
+
+vi.mock('@/hooks/use-edition', () => ({
+  useEdition: () => ({
+    edition: 'community',
+    features: [],
+    isEnterprise: false,
+    isMultiTenant: hoisted.isMultiTenant,
+    isLoading: false,
+    isResolved: true,
+  }),
 }));
 
 vi.mock('@/hooks/use-admin', async (importOriginal) => {
@@ -39,6 +54,10 @@ vi.mock('@/hooks/use-admin', async (importOriginal) => {
       isPending: false,
       variables: undefined,
     }),
+    useBackfillJobStatus: (jobId: string | null) => {
+      hoisted.trackedJobIds.push(jobId);
+      return { data: undefined };
+    },
   };
 });
 
@@ -75,6 +94,9 @@ describe('SettingsAITab embedding width confirmation', () => {
     hoisted.embedded = 50;
     hoisted.stale = 0;
     hoisted.statsAvailable = true;
+    hoisted.capabilities = ['manage_users'];
+    hoisted.isMultiTenant = false;
+    hoisted.trackedJobIds = [];
   });
 
   it('asks before saving a width change and sends nothing on cancel', async () => {
@@ -104,12 +126,94 @@ describe('SettingsAITab embedding width confirmation', () => {
 
     expect(onSave).toHaveBeenCalledTimes(1);
     expect(onSave).toHaveBeenCalledWith({ embedding_dims: '768' });
-    await waitFor(() => expect(hoisted.backfillMutate).toHaveBeenCalledWith(false, expect.anything()));
+    await waitFor(() => expect(hoisted.backfillMutate).toHaveBeenCalledWith({ force: false, allTenants: false }, expect.anything()));
+  });
+
+  it('lets a hosted operator with only manage_tenants regenerate every tenant', async () => {
+    hoisted.isMultiTenant = true;
+    hoisted.capabilities = ['manage_tenants'];
+    hoisted.statsAvailable = false;
+    const user = userEvent.setup();
+    renderTab();
+
+    await changeWidth(user, '768');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(screen.getByRole('checkbox', { name: 'Regenerate embeddings after saving' })).toBeChecked();
+    await user.click(screen.getByRole('button', { name: 'Delete embeddings' }));
+
+    await waitFor(() =>
+      expect(hoisted.backfillMutate).toHaveBeenCalledWith({ force: false, allTenants: true }, expect.anything()),
+    );
+  });
+
+  it('asks a fleet operator to retry when an earlier run holds this tenant, without polling it', async () => {
+    hoisted.isMultiTenant = true;
+    hoisted.capabilities = ['manage_tenants'];
+    hoisted.statsAvailable = false;
+    hoisted.backfillMutate.mockImplementation((_variables, opts) =>
+      opts.onSuccess({ job_id: '5f1e5b2a-0000-4000-8000-000000000009', status: 'already_running', other_tenants: [] }),
+    );
+    const user = userEvent.setup();
+    renderTab();
+
+    await changeWidth(user, '768');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await user.click(screen.getByRole('button', { name: 'Delete embeddings' }));
+
+    expect(await screen.findByText(/Try again once any running backfill finishes/)).toBeInTheDocument();
+    expect(toast.info).not.toHaveBeenCalled();
+    expect(hoisted.trackedJobIds).not.toContain('5f1e5b2a-0000-4000-8000-000000000009');
+
+    await user.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(hoisted.backfillMutate).toHaveBeenCalledTimes(2);
+    expect(hoisted.backfillMutate).toHaveBeenLastCalledWith({ force: false, allTenants: true }, expect.anything());
+  });
+
+  it('follows an earlier in-flight run for an admin who can read it, and still asks for a rerun', async () => {
+    hoisted.isMultiTenant = true;
+    hoisted.capabilities = ['manage_tenants', 'manage_users'];
+    hoisted.backfillMutate.mockImplementation((_variables, opts) =>
+      opts.onSuccess({ job_id: '5f1e5b2a-0000-4000-8000-000000000009', status: 'already_running', other_tenants: [] }),
+    );
+    const user = userEvent.setup();
+    renderTab();
+
+    await changeWidth(user, '768');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await user.click(screen.getByRole('button', { name: 'Delete embeddings' }));
+
+    expect(await screen.findByText(/could not be regenerated automatically\. Use Generate Missing/)).toBeInTheDocument();
+    expect(hoisted.trackedJobIds).toContain('5f1e5b2a-0000-4000-8000-000000000009');
+  });
+
+  it('keeps a fleet retry on screen when another tenant could not start regenerating', async () => {
+    hoisted.isMultiTenant = true;
+    hoisted.capabilities = ['manage_tenants', 'manage_users'];
+    hoisted.backfillMutate.mockImplementation((_variables, opts) =>
+      opts.onSuccess({
+        job_id: '5f1e5b2a-0000-4000-8000-000000000001',
+        status: 'pending',
+        other_tenants: [
+          { tenant_id: 'a', job_id: 'b', status: 'pending' },
+          { tenant_id: 'c', job_id: null, status: 'not_queued' },
+        ],
+      }),
+    );
+    const user = userEvent.setup();
+    renderTab();
+
+    await changeWidth(user, '768');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await user.click(screen.getByRole('button', { name: 'Delete embeddings' }));
+
+    expect(await screen.findByText('Regeneration could not be queued for 1 other tenant')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(hoisted.backfillMutate).toHaveBeenCalledTimes(2);
   });
 
   it('keeps the pending warning visible when the stats are unavailable', async () => {
     hoisted.statsAvailable = false;
-    hoisted.backfillMutate.mockImplementation((_force, opts) => opts.onError(new Error('no provider')));
+    hoisted.backfillMutate.mockImplementation((_variables, opts) => opts.onError(new Error('no provider')));
     const user = userEvent.setup();
     renderTab();
 
@@ -131,6 +235,45 @@ describe('SettingsAITab embedding width confirmation', () => {
 
     await user.click(screen.getByRole('checkbox', { name: 'Regenerate embeddings after saving' }));
     expect(screen.getByRole('alertdialog')).toHaveTextContent('regenerate them with Generate Missing Embeddings');
+  });
+
+  it('offers a fleet operator the rerun once AI is saved as enabled again', async () => {
+    hoisted.isMultiTenant = true;
+    hoisted.capabilities = ['manage_tenants'];
+    hoisted.statsAvailable = false;
+    const aiOff = settings.map((item) => (item.key === 'ai_enabled' ? { ...item, value: false } : item));
+    const onSave = vi.fn();
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <SettingsAITab settings={aiOff} envOnly={false} onSave={onSave} onReset={onReset} isSaving={false} />,
+    );
+
+    await changeWidth(user, '768');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await user.click(screen.getByRole('button', { name: 'Delete embeddings' }));
+
+    expect(await screen.findByText(/Enable AI and save, then try again/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeDisabled();
+
+    rerender(<SettingsAITab settings={settings} envOnly={false} onSave={onSave} onReset={onReset} isSaving={false} />);
+    await user.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(hoisted.backfillMutate).toHaveBeenCalledWith({ force: false, allTenants: true }, expect.anything());
+  });
+
+  it('keeps a fleet-wide regeneration available to a hosted operator after a reload or opt-out', async () => {
+    hoisted.isMultiTenant = true;
+    hoisted.capabilities = ['manage_tenants'];
+    hoisted.statsAvailable = false;
+    const user = userEvent.setup();
+    renderTab();
+
+    await user.click(screen.getByRole('button', { name: 'Generate missing embeddings for every tenant' }));
+    expect(hoisted.backfillMutate).toHaveBeenCalledWith({ force: false, allTenants: true }, expect.anything());
+  });
+
+  it('offers no fleet-wide regeneration in a single-tenant deployment', () => {
+    renderTab();
+    expect(screen.queryByRole('button', { name: 'Generate missing embeddings for every tenant' })).not.toBeInTheDocument();
   });
 
   it('queues nothing and says AI must be enabled when AI was already off', async () => {
@@ -190,7 +333,7 @@ describe('SettingsAITab embedding width confirmation', () => {
   });
 
   it('says regeneration is pending when the backfill cannot be queued', async () => {
-    hoisted.backfillMutate.mockImplementation((_force, opts) => opts.onError(new Error('no provider')));
+    hoisted.backfillMutate.mockImplementation((_variables, opts) => opts.onError(new Error('no provider')));
     const user = userEvent.setup();
     renderTab();
 
@@ -295,7 +438,7 @@ describe('SettingsAITab embedding width confirmation', () => {
       await user.click(screen.getByRole('button', { name: 'Reset width' }));
 
       expect(onReset).toHaveBeenCalledWith('embedding_dims');
-      await waitFor(() => expect(hoisted.backfillMutate).toHaveBeenCalledWith(false, expect.anything()));
+      await waitFor(() => expect(hoisted.backfillMutate).toHaveBeenCalledWith({ force: false, allTenants: false }, expect.anything()));
     });
 
     it('queues the backfill only after the reset resolves', async () => {
@@ -309,7 +452,7 @@ describe('SettingsAITab embedding width confirmation', () => {
       expect(hoisted.backfillMutate).not.toHaveBeenCalled();
 
       finish(true);
-      await waitFor(() => expect(hoisted.backfillMutate).toHaveBeenCalledWith(false, expect.anything()));
+      await waitFor(() => expect(hoisted.backfillMutate).toHaveBeenCalledWith({ force: false, allTenants: false }, expect.anything()));
     });
 
     it('queues nothing when the reset fails', async () => {

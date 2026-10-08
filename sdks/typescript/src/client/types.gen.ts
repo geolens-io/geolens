@@ -1195,15 +1195,21 @@ export type BackfillResponse = {
     /**
      * Job Id
      *
-     * Identifier of the queued backfill job; poll /jobs/{job_id}.
+     * Identifier of the queued backfill job; poll /jobs/{job_id}. Null only with status 'already_running' when the caller may not read that run.
      */
-    job_id: string;
+    job_id: string | null;
     /**
      * Status
      *
-     * Job status at enqueue time ('pending').
+     * 'pending' when this request queued job_id. 'already_running' when an all_tenants request found a run in flight in the calling tenant; job_id is then that run, which this request did not queue. Run the backfill again once it ends.
      */
     status: string;
+    /**
+     * Other Tenants
+     *
+     * Runs queued for the other tenants by an all_tenants request in a multi-tenant deployment. Empty otherwise.
+     */
+    other_tenants?: Array<BackfillTenantRun>;
 };
 
 /**
@@ -1298,6 +1304,32 @@ export type BackfillRunSummary = {
      * Short code identifying how a run failed, when it failed.
      */
     error_code?: string | null;
+};
+
+/**
+ * BackfillTenantRun
+ *
+ * What an all-tenant backfill request did for one other tenant.
+ */
+export type BackfillTenantRun = {
+    /**
+     * Tenant Id
+     *
+     * The tenant the run was queued for.
+     */
+    tenant_id: string;
+    /**
+     * Job Id
+     *
+     * Identifier of the job queued in that tenant, or null when none was queued.
+     */
+    job_id: string | null;
+    /**
+     * Status
+     *
+     * 'pending' when a run was queued, 'already_running' when that tenant already had one in flight, 'not_queued' when queueing failed.
+     */
+    status: 'pending' | 'already_running' | 'not_queued';
 };
 
 /**
@@ -12637,6 +12669,10 @@ export type TriggerBackfillAdminBackfillEmbeddingsPostData = {
          * Force
          */
         force?: boolean;
+        /**
+         * All Tenants
+         */
+        all_tenants?: boolean;
     };
     url: '/admin/backfill-embeddings/';
 };

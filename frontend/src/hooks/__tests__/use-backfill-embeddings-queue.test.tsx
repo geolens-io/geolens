@@ -52,9 +52,9 @@ describe('useBackfillEmbeddings (#1542)', () => {
     });
     const { result } = renderHook(() => useBackfillEmbeddings());
 
-    const data = await result.current.mutateAsync(true);
+    const data = await result.current.mutateAsync({ force: true });
 
-    expect(mockTriggerBackfill).toHaveBeenCalledWith(true);
+    expect(mockTriggerBackfill).toHaveBeenCalledWith(true, false);
     expect(data.job_id).toBe('5f1e5b2a-0000-4000-8000-000000000001');
     expect(data.status).toBe('pending');
     expect(toast.error).not.toHaveBeenCalled();
@@ -66,7 +66,7 @@ describe('useBackfillEmbeddings (#1542)', () => {
     );
     const { result } = renderHook(() => useBackfillEmbeddings());
 
-    await expect(result.current.mutateAsync(true)).rejects.toThrow();
+    await expect(result.current.mutateAsync({ force: true })).rejects.toThrow();
 
     expect(toast.warning).toHaveBeenCalledWith(
       'An embedding backfill is already running — wait for it to finish',
@@ -89,7 +89,7 @@ describe('useBackfillEmbeddings (#1542)', () => {
     }));
     await waitFor(() => expect(mockGetEmbeddingStats).toHaveBeenCalledTimes(1));
 
-    await result.current.backfill.mutateAsync(false);
+    await result.current.backfill.mutateAsync({ force: false });
 
     await waitFor(() => expect(mockGetEmbeddingStats).toHaveBeenCalledTimes(2));
   });
@@ -98,7 +98,7 @@ describe('useBackfillEmbeddings (#1542)', () => {
     mockTriggerBackfill.mockRejectedValueOnce(new ApiError('Service unavailable', 503));
     const { result } = renderHook(() => useBackfillEmbeddings());
 
-    await expect(result.current.mutateAsync(false)).rejects.toThrow();
+    await expect(result.current.mutateAsync({ force: false })).rejects.toThrow();
 
     expect(toast.error).toHaveBeenCalledWith('Embedding backfill failed');
     expect(toast.warning).not.toHaveBeenCalled();

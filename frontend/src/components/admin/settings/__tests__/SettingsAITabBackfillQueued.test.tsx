@@ -89,8 +89,8 @@ describe('SettingsAITab — queued backfill (#1542)', () => {
     await user.click(screen.getByRole('button', { name: /Regenerate All/ }));
 
     expect(hoisted.mutate).toHaveBeenCalledTimes(1);
-    const [force, options] = hoisted.mutate.mock.calls[0];
-    expect(force).toBe(true);
+    const [variables, options] = hoisted.mutate.mock.calls[0];
+    expect(variables).toEqual({ force: true });
 
     options.onSuccess({ job_id: '5f1e5b2a-0000-4000-8000-000000000001', status: 'pending' });
 

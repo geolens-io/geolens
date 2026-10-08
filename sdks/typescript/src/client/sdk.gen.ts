@@ -176,8 +176,19 @@ export const exportAuditLogsAdminAuditLogsExportFormatGet = <ThrowOnError extend
  *
  * Queue semantic-search embedding generation for records (admin only).
  *
- * Pass ?force=true to delete all existing embeddings and regenerate from
- * scratch (required after changing the embedding model or dimensions).
+ * Pass ?force=true to regenerate every record and replace its stored vectors.
+ * Without it, the run embeds only records that lack a current-model embedding.
+ *
+ * The run covers the calling tenant's records. In a multi-tenant deployment
+ * the embedding model and width are shared by every tenant, so a change
+ * leaves each tenant to regenerate. Pass ?all_tenants=true to also queue a
+ * run for every other registered tenant; there it needs
+ * manage_tenants instead of manage_users, and ``other_tenants`` reports
+ * each run. When the calling tenant already has a run in flight, the status
+ * is ``already_running``, ``job_id`` is that run (null when the caller may
+ * not read it) and the other tenants are still queued. This request did not queue that run and it may predate the
+ * change, so run the backfill again once it ends. A single-tenant
+ * deployment ignores the flag.
  *
  * The run happens on the job queue because a full regeneration can exceed
  * request timeouts. This endpoint returns the job id; poll
