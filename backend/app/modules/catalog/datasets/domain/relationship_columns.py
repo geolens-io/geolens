@@ -6,17 +6,21 @@ import uuid
 
 from fastapi import HTTPException, status
 from sqlalchemy import select, text, update
-from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.exc import DBAPIError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.db.sqlstate import sqlstate
+from app.core.db.sqlstate import is_lock_conflict, sqlstate
 from app.modules.catalog.datasets.domain.models import (
     Dataset,
     DatasetRelationship,
     Record,
 )
 from app.modules.catalog.features.service import feature_table_exists
-from app.platform.catalog_locks import lock_catalog_rows
+from app.platform.catalog_locks import (
+    REQUEST_LOCK_TIMEOUT,
+    CatalogLockConflict,
+    lock_catalog_rows,
+)
 from app.platform.extensions import get_catalog_port
 
 
@@ -103,9 +107,15 @@ async def refresh_dropped_join_column(
         f"LOCK TABLE {get_catalog_port().quote_table(table_name)} IN ACCESS SHARE MODE"
     )
     try:
+        await session.execute(
+            text(f"SET LOCAL lock_timeout = '{REQUEST_LOCK_TIMEOUT}'")
+        )
         # codeql[py/sql-injection]
         await session.execute(text(lock_sql))
-    except ProgrammingError:
+    except DBAPIError as exc:
+        # A missing table or a held lock is the retryable 503; anything else is not ours.
+        if not (isinstance(exc, ProgrammingError) or is_lock_conflict(exc)):
+            raise
         await session.rollback()
         return None
     record_id = (
@@ -113,13 +123,16 @@ async def refresh_dropped_join_column(
     ).scalar_one_or_none()
     if record_id is None:
         return None
-    await lock_catalog_rows(
-        session,
-        dataset_cls=Dataset,
-        record_cls=Record,
-        dataset_id=dataset_id,
-        record_id=record_id,
-    )
+    try:
+        await lock_catalog_rows(
+            session,
+            dataset_cls=Dataset,
+            record_cls=Record,
+            dataset_id=dataset_id,
+            record_id=record_id,
+        )
+    except CatalogLockConflict:
+        return None
     if not await feature_table_exists(session, table_name):
         return None
     live = await get_catalog_port().get_column_info(session, table_name)
