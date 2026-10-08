@@ -157,6 +157,9 @@ class TestNestedColumnWeight:
             "FROM generate_series(0, 2000, 4) AS t(n))",
             "(SELECT polygon(path(array_to_string(array_fill('0,0'::text, "
             "ARRAY[1000]), ','))))",
+            "(SELECT jsonb_agg(1) FROM generate_series(1, 1000))",
+            "(SELECT CAST(json_agg('[]'::json) AS json) FROM generate_series(1, 1000))",
+            "ARRAY[(SELECT jsonb_agg(1) FROM generate_series(1, 1000))]",
         ],
     )
     async def test_a_nested_cell_is_weighted_beyond_its_text(
@@ -230,6 +233,7 @@ class TestNestedColumnWeight:
             "FROM generate_series(1, 5) AS t(n) ORDER BY n DESC",
             "SELECT '1 2'::int2vector AS v, ARRAY['(1,2)'::point] AS p, "
             "'((0,0),(1,1),(1,0))'::polygon AS g",
+            "SELECT '{\"a\": [1, 2]}'::jsonb AS j, ARRAY['[1]'::json] AS ja",
         ],
     )
     async def test_a_nested_result_under_the_cap_is_unchanged(

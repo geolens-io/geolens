@@ -34,12 +34,13 @@ _BYTE_META_COLUMNS = 3
 # The driver decodes each array element into its own Python object plus a list
 # slot, about 30-130 bytes on CPython however short the element's text is.
 _ARRAY_ELEMENT_BYTES = 64
-# Composites, records, multiranges, paths, polygons and arrays of them nest values
-# that cannot be counted without their types, so their text is weighted instead:
+# Composites, records, multiranges, paths, polygons, JSON and arrays of them nest
+# values that cannot be counted without their types, so their text is weighted:
 # an element as short as two text bytes ("1,") then costs _ARRAY_ELEMENT_BYTES.
 _NESTED_TEXT_WEIGHT = _ARRAY_ELEMENT_BYTES // 2
-# record, path and polygon: reported as scalars, decoded into many objects.
-_NESTED_SCALAR_OIDS = (2249, 602, 604)
+# record, path, polygon, json and jsonb: reported as scalars, decoded into many
+# objects (the engine installs json.loads codecs for both JSON types).
+_NESTED_SCALAR_OIDS = (2249, 602, 604, 114, 3802)
 # Array types whose elements decode to one object each, so cardinality() counts them.
 _FLAT_ARRAY_TYPES_SQL = (
     "SELECT a.oid FROM pg_catalog.pg_type AS a "
