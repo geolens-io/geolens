@@ -1,5 +1,5 @@
 import { API_BASE } from '@/lib/constants';
-import { cookieAuthAvailable, cookieAuthHeaders } from '@/lib/auth-transport';
+import { cookieAuthAvailable, cookieAuthHeaders, withCookieWrite } from '@/lib/auth-transport';
 import { useAuthStore } from '@/stores/auth-store';
 import { abortInflightRefresh, apiFetch, isCredentialRejected, safeFetch, ApiError } from './client';
 import { translateApiErrorDetail } from '@/lib/error-map';
@@ -21,7 +21,7 @@ export async function login(
 
   // SP-11: route is /auth/login (no trailing slash) so the POST body is
   // preserved without a 307 redirect.
-  const response = await fetch(`${API_BASE}/auth/login`, {
+  const response = await withCookieWrite(() => fetch(`${API_BASE}/auth/login`, {
     method: 'POST',
     // fix(#1302): opt into the httpOnly refresh cookie. The response's
     // refresh_token is null in that mode, so nothing token-shaped reaches
@@ -29,7 +29,7 @@ export async function login(
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', ...cookieAuthHeaders() },
     credentials: 'same-origin',
     body: new URLSearchParams({ username, password }),
-  });
+  }));
 
   if (!response.ok) {
     let detail: unknown;
@@ -281,7 +281,7 @@ export async function refreshAccessToken(
   const headers: Record<string, string> = { ...cookieAuthHeaders() };
   if (refreshToken) headers['Content-Type'] = 'application/json';
 
-  const response = await fetch(`${API_BASE}/auth/refresh/`, {
+  const response = await withCookieWrite(() => fetch(`${API_BASE}/auth/refresh/`, {
     method: 'POST',
     headers,
     credentials: 'same-origin',
@@ -299,7 +299,7 @@ export async function refreshAccessToken(
       ? AbortSignal.any([abortSignal, AbortSignal.timeout(REFRESH_TIMEOUT_MS)])
       : AbortSignal.timeout(REFRESH_TIMEOUT_MS),
     ...(refreshToken ? { body: JSON.stringify({ refresh_token: refreshToken }) } : {}),
-  });
+  }), abortSignal);
 
   if (!response.ok) {
     // fix(#1849): tryRefresh's 429 back-off branch checks `err instanceof

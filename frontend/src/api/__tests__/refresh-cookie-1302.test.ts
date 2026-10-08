@@ -240,6 +240,41 @@ describe('browser refresh transport', () => {
     expect(init.headers).toMatchObject({ 'X-GeoLens-Auth-Mode': 'cookie' });
   });
 
+  // Tabs share one cookie jar, so a refresh another tab already sent must not
+  // land its rotated cookie after this tab's sign-in. Web Locks hold the login
+  // until that refresh has finished.
+  it('holds a sign-in until a refresh holding the cookie lock has finished', async () => {
+    let held: Promise<unknown> = Promise.resolve();
+    const locks = {
+      request: (_name: string, _options: unknown, callback: () => Promise<unknown>) => {
+        const run = held.then(callback);
+        held = run.catch(() => {});
+        return run;
+      },
+    };
+    Object.defineProperty(navigator, 'locks', { value: locks, configurable: true });
+    try {
+      let finishRefresh!: (r: Response) => void;
+      mockFetch.mockImplementationOnce(() => new Promise<Response>((resolve) => { finishRefresh = resolve; }));
+      const refresh = refreshAccessToken(null);
+      await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse({ access_token: 'a1', refresh_token: null, expires_in: 900 }),
+      );
+      const signIn = login('someone', 'secret');
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+
+      finishRefresh(jsonResponse({ access_token: 'r1', refresh_token: null, expires_in: 900 }));
+      await refresh;
+      await signIn;
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    } finally {
+      Reflect.deleteProperty(navigator, 'locks');
+    }
+  });
+
   // A recovery that outlived its render budget can still be running when the
   // user signs in, and its rotated cookie would replace the new session's.
   it('abandons an in-flight refresh before signing in', async () => {
