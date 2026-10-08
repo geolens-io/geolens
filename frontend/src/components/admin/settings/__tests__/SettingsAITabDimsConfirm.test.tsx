@@ -11,6 +11,7 @@ const hoisted = vi.hoisted(() => ({
   statsAvailable: true,
   capabilities: ['manage_users'] as string[],
   isMultiTenant: false,
+  trackedJobIds: [] as (string | null)[],
 }));
 
 vi.mock('sonner', () => ({
@@ -53,6 +54,10 @@ vi.mock('@/hooks/use-admin', async (importOriginal) => {
       isPending: false,
       variables: undefined,
     }),
+    useBackfillJobStatus: (jobId: string | null) => {
+      hoisted.trackedJobIds.push(jobId);
+      return { data: undefined };
+    },
   };
 });
 
@@ -91,6 +96,7 @@ describe('SettingsAITab embedding width confirmation', () => {
     hoisted.statsAvailable = true;
     hoisted.capabilities = ['manage_users'];
     hoisted.isMultiTenant = false;
+    hoisted.trackedJobIds = [];
   });
 
   it('asks before saving a width change and sends nothing on cancel', async () => {
@@ -140,7 +146,7 @@ describe('SettingsAITab embedding width confirmation', () => {
     );
   });
 
-  it('follows a run that was already in flight but still asks for a regeneration', async () => {
+  it('asks a fleet operator to retry when an earlier run holds this tenant, without polling it', async () => {
     hoisted.isMultiTenant = true;
     hoisted.capabilities = ['manage_tenants'];
     hoisted.statsAvailable = false;
@@ -154,8 +160,30 @@ describe('SettingsAITab embedding width confirmation', () => {
     await user.click(screen.getByRole('button', { name: 'Save' }));
     await user.click(screen.getByRole('button', { name: 'Delete embeddings' }));
 
-    expect(await screen.findByText(/could not be regenerated automatically/)).toBeInTheDocument();
+    expect(await screen.findByText(/Try again once any running backfill finishes/)).toBeInTheDocument();
     expect(toast.info).not.toHaveBeenCalled();
+    expect(hoisted.trackedJobIds).not.toContain('5f1e5b2a-0000-4000-8000-000000000009');
+
+    await user.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(hoisted.backfillMutate).toHaveBeenCalledTimes(2);
+    expect(hoisted.backfillMutate).toHaveBeenLastCalledWith({ force: false, allTenants: true }, expect.anything());
+  });
+
+  it('follows an earlier in-flight run for an admin who can read it, and still asks for a rerun', async () => {
+    hoisted.isMultiTenant = true;
+    hoisted.capabilities = ['manage_tenants', 'manage_users'];
+    hoisted.backfillMutate.mockImplementation((_variables, opts) =>
+      opts.onSuccess({ job_id: '5f1e5b2a-0000-4000-8000-000000000009', status: 'already_running', other_tenants: [] }),
+    );
+    const user = userEvent.setup();
+    renderTab();
+
+    await changeWidth(user, '768');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await user.click(screen.getByRole('button', { name: 'Delete embeddings' }));
+
+    expect(await screen.findByText(/could not be regenerated automatically\. Use Generate Missing/)).toBeInTheDocument();
+    expect(hoisted.trackedJobIds).toContain('5f1e5b2a-0000-4000-8000-000000000009');
   });
 
   it('warns when another tenant could not start regenerating', async () => {

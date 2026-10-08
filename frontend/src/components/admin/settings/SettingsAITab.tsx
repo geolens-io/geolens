@@ -183,16 +183,23 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
       return;
     }
     // The save already succeeded; a run that cannot start leaves the
-    // embeddings to regenerate by hand. The width and model are shared by
-    // every tenant of a hosted deployment, so there the run covers all of them.
+    // embeddings to regenerate by hand.
+    queueRegeneration();
+  };
+
+  // The width and model are shared by every tenant of a hosted deployment, so
+  // there the run covers all of them.
+  const queueRegeneration = () => {
     backfill.mutate({ force: false, allTenants: isMultiTenant }, {
       onSuccess: (data) => {
-        setBackfillJobId(data.job_id);
         // A run that was already in flight started before this change, so it
-        // does not regenerate for it; the page follows it but asks for a rerun.
+        // does not regenerate for it; ask for a rerun. Reading another user's
+        // job takes manage_users, so follow it only with that permission.
         if (data.status === 'already_running') {
+          if (canManageUsers) setBackfillJobId(data.job_id);
           setRegenPending('queue');
         } else {
+          setBackfillJobId(data.job_id);
           setRegenPending(null);
           toast.info(t('ai.backfillQueued'));
         }
@@ -508,7 +515,19 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
           {regenPending !== null && (
             <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 p-3 max-w-md">
               <AlertTriangle className="h-4 w-4 text-warning mt-0.5 flex-shrink-0" />
-              <p className="text-sm text-foreground">{t(regenPending === 'ai' ? 'ai.regenerationPendingAiOff' : 'ai.regenerationPending')}</p>
+              {regenPending === 'queue' && !canManageUsers && canRegenerateAfterChange ? (
+                // Without manage_users the coverage buttons are hidden, so the
+                // rerun is offered here.
+                <div className="space-y-2">
+                  <p className="text-sm text-foreground">{t('ai.regenerationPendingRetry')}</p>
+                  <Button size="sm" variant="outline" onClick={queueRegeneration} disabled={backfill.isPending}>
+                    {backfill.isPending && <Loader2 className="me-1.5 h-3 w-3 animate-spin" />}
+                    {t('common:actions.retry')}
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-sm text-foreground">{t(regenPending === 'ai' ? 'ai.regenerationPendingAiOff' : 'ai.regenerationPending')}</p>
+              )}
             </div>
           )}
 

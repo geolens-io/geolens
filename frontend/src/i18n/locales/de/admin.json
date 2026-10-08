@@ -297,6 +297,7 @@
     "backfillOtherTenantsMissed_other": "Die Neuerzeugung konnte für {{count}} weitere Mandanten nicht eingereiht werden",
     "regenerationPending": "Die Embeddings konnten nicht automatisch neu erzeugt werden. Mit „Fehlende Embeddings generieren“ lassen sie sich neu erzeugen.",
     "regenerationPendingAiOff": "Die Embeddings wurden nicht neu erzeugt, weil die KI-Funktionen deaktiviert sind. Aktivieren Sie KI und nutzen Sie dann Fehlende Embeddings generieren.",
+    "regenerationPendingRetry": "Die Embeddings konnten nicht automatisch neu erzeugt werden. Versuchen Sie es erneut, sobald ein laufender Backfill beendet ist.",
     "backfillFinished": "Einbettungs-Backfill abgeschlossen",
     "backfillFinishedWithErrors": "Einbettungs-Backfill abgeschlossen mit {{errors}} abgelehnten Datensätzen — die Abdeckung weist Lücken auf",
     "backfillRunFailed": "Der Einbettungs-Backfill-Lauf ist fehlgeschlagen — prüfen Sie die Serverprotokolle",

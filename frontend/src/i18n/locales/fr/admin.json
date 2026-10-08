@@ -297,6 +297,7 @@
     "backfillOtherTenantsMissed_other": "La régénération n'a pas pu être mise en file d'attente pour {{count}} autres locataires",
     "regenerationPending": "Les embeddings n'ont pas pu être régénérés automatiquement. Utilisez Generer les embeddings manquants pour les régénérer.",
     "regenerationPendingAiOff": "Les embeddings n'ont pas été régénérés car les fonctions d'IA sont désactivées. Activez l'IA, puis utilisez Generer les embeddings manquants.",
+    "regenerationPendingRetry": "Les embeddings n'ont pas pu être régénérés automatiquement. Réessayez une fois tout remplissage en cours terminé.",
     "backfillFinished": "Remplissage des embeddings terminé",
     "backfillFinishedWithErrors": "Remplissage des embeddings terminé avec {{errors}} enregistrement(s) rejeté(s) — la couverture présente des lacunes",
     "backfillRunFailed": "L'exécution du remplissage des embeddings a échoué — consultez les journaux du serveur",

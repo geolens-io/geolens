@@ -322,6 +322,7 @@
     "backfillOtherTenantsMissed_other": "Regeneration could not be queued for {{count}} other tenants",
     "regenerationPending": "Embeddings could not be regenerated automatically. Use Generate Missing Embeddings to regenerate them.",
     "regenerationPendingAiOff": "Embeddings were not regenerated because AI features are disabled. Enable AI, then use Generate Missing Embeddings.",
+    "regenerationPendingRetry": "Embeddings could not be regenerated automatically. Try again once any running backfill finishes.",
     "backfillFinished": "Embedding backfill finished",
     "backfillFinishedWithErrors": "Embedding backfill finished with {{errors}} rejected record(s) — coverage has gaps",
     "backfillRunFailed": "The embedding backfill run failed — check the server logs",
