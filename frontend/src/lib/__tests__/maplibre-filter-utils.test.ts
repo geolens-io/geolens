@@ -230,4 +230,75 @@ describe('maplibreFilterToCql2', () => {
   ])('refuses %s', (_label, filter) => {
     expect(maplibreFilterToCql2(filter as unknown as FilterSpecification)).toBe('unsupported');
   });
+
+  describe('with the layer columns', () => {
+    const columns = [
+      { name: 'seen', type: 'date' },
+      { name: 'at', type: 'timestamp without time zone' },
+      { name: 'atz', type: 'timestamp with time zone' },
+      { name: 'Zone', type: 'text' },
+      { name: 'ref', type: 'uuid' },
+      { name: 'pop', type: 'integer' },
+      { name: 'meta', type: 'jsonb' },
+      { name: 'props', type: 'json' },
+      { name: 'tags', type: 'ARRAY' },
+      { name: 'Odd Col', type: 'text' },
+    ];
+    const convert = (filter: unknown) =>
+      maplibreFilterToCql2(filter as FilterSpecification, columns);
+
+    it.each([
+      [['==', ['get', 'seen'], '2024-02-01'], { op: '=', args: [p('seen'), { date: '2024-02-01' }] }],
+      [
+        ['>=', ['get', 'at'], '2024-02-01 06:30:00'],
+        { op: '>=', args: [p('at'), { timestamp: '2024-02-01T06:30:00Z' }] },
+      ],
+      [
+        ['<', ['get', 'atz'], '2024-02-01 06:30:00.25+05'],
+        { op: '<', args: [p('atz'), { timestamp: '2024-02-01T06:30:00.25+05:00' }] },
+      ],
+      [
+        ['==', ['get', 'atz'], '2024-02-01T06:30-0330'],
+        { op: '=', args: [p('atz'), { timestamp: '2024-02-01T06:30:00-03:30' }] },
+      ],
+      [
+        ['>', ['get', 'at'], '2024-02-01'],
+        { op: '>', args: [p('at'), { timestamp: '2024-02-01T00:00:00Z' }] },
+      ],
+      [
+        ['in', ['get', 'seen'], ['literal', ['2024-01-01', '2024-03-01']]],
+        { op: 'in', args: [p('seen'), [{ date: '2024-01-01' }, { date: '2024-03-01' }]] },
+      ],
+      [
+        ['!=', ['get', 'seen'], '2024-01-01'],
+        {
+          op: 'or',
+          args: [isNull('seen'), { op: '<>', args: [p('seen'), { date: '2024-01-01' }] }],
+        },
+      ],
+      [['==', ['get', 'Zone'], 'north'], { op: '=', args: [p('Zone'), 'north'] }],
+      [['in', 'ort', ['get', 'Zone']], { op: 'like', args: [p('Zone'), '%ort%'] }],
+      [['==', ['get', 'ref'], 'abc'], { op: '=', args: [p('ref'), 'abc'] }],
+      [['==', ['get', 'pop'], 5], { op: '=', args: [p('pop'), 5] }],
+      [['has', 'seen'], { op: 'not', args: [isNull('seen')] }],
+      // A column the layer does not list is sent untyped; the server decides.
+      [['==', ['get', 'ghost'], '2024-01-01'], { op: '=', args: [p('ghost'), '2024-01-01'] }],
+    ])('translates %j', (filter, expected) => {
+      expect(convert(filter)).toEqual(expected);
+    });
+
+    it.each([
+      ['a jsonb column', ['==', ['get', 'meta'], 'x']],
+      ['a json column', ['has', 'props']],
+      ['an array column', ['any', ['!', ['has', 'tags']], ['==', ['get', 'tags'], null]]],
+      ['a name CQL2 cannot address', ['==', ['get', 'Odd Col'], 'x']],
+      ['a date that is not a calendar date', ['==', ['get', 'seen'], 'last week']],
+      ['a timestamp that is not one', ['>', ['get', 'at'], '06:00']],
+      ['a date list with a bad entry', ['in', ['get', 'seen'], ['literal', ['2024-01-01', 'x']]]],
+      ['a substring test on a uuid', ['in', 'ab', ['get', 'ref']]],
+      ['one json condition among others', ['all', ['==', ['get', 'Zone'], 'n'], ['has', 'meta']]],
+    ])('refuses %s', (_label, filter) => {
+      expect(convert(filter)).toBe('unsupported');
+    });
+  });
 });

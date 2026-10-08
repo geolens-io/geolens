@@ -763,12 +763,17 @@ export function AnalysisPanel({
       : undefined;
   // Each layer is analysed as the map shows it: through its own filter, sent
   // as CQL2-JSON. Only the layers the request names count.
-  const sourceCql2 = maplibreFilterToCql2(selectedLayer?.filter);
+  const sourceCql2 = maplibreFilterToCql2(
+    selectedLayer?.filter,
+    selectedLayer?.dataset_column_info,
+  );
   const maskCql2 =
-    usesMaskLayer && !mask && maskLayer ? maplibreFilterToCql2(maskLayer.filter) : null;
+    usesMaskLayer && !mask && maskLayer
+      ? maplibreFilterToCql2(maskLayer.filter, maskLayer.dataset_column_info)
+      : null;
   const joinCql2 =
     operation === 'spatial_join' && joinLayer
-      ? maplibreFilterToCql2(joinLayer.filter)
+      ? maplibreFilterToCql2(joinLayer.filter, joinLayer.dataset_column_info)
       : null;
   const filterUnsupported = [sourceCql2, maskCql2, joinCql2].includes('unsupported');
   const filterFields = {

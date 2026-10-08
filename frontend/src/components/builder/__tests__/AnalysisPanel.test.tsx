@@ -365,6 +365,72 @@ describe('AnalysisPanel', () => {
       );
     });
 
+    it('sends a date filter as a typed date literal', async () => {
+      renderPanel([
+        {
+          ...datasetLayer,
+          dataset_column_info: [{ name: 'seen', type: 'date' }],
+          filter: ['==', ['get', 'seen'], '2024-02-01'],
+        } as unknown as MapLayerResponse,
+      ]);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+
+      await waitFor(() =>
+        expect(previewAnalysis).toHaveBeenCalledWith(
+          'ds1',
+          {
+            operation: 'buffer',
+            distance_meters: 500,
+            filter: { op: '=', args: [{ property: 'seen' }, { date: '2024-02-01' }] },
+          },
+          expect.any(AbortSignal),
+        ),
+      );
+    });
+
+    it('blocks a run whose layer filter reads a json column', () => {
+      renderPanel([
+        {
+          ...datasetLayer,
+          dataset_column_info: [{ name: 'props', type: 'json' }],
+          filter: ['has', 'props'],
+        } as unknown as MapLayerResponse,
+      ]);
+
+      const preview = screen.getByRole('button', { name: 'Preview' });
+      expect(preview).toBeDisabled();
+      expect(preview).toHaveAccessibleDescription(
+        "A layer's filter uses an expression analysis can't apply. Simplify it in the layer's filter settings, or remove it.",
+      );
+      expect(screen.queryByText(/this layer's filter shows/)).not.toBeInTheDocument();
+    });
+
+    it('blocks a run whose mask layer filter reads an array column', async () => {
+      const user = userEvent.setup();
+      const mask = {
+        ...datasetLayer,
+        id: 'm1',
+        dataset_id: 'mask-ds',
+        dataset_name: 'Districts',
+        dataset_column_info: [{ name: 'tags', type: 'ARRAY' }],
+        filter: ['has', 'tags'],
+      } as unknown as MapLayerResponse;
+      renderPanel([datasetLayer, mask]);
+
+      await user.click(screen.getAllByRole('combobox')[1]);
+      await user.click(await screen.findByRole('option', { name: 'Clip' }));
+      await user.click(screen.getByRole('combobox', { name: 'Or clip to a layer' }));
+      await user.click(await screen.findByRole('option', { name: 'Districts' }));
+
+      expect(screen.getByRole('button', { name: 'Preview' })).toBeDisabled();
+      expect(
+        screen.getByText(
+          "A layer's filter uses an expression analysis can't apply. Simplify it in the layer's filter settings, or remove it.",
+        ),
+      ).toBeInTheDocument();
+    });
+
     it('blocks a run whose layer filter analysis cannot apply', () => {
       renderPanel([
         {

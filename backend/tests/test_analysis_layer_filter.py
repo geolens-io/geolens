@@ -268,6 +268,206 @@ class TestPreview:
         assert "mask_filter requires mask_dataset_id" in resp.text
 
 
+REF_A, REF_B, REF_C = (
+    "6f1c3a52-2b8e-4f0e-9a51-3d6a8f9c0b11",
+    "0a7e5c4d-91f2-4b6a-8c3e-5e2f1d7a9b22",
+    "c3d9e8f7-6a5b-4c3d-9e8f-7a6b5c4d3e33",
+)
+
+
+async def _create_typed_points(session: AsyncSession, *, created_by: uuid.UUID):
+    """Four points with a date, timestamps, a mixed-case name, uuid, json and an array.
+
+    Point 4 holds nulls in every typed column.
+    """
+    rows = ", ".join(
+        f"('p{i}', {seen}, {at}, {atz}, {zone}, {ref}, {meta}, {tags},"
+        f" ST_SetSRID(ST_MakePoint({i * 0.001}, 0), 4326),"
+        f" ST_SetSRID(ST_MakePoint({i * 0.001}, 0), 4326))"
+        for i, seen, at, atz, zone, ref, meta, tags in (
+            (
+                1,
+                "'2024-01-01'",
+                "'2024-01-01 06:00'",
+                "'2024-01-01 06:00+00'",
+                "'north'",
+                f"'{REF_A}'",
+                "'{\"a\": 1}'",
+                "'{x}'",
+            ),
+            (
+                2,
+                "'2024-02-01'",
+                "'2024-02-01 06:00'",
+                "'2024-02-01 06:00+00'",
+                "'south'",
+                f"'{REF_B}'",
+                "'{\"a\": 2}'",
+                "'{y}'",
+            ),
+            (
+                3,
+                "'2024-03-01'",
+                "'2024-03-01 06:00'",
+                "'2024-03-01 06:00+00'",
+                "'north'",
+                f"'{REF_C}'",
+                "'{\"a\": 3}'",
+                "'{z}'",
+            ),
+            (4, "NULL", "NULL", "NULL", "NULL", "NULL", "NULL", "NULL"),
+        )
+    )
+    return await _create_layer(
+        session,
+        created_by=created_by,
+        column_type="Point",
+        geometry_type="POINT",
+        extra_columns=(
+            'seen DATE, at TIMESTAMP, atz TIMESTAMPTZ, "Zone" TEXT, ref UUID,'
+            " meta JSONB, tags TEXT[],"
+        ),
+        column_info=[
+            {"name": "name", "type": "text"},
+            {"name": "seen", "type": "date"},
+            {"name": "at", "type": "timestamp without time zone"},
+            {"name": "atz", "type": "timestamp with time zone"},
+            {"name": "Zone", "type": "text"},
+            {"name": "ref", "type": "uuid"},
+            {"name": "meta", "type": "jsonb"},
+            {"name": "tags", "type": "ARRAY"},
+        ],
+        feature_count=4,
+        values_sql=rows,
+    )
+
+
+def _cmp(op: str, prop: str, value) -> dict:
+    return {"op": op, "args": [{"property": prop}, value]}
+
+
+class TestColumnClasses:
+    """Which column classes a layer filter can read, through the analysis API."""
+
+    @pytest.mark.parametrize(
+        ("cql2", "expected"),
+        [
+            (_cmp("=", "seen", {"date": "2024-02-01"}), [2]),
+            (_cmp(">=", "seen", {"date": "2024-02-01"}), [2, 3]),
+            (
+                {
+                    "op": "in",
+                    "args": [
+                        {"property": "seen"},
+                        [{"date": "2024-01-01"}, {"date": "2024-03-01"}],
+                    ],
+                },
+                [1, 3],
+            ),
+            (_cmp(">=", "at", {"timestamp": "2024-02-01T00:00:00Z"}), [2, 3]),
+            (_cmp("=", "at", {"timestamp": "2024-01-01T06:00:00Z"}), [1]),
+            (_cmp("<", "atz", {"timestamp": "2024-02-01T00:00:00Z"}), [1]),
+            (_cmp("=", "Zone", "north"), [1, 3]),
+            ({"op": "like", "args": [{"property": "Zone"}, "%ou%"]}, [2]),
+            (_cmp("=", "ref", REF_B), [2]),
+            (_cmp("=", "ref", REF_B.upper()), [2]),
+            ({"op": "in", "args": [{"property": "ref"}, [REF_A, REF_C]]}, [1, 3]),
+            ({"op": "isNull", "args": [{"property": "ref"}]}, [4]),
+        ],
+        ids=[
+            "date-equal",
+            "date-range",
+            "date-in-list",
+            "timestamp",
+            "timestamp-equal",
+            "timestamptz",
+            "mixed-case-name",
+            "mixed-case-like",
+            "uuid-equal",
+            "uuid-any-case",
+            "uuid-in-list",
+            "uuid-is-null",
+        ],
+    )
+    async def test_a_filter_on_a_supported_column_class_applies(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+        cql2: dict,
+        expected: list[int],
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        points = await _create_typed_points(test_db_session, created_by=admin_id)
+
+        resp = await client.post(
+            f"/datasets/{points.id}/analysis/preview/",
+            json={"operation": "centroid", "filter": cql2},
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert _gids(resp.json()) == expected
+
+    @pytest.mark.parametrize(
+        ("cql2", "message"),
+        [
+            (_cmp("=", "seen", "2024-02-01"), "DATE"),
+            (_cmp("=", "ref", "not-a-uuid"), "uuid"),
+            ({"op": "like", "args": [{"property": "ref"}, "%a%"]}, "LIKE"),
+            (_cmp("=", "meta", "x"), "non-filterable"),
+            ({"op": "isNull", "args": [{"property": "tags"}]}, "non-filterable"),
+        ],
+        ids=["date-as-string", "malformed-uuid", "uuid-like", "json", "array"],
+    )
+    async def test_a_filter_on_an_unsupported_use_is_refused(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+        cql2: dict,
+        message: str,
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        points = await _create_typed_points(test_db_session, created_by=admin_id)
+
+        resp = await client.post(
+            f"/datasets/{points.id}/analysis/preview/",
+            json={"operation": "centroid", "filter": cql2},
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 422, resp.text
+        assert message in resp.text
+
+    async def test_the_worker_applies_a_date_and_mixed_case_filter(
+        self, test_db_session: AsyncSession
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        points = await _create_typed_points(test_db_session, created_by=admin_id)
+        job = await _create_job(test_db_session, admin_id)
+
+        await _materialize(
+            job_id=str(job.id),
+            dataset_id=str(points.id),
+            user_id=str(admin_id),
+            operation="centroid",
+            title=f"Typed {uuid.uuid4().hex[:6]}",
+            source_filter={
+                "op": "and",
+                "args": [
+                    _cmp(">=", "seen", {"date": "2024-02-01"}),
+                    _cmp("=", "Zone", "north"),
+                ],
+            },
+        )
+
+        await test_db_session.refresh(job)
+        assert job.status == "complete", job.error_message
+        out = await test_db_session.get(Dataset, job.dataset_id)
+        assert out.feature_count == 1
+
+
 class TestMaterialize:
     async def test_the_size_limit_counts_filtered_rows(
         self,

@@ -379,6 +379,62 @@ const CQL2_COMPARISON: Record<string, string> = {
   '>=': '>=',
 };
 
+/** A dataset column as the catalog lists it, typed by its information_schema name. */
+export interface FilterColumn {
+  name: string;
+  type?: string | null;
+}
+
+// Mirrors _FEATURE_QUERYABLE_NAME_RE and _PG_TYPE_TO_SCHEMA in
+// backend/app/standards/ogc/filtering.py: the columns a CQL2 filter can read.
+const CQL2_COLUMN_NAME_RE = /^[A-Za-z][A-Za-z0-9_]{0,62}$/;
+const CQL2_STRING_TYPES = new Set(['text', 'character varying', 'character']);
+const CQL2_QUERYABLE_TYPES = new Set([
+  ...CQL2_STRING_TYPES,
+  'smallint',
+  'integer',
+  'bigint',
+  'real',
+  'double precision',
+  'numeric',
+  'boolean',
+  'date',
+  'timestamp without time zone',
+  'timestamp with time zone',
+  'uuid',
+]);
+const DATE_TEXT_RE = /^\d{4}-\d{2}-\d{2}$/;
+// Vector tiles carry PostgreSQL's text form ("2024-01-01 06:00:00+00"); RFC 3339 also parses.
+const TIMESTAMP_TEXT_RE =
+  /^(\d{4}-\d{2}-\d{2})(?:[Tt ](\d{2}:\d{2})(:\d{2}(?:\.\d+)?)?([Zz]|[+-]\d{2}(?::?\d{2})?)?)?$/;
+
+/** An RFC 3339 timestamp for a date or timestamp in either text form; UTC when no offset is given. */
+function cql2Timestamp(value: string): { timestamp: string } | null {
+  const m = TIMESTAMP_TEXT_RE.exec(value);
+  if (!m) return null;
+  const [, day, hoursMinutes = '00:00', seconds = ':00', offset] = m;
+  let zone = 'Z';
+  if (offset && offset.toUpperCase() !== 'Z') {
+    const digits = offset.slice(1).replace(':', '');
+    zone = `${offset[0]}${digits.slice(0, 2)}:${digits.slice(2) || '00'}`;
+  }
+  return { timestamp: `${day}T${hoursMinutes}${seconds}${zone}` };
+}
+
+/**
+ * The CQL2 literal for a value compared with a column of `pgType`, or null when
+ * the value can't be one. CQL2 compares dates and timestamps only as typed literals.
+ */
+function cql2Literal(value: string | number | boolean, pgType: string | undefined): unknown {
+  if (pgType === 'date') {
+    return typeof value === 'string' && DATE_TEXT_RE.test(value) ? { date: value } : null;
+  }
+  if (pgType === 'timestamp without time zone' || pgType === 'timestamp with time zone') {
+    return typeof value === 'string' ? cql2Timestamp(value) : null;
+  }
+  return value;
+}
+
 function isCql2Scalar(value: unknown): value is string | number | boolean {
   return (
     typeof value === 'string' ||
@@ -417,18 +473,26 @@ function compareNumbers(a: number, operator: string, b: number): boolean {
   }
 }
 
-function conditionToCql2(c: CanonicalFilterCondition): Cql2Expression | null {
-  if (c.field.startsWith('$')) return null;
+function conditionToCql2(
+  c: CanonicalFilterCondition,
+  pgType: string | undefined,
+): Cql2Expression | null {
+  if (!CQL2_COLUMN_NAME_RE.test(c.field)) return null;
+  // An unlisted column is left to the server, which reads the live table.
+  if (pgType !== undefined && !CQL2_QUERYABLE_TYPES.has(pgType)) return null;
   if (c.operator === 'is_null') return cql2IsNull(c.field);
   if (c.operator === 'has') return cql2Not(cql2IsNull(c.field));
   if (c.operator === 'in_list' || c.operator === 'not_in_list') {
     const values = c.listValues ?? [];
     if (values.length === 0 || !values.every(isCql2Scalar)) return null;
-    const inList: Cql2Expression = { op: 'in', args: [cql2Property(c.field), values] };
+    const literals = values.map((v) => cql2Literal(v, pgType));
+    if (literals.includes(null)) return null;
+    const inList: Cql2Expression = { op: 'in', args: [cql2Property(c.field), literals] };
     return c.operator === 'in_list' ? inList : cql2OrNull(c.field, cql2Not(inList));
   }
   if (c.operator === 'contains') {
     if (typeof c.rawValue !== 'string') return null;
+    if (pgType !== undefined && !CQL2_STRING_TYPES.has(pgType)) return null;
     // MapLibre's `in` is a literal, case-sensitive substring test.
     const literal = c.rawValue.replace(/[\\%_]/g, '\\$&');
     return { op: 'like', args: [cql2Property(c.field), `%${literal}%`] };
@@ -448,23 +512,31 @@ function conditionToCql2(c: CanonicalFilterCondition): Cql2Expression | null {
     return null;
   }
   if (!isCql2Scalar(c.rawValue)) return null;
-  const comparison: Cql2Expression = { op, args: [cql2Property(c.field), c.rawValue] };
+  const literal = cql2Literal(c.rawValue, pgType);
+  if (literal === null) return null;
+  const comparison: Cql2Expression = { op, args: [cql2Property(c.field), literal] };
   return c.operator === '!=' ? cql2OrNull(c.field, comparison) : comparison;
 }
 
 /**
  * Translate a layer's MapLibre filter into CQL2-JSON that keeps the same
  * features. Returns null when the layer has no filter, and 'unsupported' when
- * the filter uses a form outside the structured editor's subset.
+ * the filter uses a form outside the structured editor's subset or reads a
+ * column CQL2 cannot filter. `columns` types the literals; a filter on a
+ * column it does not list is sent untyped.
  */
 export function maplibreFilterToCql2(
   filter: FilterSpecification | null | undefined,
+  columns?: readonly FilterColumn[] | null,
 ): Cql2Expression | null | 'unsupported' {
   const canonical = parseCanonicalFilter(filter);
   if (canonical.kind === 'opaque') return 'unsupported';
+  const types = new Map(
+    (columns ?? []).filter((col) => col.type).map((col) => [col.name, String(col.type).toLowerCase()]),
+  );
   const parts: Cql2Expression[] = [];
   for (const condition of canonical.conditions) {
-    const part = conditionToCql2(condition);
+    const part = conditionToCql2(condition, types.get(condition.field));
     if (part === null) return 'unsupported';
     parts.push(part);
   }
