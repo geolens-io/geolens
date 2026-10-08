@@ -117,8 +117,15 @@ branches to core code.
 ## Frontend (React + Vite)
 
 `frontend/src/` — React 19, Vite, TanStack Query (server state), Zustand (`stores/`,
-client state; auth token under `geolens-auth`), `@vis.gl/react-maplibre` v8 + `maplibre-gl`
+client state), `@vis.gl/react-maplibre` v8 + `maplibre-gl`
 v5, Tailwind, and shadcn/ui primitives in `components/ui/`.
+
+- **Auth session:** the access token lives in memory only. The `geolens-auth` entry in
+  localStorage holds just the session id and the user. On reload, `lib/session-sync.ts`
+  gets a new token from the httpOnly refresh cookie. Tabs tell each other about sign-in and
+  sign-out over a `BroadcastChannel` (`lib/auth-channel.ts`), and those messages carry only
+  the session id. A session on an API that the cookie can't reach keeps its refresh token
+  in memory too, so a reload ends it.
 
 - **API access:** `api/client.ts` `apiFetch()` wraps fetch + auth; one file per domain in `api/`.
 - **Routes:** `pages/` (admin sub-pages in `pages/admin/`).
