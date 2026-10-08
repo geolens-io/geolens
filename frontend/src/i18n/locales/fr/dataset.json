@@ -322,6 +322,7 @@
       "committing": "Validation du rechargement...",
       "tracking": "Le jeu de données est en cours de mise à jour en arrière-plan.",
       "complete": "Le jeu de données a été mis à jour avec succès.",
+      "held": "Ce remplacement a été mis en attente de révision.",
       "error": "Un problème est survenu lors du rechargement."
     },
     "sourceSelector": {
@@ -959,6 +960,7 @@
           "live_data_changed": "Des entités ont été modifiées pendant ce remplacement. Le publier supprimerait ces modifications."
         },
         "reviewAndRetry": "Examiner et relancer",
+        "acceptedReasonsLabel": "Motifs de révision acceptés :",
         "loadMore": "Charger les exécutions précédentes"
       }
     },

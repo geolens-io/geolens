@@ -1024,7 +1024,7 @@
     "truncatedNotice_one": "Vorschau auf {{count, number}} Feature begrenzt",
     "truncatedNotice_other": "Vorschau auf {{count, number}} Features begrenzt",
     "previewFailed": "Analyse fehlgeschlagen",
-    "noLayers": "Fügen Sie eine Datenebene hinzu, um Analysewerkzeuge zu nutzen",
+    "noLayers": "Fügen Sie eine Vektor-Datenebene hinzu, um Analysewerkzeuge zu nutzen. Rasterebenen werden nicht unterstützt.",
     "opDissolve": "Auflösen",
     "dissolveHint": "Auflösen führt Features zu einer Geometrie pro Gruppe zusammen; nur das Gruppierungsfeld bleibt erhalten. Mit „Datensatz erstellen“ ausführen",
     "outputTitleLabel": "Name des neuen Datensatzes",

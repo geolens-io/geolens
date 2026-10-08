@@ -26,6 +26,10 @@
     "cta": "Importe su primer conjunto de datos",
     "catalogTitle": "Tu catálogo está vacío",
     "catalogDescription": "Importa un conjunto de datos para empezar a crear tu catálogo geoespacial.",
+    "catalogTitleViewer": "Aún no hay conjuntos de datos",
+    "catalogDescriptionViewer": "El catálogo aún no tiene conjuntos de datos. Aparecerán aquí cuando alguien con permiso de importación los añada.",
+    "catalogDescriptionAnonymous": "Aún no hay conjuntos de datos públicos. Inicia sesión para ver los que se han compartido contigo.",
+    "signIn": "Iniciar sesión",
     "clear": "Borrar búsqueda y filtros"
   },
   "error": {

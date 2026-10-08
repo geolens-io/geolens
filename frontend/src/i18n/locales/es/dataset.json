@@ -322,6 +322,7 @@
       "committing": "Confirmando la nueva subida...",
       "tracking": "El conjunto de datos se está actualizando en segundo plano.",
       "complete": "El conjunto de datos se ha actualizado correctamente.",
+      "held": "Esta sustitución quedó retenida para su revisión.",
       "error": "Algo salió mal durante la nueva subida."
     },
     "sourceSelector": {
@@ -959,6 +960,7 @@
           "live_data_changed": "Se editaron entidades mientras se ejecutaba este reemplazo. Publicarlo descartaría esas ediciones."
         },
         "reviewAndRetry": "Revisar y reintentar",
+        "acceptedReasonsLabel": "Motivos de revisión que se aceptaron:",
         "loadMore": "Cargar ejecuciones anteriores"
       }
     },

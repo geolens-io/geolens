@@ -36,7 +36,7 @@ import {
 } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
 import { recordTypeCapabilities } from '@/lib/record-types';
-import { Globe, Loader2, CheckCircle2, AlertCircle, Upload } from 'lucide-react';
+import { Globe, Loader2, CheckCircle2, AlertCircle, AlertTriangle, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { probeService } from '@/api/ingest';
 import { ApiError } from '@/api/client';
@@ -66,6 +66,7 @@ type ReuploadStep =
   | 'committing'
   | 'tracking'
   | 'complete'
+  | 'held'
   | 'error';
 
 
@@ -282,6 +283,12 @@ export function ReuploadDialog({
       const message = reason
         ? describeFailureReason(reason, t('reupload.jobFailed'), jobData.error_code)
         : t('reupload.jobFailed');
+      if (jobData.error_code === 'review_required') {
+        // A hold waits on a person's decision; retrying here would not change it.
+        setError(message);
+        setStep('held');
+        return;
+      }
       setError(
         sourceType === 'service_url'
           ? appendRetryGuidance(message)
@@ -674,6 +681,7 @@ export function ReuploadDialog({
       })
       : t('reupload.descriptions.tracking'),
     complete: t('reupload.descriptions.complete'),
+    held: t('reupload.descriptions.held'),
     error: t('reupload.descriptions.error'),
   };
 
@@ -1137,6 +1145,16 @@ export function ReuploadDialog({
             <p className="text-xs text-muted-foreground">
               {t('reupload.completeMessage')}
             </p>
+            <DialogFooter className="w-full">
+              <Button onClick={() => handleOpenChange(false)}>{t('common:close')}</Button>
+            </DialogFooter>
+          </div>
+        )}
+
+        {step === 'held' && (
+          <div className="flex flex-col items-center justify-center gap-3 py-8" data-testid="reupload-held">
+            <AlertTriangle className="h-10 w-10 text-warning" />
+            <p className="text-sm font-medium">{error}</p>
             <DialogFooter className="w-full">
               <Button onClick={() => handleOpenChange(false)}>{t('common:close')}</Button>
             </DialogFooter>

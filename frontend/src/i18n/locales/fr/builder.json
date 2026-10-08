@@ -1024,7 +1024,7 @@
     "truncatedNotice_one": "Aperçu limité à {{count, number}} entité",
     "truncatedNotice_other": "Aperçu limité à {{count, number}} entités",
     "previewFailed": "Échec de l'analyse",
-    "noLayers": "Ajoutez une couche de données pour utiliser les outils d'analyse",
+    "noLayers": "Ajoutez une couche de données vectorielle pour utiliser les outils d'analyse. Les couches raster ne sont pas prises en charge.",
     "opDissolve": "Dissoudre",
     "dissolveHint": "Dissoudre fusionne les entités en une géométrie par groupe ; seul le champ de regroupement est conservé. Exécutez-le avec Créer un jeu de données",
     "outputTitleLabel": "Nom du nouveau jeu de données",

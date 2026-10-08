@@ -26,6 +26,10 @@
     "cta": "Importez votre premier jeu de données",
     "catalogTitle": "Votre catalogue est vide",
     "catalogDescription": "Importez un jeu de données pour commencer à constituer votre catalogue géospatial.",
+    "catalogTitleViewer": "Aucun jeu de données pour le moment",
+    "catalogDescriptionViewer": "Le catalogue ne contient pas encore de jeux de données. Ils apparaîtront ici dès que quelqu'un disposant du droit d'importation en ajoutera.",
+    "catalogDescriptionAnonymous": "Il n'y a pas encore de jeu de données public. Connectez-vous pour voir ceux qui sont partagés avec vous.",
+    "signIn": "Se connecter",
     "clear": "Effacer la recherche et les filtres"
   },
   "error": {

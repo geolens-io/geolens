@@ -221,10 +221,18 @@ export function SearchPage() {
                 <EmptyState
                   announce={false}
                   icon={Database}
-                  title={t('empty.catalogTitle', { defaultValue: 'Your catalog is empty' })}
-                  description={t('empty.catalogDescription', {
-                    defaultValue: 'Import a dataset to start building your geospatial catalog.',
-                  })}
+                  title={
+                    canImport
+                      ? t('empty.catalogTitle')
+                      : t('empty.catalogTitleViewer')
+                  }
+                  description={
+                    canImport
+                      ? t('empty.catalogDescription')
+                      : token
+                        ? t('empty.catalogDescriptionViewer')
+                        : t('empty.catalogDescriptionAnonymous')
+                  }
                   action={
                     canImport ? (
                       <Button asChild>
@@ -232,6 +240,10 @@ export function SearchPage() {
                           <Upload className="h-4 w-4 me-1" />
                           {t('empty.cta')}
                         </Link>
+                      </Button>
+                    ) : !token ? (
+                      <Button asChild variant="outline">
+                        <Link to="/login">{t('empty.signIn')}</Link>
                       </Button>
                     ) : undefined
                   }

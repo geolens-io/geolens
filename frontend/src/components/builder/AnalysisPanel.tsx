@@ -1339,7 +1339,7 @@ export function AnalysisPanel({
     return (
       <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">
         {t('analysisTools.noLayers', {
-          defaultValue: 'Add a dataset layer to use analysis tools',
+          defaultValue: 'Add a vector dataset layer to use analysis tools. Raster layers are not supported.',
         })}
       </div>
     );

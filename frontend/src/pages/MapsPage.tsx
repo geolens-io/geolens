@@ -1,3 +1,4 @@
+import { Link } from 'react-router';
 import { useState, useEffect, useCallback } from 'react';
 import { Map as MapIcon, Plus, Search, LayoutList, LayoutGrid } from 'lucide-react';
 import { toast } from 'sonner';
@@ -214,14 +215,24 @@ export function MapsPage() {
           description={
             debouncedSearch || visibility !== 'all'
               ? t('maps.noMapsMatch')
-              : t('maps.noMapsDescription')
+              : canEditMaps
+                ? t('maps.noMapsDescription')
+                : user
+                  ? t('maps.noMapsDescriptionViewer')
+                  : t('maps.noMapsDescriptionAnonymous')
           }
           action={
-            !debouncedSearch && visibility === 'all' && canEditMaps ? (
-              <Button onClick={() => setCreateOpen(true)}>
-                <Plus className="h-4 w-4 me-1" />
-                {t('maps.createFirstMap')}
-              </Button>
+            !debouncedSearch && visibility === 'all' ? (
+              canEditMaps ? (
+                <Button onClick={() => setCreateOpen(true)}>
+                  <Plus className="h-4 w-4 me-1" />
+                  {t('maps.createFirstMap')}
+                </Button>
+              ) : !user ? (
+                <Button asChild variant="outline">
+                  <Link to="/login">{t('maps.signIn')}</Link>
+                </Button>
+              ) : undefined
             ) : undefined
           }
         />
