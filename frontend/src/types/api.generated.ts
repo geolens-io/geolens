@@ -6078,6 +6078,27 @@ export interface components {
              * @description Columns to copy from the intersecting join feature, prefixed 'join_' in the output. Ties break on the lowest join-layer gid (spatial_join only)
              */
             join_fields?: string[] | null;
+            /**
+             * Filter
+             * @description CQL2-JSON filter on the source dataset, in the language /collections/{dataset_id}/items accepts as filter-lang=cql2-json. Only the features it keeps are analysed, counted, and checked against the operation's size limit.
+             */
+            filter?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Mask Filter
+             * @description CQL2-JSON filter on the mask_dataset_id layer: only its matching features form the mask or overlay. Requires mask_dataset_id.
+             */
+            mask_filter?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Join Filter
+             * @description CQL2-JSON filter on the join layer: only its matching features are joined (spatial_join only).
+             */
+            join_filter?: {
+                [key: string]: unknown;
+            } | null;
         };
         /**
          * AnalysisMaterializeResponse
@@ -6137,6 +6158,27 @@ export interface components {
              * @description [minx, miny, maxx, maxy] in EPSG:4326, typically the map's current viewport. When present, only source features intersecting the envelope are considered before the preview's row cap applies, so a capped result reflects what is on screen rather than an arbitrary sample in ingest order. Applies to every operation, not just one, so it is deliberately absent from _ANALYSIS_PARAM_OWNERS — omit it to preview the whole dataset, unchanged from before this field existed.
              */
             bbox?: number[] | null;
+            /**
+             * Filter
+             * @description CQL2-JSON filter on the source dataset, in the language /collections/{dataset_id}/items accepts as filter-lang=cql2-json. Only the features it keeps are analysed, counted, and checked against the operation's size limit.
+             */
+            filter?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Mask Filter
+             * @description CQL2-JSON filter on the mask_dataset_id layer: only its matching features form the mask or overlay. Requires mask_dataset_id.
+             */
+            mask_filter?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Join Filter
+             * @description CQL2-JSON filter on the join layer: only its matching features are joined (spatial_join only).
+             */
+            join_filter?: {
+                [key: string]: unknown;
+            } | null;
         };
         /**
          * AnalysisPreviewResponse
@@ -6155,12 +6197,12 @@ export interface components {
             bbox?: number[] | null;
             /**
              * Source Feature Count
-             * @description Total feature count of the source dataset (1:1 operations only; null when the operation filters rows, e.g. clip). When the request carried a bbox this is a live count of rows intersecting it rather than the dataset's cached whole-table total. It is also null, like match_count, when that live count could not be computed within the query budget
+             * @description Total feature count of the source dataset (1:1 operations only; null when the operation filters rows, e.g. clip). When the request carried a bbox or a filter this is a live count of the rows intersecting the bbox and matching the filter rather than the dataset's cached whole-table total. It is also null, like match_count, when that live count could not be computed within the query budget
              */
             source_feature_count?: number | null;
             /**
              * Match Count
-             * @description Exact total across the WHOLE source, not just the previewed features — WHOLE meaning the request's bbox when one was sent, the same sense source_feature_count uses that word. What it counts is per-operation, so read it against the operation you sent rather than as one number: select_by_location gives the selected source features and intersect gives the output pieces, and for both of those it IS the output total; spatial_join gives intersecting source/join PAIRS, which is NOT the output total, because the join keeps every source row (use source_feature_count for that operation). intersect and spatial_join both scope this total to a bbox on the request; select_by_location's count is a separate uncapped query the request's bbox does not reach, so it stays unscoped even though its preview rows are viewport-limited too. Null for operations that report no such total, and when the count could not be computed within the query budget
+             * @description Exact total across the WHOLE source, not just the previewed features — WHOLE meaning the request's bbox when one was sent, the same sense source_feature_count uses that word, and always within the request's layer filters. What it counts is per-operation, so read it against the operation you sent rather than as one number: select_by_location gives the selected source features and intersect gives the output pieces, and for both of those it IS the output total; spatial_join gives intersecting source/join PAIRS, which is NOT the output total, because the join keeps every source row (use source_feature_count for that operation). intersect and spatial_join both scope this total to a bbox on the request; select_by_location's count is a separate uncapped query the request's bbox does not reach, so it stays unscoped even though its preview rows are viewport-limited too. Null for operations that report no such total, and when the count could not be computed within the query budget
              */
             match_count?: number | null;
         };
@@ -8569,6 +8611,13 @@ export interface components {
              * @description The dataset this one was derived from
              */
             dataset_id: string;
+            /**
+             * Source Filter
+             * @description CQL2-JSON filter that selected the source features, or null when the whole source dataset was used
+             */
+            source_filter?: {
+                [key: string]: unknown;
+            } | null;
             /**
              * Operation
              * @description Analysis operation that produced it

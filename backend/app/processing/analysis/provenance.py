@@ -40,7 +40,12 @@ PARAM_KEYS = (
     "mask_dataset_id",
     "join_dataset_id",
     "join_fields",
+    "mask_filter",
+    "join_filter",
 )
+
+# Past this many columns, the sentence stops naming them.
+_MAX_FILTER_COLUMNS = 5
 
 
 def _format_metres(value: Any) -> str:
@@ -61,6 +66,40 @@ def _format_metres(value: Any) -> str:
         return f"{value} m"
     text = repr(number)
     return f"{text.removesuffix('.0')} m"
+
+
+def _filter_columns(node: Any, found: list[str]) -> list[str]:
+    """Every column a CQL2-JSON filter reads, in first-seen order."""
+    if isinstance(node, dict):
+        name = node.get("property")
+        if isinstance(name, str) and name not in found:
+            found.append(name)
+        for value in node.values():
+            _filter_columns(value, found)
+    elif isinstance(node, list):
+        for value in node:
+            _filter_columns(value, found)
+    return found
+
+
+def _source_filter_clause(source_filter: Mapping[str, Any] | None) -> str:
+    """The sentence's mention of the source filter, or "" for the whole source.
+
+    Columns only, never values: catalog search matches this prose before any
+    per-requester redaction, so a value here could be probed through ``q``.
+    The full filter is in ``derived_from``, which read paths access-check.
+    """
+    if not source_filter:
+        return ""
+    columns = _filter_columns(source_filter, [])
+    if not columns or len(columns) > _MAX_FILTER_COLUMNS:
+        return ", using a filtered subset of its features"
+    named = (
+        columns[0]
+        if len(columns) == 1
+        else (f"{', '.join(columns[:-1])} and {columns[-1]}")
+    )
+    return f", using its features filtered on {named}"
 
 
 def _quoted(title: str | None) -> str:
@@ -137,17 +176,23 @@ def build_lineage_sentence(
     created_at: datetime,
     mask_title: str | None = None,
     join_title: str | None = None,
+    source_filter: Mapping[str, Any] | None = None,
 ) -> str:
     """A human sentence describing how this dataset was produced.
 
     Reads as prose because it is exported as prose: DCAT serves it as
-    ``dcterms:provenance`` and the dataset page shows it verbatim.
+    ``dcterms:provenance`` and the dataset page shows it verbatim. It names the
+    columns the source filter reads; mask and join filters are left out, for
+    the reason ``join_fields`` is left out of the spatial_join phrase.
     """
     params = params or {}
     phrase = _operation_phrase(
         operation, _quoted(source_title), params, mask_title, join_title
     )
-    return f"{phrase}, created by {actor} on {created_at.date().isoformat()}."
+    return (
+        f"{phrase}{_source_filter_clause(source_filter)}, created by {actor} on "
+        f"{created_at.date().isoformat()}."
+    )
 
 
 def build_derived_from(
@@ -156,16 +201,21 @@ def build_derived_from(
     operation: str,
     params: Mapping[str, Any] | None = None,
     created_at: datetime,
+    source_filter: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The durable reference stored on ``records.derived_from``.
 
     Only the parameters that shaped the output are kept; the drawn clip mask
     itself is deliberately excluded, as it is on the job metadata, because it
-    can be kilobytes of geometry.
+    can be kilobytes of geometry. ``source_filter`` sits beside the source id
+    because it says which of that dataset's features were used.
     """
     params = params or {}
+    reference: dict[str, Any] = {"dataset_id": source_dataset_id}
+    if source_filter:
+        reference["source_filter"] = dict(source_filter)
     return {
-        "dataset_id": source_dataset_id,
+        **reference,
         "operation": operation,
         "params": {k: params[k] for k in PARAM_KEYS if params.get(k) is not None},
         "created_at": created_at.isoformat(),
@@ -217,6 +267,7 @@ async def apply_analysis_provenance(
     user_id: str,
     operation: str,
     params: Mapping[str, Any] | None = None,
+    source_filter: Mapping[str, Any] | None = None,
 ) -> None:
     """Write lineage, the derived_from reference, and inherited keywords.
 
@@ -270,12 +321,14 @@ async def apply_analysis_provenance(
         created_at=now,
         mask_title=mask_title,
         join_title=join_title,
+        source_filter=source_filter,
     )
     record.derived_from = build_derived_from(
         source_dataset_id=source_dataset_id,
         operation=operation,
         params=params,
         created_at=now,
+        source_filter=source_filter,
     )
 
     # Keywords are child rows (catalog.record_keywords) with a keyword_type

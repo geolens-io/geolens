@@ -8,11 +8,12 @@ for end users while full details are logged server-side.
 from __future__ import annotations
 
 import secrets
+from collections.abc import Sequence
 
 import structlog
 import sqlglot
 from sqlglot import exp
-from sqlalchemy import text
+from sqlalchemy import BindParameter, text
 from sqlalchemy.exc import DataError, InternalError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 
@@ -216,7 +217,9 @@ def _decoded_objects_sql(column: str) -> str:
     return f"COALESCE({elements} + {lists}, 0)"
 
 
-async def _column_weights(conn: AsyncConnection, sql: str) -> dict[int, str] | None:
+async def _column_weights(
+    conn: AsyncConnection, sql: str, binds: Sequence[BindParameter]
+) -> dict[int, str] | None:
     """Map result columns that decode to many Python objects to their weighting.
 
     ``"elements"`` marks an array of flat values, weighted by element count;
@@ -224,7 +227,7 @@ async def _column_weights(conn: AsyncConnection, sql: str) -> dict[int, str] | N
     parsed and described, never planned or run. Returns None when describing
     fails, leaving the statement itself to report the error.
     """
-    statement = text(sql).compile(dialect=conn.dialect).string
+    statement = text(sql).bindparams(*binds).compile(dialect=conn.dialect).string
     try:
         async with conn.begin_nested():
             driver = (await conn.get_raw_connection()).driver_connection
@@ -256,15 +259,18 @@ async def _execute_limited(
     fetch_limit: int,
     max_result_bytes: int | None,
     token: str,
+    binds: Sequence[BindParameter],
 ):
     """Run ``sql`` under the row cap and, when given, the weighted byte cap."""
     weights: dict[int, str] | None = {}
     if max_result_bytes is not None:
         weights = await _column_weights(
-            conn, _limited_sql(sql, fetch_limit, None, token)
+            conn, _limited_sql(sql, fetch_limit, None, token), binds
         )
     result = await conn.execute(
-        text(_limited_sql(sql, fetch_limit, max_result_bytes, token, weights))
+        text(
+            _limited_sql(sql, fetch_limit, max_result_bytes, token, weights)
+        ).bindparams(*binds)
     )
     if weights is None:
         # The statement ran although it could not be described, so its
@@ -282,6 +288,7 @@ async def execute_safe(
     concurrency_key: str | None = None,
     require_reader_role: bool = False,
     max_result_bytes: int | None = None,
+    binds: Sequence[BindParameter] = (),
 ) -> SandboxResult:
     """Execute validated SQL inside a READ ONLY transaction with timeout and row cap.
 
@@ -303,6 +310,8 @@ async def execute_safe(
         max_result_bytes: when set, cap the result's text-form size in the
             database. Rows past the cap are cut and ``truncated`` is set; a
             first row that alone exceeds it raises ``result_too_large``.
+        binds: bind parameters ``sql`` names, for server-compiled values
+            such as a layer filter's literals.
 
     Returns:
         SandboxResult with rows, columns, row_count, and truncated flag.
@@ -399,7 +408,7 @@ async def execute_safe(
                     text(f"SET LOCAL statement_timeout = '{timeout_ms}'")
                 )
                 result = await _execute_limited(
-                    conn, sql, fetch_limit, max_result_bytes, token
+                    conn, sql, fetch_limit, max_result_bytes, token, binds
                 )
                 columns = list(result.keys())
                 all_rows = result.fetchall()

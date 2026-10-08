@@ -789,14 +789,17 @@ def _refuse_unsupported_filter(ast_root: Any, queryables: dict[str, str]) -> Non
 def compile_feature_cql2_ast(
     ast_root: Any,
     queryables: dict[str, str],
+    *,
+    bind_prefix: str = "cql2",
 ) -> tuple[str, dict]:
     """Compile a parsed CQL2 AST into a (sql_fragment, bind_params) pair.
 
     The fragment references only unqualified, live-schema-vetted column names
     (bare ``sqlalchemy.column()`` — a table-qualified column would not resolve
     against the ``t`` alias both feature queries use) and carries every value
-    as a ``:cql2_N``-prefixed bind parameter, so it can be appended verbatim
-    to get_features()'s WHERE clauses inside ``text()``.
+    as a ``:<bind_prefix>_N`` bind parameter, so it can be appended verbatim
+    to get_features()'s WHERE clauses inside ``text()``. Distinct prefixes let
+    fragments compiled for different tables share one statement.
 
     Raises HTTPException(400) on any unsupported or type-mismatched filter.
     """
@@ -868,7 +871,7 @@ def compile_feature_cql2_ast(
     # the bind count.
     rendered: dict[str, str] = {}
     for i, (key, value) in enumerate(params):
-        new_key = f"cql2_{i}"
+        new_key = f"{bind_prefix}_{i}"
         # fix(#1614): keep the compiled bind's SQLAlchemy type so
         # execution doesn't re-infer it from the Python value. A
         # render_postcompile-expanded IN member is named <base>_<n>; its

@@ -303,6 +303,13 @@ class DerivedFromResponse(BaseModel):
     """
 
     dataset_id: uuid.UUID = Field(description="The dataset this one was derived from")
+    source_filter: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "CQL2-JSON filter that selected the source features, or null when "
+            "the whole source dataset was used"
+        ),
+    )
     operation: str = Field(description="Analysis operation that produced it")
     params: dict[str, Any] = Field(
         description=(
@@ -1354,7 +1361,26 @@ _ANALYSIS_PARAM_OWNERS = {
     "by_field": ("dissolve",),
     "join_dataset_id": ("spatial_join",),
     "join_fields": ("spatial_join",),
+    "mask_filter": ("clip", "select_by_location", "intersect"),
+    "join_filter": ("spatial_join",),
 }
+
+# Layer filters: CQL2-JSON, validated and compiled by the same code as the
+# OGC items `filter` parameter, so no SQL text comes from the client.
+_FILTER_DESCRIPTION = (
+    "CQL2-JSON filter on the source dataset, in the language "
+    "/collections/{dataset_id}/items accepts as filter-lang=cql2-json. Only "
+    "the features it keeps are analysed, counted, and checked against the "
+    "operation's size limit."
+)
+_MASK_FILTER_DESCRIPTION = (
+    "CQL2-JSON filter on the mask_dataset_id layer: only its matching "
+    "features form the mask or overlay. Requires mask_dataset_id."
+)
+_JOIN_FILTER_DESCRIPTION = (
+    "CQL2-JSON filter on the join layer: only its matching features are "
+    "joined (spatial_join only)."
+)
 
 # Operations whose geometry comes from a drawn mask or a mask layer, exactly
 # one of the two. fix(#956): intersect is deliberately NOT here -- it takes
@@ -1392,6 +1418,9 @@ def _require_analysis_params(request: Any) -> None:
     # this just insists on the layer that replaces it.
     if request.operation == "intersect" and request.mask_dataset_id is None:
         raise ValueError("intersect requires mask_dataset_id")
+    # A drawn mask has no attributes to filter.
+    if request.mask_filter is not None and request.mask_dataset_id is None:
+        raise ValueError("mask_filter requires mask_dataset_id")
     if request.operation == "spatial_join":
         if request.join_dataset_id is None:
             raise ValueError("spatial_join requires join_dataset_id")
@@ -1469,6 +1498,13 @@ class AnalysisPreviewRequest(BaseModel):
             "whole dataset, unchanged from before this field existed."
         ),
     )
+    filter: dict[str, Any] | None = Field(default=None, description=_FILTER_DESCRIPTION)
+    mask_filter: dict[str, Any] | None = Field(
+        default=None, description=_MASK_FILTER_DESCRIPTION
+    )
+    join_filter: dict[str, Any] | None = Field(
+        default=None, description=_JOIN_FILTER_DESCRIPTION
+    )
 
     @field_validator("bbox")
     @classmethod
@@ -1515,8 +1551,9 @@ class AnalysisPreviewResponse(BaseModel):
         description=(
             "Total feature count of the source dataset (1:1 operations only; "
             "null when the operation filters rows, e.g. clip). When the "
-            "request carried a bbox this is a live count of rows intersecting "
-            "it rather than the dataset's cached whole-table total. It is also "
+            "request carried a bbox or a filter this is a live count of the "
+            "rows intersecting the bbox and matching the filter rather than "
+            "the dataset's cached whole-table total. It is also "
             "null, like match_count, when that live count could not "
             "be computed within the query budget"
         ),
@@ -1526,7 +1563,8 @@ class AnalysisPreviewResponse(BaseModel):
         description=(
             "Exact total across the WHOLE source, not just the previewed "
             "features — WHOLE meaning the request's bbox when one was sent, "
-            "the same sense source_feature_count uses that word. What it "
+            "the same sense source_feature_count uses that word, and always "
+            "within the request's layer filters. What it "
             "counts is per-operation, so read it against the operation you "
             "sent rather than as one number: select_by_location gives the "
             "selected source features and intersect gives the output "
@@ -1602,6 +1640,13 @@ class AnalysisMaterializeRequest(BaseModel):
             "'join_' in the output. Ties break on the lowest join-layer gid "
             "(spatial_join only)"
         ),
+    )
+    filter: dict[str, Any] | None = Field(default=None, description=_FILTER_DESCRIPTION)
+    mask_filter: dict[str, Any] | None = Field(
+        default=None, description=_MASK_FILTER_DESCRIPTION
+    )
+    join_filter: dict[str, Any] | None = Field(
+        default=None, description=_JOIN_FILTER_DESCRIPTION
     )
 
     @model_validator(mode="before")

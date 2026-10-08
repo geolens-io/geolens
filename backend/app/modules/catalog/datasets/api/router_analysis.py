@@ -24,6 +24,7 @@ from app.modules.catalog.datasets.domain.schemas import (
     AnalysisPreviewResponse,
 )
 from app.modules.catalog.datasets.domain.service import (
+    compile_layer_filter,
     get_dataset,
     resolve_source_feature_count,
     run_analysis_preview,
@@ -114,6 +115,19 @@ async def _load_vector_dataset(db: AsyncSession, dataset_id: uuid.UUID, user: Id
 
 _POLYGONAL_TYPES = {"POLYGON", "MULTIPOLYGON"}
 
+
+async def _compile_filter(
+    db: AsyncSession, dataset, cql2: dict[str, Any] | None, *, bind_prefix: str
+):
+    """The dataset's compiled layer filter, or 422 naming what is wrong with it."""
+    try:
+        return await compile_layer_filter(db, dataset, cql2, bind_prefix=bind_prefix)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+
+
 # Size-gate ceilings live in app.platform.analysis_sql (shared with the
 # worker's pre-CTAS recheck). Counted via resolve_source_feature_count: the
 # cached snapshot when present, a LIMIT-bounded live count when it's NULL
@@ -122,7 +136,10 @@ _POLYGONAL_TYPES = {"POLYGON", "MULTIPOLYGON"}
 
 
 async def _load_mask_dataset(
-    db: AsyncSession, mask_dataset_id: uuid.UUID, user: Identity
+    db: AsyncSession,
+    mask_dataset_id: uuid.UUID,
+    user: Identity,
+    mask_filter: dict[str, Any] | None = None,
 ):
     """Fetch + visibility-check a mask dataset (Rule 1 applies to BOTH
     datasets of a two-layer operation) and require it to be polygonal --
@@ -132,6 +149,9 @@ async def _load_mask_dataset(
     geometry from the same mask pair; both ceilings apply unchanged. The
     over-limit message still says "to clip with" -- reads slightly off for
     a selection, but is wired through error-map.ts and four locales.
+
+    Returns the dataset and its compiled ``mask_filter``; the ceiling counts
+    only the features that filter keeps.
     """
     dataset = await _load_vector_dataset(db, mask_dataset_id, user)
     if (dataset.geometry_type or "").upper() not in _POLYGONAL_TYPES:
@@ -139,8 +159,11 @@ async def _load_mask_dataset(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="mask_dataset_id must reference a polygon dataset",
         )
+    layer_filter = await _compile_filter(
+        db, dataset, mask_filter, bind_prefix="mask_filter"
+    )
     mask_count = await resolve_source_feature_count(
-        db, dataset, cap=MAX_MASK_LAYER_FEATURES
+        db, dataset, cap=MAX_MASK_LAYER_FEATURES, layer_filter=layer_filter
     )
     if mask_count > MAX_MASK_LAYER_FEATURES:
         raise HTTPException(
@@ -151,7 +174,7 @@ async def _load_mask_dataset(
                 "layer or draw the mask on the map."
             ),
         )
-    return dataset
+    return dataset, layer_filter
 
 
 async def _load_join_dataset(
@@ -289,17 +312,23 @@ async def analysis_preview_endpoint(
     persistence — use the materialize endpoint to save output as a dataset.
     """
     dataset = await _load_vector_dataset(db, dataset_id, user)
-    mask_dataset = (
-        await _load_mask_dataset(db, body.mask_dataset_id, user)
-        if body.mask_dataset_id is not None
-        else None
+    source_filter = await _compile_filter(
+        db, dataset, body.filter, bind_prefix="src_filter"
     )
-    join_dataset = None
+    mask_dataset, mask_filter = (
+        await _load_mask_dataset(db, body.mask_dataset_id, user, body.mask_filter)
+        if body.mask_dataset_id is not None
+        else (None, None)
+    )
+    join_dataset = join_filter = None
     if body.join_dataset_id is not None:
         join_dataset = await _load_join_dataset(db, body.join_dataset_id, user)
         # Always validate because the generated join_count can collide even
         # when the caller supplies no join fields.
         _validate_join_fields(dataset, join_dataset, body.join_fields or [])
+        join_filter = await _compile_filter(
+            db, join_dataset, body.join_filter, bind_prefix="join_filter"
+        )
     try:
         return await run_analysis_preview(
             db,
@@ -308,6 +337,9 @@ async def analysis_preview_endpoint(
             user.id,
             mask_dataset=mask_dataset,
             join_dataset=join_dataset,
+            source_filter=source_filter,
+            mask_filter=mask_filter,
+            join_filter=join_filter,
             # Safe here — `user.id` is evaluated above, and neither
             # this handler nor any middleware reads ORM state afterwards.
             release_session=True,
@@ -368,7 +400,7 @@ async def _validate_materialize_params(
     if body.operation in MASK_OPERATIONS and body.mask_dataset_id is not None:
         # Access + polygon checks happen here at enqueue time; the worker
         # re-resolves the table name and re-validates it against _SAFE_TABLE.
-        await _load_mask_dataset(db, body.mask_dataset_id, user)
+        await _load_mask_dataset(db, body.mask_dataset_id, user, body.mask_filter)
     elif body.operation in MASK_OPERATIONS:
         try:
             render_mask_expr(body.mask or {})
@@ -383,13 +415,18 @@ async def _validate_materialize_params(
         # the table name and re-checks the collision against the live columns.
         join_dataset = await _load_join_dataset(db, body.join_dataset_id, user)
         _validate_join_fields(dataset, join_dataset, body.join_fields or [])
+        await _compile_filter(
+            db, join_dataset, body.join_filter, bind_prefix="join_filter"
+        )
     if body.operation == "measure":
         _reject_generated_column_collision(dataset, MEASURE_OUTPUT_COLUMNS)
     if body.operation == "intersect":
         # Access check on the overlay layer, plus the column checks. Rule 1
         # applies to BOTH datasets; the worker re-resolves the table and
         # re-checks the collisions against the live columns after the queue.
-        overlay = await _load_mask_dataset(db, body.mask_dataset_id, user)
+        overlay, _ = await _load_mask_dataset(
+            db, body.mask_dataset_id, user, body.mask_filter
+        )
         _validate_intersect_columns(dataset, overlay)
 
 
@@ -425,6 +462,12 @@ def _build_analysis_job_metadata(
         meta["join_dataset_id"] = str(body.join_dataset_id)
         if body.join_fields:
             meta["join_fields"] = list(body.join_fields)
+    filters = {
+        "source_filter": body.filter,
+        "mask_filter": body.mask_filter,
+        "join_filter": body.join_filter,
+    }
+    meta.update({key: value for key, value in filters.items() if value is not None})
     return meta
 
 
@@ -455,10 +498,15 @@ async def analysis_materialize_endpoint(
     ``GET /jobs/{job_id}`` for progress.
     """
     dataset = await _load_vector_dataset(db, dataset_id, user)
+    source_filter = await _compile_filter(
+        db, dataset, body.filter, bind_prefix="src_filter"
+    )
 
     max_features = MAX_SOURCE_FEATURES.get(body.operation)
     if max_features is not None:
-        source_count = await resolve_source_feature_count(db, dataset, cap=max_features)
+        source_count = await resolve_source_feature_count(
+            db, dataset, cap=max_features, layer_filter=source_filter
+        )
         if source_count > max_features:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -571,6 +619,13 @@ async def analysis_materialize_endpoint(
             extra_kwargs["join_dataset_id"] = str(body.join_dataset_id)
             if body.join_fields:
                 extra_kwargs["join_fields"] = list(body.join_fields)
+        # The worker compiles each filter again against the live columns.
+        if body.filter is not None:
+            extra_kwargs["source_filter"] = body.filter
+        if body.mask_filter is not None:
+            extra_kwargs["mask_filter"] = body.mask_filter
+        if body.join_filter is not None:
+            extra_kwargs["join_filter"] = body.join_filter
         await defer_async_with_tenant(
             get_catalog_port()
             .materialize_analysis_task()

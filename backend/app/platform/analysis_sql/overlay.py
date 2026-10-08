@@ -73,7 +73,7 @@ def render_clip_layer_join(mask_table_ref: str, *, src: str) -> tuple[str, str, 
         f"WITH _mask_pieces AS MATERIALIZED ("
         f"SELECT ST_Subdivide(geom, {MASK_SUBDIVIDE_MAX_VERTICES}) AS geom"
         f" FROM (SELECT ST_CollectionExtract(ST_MakeValid(geom_4326), 3) AS geom"
-        f" FROM {mask_table_ref} WHERE geom_4326 IS NOT NULL OFFSET 0) AS _p"
+        f" FROM {mask_table_ref} AS _mk WHERE geom_4326 IS NOT NULL OFFSET 0) AS _p"
         f" WHERE NOT ST_IsEmpty(geom))"
     )
     lateral = (
@@ -87,8 +87,8 @@ def render_clip_layer_join(mask_table_ref: str, *, src: str) -> tuple[str, str, 
         f" AND ST_Intersects(_m.geom, ST_MakeValid({src}.geom_4326))) AS _agg)"
     )
     where = (
-        f" WHERE EXISTS (SELECT 1 FROM {mask_table_ref}"
-        f" WHERE geom_4326 && {src}.geom_4326)"
+        f" WHERE EXISTS (SELECT 1 FROM {mask_table_ref} AS _mk"
+        f" WHERE _mk.geom_4326 && {src}.geom_4326)"
     )
     return cte, lateral, where
 
@@ -174,7 +174,7 @@ def render_intersect_pairs(
         f" ST_Subdivide(_o._gl_g, {MASK_SUBDIVIDE_MAX_VERTICES}) AS geom"
         f" FROM (SELECT gid,"
         f" ST_CollectionExtract(ST_MakeValid(geom_4326), 3) AS _gl_g"
-        f" FROM {mask_table_ref} WHERE geom_4326 IS NOT NULL OFFSET 0) AS _o"
+        f" FROM {mask_table_ref} AS _mk WHERE geom_4326 IS NOT NULL OFFSET 0) AS _o"
         f" WHERE NOT ST_IsEmpty(_o._gl_g))"
         f" SELECT (row_number() OVER ())::integer AS gid,"
         f" _p.{INTERSECT_SOURCE_GID_COLUMN}{outer_cols},"

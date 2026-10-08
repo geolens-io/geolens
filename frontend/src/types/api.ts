@@ -262,6 +262,9 @@ export type ServiceAuthRequest = components['schemas']['ServiceAuthRequest'];
  * drops any dataset id the caller cannot see. */
 export interface DerivedFrom {
   dataset_id: string;
+  /** CQL2-JSON filter that selected the source features; absent when the
+   * whole source dataset was used. */
+  source_filter?: Record<string, unknown> | null;
   operation: string;
   params: Record<string, unknown>;
   created_at: string;
@@ -2396,6 +2399,10 @@ export interface AnalysisPreviewRequest {
    * whole dataset, unchanged from before this field existed.
    */
   bbox?: number[];
+  /** CQL2-JSON filters on the source, mask and join layers. */
+  filter?: Record<string, unknown>;
+  mask_filter?: Record<string, unknown>;
+  join_filter?: Record<string, unknown>;
 }
 
 export interface AnalysisPreviewResponse {
@@ -2450,6 +2457,10 @@ export interface AnalysisMaterializeRequest {
   join_dataset_id?: string;
   /** Columns copied from the intersecting join feature, prefixed 'join_' (spatial_join only). */
   join_fields?: string[];
+  /** CQL2-JSON filters on the source, mask and join layers. */
+  filter?: Record<string, unknown>;
+  mask_filter?: Record<string, unknown>;
+  join_filter?: Record<string, unknown>;
 }
 
 export interface AnalysisMaterializeResponse {

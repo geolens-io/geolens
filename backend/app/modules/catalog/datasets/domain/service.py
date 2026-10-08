@@ -13,6 +13,7 @@ from app.modules.catalog.datasets.domain._sql_safety import (
 from app.modules.catalog.datasets.domain.service_analysis import (
     PREVIEW_FEATURE_CAP,
     build_preview_sql,
+    compile_layer_filter,
     resolve_source_feature_count,
     run_analysis_preview,
 )
@@ -74,6 +75,7 @@ __all__ = [
     "admit_restore",
     "auto_detect_relationships",
     "build_preview_sql",
+    "compile_layer_filter",
     "compute_schema_diff",
     "create_dataset",
     "create_empty_dataset",

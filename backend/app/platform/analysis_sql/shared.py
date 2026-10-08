@@ -17,6 +17,8 @@ worker reach one set of renderers
 from __future__ import annotations
 
 import math
+import re
+from collections.abc import Sequence
 from typing import Any
 
 import shapely
@@ -368,3 +370,30 @@ def render_bbox_predicate(bbox: list[float], *, src: str) -> str:
     """
     minx, miny, maxx, maxy = (float(v) for v in bbox)
     return f"{src}.geom_4326 && ST_MakeEnvelope({minx!r}, {miny!r}, {maxx!r}, {maxy!r}, 4326)"
+
+
+def render_filtered_table_ref(table_ref: str, where_sql: str | None) -> str:
+    """``table_ref`` narrowed to the rows a layer filter keeps.
+
+    ``where_sql`` must come from ``compile_feature_cql2_ast``: unqualified,
+    live-schema-vetted column names and bind parameters, never caller text.
+    The narrowed form is a subquery, so every FROM that reads it carries an
+    alias, which PostgreSQL 15 requires. The planner pulls the subquery up,
+    so the table's indexes still serve the outer query.
+    """
+    if not where_sql:
+        return table_ref
+    return f"(SELECT * FROM {table_ref} WHERE {where_sql})"
+
+
+_BIND_NAME = re.compile(r"(?<!:):(\w+)")
+
+
+def binds_referenced_by(sql: str, binds: Sequence[Any]) -> list[Any]:
+    """The bind parameters ``sql`` names, out of ``binds``.
+
+    One request compiles a filter per layer, and not every statement reads
+    every layer. ``text().bindparams`` refuses a bind its text never names.
+    """
+    names = set(_BIND_NAME.findall(sql))
+    return [bind for bind in binds if bind.key in names]
