@@ -297,6 +297,7 @@
     "backfillOtherTenantsMissed_other": "No se pudo poner en cola la regeneración para {{count}} inquilinos más",
     "regenerationPending": "No se pudieron regenerar los embeddings automáticamente. Usa Generar embeddings faltantes para regenerarlos.",
     "regenerationPendingAiOff": "Los embeddings no se regeneraron porque las funciones de IA están desactivadas. Activa la IA y usa Generar embeddings faltantes.",
+    "regenerationPendingAiOffRetry": "Los embeddings no se regeneraron porque las funciones de IA están desactivadas. Active la IA y guarde, luego vuelva a intentarlo.",
     "regenerationPendingRetry": "No se pudieron regenerar los embeddings automáticamente. Vuelva a intentarlo cuando termine cualquier relleno en curso.",
     "backfillFinished": "Relleno de embeddings finalizado",
     "backfillFinishedWithErrors": "El relleno de embeddings terminó con {{errors}} registro(s) rechazado(s) — la cobertura tiene huecos",

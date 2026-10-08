@@ -515,12 +515,19 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
           {regenPending !== null && (
             <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 p-3 max-w-md">
               <AlertTriangle className="h-4 w-4 text-warning mt-0.5 flex-shrink-0" />
-              {regenPending === 'queue' && !canManageUsers && canRegenerateAfterChange ? (
+              {!canManageUsers && canRegenerateAfterChange ? (
                 // Without manage_users the coverage buttons are hidden, so the
-                // rerun is offered here.
+                // rerun is offered here; it waits for AI to be saved as enabled.
                 <div className="space-y-2">
-                  <p className="text-sm text-foreground">{t('ai.regenerationPendingRetry')}</p>
-                  <Button size="sm" variant="outline" onClick={queueRegeneration} disabled={backfill.isPending}>
+                  <p className="text-sm text-foreground">
+                    {t(regenPending === 'ai' ? 'ai.regenerationPendingAiOffRetry' : 'ai.regenerationPendingRetry')}
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={queueRegeneration}
+                    disabled={backfill.isPending || findSetting(settings, 'ai_enabled')?.value === false}
+                  >
                     {backfill.isPending && <Loader2 className="me-1.5 h-3 w-3 animate-spin" />}
                     {t('common:actions.retry')}
                   </Button>

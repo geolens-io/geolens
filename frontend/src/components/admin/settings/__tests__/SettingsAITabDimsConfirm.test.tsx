@@ -235,6 +235,29 @@ describe('SettingsAITab embedding width confirmation', () => {
     expect(screen.getByRole('alertdialog')).toHaveTextContent('regenerate them with Generate Missing Embeddings');
   });
 
+  it('offers a fleet operator the rerun once AI is saved as enabled again', async () => {
+    hoisted.isMultiTenant = true;
+    hoisted.capabilities = ['manage_tenants'];
+    hoisted.statsAvailable = false;
+    const aiOff = settings.map((item) => (item.key === 'ai_enabled' ? { ...item, value: false } : item));
+    const onSave = vi.fn();
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <SettingsAITab settings={aiOff} envOnly={false} onSave={onSave} onReset={onReset} isSaving={false} />,
+    );
+
+    await changeWidth(user, '768');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await user.click(screen.getByRole('button', { name: 'Delete embeddings' }));
+
+    expect(await screen.findByText(/Enable AI and save, then try again/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeDisabled();
+
+    rerender(<SettingsAITab settings={settings} envOnly={false} onSave={onSave} onReset={onReset} isSaving={false} />);
+    await user.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(hoisted.backfillMutate).toHaveBeenCalledWith({ force: false, allTenants: true }, expect.anything());
+  });
+
   it('queues nothing and says AI must be enabled when AI was already off', async () => {
     const user = userEvent.setup();
     const onSave = renderTab(

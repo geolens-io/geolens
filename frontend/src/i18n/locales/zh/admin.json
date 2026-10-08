@@ -322,6 +322,7 @@
     "backfillOtherTenantsMissed_other": "无法为另外 {{count}} 个租户排队重新生成",
     "regenerationPending": "无法自动重新生成嵌入。请使用“生成缺失的嵌入”手动重新生成。",
     "regenerationPendingAiOff": "由于 AI 功能已禁用，嵌入未重新生成。请启用 AI，然后使用“生成缺失的嵌入”。",
+    "regenerationPendingAiOffRetry": "由于 AI 功能已禁用，未重新生成嵌入。请启用 AI 并保存，然后重试。",
     "regenerationPendingRetry": "无法自动重新生成嵌入。请在正在运行的回填完成后重试。",
     "backfillFinished": "嵌入回填已完成",
     "backfillFinishedWithErrors": "嵌入回填已完成，但有 {{errors}} 条记录被拒绝——覆盖率存在缺口",
