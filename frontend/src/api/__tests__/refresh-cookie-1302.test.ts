@@ -330,6 +330,58 @@ describe('browser refresh transport', () => {
     }
   });
 
+  // A 2xx exchange has already consumed the code and set the cookies, so a
+  // body this tab cannot use must not leave that session behind.
+  it('revokes the cookie session before giving up on an unreadable exchange body', async () => {
+    let lockHeld = false;
+    const locks = {
+      request: async (_name: string, _options: unknown, callback: () => Promise<unknown>) => {
+        lockHeld = true;
+        try {
+          return await callback();
+        } finally {
+          lockHeld = false;
+        }
+      },
+    };
+    Object.defineProperty(navigator, 'locks', { value: locks, configurable: true });
+    try {
+      document.cookie = 'geolens_csrf=csrf-new; path=/';
+      useAuthStore.setState({ token: 'older-access' });
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.reject(new SyntaxError('Unexpected end of JSON input')),
+      } as Response);
+      let finishRevoke!: (r: Response) => void;
+      let revokedUnderLock: boolean | null = null;
+      mockFetch.mockImplementationOnce(() => {
+        revokedUnderLock = lockHeld;
+        return new Promise<Response>((resolve) => { finishRevoke = resolve; });
+      });
+      const install = vi.fn();
+      let settled = false;
+      const exchange = exchangeSignInCode('one-time-code', install).finally(() => { settled = true; });
+
+      await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(settled).toBe(false);
+      finishRevoke({ ok: true, status: 204 } as Response);
+
+      await expect(exchange).rejects.toThrow(SyntaxError);
+      expect(install).not.toHaveBeenCalled();
+      expect(revokedUnderLock).toBe(true);
+      const [url, init] = mockFetch.mock.calls[1] as [string, RequestInit];
+      expect(url).toBe('/api/auth/logout/session/');
+      expect(init).toMatchObject({ method: 'POST', credentials: 'same-origin' });
+      expect(init.headers).toMatchObject({ 'X-CSRF-Token': 'csrf-new' });
+      expect(init.headers).not.toHaveProperty('Authorization');
+      expect(useAuthStore.getState().token).toBeNull();
+    } finally {
+      Reflect.deleteProperty(navigator, 'locks');
+    }
+  });
+
   it('rejects with the status when the exchange is refused', async () => {
     mockFetch.mockResolvedValueOnce({ ok: false, status: 401, json: () => Promise.resolve({}) } as Response);
     const install = vi.fn();

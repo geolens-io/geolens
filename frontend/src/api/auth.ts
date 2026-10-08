@@ -83,7 +83,26 @@ export async function exchangeSignInCode<T>(
     if (!response.ok) {
       throw new ApiError(translateApiErrorDetail(undefined, response.status), response.status);
     }
-    return install((await response.json()) as TokenResponse);
+    try {
+      return install((await response.json()) as TokenResponse);
+    } catch (err) {
+      // The exchange already set this browser's cookie. End that session
+      // before releasing the lock, so no tab is left on a cookie this one
+      // never installed.
+      await revokeCookieSession().catch(() => {});
+      useAuthStore.getState().logout();
+      throw err;
+    }
+  });
+}
+
+/** Revoke the family the refresh cookie holds and clear both cookies. */
+async function revokeCookieSession(): Promise<void> {
+  await safeFetch(`${API_BASE}/auth/logout/session/`, {
+    method: 'POST',
+    headers: cookieAuthHeaders(),
+    credentials: 'same-origin',
+    signal: AbortSignal.timeout(LOGOUT_TIMEOUT_MS),
   });
 }
 
