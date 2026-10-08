@@ -193,6 +193,21 @@ async def test_every_tenant_with_records_gets_its_own_run(
     assert _by_tenant(body["other_tenants"]) == {
         str(job.tenant_id): (str(job.id), "pending") for job in other_jobs
     }
+    audit_ips = {
+        str(row.tenant_id): row.ip_address
+        for row in (
+            await test_db_session.execute(
+                select(AuditLog).where(
+                    AuditLog.action == "embedding.backfill",
+                    AuditLog.tenant_id.in_([uuid.UUID(t) for t in tenants.all]),
+                )
+            )
+        ).scalars()
+    }
+    assert audit_ips[tenants.caller] is not None
+    assert audit_ips[tenants.with_records] is None
+    assert audit_ips[tenants.empty] is None
+
     operation_ids = {
         job.user_metadata[EMBEDDING_BACKFILL_METADATA_KEY]["operation_id"]
         for job in jobs.values()

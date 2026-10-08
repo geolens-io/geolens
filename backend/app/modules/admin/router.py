@@ -1209,9 +1209,7 @@ async def trigger_backfill(
     else:
         job_id, job_status = job.id, "pending"
     other_tenants = (
-        await _queue_backfill_for_other_tenants(
-            force=force, ip_address=ip_address, operation_id=operation_id
-        )
+        await _queue_backfill_for_other_tenants(force=force, operation_id=operation_id)
         if every_tenant
         else []
     )
@@ -1399,13 +1397,13 @@ async def _queue_backfill_run(
 
 
 async def _queue_backfill_for_other_tenants(
-    *, force: bool, ip_address: str | None, operation_id: str
+    *, force: bool, operation_id: str
 ) -> list[BackfillTenantRun]:
     """Queue a backfill in every registered tenant except the caller's.
 
     Tenants come from the registry rather than the request, and each run is
     queued in its own session under that tenant's context, as a system run with
-    no user. A tenant with nothing to embed still gets a run, which finishes at
+    no user or client address, which belong to the caller's tenant. A tenant with nothing to embed still gets a run, which finishes at
     once; checking for records first would scan the shared table per tenant. A
     refusal or failure in one tenant is reported and the loop moves on.
     """
@@ -1433,7 +1431,7 @@ async def _queue_backfill_for_other_tenants(
                         tenant_db,
                         force=force,
                         requested_by=None,
-                        ip_address=ip_address,
+                        ip_address=None,
                         operation_id=operation_id,
                     )
         except HTTPException as exc:
