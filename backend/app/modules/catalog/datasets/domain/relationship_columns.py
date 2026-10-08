@@ -92,6 +92,8 @@ async def refresh_dropped_join_column(
     relationship list keeps reporting it healthy. Returns the permanent error
     once the live table confirms the column is gone, else ``None``.
     """
+    if join_column in _INTERNAL_COLUMNS:
+        return None
     # The failed statement aborted the transaction; ids are captured by the caller.
     await session.rollback()
     record_id = (
