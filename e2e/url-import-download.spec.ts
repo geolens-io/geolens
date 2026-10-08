@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './helpers/session';
 
 /**
  * feat(#1710): the URL import's download is a background job, so the tab has a

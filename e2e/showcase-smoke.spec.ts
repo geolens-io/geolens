@@ -1,4 +1,4 @@
-import { test } from '@playwright/test';
+import { test } from './helpers/session';
 
 import { registerShowcaseSmokeSuite } from './showcase-smoke-shared';
 

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/session';
 import { getSearchSeed } from './helpers/catalog';
 
 test.describe('Search Flow', () => {

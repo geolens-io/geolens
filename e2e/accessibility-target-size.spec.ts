@@ -1,4 +1,4 @@
-import { test } from '@playwright/test';
+import { test } from './helpers/session';
 import AxeBuilder from '@axe-core/playwright';
 import { getAuthToken, seedDataset, deleteDataset, type SeededDataset } from './helpers/catalog';
 

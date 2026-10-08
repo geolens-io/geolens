@@ -1,4 +1,4 @@
-import { test, expect, type Page, type Request } from '@playwright/test';
+import { test, expect, type Page, type Request } from './helpers/session';
 
 const JOB_ID = '22222222-3333-4444-5555-666666666666';
 const DATASET_ID = '33333333-4444-5555-6666-777777777777';

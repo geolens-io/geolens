@@ -1,4 +1,4 @@
-import { test, expect, type Page, type Route } from '@playwright/test';
+import { test, expect, type Page, type Route } from './helpers/session';
 import { getAuthToken, getSearchSeed, type SearchSeed } from './helpers/catalog';
 
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';

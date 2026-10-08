@@ -2,7 +2,7 @@
  * Post-implementation validation — covers fixes from builder audit + post-impl audit.
  * Tests login, builder lifecycle, viewer error boundary, share flow, and dataset page.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/session';
 
 // fix(#441): read the same env var as playwright.config.ts so absolute URLs track baseURL
 const BASE = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
@@ -31,28 +31,25 @@ test.describe.serial('Post-impl validation', () => {
 
     await page.getByLabel(/username/i).fill(ADMIN_USER);
     await page.locator('#password').fill(ADMIN_PASS);
+    // The app keeps the access token in memory; API calls below take theirs
+    // from the sign-in response.
+    const loginResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        new URL(response.url()).pathname.endsWith('/auth/login'),
+    );
     await signInBtn.click();
 
     // Should redirect away from login
     await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
     expect(page.url()).not.toContain('/login');
 
-    // Extract auth token for API calls
-    authToken = await page.evaluate(() => {
-      const raw = localStorage.getItem('geolens-auth');
-      if (!raw) return '';
-      try { const parsed = JSON.parse(raw); return parsed?.state?.token ?? ''; } catch { return ''; }
-    });
+    authToken = ((await (await loginResponse).json()) as { access_token?: string }).access_token ?? '';
     expect(authToken).toBeTruthy();
   });
 
   test('2. Search page renders without crash', async ({ page }) => {
     await page.goto(`${BASE}/`);
-    // Set auth token
-    await page.evaluate((t) => {
-      localStorage.setItem('geolens-auth', JSON.stringify({ state: { token: t, user: { username: 'admin', roles: ['admin'] } }, version: 0 }));
-    }, authToken);
-    await page.reload();
     // fix(#1778): a bare .catch(() => {}) swallowed the rejection this expect()
     // exists to raise, so a rendered error boundary passed the test silently.
     // Page should not show error boundary
@@ -63,10 +60,6 @@ test.describe.serial('Post-impl validation', () => {
 
   test('3. Maps page loads and renders', async ({ page }) => {
     await page.goto(`${BASE}/maps`);
-    await page.evaluate((t) => {
-      localStorage.setItem('geolens-auth', JSON.stringify({ state: { token: t, user: { username: 'admin', roles: ['admin'] } }, version: 0 }));
-    }, authToken);
-    await page.reload();
     await page.waitForLoadState('networkidle');
     // fix(#1778): same swallow as test 2 above — the error-boundary check
     // could never fail.
@@ -93,10 +86,6 @@ test.describe.serial('Post-impl validation', () => {
 
     // Navigate to builder and set auth
     await page.goto(`${BASE}/maps/${mapId}`);
-    await page.evaluate((t) => {
-      localStorage.setItem('geolens-auth', JSON.stringify({ state: { token: t, user: { username: 'admin', roles: ['admin'] } }, version: 0 }));
-    }, authToken);
-    await page.reload();
     await page.waitForLoadState('networkidle');
 
     // Builder should render the page without crashing (no "Page error")
@@ -120,10 +109,6 @@ test.describe.serial('Post-impl validation', () => {
     const mapId = mapData.id;
 
     await page.goto(`${BASE}/maps/${mapId}`);
-    await page.evaluate((t) => {
-      localStorage.setItem('geolens-auth', JSON.stringify({ state: { token: t, user: { username: 'admin', roles: ['admin'] } }, version: 0 }));
-    }, authToken);
-    await page.reload();
     await page.waitForLoadState('networkidle');
 
     // Poll for hydration: builder buttons with aria-expanded should mount.

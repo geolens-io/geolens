@@ -13,24 +13,9 @@
  * rendering, so the map still looks broadly alive. The only observable signal
  * is the absence of `.pbf` traffic, which is what this spec asserts.
  */
-import { test, expect } from '@playwright/test';
-import fs from 'fs';
-import path from 'path';
+import { test, expect, getAuthToken } from './helpers/session';
 
-const AUTH_FILE = path.join(__dirname, '../playwright/.auth/user.json');
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
-
-function getAuthToken(): string {
-  const state = JSON.parse(fs.readFileSync(AUTH_FILE, 'utf-8'));
-  for (const origin of state.origins ?? []) {
-    for (const entry of origin.localStorage ?? []) {
-      if (entry.name === 'geolens-auth') {
-        return JSON.parse(entry.value).state?.token ?? '';
-      }
-    }
-  }
-  throw new Error('Could not extract auth token from storage state');
-}
 
 let datasetId: string;
 let tableName: string;

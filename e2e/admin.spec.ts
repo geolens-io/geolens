@@ -1,4 +1,4 @@
-import { test, expect, type Locator, type Page } from '@playwright/test';
+import { test, expect, type Locator, type Page } from './helpers/session';
 
 // fix(#1204): the sortable column headers are tabbable buttons sitting between
 // the filter bar and the row toggles, so the first row control is a bounded

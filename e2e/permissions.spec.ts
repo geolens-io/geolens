@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/session';
 
 const TENANT_ADMIN_CAPABILITIES = [
   'upload',

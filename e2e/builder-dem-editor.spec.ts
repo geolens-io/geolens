@@ -1,6 +1,4 @@
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
-import fs from 'fs';
-import path from 'path';
+import { expect, test, type APIRequestContext, type Page } from './helpers/session';
 import { deleteDataset, seedDemDataset, getAuthToken } from './helpers/catalog';
 
 /**
@@ -13,7 +11,6 @@ import { deleteDataset, seedDemDataset, getAuthToken } from './helpers/catalog';
  * that an eye-toggle + Save touches ONLY the layer's `visible` flag.
  */
 
-const AUTH_FILE = path.join(__dirname, '../playwright/.auth/user.json');
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
 
 interface MapLayerDetails {
@@ -29,30 +26,11 @@ interface MapDetails {
   layers?: MapLayerDetails[];
 }
 
-function getAuthEntry() {
-  const raw = fs.readFileSync(AUTH_FILE, 'utf-8');
-  const state = JSON.parse(raw) as {
-    origins?: Array<{ localStorage?: Array<{ name: string; value: string }> }>;
-  };
-  for (const origin of state.origins ?? []) {
-    const entry = origin.localStorage?.find((candidate) => candidate.name === 'geolens-auth');
-    if (entry?.value) return entry.value;
-  }
-  throw new Error('Could not extract geolens-auth localStorage entry');
-}
-
 function authHeaders() {
   return {
     Authorization: `Bearer ${getAuthToken()}`,
     'Content-Type': 'application/json',
   };
-}
-
-async function seedAuth(page: Page) {
-  const authEntry = getAuthEntry();
-  await page.addInitScript((value) => {
-    window.localStorage.setItem('geolens-auth', value);
-  }, authEntry);
 }
 
 async function waitForBuilder(page: Page) {
@@ -113,7 +91,6 @@ test.describe('builder DEM editor (composable hillshade + terrain)', () => {
   });
 
   test('the two switches compose: hillshade off shows the badge, terrain on binds map-level terrain', async ({ page, request }) => {
-    await seedAuth(page);
     await page.goto(`/maps/${mapId}`);
     await waitForBuilder(page);
 
@@ -157,8 +134,6 @@ test.describe('builder DEM editor (composable hillshade + terrain)', () => {
     const before = await getMapDetails(request, mapId);
     const demBefore = before.layers?.find((l) => l.dataset_id === datasetId);
     expect(demBefore).toBeTruthy();
-
-    await seedAuth(page);
     await page.goto(`/maps/${mapId}`);
     await waitForBuilder(page);
 

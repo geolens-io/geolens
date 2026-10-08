@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/session';
 import { getAuthToken, seedDataset, deleteDataset, type SeededDataset } from './helpers/catalog';
 
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';

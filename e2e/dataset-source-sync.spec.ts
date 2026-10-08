@@ -1,4 +1,4 @@
-import { test, expect, type Page, type Route } from '@playwright/test';
+import { test, expect, type Page, type Route } from './helpers/session';
 import AxeBuilder from '@axe-core/playwright';
 import { getAuthToken, getSearchSeed, type SearchSeed } from './helpers/catalog';
 

@@ -10,28 +10,17 @@
  * is required. For the JWT rejection test, set E2E_RASTER_DATASET_ID.
  */
 
-import path from 'path';
-import fs from 'fs';
-import { test, expect } from '@playwright/test';
+import { test, expect, getAuthToken } from './helpers/session';
 
 const API = process.env.E2E_API_URL ?? '/api';
 
-function getAuthToken(): string {
-  const authFile = path.join(__dirname, '../playwright/.auth/user.json');
+function readAuthToken(): string {
   try {
-    const raw = fs.readFileSync(authFile, 'utf-8');
-    const state = JSON.parse(raw);
-    for (const origin of state.origins ?? []) {
-      for (const entry of origin.localStorage ?? []) {
-        if (entry.name === 'geolens-auth') {
-          return JSON.parse(entry.value).state?.token ?? '';
-        }
-      }
-    }
+    return getAuthToken();
   } catch {
-    // Auth file may not exist in all environments
+    // The setup project may not have run in every environment.
+    return '';
   }
-  return '';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -42,8 +31,8 @@ test('S-IA-P001 download-token typ validation — session JWT rejected on cog do
   const rasterDatasetId = process.env.E2E_RASTER_DATASET_ID;
   test.skip(!rasterDatasetId, 'Set E2E_RASTER_DATASET_ID to a raster dataset UUID');
 
-  const token = getAuthToken();
-  test.skip(!token, 'Could not read auth token from playwright/.auth/user.json');
+  const token = readAuthToken();
+  test.skip(!token, 'Could not read the API token the setup project saves');
 
   // A session JWT (typ missing / not 'download') must be rejected with 401
   const res = await request.get(
@@ -114,7 +103,7 @@ test('IA-P0-01 download-cog mints token before opening URL', async ({ page }) =>
     expect(url.searchParams.get('token')).toBe(MINTED_TOKEN);
 
     // The minted token must NOT equal the session JWT
-    const sessionToken = getAuthToken();
+    const sessionToken = readAuthToken();
     if (sessionToken) {
       expect(url.searchParams.get('token')).not.toBe(sessionToken);
     }

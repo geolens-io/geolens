@@ -19,16 +19,13 @@
  *   env var is absent so they don't block CI without the stack.
  */
 
-import { test, expect, type APIRequestContext } from '@playwright/test';
-import fs from 'fs';
-import path from 'path';
+import { test, expect, type APIRequestContext, getAuthToken } from '../helpers/session';
 import { createLargeBuilderMap, deleteBuilderMap } from '../fixtures/seed-large-builder-map';
 
 // ---------------------------------------------------------------------------
 // Shared constants
 // ---------------------------------------------------------------------------
 
-const AUTH_FILE = path.join(__dirname, '../../playwright/.auth/user.json');
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
 
 /** Number of layers in the large-map fixture.  Plans 02-04 all read this. */
@@ -37,22 +34,6 @@ export const LARGE_MAP_LAYER_COUNT = 50;
 // ---------------------------------------------------------------------------
 // Auth helpers (mirrors builder.spec.ts convention)
 // ---------------------------------------------------------------------------
-
-function getAuthToken(): string {
-  const raw = fs.readFileSync(AUTH_FILE, 'utf-8');
-  const state = JSON.parse(raw) as {
-    origins?: Array<{ localStorage?: Array<{ name: string; value: string }> }>;
-  };
-  for (const origin of state.origins ?? []) {
-    for (const entry of origin.localStorage ?? []) {
-      if (entry.name === 'geolens-auth') {
-        const parsed = JSON.parse(entry.value) as { state?: { token?: string } };
-        return parsed.state?.token ?? '';
-      }
-    }
-  }
-  throw new Error('Could not extract auth token from storage state');
-}
 
 /** Discover the first available vector dataset id from the catalog. */
 async function findVectorDatasetId(request: APIRequestContext): Promise<string | null> {

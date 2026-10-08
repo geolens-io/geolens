@@ -1,7 +1,9 @@
 import fs from 'fs';
 import path from 'path';
+import { getAuthToken } from './session';
 
-const AUTH_FILE = path.join(__dirname, '../../playwright/.auth/user.json');
+export { getAuthToken };
+
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
 
 export interface SearchSeed {
@@ -29,19 +31,6 @@ const PREFERRED_SEARCH_QUERIES = [
   'ADK 46er High Peaks AOI subset',
   'APA Adirondack Park Boundary',
 ];
-
-export function getAuthToken(): string {
-  const raw = fs.readFileSync(AUTH_FILE, 'utf-8');
-  const state = JSON.parse(raw);
-  for (const origin of state.origins ?? []) {
-    for (const entry of origin.localStorage ?? []) {
-      if (entry.name === 'geolens-auth') {
-        return JSON.parse(entry.value).state?.token ?? '';
-      }
-    }
-  }
-  throw new Error('Could not extract auth token from storage state');
-}
 
 function authHeaders() {
   return {

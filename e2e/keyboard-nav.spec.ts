@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './helpers/session';
 
 const GUEST_BROWSE_KEY = 'gl-guest-browse';
 

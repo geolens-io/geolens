@@ -1,8 +1,6 @@
-import { test, expect, type Page, type Response } from '@playwright/test';
-import fs from 'fs';
+import { test, expect, type Page, type Response, getAuthToken } from './helpers/session';
 import path from 'path';
 
-const AUTH_FILE = path.join(__dirname, '../playwright/.auth/user.json');
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
 const TEXT_TYPES = ['character', 'text', 'varchar', 'char'];
 
@@ -42,22 +40,6 @@ interface JobStatusPayload {
   status: string;
   dataset_id: string | null;
   error_message?: string | null;
-}
-
-/** Extract JWT token from the Playwright storage state file. */
-function getAuthToken(): string {
-  const raw = fs.readFileSync(AUTH_FILE, 'utf-8');
-  const state = JSON.parse(raw);
-  const origins = state.origins ?? [];
-  for (const origin of origins) {
-    for (const entry of origin.localStorage ?? []) {
-      if (entry.name === 'geolens-auth') {
-        const parsed = JSON.parse(entry.value);
-        return parsed.state?.token ?? '';
-      }
-    }
-  }
-  throw new Error('Could not extract auth token from storage state');
 }
 
 function hasTextColumn(columns: { name: string; type: string }[] | null): boolean {

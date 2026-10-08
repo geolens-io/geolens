@@ -1,23 +1,9 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, getAuthToken } from './helpers/session';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
-const AUTH_FILE = path.join(__dirname, '../playwright/.auth/user.json');
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
-
-function getAuthToken(): string {
-  const raw = fs.readFileSync(AUTH_FILE, 'utf-8');
-  const state = JSON.parse(raw);
-  for (const origin of state.origins ?? []) {
-    for (const entry of origin.localStorage ?? []) {
-      if (entry.name === 'geolens-auth') {
-        return JSON.parse(entry.value).state?.token ?? '';
-      }
-    }
-  }
-  throw new Error('Could not extract auth token from storage state');
-}
 
 test.describe.serial('Non-spatial CSV', () => {
   const datasetSlug = `sample-nonspatial-${Date.now()}`;
