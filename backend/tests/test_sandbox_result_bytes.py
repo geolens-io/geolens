@@ -174,6 +174,15 @@ class TestNestedColumnWeight:
             await execute_safe(test_db_session, sql, max_result_bytes=10_000)
         assert exc_info.value.category == "result_too_large"
 
+    async def test_inner_lists_of_a_multidimensional_array_are_weighted(
+        self, client, test_db_session
+    ):
+        sql = "SELECT array_fill(7, ARRAY[1000, 1, 1, 1, 1, 1]) AS v"
+        assert (await execute_safe(test_db_session, sql)).row_count == 1
+        with pytest.raises(SandboxError) as exc_info:
+            await execute_safe(test_db_session, sql, max_result_bytes=100_000)
+        assert exc_info.value.category == "result_too_large"
+
     @pytest.mark.parametrize("projection", ["t", "ARRAY[t]"])
     async def test_a_row_type_holding_an_array_is_weighted(
         self, client, test_db_session, projection

@@ -189,8 +189,7 @@ def _row_size_sql(weights: dict[int, str], token: str) -> str:
     # Positional aliases: a caller's column names may repeat or collide.
     names = [f"_geolens_{token}_{i}" for i in range(max(weights) + 1)]
     terms = [
-        f"{_ARRAY_ELEMENT_BYTES}::bigint"
-        f" * COALESCE(pg_catalog.cardinality(_a.{names[i]}), 0)"
+        f"{_ARRAY_ELEMENT_BYTES}::bigint * {_decoded_objects_sql(f'_a.{names[i]}')}"
         if weight == "elements"
         else f"{_NESTED_TEXT_WEIGHT}::bigint"
         f" * COALESCE(pg_catalog.octet_length(CAST(_a.{names[i]} AS text)), 0)"
@@ -200,6 +199,20 @@ def _row_size_sql(weights: dict[int, str], token: str) -> str:
         f"SELECT {size} + {' + '.join(terms)} "
         f"FROM (SELECT _l.*) AS _a({', '.join(names)})"
     )
+
+
+def _decoded_objects_sql(column: str) -> str:
+    """Python objects a flat array decodes to: its elements plus its inner lists.
+
+    Each slot of every dimension but the last decodes to its own list. That
+    count is at most (ndims - 1) times the slots of the next-to-last dimension
+    (cardinality over the last length): exact for two dimensions and for
+    degenerate shapes such as [n, 1, 1, 1, 1, 1].
+    """
+    elements = f"pg_catalog.cardinality({column})::bigint"
+    ndims = f"pg_catalog.array_ndims({column})"
+    lists = f"({ndims} - 1) * {elements} / pg_catalog.array_length({column}, {ndims})"
+    return f"COALESCE({elements} + {lists}, 0)"
 
 
 async def _column_weights(conn: AsyncConnection, sql: str) -> dict[int, str] | None:
