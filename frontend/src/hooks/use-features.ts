@@ -122,6 +122,7 @@ export function useAddColumn() {
       qc.invalidateQueries({ queryKey: queryKeys.datasets.rowsPrefix(variables.datasetId) });
       qc.invalidateQueries({ queryKey: queryKeys.datasets.attributes(variables.datasetId) });
       invalidateColumnCaches(qc, variables.datasetId);
+      qc.invalidateQueries({ queryKey: queryKeys.relationships.listPrefix });
     },
   });
 }
@@ -141,6 +142,7 @@ export function useDropColumn() {
       qc.invalidateQueries({ queryKey: queryKeys.datasets.rowsPrefix(variables.datasetId) });
       qc.invalidateQueries({ queryKey: queryKeys.datasets.attributes(variables.datasetId) });
       invalidateColumnCaches(qc, variables.datasetId);
+      qc.invalidateQueries({ queryKey: queryKeys.relationships.listPrefix });
     },
   });
 }

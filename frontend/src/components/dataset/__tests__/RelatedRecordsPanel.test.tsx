@@ -1,6 +1,9 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@/test/test-utils';
+import { queryKeys } from '@/lib/query-keys';
 import { RelatedRecordsPanel } from '../RelatedRecordsPanel';
-import { listRelationships } from '@/api/datasets';
+import userEvent from '@testing-library/user-event';
+import { listRelationships, getRelatedRecords } from '@/api/datasets';
 import type { DatasetRelationship } from '@/types/api';
 
 vi.mock('@/api/datasets', () => ({
@@ -64,5 +67,33 @@ describe('RelatedRecordsPanel', () => {
       expect(screen.getByText('County Records')).toBeInTheDocument();
     });
     expect(screen.getByText(/county_id/)).toBeInTheDocument();
+  });
+
+  it('marks a broken relationship and does not fetch its records', async () => {
+    vi.mocked(listRelationships).mockResolvedValue([{ ...mockRelationship, broken: true }]);
+    render(<RelatedRecordsPanel datasetId="ds-1" featureGid={1} />);
+    expect(await screen.findByText('Broken')).toBeInTheDocument();
+    await userEvent.click(screen.getByText('County Records'));
+    expect(screen.getByText(/join column no longer exists/)).toBeInTheDocument();
+    expect(getRelatedRecords).not.toHaveBeenCalled();
+  });
+
+  it('does not render cached rows beside the broken warning', async () => {
+    vi.mocked(listRelationships).mockResolvedValue([{ ...mockRelationship, broken: true }]);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(queryKeys.relationships.records('ds-1', 1, 'rel-1'), {
+      rows: [{ gid: 1, name: 'Stale Row' }],
+      columns: [{ name: 'name', type: 'text' }],
+      approximate_total: 1,
+      next_cursor: null,
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RelatedRecordsPanel datasetId="ds-1" featureGid={1} />
+      </QueryClientProvider>,
+    );
+    await userEvent.click(await screen.findByText('County Records'));
+    expect(screen.getByText(/join column no longer exists/)).toBeInTheDocument();
+    expect(screen.queryByText('Stale Row')).not.toBeInTheDocument();
   });
 });

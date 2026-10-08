@@ -1696,3 +1696,29 @@ class TestOAuthProvidersEndpoint:
         # Each item should only have slug, display_name, provider_type
         for p in data:
             assert set(p.keys()) == {"slug", "display_name", "provider_type"}
+
+    @pytest.mark.parametrize("enterprise", [False, True])
+    async def test_saml_providers_listed_only_in_enterprise(
+        self, client, test_db_session, monkeypatch, enterprise
+    ):
+        from app.modules.auth.oauth.models import OAuthProvider
+
+        slug = f"pub-saml-{uuid.uuid4().hex[:6]}"
+        test_db_session.add(
+            OAuthProvider(
+                slug=slug,
+                display_name="Saml Pub",
+                provider_type="saml",
+                client_id="unused",
+                client_secret_encrypted="unused",
+                enabled=True,
+            )
+        )
+        await test_db_session.commit()
+        monkeypatch.setattr(
+            "app.modules.auth.oauth.router.is_enterprise", lambda: enterprise
+        )
+
+        resp = await client.get("/auth/oauth/providers/")
+        assert resp.status_code == 200
+        assert (slug in {p["slug"] for p in resp.json()}) is enterprise

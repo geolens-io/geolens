@@ -27,6 +27,8 @@ class DatasetRelationshipResponse:
         relationship_type (str):
         label (None | str):
         target_dataset_title (None | str | Unset):
+        broken (bool | Unset): True when a join column no longer exists in its dataset. Related-records reads for it
+            fail until the relationship is deleted or recreated. Default: False.
     """
 
     id: UUID
@@ -37,6 +39,7 @@ class DatasetRelationshipResponse:
     relationship_type: str
     label: None | str
     target_dataset_title: None | str | Unset = UNSET
+    broken: bool | Unset = False
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -61,6 +64,8 @@ class DatasetRelationshipResponse:
         else:
             target_dataset_title = self.target_dataset_title
 
+        broken = self.broken
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -76,6 +81,8 @@ class DatasetRelationshipResponse:
         )
         if target_dataset_title is not UNSET:
             field_dict["target_dataset_title"] = target_dataset_title
+        if broken is not UNSET:
+            field_dict["broken"] = broken
 
         return field_dict
 
@@ -112,6 +119,8 @@ class DatasetRelationshipResponse:
             d.pop("target_dataset_title", UNSET)
         )
 
+        broken = d.pop("broken", UNSET)
+
         dataset_relationship_response = cls(
             id=id,
             source_dataset_id=source_dataset_id,
@@ -121,6 +130,7 @@ class DatasetRelationshipResponse:
             relationship_type=relationship_type,
             label=label,
             target_dataset_title=target_dataset_title,
+            broken=broken,
         )
 
         dataset_relationship_response.additional_properties = d

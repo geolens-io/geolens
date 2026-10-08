@@ -757,7 +757,9 @@
     "noRecords": "Keine verknuepften Datensaetze",
     "showingCount": "{{shown}} von {{total}} Datensaetzen",
     "error": "Beziehungen konnten nicht geladen werden",
-    "loadError": "Verknuepfte Datensaetze konnten nicht geladen werden"
+    "loadError": "Verknuepfte Datensaetze konnten nicht geladen werden",
+    "broken": "Defekt",
+    "brokenMessage": "Eine Verknüpfungsspalte existiert im Datensatz nicht mehr. Löschen oder erstellen Sie diese Beziehung neu."
   },
   "overview": {
     "allChecksPassed": "Alle Prüfungen bestanden",

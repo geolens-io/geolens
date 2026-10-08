@@ -5785,6 +5785,12 @@
               }
             ],
             "title": "Target Dataset Title"
+          },
+          "broken": {
+            "default": false,
+            "description": "True when a join column no longer exists in its dataset. Related-records reads for it fail until the relationship is deleted or recreated.",
+            "title": "Broken",
+            "type": "boolean"
           }
         },
         "required": [

@@ -1285,6 +1285,14 @@ class DatasetRelationshipResponse(BaseModel):
     relationship_type: str
     label: str | None
     target_dataset_title: str | None = None
+    broken: bool = Field(
+        False,
+        description=(
+            "True when a join column no longer exists in its dataset. "
+            "Related-records reads for it fail until the relationship is deleted "
+            "or recreated."
+        ),
+    )
 
     model_config = ConfigDict(from_attributes=True)
 

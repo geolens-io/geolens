@@ -2341,6 +2341,7 @@ export interface DatasetRelationship {
   relationship_type: string;
   label: string | null;
   target_dataset_title: string | null;
+  broken?: boolean;
 }
 
 /** GAP-033: list envelope for GET /datasets/{id}/relationships/. */

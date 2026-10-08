@@ -1,3 +1,4 @@
+import { queryKeys } from '@/lib/query-keys';
 import { renderHook } from '@/test/test-utils';
 import { vi } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
@@ -115,6 +116,26 @@ describe('BUG-038: column-value/stats cache invalidation', () => {
     const { hasValues, hasStats } = invalidatedColumnCaches(spy, 'ds-9');
     expect(hasValues).toBe(true);
     expect(hasStats).toBe(true);
+  });
+
+  it('useDropColumn invalidates relationship lists, whose broken flags depend on the schema', async () => {
+    const spy = spyInvalidate();
+    mockDropColumn.mockResolvedValueOnce({} as never);
+
+    const { result } = renderHook(() => useDropColumn());
+    await result.current.mutateAsync({ datasetId: 'ds-9', columnName: 'gone' });
+
+    expect(spy).toHaveBeenCalledWith({ queryKey: queryKeys.relationships.listPrefix });
+  });
+
+  it('useAddColumn invalidates relationship lists, whose broken flags depend on the schema', async () => {
+    const spy = spyInvalidate();
+    mockAddColumn.mockResolvedValueOnce({} as never);
+
+    const { result } = renderHook(() => useAddColumn());
+    await result.current.mutateAsync({ datasetId: 'ds-9', column: { name: 'c', type: 'text' } });
+
+    expect(spy).toHaveBeenCalledWith({ queryKey: queryKeys.relationships.listPrefix });
   });
 });
 
