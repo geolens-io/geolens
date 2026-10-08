@@ -40,6 +40,20 @@ documentation.
 > this 24-hour floor cannot be shortened by changing it. For a tighter RPO,
 > configure [PITR](#optional-point-in-time-recovery-pitr-with-wal-archiving)
 > or use a managed database, where the provider's native PITR applies.
+>
+> **Dump and archive are not one snapshot.** The staging archive is taken after
+> the dump finishes, so staged files can change in between. The dump is
+> authoritative: after a restore, staging objects may lead or lag it by the
+> archive window (dump start to the end of the tar). Three cases follow.
+> A file missing from the archive leaves its dataset or import with a restored
+> state that points at nothing, so audit the restored storage references and
+> re-upload or restore each one. A file replaced in the window keeps its path
+> but holds newer bytes than the dump describes, so re-upload any dataset or
+> import that was being changed around the backup time. A file the catalog no
+> longer references is orphan storage that costs only disk space. Keep it
+> unless you have checked every table that stores paths under the staging
+> volume (datasets, ingest jobs, map thumbnails and map icons). The
+> application's own sweep removes only stale upload files, not every orphan.
 
 ### Automated backups are on by default
 
