@@ -7,6 +7,7 @@ import {
   validateRawFilter,
   FilterValidationError,
   maplibreFilterToCql2,
+  utcTimestampText,
 } from '../maplibre-filter-utils';
 
 // ---------------------------------------------------------------------------
@@ -275,6 +276,18 @@ describe('maplibreFilterToCql2', () => {
         { op: '=', args: [p('ref'), '6f1c3a52-2b8e-4f0e-9a51-3d6a8f9c0b11'] },
       ],
       [['has', 'atz'], { op: 'not', args: [isNull('atz')] }],
+      [
+        ['<', ['get', 'atz'], '2024-11-03T06:15:00+00:00'],
+        { op: '<', args: [p('atz'), { timestamp: '2024-11-03T06:15:00Z' }] },
+      ],
+      [
+        ['==', ['get', 'atz'], '2024-11-03T06:15:00.5+00:00'],
+        { op: '=', args: [p('atz'), { timestamp: '2024-11-03T06:15:00.5Z' }] },
+      ],
+      [
+        ['>=', ['get', 'atz'], '2024-11-03T05:30:00+00:00'],
+        { op: '>=', args: [p('atz'), { timestamp: '2024-11-03T05:30:00Z' }] },
+      ],
       [['==', ['get', 'pop'], 5], { op: '=', args: [p('pop'), 5] }],
       [['has', 'seen'], { op: 'not', args: [isNull('seen')] }],
       // A column the layer does not list is sent untyped; the server decides.
@@ -295,7 +308,12 @@ describe('maplibreFilterToCql2', () => {
       ['a date compared with a timestamp', ['>', ['get', 'at'], '2024-02-01']],
       ['an RFC 3339 timestamp', ['==', ['get', 'at'], '2024-02-01T06:30:00Z']],
       ['a fraction with a trailing zero', ['==', ['get', 'at'], '2024-02-01 06:30:00.50']],
-      ['a timestamp with time zone', ['<', ['get', 'atz'], '2024-02-01 06:30:00+00']],
+      // The tile carries "2024-02-01T06:30:00+00:00", so these never compare equal on the map.
+      ['a timestamptz in PostgreSQL text form', ['<', ['get', 'atz'], '2024-02-01 06:30:00+00']],
+      ['a timestamptz written with Z', ['==', ['get', 'atz'], '2024-02-01T06:30:00Z']],
+      ['a timestamptz with another offset', ['==', ['get', 'atz'], '2024-02-01T01:30:00-05:00']],
+      ['a timestamptz fraction with a trailing zero', ['==', ['get', 'atz'], '2024-02-01T06:30:00.50+00:00']],
+      ['a timestamptz off the calendar', ['==', ['get', 'atz'], '2024-02-30T06:30:00+00:00']],
       ['an uppercase uuid', ['==', ['get', 'ref'], '6F1C3A52-2B8E-4F0E-9A51-3D6A8F9C0B11']],
       ['a value that is not a uuid', ['==', ['get', 'ref'], 'abc']],
       ['a date list with a bad entry', ['in', ['get', 'seen'], ['literal', ['2024-01-01', 'x']]]],
@@ -304,5 +322,42 @@ describe('maplibreFilterToCql2', () => {
     ])('refuses %s', (_label, filter) => {
       expect(convert(filter)).toBe('unsupported');
     });
+  });
+});
+
+describe('utcTimestampText', () => {
+  it.each([
+    ['2024-11-03T06:15:00+00:00', '2024-11-03T06:15:00+00:00'],
+    ['2024-11-03 06:15', '2024-11-03T06:15:00+00:00'],
+    ['2024-11-03T06:15:00Z', '2024-11-03T06:15:00+00:00'],
+    ['2024-11-03t06:15:00z', '2024-11-03T06:15:00+00:00'],
+    ['2024-11-03 01:15:00-05', '2024-11-03T06:15:00+00:00'],
+    ['2024-11-03 01:30:00-04:00', '2024-11-03T05:30:00+00:00'],
+    ['2024-11-03 11:45:00+0530', '2024-11-03T06:15:00+00:00'],
+    ['2024-12-31 23:30:00-01:00', '2025-01-01T00:30:00+00:00'],
+    ['2024-11-03 06:15:00.500', '2024-11-03T06:15:00.5+00:00'],
+    ['2024-11-03 06:15:00.000', '2024-11-03T06:15:00+00:00'],
+    ['2024-11-03 06:15:00.123456', '2024-11-03T06:15:00.123456+00:00'],
+    ['  0099-01-01 00:00  ', '0099-01-01T00:00:00+00:00'],
+  ])('reads %j as %j', (typed, expected) => {
+    expect(utcTimestampText(typed)).toBe(expected);
+  });
+
+  it.each([
+    ['a date alone', '2024-11-03'],
+    ['a date off the calendar', '2024-02-30 06:00'],
+    ['an hour past the day', '2024-11-03 24:00'],
+    ['free text', 'yesterday'],
+    ['seven fraction digits', '2024-11-03 06:15:00.1234567'],
+  ])('rejects %s', (_label, typed) => {
+    expect(utcTimestampText(typed)).toBeNull();
+  });
+
+  it('writes text the map orders the way time is ordered across a DST change', () => {
+    // 05:30Z is 01:30 EDT and 06:15Z is 01:15 EST: local text sorts these backwards.
+    const earlier = utcTimestampText('2024-11-03 01:30:00-04:00')!;
+    const later = utcTimestampText('2024-11-03 01:15:00-05:00')!;
+    const laterFraction = utcTimestampText('2024-11-03 01:15:00.5-05:00')!;
+    expect([laterFraction, later, earlier].sort()).toEqual([earlier, later, laterFraction]);
   });
 });

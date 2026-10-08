@@ -280,6 +280,34 @@ def _select_tile_columns(
     return base
 
 
+def _utc_timestamptz_text(ref: str) -> str:
+    """SQL rendering a timestamptz as fixed UTC text, e.g.
+    ``2024-03-01T17:00:00+00:00`` or ``2024-03-01T17:00:00.25+00:00``.
+
+    ST_AsMVT writes a timestamptz in the session TimeZone, which a client
+    cannot know and whose daylight-saving offsets break text ordering. In
+    this form text order is time order: the fraction drops trailing zeros,
+    and ``+`` sorts below ``.`` and every digit. Infinite values keep
+    PostgreSQL's ``infinity`` text.
+    """
+    utc = f"({ref} AT TIME ZONE 'UTC')"
+    return (
+        f"CASE WHEN isfinite({ref}) THEN "
+        f"to_char({utc}, 'YYYY-MM-DD\"T\"HH24:MI:SS') "
+        f"|| rtrim(rtrim(to_char({utc}, '.US'), '0'), '.') || '+00:00' "
+        f"|| CASE WHEN {utc} < '0001-01-01' THEN ' BC' ELSE '' END "
+        f"ELSE {ref}::text END"
+    )
+
+
+def _attr_select(alias: str, col: dict) -> str:
+    """One attribute's projection, named after the column."""
+    ref = f'{alias}."{col["name"]}"'
+    if str(col.get("type") or "").lower() == "timestamp with time zone":
+        ref = _utc_timestamptz_text(ref)
+    return f'{ref} AS "{col["name"]}"'
+
+
 def _build_attr_columns(columns: list[dict]) -> str:
     """Build the attribute column list for the MVT query.
 
@@ -290,7 +318,7 @@ def _build_attr_columns(columns: list[dict]) -> str:
     column and keeps its case as the MVT property name.
     """
     attr_cols = [
-        f't."{col["name"]}"'
+        _attr_select("t", col)
         for col in columns
         if col.get("name")
         and col["name"] not in _EXCLUDED_COLUMNS
@@ -473,7 +501,7 @@ def _build_cluster_tile_query(
     # Mirrors _build_attr_columns' exclusion, revalidation and quoting rules,
     # projecting from the joined source row for unclustered features only.
     unclustered_attr_select = "".join(
-        f',\n        src."{col["name"]}" AS "{col["name"]}"'
+        f",\n        {_attr_select('src', col)}"
         for col in (attr_columns or [])
         if col.get("name")
         and col["name"] not in _EXCLUDED_COLUMNS

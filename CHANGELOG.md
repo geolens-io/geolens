@@ -27,6 +27,16 @@ and releases use semantic versioning.
   longer be a VRT member, and a mosaic that names a remote member answers
   409 until it is rebuilt from managed rasters.
 
+- Vector tiles now carry `timestamp with time zone` values as UTC text, for
+  example `2024-03-01T17:00:00+00:00`, whatever the database's time zone.
+  Map labels and popups show these values in UTC. The layer filter editor
+  writes a value typed for such a column in the same form, reading a value
+  with no offset as UTC, and builder analysis can now apply a filter that
+  compares one. A saved filter or style that compares the old text form no
+  longer matches; editing a filter's value in the editor converts it.
+  Datasets with these columns get a new tile version on upgrade, so caches
+  stop serving the old text.
+
 ## [1.22.0] - 2026-10-05
 
 ### Added
