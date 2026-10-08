@@ -682,7 +682,16 @@ class TestFKRelationships:
         )
         await test_db_session.commit()
 
-        resp = await client.get(f"/datasets/{source.id}/features/1/related/{rel_id}/")
+        key = await client.post(
+            "/auth/api-keys/",
+            json={"name": "Related Key", "scope": "read_only"},
+            headers=admin_auth_header,
+        )
+        assert key.status_code == 201, key.text
+        resp = await client.get(
+            f"/datasets/{source.id}/features/1/related/{rel_id}/",
+            headers={"X-Api-Key": key.json()["key"]},
+        )
         assert resp.status_code == 409, resp.text
 
         listed = await client.get(
