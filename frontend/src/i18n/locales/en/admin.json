@@ -324,6 +324,8 @@
     "regenerationPendingAiOff": "Embeddings were not regenerated because AI features are disabled. Enable AI, then use Generate Missing Embeddings.",
     "regenerationPendingAiOffRetry": "Embeddings were not regenerated because AI features are disabled. Enable AI and save, then try again.",
     "regenerationPendingRetry": "Embeddings could not be regenerated automatically. Try again once any running backfill finishes.",
+    "fleetRegenerateDescription": "The embedding model and width are shared by every tenant. Queue a run in each tenant to fill in embeddings that are missing, for example after a tenant was skipped.",
+    "fleetRegenerateAction": "Generate missing embeddings for every tenant",
     "backfillFinished": "Embedding backfill finished",
     "backfillFinishedWithErrors": "Embedding backfill finished with {{errors}} rejected record(s) — coverage has gaps",
     "backfillRunFailed": "The embedding backfill run failed — check the server logs",

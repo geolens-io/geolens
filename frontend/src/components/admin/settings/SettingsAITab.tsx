@@ -554,6 +554,22 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
             </div>
           )}
 
+          {isMultiTenant && canRegenerateAfterChange && (
+            // The coverage buttons queue only this tenant and need manage_users,
+            // so the fleet-wide run stays available here after a reload.
+            <div className="rounded-lg border p-4 max-w-md space-y-2">
+              <p className="text-sm text-muted-foreground">{t('ai.fleetRegenerateDescription')}</p>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={queueRegeneration}
+                disabled={backfill.isPending || findSetting(settings, 'ai_enabled')?.value === false}
+              >
+                {t('ai.fleetRegenerateAction')}
+              </Button>
+            </div>
+          )}
+
           {/* Embedding coverage */}
           {canManageUsers && embeddingStats && (
             <div className="rounded-lg border p-4 max-w-md space-y-3">

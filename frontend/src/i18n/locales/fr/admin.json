@@ -299,6 +299,8 @@
     "regenerationPendingAiOff": "Les embeddings n'ont pas été régénérés car les fonctions d'IA sont désactivées. Activez l'IA, puis utilisez Generer les embeddings manquants.",
     "regenerationPendingAiOffRetry": "Les embeddings n'ont pas été régénérés car les fonctionnalités d'IA sont désactivées. Activez l'IA et enregistrez, puis réessayez.",
     "regenerationPendingRetry": "Les embeddings n'ont pas pu être régénérés automatiquement. Réessayez une fois tout remplissage en cours terminé.",
+    "fleetRegenerateDescription": "Le modèle et la dimension des embeddings sont partagés par tous les locataires. Mettez en file d'attente une exécution dans chaque locataire pour compléter les embeddings manquants, par exemple si un locataire a été ignoré.",
+    "fleetRegenerateAction": "Générer les embeddings manquants pour tous les locataires",
     "backfillFinished": "Remplissage des embeddings terminé",
     "backfillFinishedWithErrors": "Remplissage des embeddings terminé avec {{errors}} enregistrement(s) rejeté(s) — la couverture présente des lacunes",
     "backfillRunFailed": "L'exécution du remplissage des embeddings a échoué — consultez les journaux du serveur",

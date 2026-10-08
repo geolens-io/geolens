@@ -299,6 +299,8 @@
     "regenerationPendingAiOff": "Los embeddings no se regeneraron porque las funciones de IA están desactivadas. Activa la IA y usa Generar embeddings faltantes.",
     "regenerationPendingAiOffRetry": "Los embeddings no se regeneraron porque las funciones de IA están desactivadas. Active la IA y guarde, luego vuelva a intentarlo.",
     "regenerationPendingRetry": "No se pudieron regenerar los embeddings automáticamente. Vuelva a intentarlo cuando termine cualquier relleno en curso.",
+    "fleetRegenerateDescription": "El modelo y la dimensión de los embeddings son comunes a todos los inquilinos. Ponga en cola una ejecución en cada inquilino para completar los embeddings que faltan, por ejemplo si se omitió un inquilino.",
+    "fleetRegenerateAction": "Generar los embeddings que faltan para todos los inquilinos",
     "backfillFinished": "Relleno de embeddings finalizado",
     "backfillFinishedWithErrors": "El relleno de embeddings terminó con {{errors}} registro(s) rechazado(s) — la cobertura tiene huecos",
     "backfillRunFailed": "La ejecución del relleno de embeddings falló — revise los registros del servidor",

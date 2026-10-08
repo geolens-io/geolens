@@ -260,6 +260,22 @@ describe('SettingsAITab embedding width confirmation', () => {
     expect(hoisted.backfillMutate).toHaveBeenCalledWith({ force: false, allTenants: true }, expect.anything());
   });
 
+  it('keeps a fleet-wide regeneration available to a hosted operator after a reload or opt-out', async () => {
+    hoisted.isMultiTenant = true;
+    hoisted.capabilities = ['manage_tenants'];
+    hoisted.statsAvailable = false;
+    const user = userEvent.setup();
+    renderTab();
+
+    await user.click(screen.getByRole('button', { name: 'Generate missing embeddings for every tenant' }));
+    expect(hoisted.backfillMutate).toHaveBeenCalledWith({ force: false, allTenants: true }, expect.anything());
+  });
+
+  it('offers no fleet-wide regeneration in a single-tenant deployment', () => {
+    renderTab();
+    expect(screen.queryByRole('button', { name: 'Generate missing embeddings for every tenant' })).not.toBeInTheDocument();
+  });
+
   it('queues nothing and says AI must be enabled when AI was already off', async () => {
     const user = userEvent.setup();
     const onSave = renderTab(
