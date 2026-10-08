@@ -18,11 +18,10 @@ from app.core.failure_reason import redact_failure_reason
 from app.core.identity import Identity
 from app.core.record_types import capabilities
 from app.modules.auth.dependencies import get_optional_user
-from app.modules.auth.permissions import get_effective_permissions
 from app.core.dependencies import get_db
 from app.core.db.tenant_schema import tenant_data_schema
 from app.core.db.tenant_session import current_tenant_var
-from app.platform.extensions import get_permission_extension, get_processing_port
+from app.platform.extensions import get_processing_port
 from app.platform.http.ranges import (
     if_match_passes,
     if_none_match_matches,
@@ -286,9 +285,8 @@ async def export_dataset_endpoint(
     where: str | None = Query(
         None, description="Attribute filter expression, e.g. pop > 1000"
     ),
-    # IA-P1-01 (Phase 1069/1157 EXP-01): "export" is enforced only on the
-    # authenticated branch (see body) — anonymous callers get
-    # public+published datasets without a capability check (OGC/tiles parity).
+    # Optional: every caller gets public+published datasets without the
+    # export capability (OGC/tiles parity); the body gates the rest.
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
@@ -322,45 +320,23 @@ async def export_dataset_endpoint(
             detail="Dataset not found",
         )
 
-    # 2. Visibility + permission check (branches on authenticated vs
-    # anonymous). Function-level import: processing/ must not import
-    # app.modules.catalog at module scope (test_layering.py).
+    # 2. Visibility + permission check. Function-level import: processing/
+    # must not import app.modules.catalog at module scope (test_layering.py).
     from app.modules.catalog.authorization import (
-        check_dataset_access,
+        can_export_dataset,
         check_dataset_access_or_anonymous,
-        get_user_roles,
     )
 
-    if user is None:
-        # Anonymous export: enforce public+published gate via the anon-aware
-        # helper (raises 404 to hide existence on denial), then a
-        # defense-in-depth guard requiring public visibility.
-        await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
-        if dataset.record.visibility != "public":
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Anonymous export requires public dataset",
-            )
-    else:
-        # Authenticated path: full RBAC visibility check + export capability.
-        await check_dataset_access(db, dataset, dataset_id, user)
-        user_roles = await get_user_roles(db, user)
-        matrix = await get_effective_permissions(db)
-        # Enforce via the permission extension (same path as
-        # require_permission("export")) so a custom PermissionExtension's
-        # policy applies here too; default reduces to role/matrix check.
-        granted = await get_permission_extension().check_permission(
-            db,
-            user,
-            "export",
-            user_roles=user_roles,
-            permission_matrix=matrix,
+    user_roles = await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
+    if not await can_export_dataset(db, dataset, dataset_id, user, user_roles):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Anonymous export requires public dataset"
+                if user is None
+                else "Missing permission: export"
+            ),
         )
-        if not granted:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Missing permission: export",
-            )
 
     # fix(#1778): read once, here, while the session that loaded it is still
     # in a transaction — `user` is the ORM instance on this session, and the

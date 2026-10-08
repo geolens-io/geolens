@@ -1394,7 +1394,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/records/service.py": 877,
     # Export formats share visibility, lineage, raster-asset presence and
     # private-artifact authorization.
-    "backend/app/modules/catalog/datasets/api/router_export.py": 1490,
+    "backend/app/modules/catalog/datasets/api/router_export.py": 1463,
     # Artifact selection, atomic publication, range reads and eviction share one cache
     # protocol.
     "backend/app/processing/export/artifact_cache.py": 559,
@@ -1849,7 +1849,6 @@ _PROCESSING_OTHER_DOMAINS_IMPORT_BURNDOWN: dict[str, set[str]] = {
     "export/router.py": {
         "app.modules.audit.service",
         "app.modules.auth.dependencies",
-        "app.modules.auth.permissions",
     },
     "ingest/manifest_router.py": {
         "app.modules.auth.dependencies",

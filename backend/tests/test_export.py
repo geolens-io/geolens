@@ -211,34 +211,35 @@ class TestExportVisibility:
         test_db_session,
         monkeypatch,
     ):
-        """Authed export enforces the 'export' capability through the permission
-        extension (same path as require_permission), not just the raw role
-        matrix, so a custom PermissionExtension that denies export is honored
-        even when the matrix grants it. Regression for the Codex review of
-        export/router.py:92."""
+        """Past the anonymous baseline, export asks the permission extension,
+        so a custom extension that denies export is honored even when the role
+        matrix grants it."""
+        import app.modules.catalog.authorization as authorization
+
         admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset(
             test_db_session,
             created_by=admin_id,
-            visibility="public",
+            visibility="internal",
             name="ExtGateDS",
         )
 
-        # Baseline: the default extension grants the viewer export (matrix-backed).
         resp_ok = await client.get(
             f"/datasets/{ds.id}/export", headers=viewer_auth_header
         )
         assert resp_ok.status_code == 200
 
-        # A custom PermissionExtension that denies 'export' must be honored → 403,
-        # even though the persisted role matrix still grants it.
-        class _DenyExt:
+        real = authorization.get_permission_extension()
+
+        class _DenyExportExt:
+            def __getattr__(self, name):
+                return getattr(real, name)
+
             async def check_permission(self, *args, **kwargs):
                 return False
 
         monkeypatch.setattr(
-            "app.processing.export.router.get_permission_extension",
-            lambda: _DenyExt(),
+            authorization, "get_permission_extension", lambda: _DenyExportExt()
         )
         resp_denied = await client.get(
             f"/datasets/{ds.id}/export", headers=viewer_auth_header

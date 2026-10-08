@@ -3,8 +3,8 @@
 A key on local or Azure storage has no URL of its own, so the ``data`` asset
 points at the COG download route and the quicklooks at the quicklook route; on
 S3 each is a signed URL. OGC records never offer data and point at the
-quicklook route on every store. Anonymous callers get public datasets, authenticated
-ones also need the export capability. The Azure cases run on the test's local
+quicklook route on every store. Every caller gets the public datasets an anonymous
+caller gets; anything more needs the export capability. The Azure cases run on the test's local
 store: neither can sign a URL, and both serve an object's bytes to those routes.
 
 Requirements: the test database (``set -a && source ../.env.test && set +a``).
@@ -25,7 +25,7 @@ from app.modules.catalog.collections.models import Collection, CollectionDataset
 from app.platform.storage.provider import get_storage
 from app.processing.raster.models import DatasetAsset, RasterAsset
 
-from tests.factories import create_raster_dataset, get_user_id
+from tests.factories import create_raster_dataset, create_roleless_user, get_user_id
 
 pytestmark = pytest.mark.anyio
 
@@ -96,8 +96,10 @@ async def _published_raster_with_assets(
     return str(dataset.id)
 
 
-async def _page_of_one_raster(client, session, surface: str, headers: dict) -> dict:
-    dataset_id = await _published_raster_with_assets(session)
+async def _page_of_one_raster(
+    client, session, surface: str, headers: dict, visibility: str = "public"
+) -> dict:
+    dataset_id = await _published_raster_with_assets(session, visibility=visibility)
     if surface == "search":
         resp = await client.get(
             "/stac/search", params={"ids": dataset_id}, headers=headers
@@ -298,7 +300,9 @@ async def test_reader_without_export_gets_no_data_asset(
     monkeypatch,
     backend: str,
 ):
-    dataset_id = await _published_raster_with_assets(test_db_session)
+    dataset_id = await _published_raster_with_assets(
+        test_db_session, visibility="internal"
+    )
     if backend == "s3":
         _use_s3(monkeypatch)
     else:
@@ -330,7 +334,7 @@ async def test_s3_pages_withhold_data_from_a_reader_without_export(
     _use_s3(monkeypatch)
 
     assets = await _page_of_one_raster(
-        client, test_db_session, surface, viewer_auth_header
+        client, test_db_session, surface, viewer_auth_header, visibility="internal"
     )
 
     assert "data" not in assets
@@ -401,3 +405,44 @@ async def test_a_page_without_rasters_skips_the_export_capability(
     assert resp.status_code == 200, resp.text
     assert resp.json()["features"] == []
     assert reads == 0
+
+
+@pytest.mark.parametrize("backend", ["local", "s3"])
+async def test_roleless_reader_gets_the_anonymous_data_asset(
+    client: AsyncClient,
+    test_db_session,
+    admin_auth_header: dict,
+    monkeypatch,
+    backend: str,
+):
+    headers, _ = await create_roleless_user(client, admin_auth_header, test_db_session)
+    dataset_id = await _published_raster_with_assets(test_db_session)
+    if backend == "s3":
+        _use_s3(monkeypatch)
+    else:
+        monkeypatch.setattr(settings, "storage_provider", backend)
+
+    anonymous = await client.get(f"/stac/items/{dataset_id}")
+    signed_in = await client.get(f"/stac/items/{dataset_id}", headers=headers)
+
+    assert signed_in.status_code == 200, signed_in.text
+    assert "data" in signed_in.json()["assets"]
+    assert signed_in.json()["assets"]["data"] == anonymous.json()["assets"]["data"]
+
+
+@pytest.mark.parametrize("surface", ["collection_items", "search"])
+async def test_s3_pages_sign_public_data_for_a_reader_without_export(
+    client: AsyncClient,
+    test_db_session,
+    viewer_auth_header: dict,
+    viewer_without_export,
+    monkeypatch,
+    surface: str,
+):
+    _use_s3(monkeypatch)
+
+    assets = await _page_of_one_raster(
+        client, test_db_session, surface, viewer_auth_header
+    )
+
+    assert assets["data"]["href"].endswith("/abc/source.cog.tif?sig=abc")

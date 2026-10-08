@@ -2897,7 +2897,13 @@ async def test_a_caller_the_route_refuses_gets_no_redirect_on_s3(
         visibility="private",
         sha256=hashlib.sha256(_COG_BYTES).hexdigest(),
     )
-    for asset in (public_asset, private_asset, owned_asset):
+    internal, internal_asset = await _raster_dataset(
+        test_db_session,
+        asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/internal.cog.tif",
+        visibility="internal",
+        sha256=hashlib.sha256(_COG_BYTES).hexdigest(),
+    )
+    for asset in (public_asset, private_asset, owned_asset, internal_asset):
         await s3_storage.put(asset.asset_uri, _COG_BYTES)
     matrix = copy.deepcopy(DEFAULT_ROLE_PERMISSIONS)
     matrix["viewer"]["export"] = False
@@ -2920,11 +2926,19 @@ async def test_a_caller_the_route_refuses_gets_no_redirect_on_s3(
             ),
             "a viewer without export": (
                 await client.get(
-                    f"/datasets/{public.id}/download/cog",
+                    f"/datasets/{internal.id}/download/cog",
                     headers=viewer_auth_header,
                     follow_redirects=False,
                 ),
                 403,
+            ),
+            "a viewer without export on a public dataset": (
+                await client.get(
+                    f"/datasets/{public.id}/download/cog",
+                    headers=viewer_auth_header,
+                    follow_redirects=False,
+                ),
+                302,
             ),
             "an owner without export": (
                 await client.get(

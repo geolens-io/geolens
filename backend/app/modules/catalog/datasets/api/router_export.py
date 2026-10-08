@@ -27,7 +27,7 @@ from app.modules.auth.models import User
 from app.core.config import settings
 from app.modules.catalog.authorization import (
     apply_visibility_filter,
-    check_dataset_access,
+    can_export_dataset,
     check_dataset_access_or_anonymous,
     get_user_roles,
     visible_lineage_summaries,
@@ -61,7 +61,7 @@ from app.core.dependencies import get_db
 from app.core.db.tenant_session import current_tenant_var
 from app.core.tenancy import is_multi_tenant
 from app.core.public_urls import get_public_urls
-from app.platform.extensions import get_catalog_port, get_permission_extension
+from app.platform.extensions import get_catalog_port
 from app.platform.http.ranges import range_bound_to_this_version
 from app.platform.http.stored_bytes import (
     StoredObjectMissing,
@@ -994,8 +994,6 @@ async def download_cog(
     # anonymous caller unconditionally.
     from slugify import slugify
 
-    from app.modules.auth.permissions import get_effective_permissions
-
     # 1. Fetch dataset FIRST so we can branch visibility/permission on user-None.
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
@@ -1004,45 +1002,20 @@ async def download_cog(
             detail="Dataset not found",
         )
 
-    # 2. Visibility + permission check (branches on authenticated vs anonymous).
-    # Mirrors export_dataset_endpoint's gate (processing/export/router.py)
-    # exactly: anonymous covers both a plain unauthenticated GET (no header,
-    # no ?token=) and a mint-issued no-sub token, since _resolve_download_user
-    # returns None for both.
-    if user is None:
-        # Anonymous download: enforce public+published gate via the anon-aware
-        # helper (raises 404 to hide existence on denial), then a
-        # defense-in-depth guard requiring public visibility — a tampered or
-        # replayed download token cannot grant access to a private dataset.
-        await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
-        if dataset.record.visibility != "public":
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Anonymous download requires public dataset",
-            )
-    else:
-        # Authenticated path: full RBAC visibility check + export capability.
-        await check_dataset_access(db, dataset, dataset_id, user)
-        user_roles = await get_user_roles(db, user)
-        matrix = await get_effective_permissions(db)
-        # Route through the permission extension point (same call
-        # export_dataset_endpoint makes) rather than inlining the per-role
-        # matrix check, so a deployment that registers a custom
-        # PermissionExtension applies its policy here too.
-        # DefaultPermissionExtension.check_permission reduces to the same
-        # any(matrix...) check, so OSS behavior is unchanged.
-        granted = await get_permission_extension().check_permission(
-            db,
-            user,
-            "export",
-            user_roles=user_roles,
-            permission_matrix=matrix,
+    # 2. Visibility + permission check, the same gate export_dataset_endpoint
+    # applies. Anonymous covers both a plain unauthenticated GET and a
+    # mint-issued no-sub token, since _resolve_download_user returns None for
+    # both.
+    user_roles = await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
+    if not await can_export_dataset(db, dataset, dataset_id, user, user_roles):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Anonymous download requires public dataset"
+                if user is None
+                else "Missing permission: export"
+            ),
         )
-        if not granted:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Missing permission: export",
-            )
 
     # 3. Verify raster type
     if dataset.record.record_type != "raster_dataset":
