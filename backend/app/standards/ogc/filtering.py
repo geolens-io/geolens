@@ -12,6 +12,7 @@ Only CQL2 is supported; the legacy CQL1/WFS 2.0 syntax is rejected.
 import json
 import math
 import re
+import uuid
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
 from typing import Any
@@ -210,12 +211,11 @@ def build_record_schema_response(public_api_url: str) -> dict:
 # Identifiers only ever come from the live schema vetted by
 # _FEATURE_QUERYABLE_NAME_RE; values only ever travel as bind parameters.
 
-# Mirrors _COLUMN_NAME_RE in app.modules.catalog.features.service (kept as a
-# literal so this standards module gains no product-module import; the
-# layering test freezes this file's import surface). Excluding anything else
-# (e.g. Socrata ':id' columns) also sidesteps the colon-inside-text()
-# quoting traps (fix(#640)/fix(#1113)).
-_FEATURE_QUERYABLE_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
+# The compiled fragment quotes any name that needs it ("Zone"), so ASCII
+# letters of either case are safe. Anything else stays out: a colon inside
+# text() reads as a bind parameter even when quoted (Socrata ships ':id'), and
+# the bind rename below would match it too.
+_FEATURE_QUERYABLE_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,62}$")
 
 # Cap caller filter size before parsing: deeply nested cql2-json otherwise
 # recurses arbitrarily and un-indexed predicates cost per byte anyway.
@@ -270,6 +270,7 @@ _PG_TYPE_TO_SCHEMA: dict[str, dict] = {
     "date": {"type": "string", "format": "date"},
     "timestamp without time zone": {"type": "string", "format": "date-time"},
     "timestamp with time zone": {"type": "string", "format": "date-time"},
+    "uuid": {"type": "string", "format": "uuid"},
 }
 
 _STRING_PG_TYPES = {"text", "character varying", "character"}
@@ -525,6 +526,43 @@ def _require_attribute(node, queryables: dict[str, str], errors: list[str]):
     return pg_type
 
 
+def _checked_temporal(value, pg_type: str, errors: list[str]):
+    """``_checked_value`` for a date or timestamp property."""
+    if not isinstance(value, (date, datetime)):
+        errors.append(
+            f"property typed {pg_type!r} needs a DATE('...')/TIMESTAMP('...') "
+            'literal (cql2-json: {"date"/"timestamp": ...})'
+        )
+    elif (
+        pg_type == "timestamp without time zone"
+        and isinstance(value, datetime)
+        and value.tzinfo is not None
+    ):
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+    elif pg_type == "timestamp with time zone":
+        # Naive values bind in the database session's TimeZone; pin UTC.
+        if isinstance(value, datetime) and value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        if not isinstance(value, datetime):
+            return datetime.combine(value, time.min, tzinfo=timezone.utc)
+    return value
+
+
+def _checked_uuid(value, errors: list[str]):
+    """``_checked_value`` for a uuid property: the canonical string form.
+
+    A string, not a UUID: pygeofilter's evaluator has no handler for UUID
+    objects, so ``compile_feature_cql2_ast`` converts it at bind time.
+    """
+    if isinstance(value, str):
+        try:
+            return str(uuid.UUID(value))
+        except ValueError:
+            pass
+    errors.append(f"literal {value!r} is not a uuid")
+    return value
+
+
 def _checked_value(value, pg_type: str | None, errors: list[str]):
     """Type-check a literal against a property's pg type; return it normalized.
 
@@ -542,24 +580,9 @@ def _checked_value(value, pg_type: str | None, errors: list[str]):
     if pg_type is None:
         return value  # the attribute side already recorded an error
     if pg_type in _TEMPORAL_PG_TYPES:
-        if not isinstance(value, (date, datetime)):
-            errors.append(
-                f"property typed {pg_type!r} needs a DATE('...')/TIMESTAMP('...') "
-                'literal (cql2-json: {"date"/"timestamp": ...})'
-            )
-        elif (
-            pg_type == "timestamp without time zone"
-            and isinstance(value, datetime)
-            and value.tzinfo is not None
-        ):
-            return value.astimezone(timezone.utc).replace(tzinfo=None)
-        elif pg_type == "timestamp with time zone":
-            # Naive values bind in the database session's TimeZone; pin UTC.
-            if isinstance(value, datetime) and value.tzinfo is None:
-                return value.replace(tzinfo=timezone.utc)
-            if not isinstance(value, datetime):
-                return datetime.combine(value, time.min, tzinfo=timezone.utc)
-        return value
+        return _checked_temporal(value, pg_type, errors)
+    if pg_type == "uuid":
+        return _checked_uuid(value, errors)
     if pg_type in _STRING_PG_TYPES:
         ok = isinstance(value, str)
     elif pg_type in _INTEGER_PG_TYPES:
@@ -828,6 +851,9 @@ def compile_feature_cql2_ast(
         "date": sa_types.Date(),
         "timestamp without time zone": sa_types.DateTime(),
         "timestamp with time zone": sa_types.DateTime(timezone=True),
+        # A native uuid bind compiles to ``:name::UUID``, and text() does not
+        # read a name followed by a colon as a parameter.
+        "uuid": sa_types.Uuid(native_uuid=False),
     }
     field_mapping = {}
     for name, pg_type in queryables.items():
@@ -902,9 +928,14 @@ def compile_feature_cql2_ast(
             # no handler for Decimal literals. Note Float subclasses Numeric
             # and REAL subclasses Float, hence the isinstance pair.)
             value = Decimal(str(value))
+        bind_type = bp.type if bp is not None else None
+        if isinstance(bind_type, sa_types.Uuid):
+            # Compiled non-native (see sa_type_for_pg), executed native.
+            bind_type = sa_types.Uuid()
+            value = uuid.UUID(value)
         binds.append(
-            bindparam(new_key, value, type_=bp.type)
-            if bp is not None
+            bindparam(new_key, value, type_=bind_type)
+            if bind_type is not None
             else bindparam(new_key, value)
         )
 

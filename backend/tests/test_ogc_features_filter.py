@@ -31,6 +31,7 @@ from app.modules.catalog.datasets.domain.models import Dataset, Record
 from tests.factories import create_raster_dataset, get_user_id
 
 CRS84 = "http://www.opengis.net/def/crs/OGC/1.3/CRS84"
+ALPHA_REF = "6f1c3a52-2b8e-4f0e-9a51-3d6a8f9c0b11"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -45,7 +46,8 @@ async def _create_typed_table_and_dataset(
 ) -> Dataset:
     """Create a data table with one column per queryable type family.
 
-    ``WeirdCol`` (fails the lowercase identifier rule) and ``meta`` (jsonb, an
+    ``WeirdCol`` (mixed case, quoted in SQL) and ``ref`` (uuid) are queryable;
+    ``Odd Col`` (a space fails the identifier rule) and ``meta`` (jsonb, an
     unmappable type) must never appear in queryables. The stored column_info
     is deliberately DRIFTED — it lists a ghost column and omits ``height`` —
     so any test passing against it instead of the live schema fails.
@@ -71,6 +73,8 @@ async def _create_typed_table_and_dataset(
             f"x INTEGER, "
             f"{geometry_col_sql}"
             f'"WeirdCol" TEXT, '
+            f'"Odd Col" TEXT, '
+            f"ref UUID, "
             f"meta JSONB)"
         )
     )
@@ -105,6 +109,13 @@ async def _create_typed_table_and_dataset(
                 x=x,
             )
         )
+
+    await session.execute(
+        text(
+            f'UPDATE data.{table_name} SET "WeirdCol" = name, '
+            f"ref = CASE WHEN name = 'Alpha' THEN CAST(:ref AS uuid) END"
+        ).bindparams(ref=ALPHA_REF)
+    )
 
     record = Record(
         title=f"CQL2 Filter Test Layer {table_name}",
@@ -242,13 +253,15 @@ async def test_queryables_document_shape(client: AsyncClient, filter_dataset: Da
     assert props["ratio"] == {"type": "number"}
     assert props["price"] == {"type": "number"}
     assert props["x"] == {"type": "integer"}
+    assert props["WeirdCol"] == {"type": "string"}
+    assert props["ref"] == {"type": "string", "format": "uuid"}
     assert props["geometry"]["format"] == "geometry-any"
 
     # Live-schema derivation: the drifted stored column_info lists "ghost"
     # and omits "height"; the document must reflect the table, not the store.
     assert "ghost" not in props
     # Name and type exclusion rules.
-    assert "WeirdCol" not in props
+    assert "Odd Col" not in props
     assert "meta" not in props
     # Internal columns never leak.
     for hidden in ("gid", "geom", "geom_4326"):
@@ -388,6 +401,13 @@ OPERATOR_CASES = [
         ),
         2,
     ),
+    (
+        "mixed_case_prop",
+        "\"WeirdCol\" = 'Beta'",
+        _j("=", {"property": "WeirdCol"}, "Beta"),
+        1,
+    ),
+    ("uuid", f"ref = '{ALPHA_REF}'", _j("=", {"property": "ref"}, ALPHA_REF), 1),
     (
         "timestamp_gte",
         "built >= TIMESTAMP('2022-01-01T00:00:00Z')",
@@ -572,9 +592,10 @@ ERROR_CASES = [
     ),
     (
         "excluded_column_not_filterable",
-        {"filter": "\"WeirdCol\" = 'x'"},
+        {"filter": "\"Odd Col\" = 'x'"},
         "non-filterable",
     ),
+    ("malformed_uuid", {"filter": "ref = 'x'"}, "is not a uuid"),
     (
         "embedded_filter_lang_json",
         {

@@ -379,6 +379,70 @@ const CQL2_COMPARISON: Record<string, string> = {
   '>=': '>=',
 };
 
+/** A dataset column as the catalog lists it, typed by its information_schema name. */
+export interface FilterColumn {
+  name: string;
+  type?: string | null;
+}
+
+// Mirrors _FEATURE_QUERYABLE_NAME_RE and _PG_TYPE_TO_SCHEMA in
+// backend/app/standards/ogc/filtering.py: the columns a CQL2 filter can read.
+const CQL2_COLUMN_NAME_RE = /^[A-Za-z][A-Za-z0-9_]{0,62}$/;
+const CQL2_STRING_TYPES = new Set(['text', 'character varying', 'character']);
+const CQL2_QUERYABLE_TYPES = new Set([
+  ...CQL2_STRING_TYPES,
+  'smallint',
+  'integer',
+  'bigint',
+  'real',
+  'double precision',
+  'numeric',
+  'boolean',
+  'date',
+  'timestamp without time zone',
+  'timestamp with time zone',
+  'uuid',
+]);
+// The map compares a date or timestamp as the text PostgreSQL wrote into the
+// tile, so only a value in that exact form compares the same way in SQL.
+const DATE_TEXT_RE = /^\d{4}-\d{2}-\d{2}$/;
+// No trailing zeros in the fraction: PostgreSQL drops them.
+const TIMESTAMP_TEXT_RE = /^(\d{4}-\d{2}-\d{2}) ((?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{0,5}[1-9])?)$/;
+// PostgreSQL writes a uuid in lowercase, and the map compares case-sensitively.
+const UUID_TEXT_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+function isCalendarDate(day: string): boolean {
+  const parsed = new Date(`${day}T00:00:00Z`);
+  return (
+    !Number.isNaN(parsed.getTime()) &&
+    parsed.getUTCFullYear() >= 1 &&
+    parsed.toISOString().slice(0, 10) === day
+  );
+}
+
+/**
+ * The CQL2 literal for a value compared with a column of `pgType`, or null when
+ * SQL can't compare it the way the map does. A timestamp with time zone is
+ * always null: its tile text carries the database session's offset, which the
+ * builder can't know.
+ */
+function cql2Literal(value: string | number | boolean, pgType: string | undefined): unknown {
+  if (pgType === 'date') {
+    return typeof value === 'string' && DATE_TEXT_RE.test(value) && isCalendarDate(value)
+      ? { date: value }
+      : null;
+  }
+  if (pgType === 'timestamp without time zone') {
+    const m = typeof value === 'string' ? TIMESTAMP_TEXT_RE.exec(value) : null;
+    return m && isCalendarDate(m[1]) ? { timestamp: `${m[1]}T${m[2]}Z` } : null;
+  }
+  if (pgType === 'timestamp with time zone') return null;
+  if (pgType === 'uuid') {
+    return typeof value === 'string' && UUID_TEXT_RE.test(value) ? value : null;
+  }
+  return value;
+}
+
 function isCql2Scalar(value: unknown): value is string | number | boolean {
   return (
     typeof value === 'string' ||
@@ -417,18 +481,26 @@ function compareNumbers(a: number, operator: string, b: number): boolean {
   }
 }
 
-function conditionToCql2(c: CanonicalFilterCondition): Cql2Expression | null {
-  if (c.field.startsWith('$')) return null;
+function conditionToCql2(
+  c: CanonicalFilterCondition,
+  pgType: string | undefined,
+): Cql2Expression | null {
+  if (!CQL2_COLUMN_NAME_RE.test(c.field)) return null;
+  // An unlisted column is left to the server, which reads the live table.
+  if (pgType !== undefined && !CQL2_QUERYABLE_TYPES.has(pgType)) return null;
   if (c.operator === 'is_null') return cql2IsNull(c.field);
   if (c.operator === 'has') return cql2Not(cql2IsNull(c.field));
   if (c.operator === 'in_list' || c.operator === 'not_in_list') {
     const values = c.listValues ?? [];
     if (values.length === 0 || !values.every(isCql2Scalar)) return null;
-    const inList: Cql2Expression = { op: 'in', args: [cql2Property(c.field), values] };
+    const literals = values.map((v) => cql2Literal(v, pgType));
+    if (literals.includes(null)) return null;
+    const inList: Cql2Expression = { op: 'in', args: [cql2Property(c.field), literals] };
     return c.operator === 'in_list' ? inList : cql2OrNull(c.field, cql2Not(inList));
   }
   if (c.operator === 'contains') {
     if (typeof c.rawValue !== 'string') return null;
+    if (pgType !== undefined && !CQL2_STRING_TYPES.has(pgType)) return null;
     // MapLibre's `in` is a literal, case-sensitive substring test.
     const literal = c.rawValue.replace(/[\\%_]/g, '\\$&');
     return { op: 'like', args: [cql2Property(c.field), `%${literal}%`] };
@@ -448,23 +520,31 @@ function conditionToCql2(c: CanonicalFilterCondition): Cql2Expression | null {
     return null;
   }
   if (!isCql2Scalar(c.rawValue)) return null;
-  const comparison: Cql2Expression = { op, args: [cql2Property(c.field), c.rawValue] };
+  const literal = cql2Literal(c.rawValue, pgType);
+  if (literal === null) return null;
+  const comparison: Cql2Expression = { op, args: [cql2Property(c.field), literal] };
   return c.operator === '!=' ? cql2OrNull(c.field, comparison) : comparison;
 }
 
 /**
  * Translate a layer's MapLibre filter into CQL2-JSON that keeps the same
  * features. Returns null when the layer has no filter, and 'unsupported' when
- * the filter uses a form outside the structured editor's subset.
+ * the filter uses a form outside the structured editor's subset or reads a
+ * column CQL2 cannot filter. `columns` types the literals; a filter on a
+ * column it does not list is sent untyped.
  */
 export function maplibreFilterToCql2(
   filter: FilterSpecification | null | undefined,
+  columns?: readonly FilterColumn[] | null,
 ): Cql2Expression | null | 'unsupported' {
   const canonical = parseCanonicalFilter(filter);
   if (canonical.kind === 'opaque') return 'unsupported';
+  const types = new Map(
+    (columns ?? []).filter((col) => col.type).map((col) => [col.name, String(col.type).toLowerCase()]),
+  );
   const parts: Cql2Expression[] = [];
   for (const condition of canonical.conditions) {
-    const part = conditionToCql2(condition);
+    const part = conditionToCql2(condition, types.get(condition.field));
     if (part === null) return 'unsupported';
     parts.push(part);
   }
