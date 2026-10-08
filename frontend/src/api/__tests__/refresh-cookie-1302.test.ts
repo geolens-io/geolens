@@ -347,6 +347,61 @@ describe('browser refresh transport', () => {
     }
   });
 
+  it('revokes the cookie session when a login times out after its 2xx headers', async () => {
+    let lockHeld = false;
+    const locks = {
+      request: async (_name: string, _options: unknown, callback: () => Promise<unknown>) => {
+        lockHeld = true;
+        try {
+          return await callback();
+        } finally {
+          lockHeld = false;
+        }
+      },
+    };
+    Object.defineProperty(navigator, 'locks', { value: locks, configurable: true });
+    try {
+      document.cookie = 'geolens_csrf=csrf-login; path=/';
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.reject(new DOMException('The operation was aborted.', 'AbortError')),
+      } as Response);
+      let finishRevoke!: (r: Response) => void;
+      let revokedUnderLock: boolean | null = null;
+      mockFetch.mockImplementationOnce(() => {
+        revokedUnderLock = lockHeld;
+        return new Promise<Response>((resolve) => { finishRevoke = resolve; });
+      });
+      let settled = false;
+      const signIn = login('someone', 'secret').finally(() => { settled = true; });
+
+      await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(settled).toBe(false);
+      finishRevoke({ ok: true, status: 204 } as Response);
+
+      await expect(signIn).rejects.toMatchObject({ name: 'AbortError' });
+      expect(revokedUnderLock).toBe(true);
+      const [url, init] = mockFetch.mock.calls[1] as [string, RequestInit];
+      expect(url).toBe('/api/auth/logout/session/');
+      expect(init.headers).toMatchObject({ 'X-CSRF-Token': 'csrf-login' });
+      expect(init.headers).not.toHaveProperty('Authorization');
+    } finally {
+      Reflect.deleteProperty(navigator, 'locks');
+    }
+  });
+
+  it('does not revoke anything when the login itself is refused', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      json: () => Promise.resolve({ detail: 'Incorrect username or password' }),
+    } as Response);
+    await expect(login('someone', 'wrong')).rejects.toThrow();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
   it('revokes the cookie session before giving up on an unreadable exchange body', async () => {
     let lockHeld = false;
     const locks = {

@@ -24,39 +24,43 @@ export async function login(
 
   // SP-11: route is /auth/login (no trailing slash) so the POST body is
   // preserved without a 307 redirect.
-  const response = await withCookieWrite(() => fetch(`${API_BASE}/auth/login`, {
-    method: 'POST',
-    // fix(#1302): opt into the httpOnly refresh cookie. The response's
-    // refresh_token is null in that mode, so nothing token-shaped reaches
-    // localStorage.
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded', ...cookieAuthHeaders() },
-    credentials: 'same-origin',
-    // Bounded like refresh and the SSO exchange: this request holds the
-    // cross-tab cookie lock, and a pending SSO code expires while it waits.
-    signal: AbortSignal.timeout(LOGIN_TIMEOUT_MS),
-    body: new URLSearchParams({ username, password }),
-  }));
+  return withCookieWrite(async () => {
+    const response = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      // fix(#1302): opt into the httpOnly refresh cookie. The response's
+      // refresh_token is null in that mode, so nothing token-shaped reaches
+      // localStorage.
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', ...cookieAuthHeaders() },
+      credentials: 'same-origin',
+      // Bounded like refresh and the SSO exchange: this request holds the
+      // cross-tab cookie lock, and a pending SSO code expires while it waits.
+      signal: AbortSignal.timeout(LOGIN_TIMEOUT_MS),
+      body: new URLSearchParams({ username, password }),
+    });
 
-  if (!response.ok) {
-    let detail: unknown;
-    try {
-      const body = await response.json();
-      detail = body.detail;
-    } catch {
-      // body not JSON
+    if (!response.ok) {
+      let detail: unknown;
+      try {
+        const body = await response.json();
+        detail = body.detail;
+      } catch {
+        // body not JSON
+      }
+      throw new Error(translateApiErrorDetail(detail, response.status));
     }
-    throw new Error(translateApiErrorDetail(detail, response.status));
-  }
 
-  try {
-    return (await response.json()) as TokenResponse;
-  } catch (err) {
-    // fix(#1446): the 2xx already applied the refresh and CSRF cookies, so
-    // bailing out leaves a live session behind a failed sign-in. fix(#2038): but
-    // /auth/logout/ revokes EVERY session, so only a rejection earns that call.
-    if (isCredentialRejected(err)) void logoutSession().catch(() => {});
-    throw err;
-  }
+    try {
+      return (await response.json()) as TokenResponse;
+    } catch (err) {
+      // The 2xx already set the refresh and CSRF cookies, so a body this tab
+      // cannot use, a timeout included, must not leave that session behind.
+      // A rejection ends every session; anything else ends only the one the
+      // cookie now holds, before the lock is released.
+      if (isCredentialRejected(err)) void logoutSession().catch(() => {});
+      else await revokeCookieSession().catch(() => {});
+      throw err;
+    }
+  });
 }
 
 const EXCHANGE_TIMEOUT_MS = 30_000;
