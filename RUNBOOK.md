@@ -44,12 +44,15 @@ documentation.
 > **Dump and archive are not one snapshot.** The staging archive is taken after
 > the dump finishes, so staged files can change in between. The dump is
 > authoritative: after a restore, staging objects may lead or lag it by the
-> archive window (dump start to the end of the tar). A dataset or ingest job
-> whose file is missing from the archive keeps its restored state, so audit the
-> restored storage references and re-upload or restore each missing file. An
-> archive file that no dataset row and no ingest job references is orphan
-> storage. Do not prune by hand unless you have checked both, because a pending
-> or retryable import still needs its staged input.
+> archive window (dump start to the end of the tar). Three cases follow.
+> A file missing from the archive leaves its dataset or import with a restored
+> state that points at nothing, so audit the restored storage references and
+> re-upload or restore each one. A file replaced in the window keeps its path
+> but holds newer bytes than the dump describes, so re-upload any dataset or
+> import that was being changed around the backup time. A file the catalog no
+> longer references is orphan storage, but datasets, ingest jobs, map
+> thumbnails and map icons all store paths under it, so leave removal to the
+> application's own cleanup rather than pruning by hand.
 
 ### Automated backups are on by default
 
