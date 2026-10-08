@@ -17,6 +17,7 @@ import {
   getDatasetVersions,
   refreshDataset,
   getDatasetRefreshRuns,
+  restorePreviousVersion,
   listAttributes,
   updateAttribute,
   validateDataset,
@@ -255,6 +256,21 @@ export function useRefreshDataset() {
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.datasets.refreshRunsPrefix(variables.datasetId) });
       qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
+    },
+  });
+}
+
+export function useRestorePreviousVersion() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ datasetId, versionNumber }: { datasetId: string; versionNumber: number }) =>
+      restorePreviousVersion(datasetId, versionNumber),
+    // The restore is queued like a refresh: its run appears in history at once,
+    // and the detail's previous version and the version list change when it settles.
+    onSettled: (_data, _error, variables) => {
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.refreshRunsPrefix(variables.datasetId) });
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.versionsPrefix(variables.datasetId) });
     },
   });
 }

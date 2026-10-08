@@ -142,6 +142,7 @@ export function DetailPanel(props: DetailPanelProps) {
           onDraftSave={stagePendingDraft}
           onDraftDirtyChange={handleDraftDirtyChange}
           onNavigateToValidationField={onNavigateToValidationField}
+          refreshWatch={refreshWatch}
         />
       </TabsContent>
 

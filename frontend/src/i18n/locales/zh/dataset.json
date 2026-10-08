@@ -247,7 +247,27 @@
     "unknownFile": "未知文件",
     "detailsUnrecorded": "未记录此版本的详细信息。",
     "features": "{{count}} 个要素",
-    "srid": "SRID {{value}}"
+    "srid": "SRID {{value}}",
+    "restore": "恢复",
+    "restoreBusyHint": "已有刷新、替换或恢复正在进行。请查看刷新历史。",
+    "restoreSelectionHint": "请先取消选择地图上选中的要素，再进行恢复。"
+  },
+  "restoreDialog": {
+    "title": "恢复版本 {{number}}？",
+    "description": "版本 {{number}} 将重新成为当前数据。被替换的数据会保留，因此在下次替换之前可以撤销此次恢复。",
+    "consequenceEdits": "自版本 {{number}} 以来对要素所做的编辑将被丢弃。",
+    "consequenceMosaics": "使用此数据集的镶嵌数据集在重建之前仍会读取当前成员。",
+    "confirmPrompt": "请输入数据集名称以确认：",
+    "restoring": "正在恢复...",
+    "restore": "恢复版本",
+    "failed": "恢复版本失败",
+    "queued": "版本 {{number}} 的恢复已排队，可在刷新历史中查看。",
+    "refusal": {
+      "dataset_busy": "此数据集正在进行其他刷新、替换或恢复。请等待其完成后再试。",
+      "previous_version_changed": "对话框打开期间，保留的上一版本已发生变化。请关闭对话框并重新查看历史。",
+      "no_previous_version": "此数据集已没有可恢复的上一版本。",
+      "restore_not_applicable": "此数据集没有要素表，因此无可恢复内容。"
+    }
   },
   "deleteDialog": {
     "title": "删除数据集",

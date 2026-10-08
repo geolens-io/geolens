@@ -1,10 +1,13 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useDatasetVersions } from '@/components/dataset/hooks/use-dataset';
+import { useDatasetVersions, type DatasetRefreshWatch } from '@/components/dataset/hooks/use-dataset';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { formatDate } from '@/lib/format';
-import { GitBranch } from 'lucide-react';
+import { useDrawingStore } from '@/stores/drawing-store';
+import { GitBranch, RotateCcw } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { RestoreVersionDialog } from '@/components/dataset/RestoreVersionDialog';
 import { LoadingState } from '@/components/layout/LoadingState';
 import type { DatasetResponse, DatasetVersionResponse } from '@/types/api';
 import { getGeometryTypeLabel, getSourceFormatLabel } from '@/i18n/labels';
@@ -12,10 +15,19 @@ import { getGeometryTypeLabel, getSourceFormatLabel } from '@/i18n/labels';
 interface VersionHistoryProps {
   datasetId: string;
   dataset: DatasetResponse;
+  canEdit?: boolean;
+  watch?: DatasetRefreshWatch;
 }
 
-export function VersionHistory({ datasetId, dataset }: VersionHistoryProps) {
+export function VersionHistory({ datasetId, dataset, canEdit = false, watch }: VersionHistoryProps) {
   const { t } = useTranslation('dataset');
+  // A restore swaps the table under a feature the map still has selected, so a
+  // later save or delete would act on a stale row.
+  const selectedFeature = useDrawingStore((s) => s.selectedFeature);
+  const targetDatasetId = useDrawingStore((s) => s.targetDatasetId);
+  const hasSelectedFeature = targetDatasetId === dataset.id && selectedFeature !== null;
+  const restoreBlocked = hasSelectedFeature || Boolean(watch?.isBusy);
+  const [restoreTarget, setRestoreTarget] = useState<number | null>(null);
   const { data, isLoading, isError } = useDatasetVersions(datasetId);
 
   const { versions, originalUnrecorded } = useMemo(() => {
@@ -90,6 +102,11 @@ export function VersionHistory({ datasetId, dataset }: VersionHistoryProps) {
                 metaParts.push(t('versionHistory.srid', { value: version.srid }));
               }
 
+              const canRestore =
+                canEdit &&
+                !isCurrent &&
+                dataset.previous_version?.version_number === version.version_number;
+
               return (
                 <div
                   key={version.id}
@@ -125,10 +142,41 @@ export function VersionHistory({ datasetId, dataset }: VersionHistoryProps) {
                       {t('versionHistory.detailsUnrecorded')}
                     </p>
                   )}
+                  {canRestore && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-1"
+                      disabled={restoreBlocked}
+                      onClick={() => setRestoreTarget(version.version_number)}
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                      {t('versionHistory.restore')}
+                    </Button>
+                  )}
+                  {canRestore && restoreBlocked && (
+                    <p className="text-xs text-muted-foreground">
+                      {watch?.isBusy
+                        ? t('versionHistory.restoreBusyHint')
+                        : t('versionHistory.restoreSelectionHint')}
+                    </p>
+                  )}
                 </div>
               );
             })}
           </div>
+        )}
+        {restoreTarget !== null && (
+          <RestoreVersionDialog
+            datasetId={datasetId}
+            datasetTitle={dataset.title}
+            versionNumber={restoreTarget}
+            onQueued={watch?.trackDispatchedRun}
+            open
+            onOpenChange={(open) => {
+              if (!open) setRestoreTarget(null);
+            }}
+          />
         )}
       </CardContent>
     </Card>

@@ -247,7 +247,27 @@
     "unknownFile": "Fichier inconnu",
     "detailsUnrecorded": "Les détails de cette version n'ont pas été enregistrés.",
     "features": "{{count}} entités",
-    "srid": "SRID {{value}}"
+    "srid": "SRID {{value}}",
+    "restore": "Restaurer",
+    "restoreBusyHint": "Une actualisation, un remplacement ou une restauration est déjà en cours. Consultez l'historique des actualisations.",
+    "restoreSelectionHint": "Désélectionnez l'entité sélectionnée sur la carte pour restaurer."
+  },
+  "restoreDialog": {
+    "title": "Restaurer la version {{number}} ?",
+    "description": "La version {{number}} redevient les données actuelles. Les données remplacées sont conservées, la restauration peut donc être annulée jusqu'au prochain remplacement.",
+    "consequenceEdits": "Les modifications d'entités effectuées depuis la version {{number}} sont perdues.",
+    "consequenceMosaics": "Les mosaïques qui utilisent ce jeu de données continuent de lire le membre actuel jusqu'à leur reconstruction.",
+    "confirmPrompt": "Saisissez le nom du jeu de données pour confirmer :",
+    "restoring": "Restauration...",
+    "restore": "Restaurer la version",
+    "failed": "Échec de la restauration de la version",
+    "queued": "Restauration de la version {{number}} mise en file d'attente. Elle apparaît dans l'historique des actualisations.",
+    "refusal": {
+      "dataset_busy": "Une autre actualisation, un autre remplacement ou une autre restauration est en cours pour ce jeu de données. Attendez qu'il se termine, puis réessayez.",
+      "previous_version_changed": "La version précédente conservée a changé pendant que cette boîte de dialogue était ouverte. Fermez-la et consultez de nouveau l'historique.",
+      "no_previous_version": "Ce jeu de données n'a plus de version précédente à restaurer.",
+      "restore_not_applicable": "Ce jeu de données n'a pas de table d'entités, il n'y a donc rien à restaurer."
+    }
   },
   "vrt": {
     "mosaic": "Mosaïque VRT",

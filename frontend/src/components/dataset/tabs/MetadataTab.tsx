@@ -18,6 +18,7 @@ import { SourceQualityTab, type SourceQualityDraftField, type SourceQualityDraft
 import { useAIAvailability } from '@/hooks/use-ai-availability';
 import { useKeywordSuggestions } from '@/hooks/use-ai-metadata';
 import { useCreateKeyword, useKeywords } from '@/components/dataset/hooks/use-records';
+import type { DatasetRefreshWatch } from '@/components/dataset/hooks/use-dataset';
 import type { DatasetEditCapabilities } from '@/components/dataset/hooks/use-dataset-edit-capabilities';
 
 interface MetadataTabProps {
@@ -28,6 +29,7 @@ interface MetadataTabProps {
   onDraftSave: (field: SourceQualityDraftField, value: string) => void;
   onDraftDirtyChange: (field: SourceQualityDraftField, isDirty: boolean) => void;
   onNavigateToValidationField?: (field: string) => void;
+  refreshWatch?: DatasetRefreshWatch;
 }
 
 export function MetadataTab({
@@ -38,6 +40,7 @@ export function MetadataTab({
   onDraftSave,
   onDraftDirtyChange,
   onNavigateToValidationField,
+  refreshWatch,
 }: MetadataTabProps) {
   const { t } = useTranslation('dataset');
   const [historyExpanded, setHistoryExpanded] = useState(false);
@@ -236,7 +239,7 @@ export function MetadataTab({
         </CardHeader>
         {historyExpanded && (
           <CardContent className="space-y-6">
-            <VersionHistory datasetId={dataset.id} dataset={dataset} />
+            <VersionHistory datasetId={dataset.id} dataset={dataset} canEdit={canEdit} watch={refreshWatch} />
             {canEdit && <ChangeHistory datasetId={dataset.id} />}
           </CardContent>
         )}

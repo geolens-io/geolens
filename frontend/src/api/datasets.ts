@@ -21,6 +21,7 @@ import type {
   DatasetRefreshRequest,
   DatasetRefreshResponse,
   DatasetRefreshRunListResponse,
+  RestorePreviousVersionResponse,
   AttributeMetadataListResponse,
   AttributeMetadataResponse,
   AttributeMetadataUpdate,
@@ -343,6 +344,16 @@ export async function refreshDataset(
   return apiFetch<DatasetRefreshResponse>(`/datasets/${datasetId}/refresh`, {
     method: 'POST',
     body: JSON.stringify(payload),
+  });
+}
+
+export async function restorePreviousVersion(
+  datasetId: string,
+  expectedVersionNumber: number,
+): Promise<RestorePreviousVersionResponse> {
+  return apiFetch<RestorePreviousVersionResponse>(`/datasets/${datasetId}/previous-version/restore`, {
+    method: 'POST',
+    body: JSON.stringify({ expected_version_number: expectedVersionNumber }),
   });
 }
 

@@ -247,7 +247,27 @@
     "unknownFile": "Archivo desconocido",
     "detailsUnrecorded": "No se registraron los detalles de esta versión.",
     "features": "{{count}} entidades",
-    "srid": "SRID {{value}}"
+    "srid": "SRID {{value}}",
+    "restore": "Restaurar",
+    "restoreBusyHint": "Ya hay una actualización, un reemplazo o una restauración en curso. Consulte el historial de actualizaciones.",
+    "restoreSelectionHint": "Anule la selección de la entidad en el mapa para restaurar."
+  },
+  "restoreDialog": {
+    "title": "¿Restaurar la versión {{number}}?",
+    "description": "La versión {{number}} vuelve a ser los datos actuales. Los datos que reemplaza se conservan, por lo que la restauración se puede deshacer hasta el siguiente reemplazo.",
+    "consequenceEdits": "Se descartan las ediciones de entidades hechas desde la versión {{number}}.",
+    "consequenceMosaics": "Los mosaicos que usan este conjunto de datos siguen leyendo el miembro actual hasta que se reconstruyan.",
+    "confirmPrompt": "Escriba el nombre del conjunto de datos para confirmar:",
+    "restoring": "Restaurando...",
+    "restore": "Restaurar versión",
+    "failed": "No se pudo restaurar la versión",
+    "queued": "Restauración de la versión {{number}} en cola. Aparece en el historial de actualizaciones.",
+    "refusal": {
+      "dataset_busy": "Se está ejecutando otra actualización, reemplazo o restauración de este conjunto de datos. Espere a que termine e inténtelo de nuevo.",
+      "previous_version_changed": "La versión anterior conservada cambió mientras el diálogo estaba abierto. Ciérrelo y revise de nuevo el historial.",
+      "no_previous_version": "Este conjunto de datos ya no tiene una versión anterior que restaurar.",
+      "restore_not_applicable": "Este conjunto de datos no tiene tabla de entidades, por lo que no hay nada que restaurar."
+    }
   },
   "vrt": {
     "mosaic": "Mosaico VRT",

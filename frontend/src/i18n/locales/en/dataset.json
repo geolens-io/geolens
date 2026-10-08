@@ -247,7 +247,27 @@
     "unknownFile": "Unknown file",
     "detailsUnrecorded": "Details of this version were not recorded.",
     "features": "{{count}} features",
-    "srid": "SRID {{value}}"
+    "srid": "SRID {{value}}",
+    "restore": "Restore",
+    "restoreBusyHint": "A refresh, replacement or restore is already in progress. See refresh history.",
+    "restoreSelectionHint": "Deselect the feature selected on the map to restore."
+  },
+  "restoreDialog": {
+    "title": "Restore version {{number}}?",
+    "description": "Version {{number}} becomes the current data again. The data it replaces is kept, so the restore can be undone until the next replacement.",
+    "consequenceEdits": "Feature edits made since version {{number}} are discarded.",
+    "consequenceMosaics": "Mosaics that use this dataset keep reading the current member until they are rebuilt.",
+    "confirmPrompt": "Type the dataset name to confirm:",
+    "restoring": "Restoring...",
+    "restore": "Restore version",
+    "failed": "Failed to restore version",
+    "queued": "Restore of version {{number}} queued. It appears in refresh history.",
+    "refusal": {
+      "dataset_busy": "Another refresh, replacement or restore is running for this dataset. Wait for it to finish, then try again.",
+      "previous_version_changed": "The kept previous version changed while this dialog was open. Close it and review the history again.",
+      "no_previous_version": "This dataset no longer has a previous version to restore.",
+      "restore_not_applicable": "This dataset has no feature table, so there is nothing to restore."
+    }
   },
   "deleteDialog": {
     "title": "Delete Dataset",
