@@ -100,7 +100,7 @@ def test_build_attr_columns_filters_excluded_and_validates_names():
         {"name": "drop table"},  # invalid (space)
     ]
     sql = _build_attr_columns(columns)
-    assert sql == ", t.name"
+    assert sql == ', t."name"'
 
 
 def test_build_tile_query_uses_pruned_columns():
@@ -109,14 +109,14 @@ def test_build_tile_query_uses_pruned_columns():
     query = _build_tile_query("perf_test", [])
     assert "t.gid" in query
     # No extra columns past gid.
-    assert "t.name" not in query
-    assert "t.category" not in query
+    assert 't."name"' not in query
+    assert 't."category"' not in query
 
     # Non-empty columns → projection includes them.
     columns = [{"name": "name"}, {"name": "category"}]
     query = _build_tile_query("perf_test", columns)
-    assert "t.name" in query
-    assert "t.category" in query
+    assert 't."name"' in query
+    assert 't."category"' in query
 
 
 def test_additional_columns_unioned_below_zoom_threshold():
