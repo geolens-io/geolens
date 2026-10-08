@@ -453,6 +453,42 @@ class TestFKRelationships:
         )
         assert listed.json()["relationships"][0]["broken"] is True
 
+    async def test_related_records_missing_non_join_column_stays_503(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """An undefined column that is not a join column is not a relationship fault."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        source = await create_dataset(
+            test_db_session, created_by=admin_id, name="No-Gid Source"
+        )
+        target = await create_dataset(
+            test_db_session, created_by=admin_id, name="No-Gid Target"
+        )
+        await test_db_session.execute(
+            text(f"CREATE TABLE data.{source.table_name} (target_id integer)")
+        )
+        await test_db_session.commit()
+
+        create_resp = await client.post(
+            f"/datasets/{source.id}/relationships/",
+            json={
+                "target_dataset_id": str(target.record_id),
+                "source_column": "target_id",
+                "target_column": "target_id",
+            },
+            headers=admin_auth_header,
+        )
+        assert create_resp.status_code == 201, create_resp.text
+
+        resp = await client.get(
+            f"/datasets/{source.id}/features/1/related/{create_resp.json()['id']}/",
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 503, resp.text
+
     async def test_related_records_rejects_relationship_for_different_source(
         self,
         client: AsyncClient,

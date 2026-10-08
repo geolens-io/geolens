@@ -18,7 +18,6 @@ from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from app.core.db.sqlstate import sqlstate
 from app.core.identity import Identity
 from app.modules.catalog.authorization import apply_visibility_filter
 from app.modules.catalog.datasets.domain._sql_safety import SAFE_COLUMN_NAME_RE
@@ -30,7 +29,7 @@ from app.modules.catalog.datasets.domain.models import (
 )
 from app.modules.catalog.datasets.domain.relationship_columns import (
     has_missing_column,
-    missing_column_error,
+    join_column_error,
     tables_unavailable_error,
 )
 from app.modules.catalog.datasets.domain.service_query import get_dataset
@@ -636,9 +635,7 @@ async def get_related_records(
             session, target_ds.table_name
         )
     except ProgrammingError as exc:
-        if sqlstate(exc) == "42703":
-            raise missing_column_error(exc, rel) from exc
-        raise tables_unavailable_error() from exc
+        raise (join_column_error(exc, rel) or tables_unavailable_error()) from exc
     except OperationalError as exc:
         raise tables_unavailable_error() from exc
     col_list = [{"name": c["name"], "type": c["type"]} for c in columns]

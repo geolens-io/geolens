@@ -7,6 +7,7 @@ import re
 from fastapi import HTTPException, status
 from sqlalchemy.exc import ProgrammingError
 
+from app.core.db.sqlstate import sqlstate
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetRelationship
 
 
@@ -36,25 +37,27 @@ def tables_unavailable_error() -> HTTPException:
     )
 
 
-def missing_column_error(
+def join_column_error(
     exc: ProgrammingError, rel: DatasetRelationship
-) -> HTTPException:
-    """409 naming the join column the table no longer has.
+) -> HTTPException | None:
+    """409 naming the join column the table no longer has, else ``None``.
 
-    A retry cannot fix it; the relationship has to be edited or deleted.
+    Other undefined columns (``gid``, a projected property) are not fixed by
+    editing the relationship, so they keep the caller's 503. A retry cannot
+    fix a missing join column; the relationship has to be deleted or recreated.
     """
+    if sqlstate(exc) != "42703":
+        return None
     match = _MISSING_COLUMN_RE.search(str(getattr(exc, "orig", exc)))
     column = match.group(1) if match else None
-    message = (
-        f"Relationship column {column!r} no longer exists in its dataset"
-        if column
-        else "A relationship column no longer exists in its dataset"
-    )
+    joins = {rel.source_column, rel.source_column.lower(), rel.target_column}
+    if column not in joins:
+        return None
     return HTTPException(
         status_code=status.HTTP_409_CONFLICT,
         detail={
             "code": "relationship_column_missing",
-            "message": message,
+            "message": f"Relationship column {column!r} no longer exists in its dataset",
             "column": column,
         },
     )
