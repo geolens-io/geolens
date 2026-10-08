@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import { StyleColorPicker } from '../StyleColorPicker';
 import { ZoomExpressionEditor } from '../ZoomExpressionEditor';
 import { StrokeControls } from './StrokeControls';
@@ -13,6 +14,7 @@ export function CircleEditor({
   onPaintProp,
   t,
 }: BaseStyleEditorProps) {
+  const opacityHelpId = useId();
   const isRadiusDataDriven = isDataDriven && layer.style_config?.target === 'radius';
 
   return (
@@ -47,9 +49,10 @@ export function CircleEditor({
         value={getEditableNumericPaintValue(paint, 'circle-opacity', 1)}
         defaultValue={1}
         min={0} max={1} step={0.01} format="percent"
+        describedBy={opacityHelpId}
         onChange={(val) => onPaintProp('circle-opacity', val)}
       />
-      <p className="text-xs text-muted-foreground">{t('style.pointOpacityHelp')}</p>
+      <p id={opacityHelpId} className="text-xs text-muted-foreground">{t('style.pointOpacityHelp')}</p>
       {!isRadiusDataDriven && (
         <ZoomExpressionEditor
           label={t('style.radius')}

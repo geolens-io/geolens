@@ -197,7 +197,7 @@
     "pointOpacity": "Point opacity",
     "layerOpacity": "Layer opacity",
     "pointOpacityHelp": "Opacity of each point's fill. Layer opacity below is multiplied on top.",
-    "layerOpacityHelp": "Scales the whole layer, multiplied with the opacity settings above.",
+    "layerOpacityHelp": "Combined with the opacity settings above.",
     "color": "Color",
     "hexValueFor": "{{label}} hex value",
     "hexColorValue": "Hex color value",

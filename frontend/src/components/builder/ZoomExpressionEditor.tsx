@@ -26,6 +26,8 @@ interface ZoomExpressionEditorProps {
   max: number;
   step: number;
   format?: NumericFormat;
+  /** Id of an element that describes the fixed-value slider. */
+  describedBy?: string;
   onChange: (value: number | ZoomExpression) => void;
 }
 
@@ -80,6 +82,7 @@ export function ZoomExpressionEditor({
   max,
   step,
   format,
+  describedBy,
   onChange,
 }: ZoomExpressionEditorProps) {
   const { t } = useTranslation('builder');
@@ -232,6 +235,7 @@ export function ZoomExpressionEditor({
           max={max}
           step={step}
           display={formatDisplayValue(scalarValue, format)}
+          describedBy={describedBy}
           onChange={onChange}
         />
       ) : (

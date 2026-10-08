@@ -49,7 +49,8 @@ describe('LayerStyleEditor opacity help', () => {
         onLayoutChange={vi.fn()}
       />,
     );
-    expect(screen.getByText(/Scales the whole layer/)).toBeInTheDocument();
+    const help = screen.getByText('Combined with the opacity settings above.');
+    expect(screen.getByRole('slider', { name: 'Layer opacity' })).toHaveAttribute('aria-describedby', help.id);
   });
 });
 

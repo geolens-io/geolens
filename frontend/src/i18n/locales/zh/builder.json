@@ -197,7 +197,7 @@
     "pointOpacity": "点不透明度",
     "layerOpacity": "图层不透明度",
     "pointOpacityHelp": "每个点填充的不透明度。下方的图层不透明度会在此基础上相乘。",
-    "layerOpacityHelp": "缩放整个图层，并与上方的不透明度设置相乘。",
+    "layerOpacityHelp": "与上方的不透明度设置相结合。",
     "color": "颜色",
     "hexValueFor": "{{label}} 的十六进制值",
     "hexColorValue": "十六进制颜色值",

@@ -82,7 +82,8 @@ describe('CircleEditor', () => {
   it('describes what point opacity covers', () => {
     render(<CircleEditor {...makeProps(makeCircleLayer())} />);
 
-    expect(screen.getByText('style.pointOpacityHelp')).toBeInTheDocument();
+    const help = screen.getByText('style.pointOpacityHelp');
+    expect(screen.getByRole('slider', { name: 'Point opacity' })).toHaveAttribute('aria-describedby', help.id);
   });
 
   it('renders circle-color picker, circle-opacity, circle-radius, and stroke controls', () => {
