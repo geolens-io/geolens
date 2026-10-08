@@ -169,11 +169,13 @@ describe('admin api request contracts', () => {
     mockApiFetch.mockClear();
     await admin.triggerBackfill(true);
     expect(calledUrl()).toBe('/admin/backfill-embeddings/?force=true');
+    expect(calledInit()).not.toHaveProperty('timeoutMs');
   });
 
   it('triggerBackfill asks for every tenant only when told to', async () => {
     await admin.triggerBackfill(false, true);
     expect(calledUrl()).toBe('/admin/backfill-embeddings/?all_tenants=true');
+    expect(calledInit()).toMatchObject({ timeoutMs: 630_000 });
     mockApiFetch.mockClear();
     await admin.triggerBackfill(true, true);
     expect(calledUrl()).toBe('/admin/backfill-embeddings/?force=true&all_tenants=true');
