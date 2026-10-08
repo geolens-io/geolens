@@ -7,9 +7,11 @@ from fastapi import (
     Depends,
     HTTPException,
     Query,
+    Request,
     Response,
     status,
 )
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -555,6 +557,7 @@ async def get_feature_related_records(
     dataset_id: uuid.UUID,
     gid: int,
     relationship_id: uuid.UUID,
+    request: Request,
     limit: int = Query(50, ge=1, le=500),
     after: int = Query(0, ge=0),
     user: Identity | None = Depends(get_optional_user),
@@ -585,6 +588,27 @@ async def get_feature_related_records(
         )
     await check_dataset_access_or_anonymous(db, target_dataset, target_dataset.id, user)
 
+    async def may_repair(candidate_id: uuid.UUID) -> bool:
+        # A read-only API key must not reach a catalog write through its owner.
+        if (
+            user is None
+            or request.headers.get("X-Api-Key")
+            or request.query_params.get("api_key")
+        ):
+            return False
+        # The refresh path rolled the session back, which expired the caller.
+        user_state = sa_inspect(user, raiseerr=False)
+        if user_state is not None and user_state.session is db.sync_session:
+            await db.refresh(user)
+        candidate = await get_dataset(db, candidate_id)
+        if candidate is None:
+            return False
+        try:
+            await check_dataset_write_access(db, candidate, candidate_id, user)
+        except HTTPException:
+            return False
+        return True
+
     try:
         result = await get_related_records(
             db,
@@ -594,6 +618,7 @@ async def get_feature_related_records(
             source_record_id=dataset.record_id,
             limit=limit,
             after=after,
+            may_repair=may_repair,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))

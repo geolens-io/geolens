@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
 import structlog
@@ -32,7 +33,9 @@ from app.modules.catalog.datasets.domain.models import (
 )
 from app.modules.catalog.datasets.domain.relationship_columns import (
     has_missing_column,
+    is_undefined_column,
     join_column_error,
+    refresh_dropped_join_column,
     tables_unavailable_error,
 )
 from app.modules.catalog.datasets.domain.service_query import get_dataset
@@ -569,6 +572,7 @@ async def get_related_records(
     source_record_id: uuid.UUID | None = None,
     limit: int = 50,
     after: int = 0,
+    may_repair: Callable[[uuid.UUID], Awaitable[bool]] | None = None,
 ) -> dict:
     """Get related records for a feature via FK relationship.
 
@@ -579,7 +583,8 @@ async def get_related_records(
     URL: a relationship id cannot be replayed through an unrelated source
     dataset to read its target. Callers (the API layer) must pass the
     authorized source record id; access to the target dataset is authorized
-    separately at the call site.
+    separately at the call site. ``may_repair`` says whether the caller may
+    modify a dataset; only then is a dropped join column stored in the catalog.
     """
     from app.modules.catalog.datasets.domain.models import DatasetRelationship
 
@@ -640,9 +645,12 @@ async def get_related_records(
             session, target_ds.table_name
         )
     except ProgrammingError as exc:
-        raise (
-            join_column_error(exc, join_ds, join_column) or tables_unavailable_error()
-        ) from exc
+        error = join_column_error(exc, join_ds, join_column)
+        if error is None and is_undefined_column(exc):
+            error = await refresh_dropped_join_column(
+                session, join_ds.id, join_ds.table_name, join_column, may_repair
+            )
+        raise (error or tables_unavailable_error()) from exc
     except OperationalError as exc:
         raise tables_unavailable_error() from exc
     col_list = [{"name": c["name"], "type": c["type"]} for c in columns]
