@@ -15,6 +15,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.catalog.datasets.domain._sql_safety import SAFE_TABLE_NAME_RE
+from app.modules.catalog.datasets.domain.helpers import WorkflowTransitionDenied
 from app.modules.catalog.datasets.domain.models import (
     AttributeMetadata,
     Dataset,
@@ -271,10 +272,7 @@ async def _apply_record_status_change(
     )
     allowed = await workflow.allowed_transitions(context)
     if new_status not in allowed:
-        raise ValueError(
-            f"Cannot transition from '{current_status}' to '{new_status}'. "
-            f"Allowed: {allowed}"
-        )
+        raise WorkflowTransitionDenied(current_status, new_status, allowed)
 
     if new_status == "published" and current_status != "published":
         from app.core.persistent_config import REQUIRE_METADATA_FOR_PUBLISH

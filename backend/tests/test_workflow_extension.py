@@ -311,7 +311,12 @@ async def test_target_status_endpoint_uses_overlay_block():
         )
 
     assert exc.value.status_code == 422
-    assert "Cannot transition from 'internal' to 'published'" in exc.value.detail
+    assert exc.value.detail["current_stage"] == "internal"
+    assert exc.value.detail["requested_stage"] == "published"
+    assert (
+        "Cannot transition from 'internal' to 'published'"
+        in exc.value.detail["message"]
+    )
     assert db.committed is False
 
 
@@ -355,7 +360,11 @@ async def test_metadata_patch_endpoint_uses_overlay_block():
             )
 
     assert exc.value.status_code == 422
-    assert "Cannot transition from 'draft' to 'published'" in exc.value.detail
+    assert exc.value.detail["current_stage"] == "draft"
+    assert exc.value.detail["requested_stage"] == "published"
+    assert (
+        "Cannot transition from 'draft' to 'published'" in exc.value.detail["message"]
+    )
     assert dataset.record.record_status == "draft"
     assert db.committed is False
 

@@ -67,6 +67,16 @@ class TestValidTransitions:
 # ---------------------------------------------------------------------------
 
 
+def test_denial_fields_survive_stage_names_holding_the_delimiter():
+    from app.modules.catalog.datasets.domain.helpers import WorkflowTransitionDenied
+
+    denied = WorkflowTransitionDenied("a' to 'b", "c' to 'd", {"z", "x' to 'y"})
+    assert denied.detail["current_stage"] == "a' to 'b"
+    assert denied.detail["requested_stage"] == "c' to 'd"
+    assert denied.detail["allowed_stages"] == ["x' to 'y", "z"]
+    assert "a' to 'b" in denied.detail["message"]
+
+
 class TestInvalidTransitions:
     """Skipping steps or going backward beyond one step should return 422."""
 
@@ -97,7 +107,13 @@ class TestInvalidTransitions:
             headers=admin_auth_header,
         )
         assert resp.status_code == 422, resp.text
-        assert "Cannot transition" in resp.json()["detail"]
+        detail = resp.json()["detail"]
+        assert "Cannot transition" in detail["message"]
+        assert detail["code"] == "workflow_transition_denied"
+        assert detail["current_stage"] == from_status
+        assert detail["requested_stage"] == to_status
+        assert to_status not in detail["allowed_stages"]
+        assert detail["allowed_stages"] == sorted(detail["allowed_stages"])
 
 
 # ---------------------------------------------------------------------------
@@ -125,7 +141,7 @@ class TestInvalidStatusValue:
             headers=admin_auth_header,
         )
         assert resp.status_code == 422
-        assert "Cannot transition" in resp.json()["detail"]
+        assert "Cannot transition" in resp.json()["detail"]["message"]
 
     async def test_blank_status_value_rejected(
         self, client, test_db_session, admin_auth_header

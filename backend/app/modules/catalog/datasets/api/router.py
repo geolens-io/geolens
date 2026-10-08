@@ -44,6 +44,7 @@ from app.modules.catalog.authorization import (
     visible_lineage_summary,
 )
 from app.modules.catalog.datasets.domain.helpers import (
+    WorkflowTransitionDenied,
     dataset_to_response,
     _load_actor_identities,
 )
@@ -377,6 +378,11 @@ async def update_dataset_metadata(
             actor_id=user.id,
             actor=user,
             warnings_out=metadata_warnings,
+        )
+    except WorkflowTransitionDenied as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=e.detail,
         )
     except ValueError as e:
         msg = str(e)
