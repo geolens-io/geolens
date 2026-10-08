@@ -1,5 +1,7 @@
 """Tests for PersistentConfig generic class and centralized registry."""
 
+import asyncio
+import time
 from unittest.mock import patch
 
 import pytest
@@ -2188,3 +2190,130 @@ async def test_validation_across_all_registered_types(
     # Bad value raises
     with pytest.raises(ValidationError):
         adapter.validate_python(bad_value)
+
+
+class _UrlOverlay:
+    """An overlay whose default model names the endpoint it resolved against.
+
+    With ``release`` set, the first resolution waits on it, holding the batch
+    open between reading its snapshot and committing.
+    """
+
+    def __init__(self, release: asyncio.Event | None = None) -> None:
+        self.entered = asyncio.Event()
+        self.release = release
+
+    async def resolve_runtime_config(self, db, settings=None):
+        from app.core.persistent_config import OPENAI_BASE_URL
+
+        configured = (
+            settings[OPENAI_BASE_URL.key]
+            if settings and OPENAI_BASE_URL.key in settings
+            else await OPENAI_BASE_URL.get(db)
+        )
+        if self.release is not None and not self.release.is_set():
+            self.entered.set()
+            await self.release.wait()
+        return {"default_model": f"model-for-{configured}"}
+
+
+async def _seed_overlay_with_a_pinned_model(session) -> None:
+    from app.core.db.models import AppSetting
+
+    session.add(AppSetting(key="llm_provider", value={"v": "overlay"}))
+    session.add(AppSetting(key="llm_model", value={"v": "pinned"}))
+    await session.commit()
+
+
+async def _clear_the_model(client: AsyncClient, headers: dict, path: str):
+    if path == "/settings/":
+        return await client.put(
+            path, json={"settings": {"llm_model": ""}}, headers=headers
+        )
+    return await client.post(path, json={"keys": ["llm_model"]}, headers=headers)
+
+
+async def _waits_on_session(session, task) -> bool:
+    """Whether ``task`` blocks on a lock ``session`` holds before it finishes."""
+    from sqlalchemy import text
+
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        if task.done():
+            return False
+        # The activity view is snapshotted once per transaction.
+        await session.execute(text("SELECT pg_stat_clear_snapshot()"))
+        blocked = await session.scalar(
+            text(
+                "SELECT count(*) FROM pg_stat_activity"
+                " WHERE pg_backend_pid() = ANY(pg_blocking_pids(pid))"
+            )
+        )
+        if blocked:
+            return True
+        await asyncio.sleep(0.05)
+    pytest.fail("the model reset neither finished nor waited")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("path", ["/settings/", "/settings/reset/"])
+async def test_a_model_reset_waits_for_a_concurrent_endpoint_write(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, path
+):
+    """A model reset that starts while another transaction writes the endpoint
+    resolves the audited default against the endpoint that transaction commits.
+    The endpoint has no row before the write, so only a lock that covers inserts
+    serializes the two."""
+    from app.core.db.models import AppSetting
+
+    new_url = "https://new.example/v1"
+    await _seed_overlay_with_a_pinned_model(test_db_session)
+    test_db_session.add(AppSetting(key="openai_base_url", value={"v": new_url}))
+    await test_db_session.flush()
+
+    with patch("app.platform.extensions.get_ai_provider", return_value=_UrlOverlay()):
+        reset = asyncio.create_task(_clear_the_model(client, admin_auth_header, path))
+        try:
+            waited = await _waits_on_session(test_db_session, reset)
+        finally:
+            await test_db_session.commit()
+        resp = await reset
+
+    assert resp.status_code == 200, resp.text
+    assert await _latest_model_reset_value() == f"model-for-{new_url}"
+    assert waited
+
+
+@pytest.mark.anyio
+async def test_an_endpoint_write_waits_for_a_model_reset_in_progress(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """An endpoint write that starts while a model reset is between reading the
+    provider configuration and committing waits for the reset to finish."""
+    from sqlalchemy import text
+    from sqlalchemy.exc import DBAPIError
+
+    from app.core.db.models import AppSetting
+
+    await _seed_overlay_with_a_pinned_model(test_db_session)
+    release = asyncio.Event()
+    overlay = _UrlOverlay(release)
+
+    with patch("app.platform.extensions.get_ai_provider", return_value=overlay):
+        reset = asyncio.create_task(
+            _clear_the_model(client, admin_auth_header, "/settings/reset/")
+        )
+        try:
+            await asyncio.wait_for(overlay.entered.wait(), timeout=30)
+            await test_db_session.execute(text("SET LOCAL lock_timeout = '1s'"))
+            test_db_session.add(
+                AppSetting(key="openai_base_url", value={"v": "https://new.example/v1"})
+            )
+            with pytest.raises(DBAPIError, match="lock timeout"):
+                await test_db_session.flush()
+        finally:
+            await test_db_session.rollback()
+            release.set()
+            resp = await reset
+
+    assert resp.status_code == 200, resp.text
