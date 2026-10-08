@@ -649,7 +649,9 @@
     "noRecords": "无相关记录",
     "showingCount": "正在显示 {{shown}} / {{total}} 条记录",
     "error": "加载关系失败",
-    "loadError": "加载相关记录失败"
+    "loadError": "加载相关记录失败",
+    "broken": "已损坏",
+    "brokenMessage": "连接列在其数据集中已不存在。请删除或重新创建此关系。"
   },
   "iso": {
     "lineage": "数据血缘",

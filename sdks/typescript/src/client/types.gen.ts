@@ -3474,6 +3474,12 @@ export type DatasetRelationshipResponse = {
      * Target Dataset Title
      */
     target_dataset_title?: string | null;
+    /**
+     * Broken
+     *
+     * True when a join column no longer exists in its dataset. Related-records reads for it fail until the relationship is deleted or recreated.
+     */
+    broken?: boolean;
 };
 
 /**

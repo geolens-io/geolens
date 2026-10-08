@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { listRelationships, getRelatedRecords } from '@/api/datasets';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ErrorState } from '@/components/layout/ErrorState';
 import { cn } from '@/lib/utils';
@@ -30,7 +31,7 @@ function RelatedSection({
   const { data, isLoading, isError } = useQuery<DatasetRowsResponse>({
     queryKey: queryKeys.relationships.records(datasetId, featureGid, relationship.id),
     queryFn: () => getRelatedRecords(datasetId, featureGid, relationship.id, { limit: 50 }),
-    enabled: open,
+    enabled: open && !relationship.broken,
   });
 
   const label = relationship.label || relationship.target_dataset_title || t('relatedRecords.title');
@@ -40,6 +41,7 @@ function RelatedSection({
       <CollapsibleTrigger className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium hover:bg-muted/50 transition-colors">
         <Link2 className="size-4 text-muted-foreground flex-shrink-0" />
         <span className="flex-1 text-start truncate">{label}</span>
+        {relationship.broken && <Badge variant="warning">{t('relatedRecords.broken')}</Badge>}
         <span className="text-xs text-muted-foreground">
           {relationship.source_column} &rarr; {relationship.target_column}
         </span>
@@ -47,6 +49,9 @@ function RelatedSection({
       </CollapsibleTrigger>
       <CollapsibleContent>
         <div className="px-3 pb-3">
+          {relationship.broken && (
+            <p className="text-sm text-muted-foreground py-2">{t('relatedRecords.brokenMessage')}</p>
+          )}
           {isLoading && (
             <div className="space-y-2 py-2">
               <Skeleton className="h-4 w-full" />

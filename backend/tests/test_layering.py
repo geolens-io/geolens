@@ -1193,7 +1193,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/search/service_semantic.py": 514,
         "backend/app/modules/catalog/maps/service_diff.py": 400,
         "backend/app/modules/catalog/maps/service_shared.py": 400,
-        "backend/app/modules/catalog/datasets/domain/service_relationships.py": 657,
+        "backend/app/modules/catalog/datasets/domain/service_relationships.py": 653,
         "backend/app/modules/catalog/datasets/domain/service_metadata.py": 555,
         # Internal pointer reads sit beside the detail query that shares them.
         "backend/app/modules/catalog/datasets/domain/service_query.py": 439,
@@ -1373,7 +1373,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # its catalog writes.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 699,
     # Dataset request and verification response families share this public contract.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1746,
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1754,
     # Analysis validation, bounded execution and fenced registration share one task
     # lifecycle.
     "backend/app/processing/analysis/tasks.py": 1401,

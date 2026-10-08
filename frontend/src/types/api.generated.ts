@@ -8184,6 +8184,12 @@ export interface components {
             label: string | null;
             /** Target Dataset Title */
             target_dataset_title?: string | null;
+            /**
+             * Broken
+             * @description True when a join column no longer exists in its dataset. Related-records reads for it fail until the relationship is deleted or recreated.
+             * @default false
+             */
+            broken: boolean;
         };
         /** DatasetResponse */
         DatasetResponse: {

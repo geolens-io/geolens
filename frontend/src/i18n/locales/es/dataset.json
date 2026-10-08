@@ -757,7 +757,9 @@
     "noRecords": "Sin registros relacionados",
     "showingCount": "Mostrando {{shown}} de {{total}} registros",
     "error": "Error al cargar relaciones",
-    "loadError": "Error al cargar registros relacionados"
+    "loadError": "Error al cargar registros relacionados",
+    "broken": "Rota",
+    "brokenMessage": "Una columna de unión ya no existe en su conjunto de datos. Elimine o vuelva a crear esta relación."
   },
   "overview": {
     "allChecksPassed": "Todas las comprobaciones superadas",

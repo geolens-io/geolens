@@ -757,7 +757,9 @@
     "noRecords": "Aucun enregistrement associe",
     "showingCount": "{{shown}} sur {{total}} enregistrements",
     "error": "Echec du chargement des relations",
-    "loadError": "Echec du chargement des enregistrements associes"
+    "loadError": "Echec du chargement des enregistrements associes",
+    "broken": "Rompue",
+    "brokenMessage": "Une colonne de jointure n'existe plus dans son jeu de données. Supprimez ou recréez cette relation."
   },
   "overview": {
     "allChecksPassed": "Toutes les vérifications réussies",

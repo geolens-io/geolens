@@ -34,6 +34,7 @@ from app.modules.auth.oauth.service import (
 from app.modules.auth.providers import AuthenticatedIdentity
 from app.modules.auth.service import AuthService
 from app.core.dependencies import get_client_ip, get_db
+from app.core.edition import is_enterprise
 from app.core.persistent_config import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
     REFRESH_TOKEN_EXPIRE_DAYS,
@@ -624,4 +625,10 @@ async def list_public_providers(
 ) -> list[OAuthProviderPublic]:
     """Return the list of enabled OAuth providers for the login page."""
     providers = await get_enabled_providers(db)
-    return [OAuthProviderPublic.model_validate(p) for p in providers]
+    # The SAML sign-in route ships with the Enterprise runtime only.
+    saml_available = is_enterprise()
+    return [
+        OAuthProviderPublic.model_validate(p)
+        for p in providers
+        if p.provider_type != "saml" or saml_available
+    ]

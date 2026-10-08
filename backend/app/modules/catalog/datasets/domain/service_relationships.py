@@ -13,12 +13,12 @@ if TYPE_CHECKING:
         DatasetRelationshipCreate,
     )
 
-from fastapi import HTTPException, status
 from sqlalchemy import select, text
 from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app.core.db.sqlstate import sqlstate
 from app.core.identity import Identity
 from app.modules.catalog.authorization import apply_visibility_filter
 from app.modules.catalog.datasets.domain._sql_safety import SAFE_COLUMN_NAME_RE
@@ -27,6 +27,11 @@ from app.modules.catalog.datasets.domain.models import (
     Dataset,
     DatasetGrant,
     Record,
+)
+from app.modules.catalog.datasets.domain.relationship_columns import (
+    has_missing_column,
+    missing_column_error,
+    tables_unavailable_error,
 )
 from app.modules.catalog.datasets.domain.service_query import get_dataset
 from app.platform.extensions import get_catalog_port, get_permission_extension
@@ -215,9 +220,10 @@ async def _visible_relationships(
     # Dataset.id, so resolve the source's Dataset.id here (dataset_id is its
     # record_id). Create-input still takes target_dataset_id as a
     # record_id -- intentional asymmetry, unchanged here.
-    source_dataset_id = (
-        await session.execute(select(Dataset.id).where(Dataset.record_id == dataset_id))
+    source_dataset = (
+        await session.execute(select(Dataset).where(Dataset.record_id == dataset_id))
     ).scalar_one_or_none()
+    source_dataset_id = source_dataset.id if source_dataset is not None else None
 
     # Inner-join Dataset so relationships whose target has no backing
     # Dataset are dropped (fail-closed).
@@ -249,6 +255,8 @@ async def _visible_relationships(
                 "relationship_type": rel.relationship_type,
                 "label": rel.label,
                 "target_dataset_title": title,
+                "broken": source_dataset is not None
+                and has_missing_column(source_dataset, target_ds, rel),
             }
         )
     return visible_items
@@ -627,11 +635,12 @@ async def get_related_records(
         columns = await get_catalog_port().get_column_info(
             session, target_ds.table_name
         )
-    except (ProgrammingError, OperationalError):
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="A related dataset table is temporarily unavailable",
-        )
+    except ProgrammingError as exc:
+        if sqlstate(exc) == "42703":
+            raise missing_column_error(exc, rel) from exc
+        raise tables_unavailable_error() from exc
+    except OperationalError as exc:
+        raise tables_unavailable_error() from exc
     col_list = [{"name": c["name"], "type": c["type"]} for c in columns]
 
     next_cursor = after + limit if after + limit < total else None

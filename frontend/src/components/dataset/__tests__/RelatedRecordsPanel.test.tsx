@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@/test/test-utils';
 import { RelatedRecordsPanel } from '../RelatedRecordsPanel';
-import { listRelationships } from '@/api/datasets';
+import userEvent from '@testing-library/user-event';
+import { listRelationships, getRelatedRecords } from '@/api/datasets';
 import type { DatasetRelationship } from '@/types/api';
 
 vi.mock('@/api/datasets', () => ({
@@ -64,5 +65,14 @@ describe('RelatedRecordsPanel', () => {
       expect(screen.getByText('County Records')).toBeInTheDocument();
     });
     expect(screen.getByText(/county_id/)).toBeInTheDocument();
+  });
+
+  it('marks a broken relationship and does not fetch its records', async () => {
+    vi.mocked(listRelationships).mockResolvedValue([{ ...mockRelationship, broken: true }]);
+    render(<RelatedRecordsPanel datasetId="ds-1" featureGid={1} />);
+    expect(await screen.findByText('Broken')).toBeInTheDocument();
+    await userEvent.click(screen.getByText('County Records'));
+    expect(screen.getByText(/join column no longer exists/)).toBeInTheDocument();
+    expect(getRelatedRecords).not.toHaveBeenCalled();
   });
 });
