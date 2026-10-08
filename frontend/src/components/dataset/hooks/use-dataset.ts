@@ -50,6 +50,7 @@ export function useDataset(
   options?: {
     refetchInterval?: number | false | ((query: unknown) => number | false);
     staleTime?: number;
+    refetchOnWindowFocus?: boolean;
   },
 ) {
   return useQuery({
@@ -58,6 +59,10 @@ export function useDataset(
     enabled: !!id,
     refetchInterval: options?.refetchInterval,
     staleTime: options?.staleTime ?? 60_000,
+    // An undefined key would still override the app's default when merged.
+    ...(options?.refetchOnWindowFocus !== undefined && {
+      refetchOnWindowFocus: options.refetchOnWindowFocus,
+    }),
     // A missing dataset stays missing; retrying only delays the not-found page.
     retry: (failureCount, error) =>
       !(error instanceof ApiError && error.status === 404) && failureCount < 1,

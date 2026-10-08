@@ -111,6 +111,58 @@ describe('useDataset', () => {
   });
 });
 
+describe('useDataset focus refetching', () => {
+  const appWrapper = ({ children }: { children: ReactNode }) =>
+    createElement(
+      QueryClientProvider,
+      {
+        client: new QueryClient({
+          defaultOptions: { queries: { staleTime: 30_000, retry: false, refetchOnWindowFocus: false } },
+        }),
+      },
+      children,
+    );
+
+  async function refocus() {
+    await act(async () => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+    });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetDataset.mockResolvedValue({ id: 'ds-1' } as never);
+  });
+
+  afterEach(() => {
+    focusManager.setFocused(undefined);
+  });
+
+  it('refetches on focus when asked, despite the app default', async () => {
+    const { result } = renderHookRTL(
+      () => useDataset('ds-1', { staleTime: 0, refetchOnWindowFocus: true }),
+      { wrapper: appWrapper },
+    );
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    await refocus();
+
+    await waitFor(() => expect(mockGetDataset).toHaveBeenCalledTimes(2));
+  });
+
+  it('keeps the app default for callers that do not ask', async () => {
+    const { result } = renderHookRTL(() => useDataset('ds-1', { staleTime: 0 }), {
+      wrapper: appWrapper,
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    await refocus();
+
+    expect(mockGetDataset).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('useDatasetRows', () => {
   beforeEach(() => {
     vi.clearAllMocks();

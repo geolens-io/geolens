@@ -7,6 +7,7 @@ import { AnalysisPanel } from '../AnalysisPanel';
 import { isAnalysableLayer } from '../analysis-eligibility';
 import { ApiError } from '@/api/client';
 import { materializeAnalysis, previewAnalysis } from '@/api/analysis';
+import { useDataset } from '@/components/dataset/hooks/use-dataset';
 import { useAnalysisFormStore } from '@/stores/analysis-form-store';
 import { useAnalysisAddedStore, useAnalysisJobStore } from '@/stores/analysis-job-store';
 import { useAuthStore } from '@/stores/auth-store';
@@ -423,6 +424,15 @@ describe('AnalysisPanel', () => {
           },
           expect.any(AbortSignal),
         ),
+      );
+    });
+
+    it("refetches a filtered layer's columns on focus", () => {
+      renderPanel([filteredLayer]);
+
+      expect(useDataset).toHaveBeenCalledWith(
+        'ds1',
+        expect.objectContaining({ staleTime: 0, refetchOnWindowFocus: true }),
       );
     });
 

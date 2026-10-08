@@ -82,6 +82,8 @@ const SAFE_COLUMN_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 // SAFE_COLUMN_RE above has already restricted these names to ASCII.
 const MAX_IDENTIFIER_LENGTH = 63;
 const NON_GROUPABLE_COLUMN_TYPES = new Set(['json', 'xml']);
+// The app turns focus refetching off globally; these queries need it.
+const FRESH_COLUMNS = { staleTime: 0, refetchOnWindowFocus: true };
 // ux(#686): buffer distances are metres on the wire; the picker converts so a
 // user thinking in feet or miles doesn't have to.
 const BUFFER_UNIT_METERS = { m: 1, km: 1000, ft: 0.3048, mi: 1609.344 } as const;
@@ -772,12 +774,12 @@ export function AnalysisPanel({
     operation === 'dissolve' || operation === 'spatial_join' || selectedLayer?.filter
       ? (selectedLayer?.dataset_id ?? '')
       : '',
-    { staleTime: 0 },
+    FRESH_COLUMNS,
   );
   const maskFilterApplies = usesMaskLayer && !mask && !!maskLayer;
   const maskDatasetDetail = useDataset(
     maskFilterApplies && maskLayer?.filter ? maskLayer.dataset_id : '',
-    { staleTime: 0 },
+    FRESH_COLUMNS,
   );
   const sourceColumnNames = new Set(
     (datasetDetail.data?.column_info ?? []).map((c) => c.name),
@@ -796,7 +798,7 @@ export function AnalysisPanel({
   // across. Fetched only while a join layer is actually selected.
   const joinDatasetDetail = useDataset(
     operation === 'spatial_join' ? (joinLayer?.dataset_id ?? '') : '',
-    { staleTime: 0 },
+    FRESH_COLUMNS,
   );
   // Each layer is analysed as the map shows it: through its own filter, sent
   // as CQL2-JSON and typed from the dataset's current columns. The map's own
