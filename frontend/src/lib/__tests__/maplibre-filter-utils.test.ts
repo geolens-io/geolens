@@ -219,6 +219,8 @@ describe('maplibreFilterToCql2', () => {
     ['a nested combinator', ['all', ['any', ['has', 'a'], ['has', 'b']]]],
     ['a legacy pseudo-field', ['has', '$id']],
     ['a non-scalar comparison value', ['==', ['get', 'a'], ['get', 'b']]],
+    // MapLibre shows no features for it, so dropping it would analyse them all.
+    ['an empty any', ['any']],
   ])('refuses %s', (_label, filter) => {
     expect(maplibreFilterToCql2(filter as unknown as FilterSpecification)).toBe('unsupported');
   });

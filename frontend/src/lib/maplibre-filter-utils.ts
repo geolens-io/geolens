@@ -436,7 +436,8 @@ export function maplibreFilterToCql2(
     if (part === null) return 'unsupported';
     parts.push(part);
   }
-  if (parts.length === 0) return null;
+  // An empty `any` matches nothing on the map, and CQL2 here has no false literal.
+  if (parts.length === 0) return canonical.combinator === 'any' ? 'unsupported' : null;
   if (parts.length === 1) return parts[0];
   return { op: canonical.combinator === 'all' ? 'and' : 'or', args: parts };
 }
