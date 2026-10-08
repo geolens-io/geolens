@@ -93,9 +93,6 @@ async def refresh_dropped_join_column(
     """
     # The failed statement aborted the transaction; ids are captured by the caller.
     await session.rollback()
-    live = await get_catalog_port().get_column_info(session, table_name)
-    if any(c["name"] == join_column for c in live):
-        return None
     record_id = (
         await session.execute(select(Dataset.record_id).where(Dataset.id == dataset_id))
     ).scalar_one_or_none()
@@ -108,6 +105,11 @@ async def refresh_dropped_join_column(
         dataset_id=dataset_id,
         record_id=record_id,
     )
+    # Scanned under the lock: a replacement swap takes its table lock before the
+    # catalog rows, so the scan cannot predate a swap that commits during the wait.
+    live = await get_catalog_port().get_column_info(session, table_name)
+    if any(c["name"] == join_column for c in live):
+        return None
     await session.execute(
         update(Dataset).where(Dataset.id == dataset_id).values(column_info=live)
     )
