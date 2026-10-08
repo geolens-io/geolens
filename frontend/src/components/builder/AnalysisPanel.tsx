@@ -766,14 +766,18 @@ export function AnalysisPanel({
   // already has join_zone — routinely, because it is the output of an earlier
   // spatial join — collides with a join layer's `zone`, and the server rejects
   // both Preview and Create with a 422 the picker gave no warning of.
+  // Fetched fresh on mount and focus: a filter typed from columns that predate
+  // a re-upload can keep features the map hides.
   const datasetDetail = useDataset(
     operation === 'dissolve' || operation === 'spatial_join' || selectedLayer?.filter
       ? (selectedLayer?.dataset_id ?? '')
       : '',
+    { staleTime: 0 },
   );
   const maskFilterApplies = usesMaskLayer && !mask && !!maskLayer;
   const maskDatasetDetail = useDataset(
     maskFilterApplies && maskLayer?.filter ? maskLayer.dataset_id : '',
+    { staleTime: 0 },
   );
   const sourceColumnNames = new Set(
     (datasetDetail.data?.column_info ?? []).map((c) => c.name),
@@ -792,29 +796,30 @@ export function AnalysisPanel({
   // across. Fetched only while a join layer is actually selected.
   const joinDatasetDetail = useDataset(
     operation === 'spatial_join' ? (joinLayer?.dataset_id ?? '') : '',
+    { staleTime: 0 },
   );
   // Each layer is analysed as the map shows it: through its own filter, sent
-  // as CQL2-JSON. Only the layers the request names count. Column types come
-  // from the dataset as fetched now, since the map's copy predates any
-  // re-upload made while the builder is open.
+  // as CQL2-JSON and typed from the dataset's current columns. The map's own
+  // copy of them predates any re-upload made while the builder is open. Only
+  // the layers the request names count.
   const sourceCql2 = maplibreFilterToCql2(
     selectedLayer?.filter,
-    datasetDetail.data?.column_info ?? selectedLayer?.dataset_column_info,
+    datasetDetail.data?.column_info,
   );
   const maskCql2 = maskFilterApplies
-    ? maplibreFilterToCql2(
-        maskLayer?.filter,
-        maskDatasetDetail.data?.column_info ?? maskLayer?.dataset_column_info,
-      )
+    ? maplibreFilterToCql2(maskLayer?.filter, maskDatasetDetail.data?.column_info)
     : null;
   const joinCql2 =
     operation === 'spatial_join' && joinLayer
-      ? maplibreFilterToCql2(
-          joinLayer.filter,
-          joinDatasetDetail.data?.column_info ?? joinLayer.dataset_column_info,
-        )
+      ? maplibreFilterToCql2(joinLayer.filter, joinDatasetDetail.data?.column_info)
       : null;
   const filterUnsupported = [sourceCql2, maskCql2, joinCql2].includes('unsupported');
+  const columnsSettled = (detail: { data?: unknown; isFetching: boolean }) =>
+    !!detail.data && !detail.isFetching;
+  const filterColumnsPending =
+    (sourceCql2 !== null && !columnsSettled(datasetDetail)) ||
+    (maskCql2 !== null && !columnsSettled(maskDatasetDetail)) ||
+    (joinCql2 !== null && !columnsSettled(joinDatasetDetail));
   const filterFields = {
     ...cql2Field('filter', sourceCql2),
     ...cql2Field('mask_filter', maskCql2),
@@ -1368,7 +1373,8 @@ export function AnalysisPanel({
     !previewMutation.isPending &&
     operation !== 'dissolve' &&
     paramsValid &&
-    !filterUnsupported;
+    !filterUnsupported &&
+    !filterColumnsPending;
   const canSave =
     !!selectedLayer?.dataset_id &&
     !materializeMutation.isPending &&
@@ -1377,6 +1383,7 @@ export function AnalysisPanel({
     !analysisJobRunning &&
     paramsValid &&
     !filterUnsupported &&
+    !filterColumnsPending &&
     outputTitle.trim().length > 0;
   // Create dataset went disabled with no reason: the role="status" region
   // below explains only the job case. A validation reason lives in this

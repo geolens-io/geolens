@@ -45,13 +45,19 @@ export function useCreateDataset() {
   });
 }
 
-export function useDataset(id: string, options?: { refetchInterval?: number | false | ((query: unknown) => number | false) }) {
+export function useDataset(
+  id: string,
+  options?: {
+    refetchInterval?: number | false | ((query: unknown) => number | false);
+    staleTime?: number;
+  },
+) {
   return useQuery({
     queryKey: queryKeys.datasets.detail(id),
     queryFn: () => getDataset(id),
     enabled: !!id,
     refetchInterval: options?.refetchInterval,
-    staleTime: 60_000,
+    staleTime: options?.staleTime ?? 60_000,
     // A missing dataset stays missing; retrying only delays the not-found page.
     retry: (failureCount, error) =>
       !(error instanceof ApiError && error.status === 404) && failureCount < 1,

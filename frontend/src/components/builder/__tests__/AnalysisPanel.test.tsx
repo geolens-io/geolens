@@ -155,23 +155,23 @@ const FILTER_TEST_COLUMNS: Record<string, { name: string; type: string }[]> = {
 };
 
 vi.mock('@/components/dataset/hooks/use-dataset', () => ({
-  useDataset: vi.fn((datasetId?: string) => ({
-    data: {
-      column_info:
-        FILTER_TEST_COLUMNS[datasetId ?? ''] ??
-        (datasetId === 'ds1'
-          ? [
-              ...SHARED_COLUMNS,
-              { name: 'join_zone', type: 'text' },
-              // fix(#1097 review): 63 chars — what `join_` + LONG_JOIN_FIELD
-              // becomes once PostgreSQL truncates it. The untruncated alias
-              // does not match this, so a picker comparing untruncated names
-              // offers the field and the server refuses it.
-              { name: `join_${'q'.repeat(58)}`.slice(0, 63), type: 'text' },
-            ]
-          : SHARED_COLUMNS),
-    },
-  })),
+  useDataset: vi.fn((datasetId?: string) => {
+    if (datasetId === 'loading-ds') return { data: undefined, isFetching: true };
+    const columns =
+      FILTER_TEST_COLUMNS[datasetId ?? ''] ??
+      (datasetId === 'ds1'
+        ? [
+            ...SHARED_COLUMNS,
+            { name: 'join_zone', type: 'text' },
+            // fix(#1097 review): 63 chars — what `join_` + LONG_JOIN_FIELD
+            // becomes once PostgreSQL truncates it. The untruncated alias
+            // does not match this, so a picker comparing untruncated names
+            // offers the field and the server refuses it.
+            { name: `join_${'q'.repeat(58)}`.slice(0, 63), type: 'text' },
+          ]
+        : SHARED_COLUMNS);
+    return { data: { column_info: columns }, isFetching: false };
+  }),
 }));
 
 const datasetLayer = {
@@ -424,6 +424,23 @@ describe('AnalysisPanel', () => {
           expect.any(AbortSignal),
         ),
       );
+    });
+
+    it("holds a filtered run until the dataset's columns arrive", () => {
+      renderPanel([
+        {
+          ...datasetLayer,
+          dataset_id: 'loading-ds',
+          dataset_column_info: [{ name: 'seen', type: 'date' }],
+          filter: ['==', ['get', 'seen'], '2024-02-01'],
+        } as unknown as MapLayerResponse,
+      ]);
+      fireEvent.change(screen.getByLabelText('New dataset name'), {
+        target: { value: 'Recent' },
+      });
+
+      expect(screen.getByRole('button', { name: 'Preview' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Create dataset' })).toBeDisabled();
     });
 
     it('blocks a run whose layer filter reads a json column', () => {
