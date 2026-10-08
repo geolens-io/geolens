@@ -14,7 +14,7 @@ import sqlglot
 from sqlglot import exp
 from sqlalchemy import text
 from sqlalchemy.exc import DataError, InternalError
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 
 from app.core.db.tenant_schema import tenant_data_schema, tenant_reader_role
 from app.core.db.tenant_session import current_tenant_var
@@ -31,6 +31,23 @@ DEFAULT_MAX_RESULT_BYTES = 16 * 1024 * 1024
 
 # Columns the byte-bounded wrapper appends after the caller's own.
 _BYTE_META_COLUMNS = 3
+# The driver decodes each array element into its own Python object plus a list
+# slot, about 30-130 bytes on CPython however short the element's text is.
+_ARRAY_ELEMENT_BYTES = 64
+# Composites, records, multiranges, paths, polygons, JSON and arrays of them nest
+# values that cannot be counted without their types, so their text is weighted:
+# an element as short as two text bytes ("1,") then costs _ARRAY_ELEMENT_BYTES.
+_NESTED_TEXT_WEIGHT = _ARRAY_ELEMENT_BYTES // 2
+# record, path, polygon, json and jsonb: reported as scalars, decoded into many
+# objects (the engine installs json.loads codecs for both JSON types).
+_NESTED_SCALAR_OIDS = (2249, 602, 604, 114, 3802)
+# Array types whose elements decode to one object each, so cardinality() counts them.
+_FLAT_ARRAY_TYPES_SQL = (
+    "SELECT a.oid FROM pg_catalog.pg_type AS a "
+    "JOIN pg_catalog.pg_type AS e ON e.oid = a.typelem "
+    "WHERE a.oid = ANY($1::oid[]) AND e.typtype IN ('b', 'e') "
+    "AND NOT (e.typelem <> 0 AND e.typlen = -1) AND e.oid <> ALL($2::oid[])"
+)
 
 # Single-tenant restricted execution role (migration 0007 + init-db.sh).
 # Module-level so tests can point it at a nonexistent role to exercise both
@@ -122,17 +139,23 @@ def _rewrite_logical_data_schema(sql: str, physical_schema: str) -> str:
 
 
 def _limited_sql(
-    sql: str, fetch_limit: int, max_result_bytes: int | None, token: str
+    sql: str,
+    fetch_limit: int,
+    max_result_bytes: int | None,
+    token: str,
+    weights: dict[int, str] | None = None,
 ) -> str:
     """Wrap validated SQL in the row cap and, when given, the result-byte cap.
 
     The byte cap is measured and enforced inside PostgreSQL, so rows past it never
-    cross the wire: a running total of each row's text size keeps rows while the
-    total fits, refuses a first row that alone exceeds it, and reports through the
-    trailing ``more`` column that a later row existed but was cut. The row cap sits
-    below the window, so dropped rows never extend the scan past ``fetch_limit``.
-    ``token`` is fresh per call so neither the meta-column names nor the refusal
-    marker can be matched by a caller's own columns or values.
+    cross the wire: a running total of each row's estimated size keeps rows while
+    the total fits, refuses a first row that alone exceeds it, and reports through
+    the trailing ``more`` column that a later row existed but was cut. A row's size
+    is its text form plus the ``weights`` of columns that decode to many objects
+    (see ``_column_weights``). The row cap sits below the window, so dropped rows
+    never extend the scan past ``fetch_limit``. ``token`` is fresh per call so
+    neither the meta-column names nor the refusal marker can be matched by a
+    caller's own columns or values.
     """
     # The closing paren and LIMIT go on their own line: `--` runs to end of line,
     # so a validated query ending in a line comment would swallow the wrapper.
@@ -146,8 +169,7 @@ def _limited_sql(
         f"pg_catalog.lead(true, 1, false) OVER _gw AS _geolens_{token}_more "
         f"FROM ({limited}) AS _l "
         # `_l.*`, not bare `_l`: a caller's column named _l would shadow the row.
-        "CROSS JOIN LATERAL (SELECT pg_catalog.octet_length(CAST(_l.* AS text))) "
-        "AS _s(b) "
+        f"CROSS JOIN LATERAL ({_row_size_sql(weights or {}, token)}) AS _s(b) "
         "WINDOW _gw AS (ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)) AS _w "
         f"WHERE CASE WHEN _w.{total_bytes} <= {int(max_result_bytes)} THEN true "
         f"WHEN _w.{total_bytes} = _w.{row_bytes} "
@@ -158,6 +180,97 @@ def _limited_sql(
 
 def _too_large_marker(token: str) -> str:
     return f"geolens_result_too_large_{token}"
+
+
+def _row_size_sql(weights: dict[int, str], token: str) -> str:
+    """One row's estimated decoded size: its text bytes plus nested-column weights."""
+    size = "pg_catalog.octet_length(CAST(_l.* AS text))"
+    if not weights:
+        return f"SELECT {size}"
+    # Positional aliases: a caller's column names may repeat or collide.
+    names = [f"_geolens_{token}_{i}" for i in range(max(weights) + 1)]
+    terms = [
+        f"{_ARRAY_ELEMENT_BYTES}::bigint * {_decoded_objects_sql(f'_a.{names[i]}')}"
+        if weight == "elements"
+        else f"{_NESTED_TEXT_WEIGHT}::bigint"
+        f" * COALESCE(pg_catalog.octet_length(CAST(_a.{names[i]} AS text)), 0)"
+        for i, weight in sorted(weights.items())
+    ]
+    return (
+        f"SELECT {size} + {' + '.join(terms)} "
+        f"FROM (SELECT _l.*) AS _a({', '.join(names)})"
+    )
+
+
+def _decoded_objects_sql(column: str) -> str:
+    """Python objects a flat array decodes to: its elements plus its inner lists.
+
+    Each slot of every dimension but the last decodes to its own list. That
+    count is at most (ndims - 1) times the slots of the next-to-last dimension
+    (cardinality over the last length): exact for two dimensions and for
+    degenerate shapes such as [n, 1, 1, 1, 1, 1].
+    """
+    elements = f"pg_catalog.cardinality({column})::bigint"
+    ndims = f"pg_catalog.array_ndims({column})"
+    lists = f"({ndims} - 1) * {elements} / pg_catalog.array_length({column}, {ndims})"
+    return f"COALESCE({elements} + {lists}, 0)"
+
+
+async def _column_weights(conn: AsyncConnection, sql: str) -> dict[int, str] | None:
+    """Map result columns that decode to many Python objects to their weighting.
+
+    ``"elements"`` marks an array of flat values, weighted by element count;
+    ``"text"`` marks nested values, weighted by text size. The statement is only
+    parsed and described, never planned or run. Returns None when describing
+    fails, leaving the statement itself to report the error.
+    """
+    statement = text(sql).compile(dialect=conn.dialect).string
+    try:
+        async with conn.begin_nested():
+            driver = (await conn.get_raw_connection()).driver_connection
+            columns = [
+                a.type for a in (await driver.prepare(statement)).get_attributes()
+            ]
+            nested = {
+                i: column
+                for i, column in enumerate(columns)
+                if column.kind not in ("scalar", "range")
+                or column.oid in _NESTED_SCALAR_OIDS
+            }
+            arrays = [c.oid for c in nested.values() if c.kind == "array"]
+            flat = set()
+            if arrays:
+                rows = await driver.fetch(
+                    _FLAT_ARRAY_TYPES_SQL, arrays, list(_NESTED_SCALAR_OIDS)
+                )
+                flat = {row[0] for row in rows}
+    except Exception as exc:  # broad: the statement reports its own error
+        logger.warning("sandbox.describe_failed", error_type=type(exc).__name__)
+        return None
+    return {i: "elements" if c.oid in flat else "text" for i, c in nested.items()}
+
+
+async def _execute_limited(
+    conn: AsyncConnection,
+    sql: str,
+    fetch_limit: int,
+    max_result_bytes: int | None,
+    token: str,
+):
+    """Run ``sql`` under the row cap and, when given, the weighted byte cap."""
+    weights: dict[int, str] | None = {}
+    if max_result_bytes is not None:
+        weights = await _column_weights(
+            conn, _limited_sql(sql, fetch_limit, None, token)
+        )
+    result = await conn.execute(
+        text(_limited_sql(sql, fetch_limit, max_result_bytes, token, weights))
+    )
+    if weights is None:
+        # The statement ran although it could not be described, so its
+        # nested columns went unweighted; refuse rather than return them.
+        raise SandboxError("query_failed", "Query failed")
+    return result
 
 
 async def execute_safe(
@@ -211,7 +324,6 @@ async def execute_safe(
     fetch_limit = row_limit + 1
     # Hex, so it is a valid identifier fragment in the wrapper's column names.
     token = secrets.token_hex(6)
-    limited_sql = _limited_sql(sql, fetch_limit, max_result_bytes, token)
 
     # Use the engine from the database module (patched in tests)
     import app.core.db as db_module
@@ -286,7 +398,9 @@ async def execute_safe(
                 await conn.execute(
                     text(f"SET LOCAL statement_timeout = '{timeout_ms}'")
                 )
-                result = await conn.execute(text(limited_sql))
+                result = await _execute_limited(
+                    conn, sql, fetch_limit, max_result_bytes, token
+                )
                 columns = list(result.keys())
                 all_rows = result.fetchall()
     except SandboxError:

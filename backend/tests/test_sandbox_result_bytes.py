@@ -143,6 +143,124 @@ class TestExecutorByteCap:
         assert categories[1] == categories[0] != "result_too_large"
 
 
+class TestNestedColumnWeight:
+    """Array and other nested cells decode to one Python object per element."""
+
+    @pytest.mark.parametrize(
+        "projection",
+        [
+            "array_fill(7, ARRAY[1000])",
+            "array_fill(7, ARRAY[10, 100])",
+            "array_fill(true, ARRAY[1000])",
+            "string_to_array(repeat('a,', 999) || 'a', ',')",
+            "(SELECT range_agg(int4range(n, n + 1, '[]')) "
+            "FROM generate_series(0, 2000, 4) AS t(n))",
+            "(SELECT polygon(path(array_to_string(array_fill('0,0'::text, "
+            "ARRAY[1000]), ','))))",
+            "(SELECT jsonb_agg(1) FROM generate_series(1, 1000))",
+            "(SELECT CAST(json_agg('[]'::json) AS json) FROM generate_series(1, 1000))",
+            "ARRAY[(SELECT jsonb_agg(1) FROM generate_series(1, 1000))]",
+        ],
+    )
+    async def test_a_nested_cell_is_weighted_beyond_its_text(
+        self, client, test_db_session, projection
+    ):
+        sql = f"SELECT {projection} AS v"
+        unbounded = await execute_safe(test_db_session, sql)
+        text_bytes = (
+            await test_db_session.execute(
+                text(f"SELECT octet_length(CAST(_q.* AS text)) FROM ({sql}) AS _q")
+            )
+        ).scalar_one()
+        assert unbounded.row_count == 1 and text_bytes < 10_000
+        with pytest.raises(SandboxError) as exc_info:
+            await execute_safe(test_db_session, sql, max_result_bytes=10_000)
+        assert exc_info.value.category == "result_too_large"
+
+    async def test_inner_lists_of_a_multidimensional_array_are_weighted(
+        self, client, test_db_session
+    ):
+        sql = "SELECT array_fill(7, ARRAY[1000, 1, 1, 1, 1, 1]) AS v"
+        assert (await execute_safe(test_db_session, sql)).row_count == 1
+        with pytest.raises(SandboxError) as exc_info:
+            await execute_safe(test_db_session, sql, max_result_bytes=100_000)
+        assert exc_info.value.category == "result_too_large"
+
+    @pytest.mark.parametrize("projection", ["t", "ARRAY[t]"])
+    async def test_a_row_type_holding_an_array_is_weighted(
+        self, client, test_db_session, projection
+    ):
+        tbl = f"rb_{uuid.uuid4().hex[:10]}"
+        await test_db_session.execute(text(f"CREATE TABLE data.{tbl} (a int[])"))
+        await test_db_session.execute(
+            text(f"INSERT INTO data.{tbl} VALUES (array_fill(7, ARRAY[1000]))")
+        )
+        await test_db_session.commit()
+        sql = f"SELECT {projection} AS v FROM data.{tbl} AS t"
+        assert (await execute_safe(test_db_session, sql)).row_count == 1
+        with pytest.raises(SandboxError) as exc_info:
+            await execute_safe(test_db_session, sql, max_result_bytes=10_000)
+        assert exc_info.value.category == "result_too_large"
+
+    async def test_array_rows_past_the_weighted_cap_are_cut(
+        self, client, test_db_session
+    ):
+        result = await execute_safe(
+            test_db_session,
+            "SELECT n, array_fill(n, ARRAY[100]) AS a "
+            "FROM generate_series(1, 100) AS t(n)",
+            max_result_bytes=20_000,
+        )
+        assert result.columns == ["n", "a"]
+        assert 0 < result.row_count <= 3
+        assert result.truncated is True
+        assert result.rows[0] == [1, [1] * 100]
+
+    async def test_a_scalar_row_is_measured_by_its_text(self, client, test_db_session):
+        result = await execute_safe(
+            test_db_session,
+            "SELECT repeat('7', 9000) AS v",
+            max_result_bytes=10_000,
+        )
+        assert result.rows == [["7" * 9000]]
+
+    @pytest.mark.parametrize(
+        "sql",
+        [
+            "SELECT ARRAY[1, 2] AS x, 'a' AS x, ARRAY[ARRAY[3], ARRAY[4]] AS x",
+            "SELECT n, ARRAY[n::text, NULL] AS a, NULL::int[] AS z, "
+            "ROW(n, ARRAY[n]) AS r, int4multirange(int4range(n, n + 2)) AS m "
+            "FROM generate_series(1, 5) AS t(n) ORDER BY n DESC",
+            "SELECT '1 2'::int2vector AS v, ARRAY['(1,2)'::point] AS p, "
+            "'((0,0),(1,1),(1,0))'::polygon AS g",
+            "SELECT '{\"a\": [1, 2]}'::jsonb AS j, ARRAY['[1]'::json] AS ja",
+        ],
+    )
+    async def test_a_nested_result_under_the_cap_is_unchanged(
+        self, client, test_db_session, sql
+    ):
+        bounded = await execute_safe(
+            test_db_session, sql, max_result_bytes=executor.DEFAULT_MAX_RESULT_BYTES
+        )
+        unbounded = await execute_safe(test_db_session, sql)
+        assert bounded == unbounded
+
+    async def test_a_statement_that_cannot_be_described_is_refused(
+        self, client, test_db_session, monkeypatch
+    ):
+        async def _undescribed(conn, sql):
+            return None
+
+        monkeypatch.setattr(executor, "_column_weights", _undescribed)
+        with pytest.raises(SandboxError) as exc_info:
+            await execute_safe(
+                test_db_session,
+                "SELECT array_fill(7, ARRAY[1000]) AS v",
+                max_result_bytes=executor.DEFAULT_MAX_RESULT_BYTES,
+            )
+        assert exc_info.value.category == "query_failed"
+
+
 class TestValidateAndExecuteByteCap:
     async def test_the_cap_is_on_by_default(self, monkeypatch):
         captured: dict[str, object] = {}
