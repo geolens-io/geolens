@@ -11,7 +11,6 @@ import jwt
 import pytest
 from sqlalchemy import select, update
 
-from app.core.config import settings
 from app.modules.auth.cookies import sso_exchange_cookie_name
 from app.modules.auth.models import RefreshToken, User
 from app.modules.auth.service import AuthService
@@ -82,13 +81,22 @@ class Browser:
         return await self.request("POST", "/auth/refresh/", headers=headers)
 
 
+def _pin_public_urls(monkeypatch, app_url: str, api_url: str) -> None:
+    """Pin the URLs the callback resolves, whatever other tests left configured."""
+    import app.modules.auth.oauth.router as oauth_router
+    import app.modules.auth.oauth.sign_in_redirect as sign_in_redirect
+
+    monkeypatch.setattr(
+        oauth_router, "get_public_app_url", AsyncMock(return_value=app_url)
+    )
+    monkeypatch.setattr(
+        sign_in_redirect, "get_public_api_url", AsyncMock(return_value=api_url)
+    )
+
+
 @pytest.fixture
 def same_origin_urls(monkeypatch):
-    import app.core.public_urls as public_urls
-
-    monkeypatch.setattr(settings, "public_app_url", "http://test", raising=False)
-    monkeypatch.setattr(settings, "public_api_url", "http://test/api", raising=False)
-    monkeypatch.setattr(public_urls, "_PUBLIC_URL_CACHE", None)
+    _pin_public_urls(monkeypatch, "http://test", "http://test/api")
 
 
 @pytest.fixture
@@ -338,13 +346,7 @@ async def test_a_refresh_landing_after_the_callback_does_not_win(
 async def test_cross_origin_spa_still_receives_fragment_tokens(
     browser, viewer_id, monkeypatch
 ):
-    import app.core.public_urls as public_urls
-
-    monkeypatch.setattr(settings, "public_app_url", "http://app.test", raising=False)
-    monkeypatch.setattr(
-        settings, "public_api_url", "http://api.test/api", raising=False
-    )
-    monkeypatch.setattr(public_urls, "_PUBLIC_URL_CACHE", None)
+    _pin_public_urls(monkeypatch, "http://app.test", "http://api.test/api")
 
     response = await browser.sso_callback(viewer_id)
 
