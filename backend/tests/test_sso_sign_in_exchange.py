@@ -191,7 +191,7 @@ async def test_callback_redirects_with_a_code_and_no_session_cookie(
     name = sso_exchange_cookie_name(code)
     [binding] = [c for c in set_cookies if c.startswith(f"{name}=")]
     attributes = {part.strip().lower() for part in binding.split(";")}
-    assert {"httponly", "samesite=lax", "max-age=60"} <= attributes
+    assert {"httponly", "samesite=lax", "max-age=120"} <= attributes
     assert "path=/api/auth/oauth/exchange" in attributes
 
 

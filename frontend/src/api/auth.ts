@@ -6,6 +6,8 @@ import { abortInflightRefresh, apiFetch, isCredentialRejected, safeFetch, ApiErr
 import { translateApiErrorDetail } from '@/lib/error-map';
 import type { TokenResponse, UserResponse, AuthConfigResponse, MessageResponse, SignupResponse, MyApiKeyResponse, ApiKeyCreateResponse, ApiKeyScope, OAuthProviderPublic, UserQuotaUsage } from '@/types/api';
 
+const LOGIN_TIMEOUT_MS = 30_000;
+
 export async function login(
   username: string,
   password: string,
@@ -29,6 +31,9 @@ export async function login(
     // localStorage.
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', ...cookieAuthHeaders() },
     credentials: 'same-origin',
+    // Bounded like refresh and the SSO exchange: this request holds the
+    // cross-tab cookie lock, and a pending SSO code expires while it waits.
+    signal: AbortSignal.timeout(LOGIN_TIMEOUT_MS),
     body: new URLSearchParams({ username, password }),
   }));
 

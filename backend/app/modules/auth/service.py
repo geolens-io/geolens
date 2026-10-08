@@ -16,7 +16,9 @@ from app.modules.auth.models import ApiKey, RefreshToken, Role, User, UserRole
 from app.modules.auth.providers import AuthenticatedIdentity
 from app.modules.auth.providers.local import hash_password_async
 
-SSO_EXCHANGE_TTL_SECONDS = 60
+# Covers the exchange queueing behind a few other tabs' cookie-lock holders,
+# each bounded to 30 seconds by its own request timeout.
+SSO_EXCHANGE_TTL_SECONDS = 120
 
 # A SHA-256 hex digest never contains ":", so no refresh token, however
 # chosen, hashes to a pending sign-in's row.

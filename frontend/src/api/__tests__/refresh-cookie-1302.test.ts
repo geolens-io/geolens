@@ -332,6 +332,21 @@ describe('browser refresh transport', () => {
 
   // A 2xx exchange has already consumed the code and set the cookies, so a
   // body this tab cannot use must not leave that session behind.
+  // A login holds the cookie lock, so it must not hold it without bound.
+  it('bounds the login request that holds the cookie lock', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    try {
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse({ access_token: 'a1', refresh_token: null, expires_in: 900 }),
+      );
+      await login('someone', 'secret');
+      expect(timeout).toHaveBeenCalledWith(30_000);
+      expect(lastInit().signal).toBe(timeout.mock.results[0].value);
+    } finally {
+      timeout.mockRestore();
+    }
+  });
+
   it('revokes the cookie session before giving up on an unreadable exchange body', async () => {
     let lockHeld = false;
     const locks = {
