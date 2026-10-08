@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.sqlstate import is_lock_conflict, sqlstate
 from app.modules.catalog.datasets.domain.models import (
+    AttributeMetadata,
     Dataset,
     DatasetRelationship,
     Record,
@@ -140,6 +141,15 @@ async def refresh_dropped_join_column(
         return None
     await session.execute(
         update(Dataset).where(Dataset.id == dataset_id).values(column_info=live)
+    )
+    await session.execute(
+        update(AttributeMetadata)
+        .where(
+            AttributeMetadata.dataset_id == dataset_id,
+            AttributeMetadata.field_name == join_column,
+            AttributeMetadata.is_current.is_(True),
+        )
+        .values(is_current=False)
     )
     await session.commit()
     return column_missing_error(join_column)

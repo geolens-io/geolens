@@ -499,6 +499,13 @@ class TestFKRelationships:
         )
         assert listed.json()["relationships"][0]["broken"] is False
 
+        test_db_session.add(
+            AttributeMetadata(
+                dataset_id=target.id, field_name="target_id", is_current=True
+            )
+        )
+        await test_db_session.commit()
+
         # A replacement drops the target's join column.
         await test_db_session.execute(
             text(f"ALTER TABLE data.{target.table_name} DROP COLUMN target_id")
@@ -518,6 +525,14 @@ class TestFKRelationships:
             f"/datasets/{source.id}/relationships/", headers=admin_auth_header
         )
         assert listed.json()["relationships"][0]["broken"] is True
+
+        current = await test_db_session.execute(
+            select(AttributeMetadata.field_name).where(
+                AttributeMetadata.dataset_id == target.id,
+                AttributeMetadata.is_current.is_(True),
+            )
+        )
+        assert current.scalars().all() == []
 
         again = await client.get(
             f"/datasets/{source.id}/features/1/related/{rel_id}/",
