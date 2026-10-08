@@ -322,6 +322,7 @@
       "committing": "Erneutes Hochladen wird übernommen...",
       "tracking": "Der Datensatz wird im Hintergrund aktualisiert.",
       "complete": "Der Datensatz wurde erfolgreich aktualisiert.",
+      "held": "Diese Ersetzung wurde zur Prüfung zurückgehalten.",
       "error": "Beim erneuten Hochladen ist ein Fehler aufgetreten."
     },
     "sourceSelector": {
@@ -959,6 +960,7 @@
           "live_data_changed": "Während dieser Ersetzung wurden Features bearbeitet. Eine Veröffentlichung würde diese Änderungen verwerfen."
         },
         "reviewAndRetry": "Prüfen und wiederholen",
+        "acceptedReasonsLabel": "Prüfgründe, die akzeptiert wurden:",
         "loadMore": "Ältere Läufe laden"
       }
     },

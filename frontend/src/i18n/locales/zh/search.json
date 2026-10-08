@@ -26,6 +26,10 @@
     "cta": "导入您的第一个数据集",
     "catalogTitle": "您的目录为空",
     "catalogDescription": "导入一个数据集，开始构建您的地理空间目录。",
+    "catalogTitleViewer": "没有可显示的数据集",
+    "catalogDescriptionViewer": "暂时没有您可见的数据集。有人添加或与您共享数据集后，会显示在这里。",
+    "catalogDescriptionAnonymous": "暂无公开数据集。登录后可查看与您共享的数据集。",
+    "signIn": "登录",
     "clear": "清除搜索与筛选器"
   },
   "error": {

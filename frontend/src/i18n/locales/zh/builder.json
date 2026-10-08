@@ -1024,7 +1024,7 @@
     "truncatedNotice_one": "预览已限制为 {{count, number}} 个要素",
     "truncatedNotice_other": "预览已限制为 {{count, number}} 个要素",
     "previewFailed": "分析失败",
-    "noLayers": "添加数据集图层以使用分析工具",
+    "noLayers": "添加矢量数据集图层以使用分析工具。不支持栅格图层。",
     "opDissolve": "融合",
     "dissolveHint": "融合会按分组将要素合并为一个几何；仅保留分组字段。请配合“创建数据集”运行",
     "outputTitleLabel": "新数据集名称",

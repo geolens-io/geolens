@@ -526,6 +526,9 @@ function RefreshRunHistory({
                       })}
                     </p>
                   )}
+                  {run.status === 'succeeded' && run.verification.review_reasons.length > 0 && (
+                    <p>{t('sourcePanel.refresh.history.acceptedReasonsLabel')}</p>
+                  )}
                   {run.verification.review_reasons.map((reason) => (
                     <p key={reason}>{t(`sourcePanel.refresh.history.reason.${reason}`)}</p>
                   ))}

@@ -26,6 +26,10 @@
     "cta": "Importieren Sie Ihren ersten Datensatz",
     "catalogTitle": "Ihr Katalog ist leer",
     "catalogDescription": "Importieren Sie ein Dataset, um Ihren Geodatenkatalog aufzubauen.",
+    "catalogTitleViewer": "Keine Datensätze vorhanden",
+    "catalogDescriptionViewer": "Für Sie sind noch keine Datensätze sichtbar. Sie erscheinen hier, sobald jemand einen hinzufügt oder mit Ihnen teilt.",
+    "catalogDescriptionAnonymous": "Es gibt noch keine öffentlichen Datensätze. Melden Sie sich an, um mit Ihnen geteilte Datensätze zu sehen.",
+    "signIn": "Anmelden",
     "clear": "Suche und Filter zurücksetzen"
   },
   "error": {

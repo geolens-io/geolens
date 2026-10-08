@@ -1024,7 +1024,7 @@
     "truncatedNotice_one": "Vista previa limitada a {{count, number}} entidad",
     "truncatedNotice_other": "Vista previa limitada a {{count, number}} entidades",
     "previewFailed": "Error en el análisis",
-    "noLayers": "Añade una capa de datos para usar las herramientas de análisis",
+    "noLayers": "Añade una capa de datos vectorial para usar las herramientas de análisis. Las capas ráster no son compatibles.",
     "opDissolve": "Disolver",
     "dissolveHint": "Disolver combina las entidades en una geometría por grupo; solo se conserva el campo de agrupación. Ejecútalo con Crear conjunto de datos",
     "outputTitleLabel": "Nombre del nuevo conjunto de datos",

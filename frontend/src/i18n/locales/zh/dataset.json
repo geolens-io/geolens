@@ -273,6 +273,7 @@
       "committing": "正在提交重新上传...",
       "tracking": "数据集正在后台更新。",
       "complete": "数据集已成功更新。",
+      "held": "此替换已暂缓，等待审核。",
       "error": "重新上传过程中出现问题。"
     },
     "sourceSelector": {
@@ -910,6 +911,7 @@
           "live_data_changed": "此替换运行期间有要素被编辑。发布它将丢弃这些编辑。"
         },
         "reviewAndRetry": "审核并重试",
+        "acceptedReasonsLabel": "已接受的审核原因：",
         "loadMore": "加载更早的运行"
       }
     },

@@ -1287,6 +1287,38 @@ describe('SourcePanel', () => {
     expect(screen.queryByRole('button', { name: 'Review and retry' })).not.toBeInTheDocument();
   });
 
+  it('labels the review reasons of a succeeded run as accepted', () => {
+    vi.mocked(useDatasetRefreshRuns).mockReturnValue({
+      data: {
+        runs: [{
+          id: 'run-accepting',
+          dataset_id: 'dataset-1',
+          dataset_version_id: 'version-2',
+          ingest_job_id: 'job-2',
+          origin_kind: 'upload',
+          trigger: 'manual',
+          status: 'succeeded',
+          started_at: '2026-08-06T00:00:00Z',
+          verification: {
+            decision: 'accepted',
+            source_binding: { kind: 'upload' },
+            review_reasons: ['destructive_schema_change'],
+            review_fingerprint: 'fingerprint',
+            accepted_blocked_run_id: 'run-upload-blocked',
+          },
+        }],
+        total: 1,
+      },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useDatasetRefreshRuns>);
+
+    render(<SourcePanel dataset={makeDataset({ origin: 'upload' })} canEdit />);
+
+    expect(screen.getByText('Review reasons that were accepted:')).toBeInTheDocument();
+    expect(screen.getByText('The new data removes columns or changes their types.')).toBeInTheDocument();
+  });
+
   it('disables publishing a held-back replacement while a feature is selected, and says why', () => {
     mockBlockedUploadRun();
     useDrawingStore.setState({

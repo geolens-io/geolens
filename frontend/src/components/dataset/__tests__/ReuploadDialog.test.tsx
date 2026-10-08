@@ -1534,6 +1534,28 @@ describe('ReuploadDialog raster reupload', () => {
     });
   });
 
+  it.each([
+    ['a replacement held for review', 'review_required', 'This replacement was held for review.'],
+    ['a failed job', 'worker_lost', 'Something went wrong during the re-upload.'],
+  ])('titles %s as %s', async (_label, errorCode, heading) => {
+    const user = userEvent.setup();
+    mockUseJobStatus.mockReturnValue({
+      data: { status: 'failed', error_code: errorCode, error_message: 'reason text' },
+    } as unknown as ReturnType<typeof useJobStatus>);
+
+    render(<ReuploadDialog dataset={makeRasterDataset()} open onOpenChange={vi.fn()} />);
+
+    await openFileSource(user);
+    await dropFile('ortho.tif');
+    await screen.findByRole('button', { name: 'Confirm Re-Upload' });
+    await user.click(screen.getByRole('button', { name: 'Confirm Re-Upload' }));
+
+    expect(await screen.findByText(heading)).toBeInTheDocument();
+    const tryAgain = screen.queryByTestId('reupload-try-again');
+    if (errorCode === 'review_required') expect(tryAgain).not.toBeInTheDocument();
+    else expect(tryAgain).toBeInTheDocument();
+  });
+
   it('does not call onReplaceComplete while the job is still pending', async () => {
     const user = userEvent.setup();
     const onReplaceComplete = vi.fn();

@@ -273,6 +273,7 @@
       "committing": "Committing re-upload...",
       "tracking": "The dataset is being updated in the background.",
       "complete": "The dataset has been updated successfully.",
+      "held": "This replacement was held for review.",
       "error": "Something went wrong during the re-upload."
     },
     "sourceSelector": {
@@ -910,6 +911,7 @@
           "live_data_changed": "Features were edited while this replacement ran. Publishing it would discard those edits."
         },
         "reviewAndRetry": "Review and retry",
+        "acceptedReasonsLabel": "Review reasons that were accepted:",
         "loadMore": "Load older runs"
       }
     },

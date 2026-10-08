@@ -1,3 +1,4 @@
+import { Link } from 'react-router';
 import { useState, useEffect, useCallback } from 'react';
 import { Map as MapIcon, Plus, Search, LayoutList, LayoutGrid } from 'lucide-react';
 import { toast } from 'sonner';
@@ -44,6 +45,7 @@ export function MapsPage() {
   const { can } = usePermissions();
   const canEditMaps = can('edit_metadata');
   const user = useAuthStore((s) => s.user);
+  const token = useAuthStore((s) => s.token);
   const [skip, setSkip] = useState(0);
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -214,14 +216,24 @@ export function MapsPage() {
           description={
             debouncedSearch || visibility !== 'all'
               ? t('maps.noMapsMatch')
-              : t('maps.noMapsDescription')
+              : canEditMaps
+                ? t('maps.noMapsDescription')
+                : token
+                  ? t('maps.noMapsDescriptionViewer')
+                  : t('maps.noMapsDescriptionAnonymous')
           }
           action={
-            !debouncedSearch && visibility === 'all' && canEditMaps ? (
-              <Button onClick={() => setCreateOpen(true)}>
-                <Plus className="h-4 w-4 me-1" />
-                {t('maps.createFirstMap')}
-              </Button>
+            !debouncedSearch && visibility === 'all' ? (
+              canEditMaps ? (
+                <Button onClick={() => setCreateOpen(true)}>
+                  <Plus className="h-4 w-4 me-1" />
+                  {t('maps.createFirstMap')}
+                </Button>
+              ) : !token ? (
+                <Button asChild variant="outline">
+                  <Link to="/login" state={{ from: '/maps' }}>{t('maps.signIn')}</Link>
+                </Button>
+              ) : undefined
             ) : undefined
           }
         />

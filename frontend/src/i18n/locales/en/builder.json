@@ -1024,7 +1024,7 @@
     "truncatedNotice_one": "Preview capped at {{count, number}} feature",
     "truncatedNotice_other": "Preview capped at {{count, number}} features",
     "previewFailed": "Analysis failed",
-    "noLayers": "Add a dataset layer to use analysis tools",
+    "noLayers": "Add a vector dataset layer to use analysis tools. Raster layers are not supported.",
     "opDissolve": "Dissolve",
     "dissolveHint": "Dissolve merges features into one geometry per group; only the group field is carried over. Run it with Create dataset",
     "outputTitleLabel": "New dataset name",

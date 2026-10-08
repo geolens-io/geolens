@@ -289,7 +289,7 @@ describe('AnalysisPanel', () => {
   it('does not offer a folder group, which copies its first child dataset', () => {
     const folderGroup = { ...datasetLayer, id: 'g1', display_name: 'Hazards', layer_type: 'group:folder' } as unknown as MapLayerResponse;
     renderPanel([folderGroup]);
-    expect(screen.getByText('Add a dataset layer to use analysis tools')).toBeInTheDocument();
+    expect(screen.getByText('Add a vector dataset layer to use analysis tools. Raster layers are not supported.')).toBeInTheDocument();
     expect(isAnalysableLayer(folderGroup)).toBe(false);
     expect(isAnalysableLayer(datasetLayer)).toBe(true);
   });
@@ -299,7 +299,7 @@ describe('AnalysisPanel', () => {
     // Was: a fully enabled form with the raster pre-selected, whose Preview
     // 422'd into a generic "The submitted values are invalid." toast.
     expect(
-      screen.getByText('Add a dataset layer to use analysis tools'),
+      screen.getByText('Add a vector dataset layer to use analysis tools. Raster layers are not supported.'),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: 'Preview' }),
@@ -317,7 +317,7 @@ describe('AnalysisPanel', () => {
   it('excludes a raster that reports a geometry type (#720 review)', () => {
     renderPanel([rasterLayerWithGeometryType, groupLayer]);
     expect(
-      screen.getByText('Add a dataset layer to use analysis tools'),
+      screen.getByText('Add a vector dataset layer to use analysis tools. Raster layers are not supported.'),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: 'Preview' }),
@@ -327,7 +327,7 @@ describe('AnalysisPanel', () => {
   it('excludes a raster carrying the default vector layer_type (#720 review)', () => {
     renderPanel([rasterLayerWithVectorLayerType, groupLayer]);
     expect(
-      screen.getByText('Add a dataset layer to use analysis tools'),
+      screen.getByText('Add a vector dataset layer to use analysis tools. Raster layers are not supported.'),
     ).toBeInTheDocument();
   });
 
@@ -365,7 +365,7 @@ describe('AnalysisPanel', () => {
   it('shows a hint when no dataset layers are available', () => {
     renderPanel([groupLayer]);
     expect(
-      screen.getByText('Add a dataset layer to use analysis tools'),
+      screen.getByText('Add a vector dataset layer to use analysis tools. Raster layers are not supported.'),
     ).toBeInTheDocument();
   });
 
