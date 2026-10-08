@@ -589,8 +589,8 @@ async def update_settings(
         ordered = sorted(
             validated_settings, key=lambda k: _registry.index(registry_map[k])
         )
-        before = {key: await registry_map[key].get(db) for key in ordered}
         snapshot = await prospective_settings(db, validated_settings)
+        before = {key: await registry_map[key].get(db) for key in ordered}
         for key in ordered:
             await registry_map[key].set(
                 db,
@@ -703,10 +703,10 @@ async def reset_settings(
             )
 
         ip = get_client_ip(request)
-        before = [await cfg.get(db) for cfg in configs_to_reset]
         snapshot = await prospective_settings(
             db, {cfg.key: cfg.env_default for cfg in configs_to_reset}
         )
+        before = [await cfg.get(db) for cfg in configs_to_reset]
         for cfg, old_value in zip(configs_to_reset, before):
             await cfg.reset(
                 db,

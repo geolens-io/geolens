@@ -17,7 +17,7 @@ from typing import Any, Generic, TypeVar, cast
 import structlog
 from fastapi import HTTPException
 from pydantic import TypeAdapter, ValidationError
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.platform.cache import get_cache
@@ -648,6 +648,11 @@ def llm_model_default(provider: str, *, light: bool = False) -> str:
     return settings.openai_model
 
 
+_MODEL_RESET_LOCK_SQL = text(
+    "LOCK TABLE catalog.app_settings IN SHARE ROW EXCLUSIVE MODE"
+)
+
+
 def _accepts_settings(resolver: Callable[..., object]) -> bool:
     """Whether an extension's resolver takes the prospective ``settings``."""
     params = inspect.signature(resolver).parameters.values()
@@ -657,7 +662,14 @@ def _accepts_settings(resolver: Callable[..., object]) -> bool:
 async def prospective_settings(
     db: AsyncSession, changes: Mapping[str, object]
 ) -> dict[str, Any]:
-    """Committed setting values with a batch's ``changes`` applied."""
+    """Committed setting values with a batch's ``changes`` applied.
+
+    A batch that clears a model override also holds off other settings writes
+    until its transaction ends, so the default it resolves is the one committed.
+    """
+    if any(is_unset_model(key, value) for key, value in changes.items()):
+        # A row lock can't stop the insert of a provider key that has no row.
+        await db.execute(_MODEL_RESET_LOCK_SQL)
     return {**await _load_registry_values(db), **changes}
 
 
