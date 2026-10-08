@@ -31,9 +31,22 @@ export function getAuthToken(): string {
  */
 export const test = base.extend({
   context: async ({ context, storageState }, use) => {
-    await use(context);
-    if (typeof storageState === 'string' && path.resolve(storageState) === AUTH_FILE) {
-      await context.storageState({ path: AUTH_FILE });
+    const shared = typeof storageState === 'string' && path.resolve(storageState) === AUTH_FILE;
+    // The same refreshes renew the access token API calls from Node use, which
+    // would otherwise expire partway through a long serial run.
+    if (shared) {
+      context.on('response', (response) => {
+        if (!response.ok() || !/\/auth\/refresh\/?$/.test(new URL(response.url()).pathname)) return;
+        void response
+          .json()
+          .then((body: { access_token?: unknown }) => {
+            if (typeof body.access_token !== 'string') return;
+            fs.writeFileSync(tokenFileFor(AUTH_FILE), JSON.stringify({ token: body.access_token }), { mode: 0o600 });
+          })
+          .catch(() => {});
+      });
     }
+    await use(context);
+    if (shared) await context.storageState({ path: AUTH_FILE });
   },
 });

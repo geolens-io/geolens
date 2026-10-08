@@ -52,7 +52,8 @@ rotated cookie is presented again after a short grace window, so specs import
 back to the file when each test ends. A spec that signs in as another user or
 signs out uses its own context, as `auth.spec.ts` does, or the next test inherits
 that session. API calls made from Node use `getAuthToken()`, which reads the access
-token setup saved beside the session file.
+token kept beside the session file: setup saves the one from sign-in, and each
+refresh in a test that uses the saved session replaces it.
 
 ## Smoke groups
 
