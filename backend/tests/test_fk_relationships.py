@@ -489,6 +489,53 @@ class TestFKRelationships:
         )
         assert resp.status_code == 503, resp.text
 
+    async def test_related_records_mixed_case_join_column_resolves(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """A mixed-case join column is quoted, not folded into a missing one."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        cols = [{"name": "CustomerID", "type": "integer"}]
+        source = await create_dataset(
+            test_db_session, created_by=admin_id, name="Case Source", column_info=cols
+        )
+        target = await create_dataset(
+            test_db_session, created_by=admin_id, name="Case Target", column_info=cols
+        )
+        for ds in (source, target):
+            await test_db_session.execute(
+                text(
+                    f"CREATE TABLE data.{ds.table_name} "
+                    '(gid integer PRIMARY KEY, "CustomerID" integer)'
+                )
+            )
+            await test_db_session.execute(
+                text(
+                    f'INSERT INTO data.{ds.table_name} (gid, "CustomerID") VALUES (1, 7)'
+                )
+            )
+        await test_db_session.commit()
+
+        create_resp = await client.post(
+            f"/datasets/{source.id}/relationships/",
+            json={
+                "target_dataset_id": str(target.record_id),
+                "source_column": "CustomerID",
+                "target_column": "CustomerID",
+            },
+            headers=admin_auth_header,
+        )
+        assert create_resp.status_code == 201, create_resp.text
+
+        resp = await client.get(
+            f"/datasets/{source.id}/features/1/related/{create_resp.json()['id']}/",
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["approximate_total"] == 1
+
     async def test_related_records_rejects_relationship_for_different_source(
         self,
         client: AsyncClient,

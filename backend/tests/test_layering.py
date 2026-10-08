@@ -1193,7 +1193,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/search/service_semantic.py": 514,
         "backend/app/modules/catalog/maps/service_diff.py": 400,
         "backend/app/modules/catalog/maps/service_shared.py": 400,
-        "backend/app/modules/catalog/datasets/domain/service_relationships.py": 654,
+        "backend/app/modules/catalog/datasets/domain/service_relationships.py": 656,
         "backend/app/modules/catalog/datasets/domain/service_metadata.py": 555,
         # Internal pointer reads sit beside the detail query that shares them.
         "backend/app/modules/catalog/datasets/domain/service_query.py": 439,

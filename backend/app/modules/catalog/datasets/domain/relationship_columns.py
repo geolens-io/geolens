@@ -27,6 +27,11 @@ def has_missing_column(
     return False
 
 
+def quote_column(name: str) -> str:
+    """Quote a join column so Postgres keeps its case; ``:`` is escaped for bind parsing."""
+    return '"' + name.replace('"', '""').replace(":", "\\:") + '"'
+
+
 _MISSING_COLUMN_RE = re.compile(r'column "([^"]+)"')
 
 
@@ -49,8 +54,7 @@ def join_column_error(exc: ProgrammingError, join_column: str) -> HTTPException 
         return None
     match = _MISSING_COLUMN_RE.search(str(getattr(exc, "orig", exc)))
     column = match.group(1) if match else None
-    # The source column is interpolated unquoted, so Postgres reports it folded.
-    if column not in {join_column, join_column.lower()}:
+    if column != join_column:
         return None
     return HTTPException(
         status_code=status.HTTP_409_CONFLICT,

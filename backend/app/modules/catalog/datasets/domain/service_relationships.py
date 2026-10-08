@@ -30,6 +30,7 @@ from app.modules.catalog.datasets.domain.models import (
 from app.modules.catalog.datasets.domain.relationship_columns import (
     has_missing_column,
     join_column_error,
+    quote_column,
     tables_unavailable_error,
 )
 from app.modules.catalog.datasets.domain.service_query import get_dataset
@@ -502,9 +503,9 @@ async def _fetch_fk_value(
     """Read the FK value from the source feature row, or None if absent."""
     table_ref = get_catalog_port().quote_table(source_table)
     result = await session.execute(
-        text(f"SELECT {source_column} FROM {table_ref} WHERE gid = :gid").bindparams(
-            gid=feature_gid
-        )
+        text(
+            f"SELECT {quote_column(source_column)} FROM {table_ref} WHERE gid = :gid"
+        ).bindparams(gid=feature_gid)
     )
     return result.scalar_one_or_none()
 
@@ -515,7 +516,8 @@ async def _count_target_rows(
     table_ref = get_catalog_port().quote_table(target_table)
     result = await session.execute(
         text(
-            f"SELECT COUNT(*) FROM {table_ref} WHERE {target_column} = :fk_val"
+            f"SELECT COUNT(*) FROM {table_ref} "
+            f"WHERE {quote_column(target_column)} = :fk_val"
         ).bindparams(fk_val=fk_value)
     )
     return int(result.scalar_one())
@@ -542,7 +544,7 @@ async def _fetch_target_rows(
     # projection -- a relationship may legitimately target a column the
     # projection drops (e.g. `geom`/`geom_4326`), and predicating on the
     # projected alias made such a fetch an undefined-column error.
-    qcol = '"' + target_column.replace('"', '""').replace(":", "\\:") + '"'
+    qcol = quote_column(target_column)
     rows_result = await session.execute(
         text(
             f"SELECT gid, to_jsonb(t.*) - 'gid' AS properties "
