@@ -50,6 +50,9 @@ describe('MapTitleBar', () => {
     expect(input.parentElement).not.toHaveClass('max-w-xs', 'shrink-0');
     expect(input.parentElement).toHaveClass('min-w-0');
     expect(input).toHaveClass('truncate');
+    // A negative margin on the input would make the wrapper narrower than the text and clip it.
+    expect(input).not.toHaveClass('-ms-1.5');
+    expect(input.parentElement).toHaveClass('-ms-1.5');
   });
 
   it('keeps a minimum width for the description beside a long map name', () => {
