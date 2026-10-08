@@ -358,7 +358,9 @@ class TestMaterialize:
         assert record.derived_from["dataset_id"] == str(points.id)
         assert record.derived_from["source_filter"] == KEEP
         assert record.derived_from["params"]["mask_filter"] == ONLY_A
-        assert "using its features where kind = 'keep'" in record.lineage_summary
+        assert "using its features filtered on kind" in record.lineage_summary
+        # Search matches this prose before redaction, so no filter value.
+        assert "keep" not in record.lineage_summary
 
     @pytest.mark.parametrize(
         ("operation", "params", "expected"),

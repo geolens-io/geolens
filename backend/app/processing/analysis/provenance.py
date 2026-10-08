@@ -44,9 +44,8 @@ PARAM_KEYS = (
     "join_filter",
 )
 
-# Past this, a filter is summarized rather than spelled out in the sentence.
-_MAX_FILTER_TEXT = 200
-_COMPARISON_TEXT = {"=": "=", "<>": "<>", "<": "<", ">": ">", "<=": "<=", ">=": ">="}
+# Past this many columns, the sentence stops naming them.
+_MAX_FILTER_COLUMNS = 5
 
 
 def _format_metres(value: Any) -> str:
@@ -69,61 +68,38 @@ def _format_metres(value: Any) -> str:
     return f"{text.removesuffix('.0')} m"
 
 
-def _filter_operand(node: Any) -> str:
-    if isinstance(node, dict) and isinstance(node.get("property"), str):
-        return node["property"]
-    if isinstance(node, bool):
-        return "true" if node else "false"
-    if isinstance(node, (int, float)):
-        return repr(node)
-    if isinstance(node, str):
-        return "'" + node.replace("'", "''") + "'"
-    raise ValueError("unsupported operand")
-
-
-def _filter_text(node: Any, *, nested: bool = False) -> str:
-    """CQL2-text-like rendering of the CQL2-JSON subset the builder sends.
-
-    Raises ValueError on anything outside that subset.
-    """
-    op = node.get("op") if isinstance(node, dict) else None
-    args = node.get("args") if isinstance(node, dict) else None
-    if not isinstance(args, list) or not args:
-        raise ValueError("unsupported filter")
-    if op in ("and", "or"):
-        text = f" {op} ".join(_filter_text(arg, nested=True) for arg in args)
-        return f"({text})" if nested and len(args) > 1 else text
-    if op == "not":
-        inner = args[0]
-        if isinstance(inner, dict) and inner.get("op") == "isNull":
-            return f"{_filter_operand(inner['args'][0])} is not null"
-        return f"not ({_filter_text(inner)})"
-    if op == "isNull":
-        return f"{_filter_operand(args[0])} is null"
-    if op == "like" and len(args) == 2:
-        return f"{_filter_operand(args[0])} like {_filter_operand(args[1])}"
-    if op == "in" and len(args) == 2 and isinstance(args[1], list):
-        values = ", ".join(_filter_operand(v) for v in args[1])
-        return f"{_filter_operand(args[0])} in ({values})"
-    if op in _COMPARISON_TEXT and len(args) == 2:
-        return (
-            f"{_filter_operand(args[0])} {_COMPARISON_TEXT[op]} "
-            f"{_filter_operand(args[1])}"
-        )
-    raise ValueError("unsupported filter")
+def _filter_columns(node: Any, found: list[str]) -> list[str]:
+    """Every column a CQL2-JSON filter reads, in first-seen order."""
+    if isinstance(node, dict):
+        name = node.get("property")
+        if isinstance(name, str) and name not in found:
+            found.append(name)
+        for value in node.values():
+            _filter_columns(value, found)
+    elif isinstance(node, list):
+        for value in node:
+            _filter_columns(value, found)
+    return found
 
 
 def _source_filter_clause(source_filter: Mapping[str, Any] | None) -> str:
-    """The sentence's mention of the source filter, or "" for the whole source."""
+    """The sentence's mention of the source filter, or "" for the whole source.
+
+    Columns only, never values: catalog search matches this prose before any
+    per-requester redaction, so a value here could be probed through ``q``.
+    The full filter is in ``derived_from``, which read paths access-check.
+    """
     if not source_filter:
         return ""
-    try:
-        text = _filter_text(source_filter)
-    except (ValueError, KeyError, IndexError, TypeError):
-        text = ""
-    if not text or len(text) > _MAX_FILTER_TEXT:
+    columns = _filter_columns(source_filter, [])
+    if not columns or len(columns) > _MAX_FILTER_COLUMNS:
         return ", using a filtered subset of its features"
-    return f", using its features where {text}"
+    named = (
+        columns[0]
+        if len(columns) == 1
+        else (f"{', '.join(columns[:-1])} and {columns[-1]}")
+    )
+    return f", using its features filtered on {named}"
 
 
 def _quoted(title: str | None) -> str:
@@ -205,9 +181,9 @@ def build_lineage_sentence(
     """A human sentence describing how this dataset was produced.
 
     Reads as prose because it is exported as prose: DCAT serves it as
-    ``dcterms:provenance`` and the dataset page shows it verbatim. The source
-    filter is spelled out; mask and join filters are not, for the reason
-    ``join_fields`` is left out of the spatial_join phrase.
+    ``dcterms:provenance`` and the dataset page shows it verbatim. It names the
+    columns the source filter reads; mask and join filters are left out, for
+    the reason ``join_fields`` is left out of the spatial_join phrase.
     """
     params = params or {}
     phrase = _operation_phrase(
