@@ -42,6 +42,9 @@ export function OAuthCallbackPage() {
     const token = params.get('token');
     const refreshToken = params.get('refresh_token');
     const expiresIn = params.get('expires_in');
+    // An API from before the code exchange set the cookie on its redirect
+    // and sends no refresh token; accepted while versions can differ.
+    const legacyCookieMode = params.get('auth_mode') === 'cookie';
 
     // Clean URL immediately (remove fragment with the code or tokens)
     window.history.replaceState({}, '', '/oauth/callback');
@@ -52,7 +55,7 @@ export function OAuthCallbackPage() {
     let issued: Promise<IssuedSession>;
     if (code) {
       issued = exchangeSignInCode(code);
-    } else if (token && refreshToken && expiresIn) {
+    } else if (token && expiresIn && (refreshToken || legacyCookieMode)) {
       issued = Promise.resolve({
         access_token: token,
         refresh_token: refreshToken,

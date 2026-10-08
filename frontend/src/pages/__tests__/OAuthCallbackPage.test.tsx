@@ -112,10 +112,20 @@ describe('OAuthCallbackPage', () => {
     expect(useAuthStore.getState().token).toBeNull();
   });
 
-  // A fragment without a code is the cross-origin shape, which carries its
-  // own refresh token.
-  it('does not sign in from a token fragment that carries no refresh token', async () => {
+  it('still accepts the cookie-mode token fragment of an API that predates the exchange', async () => {
+    mockGetMe.mockResolvedValueOnce(userA);
     setHash('#token=access-1&expires_in=900&auth_mode=cookie');
+
+    render(<OAuthCallbackPage />);
+
+    await waitFor(() => expect(useAuthStore.getState().user).toEqual(userA));
+    expect(mockExchangeSignInCode).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().token).toBe('access-1');
+    expect(useAuthStore.getState().refreshToken).toBeNull();
+  });
+
+  it('does not sign in from a token fragment with neither a refresh token nor cookie mode', async () => {
+    setHash('#token=access-1&expires_in=900');
 
     render(<OAuthCallbackPage />);
 
