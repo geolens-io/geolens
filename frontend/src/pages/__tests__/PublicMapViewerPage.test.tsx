@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
-import { Route, Routes } from 'react-router';
-import { act, render, screen } from '@/test/test-utils';
+import { Link, Route, Routes } from 'react-router';
+import { act, fireEvent, render, screen } from '@/test/test-utils';
 import { PublicMapViewerPage } from '../PublicMapViewerPage';
 import { useMap } from '@/hooks/use-maps';
 import { useViewerLayers } from '@/components/viewer/hooks/use-viewer-layers';
@@ -46,7 +46,11 @@ vi.mock('@/components/map/MapTitlePill', () => ({
 }));
 
 vi.mock('@/components/map/BasemapToggle', () => ({
-  BasemapToggle: () => <div data-testid="basemap-toggle">basemap</div>,
+  BasemapToggle: ({ value, onChange }: { value: string; onChange: (id: string) => void }) => (
+    <button type="button" data-testid="basemap-toggle" onClick={() => onChange('chosen-basemap')}>
+      {value}
+    </button>
+  ),
 }));
 
 vi.mock('@/components/error', () => ({
@@ -197,6 +201,47 @@ describe('PublicMapViewerPage', () => {
     expect(viewerMapMock.props?.layers[0]).toMatchObject({
       id: 'layer-1',
       tile_version: 7,
+    });
+  });
+  describe('when the viewed map changes', () => {
+    function renderWithNav() {
+      return render(
+        <>
+          <Link to="/maps/map-2/view">other map</Link>
+          <Link to="/maps/map-1/view">first map</Link>
+          <Routes>
+            <Route path="/maps/:id/view" element={<PublicMapViewerPage />} />
+          </Routes>
+        </>,
+        { route: '/maps/map-1/view' },
+      );
+    }
+
+    it('resets the chosen basemap and drawn layers on another map', async () => {
+      renderWithNav();
+      await screen.findByTestId('viewer-map');
+      fireEvent.click(screen.getByTestId('basemap-toggle'));
+      act(() => viewerMapMock.props?.onDrawnChange?.(new Map([['l', { drawsAs: 'circle' as const }]])));
+      expect(screen.getByTestId('basemap-toggle')).toHaveTextContent('chosen-basemap');
+      expect(legendMock.props?.drawn).toBeDefined();
+
+      fireEvent.click(screen.getByRole('link', { name: 'other map' }));
+
+      expect(screen.getByTestId('basemap-toggle')).toHaveTextContent('openfreemap-positron');
+      expect(legendMock.props?.drawn).toBeUndefined();
+    });
+
+    it('keeps them across a rerender of the same map', async () => {
+      renderWithNav();
+      await screen.findByTestId('viewer-map');
+      fireEvent.click(screen.getByTestId('basemap-toggle'));
+      const drawn = new Map([['l', { drawsAs: 'circle' as const }]]);
+      act(() => viewerMapMock.props?.onDrawnChange?.(drawn));
+
+      fireEvent.click(screen.getByRole('link', { name: 'first map' }));
+
+      expect(screen.getByTestId('basemap-toggle')).toHaveTextContent('chosen-basemap');
+      expect(legendMock.props?.drawn).toBe(drawn);
     });
   });
 });

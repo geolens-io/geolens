@@ -38,7 +38,14 @@ function parseZoom(raw: string | null): number | null {
   return z;
 }
 
+// Keyed by share token so the basemap choice and drawn layers start fresh
+// when the route switches to another map without a remount.
 export function PublicViewerPage() {
+  const { token } = useParams<{ token: string }>();
+  return <PublicViewer key={token} />;
+}
+
+function PublicViewer() {
   const { t } = useTranslation('common');
   const { token } = useParams<{ token: string }>();
   const [searchParams] = useSearchParams();
