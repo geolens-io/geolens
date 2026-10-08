@@ -9,12 +9,12 @@ from attrs import field as _attrs_field
 
 T = TypeVar(
     "T",
-    bound="GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemGeometry",
+    bound="GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemGeometryType0",
 )
 
 
 @_attrs_define
-class GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemGeometry:
+class GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemGeometryType0:
     """ """
 
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -29,10 +29,10 @@ class GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200F
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        get_features_geojson_z_endpoint_datasets_dataset_id_features_geojson_get_response_200_features_item_geometry = cls()
+        get_features_geojson_z_endpoint_datasets_dataset_id_features_geojson_get_response_200_features_item_geometry_type_0 = cls()
 
-        get_features_geojson_z_endpoint_datasets_dataset_id_features_geojson_get_response_200_features_item_geometry.additional_properties = d
-        return get_features_geojson_z_endpoint_datasets_dataset_id_features_geojson_get_response_200_features_item_geometry
+        get_features_geojson_z_endpoint_datasets_dataset_id_features_geojson_get_response_200_features_item_geometry_type_0.additional_properties = d
+        return get_features_geojson_z_endpoint_datasets_dataset_id_features_geojson_get_response_200_features_item_geometry_type_0
 
     @property
     def additional_keys(self) -> list[str]:

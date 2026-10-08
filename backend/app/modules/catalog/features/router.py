@@ -423,7 +423,12 @@ _FEATURES_GEOJSON_Z_SCHEMA = {
                 "properties": {
                     "type": {"type": "string", "enum": ["Feature"]},
                     "id": {"type": "integer"},
-                    "geometry": {"type": "object", "additionalProperties": True},
+                    "geometry": {
+                        "anyOf": [
+                            {"type": "object", "additionalProperties": True},
+                            {"type": "null"},
+                        ]
+                    },
                     "properties": {"type": "object", "additionalProperties": True},
                 },
                 "required": ["type", "id", "geometry", "properties"],

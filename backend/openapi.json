@@ -36994,8 +36994,15 @@
                             "type": "integer"
                           },
                           "geometry": {
-                            "additionalProperties": true,
-                            "type": "object"
+                            "anyOf": [
+                              {
+                                "additionalProperties": true,
+                                "type": "object"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           },
                           "properties": {
                             "type": "object",

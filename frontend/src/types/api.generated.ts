@@ -25540,7 +25540,7 @@ export interface operations {
                             id: number;
                             geometry: {
                                 [key: string]: unknown;
-                            };
+                            } | null;
                             properties: {
                                 [key: string]: unknown;
                             };

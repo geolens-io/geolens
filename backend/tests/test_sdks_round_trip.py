@@ -264,10 +264,11 @@ class TestFeaturesGeojsonDownload:
                     "id": 1,
                     "geometry": {"type": "Point", "coordinates": [1.0, 2.0, 3.0]},
                     "properties": {"name": "a"},
-                }
+                },
+                {"type": "Feature", "id": 2, "geometry": None, "properties": {}},
             ],
             "truncated": False,
-            "total_count": 1,
+            "total_count": 2,
         }
 
         def respond(request: httpx.Request) -> httpx.Response:
@@ -290,7 +291,8 @@ class TestFeaturesGeojsonDownload:
             payload = result.to_dict()
             assert payload["features"][0]["geometry"]["coordinates"] == [1.0, 2.0, 3.0]
             assert payload["truncated"] is False
-            assert payload["total_count"] == 1
+            assert payload["features"][1]["geometry"] is None
+            assert payload["total_count"] == 2
 
 
 class TestCogDownload:

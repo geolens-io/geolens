@@ -13,10 +13,11 @@ from ..models.get_features_geojson_z_endpoint_datasets_dataset_id_features_geojs
 from ..models.get_features_geojson_z_endpoint_datasets_dataset_id_features_geojson_get_response_200_features_item_type import (
     GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemType,
 )
+from typing import cast
 
 if TYPE_CHECKING:
-    from ..models.get_features_geojson_z_endpoint_datasets_dataset_id_features_geojson_get_response_200_features_item_geometry import (
-        GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemGeometry,
+    from ..models.get_features_geojson_z_endpoint_datasets_dataset_id_features_geojson_get_response_200_features_item_geometry_type_0 import (
+        GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemGeometryType0,
     )
     from ..models.get_features_geojson_z_endpoint_datasets_dataset_id_features_geojson_get_response_200_features_item_properties import (
         GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemProperties,
@@ -35,22 +36,37 @@ class GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200F
     Attributes:
         type_ (GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemType):
         id (int):
-        geometry (GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemGeometry):
+        geometry (GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemGeometryType0 |
+            None):
         properties (GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemProperties):
     """
 
     type_: GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemType
     id: int
-    geometry: GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemGeometry
+    geometry: (
+        GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemGeometryType0
+        | None
+    )
     properties: GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemProperties
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.get_features_geojson_z_endpoint_datasets_dataset_id_features_geojson_get_response_200_features_item_geometry_type_0 import (
+            GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemGeometryType0,
+        )
+
         type_: str = self.type_
 
         id = self.id
 
-        geometry = self.geometry.to_dict()
+        geometry: dict[str, Any] | None
+        if isinstance(
+            self.geometry,
+            GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemGeometryType0,
+        ):
+            geometry = self.geometry.to_dict()
+        else:
+            geometry = self.geometry
 
         properties = self.properties.to_dict()
 
@@ -69,8 +85,8 @@ class GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200F
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.get_features_geojson_z_endpoint_datasets_dataset_id_features_geojson_get_response_200_features_item_geometry import (
-            GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemGeometry,
+        from ..models.get_features_geojson_z_endpoint_datasets_dataset_id_features_geojson_get_response_200_features_item_geometry_type_0 import (
+            GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemGeometryType0,
         )
         from ..models.get_features_geojson_z_endpoint_datasets_dataset_id_features_geojson_get_response_200_features_item_properties import (
             GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemProperties,
@@ -83,9 +99,31 @@ class GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200F
 
         id = d.pop("id")
 
-        geometry = GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemGeometry.from_dict(
-            d.pop("geometry")
-        )
+        def _parse_geometry(
+            data: object,
+        ) -> (
+            GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemGeometryType0
+            | None
+        ):
+            if data is None:
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                geometry_type_0 = GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemGeometryType0.from_dict(
+                    data
+                )
+
+                return geometry_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(
+                GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemGeometryType0
+                | None,
+                data,
+            )
+
+        geometry = _parse_geometry(d.pop("geometry"))
 
         properties = GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemProperties.from_dict(
             d.pop("properties")
