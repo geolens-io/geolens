@@ -343,6 +343,7 @@ export const BuilderMap = memo(function BuilderMap({
       };
     }
 
+    const controller = new AbortController();
     async function fetchClusterSources() {
       const next = new Map<string, GeoJSON.FeatureCollection>();
       await Promise.all(clusterSourceLayers.map(async (layer) => {
@@ -366,7 +367,7 @@ export const BuilderMap = memo(function BuilderMap({
           return;
         }
         try {
-          const response = await fetchBoundedGeoJson(layer.dataset_id);
+          const response = await fetchBoundedGeoJson(layer.dataset_id, { signal: controller.signal });
           if (response.truncated || response.total_count > eligibility.limit) {
             const key = `${layer.id}:truncated:${response.total_count}`;
             if (!clusterFallbackNotifiedRef.current.has(key)) {
@@ -383,6 +384,7 @@ export const BuilderMap = memo(function BuilderMap({
           }
           next.set(layer.id, asFeatureCollection(response));
         } catch (error) {
+          if (controller.signal.aborted) return;
           if (import.meta.env.DEV) console.warn(`[BuilderMap] Cluster GeoJSON fetch failed for ${layer.dataset_id}:`, error);
           const key = `${layer.id}:fetch-error`;
           if (!clusterFallbackNotifiedRef.current.has(key)) {
@@ -405,6 +407,7 @@ export const BuilderMap = memo(function BuilderMap({
     });
     return () => {
       cancelled = true;
+      controller.abort();
     };
     // layers is read through layersRef (always fresh post-render);
     // clusterSourceKey covers every field that changes what gets fetched.

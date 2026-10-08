@@ -608,6 +608,7 @@ describe('ViewerMap basemap config runtime', () => {
     await waitFor(() => {
       expect(fetchBoundedGeoJsonMock).toHaveBeenCalledWith('dataset-cluster', {
         apiKey: undefined,
+        signal: expect.any(AbortSignal),
         embedToken: 'embed-token',
       });
     });
