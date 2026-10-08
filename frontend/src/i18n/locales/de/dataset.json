@@ -248,7 +248,9 @@
     "detailsUnrecorded": "Die Details dieser Version wurden nicht erfasst.",
     "features": "{{count}} Features",
     "srid": "SRID {{value}}",
-    "restore": "Wiederherstellen"
+    "restore": "Wiederherstellen",
+    "restoreBusyHint": "Eine Aktualisierung, ein Ersetzen oder eine Wiederherstellung läuft bereits. Siehe Aktualisierungsverlauf.",
+    "restoreSelectionHint": "Heben Sie die Auswahl des Objekts auf der Karte auf, um wiederherzustellen."
   },
   "restoreDialog": {
     "title": "Version {{number}} wiederherstellen?",
@@ -259,7 +261,13 @@
     "restoring": "Wird wiederhergestellt...",
     "restore": "Version wiederherstellen",
     "failed": "Version konnte nicht wiederhergestellt werden",
-    "queued": "Wiederherstellung von Version {{number}} eingereiht. Sie erscheint im Aktualisierungsverlauf."
+    "queued": "Wiederherstellung von Version {{number}} eingereiht. Sie erscheint im Aktualisierungsverlauf.",
+    "refusal": {
+      "dataset_busy": "Für diesen Datensatz läuft bereits eine andere Aktualisierung, ein Ersetzen oder eine Wiederherstellung. Warten Sie, bis sie abgeschlossen ist, und versuchen Sie es erneut.",
+      "previous_version_changed": "Die gespeicherte vorherige Version hat sich geändert, während dieser Dialog geöffnet war. Schließen Sie ihn und prüfen Sie den Verlauf erneut.",
+      "no_previous_version": "Dieser Datensatz hat keine vorherige Version mehr, die sich wiederherstellen ließe.",
+      "restore_not_applicable": "Dieser Datensatz hat keine Objekttabelle, daher gibt es nichts wiederherzustellen."
+    }
   },
   "vrt": {
     "mosaic": "VRT-Mosaik",

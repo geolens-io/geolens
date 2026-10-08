@@ -248,7 +248,9 @@
     "detailsUnrecorded": "Les détails de cette version n'ont pas été enregistrés.",
     "features": "{{count}} entités",
     "srid": "SRID {{value}}",
-    "restore": "Restaurer"
+    "restore": "Restaurer",
+    "restoreBusyHint": "Une actualisation, un remplacement ou une restauration est déjà en cours. Consultez l'historique des actualisations.",
+    "restoreSelectionHint": "Désélectionnez l'entité sélectionnée sur la carte pour restaurer."
   },
   "restoreDialog": {
     "title": "Restaurer la version {{number}} ?",
@@ -259,7 +261,13 @@
     "restoring": "Restauration...",
     "restore": "Restaurer la version",
     "failed": "Échec de la restauration de la version",
-    "queued": "Restauration de la version {{number}} mise en file d'attente. Elle apparaît dans l'historique des actualisations."
+    "queued": "Restauration de la version {{number}} mise en file d'attente. Elle apparaît dans l'historique des actualisations.",
+    "refusal": {
+      "dataset_busy": "Une autre actualisation, un autre remplacement ou une autre restauration est en cours pour ce jeu de données. Attendez qu'il se termine, puis réessayez.",
+      "previous_version_changed": "La version précédente conservée a changé pendant que cette boîte de dialogue était ouverte. Fermez-la et consultez de nouveau l'historique.",
+      "no_previous_version": "Ce jeu de données n'a plus de version précédente à restaurer.",
+      "restore_not_applicable": "Ce jeu de données n'a pas de table d'entités, il n'y a donc rien à restaurer."
+    }
   },
   "vrt": {
     "mosaic": "Mosaïque VRT",

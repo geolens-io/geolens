@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
+import { ApiError } from '@/api/client';
 import { useRestorePreviousVersion } from '@/components/dataset/hooks/use-dataset';
 import { Input } from '@/components/ui/input';
 import {
@@ -14,12 +15,27 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 
+const REFUSAL_CODES = [
+  'dataset_busy',
+  'previous_version_changed',
+  'no_previous_version',
+  'restore_not_applicable',
+] as const;
+
+function refusalCode(error: unknown): (typeof REFUSAL_CODES)[number] | null {
+  if (!(error instanceof ApiError)) return null;
+  const code = (error.body as { code?: unknown } | undefined)?.code;
+  return REFUSAL_CODES.find((c) => c === code) ?? null;
+}
+
 interface RestoreVersionDialogProps {
   datasetId: string;
   datasetTitle: string;
   versionNumber: number;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Called with the queued run's id so the page watcher sees it settle. */
+  onQueued?: (runId: string) => void;
 }
 
 export function RestoreVersionDialog({
@@ -28,6 +44,7 @@ export function RestoreVersionDialog({
   versionNumber,
   open,
   onOpenChange,
+  onQueued,
 }: RestoreVersionDialogProps) {
   const { t } = useTranslation('dataset');
   const [confirmName, setConfirmName] = useState('');
@@ -43,7 +60,8 @@ export function RestoreVersionDialog({
 
   async function handleRestore() {
     try {
-      await restore.mutateAsync({ datasetId, versionNumber });
+      const result = await restore.mutateAsync({ datasetId, versionNumber });
+      onQueued?.(result.run_id);
       toast.success(t('restoreDialog.queued', { number: versionNumber }));
       onOpenChange(false);
     } catch {
@@ -78,7 +96,11 @@ export function RestoreVersionDialog({
 
         {restore.error && (
           <p className="text-sm text-destructive">
-            {restore.error instanceof Error ? restore.error.message : t('restoreDialog.failed')}
+            {refusalCode(restore.error)
+              ? t(`restoreDialog.refusal.${refusalCode(restore.error)}`)
+              : restore.error instanceof Error
+                ? restore.error.message
+                : t('restoreDialog.failed')}
           </p>
         )}
 

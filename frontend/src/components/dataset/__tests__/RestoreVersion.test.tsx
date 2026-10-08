@@ -2,6 +2,8 @@ import { render, screen, waitFor } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { VersionHistory } from '@/components/dataset/VersionHistory';
 import { getDatasetVersions, restorePreviousVersion } from '@/api/datasets';
+import { ApiError } from '@/api/client';
+import { useDrawingStore } from '@/stores/drawing-store';
 import type { DatasetResponse, DatasetVersionResponse } from '@/types/api';
 
 vi.mock('@/api/datasets', () => ({
@@ -41,6 +43,7 @@ beforeEach(() => {
     total: 3,
   });
   vi.mocked(restorePreviousVersion).mockReset();
+  useDrawingStore.setState({ selectedFeature: null, targetDatasetId: null });
 });
 
 describe('restore previous version', () => {
@@ -99,5 +102,60 @@ describe('restore previous version', () => {
     await user.click(screen.getByRole('button', { name: 'Restore version' }));
 
     expect(await screen.findByText('Another run is active')).toBeInTheDocument();
+  });
+
+  it('reports the queued run to the page watcher', async () => {
+    const user = userEvent.setup();
+    const trackDispatchedRun = vi.fn();
+    vi.mocked(restorePreviousVersion).mockResolvedValue({ job_id: 'j', run_id: 'run-9' });
+    render(
+      <VersionHistory
+        datasetId='ds-1'
+        dataset={dataset}
+        canEdit
+        watch={{ latestRun: undefined, isBusy: false, trackDispatchedRun }}
+      />,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Restore' }));
+    await user.type(screen.getByRole('textbox'), 'Roads');
+    await user.click(screen.getByRole('button', { name: 'Restore version' }));
+
+    await waitFor(() => expect(trackDispatchedRun).toHaveBeenCalledWith('run-9'));
+  });
+
+  it('blocks the action while a feature is selected or a run is active', async () => {
+    useDrawingStore.setState({
+      selectedFeature: { id: 1 } as never,
+      targetDatasetId: 'ds-1',
+    });
+    const { unmount } = render(<VersionHistory datasetId='ds-1' dataset={dataset} canEdit />);
+    expect(await screen.findByRole('button', { name: 'Restore' })).toBeDisabled();
+    unmount();
+
+    useDrawingStore.setState({ selectedFeature: null, targetDatasetId: null });
+    render(
+      <VersionHistory
+        datasetId='ds-1'
+        dataset={dataset}
+        canEdit
+        watch={{ latestRun: undefined, isBusy: true, trackDispatchedRun: vi.fn() }}
+      />,
+    );
+    expect(await screen.findByRole('button', { name: 'Restore' })).toBeDisabled();
+  });
+
+  it('explains a coded refusal in plain words', async () => {
+    const user = userEvent.setup();
+    vi.mocked(restorePreviousVersion).mockRejectedValue(
+      new ApiError('conflict', 409, { code: 'dataset_busy', message: 'x' }),
+    );
+    render(<VersionHistory datasetId='ds-1' dataset={dataset} canEdit />);
+
+    await user.click(await screen.findByRole('button', { name: 'Restore' }));
+    await user.type(screen.getByRole('textbox'), 'Roads');
+    await user.click(screen.getByRole('button', { name: 'Restore version' }));
+
+    expect(await screen.findByText(/Wait for it to finish, then try again/)).toBeInTheDocument();
   });
 });
