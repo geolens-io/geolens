@@ -1195,15 +1195,17 @@ async def trigger_backfill(
             raise
         from app.modules.admin.backfill_jobs import find_active_embedding_backfill
 
+        # The run may have ended since it refused this one; the fleet still
+        # goes ahead and this tenant is left for a rerun either way.
         active = await find_active_embedding_backfill(db)
-        if active is None:
-            raise
-        readable = active.created_by == current_user.id or (
-            await _can_access_another_users_job(
+        readable = active is not None and (
+            active.created_by == current_user.id
+            or await _can_access_another_users_job(
                 request, db, current_user, active, log_denial=False
             )
         )
-        job_id, job_status = (active.id if readable else None), "already_running"
+        job_id = active.id if active is not None and readable else None
+        job_status = "already_running"
     else:
         job_id, job_status = job.id, "pending"
     other_tenants = (
