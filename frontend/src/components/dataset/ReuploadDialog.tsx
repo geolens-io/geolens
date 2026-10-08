@@ -515,7 +515,7 @@ export function ReuploadDialog({
         // this condition exists to catch and always agree with the server.
         expectedOriginKind: stagedOriginKind,
         // The changes this dialog showed, acknowledged by confirming.
-        reviewFingerprint: sourceType === 'file' ? preview?.review_fingerprint : undefined,
+        reviewFingerprint: preview?.review_fingerprint,
       });
       setStep('tracking');
     } catch (err) {

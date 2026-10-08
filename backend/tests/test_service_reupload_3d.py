@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import uuid
 from contextlib import contextmanager
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import text
 
+from app.modules.catalog.datasets.api import router_reupload
 from app.modules.catalog.datasets.domain.models import Dataset
+from app.platform.extensions.defaults_catalog_port import DefaultCatalogPort
 from app.platform.jobs.models import IngestJob
 from app.processing.ingest import tasks_reupload, tasks_vector
 from app.processing.ingest.metadata import compute_table_content_digest
@@ -26,7 +28,7 @@ _WELLS = [(-73.9, 40.7, 100.0), (-74.0, 40.8, 200.0), (-73.8, 40.6, 300.0)]
 _FLAT_WELLS = [(x, y, None) for x, y, _ in _WELLS]
 
 
-def _fake_fetch(points):
+def _fake_fetch(points, columns=("name",)):
     """Land ``points`` in the target table the way ogr2ogr lands a point layer."""
 
     async def _fetch(
@@ -38,11 +40,12 @@ def _fake_fetch(points):
 
         target = f'"{kw["schema"]}"."{table_name}"'
         geometry = "Point" if points[0][2] is None else "PointZ"
+        fields = "".join(f"{column} character varying, " for column in columns)
         async with async_session() as session:
             await session.execute(text(f"DROP TABLE IF EXISTS {target}"))
             await session.execute(
                 text(
-                    f"CREATE TABLE {target} (gid serial PRIMARY KEY, name text, "
+                    f"CREATE TABLE {target} (gid serial PRIMARY KEY, {fields}"
                     f"geom geometry({geometry}, 4326))"
                 )
             )
@@ -50,10 +53,11 @@ def _fake_fetch(points):
                 wkt = f"POINT ({x} {y})" if z is None else f"POINT Z ({x} {y} {z})"
                 await session.execute(
                     text(
-                        f"INSERT INTO {target} (name, geom) "
-                        "VALUES (:name, ST_GeomFromText(:wkt, 4326))"
+                        f"INSERT INTO {target} ({', '.join(columns)}, geom) "
+                        f"VALUES ({', '.join(f':{c}' for c in columns)}, "
+                        "ST_GeomFromText(:wkt, 4326))"
                     ),
-                    {"name": f"well {index}", "wkt": wkt},
+                    {column: f"{column} {index}" for column in columns} | {"wkt": wkt},
                 )
             await session.commit()
 
@@ -61,7 +65,7 @@ def _fake_fetch(points):
 
 
 @contextmanager
-def _source(monkeypatch, points):
+def _source(monkeypatch, points, columns=("name",)):
     """Serve ``points`` as the ArcGIS layer for every fetch inside the block."""
 
     async def _page_info(source_url, layer_id, token, **_):
@@ -70,12 +74,15 @@ def _source(monkeypatch, points):
     monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _page_info)
     with (
         patch("app.platform.security.validate_url_for_ssrf", new=AsyncMock()),
-        patch("app.processing.ingest.ogr.run_ogr2ogr_service", new=_fake_fetch(points)),
+        patch(
+            "app.processing.ingest.ogr.run_ogr2ogr_service",
+            new=_fake_fetch(points, columns),
+        ),
     ):
         yield
 
 
-async def _ingest(session, monkeypatch, points) -> uuid.UUID:
+async def _ingest(session, monkeypatch, points, columns=("name",)) -> uuid.UUID:
     admin_id = await get_user_id(session, "admin")
     job = IngestJob(
         source_filename="Wells",
@@ -92,7 +99,7 @@ async def _ingest(session, monkeypatch, points) -> uuid.UUID:
     )
     session.add(job)
     await session.commit()
-    with _source(monkeypatch, points):
+    with _source(monkeypatch, points, columns):
         await tasks_vector.ingest_service.func(
             job_id=str(job.id),
             attempt_id=str(job.attempt_id),
@@ -145,6 +152,54 @@ async def _reupload(session, monkeypatch, dataset_id, points) -> None:
         )
     await session.refresh(job)
     assert job.status == "complete", job.error_message
+
+
+async def _preview(client, headers, dataset_id, points, columns=("name",)) -> dict:
+    """Preview the layer ``_fake_fetch`` lands, as ogrinfo reports it."""
+    reported = {
+        "srid": 4326,
+        "geometry_type": "Point" if points[0][2] is None else "Point Z",
+        "layer_name": "0",
+        "feature_count": len(points),
+        "columns": [{"name": column, "type": "String"} for column in columns],
+        "sample_rows": [],
+    }
+    with (
+        patch.object(router_reupload, "validate_url_for_ssrf", AsyncMock()),
+        patch.object(
+            router_reupload, "run_service_preview", AsyncMock(return_value=reported)
+        ),
+    ):
+        response = await client.post(
+            f"/datasets/{dataset_id}/reupload/service/preview",
+            headers=headers,
+            json={
+                "url": _BASE,
+                "service_type": "ArcGIS FeatureServer",
+                "layer_name": "0",
+                "layer_id": "0",
+            },
+        )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def _commit(
+    client, headers, monkeypatch, dataset_id, job_id, points, columns=("name",), **body
+) -> None:
+    """Commit a previewed re-upload and run the worker task it queues."""
+    task = MagicMock()
+    task.defer_async = AsyncMock(return_value=None)
+    task.configure.return_value = task
+    with patch.object(DefaultCatalogPort, "reupload_service_task", return_value=task):
+        response = await client.post(
+            f"/datasets/{dataset_id}/reupload/{job_id}/commit",
+            headers=headers,
+            json=body,
+        )
+    assert response.status_code == 202, response.text
+    with _source(monkeypatch, points, columns):
+        await reupload_service.func(**task.defer_async.call_args.kwargs)
 
 
 async def _dataset(session, dataset_id) -> Dataset:
@@ -234,22 +289,35 @@ async def test_a_2d_layer_that_gains_z_values_becomes_3d(
 
 
 async def test_a_3d_layer_that_loses_z_values_is_no_longer_3d(
-    client: AsyncClient, test_db_session, monkeypatch
+    client: AsyncClient, admin_auth_header, test_db_session, monkeypatch
 ):
-    """A re-upload without Z values clears the 3D facts."""
+    """A reviewed re-upload without Z values clears the 3D facts."""
     dataset_id = await _ingest(test_db_session, monkeypatch, _WELLS)
+    preview = await _preview(client, admin_auth_header, dataset_id, _FLAT_WELLS)
+    assert preview["review_reasons"] == [
+        "destructive_schema_change",
+        "coordinate_dimension_reduced",
+    ]
 
-    await _reupload(test_db_session, monkeypatch, dataset_id, _FLAT_WELLS)
+    await _commit(
+        client,
+        admin_auth_header,
+        monkeypatch,
+        dataset_id,
+        preview["job_id"],
+        _FLAT_WELLS,
+        review_fingerprint=preview["review_fingerprint"],
+    )
 
     dataset = await _dataset(test_db_session, dataset_id)
     assert _three_d(dataset) == (False, 2, None, None)
     assert "elev" not in await _live_columns(test_db_session, dataset.table_name)
 
 
-async def test_only_a_refresh_reads_the_live_geometry_types(
+async def test_each_replacement_reads_the_live_geometry_types_once(
     client: AsyncClient, admin_auth_header, test_db_session, monkeypatch
 ):
-    """A plain re-upload publishes unverified, so it skips the live geometry scan."""
+    """A re-upload and a refresh each scan the live geometry once, outside the lock."""
     scanned: list[str] = []
     real = tasks_reupload._live_geometry_types
 
@@ -261,10 +329,10 @@ async def test_only_a_refresh_reads_the_live_geometry_types(
     dataset_id = await _ingest(test_db_session, monkeypatch, _WELLS)
 
     await _reupload(test_db_session, monkeypatch, dataset_id, _WELLS)
-    assert scanned == []
+    assert len(scanned) == 1
 
     await _refresh(client, admin_auth_header, monkeypatch, dataset_id, _WELLS)
-    assert len(scanned) == 1
+    assert len(scanned) == 2
 
 
 async def test_a_type_added_after_the_live_scan_holds_a_refresh_for_review(

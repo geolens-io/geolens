@@ -1321,12 +1321,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # the version it keeps.
     "backend/app/processing/ingest/tasks_common.py": 1901,
     # File and remote-source replacement strategies own retrieval, staging and
-    # verification, including the live geometry read and its witness, and the
-    # live-edit comparison each publication makes.
-    "backend/app/processing/ingest/tasks_reupload.py": 1566,
+    # verification, including the live geometry read and its witness, the
+    # live-edit comparison each publication makes, and a service re-upload's
+    # review of the changes its preview showed.
+    "backend/app/processing/ingest/tasks_reupload.py": 1592,
     # Refresh strategies share access, admission and dispatch rules at this API
-    # boundary, including task-capability selection.
-    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1354,
+    # boundary, including task-capability selection and accepting a held run
+    # by the door it came through.
+    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1365,
     # Config planning, signed dry runs, application and the embedding column
     # rebuild an applied width needs share one import workflow.
     "backend/app/platform/config_ops/service.py": 1465,
@@ -1345,8 +1347,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Backfill batches share vector/model validation and progress/cancellation
     # semantics.
     "backend/app/processing/embeddings/backfill.py": 919,
-    # Reupload preview, compatibility, review and staged commit share an endpoint lifecycle.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1597,
+    # Reupload preview, compatibility, the file and service review, and staged
+    # commit share an endpoint lifecycle.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1610,
     # VRT creation and regeneration share publication, owed-object records and
     # superseded-object cleanup.
     "backend/app/processing/ingest/tasks_vrt.py": 1650,

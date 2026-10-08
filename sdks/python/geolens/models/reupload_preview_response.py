@@ -46,8 +46,8 @@ class ReuploadPreviewResponse:
         schema_diff (SchemaDiff):
         all_layers (list[ReuploadPreviewResponseAllLayersType0Item] | None | Unset):
         previous_source_layer (None | str | Unset):
-        review_reasons (list[ReuploadPreviewResponseReviewReasonsItem] | Unset): Changes in this file replacement that
-            hold it for review. Empty for a service re-upload, which is not judged at preview.
+        review_reasons (list[ReuploadPreviewResponseReviewReasonsItem] | Unset): Changes in this file replacement or
+            service re-upload that hold it for review.
         review_fingerprint (None | str | Unset): Fingerprint of the reviewed changes. Send it as the commit's
             `review_fingerprint` once a person has seen them; null when nothing needs review.
     """

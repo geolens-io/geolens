@@ -2528,7 +2528,10 @@ export interface paths {
          *
          *     ``accept_blocked_run_id`` accepts a blocked run once. A blocked service
          *     refresh is fetched again and publishes only if the result matches the run
-         *     it accepts. A blocked file replacement (an ``upload`` run) is replaced
+         *     it accepts. A blocked service re-upload is fetched again from the dataset's
+         *     source and publishes only if its review reasons and changes match; it
+         *     answers 409 ``origin_changed`` once that source is not the one the
+         *     re-upload fetched. A blocked file replacement (an ``upload`` run) is replaced
          *     again from the upload that run kept, and publishes only if its review
          *     reasons and changes match. That answers 422 ``upload_unavailable`` once
          *     the upload is gone, and 409 ``review_superseded`` once newer data has
@@ -12037,12 +12040,12 @@ export interface components {
             review_reasons: ("source_count_unavailable" | "empty_result" | "destructive_schema_change" | "geometry_type_changed" | "srid_changed" | "coordinate_dimension_reduced" | "arcgis_id_coverage_unavailable" | "arcgis_source_membership_changed" | "live_data_changed")[];
             /**
              * Review Fingerprint
-             * @description Identifies what a blocked run asks a person to accept. A service refresh fingerprints all of its evidence, so its acceptance must fetch the same data again. A file replacement fingerprints only its review reasons, removed columns, type changes and, for a geometry reason, the geometry facts, which is what its preview shows. Either one, held because features were edited while it ran, also names the edits it found, so accepting it does not cover a later edit.
+             * @description Identifies what a blocked run asks a person to accept. A service refresh fingerprints all of its evidence, so its acceptance must fetch the same data again. A file replacement or service re-upload fingerprints only its review reasons, removed columns, type changes and, for a geometry reason, the geometry facts, which is what its preview shows. A run held because features were edited while it ran also names the edits it found, so accepting it does not cover a later edit.
              */
             review_fingerprint: string | null;
             /**
              * Review Acknowledged By
-             * @description Why a file replacement with review reasons published: its commit carried the preview's fingerprint, or a person accepted a blocked run with the same changes.
+             * @description Why a replacement judged on its preview published: its commit carried the preview's fingerprint, or a person accepted a blocked run with the same changes.
              */
             review_acknowledged_by?: ("preview" | "accepted_run") | null;
             /** Accepted Blocked Run Id */
@@ -12187,7 +12190,7 @@ export interface components {
             auth?: components["schemas"]["ServiceAuthRequest"] | null;
             /**
              * Review Fingerprint
-             * @description The preview's `review_fingerprint`, sent once a person has seen the changes it describes. A file replacement with review reasons publishes only when the worker's own fingerprint matches; otherwise its run ends `blocked`. Service re-uploads ignore it.
+             * @description The preview's `review_fingerprint`, sent once a person has seen the changes it describes. A file replacement or service re-upload with review reasons publishes only when the worker's own fingerprint matches; otherwise its run ends `blocked`.
              */
             review_fingerprint?: string | null;
         };
@@ -12245,7 +12248,7 @@ export interface components {
             previous_source_layer?: string | null;
             /**
              * Review Reasons
-             * @description Changes in this file replacement that hold it for review. Empty for a service re-upload, which is not judged at preview.
+             * @description Changes in this file replacement or service re-upload that hold it for review.
              */
             review_reasons?: ("source_count_unavailable" | "empty_result" | "destructive_schema_change" | "geometry_type_changed" | "srid_changed" | "coordinate_dimension_reduced" | "arcgis_id_coverage_unavailable" | "arcgis_source_membership_changed" | "live_data_changed")[];
             /**

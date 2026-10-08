@@ -62,10 +62,10 @@ class RefreshVerification:
         identity_check (RefreshVerificationIdentityCheck):
         review_reasons (list[RefreshVerificationReviewReasonsItem]):
         review_fingerprint (None | str): Identifies what a blocked run asks a person to accept. A service refresh
-            fingerprints all of its evidence, so its acceptance must fetch the same data again. A file replacement
-            fingerprints only its review reasons, removed columns, type changes and, for a geometry reason, the geometry
-            facts, which is what its preview shows. Either one, held because features were edited while it ran, also names
-            the edits it found, so accepting it does not cover a later edit.
+            fingerprints all of its evidence, so its acceptance must fetch the same data again. A file replacement or
+            service re-upload fingerprints only its review reasons, removed columns, type changes and, for a geometry
+            reason, the geometry facts, which is what its preview shows. A run held because features were edited while it
+            ran also names the edits it found, so accepting it does not cover a later edit.
         accepted_blocked_run_id (None | UUID):
         source_binding_fingerprint (None | str | Unset):
         content_digest (None | str | Unset):
@@ -74,9 +74,9 @@ class RefreshVerification:
         staged_srid (int | None | Unset):
         staged_coordinate_dimension (int | None | Unset):
         geometry_contract (None | RefreshVerificationGeometryContractType0 | Unset):
-        review_acknowledged_by (None | RefreshVerificationReviewAcknowledgedByType0 | Unset): Why a file replacement
-            with review reasons published: its commit carried the preview's fingerprint, or a person accepted a blocked run
-            with the same changes.
+        review_acknowledged_by (None | RefreshVerificationReviewAcknowledgedByType0 | Unset): Why a replacement judged
+            on its preview published: its commit carried the preview's fingerprint, or a person accepted a blocked run with
+            the same changes.
         acceptance_consumed_by_run_id (None | Unset | UUID):
     """
 

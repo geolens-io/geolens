@@ -142,7 +142,10 @@ def sync_detailed(
 
     ``accept_blocked_run_id`` accepts a blocked run once. A blocked service
     refresh is fetched again and publishes only if the result matches the run
-    it accepts. A blocked file replacement (an ``upload`` run) is replaced
+    it accepts. A blocked service re-upload is fetched again from the dataset's
+    source and publishes only if its review reasons and changes match; it
+    answers 409 ``origin_changed`` once that source is not the one the
+    re-upload fetched. A blocked file replacement (an ``upload`` run) is replaced
     again from the upload that run kept, and publishes only if its review
     reasons and changes match. That answers 422 ``upload_unavailable`` once
     the upload is gone, and 409 ``review_superseded`` once newer data has
@@ -206,7 +209,10 @@ def sync(
 
     ``accept_blocked_run_id`` accepts a blocked run once. A blocked service
     refresh is fetched again and publishes only if the result matches the run
-    it accepts. A blocked file replacement (an ``upload`` run) is replaced
+    it accepts. A blocked service re-upload is fetched again from the dataset's
+    source and publishes only if its review reasons and changes match; it
+    answers 409 ``origin_changed`` once that source is not the one the
+    re-upload fetched. A blocked file replacement (an ``upload`` run) is replaced
     again from the upload that run kept, and publishes only if its review
     reasons and changes match. That answers 422 ``upload_unavailable`` once
     the upload is gone, and 409 ``review_superseded`` once newer data has
@@ -265,7 +271,10 @@ async def asyncio_detailed(
 
     ``accept_blocked_run_id`` accepts a blocked run once. A blocked service
     refresh is fetched again and publishes only if the result matches the run
-    it accepts. A blocked file replacement (an ``upload`` run) is replaced
+    it accepts. A blocked service re-upload is fetched again from the dataset's
+    source and publishes only if its review reasons and changes match; it
+    answers 409 ``origin_changed`` once that source is not the one the
+    re-upload fetched. A blocked file replacement (an ``upload`` run) is replaced
     again from the upload that run kept, and publishes only if its review
     reasons and changes match. That answers 422 ``upload_unavailable`` once
     the upload is gone, and 409 ``review_superseded`` once newer data has
@@ -327,7 +336,10 @@ async def asyncio(
 
     ``accept_blocked_run_id`` accepts a blocked run once. A blocked service
     refresh is fetched again and publishes only if the result matches the run
-    it accepts. A blocked file replacement (an ``upload`` run) is replaced
+    it accepts. A blocked service re-upload is fetched again from the dataset's
+    source and publishes only if its review reasons and changes match; it
+    answers 409 ``origin_changed`` once that source is not the one the
+    re-upload fetched. A blocked file replacement (an ``upload`` run) is replaced
     again from the upload that run kept, and publishes only if its review
     reasons and changes match. That answers 422 ``upload_unavailable`` once
     the upload is gone, and 409 ``review_superseded`` once newer data has

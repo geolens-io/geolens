@@ -1,8 +1,8 @@
 """Accepting a blocked refresh run once, for the refresh endpoint.
 
-A blocked service refresh is accepted by fetching again under the accepted
-fingerprint. A blocked file replacement is accepted by a new job over the
-upload its blocked job kept.
+A blocked service refresh or re-upload is accepted by fetching again under the
+accepted fingerprint. A blocked file replacement is accepted by a new job over
+the upload its blocked job kept.
 """
 
 from __future__ import annotations
@@ -25,7 +25,10 @@ from app.platform.jobs.defer_guard import (
 )
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
-from app.platform.refresh.verification import REVIEW_SUPERSEDED
+from app.platform.refresh.verification import (
+    REVIEW_SUPERSEDED,
+    canonical_service_source_binding_fingerprint,
+)
 from app.platform.refresh.service import DatasetBusyError, create_pending_run
 
 # What a manifest apply wrote on its job, so an accepted run publishes the
@@ -104,6 +107,64 @@ async def consume_blocked_refresh_acceptance(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="The selected blocked refresh was already accepted or changed.",
+        )
+
+
+async def held_reupload_binding(
+    db: AsyncSession, *, dataset_id: uuid.UUID, run_id: uuid.UUID | None
+) -> dict | None:
+    """The source a held service re-upload fetched, or None for any other run.
+
+    A re-upload's fingerprint identifies the changes its preview showed, not
+    the data it fetched, so it records no identity check. Its acceptance is
+    fetched and judged as a re-upload, which compares the same changes.
+    """
+    if run_id is None:
+        return None
+    verification = await db.scalar(
+        select(DatasetRefreshRun.verification).where(
+            DatasetRefreshRun.id == run_id,
+            DatasetRefreshRun.dataset_id == dataset_id,
+            DatasetRefreshRun.origin_kind == "service",
+        )
+    )
+    if (
+        not isinstance(verification, dict)
+        or verification.get("identity_check") != "unavailable"
+    ):
+        return None
+    binding = verification.get("source_binding")
+    return binding if isinstance(binding, dict) else {}
+
+
+async def refuse_unless_reupload_source_current(
+    db: AsyncSession, binding: dict | None, origin_ref: object
+) -> None:
+    """Refuse accepting a held re-upload whose source is no longer the dataset's.
+
+    The acceptance fetches the dataset's source, and the changes a person
+    accepted describe another one.
+    """
+    if binding is None:
+        return
+    current = origin_ref if isinstance(origin_ref, dict) else {}
+    try:
+        same = canonical_service_source_binding_fingerprint(
+            current
+        ) == canonical_service_source_binding_fingerprint(binding)
+    except ValueError:
+        same = False
+    if not same:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "origin_changed",
+                "message": (
+                    "This re-upload fetched a different source than the "
+                    "dataset's current one. Re-upload it again to review it."
+                ),
+            },
         )
 
 

@@ -44,6 +44,8 @@ from app.modules.catalog.datasets.api.refresh_acceptance import (
     blocked_run_origin_kind,
     consume_blocked_refresh_acceptance,
     dispatch_upload_acceptance,
+    held_reupload_binding,
+    refuse_unless_reupload_source_current,
 )
 from app.modules.catalog.datasets.domain.schemas import (
     DatasetRefreshRequest,
@@ -962,7 +964,10 @@ async def refresh_dataset(
 
     ``accept_blocked_run_id`` accepts a blocked run once. A blocked service
     refresh is fetched again and publishes only if the result matches the run
-    it accepts. A blocked file replacement (an ``upload`` run) is replaced
+    it accepts. A blocked service re-upload is fetched again from the dataset's
+    source and publishes only if its review reasons and changes match; it
+    answers 409 ``origin_changed`` once that source is not the one the
+    re-upload fetched. A blocked file replacement (an ``upload`` run) is replaced
     again from the upload that run kept, and publishes only if its review
     reasons and changes match. That answers 422 ``upload_unavailable`` once
     the upload is gone, and 409 ``review_superseded`` once newer data has
@@ -1022,6 +1027,9 @@ async def refresh_dataset(
         dataset_id=dataset_id,
         run_id=body.accept_blocked_run_id,
         origin_kind=origin_kind,
+    )
+    reupload_binding = await held_reupload_binding(
+        db, dataset_id=dataset_id, run_id=body.accept_blocked_run_id
     )
     if origin_kind == "postgis":
         return await _dispatch_postgis_refresh(
@@ -1215,6 +1223,9 @@ async def refresh_dataset(
     )
 
     if body.accept_blocked_run_id is not None:
+        await refuse_unless_reupload_source_current(
+            db, reupload_binding, dataset.origin_ref
+        )
         await consume_blocked_refresh_acceptance(
             db,
             dataset_id=dataset_id,
@@ -1264,9 +1275,9 @@ async def refresh_dataset(
         # retry cannot reproduce the authenticated fetch. Same marker the
         # commit door writes; the value is a boolean, never the token.
         **({"service_auth_required": True} if service_token else {}),
-        # Distinguishes a server-side refresh from a dialog-driven
-        # re-upload in the job list, where both are `reupload: True`.
-        "refresh": True,
+        # A held re-upload's acceptance runs as a re-upload, judged on the
+        # changes its preview showed rather than on the data it fetched.
+        **({} if reupload_binding is not None else {"refresh": True}),
         **(
             {
                 "accepted_refresh_run_id": str(body.accept_blocked_run_id),

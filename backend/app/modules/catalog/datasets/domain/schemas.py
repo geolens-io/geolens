@@ -894,8 +894,8 @@ class ReuploadPreviewResponse(BaseModel):
     review_reasons: list[ReviewReason] = Field(
         default_factory=list,
         description=(
-            "Changes in this file replacement that hold it for review. Empty "
-            "for a service re-upload, which is not judged at preview."
+            "Changes in this file replacement or service re-upload that hold "
+            "it for review."
         ),
     )
     review_fingerprint: str | None = Field(
@@ -972,9 +972,9 @@ class ReuploadCommitRequest(BaseModel):
         pattern="^[0-9a-f]{64}$",
         description=(
             "The preview's `review_fingerprint`, sent once a person has seen "
-            "the changes it describes. A file replacement with review reasons "
-            "publishes only when the worker's own fingerprint matches; "
-            "otherwise its run ends `blocked`. Service re-uploads ignore it."
+            "the changes it describes. A file replacement or service re-upload "
+            "with review reasons publishes only when the worker's own "
+            "fingerprint matches; otherwise its run ends `blocked`."
         ),
     )
     _reject_auth_conflict = model_validator(mode="after")(reject_service_auth_conflict)
@@ -1641,18 +1641,18 @@ class RefreshVerification(BaseModel):
         description=(
             "Identifies what a blocked run asks a person to accept. A service "
             "refresh fingerprints all of its evidence, so its acceptance must "
-            "fetch the same data again. A file replacement fingerprints only "
-            "its review reasons, removed columns, type changes and, for a "
-            "geometry reason, the geometry facts, which is what its preview "
-            "shows. Either one, held because features were edited while it "
-            "ran, also names the edits it found, so accepting it does not "
-            "cover a later edit."
+            "fetch the same data again. A file replacement or service re-upload "
+            "fingerprints only its review reasons, removed columns, type "
+            "changes and, for a geometry reason, the geometry facts, which is "
+            "what its preview shows. A run held because features were edited "
+            "while it ran also names the edits it found, so accepting it does "
+            "not cover a later edit."
         )
     )
     review_acknowledged_by: Literal["preview", "accepted_run"] | None = Field(
         default=None,
         description=(
-            "Why a file replacement with review reasons published: its commit "
+            "Why a replacement judged on its preview published: its commit "
             "carried the preview's fingerprint, or a person accepted a blocked "
             "run with the same changes."
         ),
