@@ -26,6 +26,7 @@ CSRF_COOKIE_NAME = "geolens_csrf"
 CSRF_HEADER_NAME = "X-CSRF-Token"
 AUTH_MODE_HEADER = "X-GeoLens-Auth-Mode"
 COOKIE_AUTH_MODE = "cookie"
+SSO_EXCHANGE_COOKIE_NAME = "geolens_sso_exchange"
 
 # The CSRF cookie must be readable by the SPA (double-submit), so it is NOT
 # HttpOnly. It is not a credential: possession alone authenticates nothing.
@@ -121,6 +122,47 @@ def clear_browser_session(response: Response, request: Request) -> None:
     response.delete_cookie(
         CSRF_COOKIE_NAME,
         path="/",
+        secure=_secure_cookies(),
+        samesite="lax",
+    )
+
+
+def _sso_exchange_cookie_path(request: Request) -> str:
+    root_path = request.scope.get("root_path", "").rstrip("/")
+    return f"{root_path}/auth/oauth/exchange"
+
+
+def set_sso_exchange_cookie(
+    response: Response, request: Request, nonce: str, max_age: int
+) -> None:
+    """Bind a staged SSO sign-in to this browser.
+
+    Scoped to the exchange route, so no refresh response ever rewrites it, and
+    ``SameSite=Lax`` keeps it off a cross-site POST to that route.
+    """
+    response.set_cookie(
+        SSO_EXCHANGE_COOKIE_NAME,
+        nonce,
+        max_age=max_age,
+        httponly=True,
+        secure=_secure_cookies(),
+        samesite="lax",
+        path=_sso_exchange_cookie_path(request),
+    )
+
+
+def read_sso_exchange_cookie(request: Request) -> str | None:
+    """The binding nonce, or None when absent or duplicated (see read_refresh_cookie)."""
+    if _cookie_occurrences(request, SSO_EXCHANGE_COOKIE_NAME) > 1:
+        return None
+    return request.cookies.get(SSO_EXCHANGE_COOKIE_NAME)
+
+
+def clear_sso_exchange_cookie(response: Response, request: Request) -> None:
+    response.delete_cookie(
+        SSO_EXCHANGE_COOKIE_NAME,
+        path=_sso_exchange_cookie_path(request),
+        httponly=True,
         secure=_secure_cookies(),
         samesite="lax",
     )

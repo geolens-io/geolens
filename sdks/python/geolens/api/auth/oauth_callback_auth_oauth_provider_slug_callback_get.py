@@ -96,13 +96,13 @@ def sync_detailed(
 ) -> Response[Any | ProblemDetail]:
     """Oauth Callback
 
-     Handle IdP callback: exchange code, find/create user, issue JWT, redirect to frontend.
+     Handle IdP callback: exchange code, find/create user, redirect to frontend.
 
-    The frontend redirect carries access tokens in the URL
-    fragment. Without explicit-config resolution, an attacker controlling
-    ``X-Forwarded-Host`` could steer the post-callback redirect to
-    attacker.com and capture the tokens. Force explicit-config resolution
-    by passing ``for_external_use=True``.
+    The frontend redirect carries a one-time sign-in code, or on a
+    cross-origin deployment the tokens, in the URL fragment. Without
+    explicit-config resolution, an attacker controlling ``X-Forwarded-Host``
+    could steer the post-callback redirect to attacker.com and capture them.
+    Force explicit-config resolution by passing ``for_external_use=True``.
 
     Args:
         provider_slug (str):
@@ -133,13 +133,13 @@ def sync(
 ) -> Any | ProblemDetail | None:
     """Oauth Callback
 
-     Handle IdP callback: exchange code, find/create user, issue JWT, redirect to frontend.
+     Handle IdP callback: exchange code, find/create user, redirect to frontend.
 
-    The frontend redirect carries access tokens in the URL
-    fragment. Without explicit-config resolution, an attacker controlling
-    ``X-Forwarded-Host`` could steer the post-callback redirect to
-    attacker.com and capture the tokens. Force explicit-config resolution
-    by passing ``for_external_use=True``.
+    The frontend redirect carries a one-time sign-in code, or on a
+    cross-origin deployment the tokens, in the URL fragment. Without
+    explicit-config resolution, an attacker controlling ``X-Forwarded-Host``
+    could steer the post-callback redirect to attacker.com and capture them.
+    Force explicit-config resolution by passing ``for_external_use=True``.
 
     Args:
         provider_slug (str):
@@ -165,13 +165,13 @@ async def asyncio_detailed(
 ) -> Response[Any | ProblemDetail]:
     """Oauth Callback
 
-     Handle IdP callback: exchange code, find/create user, issue JWT, redirect to frontend.
+     Handle IdP callback: exchange code, find/create user, redirect to frontend.
 
-    The frontend redirect carries access tokens in the URL
-    fragment. Without explicit-config resolution, an attacker controlling
-    ``X-Forwarded-Host`` could steer the post-callback redirect to
-    attacker.com and capture the tokens. Force explicit-config resolution
-    by passing ``for_external_use=True``.
+    The frontend redirect carries a one-time sign-in code, or on a
+    cross-origin deployment the tokens, in the URL fragment. Without
+    explicit-config resolution, an attacker controlling ``X-Forwarded-Host``
+    could steer the post-callback redirect to attacker.com and capture them.
+    Force explicit-config resolution by passing ``for_external_use=True``.
 
     Args:
         provider_slug (str):
@@ -200,13 +200,13 @@ async def asyncio(
 ) -> Any | ProblemDetail | None:
     """Oauth Callback
 
-     Handle IdP callback: exchange code, find/create user, issue JWT, redirect to frontend.
+     Handle IdP callback: exchange code, find/create user, redirect to frontend.
 
-    The frontend redirect carries access tokens in the URL
-    fragment. Without explicit-config resolution, an attacker controlling
-    ``X-Forwarded-Host`` could steer the post-callback redirect to
-    attacker.com and capture the tokens. Force explicit-config resolution
-    by passing ``for_external_use=True``.
+    The frontend redirect carries a one-time sign-in code, or on a
+    cross-origin deployment the tokens, in the URL fragment. Without
+    explicit-config resolution, an attacker controlling ``X-Forwarded-Host``
+    could steer the post-callback redirect to attacker.com and capture them.
+    Force explicit-config resolution by passing ``for_external_use=True``.
 
     Args:
         provider_slug (str):

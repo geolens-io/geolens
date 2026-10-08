@@ -3,7 +3,9 @@ import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '@/stores/auth-store';
 import { useDocumentTitle } from '@/hooks/use-document-title';
-import { completeSignIn } from '@/lib/sign-in';
+import { exchangeSignInCode } from '@/api/auth';
+import { completeSignIn, type IssuedSession } from '@/lib/sign-in';
+import { postSignInPath } from '@/lib/post-sign-in-path';
 import { readSessionStorage, removeSessionStorage } from '@/lib/storage';
 import { Loader2 } from 'lucide-react';
 
@@ -36,17 +38,27 @@ export function OAuthCallbackPage() {
       return;
     }
 
+    const code = params.get('code');
     const token = params.get('token');
     const refreshToken = params.get('refresh_token');
     const expiresIn = params.get('expires_in');
-    // Cookie mode keeps the refresh token in an httpOnly cookie, outside
-    // the script-readable fragment; no refresh_token parameter is required.
-    const cookieMode = params.get('auth_mode') === 'cookie';
 
-    // Clean URL immediately (remove fragment with tokens)
+    // Clean URL immediately (remove fragment with the code or tokens)
     window.history.replaceState({}, '', '/oauth/callback');
 
-    if (!token || !expiresIn || (!refreshToken && !cookieMode)) {
+    // A same-origin deployment sends a one-time code, exchanged for the
+    // session cookie under the cross-tab cookie lock. A cross-origin one
+    // cannot use that cookie and sends the tokens themselves.
+    let issued: Promise<IssuedSession>;
+    if (code) {
+      issued = exchangeSignInCode(code);
+    } else if (token && refreshToken && expiresIn) {
+      issued = Promise.resolve({
+        access_token: token,
+        refresh_token: refreshToken,
+        expires_in: parseInt(expiresIn, 10),
+      });
+    } else {
       // An incomplete fragment is not evidence that credentials were rejected.
       // Avoid /auth/logout/ here because it revokes every session for the user.
       useAuthStore.getState().logout();
@@ -54,11 +66,8 @@ export function OAuthCallbackPage() {
       return;
     }
 
-    completeSignIn({
-      access_token: token,
-      refresh_token: refreshToken,
-      expires_in: parseInt(expiresIn, 10),
-    })
+    issued
+      .then((session) => completeSignIn(session))
       .then((outcome) => {
         // The user may have navigated away while the profile loaded.
         if (!mountedRef.current) return;
@@ -71,8 +80,7 @@ export function OAuthCallbackPage() {
         // session. Without a stored redirect, land on the root route.
         const redirect = readSessionStorage('geolens-login-redirect');
         removeSessionStorage('geolens-login-redirect');
-        const target = redirect && redirect.startsWith('/') ? redirect : '/';
-        navigate(target, { replace: true });
+        navigate(postSignInPath(redirect), { replace: true });
       })
       .catch(() => {
         if (mountedRef.current) navigate('/login', { replace: true });

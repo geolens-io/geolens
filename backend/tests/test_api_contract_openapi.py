@@ -524,6 +524,7 @@ def test_cookie_session_operations_declare_their_negotiation_headers() -> None:
         "/auth/login": {"wants_cookie_auth"},
         "/auth/refresh/": {"wants_cookie_auth", "enforce_csrf"},
         "/auth/logout/": {"enforce_csrf"},
+        "/auth/oauth/exchange/": {"wants_cookie_auth"},
     }
 
     for path, helpers in expected_helpers.items():

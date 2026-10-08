@@ -1,6 +1,6 @@
 import { API_BASE } from '@/lib/constants';
 import { signalWithTimeout } from '@/lib/abort';
-import { cookieAuthAvailable, cookieAuthHeaders, withCookieWrite } from '@/lib/auth-transport';
+import { AUTH_MODE_HEADER, cookieAuthAvailable, cookieAuthHeaders, withCookieWrite } from '@/lib/auth-transport';
 import { useAuthStore } from '@/stores/auth-store';
 import { abortInflightRefresh, apiFetch, isCredentialRejected, safeFetch, ApiError } from './client';
 import { translateApiErrorDetail } from '@/lib/error-map';
@@ -52,6 +52,30 @@ export async function login(
     if (isCredentialRejected(err)) void logoutSession().catch(() => {});
     throw err;
   }
+}
+
+const EXCHANGE_TIMEOUT_MS = 30_000;
+
+/**
+ * Trade the one-time code an SSO callback redirected with for this browser's
+ * session cookie. The callback can't set that cookie itself: its redirect
+ * runs outside the cross-tab cookie lock, so a refresh another tab already
+ * sent could land afterwards and put the previous session's cookie back.
+ */
+export async function exchangeSignInCode(code: string): Promise<TokenResponse> {
+  await awaitPendingLogout();
+  abortInflightRefresh();
+  const response = await withCookieWrite(() => fetch(`${API_BASE}/auth/oauth/exchange/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', [AUTH_MODE_HEADER]: 'cookie' },
+    credentials: 'same-origin',
+    signal: AbortSignal.timeout(EXCHANGE_TIMEOUT_MS),
+    body: JSON.stringify({ code }),
+  }));
+  if (!response.ok) {
+    throw new ApiError(translateApiErrorDetail(undefined, response.status), response.status);
+  }
+  return response.json() as Promise<TokenResponse>;
 }
 
 export async function getMe(): Promise<UserResponse> {

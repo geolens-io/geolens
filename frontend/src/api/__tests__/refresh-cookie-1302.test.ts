@@ -1,4 +1,4 @@
-import { awaitPendingLogout, login, logoutSession, refreshAccessToken, revokeCurrentSession } from '@/api/auth';
+import { awaitPendingLogout, exchangeSignInCode, login, logoutSession, refreshAccessToken, revokeCurrentSession } from '@/api/auth';
 import { useAuthStore } from '@/stores/auth-store';
 import { tryRefresh } from '@/api/client';
 import { otherTab } from '@/test/broadcast-channel';
@@ -273,6 +273,53 @@ describe('browser refresh transport', () => {
     } finally {
       Reflect.deleteProperty(navigator, 'locks');
     }
+  });
+
+  // An SSO sign-in sets its cookie through this exchange, so the same lock
+  // keeps a refresh another tab already sent from landing after it.
+  it('holds an SSO code exchange until a refresh holding the cookie lock has finished', async () => {
+    let held: Promise<unknown> = Promise.resolve();
+    const lockNames: string[] = [];
+    const locks = {
+      request: (name: string, _options: unknown, callback: () => Promise<unknown>) => {
+        lockNames.push(name);
+        const run = held.then(callback);
+        held = run.catch(() => {});
+        return run;
+      },
+    };
+    Object.defineProperty(navigator, 'locks', { value: locks, configurable: true });
+    try {
+      let finishRefresh!: (r: Response) => void;
+      mockFetch.mockImplementationOnce(() => new Promise<Response>((resolve) => { finishRefresh = resolve; }));
+      const refresh = refreshAccessToken(null);
+      await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse({ access_token: 'sso-1', refresh_token: null, expires_in: 900 }),
+      );
+      const exchange = exchangeSignInCode('one-time-code');
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+
+      finishRefresh(jsonResponse({ access_token: 'r1', refresh_token: null, expires_in: 900 }));
+      await refresh;
+      await expect(exchange).resolves.toMatchObject({ access_token: 'sso-1' });
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(new Set(lockNames).size).toBe(1);
+      const [url, init] = mockFetch.mock.calls[1] as [string, RequestInit];
+      expect(url).toBe('/api/auth/oauth/exchange/');
+      expect(init).toMatchObject({ method: 'POST', credentials: 'same-origin' });
+      expect(init.headers).toMatchObject({ 'X-GeoLens-Auth-Mode': 'cookie' });
+      expect(JSON.parse(init.body as string)).toEqual({ code: 'one-time-code' });
+    } finally {
+      Reflect.deleteProperty(navigator, 'locks');
+    }
+  });
+
+  it('rejects with the status when the exchange is refused', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 401, json: () => Promise.resolve({}) } as Response);
+    await expect(exchangeSignInCode('spent-code')).rejects.toMatchObject({ status: 401 });
   });
 
   it('reads the CSRF cookie only once it holds the cookie lock', async () => {
