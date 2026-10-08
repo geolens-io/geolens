@@ -60,16 +60,19 @@ function SheetContent({
   children,
   side = "right",
   showCloseButton = true,
+  overlay = true,
+  onInteractOutside,
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Content> & {
   side?: "top" | "right" | "bottom" | "left"
   showCloseButton?: boolean
+  overlay?: boolean
 }) {
   const { t } = useTranslation("common")
 
   return (
     <SheetPortal>
-      <SheetOverlay />
+      {overlay && <SheetOverlay />}
       <SheetPrimitive.Content
         data-slot="sheet-content"
         className={cn(
@@ -84,6 +87,11 @@ function SheetContent({
             "data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom inset-x-0 bottom-0 h-auto border-t",
           className
         )}
+        onInteractOutside={(event) => {
+          // Without an overlay the sheet sits beside live content; a click there must not dismiss it.
+          if (!overlay) event.preventDefault()
+          onInteractOutside?.(event)
+        }}
         {...props}
       >
         {children}
