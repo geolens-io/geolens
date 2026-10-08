@@ -121,7 +121,7 @@ def sync_detailed(
     The run covers the calling tenant's records. In a multi-tenant deployment
     the embedding model and width are shared by every tenant, so a change
     leaves each tenant to regenerate. Pass ?all_tenants=true to also queue a
-    run for every other tenant that has records; there it needs
+    run for every other registered tenant; there it needs
     manage_tenants instead of manage_users, and ``other_tenants`` reports
     each run. When the calling tenant already has a run in flight, that run's
     id comes back with status ``already_running`` and the other tenants are
@@ -173,7 +173,7 @@ def sync(
     The run covers the calling tenant's records. In a multi-tenant deployment
     the embedding model and width are shared by every tenant, so a change
     leaves each tenant to regenerate. Pass ?all_tenants=true to also queue a
-    run for every other tenant that has records; there it needs
+    run for every other registered tenant; there it needs
     manage_tenants instead of manage_users, and ``other_tenants`` reports
     each run. When the calling tenant already has a run in flight, that run's
     id comes back with status ``already_running`` and the other tenants are
@@ -220,7 +220,7 @@ async def asyncio_detailed(
     The run covers the calling tenant's records. In a multi-tenant deployment
     the embedding model and width are shared by every tenant, so a change
     leaves each tenant to regenerate. Pass ?all_tenants=true to also queue a
-    run for every other tenant that has records; there it needs
+    run for every other registered tenant; there it needs
     manage_tenants instead of manage_users, and ``other_tenants`` reports
     each run. When the calling tenant already has a run in flight, that run's
     id comes back with status ``already_running`` and the other tenants are
@@ -270,7 +270,7 @@ async def asyncio(
     The run covers the calling tenant's records. In a multi-tenant deployment
     the embedding model and width are shared by every tenant, so a change
     leaves each tenant to regenerate. Pass ?all_tenants=true to also queue a
-    run for every other tenant that has records; there it needs
+    run for every other registered tenant; there it needs
     manage_tenants instead of manage_users, and ``other_tenants`` reports
     each run. When the calling tenant already has a run in flight, that run's
     id comes back with status ``already_running`` and the other tenants are

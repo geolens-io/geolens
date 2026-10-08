@@ -1,4 +1,4 @@
-"""An all-tenant embedding backfill queues a run in every tenant that has records.
+"""An all-tenant embedding backfill queues a run in every registered tenant.
 
 The embedding width and model are deployment-wide, so changing either leaves
 every tenant's semantic search to regenerate. A backfill queued from one
@@ -51,6 +51,10 @@ class _FleetOperatorOnly:
 
     async def check_permission(self, _db, _user, capability, **_kwargs) -> bool:
         return capability == "manage_tenants"
+
+
+def _by_tenant(other_tenants: list[dict]) -> dict[str, tuple[str | None, str]]:
+    return {run["tenant_id"]: (run["job_id"], run["status"]) for run in other_tenants}
 
 
 async def _backfill_jobs_in(session: AsyncSession, tenant_ids) -> list[IngestJob]:
@@ -176,21 +180,19 @@ async def test_every_tenant_with_records_gets_its_own_run(
         str(job.tenant_id): job
         for job in await _backfill_jobs_in(test_db_session, tenants.all)
     }
-    assert set(jobs) == {tenants.caller, tenants.with_records}
+    # The empty tenant gets a run too: finding out that it has no records would
+    # cost a scan of the shared table per tenant.
+    assert set(jobs) == set(tenants.all)
 
     caller_job = jobs[tenants.caller]
     assert body["job_id"] == str(caller_job.id)
     assert caller_job.created_by == await get_user_id(test_db_session, "admin")
 
-    other_job = jobs[tenants.with_records]
-    assert other_job.created_by is None
-    assert body["other_tenants"] == [
-        {
-            "tenant_id": tenants.with_records,
-            "job_id": str(other_job.id),
-            "status": "pending",
-        }
-    ]
+    other_jobs = [jobs[tenants.with_records], jobs[tenants.empty]]
+    assert all(job.created_by is None for job in other_jobs)
+    assert _by_tenant(body["other_tenants"]) == {
+        str(job.tenant_id): (str(job.id), "pending") for job in other_jobs
+    }
     operation_ids = {
         job.user_metadata[EMBEDDING_BACKFILL_METADATA_KEY]["operation_id"]
         for job in jobs.values()
@@ -201,10 +203,7 @@ async def test_every_tenant_with_records_gets_its_own_run(
         call.kwargs["tenant_id"]: call.kwargs["job_id"]
         for call in deferred.await_args_list
     }
-    assert queued == {
-        tenants.caller: str(caller_job.id),
-        tenants.with_records: str(other_job.id),
-    }
+    assert queued == {tenant_id: str(job.id) for tenant_id, job in jobs.items()}
 
 
 async def test_a_tenant_with_a_run_in_flight_is_reported_and_the_rest_proceed(
@@ -248,9 +247,9 @@ async def test_a_tenant_with_a_run_in_flight_is_reported_and_the_rest_proceed(
         current_tenant_var.reset(token)
 
     assert resp.status_code == 200, resp.text
-    assert resp.json()["other_tenants"] == [
-        {"tenant_id": tenants.with_records, "job_id": None, "status": "already_running"}
-    ]
+    others = _by_tenant(resp.json()["other_tenants"])
+    assert others[tenants.with_records] == (None, "already_running")
+    assert others[tenants.empty][1] == "pending"
     assert len(await _backfill_jobs_in(test_db_session, [tenants.with_records])) == 1
     assert len(await _backfill_jobs_in(test_db_session, [tenants.caller])) == 1
 
@@ -291,14 +290,13 @@ async def test_a_run_in_flight_in_the_callers_tenant_does_not_stop_the_fleet(
     body = resp.json()
     assert body["job_id"] == str(in_flight.id)
     assert body["status"] == "already_running"
-    [other_job] = await _backfill_jobs_in(test_db_session, [tenants.with_records])
-    assert body["other_tenants"] == [
-        {
-            "tenant_id": tenants.with_records,
-            "job_id": str(other_job.id),
-            "status": "pending",
-        }
-    ]
+    other_jobs = await _backfill_jobs_in(
+        test_db_session, [tenants.with_records, tenants.empty]
+    )
+    assert _by_tenant(body["other_tenants"]) == {
+        str(job.tenant_id): (str(job.id), "pending") for job in other_jobs
+    }
+    assert len(other_jobs) == 2
     assert len(await _backfill_jobs_in(test_db_session, [tenants.caller])) == 1
 
 

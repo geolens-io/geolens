@@ -1160,7 +1160,7 @@ async def trigger_backfill(
     The run covers the calling tenant's records. In a multi-tenant deployment
     the embedding model and width are shared by every tenant, so a change
     leaves each tenant to regenerate. Pass ?all_tenants=true to also queue a
-    run for every other tenant that has records; there it needs
+    run for every other registered tenant; there it needs
     manage_tenants instead of manage_users, and ``other_tenants`` reports
     each run. When the calling tenant already has a run in flight, that run's
     id comes back with status ``already_running`` and the other tenants are
@@ -1388,42 +1388,16 @@ async def _queue_backfill_run(
     return job
 
 
-async def _queue_backfill_if_tenant_has_records(
-    db: AsyncSession,
-    tenant_id: str,
-    *,
-    force: bool,
-    ip_address: str | None,
-    operation_id: str,
-) -> IngestJob | None:
-    """Queue a system run in ``tenant_id``, or return None when it has no records."""
-    has_records = await db.scalar(
-        text(
-            "SELECT EXISTS (SELECT 1 FROM catalog.records "
-            "WHERE tenant_id = CAST(:tenant_id AS uuid))"
-        ),
-        {"tenant_id": tenant_id},
-    )
-    if not has_records:
-        return None
-    return await _queue_backfill_run(
-        db,
-        force=force,
-        requested_by=None,
-        ip_address=ip_address,
-        operation_id=operation_id,
-    )
-
-
 async def _queue_backfill_for_other_tenants(
     *, force: bool, ip_address: str | None, operation_id: str
 ) -> list[BackfillTenantRun]:
     """Queue a backfill in every registered tenant except the caller's.
 
     Tenants come from the registry rather than the request, and each run is
-    queued in its own session under that tenant's context. A tenant with no
-    records is skipped. A refusal or failure in one tenant is reported and the
-    loop moves on.
+    queued in its own session under that tenant's context, as a system run with
+    no user. A tenant with nothing to embed still gets a run, which finishes at
+    once; checking for records first would scan the shared table per tenant. A
+    refusal or failure in one tenant is reported and the loop moves on.
     """
     from app.core.db import async_session
 
@@ -1445,10 +1419,10 @@ async def _queue_backfill_for_other_tenants(
         try:
             with tenant_job_context(tenant_id):
                 async with async_session() as tenant_db:
-                    job = await _queue_backfill_if_tenant_has_records(
+                    job = await _queue_backfill_run(
                         tenant_db,
-                        tenant_id,
                         force=force,
+                        requested_by=None,
                         ip_address=ip_address,
                         operation_id=operation_id,
                     )
@@ -1472,10 +1446,9 @@ async def _queue_backfill_for_other_tenants(
                 )
             )
             continue
-        if job is not None:
-            runs.append(
-                BackfillTenantRun(
-                    tenant_id=uuid.UUID(tenant_id), job_id=job.id, status="pending"
-                )
+        runs.append(
+            BackfillTenantRun(
+                tenant_id=uuid.UUID(tenant_id), job_id=job.id, status="pending"
             )
+        )
     return runs
