@@ -14,11 +14,17 @@ describe('authenticatedDownload', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('hands the fetched blob to the shared download helper', async () => {
-    mockRawFetch.mockResolvedValueOnce(new Response('a,b', { status: 200 }));
+    const blob = new Blob(['a,b']);
+    mockRawFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      blob: async () => blob,
+    } as Response);
 
     await authenticatedDownload('/api/x', 'x.csv');
 
-    expect(triggerDownload).toHaveBeenCalledWith(expect.any(Blob), 'x.csv');
+    expect(triggerDownload).toHaveBeenCalledWith(blob, 'x.csv');
   });
 
   it('rejects without downloading when the caller aborts', async () => {
