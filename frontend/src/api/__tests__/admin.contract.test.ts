@@ -171,6 +171,14 @@ describe('admin api request contracts', () => {
     expect(calledUrl()).toBe('/admin/backfill-embeddings/?force=true');
   });
 
+  it('triggerBackfill asks for every tenant only when told to', async () => {
+    await admin.triggerBackfill(false, true);
+    expect(calledUrl()).toBe('/admin/backfill-embeddings/?all_tenants=true');
+    mockApiFetch.mockClear();
+    await admin.triggerBackfill(true, true);
+    expect(calledUrl()).toBe('/admin/backfill-embeddings/?force=true&all_tenants=true');
+  });
+
   it('exportUsersCsv uses the refresh-aware raw fetch against the absolute export URL (UX-01)', async () => {
     await admin.exportUsersCsv();
     expect(mockRawFetch).toHaveBeenCalledWith(`${API_BASE}/admin/users/export.csv`);

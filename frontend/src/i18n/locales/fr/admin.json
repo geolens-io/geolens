@@ -293,6 +293,8 @@
     "generateMissing": "Generer les embeddings manquants",
     "generating": "Generation...",
     "backfillQueued": "Remplissage des embeddings mis en file d'attente — cette page se mettra à jour à la fin",
+    "backfillOtherTenantsMissed_one": "La régénération n'a pas pu être mise en file d'attente pour {{count}} autre locataire",
+    "backfillOtherTenantsMissed_other": "La régénération n'a pas pu être mise en file d'attente pour {{count}} autres locataires",
     "regenerationPending": "Les embeddings n'ont pas pu être régénérés automatiquement. Utilisez Generer les embeddings manquants pour les régénérer.",
     "regenerationPendingAiOff": "Les embeddings n'ont pas été régénérés car les fonctions d'IA sont désactivées. Activez l'IA, puis utilisez Generer les embeddings manquants.",
     "backfillFinished": "Remplissage des embeddings terminé",

@@ -1787,9 +1787,16 @@ export interface EmbeddingStatsResponse {
 // acknowledgement, not a result. A full regenerate takes minutes and used to
 // hold the request open past the 600s edge timeout. Poll /jobs/{job_id} for
 // the run's outcome.
+export interface BackfillTenantRun {
+  tenant_id: string;
+  job_id: string | null;
+  status: 'pending' | 'already_running' | 'not_queued';
+}
+
 export interface BackfillResponse {
   job_id: string;
   status: string;
+  other_tenants?: BackfillTenantRun[];
 }
 
 // AI Map Generation

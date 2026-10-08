@@ -270,9 +270,12 @@ export async function getEmbeddingStats(): Promise<EmbeddingStatsResponse> {
 }
 
 // Backfill embeddings
-export async function triggerBackfill(force = false): Promise<BackfillResponse> {
-  const url = force ? '/admin/backfill-embeddings/?force=true' : '/admin/backfill-embeddings/';
-  return apiFetch<BackfillResponse>(url, {
+export async function triggerBackfill(force = false, allTenants = false): Promise<BackfillResponse> {
+  const params = new URLSearchParams();
+  if (force) params.set('force', 'true');
+  if (allTenants) params.set('all_tenants', 'true');
+  const query = params.toString();
+  return apiFetch<BackfillResponse>(`/admin/backfill-embeddings/${query ? `?${query}` : ''}`, {
     method: 'POST',
   });
 }

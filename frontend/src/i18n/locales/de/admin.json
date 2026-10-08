@@ -293,6 +293,8 @@
     "generateMissing": "Fehlende Embeddings generieren",
     "generating": "Wird generiert...",
     "backfillQueued": "Einbettungs-Backfill eingereiht — diese Seite aktualisiert sich, wenn er fertig ist",
+    "backfillOtherTenantsMissed_one": "Die Neuerzeugung konnte für {{count}} weiteren Mandanten nicht eingereiht werden",
+    "backfillOtherTenantsMissed_other": "Die Neuerzeugung konnte für {{count}} weitere Mandanten nicht eingereiht werden",
     "regenerationPending": "Die Embeddings konnten nicht automatisch neu erzeugt werden. Mit „Fehlende Embeddings generieren“ lassen sie sich neu erzeugen.",
     "regenerationPendingAiOff": "Die Embeddings wurden nicht neu erzeugt, weil die KI-Funktionen deaktiviert sind. Aktivieren Sie KI und nutzen Sie dann Fehlende Embeddings generieren.",
     "backfillFinished": "Einbettungs-Backfill abgeschlossen",

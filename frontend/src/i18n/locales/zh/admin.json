@@ -318,6 +318,8 @@
     "generateMissing": "生成缺失的嵌入",
     "generating": "正在生成...",
     "backfillQueued": "嵌入回填已排队——完成后本页面会自动更新",
+    "backfillOtherTenantsMissed_one": "无法为另外 {{count}} 个租户排队重新生成",
+    "backfillOtherTenantsMissed_other": "无法为另外 {{count}} 个租户排队重新生成",
     "regenerationPending": "无法自动重新生成嵌入。请使用“生成缺失的嵌入”手动重新生成。",
     "regenerationPendingAiOff": "由于 AI 功能已禁用，嵌入未重新生成。请启用 AI，然后使用“生成缺失的嵌入”。",
     "backfillFinished": "嵌入回填已完成",

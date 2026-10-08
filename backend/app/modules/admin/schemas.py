@@ -471,6 +471,23 @@ class EmbeddingStatsResponse(BaseModel):
     )
 
 
+class BackfillTenantRun(BaseModel):
+    """What an all-tenant backfill request did for one other tenant."""
+
+    tenant_id: uuid.UUID = Field(description="The tenant the run was queued for.")
+    job_id: uuid.UUID | None = Field(
+        description=(
+            "Identifier of the job queued in that tenant, or null when none was queued."
+        )
+    )
+    status: Literal["pending", "already_running", "not_queued"] = Field(
+        description=(
+            "'pending' when a run was queued, 'already_running' when that tenant "
+            "already had one in flight, 'not_queued' when queueing failed."
+        )
+    )
+
+
 class BackfillResponse(BaseModel):
     """Acknowledgement that a backfill run was queued.
 
@@ -482,6 +499,13 @@ class BackfillResponse(BaseModel):
         description="Identifier of the queued backfill job; poll /jobs/{job_id}."
     )
     status: str = Field(description="Job status at enqueue time ('pending').")
+    other_tenants: list[BackfillTenantRun] = Field(
+        default_factory=list,
+        description=(
+            "Runs queued for the other tenants by an all_tenants request in a "
+            "multi-tenant deployment. Empty otherwise."
+        ),
+    )
 
 
 class ProviderHealth(BaseModel):

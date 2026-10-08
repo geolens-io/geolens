@@ -318,6 +318,8 @@
     "generateMissing": "Generate Missing Embeddings",
     "generating": "Generating...",
     "backfillQueued": "Embedding backfill queued — this page updates when it finishes",
+    "backfillOtherTenantsMissed_one": "Regeneration could not be queued for {{count}} other tenant",
+    "backfillOtherTenantsMissed_other": "Regeneration could not be queued for {{count}} other tenants",
     "regenerationPending": "Embeddings could not be regenerated automatically. Use Generate Missing Embeddings to regenerate them.",
     "regenerationPendingAiOff": "Embeddings were not regenerated because AI features are disabled. Enable AI, then use Generate Missing Embeddings.",
     "backfillFinished": "Embedding backfill finished",

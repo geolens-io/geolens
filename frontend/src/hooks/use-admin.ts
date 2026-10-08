@@ -439,11 +439,18 @@ export function useEmbeddingStats(options?: { enabled?: boolean }) {
   });
 }
 
-// Backfill embeddings
+// Backfill embeddings. allTenants also queues a run for every other tenant in a
+// multi-tenant deployment; a single-tenant one ignores it.
+export interface BackfillOptions {
+  force?: boolean;
+  allTenants?: boolean;
+}
+
 export function useBackfillEmbeddings() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (force?: boolean) => triggerBackfill(force),
+    mutationFn: ({ force = false, allTenants = false }: BackfillOptions = {}) =>
+      triggerBackfill(force, allTenants),
     // Refetch so the response exposes the run in flight and starts progress polling.
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.admin.embeddingStats });

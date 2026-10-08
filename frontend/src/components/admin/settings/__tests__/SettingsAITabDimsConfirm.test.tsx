@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
+import { toast } from 'sonner';
 import type { SettingItem } from '@/api/settings';
 import { SettingsAITab } from '../SettingsAITab';
 
@@ -104,12 +105,35 @@ describe('SettingsAITab embedding width confirmation', () => {
 
     expect(onSave).toHaveBeenCalledTimes(1);
     expect(onSave).toHaveBeenCalledWith({ embedding_dims: '768' });
-    await waitFor(() => expect(hoisted.backfillMutate).toHaveBeenCalledWith(false, expect.anything()));
+    await waitFor(() => expect(hoisted.backfillMutate).toHaveBeenCalledWith({ force: false, allTenants: true }, expect.anything()));
+  });
+
+  it('warns when another tenant could not start regenerating', async () => {
+    hoisted.backfillMutate.mockImplementation((_variables, opts) =>
+      opts.onSuccess({
+        job_id: '5f1e5b2a-0000-4000-8000-000000000001',
+        status: 'pending',
+        other_tenants: [
+          { tenant_id: 'a', job_id: 'b', status: 'pending' },
+          { tenant_id: 'c', job_id: null, status: 'not_queued' },
+        ],
+      }),
+    );
+    const user = userEvent.setup();
+    renderTab();
+
+    await changeWidth(user, '768');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await user.click(screen.getByRole('button', { name: 'Delete embeddings' }));
+
+    await waitFor(() =>
+      expect(toast.warning).toHaveBeenCalledWith('Regeneration could not be queued for 1 other tenant'),
+    );
   });
 
   it('keeps the pending warning visible when the stats are unavailable', async () => {
     hoisted.statsAvailable = false;
-    hoisted.backfillMutate.mockImplementation((_force, opts) => opts.onError(new Error('no provider')));
+    hoisted.backfillMutate.mockImplementation((_variables, opts) => opts.onError(new Error('no provider')));
     const user = userEvent.setup();
     renderTab();
 
@@ -190,7 +214,7 @@ describe('SettingsAITab embedding width confirmation', () => {
   });
 
   it('says regeneration is pending when the backfill cannot be queued', async () => {
-    hoisted.backfillMutate.mockImplementation((_force, opts) => opts.onError(new Error('no provider')));
+    hoisted.backfillMutate.mockImplementation((_variables, opts) => opts.onError(new Error('no provider')));
     const user = userEvent.setup();
     renderTab();
 
@@ -295,7 +319,7 @@ describe('SettingsAITab embedding width confirmation', () => {
       await user.click(screen.getByRole('button', { name: 'Reset width' }));
 
       expect(onReset).toHaveBeenCalledWith('embedding_dims');
-      await waitFor(() => expect(hoisted.backfillMutate).toHaveBeenCalledWith(false, expect.anything()));
+      await waitFor(() => expect(hoisted.backfillMutate).toHaveBeenCalledWith({ force: false, allTenants: true }, expect.anything()));
     });
 
     it('queues the backfill only after the reset resolves', async () => {
@@ -309,7 +333,7 @@ describe('SettingsAITab embedding width confirmation', () => {
       expect(hoisted.backfillMutate).not.toHaveBeenCalled();
 
       finish(true);
-      await waitFor(() => expect(hoisted.backfillMutate).toHaveBeenCalledWith(false, expect.anything()));
+      await waitFor(() => expect(hoisted.backfillMutate).toHaveBeenCalledWith({ force: false, allTenants: true }, expect.anything()));
     });
 
     it('queues nothing when the reset fails', async () => {

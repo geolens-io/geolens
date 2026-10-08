@@ -293,6 +293,8 @@
     "generateMissing": "Generar embeddings faltantes",
     "generating": "Generando...",
     "backfillQueued": "Relleno de embeddings en cola — esta página se actualizará cuando termine",
+    "backfillOtherTenantsMissed_one": "No se pudo poner en cola la regeneración para {{count}} inquilino más",
+    "backfillOtherTenantsMissed_other": "No se pudo poner en cola la regeneración para {{count}} inquilinos más",
     "regenerationPending": "No se pudieron regenerar los embeddings automáticamente. Usa Generar embeddings faltantes para regenerarlos.",
     "regenerationPendingAiOff": "Los embeddings no se regeneraron porque las funciones de IA están desactivadas. Activa la IA y usa Generar embeddings faltantes.",
     "backfillFinished": "Relleno de embeddings finalizado",

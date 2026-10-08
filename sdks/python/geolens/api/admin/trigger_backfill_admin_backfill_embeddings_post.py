@@ -15,11 +15,14 @@ from ...types import Unset
 def _get_kwargs(
     *,
     force: bool | Unset = False,
+    all_tenants: bool | Unset = False,
 ) -> dict[str, Any]:
 
     params: dict[str, Any] = {}
 
     params["force"] = force
+
+    params["all_tenants"] = all_tenants
 
     params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
@@ -106,13 +109,22 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
     force: bool | Unset = False,
+    all_tenants: bool | Unset = False,
 ) -> Response[BackfillResponse | ProblemDetail]:
     """Trigger Backfill
 
      Queue semantic-search embedding generation for records (admin only).
 
-    Pass ?force=true to delete all existing embeddings and regenerate from
-    scratch (required after changing the embedding model or dimensions).
+    Pass ?force=true to regenerate every record and replace its stored vectors.
+    Without it, the run embeds only records that lack a current-model embedding.
+
+    The run covers the calling tenant's records. In a multi-tenant deployment
+    the embedding model and width are shared by every tenant, so a change
+    leaves each tenant to regenerate. Pass ?all_tenants=true, which needs the
+    manage_tenants permission there, to also queue a run for every other
+    tenant that has records; ``other_tenants`` reports each one. When the
+    calling tenant's own run is refused, no other tenant is queued. A
+    single-tenant deployment ignores the flag.
 
     The run happens on the job queue because a full regeneration can exceed
     request timeouts. This endpoint returns the job id; poll
@@ -120,6 +132,7 @@ def sync_detailed(
 
     Args:
         force (bool | Unset):  Default: False.
+        all_tenants (bool | Unset):  Default: False.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -131,6 +144,7 @@ def sync_detailed(
 
     kwargs = _get_kwargs(
         force=force,
+        all_tenants=all_tenants,
     )
 
     response = client.get_httpx_client().request(
@@ -144,13 +158,22 @@ def sync(
     *,
     client: AuthenticatedClient,
     force: bool | Unset = False,
+    all_tenants: bool | Unset = False,
 ) -> BackfillResponse | ProblemDetail | None:
     """Trigger Backfill
 
      Queue semantic-search embedding generation for records (admin only).
 
-    Pass ?force=true to delete all existing embeddings and regenerate from
-    scratch (required after changing the embedding model or dimensions).
+    Pass ?force=true to regenerate every record and replace its stored vectors.
+    Without it, the run embeds only records that lack a current-model embedding.
+
+    The run covers the calling tenant's records. In a multi-tenant deployment
+    the embedding model and width are shared by every tenant, so a change
+    leaves each tenant to regenerate. Pass ?all_tenants=true, which needs the
+    manage_tenants permission there, to also queue a run for every other
+    tenant that has records; ``other_tenants`` reports each one. When the
+    calling tenant's own run is refused, no other tenant is queued. A
+    single-tenant deployment ignores the flag.
 
     The run happens on the job queue because a full regeneration can exceed
     request timeouts. This endpoint returns the job id; poll
@@ -158,6 +181,7 @@ def sync(
 
     Args:
         force (bool | Unset):  Default: False.
+        all_tenants (bool | Unset):  Default: False.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -170,6 +194,7 @@ def sync(
     return sync_detailed(
         client=client,
         force=force,
+        all_tenants=all_tenants,
     ).parsed
 
 
@@ -177,13 +202,22 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
     force: bool | Unset = False,
+    all_tenants: bool | Unset = False,
 ) -> Response[BackfillResponse | ProblemDetail]:
     """Trigger Backfill
 
      Queue semantic-search embedding generation for records (admin only).
 
-    Pass ?force=true to delete all existing embeddings and regenerate from
-    scratch (required after changing the embedding model or dimensions).
+    Pass ?force=true to regenerate every record and replace its stored vectors.
+    Without it, the run embeds only records that lack a current-model embedding.
+
+    The run covers the calling tenant's records. In a multi-tenant deployment
+    the embedding model and width are shared by every tenant, so a change
+    leaves each tenant to regenerate. Pass ?all_tenants=true, which needs the
+    manage_tenants permission there, to also queue a run for every other
+    tenant that has records; ``other_tenants`` reports each one. When the
+    calling tenant's own run is refused, no other tenant is queued. A
+    single-tenant deployment ignores the flag.
 
     The run happens on the job queue because a full regeneration can exceed
     request timeouts. This endpoint returns the job id; poll
@@ -191,6 +225,7 @@ async def asyncio_detailed(
 
     Args:
         force (bool | Unset):  Default: False.
+        all_tenants (bool | Unset):  Default: False.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -202,6 +237,7 @@ async def asyncio_detailed(
 
     kwargs = _get_kwargs(
         force=force,
+        all_tenants=all_tenants,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -213,13 +249,22 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
     force: bool | Unset = False,
+    all_tenants: bool | Unset = False,
 ) -> BackfillResponse | ProblemDetail | None:
     """Trigger Backfill
 
      Queue semantic-search embedding generation for records (admin only).
 
-    Pass ?force=true to delete all existing embeddings and regenerate from
-    scratch (required after changing the embedding model or dimensions).
+    Pass ?force=true to regenerate every record and replace its stored vectors.
+    Without it, the run embeds only records that lack a current-model embedding.
+
+    The run covers the calling tenant's records. In a multi-tenant deployment
+    the embedding model and width are shared by every tenant, so a change
+    leaves each tenant to regenerate. Pass ?all_tenants=true, which needs the
+    manage_tenants permission there, to also queue a run for every other
+    tenant that has records; ``other_tenants`` reports each one. When the
+    calling tenant's own run is refused, no other tenant is queued. A
+    single-tenant deployment ignores the flag.
 
     The run happens on the job queue because a full regeneration can exceed
     request timeouts. This endpoint returns the job id; poll
@@ -227,6 +272,7 @@ async def asyncio(
 
     Args:
         force (bool | Unset):  Default: False.
+        all_tenants (bool | Unset):  Default: False.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -240,5 +286,6 @@ async def asyncio(
         await asyncio_detailed(
             client=client,
             force=force,
+            all_tenants=all_tenants,
         )
     ).parsed

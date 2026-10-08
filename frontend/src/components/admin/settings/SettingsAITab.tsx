@@ -119,7 +119,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
     // the 600s edge timeout. There are no counts to report yet.
     // fix(#1550 review P2): keep the job id so the run is actually tracked to
     // its end, rather than acknowledged and forgotten.
-    backfill.mutate(force, {
+    backfill.mutate({ force }, {
       onSuccess: (data) => {
         setBackfillJobId(data.job_id);
         setRegenPending(null);
@@ -177,12 +177,15 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
       return;
     }
     // The save already succeeded; a run that cannot start leaves the
-    // embeddings to regenerate by hand.
-    backfill.mutate(false, {
+    // embeddings to regenerate by hand. The width and model are shared by
+    // every tenant of a hosted deployment, so the run covers all of them.
+    backfill.mutate({ force: false, allTenants: true }, {
       onSuccess: (data) => {
         setBackfillJobId(data.job_id);
         setRegenPending(null);
         toast.info(t('ai.backfillQueued'));
+        const missed = (data.other_tenants ?? []).filter((run) => run.status !== 'pending').length;
+        if (missed > 0) toast.warning(t('ai.backfillOtherTenantsMissed', { count: missed }));
       },
       onError: () => setRegenPending('queue'),
     });
@@ -525,7 +528,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
                     onClick={() => handleBackfill(false)}
                     disabled={backfill.isPending || backfillRunning}
                   >
-                    {backfill.isPending && backfill.variables === false ? (
+                    {backfill.isPending && backfill.variables?.force === false ? (
                       <>
                         <Loader2 className="me-2 h-3 w-3 animate-spin" />
                         {t('ai.generating')}
@@ -546,7 +549,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
                     onClick={() => handleBackfill(true)}
                     disabled={backfill.isPending || backfillRunning}
                   >
-                    {backfill.isPending && backfill.variables === true ? (
+                    {backfill.isPending && backfill.variables?.force === true ? (
                       <>
                         <Loader2 className="me-2 h-3 w-3 animate-spin" />
                         {t('ai.generating')}
