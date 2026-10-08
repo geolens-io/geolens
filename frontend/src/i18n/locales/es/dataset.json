@@ -247,7 +247,19 @@
     "unknownFile": "Archivo desconocido",
     "detailsUnrecorded": "No se registraron los detalles de esta versión.",
     "features": "{{count}} entidades",
-    "srid": "SRID {{value}}"
+    "srid": "SRID {{value}}",
+    "restore": "Restaurar"
+  },
+  "restoreDialog": {
+    "title": "¿Restaurar la versión {{number}}?",
+    "description": "La versión {{number}} vuelve a ser los datos actuales. Los datos que reemplaza se conservan, por lo que la restauración se puede deshacer hasta el siguiente reemplazo.",
+    "consequenceEdits": "Se descartan las ediciones de entidades hechas desde la versión {{number}}.",
+    "consequenceMosaics": "Los mosaicos que usan este conjunto de datos siguen leyendo el miembro actual hasta que se reconstruyan.",
+    "confirmPrompt": "Escriba el nombre del conjunto de datos para confirmar:",
+    "restoring": "Restaurando...",
+    "restore": "Restaurar versión",
+    "failed": "No se pudo restaurar la versión",
+    "queued": "Restauración de la versión {{number}} en cola. Aparece en el historial de actualizaciones."
   },
   "vrt": {
     "mosaic": "Mosaico VRT",

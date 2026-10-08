@@ -247,7 +247,19 @@
     "unknownFile": "未知文件",
     "detailsUnrecorded": "未记录此版本的详细信息。",
     "features": "{{count}} 个要素",
-    "srid": "SRID {{value}}"
+    "srid": "SRID {{value}}",
+    "restore": "恢复"
+  },
+  "restoreDialog": {
+    "title": "恢复版本 {{number}}？",
+    "description": "版本 {{number}} 将重新成为当前数据。被替换的数据会保留，因此在下次替换之前可以撤销此次恢复。",
+    "consequenceEdits": "自版本 {{number}} 以来对要素所做的编辑将被丢弃。",
+    "consequenceMosaics": "使用此数据集的镶嵌数据集在重建之前仍会读取当前成员。",
+    "confirmPrompt": "请输入数据集名称以确认：",
+    "restoring": "正在恢复...",
+    "restore": "恢复版本",
+    "failed": "恢复版本失败",
+    "queued": "版本 {{number}} 的恢复已排队，可在刷新历史中查看。"
   },
   "deleteDialog": {
     "title": "删除数据集",

@@ -247,7 +247,19 @@
     "unknownFile": "Unknown file",
     "detailsUnrecorded": "Details of this version were not recorded.",
     "features": "{{count}} features",
-    "srid": "SRID {{value}}"
+    "srid": "SRID {{value}}",
+    "restore": "Restore"
+  },
+  "restoreDialog": {
+    "title": "Restore version {{number}}?",
+    "description": "Version {{number}} becomes the current data again. The data it replaces is kept, so the restore can be undone until the next replacement.",
+    "consequenceEdits": "Feature edits made since version {{number}} are discarded.",
+    "consequenceMosaics": "Mosaics that use this dataset keep reading the current member until they are rebuilt.",
+    "confirmPrompt": "Type the dataset name to confirm:",
+    "restoring": "Restoring...",
+    "restore": "Restore version",
+    "failed": "Failed to restore version",
+    "queued": "Restore of version {{number}} queued. It appears in refresh history."
   },
   "deleteDialog": {
     "title": "Delete Dataset",

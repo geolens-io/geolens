@@ -236,7 +236,7 @@ export function MetadataTab({
         </CardHeader>
         {historyExpanded && (
           <CardContent className="space-y-6">
-            <VersionHistory datasetId={dataset.id} dataset={dataset} />
+            <VersionHistory datasetId={dataset.id} dataset={dataset} canEdit={canEdit} />
             {canEdit && <ChangeHistory datasetId={dataset.id} />}
           </CardContent>
         )}

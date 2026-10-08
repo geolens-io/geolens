@@ -247,7 +247,19 @@
     "unknownFile": "Fichier inconnu",
     "detailsUnrecorded": "Les détails de cette version n'ont pas été enregistrés.",
     "features": "{{count}} entités",
-    "srid": "SRID {{value}}"
+    "srid": "SRID {{value}}",
+    "restore": "Restaurer"
+  },
+  "restoreDialog": {
+    "title": "Restaurer la version {{number}} ?",
+    "description": "La version {{number}} redevient les données actuelles. Les données remplacées sont conservées, la restauration peut donc être annulée jusqu'au prochain remplacement.",
+    "consequenceEdits": "Les modifications d'entités effectuées depuis la version {{number}} sont perdues.",
+    "consequenceMosaics": "Les mosaïques qui utilisent ce jeu de données continuent de lire le membre actuel jusqu'à leur reconstruction.",
+    "confirmPrompt": "Saisissez le nom du jeu de données pour confirmer :",
+    "restoring": "Restauration...",
+    "restore": "Restaurer la version",
+    "failed": "Échec de la restauration de la version",
+    "queued": "Restauration de la version {{number}} mise en file d'attente. Elle apparaît dans l'historique des actualisations."
   },
   "vrt": {
     "mosaic": "Mosaïque VRT",

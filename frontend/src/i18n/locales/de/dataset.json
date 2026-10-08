@@ -247,7 +247,19 @@
     "unknownFile": "Unbekannte Datei",
     "detailsUnrecorded": "Die Details dieser Version wurden nicht erfasst.",
     "features": "{{count}} Features",
-    "srid": "SRID {{value}}"
+    "srid": "SRID {{value}}",
+    "restore": "Wiederherstellen"
+  },
+  "restoreDialog": {
+    "title": "Version {{number}} wiederherstellen?",
+    "description": "Version {{number}} wird wieder zu den aktuellen Daten. Die ersetzten Daten bleiben erhalten, die Wiederherstellung lässt sich daher bis zum nächsten Ersetzen rückgängig machen.",
+    "consequenceEdits": "Objektänderungen seit Version {{number}} werden verworfen.",
+    "consequenceMosaics": "Mosaike, die diesen Datensatz verwenden, lesen weiter das aktuelle Mitglied, bis sie neu erstellt werden.",
+    "confirmPrompt": "Geben Sie zur Bestätigung den Namen des Datensatzes ein:",
+    "restoring": "Wird wiederhergestellt...",
+    "restore": "Version wiederherstellen",
+    "failed": "Version konnte nicht wiederhergestellt werden",
+    "queued": "Wiederherstellung von Version {{number}} eingereiht. Sie erscheint im Aktualisierungsverlauf."
   },
   "vrt": {
     "mosaic": "VRT-Mosaik",
