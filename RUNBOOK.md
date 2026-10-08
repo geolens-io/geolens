@@ -44,9 +44,12 @@ documentation.
 > **Dump and archive are not one snapshot.** The staging archive is taken after
 > the dump finishes, so staged files can change in between. The dump is
 > authoritative: after a restore, staging objects may lead or lag it by the
-> archive window (dump start to the end of the tar). A dataset whose file is
-> missing from the archive shows as failed and needs a re-upload. An archive
-> file with no catalog row is orphan storage and is safe to prune.
+> archive window (dump start to the end of the tar). A dataset or ingest job
+> whose file is missing from the archive keeps its restored state, so audit the
+> restored storage references and re-upload or restore each missing file. An
+> archive file that no dataset row and no ingest job references is orphan
+> storage. Do not prune by hand unless you have checked both, because a pending
+> or retryable import still needs its staged input.
 
 ### Automated backups are on by default
 
