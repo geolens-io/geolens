@@ -99,8 +99,8 @@ async def refresh_dropped_join_column(
     """Return the permanent error when the live table lacks the join column.
 
     A column dropped directly in the database stays in ``column_info``, so the
-    relationship list keeps reporting it healthy. The live list is stored only
-    when ``may_repair`` says the caller may modify the dataset; a read alone
+    relationship list keeps reporting it healthy. The column is dropped from the stored
+    list only when ``may_repair`` says the caller may modify the dataset; a read alone
     never writes the catalog. Returns ``None`` when the failure is not a
     dropped join column.
     """
@@ -149,9 +149,17 @@ async def refresh_dropped_join_column(
         )
     except CatalogLockConflict:
         return error
-    await session.execute(
-        update(Dataset).where(Dataset.id == dataset_id).values(column_info=live)
+    # Only the confirmed-missing column leaves the stored list; other drift is
+    # left to the paths that reconcile attribute metadata with the schema.
+    stored = await session.scalar(
+        select(Dataset.column_info).where(Dataset.id == dataset_id)
     )
+    if stored is not None:
+        await session.execute(
+            update(Dataset)
+            .where(Dataset.id == dataset_id)
+            .values(column_info=[c for c in stored if c["name"] != join_column])
+        )
     await session.execute(
         update(AttributeMetadata)
         .where(
