@@ -44,7 +44,7 @@ let inflightRefreshAbort: AbortController | null = null;
 // fix(#2038): how long to stop asking after a transient refresh failure. Without
 // it an auth outage — or a shared egress IP over the endpoint's per-IP limit —
 // turns every 401'd surface in every tab into an unbounded refresh loop.
-const TRANSIENT_COOLDOWN_MS = 30_000;
+export const TRANSIENT_COOLDOWN_MS = 30_000;
 let transientUntil = 0;
 let transientToken: string | null = null;
 
@@ -57,6 +57,8 @@ let transientToken: string | null = null;
 export function abortInflightRefresh(): void {
   inflightRefreshAbort?.abort();
   inflightRefreshAbort = null;
+  // The next attempt starts its own request instead of joining the aborted one.
+  inflightRefresh = null;
   // fix(#2038): a deliberate session end must not leave the next session inside
   // the previous one's refresh back-off.
   transientUntil = 0;
@@ -108,15 +110,13 @@ export async function tryRefresh(): Promise<boolean> {
 
 /** As tryRefresh, but also reports WHY a failure happened. */
 export async function attemptRefresh(): Promise<RefreshOutcome> {
-  const { refreshToken, token } = useAuthStore.getState();
-  // fix(#1302): in cookie mode the credential is invisible to JS, so a stored
-  // refresh token is no longer proof a session exists — an access token is.
-  // `refreshToken` is still consulted because a pre-GH-1302 session carries one
-  // for exactly one migrating refresh, and because cross-origin deployments
-  // never leave cookie mode's starting gate.
+  const { refreshToken, token, sessionId } = useAuthStore.getState();
+  // The refresh cookie is invisible to JS, so a cookie session is known by its
+  // access token or, in a tab that has not recovered one yet, by its id. A
+  // body-token session, or a legacy one migrating, holds its refresh token.
   //
   // fix(#2038): nothing to refresh WITH, so this session cannot come back.
-  if (!refreshToken && !(token && cookieAuthAvailable())) return 'rejected';
+  if (!refreshToken && !((token || sessionId) && cookieAuthAvailable())) return 'rejected';
 
   if (Date.now() < transientUntil) {
     // fix(#2038): inside the back-off, so answer from it rather than issue
@@ -139,8 +139,8 @@ export async function attemptRefresh(): Promise<RefreshOutcome> {
   // fix(#1446): a logout can land while this request is in flight — most
   // easily when logout itself triggers the proactive refresh and then stops
   // waiting on it. Writing the rotated tokens afterwards would re-populate the
-  // store and localStorage, signing the browser back in while it sits on
-  // /login. Capture the epoch now and refuse the write if it moved.
+  // store, signing the browser back in while it sits on /login. Capture the
+  // epoch now and refuse the write if it moved.
   const epochAtStart = useAuthStore.getState().sessionEpoch;
 
   // fix(#1446): the epoch guard stops a late refresh writing to the store, but
@@ -157,13 +157,9 @@ export async function attemptRefresh(): Promise<RefreshOutcome> {
   // refresh too, so the caller retried the original request with a dead
   // token instead of going straight to the logout path.
   //
-  // fix(#1862 review P2): captured here, before the attempt, so a failure
-  // below can tell "nothing changed" from "a peer tab changed it". The
-  // access token also lives in localStorage (auth-store.ts's cross-tab
-  // `storage` listener), so a PEER tab's successful refresh can rehydrate a
-  // new token into this tab's store while this attempt is still in flight —
-  // most easily during the 429 backoff wait. `token` is that pre-attempt
-  // value from the destructure above.
+  // `token`, from the destructure above, is captured before the attempt so a
+  // failure below can tell "nothing changed" from "something else installed a
+  // token while this attempt waited", most easily during the 429 back-off.
   const promise = (async (): Promise<RefreshOutcome> => {
     try {
       const tokens = await refreshAccessToken(refreshToken, controller.signal);
@@ -173,8 +169,8 @@ export async function attemptRefresh(): Promise<RefreshOutcome> {
         void revokeCurrentSession(tokens.access_token).catch(() => {});
         return 'transient';
       }
-      // fix(#1302): null in cookie mode, which also clears the legacy
-      // localStorage token once the migrating refresh has spent it.
+      // Null in cookie mode, which also drops a legacy refresh token once the
+      // migrating refresh has spent it.
       useAuthStore.getState().setTokens(
         tokens.access_token,
         tokens.refresh_token ?? null,
@@ -186,12 +182,10 @@ export async function attemptRefresh(): Promise<RefreshOutcome> {
       if (err instanceof ApiError && err.status === 429) {
         await new Promise((r) => setTimeout(r, 2000));
       }
-      // fix(#1862 review P2): our own attempt failed, but if a peer tab's
-      // refresh landed a different token while we waited, the session IS
-      // live — just not because of anything this attempt did. Reporting
-      // failure here would make the caller treat a peer's valid replacement
-      // as a terminal session death and log out (and revoke) the session
-      // that tab just refreshed.
+      // Our own attempt failed, but a different token installed while we
+      // waited means the session IS live. Reporting failure here would make
+      // the caller treat that valid replacement as a terminal session death
+      // and log out the session.
       const currentToken = useAuthStore.getState().token;
       if (currentToken && currentToken !== token) {
         return 'refreshed';
@@ -200,8 +194,11 @@ export async function attemptRefresh(): Promise<RefreshOutcome> {
       // an abort) left the credential alive.
       return isCredentialRejected(err) ? 'rejected' : 'transient';
     } finally {
-      inflightRefresh = null;
-      if (inflightRefreshAbort === controller) inflightRefreshAbort = null;
+      // An abort already handed both slots to the next attempt.
+      if (inflightRefreshAbort === controller) {
+        inflightRefresh = null;
+        inflightRefreshAbort = null;
+      }
     }
   })();
   inflightRefresh = promise;

@@ -15,25 +15,11 @@
  * behind. Runs serially so the global mutation never overlaps another test.
  */
 
-import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
-import fs from 'fs';
-import path from 'path';
+import { test, expect, type Page, type APIRequestContext, getAuthToken } from './helpers/session';
 
-const AUTH_FILE = path.join(__dirname, '../playwright/.auth/user.json');
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
 
-// --- Auth (inlined per project convention — no shared helper file) ---
-function getAuthToken(): string {
-  const state = JSON.parse(fs.readFileSync(AUTH_FILE, 'utf-8'));
-  for (const origin of (state.origins ?? []) as Array<{ localStorage?: Array<{ name: string; value: string }> }>) {
-    for (const entry of origin.localStorage ?? []) {
-      if (entry.name === 'geolens-auth') {
-        return (JSON.parse(entry.value) as { state?: { token?: string } }).state?.token ?? '';
-      }
-    }
-  }
-  throw new Error('Could not extract auth token from storage state');
-}
+// --- Auth ---
 function authHeaders() {
   return { Authorization: `Bearer ${getAuthToken()}`, 'Content-Type': 'application/json' };
 }

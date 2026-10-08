@@ -13,7 +13,7 @@
  *   npx playwright test e2e/reupload-multi-layer-gpkg.spec.ts --reporter=list
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/session';
 import path from 'path';
 import { getAuthToken } from './helpers/catalog';
 

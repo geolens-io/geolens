@@ -41,6 +41,20 @@ storage state without creating the shared fixture:
 E2E_SKIP_SEED=1 E2E_BASE_URL=http://localhost:5173 npx playwright test e2e/foo.spec.ts --project=chromium
 ```
 
+## Signed-in session
+
+Setup signs the admin in through the login form and saves the refresh cookie
+and a token-free session marker to `playwright/.auth/user.json`. The app keeps
+its access token in memory and recovers it from that cookie on every page
+load, which rotates the cookie. The server revokes the whole session when a
+rotated cookie is presented again after a short grace window, so specs import
+`test` from `e2e/helpers/session.ts`, whose context writes the current cookie
+back to the file when each test ends. A spec that signs in as another user or
+signs out uses its own context, as `auth.spec.ts` does, or the next test inherits
+that session. API calls made from Node use `getAuthToken()`, which reads the access
+token kept beside the session file: setup saves the one from sign-in, and each
+refresh in a test that uses the saved session replaces it.
+
 ## Smoke groups
 
 The `e2e:smoke:*` scripts in the root `package.json` group specs by area

@@ -15,6 +15,12 @@ function mockUser(overrides?: Partial<UserResponse>): UserResponse {
   };
 }
 
+/** An unsigned token with the given claims; the store only compares them. */
+function jwt(claims: Record<string, unknown>): string {
+  const part = (value: unknown) => btoa(JSON.stringify(value)).replace(/=+$/, '');
+  return `${part({ alg: 'HS256' })}.${part(claims)}.signature`;
+}
+
 describe('useAuthStore', () => {
   beforeEach(() => {
     useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null });
@@ -75,6 +81,33 @@ describe('useAuthStore', () => {
     expect(useAuthStore.getState().user).toBeNull();
   });
 
+  it('keeps the session across a refresh of the same sign-in', () => {
+    const user = mockUser({ id: 'user-a' });
+    useAuthStore.getState().setAuth(jwt({ sub: 'user-a', sid: 'family-1' }), null, 900, user);
+    const before = useAuthStore.getState();
+
+    useAuthStore.getState().setTokens(jwt({ sub: 'user-a', sid: 'family-1', n: 2 }), null, 900);
+
+    expect(useAuthStore.getState()).toMatchObject({
+      user,
+      sessionId: before.sessionId,
+      sessionEpoch: before.sessionEpoch,
+    });
+  });
+
+  it('installs a refresh that returns another account as a new identity', () => {
+    useAuthStore.getState().setAuth(jwt({ sub: 'user-a', sid: 'family-1' }), null, 900, mockUser({ id: 'user-a' }));
+    const before = useAuthStore.getState();
+
+    // Another tab signed in as someone else and replaced the shared cookie.
+    useAuthStore.getState().setTokens(jwt({ sub: 'user-b', sid: 'family-2' }), null, 900);
+
+    const after = useAuthStore.getState();
+    expect(after.user).toBeNull();
+    expect(after.sessionId).not.toBe(before.sessionId);
+    expect(after.sessionEpoch).toBe(before.sessionEpoch + 1);
+  });
+
   it('isAdmin returns true for admin role', () => {
     useAuthStore.setState({ token: 'abc', refreshToken: null, expiresAt: null, user: mockUser({ roles: ['admin'] }) });
 
@@ -110,90 +143,115 @@ describe('useAuthStore', () => {
   });
 });
 
-describe('useAuthStore — persist version + migrate (CODE-04)', () => {
-  it('declares persist version 1', () => {
-    expect(useAuthStore.persist.getOptions().version).toBe(1);
+describe('useAuthStore persistence', () => {
+  const STORAGE_KEY = 'geolens-auth';
+
+  beforeEach(() => {
+    useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null, sessionId: null });
+    window.localStorage.removeItem(STORAGE_KEY);
   });
 
-  it('migrate is defined and returns persistedState unchanged for fromVersion === 0', () => {
-    const migrate = useAuthStore.persist.getOptions().migrate;
-    expect(migrate).toBeDefined();
-    const legacyBlob = {
-      token: 'legacy-token',
-      refreshToken: 'legacy-refresh',
-      expiresAt: 1234567890,
-      user: mockUser({ roles: ['admin'] }),
-    };
-    // Existing un-versioned (legacy) sessions arrive with fromVersion = 0.
-    const result = migrate!(legacyBlob, 0);
-    // Conservative default: legacy sessions pass through unchanged.
-    expect(result).toEqual(legacyBlob);
+  afterEach(() => {
+    window.localStorage.removeItem(STORAGE_KEY);
+    useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null, sessionId: null });
   });
 
-  it('migrate returns persistedState unchanged for fromVersion === 1 (current baseline)', () => {
-    const migrate = useAuthStore.persist.getOptions().migrate;
-    expect(migrate).toBeDefined();
-    const v1Blob = {
-      token: 'v1-token',
-      refreshToken: 'v1-refresh',
-      expiresAt: 9999999999,
-      user: mockUser(),
-    };
-    const result = migrate!(v1Blob, 1);
-    expect(result).toEqual(v1Blob);
+  function stored(): string {
+    return window.localStorage.getItem(STORAGE_KEY) ?? '';
+  }
+
+  it('declares persist version 2', () => {
+    expect(useAuthStore.persist.getOptions().version).toBe(2);
   });
 
-  it('rehydration drops a persisted user without roles and keeps role checks callable', async () => {
-    const { roles: _roles, ...userWithoutRoles } = mockUser();
-    useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null });
+  it('persists a cookie session as its id and user, never its access token', () => {
+    const user = mockUser();
+    useAuthStore.getState().setAuth('access-secret', null, 900, user);
+    useAuthStore.getState().setTokens('rotated-secret', null, 900);
+
+    const state = JSON.parse(stored()).state;
+    expect(state).toEqual({ sessionId: useAuthStore.getState().sessionId, user });
+    expect(stored()).not.toContain('secret');
+    expect(useAuthStore.getState().token).toBe('rotated-secret');
+  });
+
+  it('persists nothing about a body-token session', () => {
+    useAuthStore.getState().setAuth('access-secret', 'refresh-secret', 900, mockUser());
+
+    expect(JSON.parse(stored()).state).toEqual({ sessionId: null, user: null });
+    expect(stored()).not.toContain('secret');
+    expect(useAuthStore.getState().refreshToken).toBe('refresh-secret');
+  });
+
+  it('drops the tokens of a legacy un-versioned blob and keeps its refresh token in memory only', async () => {
+    const legacyUser = mockUser({ id: 'legacy-1' });
     window.localStorage.setItem(
-      'geolens-auth',
+      STORAGE_KEY,
       JSON.stringify({
-        state: { token: 'live-token', refreshToken: null, expiresAt: 9999999999, user: userWithoutRoles },
+        state: { token: 'legacy-access', refreshToken: 'legacy-refresh', expiresAt: 1234567890, user: legacyUser },
+      }),
+    );
+
+    await useAuthStore.persist.rehydrate();
+
+    const state = useAuthStore.getState();
+    expect(state.token).toBeNull();
+    expect(state.refreshToken).toBe('legacy-refresh');
+    expect(state.user).toEqual(legacyUser);
+    expect(state.sessionId).toEqual(expect.any(String));
+    expect(stored()).not.toContain('legacy-access');
+    expect(stored()).not.toContain('legacy-refresh');
+  });
+
+  it('drops the access token of a version 1 cookie session and keeps it recoverable', async () => {
+    const user = mockUser();
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        state: { token: 'v1-access', expiresAt: 9999999999, user, sessionId: 'session-1' },
         version: 1,
       }),
     );
 
     await useAuthStore.persist.rehydrate();
 
-    expect(useAuthStore.getState().token).toBe('live-token');
+    expect(useAuthStore.getState()).toMatchObject({ token: null, refreshToken: null, sessionId: 'session-1', user });
+    expect(stored()).not.toContain('v1-access');
+  });
+
+  it('rehydration drops a persisted user without roles and keeps role checks callable', async () => {
+    const { roles: _roles, ...userWithoutRoles } = mockUser();
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ state: { sessionId: 'session-1', user: userWithoutRoles }, version: 2 }),
+    );
+
+    await useAuthStore.persist.rehydrate();
+
+    expect(useAuthStore.getState().sessionId).toBe('session-1');
     expect(useAuthStore.getState().user).toBeNull();
     expect(() => useAuthStore.getState().isAdmin()).not.toThrow();
     expect(useAuthStore.getState().isAdmin()).toBe(false);
     expect(useAuthStore.getState().isEditor()).toBe(false);
-
-    window.localStorage.removeItem('geolens-auth');
-    useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null });
   });
 
-  it('localStorage rehydration of legacy un-versioned blob preserves token and user', async () => {
-    // Simulate a pre-CODE-04 user session sitting in localStorage with no `version` field.
-    const legacyUser = mockUser({ id: 'legacy-1', username: 'legacyuser' });
-    const legacyState = {
-      state: {
-        token: 'legacy-token-xyz',
-        refreshToken: 'legacy-refresh-abc',
-        expiresAt: 1234567890,
-        user: legacyUser,
-      },
-      // no `version` key — zustand treats this as version 0
-    };
-
-    // Order matters: write localStorage AFTER resetting in-memory state, because
-    // `useAuthStore.setState({...})` triggers the persist middleware to save the
-    // null state back to storage, which would overwrite our seeded blob.
-    useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null });
-    window.localStorage.setItem('geolens-auth', JSON.stringify(legacyState));
+  it('corrupt blob is removed', async () => {
+    window.localStorage.setItem(STORAGE_KEY, '{"state":{"token":"legacy-access"');
 
     await useAuthStore.persist.rehydrate();
 
-    expect(useAuthStore.getState().token).toBe('legacy-token-xyz');
-    expect(useAuthStore.getState().refreshToken).toBe('legacy-refresh-abc');
-    expect(useAuthStore.getState().expiresAt).toBe(1234567890);
-    expect(useAuthStore.getState().user).toEqual(legacyUser);
+    expect(window.localStorage.getItem(STORAGE_KEY)).toBeNull();
+    expect(useAuthStore.getState().token).toBeNull();
+  });
 
-    // Cleanup so other tests aren't affected.
-    window.localStorage.removeItem('geolens-auth');
-    useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null });
+  it('ignores a token planted in a current-version blob', async () => {
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ state: { sessionId: 'session-1', user: null, token: 'planted' }, version: 2 }),
+    );
+
+    await useAuthStore.persist.rehydrate();
+
+    expect(useAuthStore.getState().token).toBeNull();
   });
 });

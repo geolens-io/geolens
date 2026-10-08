@@ -1,7 +1,7 @@
 import { API_BASE } from '@/lib/constants';
-import { cookieAuthAvailable, cookieAuthHeaders } from '@/lib/auth-transport';
+import { cookieAuthAvailable, cookieAuthHeaders, withCookieWrite } from '@/lib/auth-transport';
 import { useAuthStore } from '@/stores/auth-store';
-import { apiFetch, isCredentialRejected, safeFetch, ApiError } from './client';
+import { abortInflightRefresh, apiFetch, isCredentialRejected, safeFetch, ApiError } from './client';
 import { translateApiErrorDetail } from '@/lib/error-map';
 import type { TokenResponse, UserResponse, AuthConfigResponse, MessageResponse, SignupResponse, MyApiKeyResponse, ApiKeyCreateResponse, ApiKeyScope, OAuthProviderPublic, UserQuotaUsage } from '@/types/api';
 
@@ -15,10 +15,13 @@ export async function login(
   // logoutSession's own 3s timeout, and only waits when one is actually
   // pending.
   await awaitPendingLogout();
+  // A refresh still running, such as a page load's recovery that outlived its
+  // render budget, would apply its Set-Cookie over the one this login issues.
+  abortInflightRefresh();
 
   // SP-11: route is /auth/login (no trailing slash) so the POST body is
   // preserved without a 307 redirect.
-  const response = await fetch(`${API_BASE}/auth/login`, {
+  const response = await withCookieWrite(() => fetch(`${API_BASE}/auth/login`, {
     method: 'POST',
     // fix(#1302): opt into the httpOnly refresh cookie. The response's
     // refresh_token is null in that mode, so nothing token-shaped reaches
@@ -26,7 +29,7 @@ export async function login(
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', ...cookieAuthHeaders() },
     credentials: 'same-origin',
     body: new URLSearchParams({ username, password }),
-  });
+  }));
 
   if (!response.ok) {
     let detail: unknown;
@@ -260,13 +263,14 @@ export async function resendVerification(email: string): Promise<MessageResponse
 }
 
 /**
- * fix(#1302): in cookie mode the credential rides in the httpOnly cookie and
+ * In cookie mode the credential rides in the httpOnly cookie and
  * `refreshToken` is null, so the body is omitted entirely.
  *
- * The one exception is the transition: a session that logged in before this
- * shipped still holds a localStorage refresh token. Sending it once, under the
- * cookie-mode header, lets the backend rotate it and hand back a cookie instead
- * — the session migrates in place rather than being logged out.
+ * The one exception is the transition: a session that logged in before the
+ * cookie flow left a refresh token in storage, which the auth store moves into
+ * memory on load. Sending it once, under the cookie-mode header, lets the
+ * backend rotate it and hand back a cookie instead, so the session migrates in
+ * place rather than being logged out.
  */
 const REFRESH_TIMEOUT_MS = 30_000;
 
@@ -274,12 +278,14 @@ export async function refreshAccessToken(
   refreshToken: string | null,
   abortSignal?: AbortSignal,
 ): Promise<TokenResponse> {
-  const headers: Record<string, string> = { ...cookieAuthHeaders() };
-  if (refreshToken) headers['Content-Type'] = 'application/json';
-
-  const response = await fetch(`${API_BASE}/auth/refresh/`, {
+  const response = await withCookieWrite(() => fetch(`${API_BASE}/auth/refresh/`, {
     method: 'POST',
-    headers,
+    // Read under the lock: a refresh another tab finished while this one
+    // waited has rotated the CSRF cookie this header must match.
+    headers: {
+      ...cookieAuthHeaders(),
+      ...(refreshToken ? { 'Content-Type': 'application/json' } : {}),
+    },
     credentials: 'same-origin',
     // fix(#1446): this call bypasses apiFetch, so it never inherited the
     // fix(#438) DATA-04 request bound and could hang forever. That stalls
@@ -295,7 +301,7 @@ export async function refreshAccessToken(
       ? AbortSignal.any([abortSignal, AbortSignal.timeout(REFRESH_TIMEOUT_MS)])
       : AbortSignal.timeout(REFRESH_TIMEOUT_MS),
     ...(refreshToken ? { body: JSON.stringify({ refresh_token: refreshToken }) } : {}),
-  });
+  }), abortSignal);
 
   if (!response.ok) {
     // fix(#1849): tryRefresh's 429 back-off branch checks `err instanceof

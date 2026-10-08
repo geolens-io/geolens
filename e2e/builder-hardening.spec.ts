@@ -4,11 +4,10 @@ import {
   type APIRequestContext,
   type Page,
   type Response,
-} from '@playwright/test';
-import fs from 'fs';
-import path from 'path';
+  AUTH_FILE,
+  getAuthToken,
+} from './helpers/session';
 
-const AUTH_FILE = path.join(__dirname, '../playwright/.auth/user.json');
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
 
 function isMapUpdateResponse(response: Response, mapId: string): boolean {
@@ -43,37 +42,11 @@ interface ConsoleGate {
   warnings: string[];
 }
 
-function getAuthEntry() {
-  const raw = fs.readFileSync(AUTH_FILE, 'utf-8');
-  const state = JSON.parse(raw) as {
-    origins?: Array<{ localStorage?: Array<{ name: string; value: string }> }>;
-  };
-  for (const origin of state.origins ?? []) {
-    const entry = origin.localStorage?.find((candidate) => candidate.name === 'geolens-auth');
-    if (entry?.value) return entry.value;
-  }
-  throw new Error('Could not extract geolens-auth localStorage entry');
-}
-
-function getAuthToken(): string {
-  const parsed = JSON.parse(getAuthEntry()) as { state?: { token?: string } };
-  const token = parsed.state?.token;
-  if (!token) throw new Error('Could not extract auth token from storage state');
-  return token;
-}
-
 function authHeaders() {
   return {
     Authorization: `Bearer ${getAuthToken()}`,
     'Content-Type': 'application/json',
   };
-}
-
-async function seedAuth(page: Page) {
-  const authEntry = getAuthEntry();
-  await page.addInitScript((value) => {
-    window.localStorage.setItem('geolens-auth', value);
-  }, authEntry);
 }
 
 async function waitForBuilder(page: Page) {
@@ -232,6 +205,9 @@ async function createPublicSharedMap(request: APIRequestContext, name: string) {
   return { mapId, shareToken: ((await share.json()) as { token: string }).token };
 }
 
+// This suite's config gives its projects no saved session.
+test.use({ storageState: AUTH_FILE });
+
 test.describe('Builder residual-risk hardening', () => {
   test.slow();
 
@@ -239,7 +215,6 @@ test.describe('Builder residual-risk hardening', () => {
     const gate = attachConsoleGate(page);
     const { mapId } = await createLayeredMap(request, `E2E Builder Browser Shell ${Date.now()}`, 1);
     try {
-      await seedAuth(page);
       await page.goto(`/maps/${mapId}`);
       await waitForBuilder(page);
       await expect(page.locator('text=Something went wrong')).toHaveCount(0);
@@ -262,8 +237,6 @@ test.describe('Builder residual-risk hardening', () => {
       const groupId = `group-${Date.now()}`;
       const groupName = 'Large mixed group';
       await seedFolderGroup(request, mapId, groupedChildren, groupId, groupName);
-
-      await seedAuth(page);
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.goto(`/maps/${mapId}`);
       await waitForBuilder(page);
@@ -349,7 +322,6 @@ test.describe('Builder residual-risk hardening', () => {
 
     const { mapId } = await createLayeredMap(request, `E2E Builder Network ${Date.now()}`, 1);
     try {
-      await seedAuth(page);
       await page.route('**/tiles/**', async (route) => {
         await new Promise((resolve) => setTimeout(resolve, 150));
         await route.fulfill({ status: 503, body: '' });
@@ -444,7 +416,6 @@ test.describe('Builder residual-risk hardening', () => {
 
     const { mapId } = await createLayeredMap(request, `E2E Builder Mobile ${Date.now()}`, 2);
     try {
-      await seedAuth(page);
       await page.setViewportSize({ width: 390, height: 844 });
       await page.goto(`/maps/${mapId}`);
       await waitForBuilder(page);

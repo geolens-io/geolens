@@ -1,4 +1,4 @@
-import { test, expect, type Page, type Route } from '@playwright/test';
+import { test, expect, type Page, type Route } from './helpers/session';
 import { getAuthToken, getSearchSeed, type SearchSeed } from './helpers/catalog';
 
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
@@ -47,10 +47,9 @@ let baseDataset: Record<string, unknown>;
 
 test.beforeAll(async () => {
   seed = await getSearchSeed();
-  // Node-side fetch with the bearer token pulled from the saved storage
-  // state, matching `helpers/catalog.ts` and `dataset-detail.spec.ts` — the
-  // auth token lives in localStorage, not a cookie, so the Playwright
-  // `request` fixture (cookie-based) can't carry it.
+  // Node-side fetch with the bearer token the setup project saves, matching
+  // `helpers/catalog.ts`: the Playwright `request` fixture carries cookies,
+  // and the API authenticates data requests with a bearer token.
   const res = await fetch(`${BASE_URL}/api/datasets/${seed.id}`, {
     headers: { Authorization: `Bearer ${getAuthToken()}` },
   });

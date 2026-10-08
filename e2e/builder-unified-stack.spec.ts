@@ -1,12 +1,10 @@
-import { test, expect, type Page, type Response } from '@playwright/test';
-import fs from 'fs';
+import { test, expect, type Page, type Response, getAuthToken } from './helpers/session';
 import path from 'path';
 
 // ---------------------------------------------------------------------------
-// Auth / setup helpers (inlined per project convention — no shared helper file)
+// Setup helpers
 // ---------------------------------------------------------------------------
 
-const AUTH_FILE = path.join(__dirname, '../playwright/.auth/user.json');
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
 
 function isMapUpdateResponse(response: Response, mapId: string): boolean {
@@ -14,21 +12,6 @@ function isMapUpdateResponse(response: Response, mapId: string): boolean {
     response.request().method() === 'PUT' &&
     new URL(response.url()).pathname === `/api/maps/${mapId}`
   );
-}
-
-/** Extract JWT token from the Playwright storage state file. */
-function getAuthToken(): string {
-  const raw = fs.readFileSync(AUTH_FILE, 'utf-8');
-  const state = JSON.parse(raw);
-  for (const origin of (state.origins ?? []) as Array<{ localStorage?: Array<{ name: string; value: string }> }>) {
-    for (const entry of origin.localStorage ?? []) {
-      if (entry.name === 'geolens-auth') {
-        const parsed = JSON.parse(entry.value) as { state?: { token?: string } };
-        return parsed.state?.token ?? '';
-      }
-    }
-  }
-  throw new Error('Could not extract auth token from storage state');
 }
 
 async function waitForBuilder(page: Page) {

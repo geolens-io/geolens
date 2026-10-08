@@ -1,4 +1,4 @@
-import { test, expect, type Page, type Request } from '@playwright/test';
+import { test, expect, type Page, type Request } from './helpers/session';
 
 /**
  * The File URL form imports a 3D Tiles archive: it sends kind=tiles3d, previews

@@ -72,3 +72,17 @@ export function cookieAuthHeaders(): Record<string, string> {
   if (csrf) headers[CSRF_HEADER] = csrf;
   return headers;
 }
+
+const COOKIE_WRITE_LOCK = 'geolens-auth-cookie';
+
+/**
+ * Run a request that sets the refresh cookie while no other tab runs one.
+ * Without it, a refresh one tab already sent can land its rotated cookie after
+ * a sign-in in another tab, over the new session's. Where Web Locks are
+ * unavailable the request runs unguarded.
+ */
+export function withCookieWrite<T>(request: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
+  if (!locks) return request();
+  return locks.request(COOKIE_WRITE_LOCK, signal ? { signal } : {}, request);
+}

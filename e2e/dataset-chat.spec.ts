@@ -1,6 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
-import fs from 'fs';
-import path from 'path';
+import { test, expect, type Page, getAuthToken } from './helpers/session';
 
 /**
  * Dataset-scoped AI chat (dataset-chat v1, #531).
@@ -13,21 +11,7 @@ import path from 'path';
  * "Open in builder" — runs against the real backend.
  */
 
-const AUTH_FILE = path.join(__dirname, '../playwright/.auth/user.json');
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
-
-function getAuthToken(): string {
-  const raw = fs.readFileSync(AUTH_FILE, 'utf-8');
-  const state = JSON.parse(raw);
-  for (const origin of state.origins ?? []) {
-    for (const entry of origin.localStorage ?? []) {
-      if (entry.name === 'geolens-auth') {
-        return JSON.parse(entry.value).state?.token ?? '';
-      }
-    }
-  }
-  throw new Error('Could not extract auth token from storage state');
-}
 
 let datasetId: string;
 let datasetTitle: string;

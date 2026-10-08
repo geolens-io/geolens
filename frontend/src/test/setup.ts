@@ -4,6 +4,7 @@ import '@testing-library/jest-dom/vitest'
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 import { getTestI18nOptions } from '@/i18n/options';
+import { FakeBroadcastChannel } from './broadcast-channel';
 
 if (!i18n.isInitialized) {
   i18n.use(initReactI18next).init(getTestI18nOptions());
@@ -25,6 +26,10 @@ if (typeof globalThis.ResizeObserver === 'undefined') {
 let nextObjectUrl = 0
 URL.createObjectURL = () => `blob:geolens-test-${nextObjectUrl++}`
 URL.revokeObjectURL = () => {}
+
+// Node's own BroadcastChannel would carry messages between test files sharing
+// a worker, so tabs are simulated in-process instead.
+globalThis.BroadcastChannel = FakeBroadcastChannel as unknown as typeof BroadcastChannel
 
 // Provide a reliable localStorage implementation for tests.
 // Node 25 ships a built-in localStorage that conflicts with jsdom's when

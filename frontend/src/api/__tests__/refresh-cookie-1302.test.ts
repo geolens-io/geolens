@@ -1,5 +1,7 @@
 import { awaitPendingLogout, login, logoutSession, refreshAccessToken, revokeCurrentSession } from '@/api/auth';
 import { useAuthStore } from '@/stores/auth-store';
+import { tryRefresh } from '@/api/client';
+import { otherTab } from '@/test/broadcast-channel';
 
 // fix(#1302): AC — after login the persisted `geolens-auth` value holds no
 // refresh token, and the refresh call carries the cookie plus its double-submit
@@ -237,6 +239,95 @@ describe('browser refresh transport', () => {
     expect(init.credentials).toBe('same-origin');
     expect(init.headers).toMatchObject({ 'X-GeoLens-Auth-Mode': 'cookie' });
   });
+
+  // Tabs share one cookie jar, so a refresh another tab already sent must not
+  // land its rotated cookie after this tab's sign-in. Web Locks hold the login
+  // until that refresh has finished.
+  it('holds a sign-in until a refresh holding the cookie lock has finished', async () => {
+    let held: Promise<unknown> = Promise.resolve();
+    const locks = {
+      request: (_name: string, _options: unknown, callback: () => Promise<unknown>) => {
+        const run = held.then(callback);
+        held = run.catch(() => {});
+        return run;
+      },
+    };
+    Object.defineProperty(navigator, 'locks', { value: locks, configurable: true });
+    try {
+      let finishRefresh!: (r: Response) => void;
+      mockFetch.mockImplementationOnce(() => new Promise<Response>((resolve) => { finishRefresh = resolve; }));
+      const refresh = refreshAccessToken(null);
+      await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse({ access_token: 'a1', refresh_token: null, expires_in: 900 }),
+      );
+      const signIn = login('someone', 'secret');
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+
+      finishRefresh(jsonResponse({ access_token: 'r1', refresh_token: null, expires_in: 900 }));
+      await refresh;
+      await signIn;
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    } finally {
+      Reflect.deleteProperty(navigator, 'locks');
+    }
+  });
+
+  it('reads the CSRF cookie only once it holds the cookie lock', async () => {
+    let held: Promise<unknown> = Promise.resolve();
+    const locks = {
+      request: (_name: string, _options: unknown, callback: () => Promise<unknown>) => {
+        const run = held.then(callback);
+        held = run.catch(() => {});
+        return run;
+      },
+    };
+    Object.defineProperty(navigator, 'locks', { value: locks, configurable: true });
+    try {
+      document.cookie = 'geolens_csrf=csrf-before; path=/';
+      let finishFirst!: (r: Response) => void;
+      mockFetch.mockImplementationOnce(() => new Promise<Response>((resolve) => { finishFirst = resolve; }));
+      const first = refreshAccessToken(null);
+      await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse({ access_token: 'r2', refresh_token: null, expires_in: 900 }),
+      );
+      const second = refreshAccessToken(null);
+      // The first refresh rotates the CSRF cookie before the second is sent.
+      document.cookie = 'geolens_csrf=csrf-after; path=/';
+      finishFirst(jsonResponse({ access_token: 'r1', refresh_token: null, expires_in: 900 }));
+      await first;
+      await second;
+
+      expect(lastInit().headers).toMatchObject({ 'X-CSRF-Token': 'csrf-after' });
+    } finally {
+      Reflect.deleteProperty(navigator, 'locks');
+    }
+  });
+
+  // A recovery that outlived its render budget can still be running when the
+  // user signs in, and its rotated cookie would replace the new session's.
+  it('abandons an in-flight refresh before signing in', async () => {
+    useAuthStore.setState({ token: 'old-access', refreshToken: null, sessionId: 'old-session' });
+    let refreshSignal: AbortSignal | undefined;
+    mockFetch.mockImplementationOnce((_url: string, init: RequestInit) => {
+      refreshSignal = init.signal ?? undefined;
+      return new Promise(() => {});
+    });
+    void tryRefresh();
+    await vi.waitFor(() => expect(refreshSignal).toBeDefined());
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({ access_token: 'a1', refresh_token: null, expires_in: 900 }),
+    );
+
+    await login('someone', 'secret');
+
+    expect(refreshSignal?.aborted).toBe(true);
+    useAuthStore.setState({ token: null, sessionId: null });
+  });
 });
 
 // fix(#1446): logout races its wait against a short timer, so a slow refresh
@@ -274,10 +365,9 @@ describe('late refresh after logout', () => {
     expect(window.localStorage.getItem('geolens-auth') ?? '').not.toContain('rotated');
   });
 
-  // fix(#1446): sessionEpoch is per-tab, so a logout in ANOTHER tab cannot
-  // reach it through the persisted blob. The storage listener bumps it on the
-  // present->absent transition; without that, this tab's in-flight refresh
-  // writes its rotated tokens back and re-persists the session for every tab.
+  // sessionEpoch is per-tab, so another tab's logout reaches this one as a
+  // message. Without it, this tab's in-flight refresh writes its rotated token
+  // back and keeps a session the user ended.
   it('discards rotated tokens when another tab logged out', async () => {
     let resolveRefresh: (value: unknown) => void = () => {};
     let capturedSignal: AbortSignal | undefined;
@@ -291,31 +381,31 @@ describe('late refresh after logout', () => {
 
     const { tryRefresh } = await import('@/api/client');
     const { useAuthStore: store } = await import('@/stores/auth-store');
+    const { wireSessionSync } = await import('@/lib/session-sync');
+    const unwire = wireSessionSync();
+    const peer = otherTab();
 
-    store.setState({ token: 'live-access', refreshToken: null, expiresAt: Date.now() + 60_000 });
-    const pending = tryRefresh();
+    try {
+      store.getState().setAuth('live-access', null, 60, null);
+      const pending = tryRefresh();
 
-    // Tab A logged out: it wrote a token-less blob, and this tab's `storage`
-    // listener rehydrates from it.
-    window.localStorage.setItem(
-      'geolens-auth',
-      JSON.stringify({ state: { token: null, expiresAt: null, user: null }, version: 1 }),
-    );
-    window.dispatchEvent(new StorageEvent('storage', { key: 'geolens-auth' }));
-    await vi.waitFor(() => expect(store.getState().token).toBeNull());
+      peer.post({ type: 'logout', sessionId: store.getState().sessionId });
+      await vi.waitFor(() => expect(store.getState().token).toBeNull());
 
-    // fix(#1446): the request is abandoned too, not just its store write — a
-    // response the browser never processes cannot apply a stale Set-Cookie
-    // over a cookie a later login issued. Waited for rather than asserted
-    // directly: the token clears inside rehydrate(), which resolves before the
-    // listener's continuation runs the abort.
-    await vi.waitFor(() => expect(capturedSignal?.aborted).toBe(true));
+      // The request is abandoned too, not just its store write: a response the
+      // browser never processes cannot apply a stale Set-Cookie over a cookie
+      // a later login issued.
+      expect(capturedSignal?.aborted).toBe(true);
 
-    resolveRefresh({ access_token: 'rotated', refresh_token: null, expires_in: 900 });
-    await pending;
+      resolveRefresh({ access_token: 'rotated', refresh_token: null, expires_in: 900 });
+      await pending;
 
-    expect(store.getState().token).toBeNull();
-    expect(window.localStorage.getItem('geolens-auth') ?? '').not.toContain('rotated');
+      expect(store.getState().token).toBeNull();
+      expect(window.localStorage.getItem('geolens-auth') ?? '').not.toContain('rotated');
+    } finally {
+      peer.close();
+      unwire();
+    }
   });
 
   // fix(#1446): the epoch guard stops the store write, but the browser applies
@@ -393,16 +483,11 @@ describe('persisted auth state', () => {
     expect(useAuthStore.getState().refreshToken).toBeNull();
   });
 
-  // fix(#1446): zustand writes the persisted blob on its own after migrating a
-  // version-0 shape. Stripping the legacy token on that write would strand a
-  // tab closed before the migrating refresh ran — no body token on the next
-  // load, and no cookie either, so an otherwise-valid session dies at expiry.
-  it('keeps an unspent legacy refresh token across a store write', () => {
+  it('never writes an unspent legacy refresh token to storage', () => {
     useAuthStore.setState({ token: 'access-1', refreshToken: 'legacy-refresh-token' });
-    // Any unrelated write, as zustand performs post-migration.
     useAuthStore.setState({ expiresAt: Date.now() + 900_000 });
 
-    const raw = window.localStorage.getItem('geolens-auth') ?? '';
-    expect(JSON.parse(raw).state.refreshToken).toBe('legacy-refresh-token');
+    expect(window.localStorage.getItem('geolens-auth') ?? '').not.toContain('legacy-refresh-token');
+    expect(useAuthStore.getState().refreshToken).toBe('legacy-refresh-token');
   });
 });

@@ -34,6 +34,8 @@
 // --dry-run lists what it would open and changes nothing; it combines with
 // --refresh.
 
+import { randomUUID } from 'node:crypto';
+
 import { chromium } from 'playwright';
 
 import { blankThumbnail, isThumbnailUploadOk, parseArgs, selectMaps } from './lib/backfill-map-thumbnails-args.mjs';
@@ -61,11 +63,7 @@ if (!PASSWORD) {
   process.exit(2);
 }
 
-/**
- * Log in through the API. Returns the whole token payload, not just the access
- * token: the refresh token and expiry are what let the browser session renew
- * itself mid-batch (see the store seeding in main()).
- */
+/** Log in through the API for the Node-side calls; returns the token payload. */
 async function login() {
   const res = await fetch(`${BASE_URL}/api/auth/login`, {
     method: 'POST',
@@ -137,8 +135,7 @@ async function hasThumbnail(id) {
 }
 
 async function main() {
-  const auth = await login();
-  const token = auth.access_token;
+  const token = (await login()).access_token;
   nodeToken = token;
   const maps = await listMaps(token);
   const refreshing = REFRESH.length > 0;
@@ -168,39 +165,25 @@ async function main() {
   const context = await browser.newContext({ viewport: { width: 1600, height: 900 } });
   const page = await context.newPage();
 
-  // Seed the auth store the same way a signed-in browser holds it, so the
-  // builder's own fetches (and the thumbnail PUT) are authenticated.
-  //
-  // fix(#1501 review): seed the REAL refresh token and expiry rather than null
-  // and a hard-coded 15 minutes. Login happened in Node, so no refresh cookie
-  // was installed in this browser; discarding the body refresh token left the
-  // session with no way to renew and nothing to renew from. A backfill over
-  // many maps easily outlives one access token — more so on an instance with
-  // ACCESS_TOKEN_EXPIRE_MINUTES below the default — and every map after
-  // expiry would fail its thumbnail PUT while the script kept going.
-  //
-  // With these seeded, apiFetch's own 401 -> refresh path keeps the session
-  // alive for the whole batch using the mechanism the app already ships.
+  // The app holds its access token in memory and recovers it from the HttpOnly
+  // refresh cookie on every page load, so the browser signs in through the
+  // cookie flow and storage gets only the non-secret session marker. The app's
+  // own refresh then keeps the session alive for the whole batch, however many
+  // access tokens it outlives.
+  const signIn = await context.request.post(`${BASE_URL}/api/auth/login`, {
+    headers: { 'X-GeoLens-Auth-Mode': 'cookie' },
+    form: { username: USERNAME, password: PASSWORD },
+  });
+  if (!signIn.ok()) throw new Error(`browser sign-in failed: ${signIn.status()}`);
   await page.goto(`${BASE_URL}/`);
   const me = await (await fetch(`${BASE_URL}/api/auth/me/`, {
     headers: { Authorization: `Bearer ${token}` },
   })).json();
   await page.evaluate(
-    ([tok, refresh, expiresIn, user]) => {
-      localStorage.setItem(
-        'geolens-auth',
-        JSON.stringify({
-          state: {
-            token: tok,
-            refreshToken: refresh ?? null,
-            expiresAt: Date.now() + (expiresIn ?? 900) * 1000,
-            user,
-          },
-          version: 1,
-        }),
-      );
+    ([sessionId, user]) => {
+      localStorage.setItem('geolens-auth', JSON.stringify({ state: { sessionId, user }, version: 2 }));
     },
-    [token, auth.refresh_token ?? null, auth.expires_in ?? null, me],
+    [randomUUID(), me],
   );
 
   let filled = 0;

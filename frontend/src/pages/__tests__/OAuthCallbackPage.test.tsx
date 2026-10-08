@@ -3,6 +3,8 @@ import { ApiError } from '@/api/client';
 import { OAuthCallbackPage } from '@/pages/OAuthCallbackPage';
 import { useAuthStore } from '@/stores/auth-store';
 import { denySessionStorage } from '@/test/deny-storage';
+import { otherTab } from '@/test/broadcast-channel';
+import { wireSessionSync } from '@/lib/session-sync';
 import type { UserResponse } from '@/types/api';
 
 const mockNavigate = vi.fn();
@@ -14,10 +16,12 @@ vi.mock('react-router', async () => {
 const mockGetMe = vi.fn<() => Promise<UserResponse>>();
 const mockLogoutSession = vi.fn<() => Promise<void>>();
 const mockRevokeCurrentSession = vi.fn<(token: string) => Promise<void>>();
+const mockRefreshAccessToken = vi.fn();
 vi.mock('@/api/auth', () => ({
   getMe: () => mockGetMe(),
   logoutSession: () => mockLogoutSession(),
   revokeCurrentSession: (token: string) => mockRevokeCurrentSession(token),
+  refreshAccessToken: () => mockRefreshAccessToken(),
 }));
 
 const userA = { id: 'a', username: 'someone', roles: ['viewer'] } as UserResponse;
@@ -37,10 +41,18 @@ function deferProfile() {
   return settle;
 }
 
-/** What another tab's write to the persisted session looks like here. */
-function peerTabWrites(state: Record<string, unknown>) {
-  void useAuthStore.persist.getOptions().storage?.setItem('geolens-auth', { state: state as never, version: 1 });
-  window.dispatchEvent(new StorageEvent('storage', { key: 'geolens-auth' }));
+/** Another tab's sign-in or logout, as this tab receives it. */
+async function peerTab(message: { type: 'login' | 'logout'; sessionId: string | null }) {
+  const unwire = wireSessionSync();
+  const peer = otherTab();
+  try {
+    const epoch = useAuthStore.getState().sessionEpoch;
+    peer.post(message);
+    await waitFor(() => expect(useAuthStore.getState().sessionEpoch).not.toBe(epoch));
+  } finally {
+    peer.close();
+    unwire();
+  }
 }
 
 function setHash(hash: string) {
@@ -169,9 +181,7 @@ describe('OAuthCallbackPage', () => {
 
     render(<OAuthCallbackPage />);
     await waitFor(() => expect(mockGetMe).toHaveBeenCalled());
-    const epoch = useAuthStore.getState().sessionEpoch;
-    peerTabWrites({ token: null, expiresAt: null, user: null, sessionId: null });
-    await waitFor(() => expect(useAuthStore.getState().sessionEpoch).not.toBe(epoch));
+    await peerTab({ type: 'logout', sessionId: useAuthStore.getState().sessionId });
     profile.resolve(userA);
 
     await waitFor(() => expect(mockRevokeCurrentSession).toHaveBeenCalledWith('access-1'));
@@ -185,9 +195,13 @@ describe('OAuthCallbackPage', () => {
 
     render(<OAuthCallbackPage />);
     await waitFor(() => expect(mockGetMe).toHaveBeenCalled());
-    const epoch = useAuthStore.getState().sessionEpoch;
-    peerTabWrites({ token: 'access-b', expiresAt: Date.now() + 900_000, user: userB, sessionId: 'peer-session' });
-    await waitFor(() => expect(useAuthStore.getState().sessionEpoch).not.toBe(epoch));
+    window.localStorage.setItem(
+      'geolens-auth',
+      JSON.stringify({ state: { sessionId: 'peer-session', user: userB }, version: 2 }),
+    );
+    mockRefreshAccessToken.mockResolvedValueOnce({ access_token: 'access-b', refresh_token: null, expires_in: 900 });
+    await peerTab({ type: 'login', sessionId: 'peer-session' });
+    await waitFor(() => expect(useAuthStore.getState().token).toBe('access-b'));
     profile.resolve(userA);
 
     await waitFor(() => expect(mockRevokeCurrentSession).toHaveBeenCalledWith('access-1'));

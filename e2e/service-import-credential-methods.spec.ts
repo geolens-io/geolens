@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './helpers/session';
 
 /**
  * Lane B4 (service-auth wave): the four-way credential method select for a

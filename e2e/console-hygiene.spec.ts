@@ -13,7 +13,7 @@
  *   container. Without the Plan-01 `__glRoot` guard that call would produce
  *   >= 1 warning; WITH the guard it reuses the existing root → 0 warnings.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/session';
 
 test('MAPS-01: no duplicate createRoot warning under HMR-like re-exec', async ({
   page,

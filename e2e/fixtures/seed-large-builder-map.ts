@@ -28,9 +28,9 @@ export interface CreateLargeBuilderMapOptions {
   /** Dataset UUID to use for every layer. Must be pre-existing in the catalog. */
   datasetId: string;
   /**
-   * JWT bearer token for the API calls.  GeoLens uses a localStorage-stored JWT
-   * (not cookies), so the Playwright `request` context alone does not carry auth.
-   * Pass the token from `getAuthToken()` in the spec.
+   * Bearer token for the API calls, from `getAuthToken()` in the spec. The API
+   * authenticates data requests with a bearer token, which the Playwright
+   * `request` context does not carry on its own.
    */
   authToken: string;
 }
@@ -51,8 +51,7 @@ interface LayerAddResponse {
 /**
  * Create a builder map and populate it with `opts.layerCount` layers.
  *
- * GeoLens authenticates via a JWT stored in localStorage, so the Playwright
- * `request` APIRequestContext does not carry auth automatically.  Pass
+ * The Playwright `request` APIRequestContext carries no bearer token, so pass
  * `opts.authToken` (from `getAuthToken()` in the spec) to authenticate.
  */
 export async function createLargeBuilderMap(

@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './helpers/session';
 
 /**
  * Lane A2 (service-auth wave): the ArcGIS sign-in method on the import

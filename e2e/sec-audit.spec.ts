@@ -17,7 +17,7 @@
 //
 //   SEC_AUDIT_FRONTEND_URL    override the frontend base for S08 (default E2E_BASE_URL)
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/session';
 import { getAuthToken, seedDataset, seedDemDataset, deleteDataset } from './helpers/catalog';
 
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
