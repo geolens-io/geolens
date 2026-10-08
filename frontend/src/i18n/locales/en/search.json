@@ -26,8 +26,8 @@
     "cta": "Import your first dataset",
     "catalogTitle": "Your catalog is empty",
     "catalogDescription": "Import a dataset to start building your geospatial catalog.",
-    "catalogTitleViewer": "No datasets yet",
-    "catalogDescriptionViewer": "No datasets are in the catalog yet. Datasets appear here once someone with import access adds them.",
+    "catalogTitleViewer": "No datasets to show",
+    "catalogDescriptionViewer": "No datasets are visible to you yet. They appear here once someone adds one or shares one with you.",
     "catalogDescriptionAnonymous": "There are no public datasets yet. Sign in to see datasets shared with you.",
     "signIn": "Sign in",
     "clear": "Clear search & filters"

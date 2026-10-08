@@ -79,7 +79,7 @@ describe('empty catalog', () => {
   it('shows a neutral message to a signed-in user without import access', () => {
     signedIn(user);
     render(<SearchPage />, { route: '/' });
-    expect(screen.getByText(/No datasets are in the catalog yet/)).toBeInTheDocument();
+    expect(screen.getByText(/No datasets are visible to you yet/)).toBeInTheDocument();
     expect(screen.queryByRole('link')).not.toBeInTheDocument();
   });
 

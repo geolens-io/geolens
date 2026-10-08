@@ -230,7 +230,7 @@ export function MapsPage() {
                 </Button>
               ) : !user ? (
                 <Button asChild variant="outline">
-                  <Link to="/login">{t('maps.signIn')}</Link>
+                  <Link to="/login" state={{ from: '/maps' }}>{t('maps.signIn')}</Link>
                 </Button>
               ) : undefined
             ) : undefined
