@@ -287,15 +287,27 @@ class AuthService:
         await self.db.commit()
         return new_access, new_refresh
 
-    def stage_sso_sign_in(
+    async def stage_sso_sign_in(
         self, user_id: uuid.UUID, *, family_id: uuid.UUID
     ) -> tuple[str, str]:
         """Stage a completed SSO sign-in for one exchange; returns (code, nonce).
 
         The pending row joins the new session's family, so logout-everywhere
         and the revocation horizon reach it like any refresh token. Its hash
-        covers both values, and the caller hands them out separately.
+        covers both values, and the caller hands them out separately. Expired
+        staged rows are swept here, since an abandoned callback is never
+        redeemed or rotated.
         """
+        expired = (
+            select(RefreshToken.id)
+            .where(
+                RefreshToken.token_hash.startswith(_SSO_EXCHANGE_HASH_PREFIX),
+                RefreshToken.expires_at < datetime.now(UTC),
+                RefreshToken.user_id.in_(select(User.id)),
+            )
+            .with_for_update(skip_locked=True)
+        )
+        await self.db.execute(delete(RefreshToken).where(RefreshToken.id.in_(expired)))
         code = secrets.token_urlsafe(32)
         nonce = secrets.token_urlsafe(32)
         self.db.add(

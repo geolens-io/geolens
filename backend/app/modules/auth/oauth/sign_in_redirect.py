@@ -58,7 +58,7 @@ async def sso_sign_in_redirect(
     if is_same_origin(frontend_url, api_url) and api_path_is_cookie_scoped(
         request, api_url
     ):
-        code, nonce = service.stage_sso_sign_in(user.id, family_id=family_id)
+        code, nonce = await service.stage_sso_sign_in(user.id, family_id=family_id)
         response = _callback_redirect(f"{callback}#code={code}")
         set_sso_exchange_cookie(response, request, nonce, SSO_EXCHANGE_TTL_SECONDS)
         return response

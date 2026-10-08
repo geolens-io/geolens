@@ -188,6 +188,30 @@ async def test_expired_code_is_refused(
 
 
 @pytest.mark.anyio
+async def test_staging_sweeps_expired_staged_sign_ins(
+    browser, test_db_session, viewer_id, same_origin_urls
+):
+    _code(await browser.sso_callback(viewer_id))
+    staged = (
+        RefreshToken.user_id == viewer_id,
+        RefreshToken.token_hash.startswith("sso-exchange:"),
+    )
+    await test_db_session.execute(
+        update(RefreshToken)
+        .where(*staged)
+        .values(expires_at=datetime.now(UTC) - timedelta(seconds=1))
+    )
+    await test_db_session.commit()
+
+    _code(await Browser(browser.client).sso_callback(viewer_id))
+
+    rows = (
+        await test_db_session.execute(select(RefreshToken.expires_at).where(*staged))
+    ).scalars()
+    assert [expires_at > datetime.now(UTC) for expires_at in rows] == [True]
+
+
+@pytest.mark.anyio
 async def test_code_is_bound_to_the_browser_the_callback_redirected(
     client, admin_auth_header, viewer_id, same_origin_urls
 ):
