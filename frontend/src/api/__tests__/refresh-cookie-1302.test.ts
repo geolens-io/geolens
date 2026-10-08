@@ -275,6 +275,39 @@ describe('browser refresh transport', () => {
     }
   });
 
+  it('reads the CSRF cookie only once it holds the cookie lock', async () => {
+    let held: Promise<unknown> = Promise.resolve();
+    const locks = {
+      request: (_name: string, _options: unknown, callback: () => Promise<unknown>) => {
+        const run = held.then(callback);
+        held = run.catch(() => {});
+        return run;
+      },
+    };
+    Object.defineProperty(navigator, 'locks', { value: locks, configurable: true });
+    try {
+      document.cookie = 'geolens_csrf=csrf-before; path=/';
+      let finishFirst!: (r: Response) => void;
+      mockFetch.mockImplementationOnce(() => new Promise<Response>((resolve) => { finishFirst = resolve; }));
+      const first = refreshAccessToken(null);
+      await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse({ access_token: 'r2', refresh_token: null, expires_in: 900 }),
+      );
+      const second = refreshAccessToken(null);
+      // The first refresh rotates the CSRF cookie before the second is sent.
+      document.cookie = 'geolens_csrf=csrf-after; path=/';
+      finishFirst(jsonResponse({ access_token: 'r1', refresh_token: null, expires_in: 900 }));
+      await first;
+      await second;
+
+      expect(lastInit().headers).toMatchObject({ 'X-CSRF-Token': 'csrf-after' });
+    } finally {
+      Reflect.deleteProperty(navigator, 'locks');
+    }
+  });
+
   // A recovery that outlived its render budget can still be running when the
   // user signs in, and its rotated cookie would replace the new session's.
   it('abandons an in-flight refresh before signing in', async () => {

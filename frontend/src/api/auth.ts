@@ -278,12 +278,14 @@ export async function refreshAccessToken(
   refreshToken: string | null,
   abortSignal?: AbortSignal,
 ): Promise<TokenResponse> {
-  const headers: Record<string, string> = { ...cookieAuthHeaders() };
-  if (refreshToken) headers['Content-Type'] = 'application/json';
-
   const response = await withCookieWrite(() => fetch(`${API_BASE}/auth/refresh/`, {
     method: 'POST',
-    headers,
+    // Read under the lock: a refresh another tab finished while this one
+    // waited has rotated the CSRF cookie this header must match.
+    headers: {
+      ...cookieAuthHeaders(),
+      ...(refreshToken ? { 'Content-Type': 'application/json' } : {}),
+    },
     credentials: 'same-origin',
     // fix(#1446): this call bypasses apiFetch, so it never inherited the
     // fix(#438) DATA-04 request bound and could hang forever. That stalls
