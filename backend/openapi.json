@@ -1988,7 +1988,7 @@
             "type": "string"
           },
           "status": {
-            "description": "'pending' when this request queued job_id. 'already_running' when an all_tenants request found a run in flight in the calling tenant; job_id is then that run.",
+            "description": "'pending' when this request queued job_id. 'already_running' when an all_tenants request found a run in flight in the calling tenant; job_id is then that run, which this request did not queue. Run the backfill again once it ends.",
             "title": "Status",
             "type": "string"
           },
@@ -22024,7 +22024,7 @@
     },
     "/admin/backfill-embeddings/": {
       "post": {
-        "description": "Queue semantic-search embedding generation for records (admin only).\n\nPass ?force=true to regenerate every record and replace its stored vectors.\nWithout it, the run embeds only records that lack a current-model embedding.\n\nThe run covers the calling tenant's records. In a multi-tenant deployment\nthe embedding model and width are shared by every tenant, so a change\nleaves each tenant to regenerate. Pass ?all_tenants=true to also queue a\nrun for every other tenant that has records; there it needs\nmanage_tenants instead of manage_users, and ``other_tenants`` reports\neach run. When the calling tenant already has a run in flight, that run's\nid comes back with status ``already_running`` and the other tenants are\nstill queued. A single-tenant deployment ignores the flag.\n\nThe run happens on the job queue because a full regeneration can exceed\nrequest timeouts. This endpoint returns the job id; poll\n``GET /jobs/{job_id}`` for the outcome.",
+        "description": "Queue semantic-search embedding generation for records (admin only).\n\nPass ?force=true to regenerate every record and replace its stored vectors.\nWithout it, the run embeds only records that lack a current-model embedding.\n\nThe run covers the calling tenant's records. In a multi-tenant deployment\nthe embedding model and width are shared by every tenant, so a change\nleaves each tenant to regenerate. Pass ?all_tenants=true to also queue a\nrun for every other tenant that has records; there it needs\nmanage_tenants instead of manage_users, and ``other_tenants`` reports\neach run. When the calling tenant already has a run in flight, that run's\nid comes back with status ``already_running`` and the other tenants are\nstill queued. This request did not queue that run and it may predate the\nchange, so run the backfill again once it ends. A single-tenant\ndeployment ignores the flag.\n\nThe run happens on the job queue because a full regeneration can exceed\nrequest timeouts. This endpoint returns the job id; poll\n``GET /jobs/{job_id}`` for the outcome.",
         "operationId": "trigger_backfill_admin_backfill_embeddings__post",
         "parameters": [
           {

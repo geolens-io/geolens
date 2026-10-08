@@ -140,7 +140,7 @@ describe('SettingsAITab embedding width confirmation', () => {
     );
   });
 
-  it('follows the run already in flight here and says so', async () => {
+  it('follows a run that was already in flight but still asks for a regeneration', async () => {
     hoisted.isMultiTenant = true;
     hoisted.capabilities = ['manage_tenants'];
     hoisted.statsAvailable = false;
@@ -154,9 +154,7 @@ describe('SettingsAITab embedding width confirmation', () => {
     await user.click(screen.getByRole('button', { name: 'Save' }));
     await user.click(screen.getByRole('button', { name: 'Delete embeddings' }));
 
-    await waitFor(() =>
-      expect(toast.warning).toHaveBeenCalledWith('An embedding backfill is already running — wait for it to finish'),
-    );
+    expect(await screen.findByText(/could not be regenerated automatically/)).toBeInTheDocument();
     expect(toast.info).not.toHaveBeenCalled();
   });
 

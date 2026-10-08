@@ -160,7 +160,9 @@ export interface paths {
          *     manage_tenants instead of manage_users, and ``other_tenants`` reports
          *     each run. When the calling tenant already has a run in flight, that run's
          *     id comes back with status ``already_running`` and the other tenants are
-         *     still queued. A single-tenant deployment ignores the flag.
+         *     still queued. This request did not queue that run and it may predate the
+         *     change, so run the backfill again once it ends. A single-tenant
+         *     deployment ignores the flag.
          *
          *     The run happens on the job queue because a full regeneration can exceed
          *     request timeouts. This endpoint returns the job id; poll
@@ -6536,7 +6538,7 @@ export interface components {
             job_id: string;
             /**
              * Status
-             * @description 'pending' when this request queued job_id. 'already_running' when an all_tenants request found a run in flight in the calling tenant; job_id is then that run.
+             * @description 'pending' when this request queued job_id. 'already_running' when an all_tenants request found a run in flight in the calling tenant; job_id is then that run, which this request did not queue. Run the backfill again once it ends.
              */
             status: string;
             /**

@@ -188,9 +188,14 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
     backfill.mutate({ force: false, allTenants: isMultiTenant }, {
       onSuccess: (data) => {
         setBackfillJobId(data.job_id);
-        setRegenPending(null);
-        if (data.status === 'already_running') toast.warning(t('errors.backfillAlreadyRunning'));
-        else toast.info(t('ai.backfillQueued'));
+        // A run that was already in flight started before this change, so it
+        // does not regenerate for it; the page follows it but asks for a rerun.
+        if (data.status === 'already_running') {
+          setRegenPending('queue');
+        } else {
+          setRegenPending(null);
+          toast.info(t('ai.backfillQueued'));
+        }
         const missed = (data.other_tenants ?? []).filter((run) => run.status !== 'pending').length;
         if (missed > 0) toast.warning(t('ai.backfillOtherTenantsMissed', { count: missed }));
       },

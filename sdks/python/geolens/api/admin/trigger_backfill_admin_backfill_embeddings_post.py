@@ -125,7 +125,9 @@ def sync_detailed(
     manage_tenants instead of manage_users, and ``other_tenants`` reports
     each run. When the calling tenant already has a run in flight, that run's
     id comes back with status ``already_running`` and the other tenants are
-    still queued. A single-tenant deployment ignores the flag.
+    still queued. This request did not queue that run and it may predate the
+    change, so run the backfill again once it ends. A single-tenant
+    deployment ignores the flag.
 
     The run happens on the job queue because a full regeneration can exceed
     request timeouts. This endpoint returns the job id; poll
@@ -175,7 +177,9 @@ def sync(
     manage_tenants instead of manage_users, and ``other_tenants`` reports
     each run. When the calling tenant already has a run in flight, that run's
     id comes back with status ``already_running`` and the other tenants are
-    still queued. A single-tenant deployment ignores the flag.
+    still queued. This request did not queue that run and it may predate the
+    change, so run the backfill again once it ends. A single-tenant
+    deployment ignores the flag.
 
     The run happens on the job queue because a full regeneration can exceed
     request timeouts. This endpoint returns the job id; poll
@@ -220,7 +224,9 @@ async def asyncio_detailed(
     manage_tenants instead of manage_users, and ``other_tenants`` reports
     each run. When the calling tenant already has a run in flight, that run's
     id comes back with status ``already_running`` and the other tenants are
-    still queued. A single-tenant deployment ignores the flag.
+    still queued. This request did not queue that run and it may predate the
+    change, so run the backfill again once it ends. A single-tenant
+    deployment ignores the flag.
 
     The run happens on the job queue because a full regeneration can exceed
     request timeouts. This endpoint returns the job id; poll
@@ -268,7 +274,9 @@ async def asyncio(
     manage_tenants instead of manage_users, and ``other_tenants`` reports
     each run. When the calling tenant already has a run in flight, that run's
     id comes back with status ``already_running`` and the other tenants are
-    still queued. A single-tenant deployment ignores the flag.
+    still queued. This request did not queue that run and it may predate the
+    change, so run the backfill again once it ends. A single-tenant
+    deployment ignores the flag.
 
     The run happens on the job queue because a full regeneration can exceed
     request timeouts. This endpoint returns the job id; poll
