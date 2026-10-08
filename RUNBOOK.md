@@ -50,9 +50,10 @@ documentation.
 > re-upload or restore each one. A file replaced in the window keeps its path
 > but holds newer bytes than the dump describes, so re-upload any dataset or
 > import that was being changed around the backup time. A file the catalog no
-> longer references is orphan storage, but datasets, ingest jobs, map
-> thumbnails and map icons all store paths under it, so leave removal to the
-> application's own cleanup rather than pruning by hand.
+> longer references is orphan storage that costs only disk space. Keep it
+> unless you have checked every table that stores paths under the staging
+> volume (datasets, ingest jobs, map thumbnails and map icons). The
+> application's own sweep removes only stale upload files, not every orphan.
 
 ### Automated backups are on by default
 
