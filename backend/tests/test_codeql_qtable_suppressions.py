@@ -581,6 +581,19 @@ def test_codeql_workflow_runs_and_acts_on_the_suppression_query() -> None:
         "the dismissal step must consume the analyze step's SARIF output path"
     )
 
+    check = next(
+        (s for s in steps if "check_suppressed_alerts.py" in str(s.get("run", ""))),
+        None,
+    )
+    assert check is not None, (
+        "a step must run scripts/check_suppressed_alerts.py after the dismissal "
+        "step; the action exits 0 even when it leaves a suppressed alert open"
+    )
+    assert steps.index(check) > steps.index(dismiss)
+    assert "pull_request" in str(check.get("if", "")), (
+        "the check must stay off pull_request, like the dismissal step"
+    )
+
 
 def test_suppression_query_does_not_honour_noqa() -> None:
     """The local query must recognise ``codeql[...]`` only, never ``# noqa``.
