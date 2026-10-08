@@ -2,11 +2,21 @@
 
 from __future__ import annotations
 
+import uuid
+
 from fastapi import HTTPException, status
+from sqlalchemy import select, update
 from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.sqlstate import sqlstate
-from app.modules.catalog.datasets.domain.models import Dataset, DatasetRelationship
+from app.modules.catalog.datasets.domain.models import (
+    Dataset,
+    DatasetRelationship,
+    Record,
+)
+from app.platform.catalog_locks import lock_catalog_rows
+from app.platform.extensions import get_catalog_port
 
 
 # Columns every feature table has but column_info never lists.
@@ -40,6 +50,10 @@ def tables_unavailable_error() -> HTTPException:
     )
 
 
+def is_undefined_column(exc: ProgrammingError) -> bool:
+    return sqlstate(exc) == "42703"
+
+
 def join_column_error(
     exc: ProgrammingError, dataset: Dataset, join_column: str
 ) -> HTTPException | None:
@@ -54,6 +68,10 @@ def join_column_error(
     """
     if sqlstate(exc) != "42703" or not _lacks_column(dataset, join_column):
         return None
+    return column_missing_error(join_column)
+
+
+def column_missing_error(join_column: str) -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_409_CONFLICT,
         detail={
@@ -62,3 +80,36 @@ def join_column_error(
             "column": join_column,
         },
     )
+
+
+async def refresh_dropped_join_column(
+    session: AsyncSession, dataset_id: uuid.UUID, table_name: str, join_column: str
+) -> HTTPException | None:
+    """Store the live column list when a join column was dropped behind the catalog.
+
+    A column dropped directly in the database stays in ``column_info``, so the
+    relationship list keeps reporting it healthy. Returns the permanent error
+    once the live table confirms the column is gone, else ``None``.
+    """
+    # The failed statement aborted the transaction; ids are captured by the caller.
+    await session.rollback()
+    live = await get_catalog_port().get_column_info(session, table_name)
+    if any(c["name"] == join_column for c in live):
+        return None
+    record_id = (
+        await session.execute(select(Dataset.record_id).where(Dataset.id == dataset_id))
+    ).scalar_one_or_none()
+    if record_id is None:
+        return None
+    await lock_catalog_rows(
+        session,
+        dataset_cls=Dataset,
+        record_cls=Record,
+        dataset_id=dataset_id,
+        record_id=record_id,
+    )
+    await session.execute(
+        update(Dataset).where(Dataset.id == dataset_id).values(column_info=live)
+    )
+    await session.commit()
+    return column_missing_error(join_column)

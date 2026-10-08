@@ -32,7 +32,9 @@ from app.modules.catalog.datasets.domain.models import (
 )
 from app.modules.catalog.datasets.domain.relationship_columns import (
     has_missing_column,
+    is_undefined_column,
     join_column_error,
+    refresh_dropped_join_column,
     tables_unavailable_error,
 )
 from app.modules.catalog.datasets.domain.service_query import get_dataset
@@ -640,9 +642,12 @@ async def get_related_records(
             session, target_ds.table_name
         )
     except ProgrammingError as exc:
-        raise (
-            join_column_error(exc, join_ds, join_column) or tables_unavailable_error()
-        ) from exc
+        error = join_column_error(exc, join_ds, join_column)
+        if error is None and is_undefined_column(exc):
+            error = await refresh_dropped_join_column(
+                session, join_ds.id, join_ds.table_name, join_column
+            )
+        raise (error or tables_unavailable_error()) from exc
     except OperationalError as exc:
         raise tables_unavailable_error() from exc
     col_list = [{"name": c["name"], "type": c["type"]} for c in columns]
