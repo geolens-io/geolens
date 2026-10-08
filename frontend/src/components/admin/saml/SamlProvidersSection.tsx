@@ -482,7 +482,6 @@ export function SamlProvidersSection() {
                 value={form.idp_certificate}
                 onChange={(e) => {
                   setCertError(null);
-    setMappingError(null);
                   setForm((prev) => ({ ...prev, idp_certificate: e.target.value }));
                 }}
                 aria-invalid={certError ? true : undefined}

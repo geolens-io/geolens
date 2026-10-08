@@ -250,6 +250,9 @@ describe('SamlProvidersSection provider mutations', () => {
     expect(mapping.getAttribute('aria-describedby')).toContain(error.id);
     expect(mapping).toHaveFocus();
 
+    await user.type(screen.getByLabelText('IdP Signing Certificate (PEM)'), 'x');
+    expect(screen.getByText('Group role mapping must be valid JSON')).toBeInTheDocument();
+
     await user.type(mapping, 'x');
     expect(screen.queryByText('Group role mapping must be valid JSON')).not.toBeInTheDocument();
     expect(mapping).not.toHaveAttribute('aria-invalid');

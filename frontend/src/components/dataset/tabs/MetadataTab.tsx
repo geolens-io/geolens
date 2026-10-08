@@ -129,7 +129,7 @@ export function MetadataTab({
         </CardContent>
       </Card>
 
-      <Card data-field-anchor="keywords">
+      <Card>
         <CardHeader>
           <CardTitle level={2} className="text-base">{t('keywords.title')}</CardTitle>
           {canEdit && isAIAvailable && (
@@ -163,7 +163,9 @@ export function MetadataTab({
           )}
         </CardHeader>
         <CardContent className="space-y-3">
-          <KeywordsEditor recordId={dataset.record_id} canEdit={canEdit} />
+          <div data-field-anchor="keywords">
+            <KeywordsEditor recordId={dataset.record_id} canEdit={canEdit} />
+          </div>
           {suggestedKeywords !== null && (
             <AiKeywordSuggestions
               keywords={suggestedKeywords}
