@@ -9931,26 +9931,22 @@ class TestASecretDoesNotSurviveInTheChain:
 
 
 class TestAHeaderAuthJobUsesTheTasksOwnQueue:
-    """fix(#1812): a credentialed job defers on the task's own queue with its
-    header line under `token`; the worker still lists `ingest-auth-v2`.
-    """
+    """A credentialed job defers on the task's own queue; the worker still lists `ingest-auth-v2`."""
 
     async def test_a_header_auth_import_defers_on_the_default_queue(
         self,
         client,
         admin_auth_header: dict,
         test_db_session,
-        monkeypatch,
     ) -> None:
-        """The import door hands `ingest_service` its own queue and the composed line."""
-        from app.core.config import settings
+        """The import door hands `ingest_service` its own queue and stages the composed line."""
         from app.platform.jobs.models import IngestJob
         from app.platform.refresh import credentials as creds
         from tests.factories import get_user_id
 
-        # The stock install: no credential store, so the line itself crosses.
-        creds.set_credential_backend(None)
-        monkeypatch.setattr(settings, "redis_url", None, raising=False)
+        from tests.test_service_refresh_1220 import _FakeCredentialBackend
+
+        creds.set_credential_backend(_FakeCredentialBackend())
 
         admin_id = await get_user_id(test_db_session, "admin")
         job = IngestJob(
@@ -9977,15 +9973,17 @@ class TestAHeaderAuthJobUsesTheTasksOwnQueue:
                     json={"title": "Roads", "token": secret},
                     headers=admin_auth_header,
                 )
+            assert resp.status_code == 202, resp.text
+            # The task's own queue, as declared on it: nothing reconfigures it.
+            task.configure.assert_not_called()
+            kwargs = task.defer_async.call_args.kwargs
+            assert "token" not in kwargs
+            assert (
+                await creds.claim_service_credential(kwargs["credential_ref"])
+                == f"Authorization: Bearer {secret}"
+            )
         finally:
             creds.set_credential_backend(None)
-
-        assert resp.status_code == 202, resp.text
-        # The task's own queue, as declared on it: nothing reconfigures it.
-        task.configure.assert_not_called()
-        kwargs = task.defer_async.call_args.kwargs
-        assert kwargs["token"] == f"Authorization: Bearer {secret}"
-        assert kwargs["credential_ref"] is None
 
     def test_the_worker_default_keeps_the_legacy_queue_as_a_consumer(self) -> None:
         """The class default still lists `ingest-auth-v2`, with nothing producing on it."""

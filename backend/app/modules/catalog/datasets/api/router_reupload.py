@@ -60,6 +60,7 @@ from app.platform.jobs.ledger import hold
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.credentials import (
     CredentialStoreUnavailable,
+    credential_store_refusal,
     discard_service_credential,
     resolve_dispatch_credential,
 )
@@ -942,7 +943,6 @@ async def _dispatch_reupload_task(
     dataset_id: uuid.UUID,
     record_type: str,
     user_id: uuid.UUID,
-    token: str | None,
     credential_ref: str | None,
     is_service_refresh: bool,
     rollback,
@@ -956,9 +956,9 @@ async def _dispatch_reupload_task(
     ghost ``pending`` row. Extracted from ``reupload_commit`` when the
     raster branch (#1221) pushed it past the McCabe gate.
 
-    feat(#1676): ``token``/``credential_ref`` are the two shapes a
-    service credential can arrive in, exactly one ever set (from
-    ``resolve_dispatch_credential``); both forwarded verbatim.
+    ``credential_ref`` is the staged service credential from
+    ``resolve_dispatch_credential``, forwarded verbatim; the token itself
+    never becomes a task argument.
     """
     if is_service_refresh:
         source_url = job.source_url
@@ -973,7 +973,6 @@ async def _dispatch_reupload_task(
                 source_url=source_url,
                 source_layer=job.source_layer or "",
                 user_id=str(user_id),
-                token=token,
                 credential_ref=credential_ref,
             )
 
@@ -1157,36 +1156,22 @@ async def reupload_commit(
     # re-read decisive.
     await _refuse_if_origin_changed(db, dataset, request.expected_origin_kind)
 
-    # feat(#1676): staged before the commit so a configured-but-unreachable
-    # store rolls the whole request back rather than leaving a dispatch
-    # that can never authenticate. An install with NO store configured
-    # takes the third branch and keeps the durable argument instead;
-    # refusing there would break protected re-upload on every stock
-    # install -- see platform/refresh/credentials for the full contract.
+    # Staged before the commit so a store that is missing or unreachable
+    # rolls the whole request back rather than leaving a dispatch that can
+    # never authenticate.
     credential_ref: str | None = None
-    token: str | None = service_token
     if is_service_refresh:
         try:
             # The wire value, not the structured credential: this door has
             # already judged it and composed it against the job's own service
             # format, and passing the credential again would ask the helper to
             # re-derive a format it cannot see from here.
-            token, credential_ref = await resolve_dispatch_credential(
+            credential_ref = await resolve_dispatch_credential(
                 service_token, door="reupload_commit"
             )
         except CredentialStoreUnavailable as exc:
             await db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail={
-                    "code": "credential_store_unavailable",
-                    "message": (
-                        "Could not stage the service credential for this "
-                        "re-upload. Check that the credential store is "
-                        "reachable and try again."
-                    ),
-                },
-            ) from exc
+            raise credential_store_refusal(exc, operation="re-upload") from exc
 
     # fix(#1709): the pending check at the top is a plain read, and
     # everything since flushes in THIS commit -- POST /jobs/{id}/cancel
@@ -1239,7 +1224,6 @@ async def reupload_commit(
         dataset_id=dataset_id,
         record_type=dataset.record.record_type,
         user_id=user.id,
-        token=token,
         credential_ref=credential_ref,
         is_service_refresh=is_service_refresh,
         rollback=rollback,

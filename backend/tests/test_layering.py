@@ -1307,7 +1307,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Ingest API router debt; split upload, import and registration endpoints before
     # raising further. Each upload door branches once per 3D upload kind: a 3D
     # Tiles tileset and a COPC point cloud.
-    "backend/app/processing/ingest/router.py": 1708,
+    "backend/app/processing/ingest/router.py": 1707,
     # One reader for untrusted COPC files: header, VLRs, hierarchy lookups,
     # chunk table, the checks before the decode child and the published extent.
     "backend/app/processing/ingest/pointcloud.py": 1085,
@@ -1323,7 +1323,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # File and remote-source replacement strategies own retrieval, staging and
     # verification, including the live geometry read and its witness, and the
     # live-edit comparison each publication makes.
-    "backend/app/processing/ingest/tasks_reupload.py": 1568,
+    "backend/app/processing/ingest/tasks_reupload.py": 1566,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection.
     "backend/app/modules/catalog/datasets/api/router_refresh.py": 1354,
@@ -1346,7 +1346,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # semantics.
     "backend/app/processing/embeddings/backfill.py": 919,
     # Reupload preview, compatibility, review and staged commit share an endpoint lifecycle.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1613,
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1597,
     # VRT creation and regeneration share publication, owed-object records and
     # superseded-object cleanup.
     "backend/app/processing/ingest/tasks_vrt.py": 1650,
@@ -1368,7 +1368,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/admin/service.py": 1021,
     # Ingest admission, staging, job settlement and table registration share one
     # orchestration boundary.
-    "backend/app/processing/ingest/service.py": 1586,
+    "backend/app/processing/ingest/service.py": 1572,
     # The PostGIS strategy: geometry and gid repair, the snapshot measurement and
     # its catalog writes.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 699,

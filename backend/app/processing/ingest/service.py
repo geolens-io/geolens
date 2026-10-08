@@ -1372,6 +1372,17 @@ def _assert_header_token_dispatchable(job: IngestJob, token: str | None) -> None
         )
 
 
+def _assert_commit_credential_dispatchable(
+    job: IngestJob, token: str | None, credential: ServiceCredential | None
+) -> None:
+    """Refuse a commit credential the worker would reject or could not receive."""
+    from app.platform.refresh.credentials import refuse_without_credential_store
+
+    _assert_header_token_dispatchable(job, token)
+    if credential is not None:
+        refuse_without_credential_store(door="import", operation="import")
+
+
 async def queue_ingest_job(
     job: IngestJob,
     user_id: str,
@@ -1393,8 +1404,9 @@ async def queue_ingest_job(
 
     Raises ``HTTPException 400`` when the job has no file_path and no
     source_url. Raises ``HTTPException 503`` when Procrastinate is
-    unreachable, or a configured credential store can't be reached to stage
-    a service token (see ``resolve_dispatch_credential``).
+    unreachable, or when a service token cannot be staged because the
+    credential store is not configured or cannot be reached (see
+    ``resolve_dispatch_credential``).
 
     feat(#1746) D2: ``credential`` is the structured spelling of the same
     thing as ``token``, so a caller with no HTTP layer (e.g. an overlay
@@ -1414,6 +1426,7 @@ async def queue_ingest_job(
 
     from app.platform.refresh.credentials import (
         CredentialStoreUnavailable,
+        credential_store_refusal,
         discard_service_credential,
         resolve_dispatch_credential,
     )
@@ -1444,43 +1457,24 @@ async def queue_ingest_job(
         if credential is None:
             _assert_header_token_dispatchable(job, token)
 
-        # feat(#1746) plan D9: what crosses to the worker under `token` is
-        # one finished header line for the two header-auth formats, or the
-        # bare token for ArcGIS — composed here since the queue hop has no
-        # later site to compose it, from whichever spelling the caller used.
+        # What is staged for the worker is one finished header line for the
+        # two header-auth formats, or the bare token for ArcGIS, composed here
+        # because the worker has no later site to compose it.
         service_format = job_service_format(job)
         token = wire_credential(
             credential if credential is not None else bearer_credential(token),
             service_format=service_format,
         )
 
-        # feat(#1676): the import door's half of the lease. With a shared
-        # credential store this returns (None, ref) and the secret never
-        # becomes a task argument; without one it returns the token
-        # unchanged. resolve_dispatch_credential owns that whole decision,
-        # so this door can't drift from the re-upload one.
-        credential_ref: str | None = None
         try:
-            token, credential_ref = await resolve_dispatch_credential(
-                token, door="import"
-            )
+            credential_ref = await resolve_dispatch_credential(token, door="import")
         except CredentialStoreUnavailable as exc:
             # The job row is already committed (commit_import commits before
             # dispatching), so a bare raise would strand it until the stale
             # sweep. Finalize it as the orphan guard would, then 503.
             await job_failed(exc)
             await db.commit()
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail={
-                    "code": "credential_store_unavailable",
-                    "message": (
-                        "Could not stage the service credential for this "
-                        "import. Check that the credential store is "
-                        "reachable and try again."
-                    ),
-                },
-            ) from exc
+            raise credential_store_refusal(exc, operation="import") from exc
 
         async def _defer_service() -> None:
             task = ingest_service
@@ -1491,21 +1485,13 @@ async def queue_ingest_job(
                 source_url=source_url,
                 source_layer=job.source_layer or "",
                 user_id=user_id,
-                token=token,
-                # fix(#1689): ROLLING-DEPLOY SKEW, accepted like
-                # #1220 accepted it at the refresh door. A previous-generation
-                # worker takes `credential_ref` through `**kwargs`, discards
-                # it, fetches unauthenticated, and fails the job blaming the
-                # origin. The alternative — a task name old workers don't
-                # register — is worse: Procrastinate fails its own job on
-                # TaskNotFound without writing the ingest_jobs row, so it
-                # hangs `pending` until the stale-job sweep, which reads
-                # worse than a retriable failure. Narrower window than the
-                # refresh door too: a storeless install dispatches no
-                # reference at all, so only a REDIS_URL install mid-rollout
-                # on a token-bearing import is exposed, and single-node
-                # compose deploys never overlap generations. Nothing strands:
-                # the old worker fails the job and the credential dies by TTL.
+                # A worker from the previous release takes `credential_ref`
+                # through `**kwargs`, ignores it, fetches unauthenticated and
+                # fails the job blaming the origin. Accepted: a new task name
+                # would be worse, since Procrastinate fails an unregistered
+                # task without writing the ingest_jobs row, leaving it
+                # `pending` until the stale-job sweep. The credential dies by
+                # its TTL.
                 credential_ref=credential_ref,
             )
 

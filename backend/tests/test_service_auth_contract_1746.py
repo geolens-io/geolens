@@ -58,10 +58,7 @@ from app.platform.service_auth import (
     bearer_token_for_credential,
 )
 from tests.factories import create_dataset, get_user_id
-from tests.test_import_token_lease_1676 import (  # noqa: F401
-    _reupload_harness,
-    no_credential_store,
-)
+from tests.test_import_token_lease_1676 import _reupload_harness
 from tests.test_service_auth_transport_1746 import _as_stream
 from tests.test_service_refresh_1220 import (  # noqa: F401
     _dispatch_harness,
@@ -522,7 +519,7 @@ class TestReuploadCommitDoor:
         # The reference travels and the secret does not, which is what the flat
         # token already did. Claiming it back is what proves the auth object's
         # token, and not some other value, is what was staged.
-        assert kwargs["token"] is None
+        assert "token" not in kwargs
         assert secret not in str(kwargs)
         # feat(#1746 B2b) plan D9: what is staged is the finished header line,
         # for a bearer credential exactly as for the other two methods, so one
@@ -598,19 +595,14 @@ class TestReuploadCommitDoor:
         credential_backend,  # noqa: F811
         builder,
     ) -> None:
-        """feat(#1746 B2b) plan D9: one finished header line crosses the queue.
-
-        The value under the `token` kwarg is what the purge, the sweep and the
-        log scrubber all key on, so it stays a string under that name for a
-        basic credential exactly as it was for a bearer one.
-        """
+        """One finished header line is what the door stages for the worker."""
         auth, secrets = builder()
         resp, task, _ = await self._post(
             client, test_db_session, admin_auth_header, {"auth": auth}
         )
         assert resp.status_code == 202, resp.text
         kwargs = task.defer_async.call_args.kwargs
-        assert kwargs["token"] is None
+        assert "token" not in kwargs
         for secret in secrets:
             assert secret not in str(kwargs)
         staged = await creds.claim_service_credential(kwargs["credential_ref"])
@@ -793,11 +785,10 @@ class TestServiceLayerTakesACredentialDirectly:
             method=CredentialMethod.BEARER, service_format="wfs", token=secret
         )
 
-        token, ref = await creds.resolve_dispatch_credential(
+        ref = await creds.resolve_dispatch_credential(
             door="overlay", credential=credential
         )
 
-        assert token is None
         assert ref
         assert (
             await creds.claim_service_credential(ref)
@@ -821,11 +812,10 @@ class TestServiceLayerTakesACredentialDirectly:
             password=password,
         )
 
-        token, ref = await creds.resolve_dispatch_credential(
+        ref = await creds.resolve_dispatch_credential(
             door="overlay", credential=credential
         )
 
-        assert token is None
         staged = await creds.claim_service_credential(ref)
         assert staged.startswith("Authorization: Basic ")
         assert password not in staged
@@ -893,7 +883,7 @@ class TestServiceLayerTakesACredentialDirectly:
             )
 
         kwargs = task.await_args.kwargs
-        assert kwargs["token"] is None
+        assert "token" not in kwargs
         assert secret not in str(kwargs)
         # feat(#1746 B2b) plan D9: what is staged is the finished header line,
         # for a bearer credential exactly as for the other two methods, so one
@@ -992,7 +982,7 @@ class TestServiceLayerTakesACredentialDirectly:
             )
 
         kwargs = task.await_args.kwargs
-        assert kwargs["token"] is None
+        assert "token" not in kwargs
         assert (
             await creds.claim_service_credential(kwargs["credential_ref"])
             == f"Authorization: Bearer {secret}"
@@ -1308,15 +1298,10 @@ class TestImportCommitDoor:
         client: AsyncClient,
         admin_auth_header: dict,
         test_db_session,
-        no_credential_store,  # noqa: F811
+        credential_backend,  # noqa: F811
         builder,
     ) -> None:
-        """The durable-argument install, so the wire value is readable here.
-
-        With no credential store configured the door dispatches the value
-        itself, which is what makes "one composed header line under the
-        `token` kwarg, and nothing else" assertable end to end.
-        """
+        """The staged value is one composed header line, and nothing else carries it."""
         auth, secrets = builder()
         resp, task, _ = await self._post(
             client, test_db_session, admin_auth_header, {"auth": auth}
@@ -1324,16 +1309,14 @@ class TestImportCommitDoor:
 
         assert resp.status_code == 202, resp.text
         kwargs = task.await_args.kwargs
-        line = kwargs["token"]
+        assert "token" not in kwargs
+        for secret in secrets:
+            assert secret not in str(kwargs)
+        line = await creds.claim_service_credential(kwargs["credential_ref"])
         assert line.count(": ") == 1
         assert line.startswith(
             "Authorization: Basic " if "username" in auth else "X-Api-Key: "
         )
-        assert kwargs["credential_ref"] is None
-        # Nothing else on the wire carries any part of it: for basic the
-        # password is inside the blob and never appears raw.
-        for secret in secrets:
-            assert secret not in str({k: v for k, v in kwargs.items() if k != "token"})
         if "username" in auth:
             assert auth["password"] not in line
 
@@ -1342,7 +1325,7 @@ class TestImportCommitDoor:
         client: AsyncClient,
         admin_auth_header: dict,
         test_db_session,
-        no_credential_store,  # noqa: F811
+        credential_backend,  # noqa: F811
     ) -> None:
         """The two spellings mean the same thing at this door too."""
         secret = _bearer_secret()
@@ -1358,13 +1341,13 @@ class TestImportCommitDoor:
 
         assert flat_resp.status_code == 202, flat_resp.text
         assert auth_resp.status_code == 202, auth_resp.text
-        assert auth_task.await_args.kwargs["token"] == f"Authorization: Bearer {secret}"
-        # Everything the credential decides, compared: the two calls run
-        # against two job rows, which differ by id and by nothing else here.
-        credential_kwargs = ("token", "credential_ref")
-        assert {k: auth_task.await_args.kwargs[k] for k in credential_kwargs} == {
-            k: flat_task.await_args.kwargs[k] for k in credential_kwargs
-        }
+        staged = [
+            await creds.claim_service_credential(
+                task.await_args.kwargs["credential_ref"]
+            )
+            for task in (flat_task, auth_task)
+        ]
+        assert staged == [f"Authorization: Bearer {secret}"] * 2
 
     async def test_both_spellings_at_once_are_refused(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session

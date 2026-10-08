@@ -1530,13 +1530,11 @@ async def reupload_service(
 ) -> None:
     """Background task: replace dataset data from a remote service source.
 
-    Two dispatching doors since feat(#1676) hand a credential the same
-    way: ``credential_ref``, a single-use reference redeemed once here for
-    a secret that never touched a committed row. ``token`` is the
-    surviving durable argument, produced only when no shared credential
-    store is configured (state 3 in ``platform/refresh/credentials``).
-    Both optional, at most one ever set — the reference wins if both
-    somehow are. Neither required: a public service needs no credential.
+    ``credential_ref`` is a single-use reference redeemed once here for a
+    secret that never touched a committed row. ``token`` is accepted only
+    for a job an earlier release queued with the token as an argument; no
+    current door sends one. The reference wins if both are set. Neither is
+    required: a public service needs no credential.
     """
     _bind_task_log_context(
         task_name="reupload_service", job_id=job_id, dataset_id=dataset_id

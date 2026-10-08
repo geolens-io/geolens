@@ -470,7 +470,7 @@ class Settings(BaseSettings):
     titiler_base_url: str = "http://titiler:8000"
     remote_raster_relay_base_url: str = "http://api:8000"
 
-    redis_url: str | None = None
+    redis_url: str | None = None  # unset refuses token-protected service dispatch
     cdn_base_url: str | None = None
     tile_signing_secret: SecretStr | None = None
     tile_cache_ttl: int = Field(default=300, ge=0)

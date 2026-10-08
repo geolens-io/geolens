@@ -9,6 +9,14 @@ and releases use semantic versioning.
 
 ### Changed
 
+- Importing, re-uploading or refreshing a token-protected service now requires
+  `REDIS_URL` to point at a Valkey or Redis instance that the API and the
+  worker share. Without one, the import and re-upload doors answer 503
+  `credential_store_unavailable` the way the refresh door already did, instead
+  of sending the token to the worker in the job's queue arguments. The API
+  logs `credential_store_not_configured` at startup when `REDIS_URL` is unset.
+  Imports, re-uploads and refreshes that carry no token are unaffected.
+
 - Titiler now reads remote (STAC by-reference) rasters through an internal
   API route that checks every connection and redirect and serves only
   GeoTIFF or COG bytes, instead of fetching the remote URL itself. Titiler

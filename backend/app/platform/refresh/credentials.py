@@ -31,39 +31,22 @@ Three properties matter:
 behind ``cloud-dev``), and the ordinary cache provider degrades to an
 in-memory dict when missing. That's right for a cache and wrong for this:
 API and worker are separate processes, so an in-memory write is invisible to
-the claimant, and every credentialed refresh would fail as
-``credential_expired`` with nothing in the logs saying why. So this module
-talks to Valkey directly rather than through ``get_cache()``, and
-:func:`credential_store_available` reports honestly when there is no store —
-the refresh endpoint refuses a token-bearing request up front in that case,
-a clear error at the door instead of a confusing failure an hour later.
+the claimant. So this module talks to Valkey directly rather than through
+``get_cache()``, and :func:`credential_store_available` reports honestly
+when there is no store.
 
-### Three doors, one mechanism, three states
+### No store, no token-bearing dispatch
 
-#1220 wired the refresh door only; the first-import and re-upload-commit
-doors kept passing their token as a task argument, because refusing a
-credentialed request without Valkey would have broken protected imports on
-every stock install. feat(#1676) closes the gap by keying the decision on
-what the install HAS, not which door the request came through:
-
-- **state 1, store configured and reachable** — stash, dispatch the
-  reference, claim once in the worker. Nothing durable, at every door.
-- **state 2, store configured but the stash fails** — 503
-  ``credential_store_unavailable``, identical at every door: an operator who
-  opted into a store is told it is broken rather than silently downgraded.
-- **state 3, no store configured at all** — the token rides in the task
-  argument, as always at the two pre-existing doors. The refresh door
-  refuses here and keeps refusing: token-bearing refresh has never worked
-  without a store.
-
-State 3 is the one deliberate asymmetry — a uniform refusal would break
-protected import on the default install, the trade #1220 already declined.
-
-:func:`resolve_dispatch_credential` decides all three for the two doors that
-can reach state 3, so they can't drift from each other or from this text.
-The refresh door does not call it: it refuses state 3 explicitly in its own
-handler before writing anything, then reaches states 1 and 2 through
-:func:`stash_service_credential`, the only other call this helper makes.
+The refresh, first-import and re-upload-commit doors all stage a token here
+and dispatch only the reference. When no store is configured, or the
+configured one cannot be reached, each door refuses with a 503
+``credential_store_unavailable`` before anything is queued; an unconfigured
+store raises :class:`CredentialStoreNotConfigured`, whose message names
+``REDIS_URL``. There is no fallback to a plain task argument, because that
+argument is a queue row that outlives the request. Dispatches without a
+token never touch the store. Scheduled refreshes resolve their credential
+inside the worker and pass it to the task in memory, so they do not use this
+channel.
 """
 
 from __future__ import annotations
@@ -73,6 +56,7 @@ import secrets
 from typing import Any, Protocol
 
 import structlog
+from fastapi import HTTPException, status
 from sqlalchemy import text
 
 from app.core.service_tokens import ServiceCredential
@@ -118,12 +102,23 @@ _REF_PATTERN = re.compile(r"\A[A-Za-z0-9_-]{22,64}\Z")
 
 
 class CredentialStoreUnavailable(RuntimeError):
-    """No shared credential store is configured.
+    """The shared credential store is missing or could not be reached.
 
-    Raised at the API door, before anything is written, so the caller gets a
-    503 naming the missing configuration rather than a dispatch that fails in
-    a worker an hour later for reasons nothing surfaces.
+    Raised at the API door, before anything is queued, so the caller gets a
+    503 rather than a dispatch that fails in a worker an hour later for
+    reasons nothing surfaces.
     """
+
+
+class CredentialStoreNotConfigured(CredentialStoreUnavailable):
+    """``REDIS_URL`` is unset, so no token can be handed to the worker."""
+
+
+_NOT_CONFIGURED_MESSAGE = (
+    "Handing a service token to the worker requires a shared credential "
+    "store. Set REDIS_URL to a Valkey/Redis instance reachable by both the "
+    "API and the worker."
+)
 
 
 class CredentialExpiredError(RuntimeError):
@@ -249,6 +244,61 @@ def credential_store_available() -> bool:
     return bool(settings.redis_url) or _backend is not None
 
 
+def require_credential_store(*, door: str) -> None:
+    """Refuse a token-bearing dispatch when no shared store is configured.
+
+    The log line carries the door, never the token or a reference.
+    """
+    if credential_store_available():
+        return
+    logger.warning("service_credential_store_not_configured", door=door)
+    raise CredentialStoreNotConfigured(_NOT_CONFIGURED_MESSAGE)
+
+
+def refuse_without_credential_store(*, door: str, operation: str) -> None:
+    """:func:`require_credential_store`, answering 503 for an HTTP door."""
+    try:
+        require_credential_store(door=door)
+    except CredentialStoreUnavailable as exc:
+        raise credential_store_refusal(exc, operation=operation) from exc
+
+
+def credential_store_refusal(
+    exc: CredentialStoreUnavailable, *, operation: str
+) -> HTTPException:
+    """The 503 a door returns when it cannot stage a service token."""
+    if isinstance(exc, CredentialStoreNotConfigured):
+        message = (
+            f"Starting this {operation} with a service token needs a shared "
+            "credential store, so the token can reach the worker without "
+            "being written to the job queue. Set REDIS_URL to a Valkey or "
+            "Redis instance that the API and the worker can both reach, then "
+            "try again."
+        )
+    else:
+        message = (
+            f"Could not stage the service credential for this {operation}. "
+            "Check that the credential store is reachable and try again."
+        )
+    return HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail={"code": "credential_store_unavailable", "message": message},
+    )
+
+
+def warn_if_credential_store_unconfigured() -> None:
+    """Say at startup that protected-service dispatches are refused."""
+    if credential_store_available():
+        return
+    logger.warning(
+        "credential_store_not_configured",
+        consequence=(
+            "imports, re-uploads and refreshes of token-protected services are refused"
+        ),
+        remediation="set REDIS_URL to a Valkey or Redis instance",
+    )
+
+
 def get_credential_backend() -> CredentialBackend:
     """The process-wide backend, built on first use.
 
@@ -261,11 +311,7 @@ def get_credential_backend() -> CredentialBackend:
     if _backend is not None and _backend_url == settings.redis_url:
         return _backend
     if not settings.redis_url:
-        raise CredentialStoreUnavailable(
-            "Handing a service token to the worker requires a shared "
-            "credential store. Set REDIS_URL to a Valkey/Redis instance "
-            "reachable by both the API and the worker."
-        )
+        raise CredentialStoreNotConfigured(_NOT_CONFIGURED_MESSAGE)
     _backend = RedisCredentialBackend(settings.redis_url)
     _backend_url = settings.redis_url
     return _backend
@@ -367,12 +413,10 @@ async def resolve_worker_credential(
     unauthenticated fetch, which would reach the origin, collect a 401, and
     report a protected service as broken.
 
-    The ref wins over a directly-passed token when both are somehow set: the
-    door that sends a ref is the door that promised nothing durable, and
-    honouring the durable value instead would quietly undo that promise. In
-    practice the pair is mutually exclusive by construction (only
-    :func:`resolve_dispatch_credential` fills either), so this is the
-    tie-break for a rolling deploy, not a routine branch.
+    The ref wins over a directly-passed token when both are somehow set.
+    No door puts a token in task arguments; ``token`` arrives only from the
+    scheduled path, which passes it in memory, or from a job an earlier
+    release queued with the token as an argument.
 
     Lives here rather than in either task module because both
     ``reupload_service`` and ``ingest_service`` need it and neither may
@@ -390,52 +434,30 @@ async def resolve_dispatch_credential(
     *,
     door: str,
     credential: ServiceCredential | None = None,
-) -> tuple[str | None, str | None]:
-    """Decide how the caller's credential reaches the worker. Returns ``(token, ref)``.
+) -> str | None:
+    """Stage the caller's credential for the worker and return its reference.
 
-    The single decision point for the three states in this module's
-    docstring, so the three doors cannot answer it three ways:
+    ``None`` when there is no credential, since there is nothing to protect.
+    Otherwise the secret is stashed and only the reference returned, so no
+    task argument can carry it. Raises :class:`CredentialStoreNotConfigured`
+    when no store is configured and :class:`CredentialStoreUnavailable` when
+    the configured one cannot be reached; :func:`credential_store_refusal`
+    turns either into the door's 503.
 
-    - no token at all      -> ``(None, None)``; nothing to protect.
-    - store configured     -> ``(None, ref)``; the secret is stashed and
-                              only the reference returned, so nothing
-                              durable can carry it. Configured-but-
-                              unreachable raises
-                              :class:`CredentialStoreUnavailable` from the
-                              stash, which every caller turns into 503.
-    - no store configured  -> ``(token, None)``; the pre-existing durable
-                              argument, unchanged.
-
-    Exactly one element of the pair is ever set, which is what lets
-    :func:`resolve_worker_credential` treat "both" as impossible.
-
-    The fallback is logged, not silent, so an operator asking "is this
-    install actually leasing?" can answer it from logs. The log line
-    carries the DOOR, never the token or the reference — a reference is
-    harmless after its claim but not before it, and log sinks outlive TTLs.
-
-    feat(#1746) D2: ``credential`` is the structured spelling an in-process
-    caller uses (e.g. a scheduler with a resolved stored credential) instead
-    of assembling an HTTP request for a door to take apart again. ``token``
-    stays the positional form existing callers pass, already converted to
-    the wire value by their own door; supplying both is redundant, so the
-    structured one wins.
-
-    A structured credential is converted here by ``wire_credential``, which
-    for a header-auth service format composes the finished header line
-    (plan D9) and for every other one yields the bare token. The in-process
-    caller must set ``service_format`` on the credential it builds; without
-    it, the credential degrades to its bare-token form, which a WFS origin
-    answers with a 401 rather than silently mis-sending.
+    ``credential`` is the structured spelling an in-process caller uses
+    instead of assembling an HTTP request for a door to take apart again.
+    ``token`` is the wire value a door has already converted; when both are
+    given the structured one wins. ``wire_credential`` composes the finished
+    header line for a header-auth service format and yields the bare token
+    for every other one, so the caller must set ``service_format`` on the
+    credential it builds.
     """
     if credential is not None:
         token = wire_credential(credential)
     if not token:
-        return None, None
-    if not credential_store_available():
-        logger.info("service_credential_durable_fallback", door=door)
-        return token, None
-    return None, await stash_service_credential(token)
+        return None
+    require_credential_store(door=door)
+    return await stash_service_credential(token)
 
 
 async def discard_service_credential(ref: str | None) -> None:

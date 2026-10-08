@@ -20,6 +20,7 @@ from sqlalchemy import select, text
 from app.modules.auth.models import User
 from app.platform.jobs.models import IngestJob, commit_attempted_marker
 from tests.conftest import get_auth_header
+from tests.test_service_refresh_1220 import credential_backend  # noqa: F401
 
 
 # ---------------------------------------------------------------------------
@@ -1541,7 +1542,12 @@ class TestCommitImportDispatch:
         assert "strict_cog" not in job.user_metadata
 
     async def test_service_job_commits_with_service_body(
-        self, client, admin_auth_header, test_db_session, mock_ingest_task
+        self,
+        client,
+        admin_auth_header,
+        test_db_session,
+        mock_ingest_task,
+        credential_backend,  # noqa: F811
     ) -> None:
         """Service job + service body -> 202 + queue_ingest_job called with token kwarg."""
         result = await test_db_session.execute(
