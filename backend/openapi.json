@@ -9519,10 +9519,10 @@
             "type": "string"
           },
           "uri": {
-            "description": "Relative path (no `..` traversal), HTTP(S) URL, or storage URI.",
+            "description": "Relative path (no `..` traversal), HTTP(S) URL, or s3:// storage URI.",
             "maxLength": 2000,
             "minLength": 1,
-            "pattern": "^(?:(?:\\./)?[^\\s:/][^\\s:]*|https?://[^\\s]+|s3://[^\\s]+|gs://[^\\s]+|az://[^\\s]+|abfs://[^\\s]+)$",
+            "pattern": "^(?:(?:\\./)?[^\\s:/][^\\s:]*|https?://[^\\s]+|s3://[^\\s]+)$",
             "title": "Uri",
             "type": "string"
           },
@@ -20034,13 +20034,13 @@
       "VrtCreateRequest": {
         "properties": {
           "source_dataset_ids": {
-            "description": "Source raster dataset IDs to include in the VRT mosaic or band stack (1-500).",
+            "description": "Source raster dataset IDs to include in the VRT mosaic or band stack (2-500).",
             "items": {
               "format": "uuid",
               "type": "string"
             },
             "maxItems": 500,
-            "minItems": 1,
+            "minItems": 2,
             "title": "Source Dataset Ids",
             "type": "array"
           },
@@ -36972,12 +36972,74 @@
         "responses": {
           "200": {
             "content": {
-              "application/geo+json": {},
+              "application/geo+json": {
+                "schema": {
+                  "properties": {
+                    "type": {
+                      "enum": [
+                        "FeatureCollection"
+                      ],
+                      "type": "string"
+                    },
+                    "features": {
+                      "items": {
+                        "properties": {
+                          "type": {
+                            "enum": [
+                              "Feature"
+                            ],
+                            "type": "string"
+                          },
+                          "id": {
+                            "type": "integer"
+                          },
+                          "geometry": {
+                            "anyOf": [
+                              {
+                                "additionalProperties": true,
+                                "type": "object"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "properties": {
+                            "type": "object",
+                            "additionalProperties": true
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "id",
+                          "geometry",
+                          "properties"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "truncated": {
+                      "type": "boolean"
+                    },
+                    "total_count": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "features",
+                    "truncated",
+                    "total_count"
+                  ],
+                  "type": "object"
+                }
+              },
               "application/json": {
                 "schema": {}
               }
             },
-            "description": "Successful Response"
+            "description": "A GeoJSON FeatureCollection with Z coordinates preserved."
           },
           "400": {
             "content": {

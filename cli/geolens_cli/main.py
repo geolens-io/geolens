@@ -373,7 +373,7 @@ def apply_manifest_command(
 
     NOTE: apply only POSTs the manifest document — it does NOT upload local
     data files. Manifest sources must reference data the server can already
-    reach (http(s)/s3/gs/az/abfs URIs, or files pre-staged server-side). To
+    reach (http(s)/s3 URIs, or files pre-staged server-side). To
     publish a LOCAL file, use `geolens publish <file>` instead. apply errors
     early (GAP-020) if any source URI is a local path.
 
@@ -441,7 +441,7 @@ def apply_manifest_command(
             f"{len(local_uris)} manifest source(s) reference local files ({sample}). "
             "`apply` does not upload them — the server resolves scheme-less paths from "
             "its own staging dir. If it can't see them, run `geolens publish <file>` "
-            "first or use a remote URL (http(s)/s3/gs/az/abfs)."
+            "first or use a remote URL (http(s)/s3)."
         )
 
     # fix(#1778 review round 21): resolved BEFORE the network call so an

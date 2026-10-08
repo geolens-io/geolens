@@ -5598,7 +5598,7 @@ export type ManifestSource = {
     /**
      * Uri
      *
-     * Relative path (no `..` traversal), HTTP(S) URL, or storage URI.
+     * Relative path (no `..` traversal), HTTP(S) URL, or s3:// storage URI.
      */
     uri: string;
     /**
@@ -11794,7 +11794,7 @@ export type VrtCreateRequest = {
     /**
      * Source Dataset Ids
      *
-     * Source raster dataset IDs to include in the VRT mosaic or band stack (1-500).
+     * Source raster dataset IDs to include in the VRT mosaic or band stack (2-500).
      */
     source_dataset_ids: Array<string>;
     /**
@@ -18903,10 +18903,26 @@ export type GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetError 
 
 export type GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponses = {
     /**
-     * Successful Response
+     * A GeoJSON FeatureCollection with Z coordinates preserved.
      */
-    200: unknown;
+    200: {
+        type: 'FeatureCollection';
+        features: Array<{
+            type: 'Feature';
+            id: number;
+            geometry: {
+                [key: string]: unknown;
+            } | null;
+            properties: {
+                [key: string]: unknown;
+            };
+        }>;
+        truncated: boolean;
+        total_count: number;
+    };
 };
+
+export type GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse = GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponses[keyof GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponses];
 
 export type ListFeaturesDatasetsDatasetIdFeaturesGetData = {
     body?: never;

@@ -248,6 +248,53 @@ class TestPointCloudDownload:
             assert result.payload.read() == body
 
 
+class TestFeaturesGeojsonDownload:
+    """The convenience calls return the parsed FeatureCollection, not None."""
+
+    def test_sync_and_asyncio_return_the_collection(self) -> None:
+        from geolens.api.features import (
+            get_features_geojson_z_endpoint_datasets_dataset_id_features_geojson_get as fetch,
+        )
+
+        body = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "id": 1,
+                    "geometry": {"type": "Point", "coordinates": [1.0, 2.0, 3.0]},
+                    "properties": {"name": "a"},
+                },
+                {"type": "Feature", "id": 2, "geometry": None, "properties": {}},
+            ],
+            "truncated": False,
+            "total_count": 2,
+        }
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200, json=body, headers={"Content-Type": "application/geo+json"}
+            )
+
+        client = AuthenticatedClient(
+            base_url="http://sdk.test",
+            token=uuid4().hex,
+            httpx_args={"transport": httpx.MockTransport(respond)},
+        )
+        dataset_id = uuid4()
+
+        synced = fetch.sync(dataset_id, client=client)
+        awaited = asyncio.run(fetch.asyncio(dataset_id, client=client))
+
+        for result in (synced, awaited):
+            assert result is not None
+            payload = result.to_dict()
+            assert payload["features"][0]["geometry"]["coordinates"] == [1.0, 2.0, 3.0]
+            assert payload["truncated"] is False
+            assert payload["features"][1]["geometry"] is None
+            assert payload["total_count"] == 2
+
+
 class TestCogDownload:
     """sync() and asyncio() return the COG download's bytes for 200 and 206."""
 

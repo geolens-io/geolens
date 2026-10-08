@@ -273,7 +273,7 @@ async def test_restricted_editor_vrt_create_public_403(
         "/ingest/vrt/create",
         json={
             "title": "blocked vrt",
-            "source_dataset_ids": [str(uuid.uuid4())],
+            "source_dataset_ids": [str(uuid.uuid4()), str(uuid.uuid4())],
             "vrt_type": "mosaic",
             "resolution_strategy": "finest",
             "visibility": "public",

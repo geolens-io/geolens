@@ -193,7 +193,7 @@ async def classify_manifest_source(
             file_type=file_type,
         )
 
-    if parsed.scheme in {"s3", "gs", "az", "abfs"}:
+    if parsed.scheme in {"s3"}:
         return ManifestPreparedSource(
             kind="storage",
             source=source,

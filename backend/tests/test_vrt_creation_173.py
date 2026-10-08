@@ -406,7 +406,10 @@ class TestCreateVrtJob:
         async def _check():
             mock_db = AsyncMock()
             mock_user = MagicMock()
-            request = self._minimal_request(source_count=1)
+            request = self._minimal_request()
+            # The model rejects a single source itself; assignment skips that
+            # check so the service's own guard stays covered.
+            request.source_dataset_ids = request.source_dataset_ids[:1]
 
             with pytest.raises(HTTPException) as exc_info:
                 await create_vrt_job(mock_db, request, mock_user)

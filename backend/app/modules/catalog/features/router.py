@@ -410,10 +410,47 @@ async def _finish_repeat(
     return _created_feature_response(repeat.row, tile_version, table_oid)
 
 
+# A typed object, not a binary body: the generated Python client parses any
+# `+json` media type with response.json(), which would hand bytes() a dict.
+_FEATURES_GEOJSON_Z_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "type": {"type": "string", "enum": ["FeatureCollection"]},
+        "features": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "type": {"type": "string", "enum": ["Feature"]},
+                    "id": {"type": "integer"},
+                    "geometry": {
+                        "anyOf": [
+                            {"type": "object", "additionalProperties": True},
+                            {"type": "null"},
+                        ]
+                    },
+                    "properties": {"type": "object", "additionalProperties": True},
+                },
+                "required": ["type", "id", "geometry", "properties"],
+            },
+        },
+        "truncated": {"type": "boolean"},
+        "total_count": {"type": "integer"},
+    },
+    "required": ["type", "features", "truncated", "total_count"],
+}
+
+
 @features_router.get(
     "/{dataset_id}/features.geojson",
     response_class=JSONResponse,
-    responses={200: {"content": {"application/geo+json": {}}}, **ERROR_RESPONSES_AUTH},
+    responses={
+        200: {
+            "description": "A GeoJSON FeatureCollection with Z coordinates preserved.",
+            "content": {"application/geo+json": {"schema": _FEATURES_GEOJSON_Z_SCHEMA}},
+        },
+        **ERROR_RESPONSES_AUTH,
+    },
 )
 async def get_features_geojson_z_endpoint(
     dataset_id: uuid.UUID,

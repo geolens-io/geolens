@@ -9763,7 +9763,7 @@ export interface components {
             type: "vector" | "raster_cog";
             /**
              * Uri
-             * @description Relative path (no `..` traversal), HTTP(S) URL, or storage URI.
+             * @description Relative path (no `..` traversal), HTTP(S) URL, or s3:// storage URI.
              */
             uri: string;
             /** Title */
@@ -14447,7 +14447,7 @@ export interface components {
         VrtCreateRequest: {
             /**
              * Source Dataset Ids
-             * @description Source raster dataset IDs to include in the VRT mosaic or band stack (1-500).
+             * @description Source raster dataset IDs to include in the VRT mosaic or band stack (2-500).
              */
             source_dataset_ids: string[];
             /**
@@ -25525,13 +25525,29 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description A GeoJSON FeatureCollection with Z coordinates preserved. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/geo+json": unknown;
+                    "application/geo+json": {
+                        /** @enum {string} */
+                        type: "FeatureCollection";
+                        features: {
+                            /** @enum {string} */
+                            type: "Feature";
+                            id: number;
+                            geometry: {
+                                [key: string]: unknown;
+                            } | null;
+                            properties: {
+                                [key: string]: unknown;
+                            };
+                        }[];
+                        truncated: boolean;
+                        total_count: number;
+                    };
                     "application/json": unknown;
                 };
             };
