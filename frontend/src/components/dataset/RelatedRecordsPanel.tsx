@@ -28,11 +28,14 @@ function RelatedSection({
   const { t } = useTranslation('dataset');
   const [open, setOpen] = useState(false);
 
-  const { data, isLoading, isError } = useQuery<DatasetRowsResponse>({
+  const { data: fetched, isLoading, isError } = useQuery<DatasetRowsResponse>({
     queryKey: queryKeys.relationships.records(datasetId, featureGid, relationship.id),
     queryFn: () => getRelatedRecords(datasetId, featureGid, relationship.id, { limit: 50 }),
     enabled: open && !relationship.broken,
   });
+
+  // A cached result from before the relationship broke must not render beside the warning.
+  const data = relationship.broken ? undefined : fetched;
 
   const label = relationship.label || relationship.target_dataset_title || t('relatedRecords.title');
 
@@ -52,13 +55,13 @@ function RelatedSection({
           {relationship.broken && (
             <p className="text-sm text-muted-foreground py-2">{t('relatedRecords.brokenMessage')}</p>
           )}
-          {isLoading && (
+          {isLoading && !relationship.broken && (
             <div className="space-y-2 py-2">
               <Skeleton className="h-4 w-full" />
               <Skeleton className="h-4 w-3/4" />
             </div>
           )}
-          {isError && (
+          {isError && !relationship.broken && (
             <p className="text-sm text-muted-foreground py-2">{t('relatedRecords.loadError')}</p>
           )}
           {data && data.rows.length === 0 && (

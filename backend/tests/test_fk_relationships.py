@@ -477,7 +477,7 @@ class TestFKRelationships:
             json={
                 "target_dataset_id": str(target.record_id),
                 "source_column": "target_id",
-                "target_column": "target_id",
+                "target_column": "gid",
             },
             headers=admin_auth_header,
         )

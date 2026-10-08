@@ -37,21 +37,20 @@ def tables_unavailable_error() -> HTTPException:
     )
 
 
-def join_column_error(
-    exc: ProgrammingError, rel: DatasetRelationship
-) -> HTTPException | None:
-    """409 naming the join column the table no longer has, else ``None``.
+def join_column_error(exc: ProgrammingError, join_column: str) -> HTTPException | None:
+    """409 when the failed query's own join column is the one that is missing.
 
-    Other undefined columns (``gid``, a projected property) are not fixed by
-    editing the relationship, so they keep the caller's 503. A retry cannot
-    fix a missing join column; the relationship has to be deleted or recreated.
+    Other undefined columns (``gid``, a projected property, the other endpoint's
+    column) are not fixed by editing the relationship, so they return ``None``
+    and keep the caller's 503. A retry cannot fix a missing join column; the
+    relationship has to be deleted or recreated.
     """
     if sqlstate(exc) != "42703":
         return None
     match = _MISSING_COLUMN_RE.search(str(getattr(exc, "orig", exc)))
     column = match.group(1) if match else None
-    joins = {rel.source_column, rel.source_column.lower(), rel.target_column}
-    if column not in joins:
+    # The source column is interpolated unquoted, so Postgres reports it folded.
+    if column not in {join_column, join_column.lower()}:
         return None
     return HTTPException(
         status_code=status.HTTP_409_CONFLICT,

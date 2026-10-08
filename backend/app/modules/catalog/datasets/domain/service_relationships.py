@@ -612,6 +612,7 @@ async def get_related_records(
     # vector table) resolves to a missing data.<table>, raising
     # UndefinedTableError. Map that to 503 instead of an uncaught 500 that
     # holds the DB connection.
+    join_column = rel.source_column
     try:
         fk_value = await _fetch_fk_value(
             session, source_ds.table_name, rel.source_column, feature_gid
@@ -624,6 +625,7 @@ async def get_related_records(
                 "columns": [],
             }
 
+        join_column = rel.target_column
         total = await _count_target_rows(
             session, target_ds.table_name, rel.target_column, fk_value
         )
@@ -635,7 +637,9 @@ async def get_related_records(
             session, target_ds.table_name
         )
     except ProgrammingError as exc:
-        raise (join_column_error(exc, rel) or tables_unavailable_error()) from exc
+        raise (
+            join_column_error(exc, join_column) or tables_unavailable_error()
+        ) from exc
     except OperationalError as exc:
         raise tables_unavailable_error() from exc
     col_list = [{"name": c["name"], "type": c["type"]} for c in columns]
