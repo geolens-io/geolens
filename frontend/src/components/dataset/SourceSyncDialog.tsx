@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2 } from 'lucide-react';
 import { ApiError } from '@/api/client';
@@ -70,6 +70,8 @@ export function SourceSyncDialog({
   const [token, setToken] = useState('');
   const [replaceToken, setReplaceToken] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
+  const tokenRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!open) {
@@ -88,6 +90,8 @@ export function SourceSyncDialog({
     || createCredential.isPending
     || replaceCredential.isPending;
   const isNewCredential = credentialChoice === 'new';
+  const nameInvalid = Boolean(error) && isNewCredential && !credentialName.trim();
+  const tokenInvalid = Boolean(error) && (isNewCredential || replaceToken) && !token.trim();
   const selectedCredential = credentials.data?.find((item) => item.id === credentialChoice);
 
   const updateCadence = (nextKind: SyncCadence['kind']) => {
@@ -115,10 +119,12 @@ export function SourceSyncDialog({
     setError(null);
     if (isNewCredential && (!credentialName.trim() || !token.trim())) {
       setError(t('sourcePanel.sync.form.credentialRequired'));
+      (credentialName.trim() ? tokenRef : nameRef).current?.focus();
       return;
     }
     if (replaceToken && !token.trim()) {
       setError(t('sourcePanel.sync.form.tokenRequired'));
+      tokenRef.current?.focus();
       return;
     }
     if (!Number.isInteger(cadence.minute) || cadence.minute < 0 || cadence.minute > 59
@@ -243,13 +249,13 @@ export function SourceSyncDialog({
           {isNewCredential && (
             <div className="flex flex-col gap-2">
               <Label htmlFor="sync-credential-name">{t('sourcePanel.sync.form.credentialName')}</Label>
-              <Input id="sync-credential-name" value={credentialName} onChange={(event) => setCredentialName(event.target.value)} disabled={pending} />
+              <Input id="sync-credential-name" ref={nameRef} aria-invalid={nameInvalid || undefined} aria-describedby={nameInvalid ? 'sync-error' : undefined} value={credentialName} onChange={(event) => setCredentialName(event.target.value)} disabled={pending} />
             </div>
           )}
           {(isNewCredential || replaceToken) && (
             <div className="flex flex-col gap-2">
               <Label htmlFor="sync-token">{t('sourcePanel.sync.form.token')}</Label>
-              <Input id="sync-token" type="password" autoComplete="new-password" value={token} onChange={(event) => setToken(event.target.value)} disabled={pending} />
+              <Input id="sync-token" ref={tokenRef} aria-invalid={tokenInvalid || undefined} aria-describedby={tokenInvalid ? 'sync-error' : undefined} type="password" autoComplete="new-password" value={token} onChange={(event) => setToken(event.target.value)} disabled={pending} />
               <p className="text-xs text-muted-foreground">{t('sourcePanel.sync.form.tokenHint')}</p>
             </div>
           )}
@@ -258,7 +264,7 @@ export function SourceSyncDialog({
               {replaceToken ? t('sourcePanel.sync.form.cancelReplace') : t('sourcePanel.sync.form.replaceToken')}
             </Button>
           )}
-          {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+          {error && <p id="sync-error" role="alert" className="text-sm text-destructive">{error}</p>}
         </div>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>{t('sourcePanel.refresh.cancel')}</Button>

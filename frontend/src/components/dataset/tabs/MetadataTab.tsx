@@ -129,7 +129,7 @@ export function MetadataTab({
         </CardContent>
       </Card>
 
-      <Card>
+      <Card data-field-anchor="keywords">
         <CardHeader>
           <CardTitle level={2} className="text-base">{t('keywords.title')}</CardTitle>
           {canEdit && isAIAvailable && (

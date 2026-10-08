@@ -229,4 +229,29 @@ describe('SamlProvidersSection provider mutations', () => {
       screen.queryByText('IdP certificate must be a valid X.509 certificate (PEM)'),
     ).not.toBeInTheDocument();
   });
+  it('binds malformed group role mapping JSON to its textarea and focuses it', async () => {
+    const user = userEvent.setup();
+
+    render(<SamlProvidersSection />);
+
+    await user.click(screen.getByRole('button', { name: /add saml provider/i }));
+    await user.type(await screen.findByLabelText('Display Name'), 'Okta');
+    await user.type(screen.getByLabelText('IdP Entity ID'), 'https://okta.example.com/saml/metadata');
+    await user.type(screen.getByLabelText('IdP SSO URL'), 'https://okta.example.com/saml/sso');
+    await user.type(screen.getByLabelText('IdP Signing Certificate (PEM)'), 'cert-pem');
+    const mapping = screen.getByLabelText('Group Role Mapping (JSON)');
+    await user.click(mapping);
+    await user.paste('{not json');
+    await user.click(screen.getByRole('button', { name: 'Create Provider' }));
+
+    const error = await screen.findByText('Group role mapping must be valid JSON');
+    expect(createSamlProvider).not.toHaveBeenCalled();
+    expect(mapping).toHaveAttribute('aria-invalid', 'true');
+    expect(mapping.getAttribute('aria-describedby')).toContain(error.id);
+    expect(mapping).toHaveFocus();
+
+    await user.type(mapping, 'x');
+    expect(screen.queryByText('Group role mapping must be valid JSON')).not.toBeInTheDocument();
+    expect(mapping).not.toHaveAttribute('aria-invalid');
+  });
 });

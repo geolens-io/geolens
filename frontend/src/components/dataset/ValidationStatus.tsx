@@ -8,6 +8,11 @@ import { semanticBadgeColors, validationLevelColors } from '@/lib/status-colors'
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
+  getValidationFieldLabel,
+  getValidationNavigationAction,
+} from '@/lib/dataset-validation-navigation';
+import type { ValidationIssue } from '@/types/api';
+import {
   deriveLikelyValidationCauses,
   ValidationTroubleshootPanel,
 } from '@/components/dataset/ValidationTroubleshootPanel';
@@ -40,6 +45,23 @@ export function ValidationStatus({
   const errorCount = data.errors.length;
   const warningCount = data.warnings.length;
   const hasIssues = errorCount > 0 || warningCount > 0;
+  const renderFieldLabel = (issue: ValidationIssue) => {
+    const label = getValidationFieldLabel(issue.field, t);
+    if (!canEdit || !onNavigateToField || !getValidationNavigationAction(issue.field)) {
+      return <span className="font-medium">{label}:</span>;
+    }
+    return (
+      <button
+        type="button"
+        className="font-medium underline underline-offset-2 rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2"
+        onClick={() => onNavigateToField(issue.field)}
+        aria-label={`${t('validation.goToField')}: ${label}`}
+      >
+        {label}:
+      </button>
+    );
+  };
+
   const likelyCauses = deriveLikelyValidationCauses([...data.errors, ...data.warnings], 2, t);
 
   const helperText = errorCount > 0
@@ -139,7 +161,7 @@ export function ValidationStatus({
             <li key={`err-${i}`} className="flex items-start gap-1.5 text-sm text-destructive">
               <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
               <span>
-                <span className="font-medium">{issue.field}:</span> {issue.message}
+                {renderFieldLabel(issue)} {issue.message}
               </span>
             </li>
           ))}
@@ -152,7 +174,7 @@ export function ValidationStatus({
             <li key={`warn-${i}`} className="flex items-start gap-1.5 text-sm text-warning">
               <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
               <span>
-                <span className="font-medium">{issue.field}:</span> {issue.message}
+                {renderFieldLabel(issue)} {issue.message}
               </span>
             </li>
           ))}

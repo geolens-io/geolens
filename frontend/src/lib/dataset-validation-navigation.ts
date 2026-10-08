@@ -32,6 +32,15 @@ export function getValidationNavigationAction(
         defaultLabel: 'Review summary',
         priority: 10,
       };
+    case 'keywords':
+      return {
+        field,
+        tab: 'metadata',
+        anchor: 'keywords',
+        labelKey: 'validation.fields.keywords',
+        defaultLabel: 'Review keywords',
+        priority: 25,
+      };
     case 'contacts':
     case 'contact':
       return {
@@ -147,4 +156,25 @@ export function getValidationNavigationAction(
     default:
       return null;
   }
+}
+
+function titleCaseField(field: string): string {
+  return field
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+/** Localized label for a validation issue's field key; unknown keys fall back to a title-cased form. */
+export function getValidationFieldLabel(
+  field: string,
+  t: (key: string, opts?: Record<string, unknown>) => string,
+): string {
+  const normalized = normalizeField(field);
+  if (!normalized) return t('validation.fields.metadata', { defaultValue: 'Metadata' });
+  const camel = normalized.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+  const key = `validation.fields.${camel}`;
+  const label = t(key, { defaultValue: '' });
+  return label || titleCaseField(field);
 }

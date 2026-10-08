@@ -17,7 +17,7 @@
  * the IdP registration exactly.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -176,6 +176,8 @@ export function SamlProvidersSection() {
   const [deleteTarget, setDeleteTarget] = useState<SamlProviderConfig | null>(null);
   const [form, setForm] = useState<SamlFormData>(EMPTY_FORM);
   const [certError, setCertError] = useState<string | null>(null);
+  const [mappingError, setMappingError] = useState<string | null>(null);
+  const mappingRef = useRef<HTMLTextAreaElement>(null);
 
   /**
    * Build a sensible default sp_entity_id for the current slug, using the
@@ -210,6 +212,7 @@ export function SamlProvidersSection() {
   function openAddDialog() {
     setEditingProvider(null);
     setCertError(null);
+    setMappingError(null);
     setForm({ ...EMPTY_FORM });
     setDialogOpen(true);
   }
@@ -217,6 +220,7 @@ export function SamlProvidersSection() {
   function openEditDialog(provider: SamlProviderConfig) {
     setEditingProvider(provider);
     setCertError(null);
+    setMappingError(null);
     setForm({
       display_name: provider.display_name,
       slug: provider.slug,
@@ -260,7 +264,8 @@ export function SamlProvidersSection() {
       try {
         groupMapping = JSON.parse(form.group_role_mapping);
       } catch {
-        toast.error(t('saml.invalidJson'));
+        setMappingError(t('saml.invalidJson'));
+        mappingRef.current?.focus();
         return;
       }
     }
@@ -477,6 +482,7 @@ export function SamlProvidersSection() {
                 value={form.idp_certificate}
                 onChange={(e) => {
                   setCertError(null);
+    setMappingError(null);
                   setForm((prev) => ({ ...prev, idp_certificate: e.target.value }));
                 }}
                 aria-invalid={certError ? true : undefined}
@@ -550,16 +556,29 @@ export function SamlProvidersSection() {
               <Label htmlFor="saml-group-role-mapping">{t('saml.groupRoleMapping')}</Label>
               <Textarea
                 id="saml-group-role-mapping"
+                ref={mappingRef}
                 className="min-h-[80px]"
                 value={form.group_role_mapping}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, group_role_mapping: e.target.value }))
+                onChange={(e) => {
+                  setMappingError(null);
+                  setForm((prev) => ({ ...prev, group_role_mapping: e.target.value }));
+                }}
+                aria-invalid={mappingError ? true : undefined}
+                aria-describedby={
+                  mappingError
+                    ? 'saml-group-role-mapping-hint saml-group-role-mapping-error'
+                    : 'saml-group-role-mapping-hint'
                 }
                 placeholder='{"IdP Group": "viewer", "Admins": "admin"}'
               />
-              <p className="text-xs text-muted-foreground">
+              <p id="saml-group-role-mapping-hint" className="text-xs text-muted-foreground">
                 {t('saml.groupRoleMappingHint')}
               </p>
+              {mappingError && (
+                <p id="saml-group-role-mapping-error" role="alert" className="text-xs text-destructive">
+                  {mappingError}
+                </p>
+              )}
             </div>
 
             <div className="flex items-center gap-3">
