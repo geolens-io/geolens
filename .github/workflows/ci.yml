@@ -150,6 +150,8 @@ jobs:
               # test asserts audit-archives/ stays gitignored, so a
               # .gitignore-only PR must run Backend Tests too.
               - 'scripts/audit_retention.sh'
+              # test_check_suppressed_alerts.py imports this script.
+              - 'scripts/check_suppressed_alerts.py'
               # test_frontend_dev_entrypoint.py runs this script against a stub npm.
               - 'frontend/docker-dev-entrypoint.sh'
               # Decides which test files each Backend Tests shard runs; a PR
