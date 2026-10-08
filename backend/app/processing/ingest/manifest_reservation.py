@@ -6,8 +6,10 @@ stage exits answer one question, so they live together rather than in step.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 import structlog
 from sqlalchemy import desc, func, select, text
@@ -82,8 +84,10 @@ async def held_entry(
 
     None unless applying the unchanged entry again would only repeat the hold:
     the key's newest held job must carry ``fingerprint``, postdate the last
-    completed import, and still be acceptable, its acceptance unspent and the
-    dataset's data at the version it was held against.
+    completed import, and still be acceptable: its acceptance unspent, the
+    dataset's data at the version it was held against, and the copy apply
+    staged still on disk. A raw seed is the entry's own source, so applying
+    again could not restage it.
     """
     row = (
         await db.execute(
@@ -107,6 +111,12 @@ async def held_entry(
         or job.created_at <= completed_job.created_at
         or "acceptance_consumed_by_run_id" in verification
         or verification.get("live_version") != getattr(dataset, "current_version", None)
+        or not job.file_path
+    ):
+        return None
+    staged = Path(job.file_path)
+    if staged.name.startswith(f"{job.id}_") and not await asyncio.to_thread(
+        staged.exists
     ):
         return None
     return ManifestApplyEntryResult(

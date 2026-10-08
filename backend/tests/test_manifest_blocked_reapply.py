@@ -5,6 +5,7 @@ from __future__ import annotations
 import shutil
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -170,7 +171,7 @@ async def test_a_changed_entry_is_queued_past_the_hold(test_db_session, clean_ta
     assert await _job_count(test_db_session) == jobs_before + 1
 
 
-@pytest.mark.parametrize("why", ["acceptance_spent", "data_replaced"])
+@pytest.mark.parametrize("why", ["acceptance_spent", "data_replaced", "upload_gone"])
 async def test_a_hold_that_can_no_longer_be_accepted_does_not_block(
     test_db_session, clean_tables, why
 ):
@@ -181,6 +182,11 @@ async def test_a_hold_that_can_no_longer_be_accepted_does_not_block(
             **run.verification,
             "acceptance_consumed_by_run_id": str(uuid.uuid4()),
         }
+    elif why == "upload_gone":
+        job = await test_db_session.get(IngestJob, held.job_id)
+        staged = Path(job.file_path)
+        assert staged.name.startswith(f"{held.job_id}_") and staged.exists()
+        staged.unlink()
     else:
         await test_db_session.execute(
             update(Dataset)
