@@ -292,6 +292,8 @@ export const queryKeys = {
   // -------------------------------------------------------------------------
   relationships: {
     list: (datasetId: string) => ['dataset-relationships', datasetId] as const,
+    // A list's broken flags also depend on each target dataset's schema.
+    listPrefix: ['dataset-relationships'] as const,
     records: (datasetId: string, featureGid: number, relationshipId: string) =>
       ['related-records', datasetId, featureGid, relationshipId] as const,
     // records() is parameterized by featureGid and

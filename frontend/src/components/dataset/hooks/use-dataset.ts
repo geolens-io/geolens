@@ -446,8 +446,8 @@ export function useDatasetRefreshWatch(datasetId: string): DatasetRefreshWatch {
     //   - relationships.recordsPrefix: the actual joined related-record
     //     ROWS a RelatedRecordsPanel section renders, fetched by feature —
     //     genuinely stale after a data replace.
-    //   - relationships.list: carries each relationship's `broken` flag,
-    //     which a replace that drops or restores a join column changes.
+    //   - relationships.listPrefix: every list carries its relationships'
+    //     `broken` flag, which a replace of either endpoint changes.
     //
     // Considered and excluded, and why:
     //   - refreshRunsPrefix: this IS the query driving this effect; already
@@ -479,7 +479,7 @@ export function useDatasetRefreshWatch(datasetId: string): DatasetRefreshWatch {
     queryClient.invalidateQueries({ queryKey: queryKeys.search.all });
     queryClient.invalidateQueries({ queryKey: queryKeys.ingest.jobStatusByDataset(datasetId) });
     queryClient.invalidateQueries({ queryKey: queryKeys.relationships.recordsPrefix(datasetId) });
-    queryClient.invalidateQueries({ queryKey: queryKeys.relationships.list(datasetId) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.relationships.listPrefix });
   }, [latestRunId, latestRunStatus, dispatchedRunId, datasetId, queryClient]);
 
   const trackDispatchedRun = useCallback((runId: string) => {
