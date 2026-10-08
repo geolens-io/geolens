@@ -508,7 +508,7 @@ export function DatasetPage() {
           data-testid="dataset-table-readout"
         >
           {dataset.table_name}
-          <CopyButton value={dataset.table_name} className="inline-flex size-5 items-center justify-center rounded-sm hover:bg-muted transition-colors" />
+          <CopyButton value={dataset.table_name} className="inline-flex size-5 items-center justify-center rounded-sm hover:bg-muted transition-colors pointer-coarse:-m-3 pointer-coarse:size-11" />
         </span>
       )}
     </>

@@ -325,14 +325,14 @@ export function AdminSharedMapsPage() {
       />
       <Card>
         <CardContent className="pt-6">
-          <div className="flex items-center gap-3 mb-4">
+          <div className="flex flex-wrap items-center gap-3 mb-4">
             <DataTableSearch
               value={search}
               onChange={(v) => { setSearch(v); setPage(0); }}
               placeholder={t('sharedMaps.searchPlaceholder')}
               debounceMs={300}
             />
-            <div className="flex gap-1">
+            <div className="flex flex-wrap gap-1">
               {(['', 'active', 'expired', 'revoked'] as const).map((value) => (
                 <Button
                   key={value}

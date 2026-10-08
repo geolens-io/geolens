@@ -75,6 +75,15 @@ describe('GLUX-002: AttributeTable filter input accessible name', () => {
     expect(filterInput).toBeInTheDocument();
   });
 
+  it('lets the pagination controls wrap so a narrow viewport does not widen the page', () => {
+    render(<AttributeTable datasetId="test-ds" />);
+    const next = screen.getByRole('button', { name: /next/i });
+    const rowsPerPage = screen.getByRole('combobox', { name: /rows per page/i });
+    const bar = next.parentElement?.parentElement;
+    expect(bar).toHaveClass('flex-wrap');
+    expect(rowsPerPage.closest('.flex-wrap.gap-x-3')).not.toBeNull();
+  });
+
   it('sizes the row spacer with min-height so a short table is not clipped to its header', () => {
     render(<AttributeTable datasetId="test-ds" />);
     const scrollBox = screen.getByRole('table').closest<HTMLElement>('.max-h-\\[60vh\\]');

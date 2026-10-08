@@ -45,7 +45,7 @@ export function AppFooter({
             href={GEOLENS_SITE_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className={cn('hover:text-foreground transition-colors', linkClassName)}
+            className={cn('hover:text-foreground transition-colors pointer-coarse:inline-flex pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:items-center pointer-coarse:justify-center', linkClassName)}
           >
             {t('footer.poweredBy')}
           </a>
@@ -57,7 +57,7 @@ export function AppFooter({
               href={link.href}
               target="_blank"
               rel="noopener noreferrer"
-              className={cn('hover:text-foreground transition-colors', linkClassName)}
+              className={cn('hover:text-foreground transition-colors pointer-coarse:inline-flex pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:items-center pointer-coarse:justify-center', linkClassName)}
             >
               {link.label}
             </a>

@@ -3,7 +3,7 @@
 import { act, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useParams } from 'react-router';
-import { render, screen } from '@/test/test-utils';
+import { render, screen, within } from '@/test/test-utils';
 import { useDataset, useUpdateDataset } from '@/components/dataset/hooks/use-dataset';
 import { useAuthStore } from '@/stores/auth-store';
 import { DatasetPage } from '@/pages/DatasetPage';
@@ -288,6 +288,9 @@ describe('DatasetPage actions by record type', () => {
     const map = await renderAs('vector_dataset');
 
     expect(screen.getByTestId('dataset-table-readout')).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId('dataset-table-readout')).getByRole('button'),
+    ).toHaveClass('pointer-coarse:size-11');
     expect(screen.getByRole('button', { name: 'Add to map' })).toBeInTheDocument();
     expect(map).toHaveAttribute('data-can-edit', 'true');
     expect(screen.getByTestId('dataset-chat-panel')).toBeInTheDocument();
