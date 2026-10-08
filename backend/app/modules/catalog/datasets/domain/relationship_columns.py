@@ -9,13 +9,17 @@ from app.core.db.sqlstate import sqlstate
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetRelationship
 
 
+# Columns every feature table has but column_info never lists.
+_INTERNAL_COLUMNS = frozenset({"gid", "geom", "geom_4326"})
+
+
 def _lacks_column(dataset: Dataset, column: str) -> bool:
     """True when the dataset's stored schema is known and lacks the column.
 
     A dataset with no stored schema is not reported missing: nothing says the
     column is gone.
     """
-    if dataset.column_info is None or column == "gid":
+    if dataset.column_info is None or column in _INTERNAL_COLUMNS:
         return False
     return column not in {c["name"] for c in dataset.column_info}
 

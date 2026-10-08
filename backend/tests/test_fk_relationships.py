@@ -710,3 +710,16 @@ class TestFKRelationships:
             headers=admin_auth_header,
         )
         assert resp.status_code == 404
+
+
+@pytest.mark.parametrize("column", ["gid", "geom", "geom_4326"])
+def test_internal_columns_are_never_reported_missing(column):
+    from types import SimpleNamespace
+
+    from app.modules.catalog.datasets.domain.relationship_columns import (
+        has_missing_column,
+    )
+
+    dataset = SimpleNamespace(column_info=[{"name": "other", "type": "text"}])
+    rel = SimpleNamespace(source_column=column, target_column=column)
+    assert not has_missing_column(dataset, dataset, rel)
