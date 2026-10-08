@@ -1,12 +1,14 @@
 import { abortInflightRefresh, ApiError, tryRefresh } from '@/api/client';
 import { refreshAccessToken } from '@/api/auth';
 import { restoreSession, restoreSessionBeforeRender, wireSessionSync } from '@/lib/session-sync';
+import { completeSignIn } from '@/lib/sign-in';
 import { useAuthStore } from '@/stores/auth-store';
 import { otherTab } from '@/test/broadcast-channel';
 import type { TokenResponse, UserResponse } from '@/types/api';
 
 vi.mock('@/api/auth', () => ({
   refreshAccessToken: vi.fn(),
+  getMe: vi.fn(() => new Promise(() => {})),
   revokeCurrentSession: vi.fn(() => Promise.resolve()),
   logoutSession: vi.fn(() => Promise.resolve()),
 }));
@@ -64,6 +66,31 @@ describe('session recovery and cross-tab sync', () => {
     expect(vi.mocked(refreshAccessToken).mock.calls[0][0]).toBeNull();
     expect(useAuthStore.getState()).toMatchObject({ token: 'recovered', sessionId: 'session-1', user });
     expect(window.localStorage.getItem(STORAGE_KEY)).not.toContain('recovered');
+  });
+
+  it('leaves the OAuth callback page to install the session its redirect issued', async () => {
+    window.history.replaceState({}, '', '/oauth/callback');
+    await reloadWith({ sessionId: 'session-1', user });
+
+    await restoreSessionBeforeRender();
+
+    expect(refreshAccessToken).not.toHaveBeenCalled();
+  });
+
+  it('abandons a refresh of the replaced session when a sign-in completes', async () => {
+    let signal: AbortSignal | undefined;
+    vi.mocked(refreshAccessToken).mockImplementationOnce((_token, abortSignal) => {
+      signal = abortSignal;
+      return new Promise(() => {});
+    });
+    await reloadWith({ sessionId: 'session-1', user });
+    void restoreSession();
+    await vi.waitFor(() => expect(signal).toBeDefined());
+
+    void completeSignIn(issued('new-login'));
+
+    expect(signal?.aborted).toBe(true);
+    expect(useAuthStore.getState().token).toBe('new-login');
   });
 
   it('does nothing on a reload with no session to recover', async () => {

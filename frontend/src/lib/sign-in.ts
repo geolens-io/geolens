@@ -1,5 +1,5 @@
 import { getMe, revokeCurrentSession } from '@/api/auth';
-import { isCredentialRejected } from '@/api/client';
+import { abortInflightRefresh, isCredentialRejected } from '@/api/client';
 import { useAuthStore } from '@/stores/auth-store';
 import type { TokenResponse } from '@/types/api';
 
@@ -28,6 +28,9 @@ export async function completeSignIn(
   onInstalled?: () => Promise<void> | void,
 ): Promise<SignInOutcome> {
   const accessToken = issued.access_token;
+  // A refresh of the replaced session landing now would revoke its family on
+  // the epoch check, or overwrite the issued session's cookie.
+  abortInflightRefresh();
   useAuthStore.getState().setAuth(accessToken, issued.refresh_token ?? null, issued.expires_in, null);
   const epoch = useAuthStore.getState().sessionEpoch;
   const isCurrent = () => useAuthStore.getState().sessionEpoch === epoch;

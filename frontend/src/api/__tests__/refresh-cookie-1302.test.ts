@@ -1,5 +1,6 @@
 import { awaitPendingLogout, login, logoutSession, refreshAccessToken, revokeCurrentSession } from '@/api/auth';
 import { useAuthStore } from '@/stores/auth-store';
+import { tryRefresh } from '@/api/client';
 import { otherTab } from '@/test/broadcast-channel';
 
 // fix(#1302): AC — after login the persisted `geolens-auth` value holds no
@@ -237,6 +238,27 @@ describe('browser refresh transport', () => {
     const init = lastInit();
     expect(init.credentials).toBe('same-origin');
     expect(init.headers).toMatchObject({ 'X-GeoLens-Auth-Mode': 'cookie' });
+  });
+
+  // A recovery that outlived its render budget can still be running when the
+  // user signs in, and its rotated cookie would replace the new session's.
+  it('abandons an in-flight refresh before signing in', async () => {
+    useAuthStore.setState({ token: 'old-access', refreshToken: null, sessionId: 'old-session' });
+    let refreshSignal: AbortSignal | undefined;
+    mockFetch.mockImplementationOnce((_url: string, init: RequestInit) => {
+      refreshSignal = init.signal ?? undefined;
+      return new Promise(() => {});
+    });
+    void tryRefresh();
+    await vi.waitFor(() => expect(refreshSignal).toBeDefined());
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({ access_token: 'a1', refresh_token: null, expires_in: 900 }),
+    );
+
+    await login('someone', 'secret');
+
+    expect(refreshSignal?.aborted).toBe(true);
+    useAuthStore.setState({ token: null, sessionId: null });
   });
 });
 

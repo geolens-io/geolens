@@ -1,7 +1,7 @@
 import { API_BASE } from '@/lib/constants';
 import { cookieAuthAvailable, cookieAuthHeaders } from '@/lib/auth-transport';
 import { useAuthStore } from '@/stores/auth-store';
-import { apiFetch, isCredentialRejected, safeFetch, ApiError } from './client';
+import { abortInflightRefresh, apiFetch, isCredentialRejected, safeFetch, ApiError } from './client';
 import { translateApiErrorDetail } from '@/lib/error-map';
 import type { TokenResponse, UserResponse, AuthConfigResponse, MessageResponse, SignupResponse, MyApiKeyResponse, ApiKeyCreateResponse, ApiKeyScope, OAuthProviderPublic, UserQuotaUsage } from '@/types/api';
 
@@ -15,6 +15,9 @@ export async function login(
   // logoutSession's own 3s timeout, and only waits when one is actually
   // pending.
   await awaitPendingLogout();
+  // A refresh still running, such as a page load's recovery that outlived its
+  // render budget, would apply its Set-Cookie over the one this login issues.
+  abortInflightRefresh();
 
   // SP-11: route is /auth/login (no trailing slash) so the POST body is
   // preserved without a 307 redirect.

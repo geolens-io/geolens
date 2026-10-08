@@ -30,6 +30,9 @@ const RENDER_BUDGET_MS = 4_000;
  * route reads the token reactively.
  */
 export function restoreSessionBeforeRender(budgetMs = RENDER_BUDGET_MS): Promise<void> {
+  // The OAuth callback installs the session its redirect just issued, and a
+  // refresh racing it would rotate that session's cookie underneath it.
+  if (window.location.pathname === '/oauth/callback') return Promise.resolve();
   return Promise.race([
     restoreSession(),
     new Promise<void>((resolve) => {
