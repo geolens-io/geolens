@@ -570,6 +570,24 @@
       "invalid": "Invalid {{field}}",
       "conflicting": "Conflicting {{field}}",
       "needsReview": "{{field}} needs review"
+    },
+    "fields": {
+      "title": "Title",
+      "summary": "Summary",
+      "license": "License",
+      "spatialExtent": "Spatial extent",
+      "lineageSummary": "Lineage summary",
+      "srid": "Coordinate reference system",
+      "contacts": "Contacts",
+      "keywords": "Keywords",
+      "geometry": "Geometry",
+      "attributeDescriptions": "Attribute descriptions",
+      "sourceUrl": "Source URL",
+      "sourceOrganization": "Source organization",
+      "qualityStatement": "Quality statement",
+      "updateFrequency": "Update frequency",
+      "temporalExtent": "Temporal extent",
+      "attribution": "Attribution"
     }
   },
   "attributeMetadata": {

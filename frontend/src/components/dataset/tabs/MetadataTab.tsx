@@ -166,7 +166,9 @@ export function MetadataTab({
           )}
         </CardHeader>
         <CardContent className="space-y-3">
-          <KeywordsEditor recordId={dataset.record_id} canEdit={canEdit} />
+          <div data-field-anchor="keywords">
+            <KeywordsEditor recordId={dataset.record_id} canEdit={canEdit} />
+          </div>
           {suggestedKeywords !== null && (
             <AiKeywordSuggestions
               keywords={suggestedKeywords}

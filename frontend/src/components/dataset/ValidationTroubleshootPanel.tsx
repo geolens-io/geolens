@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { AlertCircle, AlertTriangle, Lightbulb } from 'lucide-react';
 import type { ValidationIssue } from '@/types/api';
-import { getValidationNavigationAction } from '@/lib/dataset-validation-navigation';
+import { getValidationFieldLabel, getValidationNavigationAction } from '@/lib/dataset-validation-navigation';
 import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
@@ -27,15 +27,6 @@ interface RemediationGroup {
   titleKey: string;
   hintKey: string;
   count: number;
-}
-
-function formatFieldLabel(field: string): string {
-  if (!field) return 'metadata';
-  return field
-    .replace(/[_-]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 const REMEDIATION_RULES: Array<{
@@ -109,7 +100,7 @@ export function deriveLikelyValidationCauses(
   const causeCounts = new Map<string, number>();
 
   for (const issue of issues) {
-    const fieldLabel = formatFieldLabel(issue.field);
+    const fieldLabel = t ? getValidationFieldLabel(issue.field, t) : issue.field;
     const message = issue.message.toLowerCase();
     let cause: string;
 
@@ -198,7 +189,7 @@ export function ValidationTroubleshootPanel({
                   >
                     <div className="flex items-start justify-between gap-3">
                       <p className="text-sm">
-                        <span className="font-medium">{formatFieldLabel(issue.field)}:</span>{' '}
+                        <span className="font-medium">{getValidationFieldLabel(issue.field, t)}:</span>{' '}
                         {issue.message}
                       </p>
                       {canEdit && onNavigateToField && getValidationNavigationAction(issue.field) && (
@@ -236,7 +227,7 @@ export function ValidationTroubleshootPanel({
                   >
                     <div className="flex items-start justify-between gap-3">
                       <p className="text-sm">
-                        <span className="font-medium">{formatFieldLabel(issue.field)}:</span>{' '}
+                        <span className="font-medium">{getValidationFieldLabel(issue.field, t)}:</span>{' '}
                         {issue.message}
                       </p>
                       {canEdit && onNavigateToField && getValidationNavigationAction(issue.field) && (

@@ -156,4 +156,27 @@ describe('SourceSyncDialog', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Stored credentials could not be loaded.');
     expect(screen.getByRole('button', { name: 'Create draft' })).toBeEnabled();
   });
+  it('marks empty credential inputs invalid, links them to the alert and focuses the first', async () => {
+    const user = userEvent.setup();
+    render(<SourceSyncDialog datasetId="dataset-1" source={source} automation={null} open onOpenChange={vi.fn()} onRevisionConflict={vi.fn()} />);
+    await waitFor(() => expect(mocks.listSyncCredentials).toHaveBeenCalled());
+
+    await user.click(screen.getByLabelText('Credential'));
+    await user.click(await screen.findByRole('option', { name: 'Store a new credential' }));
+    await user.click(screen.getByRole('button', { name: 'Create draft' }));
+
+    const alert = await screen.findByRole('alert');
+    const name = screen.getByLabelText('Credential name');
+    const token = screen.getByLabelText('ArcGIS token');
+    for (const input of [name, token]) {
+      expect(input).toHaveAttribute('aria-invalid', 'true');
+      expect(input).toHaveAttribute('aria-describedby', alert.id);
+    }
+    expect(name).toHaveFocus();
+    expect(mocks.createSyncCredential).not.toHaveBeenCalled();
+
+    await user.type(name, 'Parks');
+    expect(name).not.toHaveAttribute('aria-invalid');
+    expect(token).toHaveAttribute('aria-invalid', 'true');
+  });
 });

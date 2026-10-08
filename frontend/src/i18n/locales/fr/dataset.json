@@ -576,6 +576,24 @@
       "invalid": "{{field}} invalide",
       "conflicting": "{{field}} en conflit",
       "needsReview": "{{field}} à vérifier"
+    },
+    "fields": {
+      "title": "Titre",
+      "summary": "Résumé",
+      "license": "Licence",
+      "spatialExtent": "Étendue spatiale",
+      "lineageSummary": "Résumé de la provenance",
+      "srid": "Système de coordonnées de référence",
+      "contacts": "Contacts",
+      "keywords": "Mots-clés",
+      "geometry": "Géométrie",
+      "attributeDescriptions": "Descriptions des attributs",
+      "sourceUrl": "URL source",
+      "sourceOrganization": "Organisation source",
+      "qualityStatement": "Déclaration de qualité",
+      "updateFrequency": "Fréquence de mise à jour",
+      "temporalExtent": "Étendue temporelle",
+      "attribution": "Attribution"
     }
   },
   "contacts": {

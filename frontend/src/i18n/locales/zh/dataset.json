@@ -570,6 +570,24 @@
       "invalid": "{{field}}无效",
       "conflicting": "{{field}}存在冲突",
       "needsReview": "{{field}}需要审查"
+    },
+    "fields": {
+      "title": "标题",
+      "summary": "摘要",
+      "license": "许可证",
+      "spatialExtent": "空间范围",
+      "lineageSummary": "数据来源摘要",
+      "srid": "坐标参考系统",
+      "contacts": "联系人",
+      "keywords": "关键词",
+      "geometry": "几何",
+      "attributeDescriptions": "属性说明",
+      "sourceUrl": "来源网址",
+      "sourceOrganization": "来源机构",
+      "qualityStatement": "质量说明",
+      "updateFrequency": "更新频率",
+      "temporalExtent": "时间范围",
+      "attribution": "署名"
     }
   },
   "attributeMetadata": {
