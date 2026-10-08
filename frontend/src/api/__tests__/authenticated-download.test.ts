@@ -14,8 +14,7 @@ describe('authenticatedDownload', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('hands the fetched blob to the shared download helper', async () => {
-    const blob = new Blob(['a,b']);
-    mockRawFetch.mockResolvedValueOnce(new Response(blob, { status: 200 }));
+    mockRawFetch.mockResolvedValueOnce(new Response('a,b', { status: 200 }));
 
     await authenticatedDownload('/api/x', 'x.csv');
 
