@@ -20,7 +20,10 @@ from sqlalchemy.orm import joinedload
 
 from app.core.identity import Identity
 from app.modules.catalog.authorization import apply_visibility_filter
-from app.modules.catalog.datasets.domain._sql_safety import SAFE_COLUMN_NAME_RE
+from app.modules.catalog.datasets.domain._sql_safety import (
+    SAFE_COLUMN_NAME_RE,
+    _safe_column_ref,
+)
 from app.modules.catalog.datasets.domain.models import (
     AttributeMetadata,
     Dataset,
@@ -30,7 +33,6 @@ from app.modules.catalog.datasets.domain.models import (
 from app.modules.catalog.datasets.domain.relationship_columns import (
     has_missing_column,
     join_column_error,
-    quote_column,
     tables_unavailable_error,
 )
 from app.modules.catalog.datasets.domain.service_query import get_dataset
@@ -504,7 +506,7 @@ async def _fetch_fk_value(
     table_ref = get_catalog_port().quote_table(source_table)
     result = await session.execute(
         text(
-            f"SELECT {quote_column(source_column)} FROM {table_ref} WHERE gid = :gid"
+            f"SELECT {_safe_column_ref(source_column)} FROM {table_ref} WHERE gid = :gid"
         ).bindparams(gid=feature_gid)
     )
     return result.scalar_one_or_none()
@@ -517,7 +519,7 @@ async def _count_target_rows(
     result = await session.execute(
         text(
             f"SELECT COUNT(*) FROM {table_ref} "
-            f"WHERE {quote_column(target_column)} = :fk_val"
+            f"WHERE {_safe_column_ref(target_column)} = :fk_val"
         ).bindparams(fk_val=fk_value)
     )
     return int(result.scalar_one())
@@ -544,12 +546,11 @@ async def _fetch_target_rows(
     # projection -- a relationship may legitimately target a column the
     # projection drops (e.g. `geom`/`geom_4326`), and predicating on the
     # projected alias made such a fetch an undefined-column error.
-    qcol = quote_column(target_column)
     rows_result = await session.execute(
         text(
             f"SELECT gid, to_jsonb(t.*) - 'gid' AS properties "
             f"FROM (SELECT gid{prop_sel} FROM {table_ref} "
-            f"      WHERE {qcol} = :fk_val "
+            f"      WHERE {_safe_column_ref(target_column)} = :fk_val "
             f"      ORDER BY gid LIMIT :lim OFFSET :off) t"
         ).bindparams(fk_val=fk_value, lim=limit, off=after)
     )

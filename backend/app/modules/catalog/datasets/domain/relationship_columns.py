@@ -27,11 +27,6 @@ def has_missing_column(
     return False
 
 
-def quote_column(name: str) -> str:
-    """Quote a join column so Postgres keeps its case; ``:`` is escaped for bind parsing."""
-    return '"' + name.replace('"', '""').replace(":", "\\:") + '"'
-
-
 _MISSING_COLUMN_RE = re.compile(r'column "([^"]+)"')
 
 
