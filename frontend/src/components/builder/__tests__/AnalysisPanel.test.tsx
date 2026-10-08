@@ -458,8 +458,13 @@ describe('AnalysisPanel', () => {
         target: { value: 'Recent' },
       });
 
-      expect(screen.getByRole('button', { name: 'Preview' })).toBeDisabled();
-      expect(screen.getByRole('button', { name: 'Create dataset' })).toBeDisabled();
+      const reason = "Checking the filtered layer's columns…";
+      const preview = screen.getByRole('button', { name: 'Preview' });
+      expect(preview).toBeDisabled();
+      expect(preview).toHaveAccessibleDescription(reason);
+      const create = screen.getByRole('button', { name: 'Create dataset' });
+      expect(create).toBeDisabled();
+      expect(create).toHaveAccessibleDescription(reason);
     });
 
     it("holds a filtered run when refetching the dataset's columns failed, and offers a retry", () => {

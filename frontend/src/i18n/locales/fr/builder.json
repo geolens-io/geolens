@@ -1006,6 +1006,7 @@
     "layerFilterApplied": "L'analyse utilise uniquement les entités affichées par le filtre de cette couche.",
     "layerFilterUnsupported": "Le filtre d'une couche utilise une expression que l'analyse ne peut pas appliquer. Simplifiez-le dans les paramètres de filtre de la couche, ou supprimez-le.",
     "layerFilterColumnsFailed": "Impossible de charger les colonnes d'une couche filtrée, son filtre ne peut donc pas encore être vérifié.",
+    "layerFilterColumnsLoading": "Vérification des colonnes de la couche filtrée…",
     "layerFilterColumnsRetry": "Réessayer",
     "operationLabel": "Opération",
     "opBuffer": "Zone tampon",

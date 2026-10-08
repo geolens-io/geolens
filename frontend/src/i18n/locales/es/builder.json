@@ -1006,6 +1006,7 @@
     "layerFilterApplied": "El análisis usa solo las entidades que muestra el filtro de esta capa.",
     "layerFilterUnsupported": "El filtro de una capa usa una expresión que el análisis no puede aplicar. Simplifícalo en la configuración de filtros de la capa o quítalo.",
     "layerFilterColumnsFailed": "No se pudieron cargar las columnas de una capa filtrada, así que todavía no se puede comprobar su filtro.",
+    "layerFilterColumnsLoading": "Comprobando las columnas de la capa filtrada…",
     "layerFilterColumnsRetry": "Reintentar",
     "operationLabel": "Operación",
     "opBuffer": "Zona de influencia",

@@ -833,6 +833,7 @@ export function AnalysisPanel({
     .filter(([cql2, detail]) => cql2 !== null && detail.isError && !detail.isFetching)
     .map(([, detail]) => detail);
   const filterColumnsFailed = failedColumnQueries.length > 0;
+  const filterColumnsLoading = filterColumnsPending && !filterColumnsFailed;
   const filterFields = {
     ...cql2Field('filter', sourceCql2),
     ...cql2Field('mask_filter', maskCql2),
@@ -1410,7 +1411,9 @@ export function AnalysisPanel({
         ? ('filter' as const)
         : filterColumnsFailed
           ? ('filterColumns' as const)
-          : null;
+          : filterColumnsLoading
+            ? ('filterColumnsLoading' as const)
+            : null;
 
   if (datasetLayers.length === 0) {
     return (
@@ -1515,6 +1518,13 @@ export function AnalysisPanel({
               {t('analysisTools.layerFilterColumnsRetry', { defaultValue: 'Try again' })}
             </Button>
           </div>
+        )}
+        {filterColumnsLoading && (
+          <p id="analysis-filter-columns-loading" className="text-xs text-muted-foreground">
+            {t('analysisTools.layerFilterColumnsLoading', {
+              defaultValue: "Checking the filtered layer's columns…",
+            })}
+          </p>
         )}
       </div>
 
@@ -1927,7 +1937,9 @@ export function AnalysisPanel({
                 ? 'analysis-filter-unsupported'
                 : filterColumnsFailed
                   ? 'analysis-filter-columns-failed'
-                  : undefined
+                  : filterColumnsLoading
+                    ? 'analysis-filter-columns-loading'
+                    : undefined
             }
             disabled={!canRun}
           >
@@ -1981,7 +1993,9 @@ export function AnalysisPanel({
                   ? 'analysis-filter-unsupported'
                   : saveBlockedReason === 'filterColumns'
                     ? 'analysis-filter-columns-failed'
-                    : saveBlockedReason
+                    : saveBlockedReason === 'filterColumnsLoading'
+                      ? 'analysis-filter-columns-loading'
+                      : saveBlockedReason
                     ? 'analysis-save-hint'
                     : undefined
               }
