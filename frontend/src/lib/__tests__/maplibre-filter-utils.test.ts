@@ -254,16 +254,8 @@ describe('maplibreFilterToCql2', () => {
         { op: '>=', args: [p('at'), { timestamp: '2024-02-01T06:30:00Z' }] },
       ],
       [
-        ['<', ['get', 'atz'], '2024-02-01 06:30:00.25+05'],
-        { op: '<', args: [p('atz'), { timestamp: '2024-02-01T06:30:00.25+05:00' }] },
-      ],
-      [
-        ['==', ['get', 'atz'], '2024-02-01T06:30-0330'],
-        { op: '=', args: [p('atz'), { timestamp: '2024-02-01T06:30:00-03:30' }] },
-      ],
-      [
-        ['>', ['get', 'at'], '2024-02-01'],
-        { op: '>', args: [p('at'), { timestamp: '2024-02-01T00:00:00Z' }] },
+        ['==', ['get', 'at'], '2024-02-01 06:30:00.25'],
+        { op: '=', args: [p('at'), { timestamp: '2024-02-01T06:30:00.25Z' }] },
       ],
       [
         ['in', ['get', 'seen'], ['literal', ['2024-01-01', '2024-03-01']]],
@@ -278,7 +270,11 @@ describe('maplibreFilterToCql2', () => {
       ],
       [['==', ['get', 'Zone'], 'north'], { op: '=', args: [p('Zone'), 'north'] }],
       [['in', 'ort', ['get', 'Zone']], { op: 'like', args: [p('Zone'), '%ort%'] }],
-      [['==', ['get', 'ref'], 'abc'], { op: '=', args: [p('ref'), 'abc'] }],
+      [
+        ['==', ['get', 'ref'], '6f1c3a52-2b8e-4f0e-9a51-3d6a8f9c0b11'],
+        { op: '=', args: [p('ref'), '6f1c3a52-2b8e-4f0e-9a51-3d6a8f9c0b11'] },
+      ],
+      [['has', 'atz'], { op: 'not', args: [isNull('atz')] }],
       [['==', ['get', 'pop'], 5], { op: '=', args: [p('pop'), 5] }],
       [['has', 'seen'], { op: 'not', args: [isNull('seen')] }],
       // A column the layer does not list is sent untyped; the server decides.
@@ -292,8 +288,16 @@ describe('maplibreFilterToCql2', () => {
       ['a json column', ['has', 'props']],
       ['an array column', ['any', ['!', ['has', 'tags']], ['==', ['get', 'tags'], null]]],
       ['a name CQL2 cannot address', ['==', ['get', 'Odd Col'], 'x']],
-      ['a date that is not a calendar date', ['==', ['get', 'seen'], 'last week']],
-      ['a timestamp that is not one', ['>', ['get', 'at'], '06:00']],
+      ['a date that is not a date', ['==', ['get', 'seen'], 'last week']],
+      ['a date that is not on the calendar', ['==', ['get', 'seen'], '2024-02-30']],
+      ['a date in another spelling', ['==', ['get', 'seen'], '2024-2-1']],
+      // The map compares tile text: "2024-02-01" never equals "2024-02-01 00:00:00".
+      ['a date compared with a timestamp', ['>', ['get', 'at'], '2024-02-01']],
+      ['an RFC 3339 timestamp', ['==', ['get', 'at'], '2024-02-01T06:30:00Z']],
+      ['a fraction with a trailing zero', ['==', ['get', 'at'], '2024-02-01 06:30:00.50']],
+      ['a timestamp with time zone', ['<', ['get', 'atz'], '2024-02-01 06:30:00+00']],
+      ['an uppercase uuid', ['==', ['get', 'ref'], '6F1C3A52-2B8E-4F0E-9A51-3D6A8F9C0B11']],
+      ['a value that is not a uuid', ['==', ['get', 'ref'], 'abc']],
       ['a date list with a bad entry', ['in', ['get', 'seen'], ['literal', ['2024-01-01', 'x']]]],
       ['a substring test on a uuid', ['in', 'ab', ['get', 'ref']]],
       ['one json condition among others', ['all', ['==', ['get', 'Zone'], 'n'], ['has', 'meta']]],

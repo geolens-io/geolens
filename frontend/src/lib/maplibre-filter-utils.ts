@@ -403,34 +403,42 @@ const CQL2_QUERYABLE_TYPES = new Set([
   'timestamp with time zone',
   'uuid',
 ]);
+// The map compares a date or timestamp as the text PostgreSQL wrote into the
+// tile, so only a value in that exact form compares the same way in SQL.
 const DATE_TEXT_RE = /^\d{4}-\d{2}-\d{2}$/;
-// Vector tiles carry PostgreSQL's text form ("2024-01-01 06:00:00+00"); RFC 3339 also parses.
-const TIMESTAMP_TEXT_RE =
-  /^(\d{4}-\d{2}-\d{2})(?:[Tt ](\d{2}:\d{2})(:\d{2}(?:\.\d+)?)?([Zz]|[+-]\d{2}(?::?\d{2})?)?)?$/;
+// No trailing zeros in the fraction: PostgreSQL drops them.
+const TIMESTAMP_TEXT_RE = /^(\d{4}-\d{2}-\d{2}) ((?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{0,5}[1-9])?)$/;
+// PostgreSQL writes a uuid in lowercase, and the map compares case-sensitively.
+const UUID_TEXT_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-/** An RFC 3339 timestamp for a date or timestamp in either text form; UTC when no offset is given. */
-function cql2Timestamp(value: string): { timestamp: string } | null {
-  const m = TIMESTAMP_TEXT_RE.exec(value);
-  if (!m) return null;
-  const [, day, hoursMinutes = '00:00', seconds = ':00', offset] = m;
-  let zone = 'Z';
-  if (offset && offset.toUpperCase() !== 'Z') {
-    const digits = offset.slice(1).replace(':', '');
-    zone = `${offset[0]}${digits.slice(0, 2)}:${digits.slice(2) || '00'}`;
-  }
-  return { timestamp: `${day}T${hoursMinutes}${seconds}${zone}` };
+function isCalendarDate(day: string): boolean {
+  const parsed = new Date(`${day}T00:00:00Z`);
+  return (
+    !Number.isNaN(parsed.getTime()) &&
+    parsed.getUTCFullYear() >= 1 &&
+    parsed.toISOString().slice(0, 10) === day
+  );
 }
 
 /**
  * The CQL2 literal for a value compared with a column of `pgType`, or null when
- * the value can't be one. CQL2 compares dates and timestamps only as typed literals.
+ * SQL can't compare it the way the map does. A timestamp with time zone is
+ * always null: its tile text carries the database session's offset, which the
+ * builder can't know.
  */
 function cql2Literal(value: string | number | boolean, pgType: string | undefined): unknown {
   if (pgType === 'date') {
-    return typeof value === 'string' && DATE_TEXT_RE.test(value) ? { date: value } : null;
+    return typeof value === 'string' && DATE_TEXT_RE.test(value) && isCalendarDate(value)
+      ? { date: value }
+      : null;
   }
-  if (pgType === 'timestamp without time zone' || pgType === 'timestamp with time zone') {
-    return typeof value === 'string' ? cql2Timestamp(value) : null;
+  if (pgType === 'timestamp without time zone') {
+    const m = typeof value === 'string' ? TIMESTAMP_TEXT_RE.exec(value) : null;
+    return m && isCalendarDate(m[1]) ? { timestamp: `${m[1]}T${m[2]}Z` } : null;
+  }
+  if (pgType === 'timestamp with time zone') return null;
+  if (pgType === 'uuid') {
+    return typeof value === 'string' && UUID_TEXT_RE.test(value) ? value : null;
   }
   return value;
 }
