@@ -9,6 +9,8 @@ const hoisted = vi.hoisted(() => ({
   embedded: 50,
   stale: 0,
   statsAvailable: true,
+  capabilities: ['manage_users'] as string[],
+  isMultiTenant: false,
 }));
 
 vi.mock('sonner', () => ({
@@ -16,7 +18,18 @@ vi.mock('sonner', () => ({
 }));
 
 vi.mock('@/hooks/use-permissions', () => ({
-  usePermissions: () => ({ can: (capability: string) => capability === 'manage_users' }),
+  usePermissions: () => ({ can: (capability: string) => hoisted.capabilities.includes(capability) }),
+}));
+
+vi.mock('@/hooks/use-edition', () => ({
+  useEdition: () => ({
+    edition: 'community',
+    features: [],
+    isEnterprise: false,
+    isMultiTenant: hoisted.isMultiTenant,
+    isLoading: false,
+    isResolved: true,
+  }),
 }));
 
 vi.mock('@/hooks/use-admin', async (importOriginal) => {
@@ -76,6 +89,8 @@ describe('SettingsAITab embedding width confirmation', () => {
     hoisted.embedded = 50;
     hoisted.stale = 0;
     hoisted.statsAvailable = true;
+    hoisted.capabilities = ['manage_users'];
+    hoisted.isMultiTenant = false;
   });
 
   it('asks before saving a width change and sends nothing on cancel', async () => {
@@ -106,6 +121,23 @@ describe('SettingsAITab embedding width confirmation', () => {
     expect(onSave).toHaveBeenCalledTimes(1);
     expect(onSave).toHaveBeenCalledWith({ embedding_dims: '768' });
     await waitFor(() => expect(hoisted.backfillMutate).toHaveBeenCalledWith({ force: false, allTenants: true }, expect.anything()));
+  });
+
+  it('lets a hosted operator with only manage_tenants regenerate every tenant', async () => {
+    hoisted.isMultiTenant = true;
+    hoisted.capabilities = ['manage_tenants'];
+    hoisted.statsAvailable = false;
+    const user = userEvent.setup();
+    renderTab();
+
+    await changeWidth(user, '768');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(screen.getByRole('checkbox', { name: 'Regenerate embeddings after saving' })).toBeChecked();
+    await user.click(screen.getByRole('button', { name: 'Delete embeddings' }));
+
+    await waitFor(() =>
+      expect(hoisted.backfillMutate).toHaveBeenCalledWith({ force: false, allTenants: true }, expect.anything()),
+    );
   });
 
   it('warns when another tenant could not start regenerating', async () => {

@@ -45,7 +45,11 @@ from app.modules.admin.service import (
 )
 from app.modules.quota.service import get_user_quota_usage_bulk
 from app.modules.audit.service import AuditEvent, audit_emit, audit_emit_durable
-from app.modules.auth.dependencies import require_mode_permission, require_permission
+from app.modules.auth.dependencies import (
+    get_current_active_user,
+    require_mode_permission,
+    require_permission,
+)
 from app.platform.ratelimit import limiter  # HARDEN-01: shared rate-limiter instance
 from app.modules.auth.models import User
 from app.modules.auth.schemas import UserResponse
@@ -1109,6 +1113,26 @@ async def _settle_undispatched_backfill(
         )
 
 
+async def _require_backfill_permission(
+    request: Request,
+    all_tenants: bool = False,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Require manage_users, or manage_tenants for a hosted all-tenant backfill.
+
+    A hosted fleet operator can change the shared embedding settings with
+    manage_tenants alone, so regenerating every tenant must not also demand
+    the per-tenant manage_users.
+    """
+    from app.core.tenancy import is_multi_tenant
+
+    capability = MANAGE_TENANTS if all_tenants and is_multi_tenant() else "manage_users"
+    return await require_permission(capability)(
+        request=request, current_user=current_user, db=db
+    )
+
+
 # ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
 @router.post(
     "/backfill-embeddings",
@@ -1126,7 +1150,7 @@ async def trigger_backfill(
     db: AsyncSession = Depends(get_db),
     force: bool = False,
     all_tenants: bool = False,
-    current_user: User = Depends(require_permission("manage_users")),
+    current_user: User = Depends(_require_backfill_permission),
 ) -> BackfillResponse:
     """Queue semantic-search embedding generation for records (admin only).
 
@@ -1135,11 +1159,11 @@ async def trigger_backfill(
 
     The run covers the calling tenant's records. In a multi-tenant deployment
     the embedding model and width are shared by every tenant, so a change
-    leaves each tenant to regenerate. Pass ?all_tenants=true, which needs the
-    manage_tenants permission there, to also queue a run for every other
-    tenant that has records; ``other_tenants`` reports each one. When the
-    calling tenant's own run is refused, no other tenant is queued. A
-    single-tenant deployment ignores the flag.
+    leaves each tenant to regenerate. Pass ?all_tenants=true to also queue a
+    run for every other tenant that has records; there it needs
+    manage_tenants instead of manage_users, and ``other_tenants`` reports
+    each run. When the calling tenant's own run is refused, no other tenant is
+    queued. A single-tenant deployment ignores the flag.
 
     The run happens on the job queue because a full regeneration can exceed
     request timeouts. This endpoint returns the job id; poll
@@ -1148,10 +1172,6 @@ async def trigger_backfill(
     from app.core.tenancy import is_multi_tenant
 
     every_tenant = all_tenants and is_multi_tenant()
-    if every_tenant:
-        await require_permission(MANAGE_TENANTS)(
-            request=request, current_user=current_user, db=db
-        )
     ip_address = get_client_ip(request)
     # One operation id across every tenant's run ties the system runs queued
     # elsewhere to this request's audited actor.

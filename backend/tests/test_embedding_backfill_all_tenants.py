@@ -42,15 +42,15 @@ class _Tenants:
         return (self.caller, self.with_records, self.empty)
 
 
-class _GrantEverything:
-    """Permission extension standing in for a provisioned fleet operator.
+class _FleetOperatorOnly:
+    """Permission extension for a hosted operator holding only manage_tenants.
 
     ``manage_tenants`` cannot be stored on any role, so a hosted deployment
-    grants it out of band; this is that grant.
+    grants it out of band; this is that grant, without manage_users.
     """
 
-    async def check_permission(self, *_args, **_kwargs) -> bool:
-        return True
+    async def check_permission(self, _db, _user, capability, **_kwargs) -> bool:
+        return capability == "manage_tenants"
 
 
 async def _backfill_jobs_in(session: AsyncSession, tenant_ids) -> list[IngestJob]:
@@ -162,7 +162,7 @@ async def test_every_tenant_with_records_gets_its_own_run(
 ):
     monkeypatch.setattr(
         "app.modules.auth.dependencies.get_permission_extension",
-        lambda: _GrantEverything(),
+        lambda: _FleetOperatorOnly(),
     )
     token = hosted(tenants.caller)
     try:
@@ -218,7 +218,7 @@ async def test_a_tenant_with_a_run_in_flight_is_reported_and_the_rest_proceed(
 ):
     monkeypatch.setattr(
         "app.modules.auth.dependencies.get_permission_extension",
-        lambda: _GrantEverything(),
+        lambda: _FleetOperatorOnly(),
     )
     token = hosted(tenants.with_records)
     try:
@@ -266,6 +266,32 @@ async def test_all_tenants_needs_the_fleet_permission(
     token = hosted(tenants.caller)
     try:
         resp = await client.post(_URL, headers=admin_auth_header)
+    finally:
+        current_tenant_var.reset(token)
+
+    assert resp.status_code == 403, resp.text
+    assert await _backfill_jobs_in(test_db_session, tenants.all) == []
+    deferred.assert_not_awaited()
+
+
+async def test_a_tenant_scoped_backfill_still_needs_manage_users(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    tenants: _Tenants,
+    hosted,
+    deferred: AsyncMock,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "app.modules.auth.dependencies.get_permission_extension",
+        lambda: _FleetOperatorOnly(),
+    )
+    token = hosted(tenants.caller)
+    try:
+        resp = await client.post(
+            "/admin/backfill-embeddings/", headers=admin_auth_header
+        )
     finally:
         current_tenant_var.reset(token)
 

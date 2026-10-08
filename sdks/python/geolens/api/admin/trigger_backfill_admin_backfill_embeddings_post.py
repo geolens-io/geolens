@@ -120,11 +120,11 @@ def sync_detailed(
 
     The run covers the calling tenant's records. In a multi-tenant deployment
     the embedding model and width are shared by every tenant, so a change
-    leaves each tenant to regenerate. Pass ?all_tenants=true, which needs the
-    manage_tenants permission there, to also queue a run for every other
-    tenant that has records; ``other_tenants`` reports each one. When the
-    calling tenant's own run is refused, no other tenant is queued. A
-    single-tenant deployment ignores the flag.
+    leaves each tenant to regenerate. Pass ?all_tenants=true to also queue a
+    run for every other tenant that has records; there it needs
+    manage_tenants instead of manage_users, and ``other_tenants`` reports
+    each run. When the calling tenant's own run is refused, no other tenant is
+    queued. A single-tenant deployment ignores the flag.
 
     The run happens on the job queue because a full regeneration can exceed
     request timeouts. This endpoint returns the job id; poll
@@ -169,11 +169,11 @@ def sync(
 
     The run covers the calling tenant's records. In a multi-tenant deployment
     the embedding model and width are shared by every tenant, so a change
-    leaves each tenant to regenerate. Pass ?all_tenants=true, which needs the
-    manage_tenants permission there, to also queue a run for every other
-    tenant that has records; ``other_tenants`` reports each one. When the
-    calling tenant's own run is refused, no other tenant is queued. A
-    single-tenant deployment ignores the flag.
+    leaves each tenant to regenerate. Pass ?all_tenants=true to also queue a
+    run for every other tenant that has records; there it needs
+    manage_tenants instead of manage_users, and ``other_tenants`` reports
+    each run. When the calling tenant's own run is refused, no other tenant is
+    queued. A single-tenant deployment ignores the flag.
 
     The run happens on the job queue because a full regeneration can exceed
     request timeouts. This endpoint returns the job id; poll
@@ -213,11 +213,11 @@ async def asyncio_detailed(
 
     The run covers the calling tenant's records. In a multi-tenant deployment
     the embedding model and width are shared by every tenant, so a change
-    leaves each tenant to regenerate. Pass ?all_tenants=true, which needs the
-    manage_tenants permission there, to also queue a run for every other
-    tenant that has records; ``other_tenants`` reports each one. When the
-    calling tenant's own run is refused, no other tenant is queued. A
-    single-tenant deployment ignores the flag.
+    leaves each tenant to regenerate. Pass ?all_tenants=true to also queue a
+    run for every other tenant that has records; there it needs
+    manage_tenants instead of manage_users, and ``other_tenants`` reports
+    each run. When the calling tenant's own run is refused, no other tenant is
+    queued. A single-tenant deployment ignores the flag.
 
     The run happens on the job queue because a full regeneration can exceed
     request timeouts. This endpoint returns the job id; poll
@@ -260,11 +260,11 @@ async def asyncio(
 
     The run covers the calling tenant's records. In a multi-tenant deployment
     the embedding model and width are shared by every tenant, so a change
-    leaves each tenant to regenerate. Pass ?all_tenants=true, which needs the
-    manage_tenants permission there, to also queue a run for every other
-    tenant that has records; ``other_tenants`` reports each one. When the
-    calling tenant's own run is refused, no other tenant is queued. A
-    single-tenant deployment ignores the flag.
+    leaves each tenant to regenerate. Pass ?all_tenants=true to also queue a
+    run for every other tenant that has records; there it needs
+    manage_tenants instead of manage_users, and ``other_tenants`` reports
+    each run. When the calling tenant's own run is refused, no other tenant is
+    queued. A single-tenant deployment ignores the flag.
 
     The run happens on the job queue because a full regeneration can exceed
     request timeouts. This endpoint returns the job id; poll

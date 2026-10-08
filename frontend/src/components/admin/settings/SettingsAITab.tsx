@@ -69,6 +69,10 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
   // fix(#653): the #652 inline gate moved into the shared useAIStatusReader
   // hook so ai-status surfaces can't drift from require_ai_status_reader again.
   const canProbe = useAIStatusReader();
+  // The regeneration after a width or model change asks for every tenant, which
+  // takes the same mode permission: manage_tenants when hosted, manage_users
+  // otherwise.
+  const canRegenerateAfterChange = canProbe;
   const { data: keyStatus } = useApiKeyStatus();
   // Coverage/backfill are manage_users operations in BOTH tenancy modes
   // (see /admin/embedding-stats + /admin/backfill-embeddings) — deliberately
@@ -165,7 +169,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
   const confirmEmbeddingChange = async () => {
     if (!pending) return;
     const current = pending;
-    const queueAfter = regenerate && canManageUsers;
+    const queueAfter = regenerate && canRegenerateAfterChange;
     const aiOff = !aiEnabledAfter(current);
     setPending(null);
     const saved = current.kind === 'save' ? await onSave(current.changes) : await onReset(current.key);
@@ -200,7 +204,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
     dimsSetting?.default_value !== undefined &&
     dimsSetting.default_value !== null &&
     String(dimsSetting.default_value) === String(dimsSetting.value);
-  const autoRegenerate = regenerate && canManageUsers && pending !== null && aiEnabledAfter(pending);
+  const autoRegenerate = regenerate && canRegenerateAfterChange && pending !== null && aiEnabledAfter(pending);
   const pendingChangesWidth =
     pending !== null &&
     (pending.kind === 'save' ? 'embedding_dims' in pending.changes : pending.key === 'embedding_dims');
@@ -691,7 +695,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          {canManageUsers && pending !== null && aiEnabledAfter(pending) && (
+          {canRegenerateAfterChange && pending !== null && aiEnabledAfter(pending) && (
             <div className="flex items-center gap-2">
               <Checkbox
                 id="regenerate-after-save"
