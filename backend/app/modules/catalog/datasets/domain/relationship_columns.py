@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import HTTPException, status
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -96,6 +96,18 @@ async def refresh_dropped_join_column(
         return None
     # The failed statement aborted the transaction; ids are captured by the caller.
     await session.rollback()
+    # A shared table lock first, as the replacement swap orders its locks: a
+    # direct DROP or ALTER waits, so the existence check, the scan and the
+    # update all see one table.
+    lock_sql = (
+        f"LOCK TABLE {get_catalog_port().quote_table(table_name)} IN ACCESS SHARE MODE"
+    )
+    try:
+        # codeql[py/sql-injection]
+        await session.execute(text(lock_sql))
+    except ProgrammingError:
+        await session.rollback()
+        return None
     record_id = (
         await session.execute(select(Dataset.record_id).where(Dataset.id == dataset_id))
     ).scalar_one_or_none()
@@ -108,8 +120,6 @@ async def refresh_dropped_join_column(
         dataset_id=dataset_id,
         record_id=record_id,
     )
-    # Scanned under the lock: a replacement swap takes its table lock before the
-    # catalog rows, so the scan cannot predate a swap that commits during the wait.
     if not await feature_table_exists(session, table_name):
         return None
     live = await get_catalog_port().get_column_info(session, table_name)
