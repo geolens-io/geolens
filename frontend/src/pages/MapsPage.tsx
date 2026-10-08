@@ -45,6 +45,7 @@ export function MapsPage() {
   const { can } = usePermissions();
   const canEditMaps = can('edit_metadata');
   const user = useAuthStore((s) => s.user);
+  const token = useAuthStore((s) => s.token);
   const [skip, setSkip] = useState(0);
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -217,7 +218,7 @@ export function MapsPage() {
               ? t('maps.noMapsMatch')
               : canEditMaps
                 ? t('maps.noMapsDescription')
-                : user
+                : token
                   ? t('maps.noMapsDescriptionViewer')
                   : t('maps.noMapsDescriptionAnonymous')
           }
@@ -228,7 +229,7 @@ export function MapsPage() {
                   <Plus className="h-4 w-4 me-1" />
                   {t('maps.createFirstMap')}
                 </Button>
-              ) : !user ? (
+              ) : !token ? (
                 <Button asChild variant="outline">
                   <Link to="/login" state={{ from: '/maps' }}>{t('maps.signIn')}</Link>
                 </Button>

@@ -109,6 +109,15 @@ describe('empty maps list', () => {
     expect(screen.queryByRole('button', { name: /create/i })).not.toBeInTheDocument();
   });
 
+  it('treats a session whose profile is still loading as signed in', () => {
+    act(() => {
+      useAuthStore.setState({ ...initialAuth, token: 'tok', user: null }, true);
+    });
+    render(<MapsPage />);
+    expect(screen.getByText(/No maps are visible to you yet/)).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Sign in' })).not.toBeInTheDocument();
+  });
+
   it('keeps the create copy and button for a user who can edit maps', () => {
     permissions.editMetadata = true;
     signedIn(user);
