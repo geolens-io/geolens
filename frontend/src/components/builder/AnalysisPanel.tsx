@@ -761,37 +761,19 @@ export function AnalysisPanel({
     joinLayerId !== MASK_LAYER_NONE
       ? joinLayerOptions.find((l) => l.id === joinLayerId)
       : undefined;
-  // Each layer is analysed as the map shows it: through its own filter, sent
-  // as CQL2-JSON. Only the layers the request names count.
-  const sourceCql2 = maplibreFilterToCql2(
-    selectedLayer?.filter,
-    selectedLayer?.dataset_column_info,
-  );
-  const maskCql2 =
-    usesMaskLayer && !mask && maskLayer
-      ? maplibreFilterToCql2(maskLayer.filter, maskLayer.dataset_column_info)
-      : null;
-  const joinCql2 =
-    operation === 'spatial_join' && joinLayer
-      ? maplibreFilterToCql2(joinLayer.filter, joinLayer.dataset_column_info)
-      : null;
-  const filterUnsupported = [sourceCql2, maskCql2, joinCql2].includes('unsupported');
-  const filterFields = {
-    ...cql2Field('filter', sourceCql2),
-    ...cql2Field('mask_filter', maskCql2),
-    ...cql2Field('join_filter', joinCql2),
-  };
-  // A filter edited in the layer panel changes what a preview or a run means.
-  const filterKey = JSON.stringify([sourceCql2, maskCql2, joinCql2]);
   // fix(#1097 review): spatial_join needs the SOURCE's columns too, not just
   // dissolve. A transferred field lands as join_<name>, so a source that
   // already has join_zone — routinely, because it is the output of an earlier
   // spatial join — collides with a join layer's `zone`, and the server rejects
   // both Preview and Create with a 422 the picker gave no warning of.
   const datasetDetail = useDataset(
-    operation === 'dissolve' || operation === 'spatial_join'
+    operation === 'dissolve' || operation === 'spatial_join' || selectedLayer?.filter
       ? (selectedLayer?.dataset_id ?? '')
       : '',
+  );
+  const maskFilterApplies = usesMaskLayer && !mask && !!maskLayer;
+  const maskDatasetDetail = useDataset(
+    maskFilterApplies && maskLayer?.filter ? maskLayer.dataset_id : '',
   );
   const sourceColumnNames = new Set(
     (datasetDetail.data?.column_info ?? []).map((c) => c.name),
@@ -811,6 +793,35 @@ export function AnalysisPanel({
   const joinDatasetDetail = useDataset(
     operation === 'spatial_join' ? (joinLayer?.dataset_id ?? '') : '',
   );
+  // Each layer is analysed as the map shows it: through its own filter, sent
+  // as CQL2-JSON. Only the layers the request names count. Column types come
+  // from the dataset as fetched now, since the map's copy predates any
+  // re-upload made while the builder is open.
+  const sourceCql2 = maplibreFilterToCql2(
+    selectedLayer?.filter,
+    datasetDetail.data?.column_info ?? selectedLayer?.dataset_column_info,
+  );
+  const maskCql2 = maskFilterApplies
+    ? maplibreFilterToCql2(
+        maskLayer?.filter,
+        maskDatasetDetail.data?.column_info ?? maskLayer?.dataset_column_info,
+      )
+    : null;
+  const joinCql2 =
+    operation === 'spatial_join' && joinLayer
+      ? maplibreFilterToCql2(
+          joinLayer.filter,
+          joinDatasetDetail.data?.column_info ?? joinLayer.dataset_column_info,
+        )
+      : null;
+  const filterUnsupported = [sourceCql2, maskCql2, joinCql2].includes('unsupported');
+  const filterFields = {
+    ...cql2Field('filter', sourceCql2),
+    ...cql2Field('mask_filter', maskCql2),
+    ...cql2Field('join_filter', joinCql2),
+  };
+  // A filter edited in the layer panel changes what a preview or a run means.
+  const filterKey = JSON.stringify([sourceCql2, maskCql2, joinCql2]);
   const joinFieldColumns = (joinDatasetDetail.data?.column_info ?? [])
     .filter((c) => {
       if (!SAFE_COLUMN_RE.test(c.name)) return false;

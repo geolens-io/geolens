@@ -143,11 +143,23 @@ const SHARED_COLUMNS = [
 // columns cannot express it — ds1 is the source and already carries a
 // join_zone (routine, since it is what an earlier spatial join leaves behind),
 // while ds2 is the join layer offering a plain `zone`.
+// Typed columns for the layer filter tests. `retyped-ds` is a re-upload that
+// turned `seen` into text after the map loaded it as a date.
+const FILTER_TEST_COLUMNS: Record<string, { name: string; type: string }[]> = {
+  'typed-ds': [
+    { name: 'seen', type: 'date' },
+    { name: 'props', type: 'json' },
+    { name: 'tags', type: 'ARRAY' },
+  ],
+  'retyped-ds': [{ name: 'seen', type: 'text' }],
+};
+
 vi.mock('@/components/dataset/hooks/use-dataset', () => ({
   useDataset: vi.fn((datasetId?: string) => ({
     data: {
       column_info:
-        datasetId === 'ds1'
+        FILTER_TEST_COLUMNS[datasetId ?? ''] ??
+        (datasetId === 'ds1'
           ? [
               ...SHARED_COLUMNS,
               { name: 'join_zone', type: 'text' },
@@ -157,7 +169,7 @@ vi.mock('@/components/dataset/hooks/use-dataset', () => ({
               // offers the field and the server refuses it.
               { name: `join_${'q'.repeat(58)}`.slice(0, 63), type: 'text' },
             ]
-          : SHARED_COLUMNS,
+          : SHARED_COLUMNS),
     },
   })),
 }));
@@ -369,7 +381,7 @@ describe('AnalysisPanel', () => {
       renderPanel([
         {
           ...datasetLayer,
-          dataset_column_info: [{ name: 'seen', type: 'date' }],
+          dataset_id: 'typed-ds',
           filter: ['==', ['get', 'seen'], '2024-02-01'],
         } as unknown as MapLayerResponse,
       ]);
@@ -378,7 +390,7 @@ describe('AnalysisPanel', () => {
 
       await waitFor(() =>
         expect(previewAnalysis).toHaveBeenCalledWith(
-          'ds1',
+          'typed-ds',
           {
             operation: 'buffer',
             distance_meters: 500,
@@ -389,11 +401,36 @@ describe('AnalysisPanel', () => {
       );
     });
 
+    it("types the filter from the dataset's current columns, not the map's copy", async () => {
+      renderPanel([
+        {
+          ...datasetLayer,
+          dataset_id: 'retyped-ds',
+          dataset_column_info: [{ name: 'seen', type: 'date' }],
+          filter: ['==', ['get', 'seen'], '2024-02-01'],
+        } as unknown as MapLayerResponse,
+      ]);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+
+      await waitFor(() =>
+        expect(previewAnalysis).toHaveBeenCalledWith(
+          'retyped-ds',
+          {
+            operation: 'buffer',
+            distance_meters: 500,
+            filter: { op: '=', args: [{ property: 'seen' }, '2024-02-01'] },
+          },
+          expect.any(AbortSignal),
+        ),
+      );
+    });
+
     it('blocks a run whose layer filter reads a json column', () => {
       renderPanel([
         {
           ...datasetLayer,
-          dataset_column_info: [{ name: 'props', type: 'json' }],
+          dataset_id: 'typed-ds',
           filter: ['has', 'props'],
         } as unknown as MapLayerResponse,
       ]);
@@ -411,9 +448,8 @@ describe('AnalysisPanel', () => {
       const mask = {
         ...datasetLayer,
         id: 'm1',
-        dataset_id: 'mask-ds',
+        dataset_id: 'typed-ds',
         dataset_name: 'Districts',
-        dataset_column_info: [{ name: 'tags', type: 'ARRAY' }],
         filter: ['has', 'tags'],
       } as unknown as MapLayerResponse;
       renderPanel([datasetLayer, mask]);
