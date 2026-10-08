@@ -87,3 +87,14 @@ jobs:
           sarif-file: ${{ steps.analyze.outputs.sarif-output }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
+
+      # The action keys alerts by rule, path and start position and keeps one
+      # alert per key. A dismissed alert and an open one at the same position
+      # (an alert re-created after the surrounding code changed) collide, the
+      # dismissed one wins, and the step exits 0 with the open alert untouched.
+      - name: Fail on suppressed results that still have an open alert
+        if: matrix.language == 'python' && github.event_name != 'pull_request'
+        run: python3 scripts/check_suppressed_alerts.py "$SARIF_OUTPUT" "$GITHUB_REPOSITORY"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SARIF_OUTPUT: ${{ steps.analyze.outputs.sarif-output }}
