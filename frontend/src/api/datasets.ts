@@ -4,6 +4,7 @@ import i18n from '@/i18n/i18n';
 import { apiFetch, authenticatedRawFetch, ApiError } from './client';
 import { uploadChunks } from './_presignedUpload';
 import { rethrowAsUploadRefusal } from './ingest';
+import { triggerDownload } from '@/lib/download';
 import { pushReportEntry, reportNetworkError } from '@/lib/report';
 import type {
   CreateDatasetRequest,
@@ -80,10 +81,14 @@ export function getCogDownloadUrl(id: string): string {
 // downloaded through the same refresh-aware, bearer-authenticated flow —
 // a plain <a href> browser navigation carries no Authorization header, so a
 // private or unpublished dataset's export endpoint rejects it as anonymous.
-export async function authenticatedDownload(url: string, filename: string): Promise<void> {
+export async function authenticatedDownload(
+  url: string,
+  filename: string,
+  signal?: AbortSignal,
+): Promise<void> {
   // BUG-035: refresh-aware raw fetch so a download issued as the first request
   // after a long idle transparently refreshes the JWT instead of 401-ing.
-  const response = await authenticatedRawFetch(url);
+  const response = await authenticatedRawFetch(url, { signal });
 
   if (!response.ok) {
     let detail: unknown;
@@ -97,14 +102,7 @@ export async function authenticatedDownload(url: string, filename: string): Prom
   }
 
   const blob = await response.blob();
-  const objectUrl = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = objectUrl;
-  anchor.download = filename;
-  document.body.appendChild(anchor);
-  anchor.click();
-  document.body.removeChild(anchor);
-  URL.revokeObjectURL(objectUrl);
+  triggerDownload(blob, filename);
 }
 
 export async function downloadExport(

@@ -38,6 +38,25 @@ describe('useSearchResults', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data).toEqual(mockData);
+    expect(mockSearchDatasets).toHaveBeenCalledWith(expect.any(Object), {
+      signal: expect.any(AbortSignal),
+    });
+  });
+});
+
+describe('useFacets', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useSearchStore.setState(initialState, true);
+  });
+
+  it('passes the query signal to the facet fetcher', async () => {
+    mockFetchFacets.mockResolvedValueOnce({} as never);
+    const { result } = renderHook(() => useFacets());
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(mockFetchFacets).toHaveBeenCalledWith(expect.any(Object), {
+      signal: expect.any(AbortSignal),
+    });
   });
 });
 
@@ -55,7 +74,10 @@ describe('useMapSearchResults', () => {
     const { result } = renderHook(() => useMapSearchResults());
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(mockListMaps).toHaveBeenCalledWith({ search: 'Matterhorn', limit: 6 });
+    expect(mockListMaps).toHaveBeenCalledWith(
+      { search: 'Matterhorn', limit: 6 },
+      { signal: expect.any(AbortSignal) },
+    );
   });
 });
 
