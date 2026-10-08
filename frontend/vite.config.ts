@@ -197,21 +197,18 @@ export default defineConfig({
       // Coverage thresholds ratchet upward as the suite grows.
       // Never lower one without a documented rationale in CHANGELOG.
       //
-      // These are floor(actual) as measured on 2026-05-07, and the suite has
-      // since grown well past them. Measured 2026-07-31: statements 72.05 /
-      // branches 67.31 / functions 66.29 / lines 74.16 — roughly 30 points of
-      // headroom on every dimension, so an uncovered line does not trip a
-      // threshold today.
+      // Measured 2026-10-08: statements 81.56 / branches 77.70 / functions
+      // 75.95 / lines 83.63. Each threshold is floor(measured) minus 3 points,
+      // so ordinary churn does not trip the gate but a real drop does.
       //
-      // Thresholds are a floor from a recorded measurement rather than the
-      // floor of the latest run. To ratchet: re-run `npm run
-      // test:coverage`, set each to floor(actual), and update the measurement
-      // above in the same commit.
+      // To ratchet: re-run `npm run test:coverage`, set each to
+      // floor(measured) - 3, and update the measurement above in the same
+      // commit.
       thresholds: {
-        statements: 41,
-        branches: 39,
-        functions: 37,
-        lines: 42,
+        statements: 78,
+        branches: 74,
+        functions: 72,
+        lines: 80,
       },
     },
   },
