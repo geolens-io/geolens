@@ -233,7 +233,7 @@ def resolve_apply_timeout(raw: float | None) -> float | None | Any:
 #: URI schemes the backend manifest-apply path fetches server-side. Anything
 #: without one of these schemes is a LOCAL relative path that must already
 #: exist under the server's upload_staging_dir — `apply` never transfers it.
-_REMOTE_URI_SCHEMES = frozenset({"http", "https", "s3", "gs", "az", "abfs"})
+_REMOTE_URI_SCHEMES = frozenset({"http", "https", "s3"})
 
 
 def find_local_source_uris(document: Mapping[str, Any]) -> list[str]:
@@ -247,7 +247,7 @@ def find_local_source_uris(document: Mapping[str, Any]) -> list[str]:
     instead of getting opaque backend skips/errors.
 
     A URI is treated as local when it has no recognized remote scheme
-    (http/https/s3/gs/az/abfs). Matches the backend classifier in
+    (http/https/s3). Matches the backend classifier in
     ``app.processing.ingest.manifest_sources.classify_manifest_source``.
     """
     local: list[str] = []

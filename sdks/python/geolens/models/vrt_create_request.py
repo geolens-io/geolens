@@ -29,7 +29,7 @@ T = TypeVar("T", bound="VrtCreateRequest")
 class VrtCreateRequest:
     """
     Attributes:
-        source_dataset_ids (list[UUID]): Source raster dataset IDs to include in the VRT mosaic or band stack (1-500).
+        source_dataset_ids (list[UUID]): Source raster dataset IDs to include in the VRT mosaic or band stack (2-500).
         vrt_type (VrtCreateRequestVrtType): Type of VRT to create. 'mosaic' tiles sources spatially; 'band_stack' aligns
             same-extent sources as multi-band output.
         resolution_strategy (VrtCreateRequestResolutionStrategy): How to resolve mismatched source resolutions: 'finest'

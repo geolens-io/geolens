@@ -1,5 +1,5 @@
 from http import HTTPStatus
-from typing import Any, cast
+from typing import Any
 from urllib.parse import quote
 
 import httpx
@@ -8,6 +8,9 @@ from ...client import AuthenticatedClient, Client
 from ...types import Response, UNSET
 from ... import errors
 
+from ...models.get_features_geojson_z_endpoint_datasets_dataset_id_features_geojson_get_response_200 import (
+    GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200,
+)
 from ...models.problem_detail import ProblemDetail
 from ...types import Unset
 from uuid import UUID
@@ -35,9 +38,16 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Any | ProblemDetail | None:
+) -> (
+    GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200
+    | ProblemDetail
+    | None
+):
     if response.status_code == 200:
-        response_200 = cast(Any, None)
+        response_200 = GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200.from_dict(
+            response.json()
+        )
+
         return response_200
 
     if response.status_code == 400:
@@ -88,7 +98,10 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[Any | ProblemDetail]:
+) -> Response[
+    GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200
+    | ProblemDetail
+]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -102,7 +115,10 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
     x_embed_token: None | str | Unset = UNSET,
-) -> Response[Any | ProblemDetail]:
+) -> Response[
+    GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200
+    | ProblemDetail
+]:
     """Get Features Geojson Z Endpoint
 
      Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
@@ -127,7 +143,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | ProblemDetail]
+        Response[GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200 | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -147,7 +163,11 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
     x_embed_token: None | str | Unset = UNSET,
-) -> Any | ProblemDetail | None:
+) -> (
+    GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200
+    | ProblemDetail
+    | None
+):
     """Get Features Geojson Z Endpoint
 
      Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
@@ -172,7 +192,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | ProblemDetail
+        GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200 | ProblemDetail
     """
 
     return sync_detailed(
@@ -187,7 +207,10 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
     x_embed_token: None | str | Unset = UNSET,
-) -> Response[Any | ProblemDetail]:
+) -> Response[
+    GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200
+    | ProblemDetail
+]:
     """Get Features Geojson Z Endpoint
 
      Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
@@ -212,7 +235,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | ProblemDetail]
+        Response[GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200 | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -230,7 +253,11 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
     x_embed_token: None | str | Unset = UNSET,
-) -> Any | ProblemDetail | None:
+) -> (
+    GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200
+    | ProblemDetail
+    | None
+):
     """Get Features Geojson Z Endpoint
 
      Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
@@ -255,7 +282,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | ProblemDetail
+        GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200 | ProblemDetail
     """
 
     return (

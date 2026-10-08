@@ -21,7 +21,7 @@ class ManifestSource:
     Attributes:
         type_ (ManifestSourceType): Source modality. Vector sources require zip, gpkg, geojson, json, csv, xlsx, xls,
             fgb, kml, or kmz; raster_cog sources require tif or tiff.
-        uri (str): Relative path (no `..` traversal), HTTP(S) URL, or storage URI.
+        uri (str): Relative path (no `..` traversal), HTTP(S) URL, or s3:// storage URI.
         title (None | str | Unset):
         description (None | str | Unset):
         format_ (None | str | Unset):
