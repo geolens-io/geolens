@@ -1,4 +1,4 @@
-import { abortInflightRefresh, attemptRefresh } from '@/api/client';
+import { abortInflightRefresh, attemptRefresh, TRANSIENT_COOLDOWN_MS } from '@/api/client';
 import { onAuthMessage } from '@/lib/auth-channel';
 import { cookieAuthAvailable } from '@/lib/auth-transport';
 import { isEmbedViewer } from '@/lib/embed-context';
@@ -8,16 +8,21 @@ import { readPersistedUser, SIGNED_OUT, useAuthStore } from '@/stores/auth-store
  * Get an access token for a session this tab knows of but holds no token for:
  * the one a previous page load left, or one another tab just signed in.
  *
- * A rejected refresh ends that session. A transient failure keeps it, so the
- * next request that needs it, or the next reload, tries again.
+ * A rejected refresh ends that session. A transient failure keeps it and tries
+ * again once the refresh back-off has passed, so a session an outage left
+ * without a token comes back on its own, even on a page that sends nothing.
  */
 export async function restoreSession(): Promise<void> {
   if (isEmbedViewer()) return;
   const { token, sessionId, refreshToken } = useAuthStore.getState();
   if (token || (!sessionId && !refreshToken)) return;
   const outcome = await attemptRefresh();
-  if (outcome === 'rejected' && useAuthStore.getState().sessionId === sessionId) {
-    useAuthStore.getState().logout();
+  const current = useAuthStore.getState();
+  if (current.sessionId !== sessionId || current.token) return;
+  if (outcome === 'rejected') {
+    current.logout();
+  } else if (outcome === 'transient') {
+    setTimeout(() => void restoreSession(), TRANSIENT_COOLDOWN_MS);
   }
 }
 

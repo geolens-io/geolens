@@ -116,9 +116,21 @@ describe('session recovery and cross-tab sync', () => {
     vi.mocked(refreshAccessToken).mockRejectedValueOnce(new ApiError('unavailable', 503));
     await reloadWith({ sessionId: 'session-1', user });
 
-    await restoreSession();
+    vi.useFakeTimers();
+    try {
+      vi.mocked(refreshAccessToken).mockResolvedValueOnce(issued('recovered'));
+      await restoreSession();
 
-    expect(useAuthStore.getState()).toMatchObject({ token: null, sessionId: 'session-1', user });
+      expect(useAuthStore.getState()).toMatchObject({ token: null, sessionId: 'session-1', user });
+
+      // Nothing on a signed-out page asks again, so the recovery retries itself
+      // once the refresh back-off has passed.
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(refreshAccessToken).toHaveBeenCalledTimes(2);
+      expect(useAuthStore.getState()).toMatchObject({ token: 'recovered', sessionId: 'session-1' });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('recovers a migrating legacy session with its in-memory refresh token', async () => {

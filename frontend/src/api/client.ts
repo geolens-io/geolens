@@ -44,7 +44,7 @@ let inflightRefreshAbort: AbortController | null = null;
 // fix(#2038): how long to stop asking after a transient refresh failure. Without
 // it an auth outage — or a shared egress IP over the endpoint's per-IP limit —
 // turns every 401'd surface in every tab into an unbounded refresh loop.
-const TRANSIENT_COOLDOWN_MS = 30_000;
+export const TRANSIENT_COOLDOWN_MS = 30_000;
 let transientUntil = 0;
 let transientToken: string | null = null;
 
