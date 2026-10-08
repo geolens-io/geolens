@@ -1,6 +1,6 @@
 import { abortInflightRefresh, attemptRefresh, TRANSIENT_COOLDOWN_MS } from '@/api/client';
 import { onAuthMessage } from '@/lib/auth-channel';
-import { cookieAuthAvailable } from '@/lib/auth-transport';
+import { acceptSignInOrder, cookieAuthAvailable } from '@/lib/auth-transport';
 import { isEmbedViewer } from '@/lib/embed-context';
 import { readPersistedUser, SIGNED_OUT, useAuthStore } from '@/stores/auth-store';
 
@@ -54,7 +54,11 @@ export function wireSessionSync(): () => void {
     const { sessionId } = useAuthStore.getState();
     if (message.type === 'logout') {
       if (message.sessionId === sessionId) endSession();
-    } else if (message.sessionId !== sessionId && cookieAuthAvailable()) {
+    } else if (
+      message.sessionId !== sessionId &&
+      cookieAuthAvailable() &&
+      acceptSignInOrder(message.order)
+    ) {
       adoptSession(message.sessionId);
     }
   });

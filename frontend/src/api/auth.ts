@@ -1,6 +1,6 @@
 import { API_BASE } from '@/lib/constants';
 import { signalWithTimeout } from '@/lib/abort';
-import { AUTH_MODE_HEADER, cookieAuthAvailable, cookieAuthHeaders, withCookieWrite } from '@/lib/auth-transport';
+import { AUTH_MODE_HEADER, cookieAuthAvailable, cookieAuthHeaders, takeSignInOrder, withCookieWrite } from '@/lib/auth-transport';
 import { useAuthStore } from '@/stores/auth-store';
 import { abortInflightRefresh, apiFetch, isCredentialRejected, safeFetch, ApiError } from './client';
 import { translateApiErrorDetail } from '@/lib/error-map';
@@ -8,10 +8,13 @@ import type { TokenResponse, UserResponse, AuthConfigResponse, MessageResponse, 
 
 const LOGIN_TIMEOUT_MS = 30_000;
 
+/** A session as issued, numbered in cookie-write order by takeSignInOrder. */
+export type OrderedTokens = TokenResponse & { order: number };
+
 export async function login(
   username: string,
   password: string,
-): Promise<TokenResponse> {
+): Promise<OrderedTokens> {
   // fix(#1446): never overtake a logout still in flight. It revokes every
   // refresh token for the user and deletes the cookies, so landing after this
   // login would revoke the new session's row or erase its cookie. Bounded by
@@ -50,7 +53,12 @@ export async function login(
     }
 
     try {
-      return (await response.json()) as TokenResponse;
+      const issued = { ...((await response.json()) as TokenResponse), order: takeSignInOrder() };
+      // A refresh queued behind this login, such as one adopting another
+      // tab's earlier sign-in, would otherwise take the lock next and spend
+      // the cookie this login just set before the session is installed.
+      abortInflightRefresh();
+      return issued;
     } catch (err) {
       // The 2xx already set the refresh and CSRF cookies, so a body this tab
       // cannot use, a timeout included, must not leave that session behind.
@@ -78,7 +86,7 @@ const EXCHANGE_TIMEOUT_MS = 30_000;
 export async function exchangeSignInCode<T>(
   code: string,
   nonce: string,
-  install: (session: TokenResponse) => T,
+  install: (session: OrderedTokens) => T,
 ): Promise<T> {
   await awaitPendingLogout();
   abortInflightRefresh();
@@ -94,7 +102,7 @@ export async function exchangeSignInCode<T>(
       throw new ApiError(translateApiErrorDetail(undefined, response.status), response.status);
     }
     try {
-      return install((await response.json()) as TokenResponse);
+      return install({ ...((await response.json()) as TokenResponse), order: takeSignInOrder() });
     } catch (err) {
       // The exchange already set this browser's cookie. End that session
       // before releasing the lock, so no tab is left on a cookie this one
@@ -340,8 +348,8 @@ const REFRESH_TIMEOUT_MS = 30_000;
 export async function refreshAccessToken(
   refreshToken: string | null,
   abortSignal?: AbortSignal,
-): Promise<TokenResponse> {
-  const response = await withCookieWrite(() => fetch(`${API_BASE}/auth/refresh/`, {
+): Promise<TokenResponse & { order?: number }> {
+  const send = () => fetch(`${API_BASE}/auth/refresh/`, {
     method: 'POST',
     // Read under the lock: a refresh another tab finished while this one
     // waited has rotated the CSRF cookie this header must match.
@@ -362,7 +370,14 @@ export async function refreshAccessToken(
     // overwrite a cookie issued by a later login.
     signal: signalWithTimeout(abortSignal, REFRESH_TIMEOUT_MS),
     ...(refreshToken ? { body: JSON.stringify({ refresh_token: refreshToken }) } : {}),
-  }), abortSignal);
+  });
+  let order: number | undefined;
+  const response = await withCookieWrite(async () => {
+    const sent = await send();
+    // A migrating session's refresh announces it to other tabs like a sign-in.
+    if (refreshToken && sent.ok) order = takeSignInOrder();
+    return sent;
+  }, abortSignal);
 
   if (!response.ok) {
     // fix(#1849): tryRefresh's 429 back-off branch checks `err instanceof
@@ -371,5 +386,5 @@ export async function refreshAccessToken(
     throw new ApiError(translateApiErrorDetail(undefined, response.status), response.status);
   }
 
-  return response.json() as Promise<TokenResponse>;
+  return { ...((await response.json()) as TokenResponse), order };
 }
