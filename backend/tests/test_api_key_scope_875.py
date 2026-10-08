@@ -557,6 +557,14 @@ _BENIGN_WRITING_GET_ROUTES: dict[str, str] = {
     "/datasets/{dataset_id}/download/cog": "commits an audit row for the read",
     "/datasets/{dataset_id}/export": "commits an audit row for the read",
     "/jobs/{job_id}": "commits an audit row for the read",
+    # Repairs the stored schema for a dropped join column, only for a caller
+    # who passes the write check and supplies no API key.
+    "/datasets/{dataset_id}/features/{gid}/related/{relationship_id}/": (
+        "catalog repair skipped for API-key callers"
+    ),
+    "/datasets/{dataset_id}/features/{gid}/related/{relationship_id}": (
+        "catalog repair skipped for API-key callers"
+    ),
     # Browser OAuth redirect legs. An API key never drives these: they are
     # entered from a browser and carry no X-Api-Key.
     "/auth/oauth/{provider_slug}/login": "browser OAuth leg, not an API-key path",

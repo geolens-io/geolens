@@ -7,6 +7,7 @@ from fastapi import (
     Depends,
     HTTPException,
     Query,
+    Request,
     Response,
     status,
 )
@@ -556,6 +557,7 @@ async def get_feature_related_records(
     dataset_id: uuid.UUID,
     gid: int,
     relationship_id: uuid.UUID,
+    request: Request,
     limit: int = Query(50, ge=1, le=500),
     after: int = Query(0, ge=0),
     user: Identity | None = Depends(get_optional_user),
@@ -587,7 +589,12 @@ async def get_feature_related_records(
     await check_dataset_access_or_anonymous(db, target_dataset, target_dataset.id, user)
 
     async def may_repair(candidate_id: uuid.UUID) -> bool:
-        if user is None:
+        # A read-only API key must not reach a catalog write through its owner.
+        if (
+            user is None
+            or request.headers.get("X-Api-Key")
+            or request.query_params.get("api_key")
+        ):
             return False
         # The refresh path rolled the session back, which expired the caller.
         user_state = sa_inspect(user, raiseerr=False)

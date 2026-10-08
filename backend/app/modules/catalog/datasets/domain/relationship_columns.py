@@ -148,7 +148,7 @@ async def refresh_dropped_join_column(
             record_id=record_id,
         )
     except CatalogLockConflict:
-        return error
+        return None
     # Only the confirmed-missing column leaves the stored list; other drift is
     # left to the paths that reconcile attribute metadata with the schema.
     stored = await session.scalar(
