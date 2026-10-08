@@ -38,6 +38,13 @@ manifest entry only when that entry's fingerprint changes; applying an
 unchanged manifest returns `skip_complete` and does not re-fetch a remote
 source whose data changed independently.
 
+An update that removes or retypes a column, or otherwise needs review, ends
+blocked for review. Applying that entry again unchanged does not queue it a
+second time: the entry comes back `blocked` with the run to accept and its
+reasons, apply prints
+`geolens refresh <dataset-id> --accept-blocked-run <run-id>`, and exits 6. A
+changed entry is queued as usual.
+
 A vector source can carry an optional `checksum: sha256:<64 lowercase hex>`
 field. It is declared, not verified: apply never fetches the source bytes to
 check it, and folds it into the entry fingerprint like any other field. That

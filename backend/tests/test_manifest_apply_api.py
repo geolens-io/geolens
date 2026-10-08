@@ -351,6 +351,8 @@ class TestManifestApplyEndpoint:
                     "action": "create",
                     "job_id": None,
                     "dataset_id": str(dataset_id),
+                    "run_id": None,
+                    "review_reasons": [],
                     "message": "created roads",
                     "errors": [],
                 }
