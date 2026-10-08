@@ -10,6 +10,7 @@ from fastapi import (
     Response,
     status,
 )
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -585,6 +586,22 @@ async def get_feature_related_records(
         )
     await check_dataset_access_or_anonymous(db, target_dataset, target_dataset.id, user)
 
+    async def may_repair(candidate_id: uuid.UUID) -> bool:
+        if user is None:
+            return False
+        # The refresh path rolled the session back, which expired the caller.
+        user_state = sa_inspect(user, raiseerr=False)
+        if user_state is not None and user_state.session is db.sync_session:
+            await db.refresh(user)
+        candidate = await get_dataset(db, candidate_id)
+        if candidate is None:
+            return False
+        try:
+            await check_dataset_write_access(db, candidate, candidate_id, user)
+        except HTTPException:
+            return False
+        return True
+
     try:
         result = await get_related_records(
             db,
@@ -594,6 +611,7 @@ async def get_feature_related_records(
             source_record_id=dataset.record_id,
             limit=limit,
             after=after,
+            may_repair=may_repair,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))

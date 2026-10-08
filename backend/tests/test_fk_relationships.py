@@ -540,6 +540,81 @@ class TestFKRelationships:
         )
         assert again.status_code == 409, again.text
 
+    async def test_related_records_column_dropped_live_read_by_anonymous_does_not_write(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """A read alone reports the dropped join column but never repairs the catalog."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        source = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Anon-Drop Source",
+            visibility="public",
+            record_status="published",
+        )
+        target = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Anon-Drop Target",
+            visibility="public",
+            record_status="published",
+        )
+        for ds in (source, target):
+            await test_db_session.execute(
+                text(
+                    f"CREATE TABLE data.{ds.table_name} "
+                    "(gid integer PRIMARY KEY, target_id integer)"
+                )
+            )
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{source.table_name} (gid, target_id) VALUES (1, 42)"
+            )
+        )
+        await test_db_session.commit()
+
+        create_resp = await client.post(
+            f"/datasets/{source.id}/relationships/",
+            json={
+                "target_dataset_id": str(target.record_id),
+                "source_column": "target_id",
+                "target_column": "target_id",
+            },
+            headers=admin_auth_header,
+        )
+        assert create_resp.status_code == 201, create_resp.text
+        assert create_resp.json()["broken"] is False
+        rel_id = create_resp.json()["id"]
+
+        listed = await client.get(
+            f"/datasets/{source.id}/relationships/", headers=admin_auth_header
+        )
+        assert listed.json()["relationships"][0]["broken"] is False
+
+        test_db_session.add(
+            AttributeMetadata(
+                dataset_id=target.id, field_name="target_id", is_current=True
+            )
+        )
+        await test_db_session.commit()
+
+        # A replacement drops the target's join column.
+        await test_db_session.execute(
+            text(f"ALTER TABLE data.{target.table_name} DROP COLUMN target_id")
+        )
+        await test_db_session.commit()
+
+        resp = await client.get(f"/datasets/{source.id}/features/1/related/{rel_id}/")
+        assert resp.status_code == 409, resp.text
+
+        listed = await client.get(
+            f"/datasets/{source.id}/relationships/", headers=admin_auth_header
+        )
+        assert listed.json()["relationships"][0]["broken"] is False
+
     async def test_related_records_missing_non_join_column_stays_503(
         self,
         client: AsyncClient,

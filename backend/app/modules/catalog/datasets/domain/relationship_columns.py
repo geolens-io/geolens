@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Awaitable, Callable
 
 from fastapi import HTTPException, status
 from sqlalchemy import select, text, update
@@ -89,21 +90,27 @@ def column_missing_error(join_column: str) -> HTTPException:
 
 
 async def refresh_dropped_join_column(
-    session: AsyncSession, dataset_id: uuid.UUID, table_name: str, join_column: str
+    session: AsyncSession,
+    dataset_id: uuid.UUID,
+    table_name: str,
+    join_column: str,
+    may_repair: Callable[[uuid.UUID], Awaitable[bool]] | None,
 ) -> HTTPException | None:
-    """Store the live column list when a join column was dropped behind the catalog.
+    """Return the permanent error when the live table lacks the join column.
 
     A column dropped directly in the database stays in ``column_info``, so the
-    relationship list keeps reporting it healthy. Returns the permanent error
-    once the live table confirms the column is gone, else ``None``.
+    relationship list keeps reporting it healthy. The live list is stored only
+    when ``may_repair`` says the caller may modify the dataset; a read alone
+    never writes the catalog. Returns ``None`` when the failure is not a
+    dropped join column.
     """
     if join_column in _INTERNAL_COLUMNS:
         return None
     # The failed statement aborted the transaction; ids are captured by the caller.
     await session.rollback()
     # A shared table lock first, as the replacement swap orders its locks: a
-    # direct DROP or ALTER waits, so the existence check, the scan and the
-    # update all see one table.
+    # direct DROP or ALTER waits, so the existence check and the scan see one
+    # table.
     lock_sql = (
         f"LOCK TABLE {get_catalog_port().quote_table(table_name)} IN ACCESS SHARE MODE"
     )
@@ -119,11 +126,19 @@ async def refresh_dropped_join_column(
             raise
         await session.rollback()
         return None
+    if not await feature_table_exists(session, table_name):
+        return None
+    live = await get_catalog_port().get_column_info(session, table_name)
+    if any(c["name"] == join_column for c in live):
+        return None
+    error = column_missing_error(join_column)
+    if may_repair is None or not await may_repair(dataset_id):
+        return error
     record_id = (
         await session.execute(select(Dataset.record_id).where(Dataset.id == dataset_id))
     ).scalar_one_or_none()
     if record_id is None:
-        return None
+        return error
     try:
         await lock_catalog_rows(
             session,
@@ -133,12 +148,7 @@ async def refresh_dropped_join_column(
             record_id=record_id,
         )
     except CatalogLockConflict:
-        return None
-    if not await feature_table_exists(session, table_name):
-        return None
-    live = await get_catalog_port().get_column_info(session, table_name)
-    if any(c["name"] == join_column for c in live):
-        return None
+        return error
     await session.execute(
         update(Dataset).where(Dataset.id == dataset_id).values(column_info=live)
     )
@@ -152,4 +162,4 @@ async def refresh_dropped_join_column(
         .values(is_current=False)
     )
     await session.commit()
-    return column_missing_error(join_column)
+    return error
