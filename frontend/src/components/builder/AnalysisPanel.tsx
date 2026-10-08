@@ -816,9 +816,10 @@ export function AnalysisPanel({
       ? maplibreFilterToCql2(joinLayer.filter, joinDatasetDetail.data?.column_info)
       : null;
   const filterUnsupported = [sourceCql2, maskCql2, joinCql2].includes('unsupported');
-  // A failed refetch keeps the previous columns, which may predate a re-upload.
-  const columnsSettled = (detail: { data?: unknown; isFetching: boolean; isError: boolean }) =>
-    !!detail.data && !detail.isFetching && !detail.isError;
+  // A failed or paused refetch keeps the previous columns, which may predate a
+  // re-upload.
+  const columnsSettled = (detail: { isSuccess: boolean; fetchStatus: string }) =>
+    detail.isSuccess && detail.fetchStatus === 'idle';
   const filterColumnsPending =
     (sourceCql2 !== null && !columnsSettled(datasetDetail)) ||
     (maskCql2 !== null && !columnsSettled(maskDatasetDetail)) ||
@@ -830,7 +831,7 @@ export function AnalysisPanel({
       [joinCql2, joinDatasetDetail],
     ] as const
   )
-    .filter(([cql2, detail]) => cql2 !== null && detail.isError && !detail.isFetching)
+    .filter(([cql2, detail]) => cql2 !== null && detail.isError && detail.fetchStatus === 'idle')
     .map(([, detail]) => detail);
   const filterColumnsFailed = failedColumnQueries.length > 0;
   const filterColumnsLoading = filterColumnsPending && !filterColumnsFailed;

@@ -158,12 +158,20 @@ const refetchFailedColumns = vi.fn();
 
 vi.mock('@/components/dataset/hooks/use-dataset', () => ({
   useDataset: vi.fn((datasetId?: string) => {
-    if (datasetId === 'loading-ds') return { data: undefined, isFetching: true, isError: false };
+    const seen = { column_info: [{ name: 'seen', type: 'date' }] };
+    if (datasetId === 'loading-ds') {
+      return { data: undefined, isSuccess: false, isError: false, fetchStatus: 'fetching' };
+    }
+    // Offline: the refetch waits, and the cached columns may predate a re-upload.
+    if (datasetId === 'paused-ds') {
+      return { data: seen, isSuccess: true, isError: false, fetchStatus: 'paused' };
+    }
     if (datasetId === 'refetch-failed-ds') {
       return {
-        data: { column_info: [{ name: 'seen', type: 'date' }] },
-        isFetching: false,
+        data: seen,
+        isSuccess: false,
         isError: true,
+        fetchStatus: 'idle',
         refetch: refetchFailedColumns,
       };
     }
@@ -180,7 +188,12 @@ vi.mock('@/components/dataset/hooks/use-dataset', () => ({
             { name: `join_${'q'.repeat(58)}`.slice(0, 63), type: 'text' },
           ]
         : SHARED_COLUMNS);
-    return { data: { column_info: columns }, isFetching: false, isError: false };
+    return {
+      data: { column_info: columns },
+      isSuccess: true,
+      isError: false,
+      fetchStatus: 'idle',
+    };
   }),
 }));
 
@@ -465,6 +478,18 @@ describe('AnalysisPanel', () => {
       const create = screen.getByRole('button', { name: 'Create dataset' });
       expect(create).toBeDisabled();
       expect(create).toHaveAccessibleDescription(reason);
+    });
+
+    it("holds a filtered run while refetching the dataset's columns is paused", () => {
+      renderPanel([
+        {
+          ...datasetLayer,
+          dataset_id: 'paused-ds',
+          filter: ['==', ['get', 'seen'], '2024-02-01'],
+        } as unknown as MapLayerResponse,
+      ]);
+
+      expect(screen.getByRole('button', { name: 'Preview' })).toBeDisabled();
     });
 
     it("holds a filtered run when refetching the dataset's columns failed, and offers a retry", () => {
