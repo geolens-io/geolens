@@ -404,6 +404,31 @@ describe('AnalysisPanel', () => {
 
       expect(onClearPreview).toHaveBeenCalled();
     });
+
+    it('clears the preview when a filter becomes one analysis cannot apply', () => {
+      const onClearPreview = vi.fn();
+      const qc = new QueryClient();
+      const panel = (layer: MapLayerResponse) => (
+        <QueryClientProvider client={qc}>
+          <AnalysisPanel
+            layers={[layer]}
+            previewSource="analysis-panel"
+            onClearPreview={onClearPreview}
+          />
+        </QueryClientProvider>
+      );
+      const { rerender } = render(panel({ ...datasetLayer, filter: null } as unknown as MapLayerResponse));
+      onClearPreview.mockClear();
+
+      rerender(
+        panel({
+          ...datasetLayer,
+          filter: ['match', ['get', 'kind'], 'a', true, false],
+        } as unknown as MapLayerResponse),
+      );
+
+      expect(onClearPreview).toHaveBeenCalled();
+    });
   });
 
   it('does not offer a folder group, which copies its first child dataset', () => {

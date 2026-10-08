@@ -87,6 +87,8 @@ export interface CanonicalFilterCondition {
   rawValue?: unknown;
   /** Parsed literal values for in_list / not_in_list (used for chip preview). */
   listValues?: unknown[];
+  /** Read through `to-number`, which turns a missing value into 0. */
+  toNumber?: true;
 }
 
 export type CanonicalFilter =
@@ -156,7 +158,13 @@ function parseSingleCondition(e: unknown): CanonicalFilterCondition | null {
     Array.isArray(e[1][1]) &&
     e[1][1][0] === 'get'
   ) {
-    return { field: e[1][1][1] as string, operator: e[0] as string, value: String(e[2] ?? ''), rawValue: e[2] };
+    return {
+      field: e[1][1][1] as string,
+      operator: e[0] as string,
+      value: String(e[2] ?? ''),
+      rawValue: e[2],
+      toNumber: true,
+    };
   }
 
   return null;
@@ -392,6 +400,23 @@ const cql2OrNull = (field: string, expr: Cql2Expression): Cql2Expression => ({
   args: [cql2IsNull(field), expr],
 });
 
+function compareNumbers(a: number, operator: string, b: number): boolean {
+  switch (operator) {
+    case '==':
+      return a === b;
+    case '!=':
+      return a !== b;
+    case '<':
+      return a < b;
+    case '>':
+      return a > b;
+    case '<=':
+      return a <= b;
+    default:
+      return a >= b;
+  }
+}
+
 function conditionToCql2(c: CanonicalFilterCondition): Cql2Expression | null {
   if (c.field.startsWith('$')) return null;
   if (c.operator === 'is_null') return cql2IsNull(c.field);
@@ -410,6 +435,13 @@ function conditionToCql2(c: CanonicalFilterCondition): Cql2Expression | null {
   }
   const op = CQL2_COMPARISON[c.operator];
   if (!op) return null;
+  if (c.toNumber) {
+    if (typeof c.rawValue !== 'number' || !Number.isFinite(c.rawValue)) return null;
+    const comparison: Cql2Expression = { op, args: [cql2Property(c.field), c.rawValue] };
+    return compareNumbers(0, c.operator, c.rawValue)
+      ? cql2OrNull(c.field, comparison)
+      : comparison;
+  }
   if (c.rawValue === null) {
     if (c.operator === '==') return cql2IsNull(c.field);
     if (c.operator === '!=') return cql2Not(cql2IsNull(c.field));

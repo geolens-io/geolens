@@ -777,7 +777,7 @@ export function AnalysisPanel({
     ...cql2Field('join_filter', joinCql2),
   };
   // A filter edited in the layer panel changes what a preview or a run means.
-  const filterKey = JSON.stringify(filterFields);
+  const filterKey = JSON.stringify([sourceCql2, maskCql2, joinCql2]);
   // fix(#1097 review): spatial_join needs the SOURCE's columns too, not just
   // dissolve. A transferred field lands as join_<name>, so a source that
   // already has join_zone — routinely, because it is the output of an earlier

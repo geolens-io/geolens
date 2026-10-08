@@ -176,6 +176,12 @@ describe('maplibreFilterToCql2', () => {
   it.each([
     [['==', ['get', 'kind'], 'a'], { op: '=', args: [p('kind'), 'a'] }],
     [['>', ['to-number', ['get', 'mag'], -1e12], 5], { op: '>', args: [p('mag'), 5] }],
+    // `to-number` reads a missing value as 0, which passes `< 5` on the map.
+    [
+      ['<', ['to-number', ['get', 'mag'], 1e12], 5],
+      { op: 'or', args: [isNull('mag'), { op: '<', args: [p('mag'), 5] }] },
+    ],
+    [['!=', ['to-number', ['get', 'mag'], -1e12], 0], { op: '<>', args: [p('mag'), 0] }],
     [['==', ['get', 'ok'], true], { op: '=', args: [p('ok'), true] }],
     // A feature with no value passes a MapLibre `!=`, so SQL must keep nulls.
     [
