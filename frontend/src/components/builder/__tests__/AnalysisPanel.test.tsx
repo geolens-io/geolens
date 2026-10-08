@@ -157,7 +157,14 @@ const FILTER_TEST_COLUMNS: Record<string, { name: string; type: string }[]> = {
 
 vi.mock('@/components/dataset/hooks/use-dataset', () => ({
   useDataset: vi.fn((datasetId?: string) => {
-    if (datasetId === 'loading-ds') return { data: undefined, isFetching: true };
+    if (datasetId === 'loading-ds') return { data: undefined, isFetching: true, isError: false };
+    if (datasetId === 'refetch-failed-ds') {
+      return {
+        data: { column_info: [{ name: 'seen', type: 'date' }] },
+        isFetching: false,
+        isError: true,
+      };
+    }
     const columns =
       FILTER_TEST_COLUMNS[datasetId ?? ''] ??
       (datasetId === 'ds1'
@@ -171,7 +178,7 @@ vi.mock('@/components/dataset/hooks/use-dataset', () => ({
             { name: `join_${'q'.repeat(58)}`.slice(0, 63), type: 'text' },
           ]
         : SHARED_COLUMNS);
-    return { data: { column_info: columns }, isFetching: false };
+    return { data: { column_info: columns }, isFetching: false, isError: false };
   }),
 }));
 
@@ -451,6 +458,18 @@ describe('AnalysisPanel', () => {
 
       expect(screen.getByRole('button', { name: 'Preview' })).toBeDisabled();
       expect(screen.getByRole('button', { name: 'Create dataset' })).toBeDisabled();
+    });
+
+    it("holds a filtered run when refetching the dataset's columns failed", () => {
+      renderPanel([
+        {
+          ...datasetLayer,
+          dataset_id: 'refetch-failed-ds',
+          filter: ['==', ['get', 'seen'], '2024-02-01'],
+        } as unknown as MapLayerResponse,
+      ]);
+
+      expect(screen.getByRole('button', { name: 'Preview' })).toBeDisabled();
     });
 
     it('blocks a run whose layer filter reads a json column', () => {

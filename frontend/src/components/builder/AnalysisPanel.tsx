@@ -816,8 +816,9 @@ export function AnalysisPanel({
       ? maplibreFilterToCql2(joinLayer.filter, joinDatasetDetail.data?.column_info)
       : null;
   const filterUnsupported = [sourceCql2, maskCql2, joinCql2].includes('unsupported');
-  const columnsSettled = (detail: { data?: unknown; isFetching: boolean }) =>
-    !!detail.data && !detail.isFetching;
+  // A failed refetch keeps the previous columns, which may predate a re-upload.
+  const columnsSettled = (detail: { data?: unknown; isFetching: boolean; isError: boolean }) =>
+    !!detail.data && !detail.isFetching && !detail.isError;
   const filterColumnsPending =
     (sourceCql2 !== null && !columnsSettled(datasetDetail)) ||
     (maskCql2 !== null && !columnsSettled(maskDatasetDetail)) ||
