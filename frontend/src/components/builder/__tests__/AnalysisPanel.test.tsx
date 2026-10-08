@@ -154,6 +154,7 @@ const FILTER_TEST_COLUMNS: Record<string, { name: string; type: string }[]> = {
   ],
   'retyped-ds': [{ name: 'seen', type: 'text' }],
 };
+const refetchFailedColumns = vi.fn();
 
 vi.mock('@/components/dataset/hooks/use-dataset', () => ({
   useDataset: vi.fn((datasetId?: string) => {
@@ -163,6 +164,7 @@ vi.mock('@/components/dataset/hooks/use-dataset', () => ({
         data: { column_info: [{ name: 'seen', type: 'date' }] },
         isFetching: false,
         isError: true,
+        refetch: refetchFailedColumns,
       };
     }
     const columns =
@@ -460,7 +462,8 @@ describe('AnalysisPanel', () => {
       expect(screen.getByRole('button', { name: 'Create dataset' })).toBeDisabled();
     });
 
-    it("holds a filtered run when refetching the dataset's columns failed", () => {
+    it("holds a filtered run when refetching the dataset's columns failed, and offers a retry", () => {
+      refetchFailedColumns.mockClear();
       renderPanel([
         {
           ...datasetLayer,
@@ -468,8 +471,21 @@ describe('AnalysisPanel', () => {
           filter: ['==', ['get', 'seen'], '2024-02-01'],
         } as unknown as MapLayerResponse,
       ]);
+      fireEvent.change(screen.getByLabelText('New dataset name'), {
+        target: { value: 'Recent' },
+      });
 
-      expect(screen.getByRole('button', { name: 'Preview' })).toBeDisabled();
+      const reason =
+        "Couldn't load a filtered layer's columns, so its filter can't be checked yet.";
+      const preview = screen.getByRole('button', { name: 'Preview' });
+      expect(preview).toBeDisabled();
+      expect(preview).toHaveAccessibleDescription(reason);
+      expect(screen.getByRole('button', { name: 'Create dataset' })).toHaveAccessibleDescription(
+        reason,
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+      expect(refetchFailedColumns).toHaveBeenCalledTimes(1);
     });
 
     it('blocks a run whose layer filter reads a json column', () => {

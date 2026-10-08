@@ -823,6 +823,16 @@ export function AnalysisPanel({
     (sourceCql2 !== null && !columnsSettled(datasetDetail)) ||
     (maskCql2 !== null && !columnsSettled(maskDatasetDetail)) ||
     (joinCql2 !== null && !columnsSettled(joinDatasetDetail));
+  const failedColumnQueries = (
+    [
+      [sourceCql2, datasetDetail],
+      [maskCql2, maskDatasetDetail],
+      [joinCql2, joinDatasetDetail],
+    ] as const
+  )
+    .filter(([cql2, detail]) => cql2 !== null && detail.isError && !detail.isFetching)
+    .map(([, detail]) => detail);
+  const filterColumnsFailed = failedColumnQueries.length > 0;
   const filterFields = {
     ...cql2Field('filter', sourceCql2),
     ...cql2Field('mask_filter', maskCql2),
@@ -1398,7 +1408,9 @@ export function AnalysisPanel({
       ? ('params' as const)
       : filterUnsupported
         ? ('filter' as const)
-        : null;
+        : filterColumnsFailed
+          ? ('filterColumns' as const)
+          : null;
 
   if (datasetLayers.length === 0) {
     return (
@@ -1484,6 +1496,25 @@ export function AnalysisPanel({
                 "A layer's filter uses an expression analysis can't apply. Simplify it in the layer's filter settings, or remove it.",
             })}
           </p>
+        )}
+        {filterColumnsFailed && (
+          <div className="flex items-center gap-2">
+            <p id="analysis-filter-columns-failed" className="text-xs text-destructive">
+              {t('analysisTools.layerFilterColumnsFailed', {
+                defaultValue:
+                  "Couldn't load a filtered layer's columns, so its filter can't be checked yet.",
+              })}
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="shrink-0"
+              onClick={() => failedColumnQueries.forEach((query) => void query.refetch())}
+            >
+              {t('analysisTools.layerFilterColumnsRetry', { defaultValue: 'Try again' })}
+            </Button>
+          </div>
         )}
       </div>
 
@@ -1891,7 +1922,13 @@ export function AnalysisPanel({
           <Button
             type="submit"
             aria-busy={previewMutation.isPending || undefined}
-            aria-describedby={filterUnsupported ? 'analysis-filter-unsupported' : undefined}
+            aria-describedby={
+              filterUnsupported
+                ? 'analysis-filter-unsupported'
+                : filterColumnsFailed
+                  ? 'analysis-filter-columns-failed'
+                  : undefined
+            }
             disabled={!canRun}
           >
             {previewMutation.isPending
@@ -1942,7 +1979,9 @@ export function AnalysisPanel({
               aria-describedby={
                 saveBlockedReason === 'filter'
                   ? 'analysis-filter-unsupported'
-                  : saveBlockedReason
+                  : saveBlockedReason === 'filterColumns'
+                    ? 'analysis-filter-columns-failed'
+                    : saveBlockedReason
                     ? 'analysis-save-hint'
                     : undefined
               }
@@ -1963,7 +2002,7 @@ export function AnalysisPanel({
             </Button>
             {/* Static hint, deliberately NOT in the role="status" region —
                 a polite live region would narrate it on every keystroke. */}
-            {saveBlockedReason && saveBlockedReason !== 'filter' && (
+            {(saveBlockedReason === 'name' || saveBlockedReason === 'params') && (
               <p id="analysis-save-hint" className="text-xs text-muted-foreground">
                 {saveBlockedReason === 'name'
                   ? t('analysisTools.saveHintNeedsName', {

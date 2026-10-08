@@ -1005,6 +1005,8 @@
     "layerPlaceholder": "选择图层",
     "layerFilterApplied": "分析仅使用此图层筛选条件显示的要素。",
     "layerFilterUnsupported": "某个图层的筛选条件使用了分析无法应用的表达式。请在该图层的筛选设置中简化它，或将其移除。",
+    "layerFilterColumnsFailed": "无法加载某个已筛选图层的列，因此暂时无法检查其筛选条件。",
+    "layerFilterColumnsRetry": "重试",
     "operationLabel": "操作",
     "opBuffer": "缓冲区",
     "opCentroid": "质心",

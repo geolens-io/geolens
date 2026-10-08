@@ -1005,6 +1005,8 @@
     "layerPlaceholder": "Select a layer",
     "layerFilterApplied": "Analysis uses only the features this layer's filter shows.",
     "layerFilterUnsupported": "A layer's filter uses an expression analysis can't apply. Simplify it in the layer's filter settings, or remove it.",
+    "layerFilterColumnsFailed": "Couldn't load a filtered layer's columns, so its filter can't be checked yet.",
+    "layerFilterColumnsRetry": "Try again",
     "operationLabel": "Operation",
     "opBuffer": "Buffer",
     "opCentroid": "Centroids",
