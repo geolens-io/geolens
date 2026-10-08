@@ -38,6 +38,22 @@ const makeLayer = (overrides: Partial<MapLayerResponse> = {}): MapLayerResponse 
   ...overrides,
 });
 
+describe('LayerStyleEditor opacity help', () => {
+  it('describes what layer opacity covers', () => {
+    render(
+      <LayerStyleEditor
+        layer={makeLayer()}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={vi.fn()}
+        onLayoutChange={vi.fn()}
+      />,
+    );
+    const help = screen.getByText('Combined with the opacity settings above.');
+    expect(screen.getByRole('slider', { name: 'Layer opacity' })).toHaveAttribute('aria-describedby', help.id);
+  });
+});
+
 describe('LayerStyleEditor - SP-05 pending preview banner gating', () => {
   it('does NOT show the pending preview banner on first open with no savedLayer baseline', () => {
     // No savedLayer prop → draft is considered clean (no dirty tracking source).

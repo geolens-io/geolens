@@ -66,6 +66,13 @@ beforeEach(() => {
   mockUseAuditLogs.mockReset();
 });
 
+describe('AuditLogViewer heading', () => {
+  it('leaves the page title to the page header', () => {
+    renderViewer();
+    expect(screen.queryByRole('heading', { name: 'Audit Logs' })).not.toBeInTheDocument();
+  });
+});
+
 describe('AuditLogViewer sorting', () => {
   it('requests the historical created_at descending order by default', () => {
     renderViewer();

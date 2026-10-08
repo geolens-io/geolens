@@ -79,6 +79,13 @@ function makeProps(layer: MapLayerResponse, overrides: Partial<BaseStyleEditorPr
 }
 
 describe('CircleEditor', () => {
+  it('describes what point opacity covers', () => {
+    render(<CircleEditor {...makeProps(makeCircleLayer())} />);
+
+    const help = screen.getByText('style.pointOpacityHelp');
+    expect(screen.getByRole('slider', { name: 'Point opacity' })).toHaveAttribute('aria-describedby', help.id);
+  });
+
   it('renders circle-color picker, circle-opacity, circle-radius, and stroke controls', () => {
     render(<CircleEditor {...makeProps(makeCircleLayer())} />);
 

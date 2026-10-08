@@ -159,6 +159,8 @@ interface SliderRowProps {
   display?: string;
   /** Format shorthand: percent (0-1 → "50%"), px ("5px"), zoom ("3"). */
   format?: 'percent' | 'px' | 'zoom';
+  /** Id of an element that describes the slider. */
+  describedBy?: string;
 }
 
 function formatValue(value: number, format?: 'percent' | 'px' | 'zoom'): string {
@@ -171,13 +173,14 @@ function formatValue(value: number, format?: 'percent' | 'px' | 'zoom'): string 
 }
 
 /** Shared slider row component used by heatmap controls and style editor. */
-export function SliderRow({ label, value, min, max, step, display, format, onChange }: SliderRowProps) {
+export function SliderRow({ label, value, min, max, step, display, format, describedBy, onChange }: SliderRowProps) {
   const displayValue = display ?? formatValue(value, format);
   return (
     <div className="flex items-center gap-2">
       <span className="text-xs text-muted-foreground w-20">{label}</span>
       <Slider
         aria-label={label}
+        aria-describedby={describedBy}
         // fix(#788 item 3): announce the formatted value ("80%"), matching
         // RasterSliderRow and the DEM/basemap scenes — without it AT read the
         // raw number ("0.8") while the screen showed the formatted one.

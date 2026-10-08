@@ -14,6 +14,7 @@ function Slider({
   // Radix leaves unknown props on the Root span, which has no slider role, so
   // valuetext set by callers never reached assistive tech.
   "aria-valuetext": ariaValueText,
+  "aria-describedby": ariaDescribedBy,
   ...props
 }: React.ComponentProps<typeof SliderPrimitive.Root>) {
   const _values = React.useMemo(
@@ -56,6 +57,7 @@ function Slider({
         <SliderPrimitive.Thumb
           aria-label={ariaLabel}
           aria-valuetext={ariaValueText}
+          aria-describedby={ariaDescribedBy}
           data-slot="slider-thumb"
           key={index}
           className="border-primary block size-4 shrink-0 rounded-full border bg-background shadow-sm transition-[color,background-color,box-shadow,border-color,opacity] duration-200 ease-out hover:ring-4 hover:ring-ring/50 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50"

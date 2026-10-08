@@ -13,6 +13,30 @@ Element.prototype.releasePointerCapture = vi.fn();
 Element.prototype.scrollIntoView = vi.fn();
 
 describe('ZoomExpressionEditor', () => {
+  it('keeps the description on the value inputs in zoom mode', async () => {
+    const user = userEvent.setup();
+    render(
+      <ZoomExpressionEditor
+        label="Width"
+        value={2}
+        defaultValue={2}
+        min={0.5}
+        max={20}
+        step={0.5}
+        format="px"
+        describedBy="help"
+        onChange={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Varies by zoom' }));
+
+    const valueInputs = screen.getAllByRole('spinbutton')
+      .filter((el) => /value/i.test(el.getAttribute('aria-label') ?? ''));
+    expect(valueInputs.length).toBeGreaterThan(0);
+    valueInputs.forEach((el) => expect(el).toHaveAttribute('aria-describedby', 'help'));
+  });
+
   it('emits scalar values in fixed mode', () => {
     const onChange = vi.fn();
     render(

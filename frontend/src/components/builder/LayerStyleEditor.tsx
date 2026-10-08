@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, memo, lazy, Suspense, useEffect, useRef } from 'react';
+import { useId, useState, useMemo, useCallback, memo, lazy, Suspense, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -138,6 +138,7 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
   onLayoutChange,
   onRevertToSaved,
 }: LayerStyleEditorProps) {
+  const layerOpacityHelpId = useId();
   const { t } = useTranslation('builder');
   const geomType = getLayerType(layer.dataset_geometry_type);
   const paint = layer.paint;
@@ -634,8 +635,10 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
               max={1}
               step={0.01}
               format="percent"
+              describedBy={layerOpacityHelpId}
               onChange={setLocalOpacity}
             />
+            <p id={layerOpacityHelpId} className="text-xs text-muted-foreground">{t('style.layerOpacityHelp')}</p>
           </>
         )}
 

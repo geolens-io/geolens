@@ -26,6 +26,8 @@ interface ZoomExpressionEditorProps {
   max: number;
   step: number;
   format?: NumericFormat;
+  /** Id of an element that describes the fixed-value slider. */
+  describedBy?: string;
   onChange: (value: number | ZoomExpression) => void;
 }
 
@@ -80,6 +82,7 @@ export function ZoomExpressionEditor({
   max,
   step,
   format,
+  describedBy,
   onChange,
 }: ZoomExpressionEditorProps) {
   const { t } = useTranslation('builder');
@@ -232,6 +235,7 @@ export function ZoomExpressionEditor({
           max={max}
           step={step}
           display={formatDisplayValue(scalarValue, format)}
+          describedBy={describedBy}
           onChange={onChange}
         />
       ) : (
@@ -259,6 +263,7 @@ export function ZoomExpressionEditor({
             <div className="grid grid-cols-[1fr_5rem] items-center gap-2">
               <span className="text-xs text-muted-foreground">{t('style.zoomExpression.baseValue')}</span>
               <Input
+                aria-describedby={describedBy}
                 aria-label={t('style.zoomExpression.baseValueLabel', {
                   label,
                   defaultValue: '{{label}} base value',
@@ -299,6 +304,7 @@ export function ZoomExpressionEditor({
                   onChange={(event) => updateStop(index, { zoom: event.currentTarget.valueAsNumber })}
                 />
                 <Input
+                  aria-describedby={describedBy}
                   aria-label={t('style.zoomExpression.stopValueLabel', {
                     label,
                     index: index + 1,

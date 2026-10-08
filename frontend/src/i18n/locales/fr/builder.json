@@ -196,6 +196,8 @@
     "lineOpacity": "Opacité de la ligne",
     "pointOpacity": "Opacité du point",
     "layerOpacity": "Opacité de la couche",
+    "pointOpacityHelp": "Opacité du remplissage de chaque point. L'opacité de la couche, ci-dessous, s'y multiplie.",
+    "layerOpacityHelp": "Se combine avec les réglages d'opacité ci-dessus.",
     "color": "Couleur",
     "hexValueFor": "Valeur hexadécimale de {{label}}",
     "hexColorValue": "Valeur de couleur hexadécimale",
