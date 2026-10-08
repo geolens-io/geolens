@@ -193,3 +193,13 @@ describe('AdminSharedMapsPage sorting', () => {
     expect(header).not.toHaveAttribute('aria-sort');
   });
 });
+
+describe('AdminSharedMapsPage narrow viewport', () => {
+  it('wraps the search and status filters instead of widening the page', () => {
+    renderPage();
+
+    const filterButtons = screen.getByRole('button', { name: 'Revoked' }).parentElement;
+    expect(filterButtons).toHaveClass('flex-wrap');
+    expect(filterButtons?.parentElement).toHaveClass('flex-wrap');
+  });
+});

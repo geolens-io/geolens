@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -135,6 +135,15 @@ describe('AppLayout', () => {
     expect(footer).toBeInTheDocument();
     expect(footer).toHaveTextContent('Powered by GeoLens');
     expect(footer).toHaveTextContent('GitHub');
+  });
+
+  it('gives every footer link a coarse-pointer touch target', () => {
+    renderAppLayout();
+    const links = within(screen.getByRole('contentinfo')).getAllByRole('link');
+    expect(links.length).toBeGreaterThan(1);
+    for (const link of links) {
+      expect(link).toHaveClass('pointer-coarse:min-h-11', 'pointer-coarse:min-w-11');
+    }
   });
 
   it('Powered by GeoLens badge links to getgeolens.com', () => {

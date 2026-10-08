@@ -638,8 +638,8 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
       </div>
 
       {/* Pagination */}
-      <div className="flex items-center justify-between text-sm">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <span className="text-muted-foreground">
             {isExact
               ? t('attributes.showingExact', { start: formatNumber(rangeStart), end: formatNumber(rangeEnd), total: formatNumber(effectiveTotal) })

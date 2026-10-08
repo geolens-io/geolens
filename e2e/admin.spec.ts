@@ -308,4 +308,22 @@ test.describe('Admin Panel', () => {
       page.getByRole('heading', { level: 1, name: 'Map', exact: true }),
     ).toBeVisible();
   });
+
+  for (const width of [320, 390]) {
+    test(`published maps keeps every filter reachable at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 800 });
+      await page.goto('/admin/shared-maps');
+      await expect(
+        page.getByRole('heading', { level: 1, name: 'Published Maps' }),
+      ).toBeVisible();
+
+      for (const name of ['All', 'Active', 'Expired', 'Revoked']) {
+        const box = await page.getByRole('button', { name, exact: true }).boundingBox();
+        expect(box, `${name} filter`).not.toBeNull();
+        expect(box!.x + box!.width, `${name} filter right edge`).toBeLessThanOrEqual(width);
+      }
+      const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+      expect(scrollWidth).toBeLessThanOrEqual(width);
+    });
+  }
 });
