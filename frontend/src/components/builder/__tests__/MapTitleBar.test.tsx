@@ -52,6 +52,12 @@ describe('MapTitleBar', () => {
     expect(input).toHaveClass('truncate');
   });
 
+  it('keeps a minimum width for the description beside a long map name', () => {
+    render(<MapTitleBar {...defaultProps({ onDescriptionChange: vi.fn() })} />);
+
+    expect(screen.getByRole('textbox', { name: 'Description' })).toHaveClass('min-w-32');
+  });
+
   it('typing into the name input fires onNameChange and onMarkDirty', () => {
     const onNameChange = vi.fn();
     const onMarkDirty = vi.fn();
