@@ -17,7 +17,7 @@ import { ApiError } from '@/api/client';
 import { initReportCapture, pushReportEntry, redact, reportNetworkError } from '@/lib/report';
 import { installStaleAssetReload } from '@/lib/stale-asset-reload';
 import { wireAuthCacheReset } from '@/lib/auth-cache-reset';
-import { restoreSession, wireSessionSync } from '@/lib/session-sync';
+import { restoreSessionBeforeRender, wireSessionSync } from '@/lib/session-sync';
 import { ReportProblemHost } from '@/components/report/ReportProblemHost';
 import { appRoutes } from './App';
 import './index.css';
@@ -90,7 +90,7 @@ interface RootContainer extends HTMLElement { __glRoot?: Root }
 async function bootstrap() {
   // The access token lives in memory, so a reload recovers it before the first
   // render; otherwise every signed-in route would redirect to /login first.
-  await Promise.all([initializeI18n(), restoreSession()]);
+  await Promise.all([initializeI18n(), restoreSessionBeforeRender()]);
 
   const container = document.getElementById('root')! as RootContainer;
   const root = container.__glRoot ?? ReactDOM.createRoot(container);

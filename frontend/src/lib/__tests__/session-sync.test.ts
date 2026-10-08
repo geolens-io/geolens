@@ -1,6 +1,6 @@
 import { abortInflightRefresh, ApiError, tryRefresh } from '@/api/client';
 import { refreshAccessToken } from '@/api/auth';
-import { restoreSession, wireSessionSync } from '@/lib/session-sync';
+import { restoreSession, restoreSessionBeforeRender, wireSessionSync } from '@/lib/session-sync';
 import { useAuthStore } from '@/stores/auth-store';
 import { otherTab } from '@/test/broadcast-channel';
 import type { TokenResponse, UserResponse } from '@/types/api';
@@ -103,10 +103,27 @@ describe('session recovery and cross-tab sync', () => {
     await useAuthStore.persist.rehydrate();
 
     await restoreSession();
+    await settle();
 
     expect(vi.mocked(refreshAccessToken).mock.calls[0][0]).toBe('legacy-refresh');
     expect(useAuthStore.getState()).toMatchObject({ token: 'migrated', refreshToken: null });
     expect(window.localStorage.getItem(STORAGE_KEY)).not.toContain('legacy');
+    // Other tabs can recover the migrated session from the cookie now.
+    expect(peer.received).toEqual([{ type: 'login', sessionId: useAuthStore.getState().sessionId }]);
+  });
+
+  it('slow refresh does not delay render', async () => {
+    let finish!: (tokens: TokenResponse) => void;
+    vi.mocked(refreshAccessToken).mockImplementationOnce(
+      () => new Promise((resolve) => { finish = resolve; }),
+    );
+    await reloadWith({ sessionId: 'session-1', user });
+
+    await restoreSessionBeforeRender(20);
+    expect(useAuthStore.getState().token).toBeNull();
+
+    finish(issued('late'));
+    await vi.waitFor(() => expect(useAuthStore.getState().token).toBe('late'));
   });
 
   it('signs this tab out when another tab logs out of the same session', async () => {

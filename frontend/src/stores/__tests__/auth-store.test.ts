@@ -202,6 +202,15 @@ describe('useAuthStore persistence', () => {
     expect(useAuthStore.getState().isEditor()).toBe(false);
   });
 
+  it('corrupt blob is removed', async () => {
+    window.localStorage.setItem(STORAGE_KEY, '{"state":{"token":"legacy-access"');
+
+    await useAuthStore.persist.rehydrate();
+
+    expect(window.localStorage.getItem(STORAGE_KEY)).toBeNull();
+    expect(useAuthStore.getState().token).toBeNull();
+  });
+
   it('ignores a token planted in a current-version blob', async () => {
     window.localStorage.setItem(
       STORAGE_KEY,

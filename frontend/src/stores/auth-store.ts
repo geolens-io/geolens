@@ -137,6 +137,11 @@ const persistConfig: PersistOptions<AuthState, PersistedAuth> = {
     state.refreshToken
       ? { sessionId: null, user: null }
       : { sessionId: state.sessionId, user: state.user },
+  // A blob that does not parse never reaches migrate, and an older one can
+  // still hold token text.
+  onRehydrateStorage: () => (_state, error) => {
+    if (error) removeStorage(STORAGE_KEY);
+  },
 };
 
 export const useAuthStore = create<AuthState>()(
@@ -157,12 +162,17 @@ export const useAuthStore = create<AuthState>()(
         // Every tab shares the cookie this sign-in just replaced.
         if (!refreshToken) postAuthMessage({ type: 'login', sessionId });
       },
-      setTokens: (token, refreshToken, expiresIn) =>
+      setTokens: (token, refreshToken, expiresIn) => {
+        const { refreshToken: spent, sessionId } = get();
         set({
           token,
           refreshToken,
           expiresAt: Date.now() + expiresIn * 1000,
-        }),
+        });
+        // A legacy session just traded its stored refresh token for the
+        // cookie, so other tabs can now recover it too.
+        if (spent && !refreshToken && sessionId) postAuthMessage({ type: 'login', sessionId });
+      },
       logout: () => {
         const { sessionId, refreshToken } = get();
         set((state) => ({ ...SIGNED_OUT, sessionEpoch: state.sessionEpoch + 1 }));

@@ -21,6 +21,23 @@ export async function restoreSession(): Promise<void> {
   }
 }
 
+const RENDER_BUDGET_MS = 4_000;
+
+/**
+ * restoreSession, but resolved after `budgetMs` at most, so an auth endpoint
+ * that hangs delays the first render by that much rather than by the refresh's
+ * own timeout. A refresh that lands later still signs the tab in, since every
+ * route reads the token reactively.
+ */
+export function restoreSessionBeforeRender(budgetMs = RENDER_BUDGET_MS): Promise<void> {
+  return Promise.race([
+    restoreSession(),
+    new Promise<void>((resolve) => {
+      setTimeout(resolve, budgetMs);
+    }),
+  ]);
+}
+
 /** Follow sign-ins and logouts made in other tabs. Returns the unsubscribe. */
 export function wireSessionSync(): () => void {
   return onAuthMessage((message) => {
