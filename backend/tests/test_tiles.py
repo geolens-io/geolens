@@ -607,8 +607,8 @@ class TestTileQueryStructure:
         result = _build_attr_columns(columns)
         assert "geom" not in result
         assert "geom_4326" not in result
-        assert "t.name" in result
-        assert "t.value" in result
+        assert 't."name"' in result
+        assert 't."value"' in result
 
     def test_tile_query_uses_correct_params(self):
         """Tile query uses ST_AsMVTGeom with 4096 extent, 256 buffer."""
