@@ -4,7 +4,7 @@ import { awaitPendingLogout, getOAuthProviders } from '@/api/auth';
 import { queryKeys } from '@/lib/query-keys';
 import { Button } from '@/components/ui/button';
 import { useEdition } from '@/hooks/use-edition';
-import { API_BASE } from '@/lib/constants';
+import { ssoSignInUrl } from '@/lib/sso-sign-in';
 import { cn } from '@/lib/utils';
 
 function ProviderIcon({ providerType }: { providerType: string }) {
@@ -162,7 +162,7 @@ export function OAuthButtons({ showDivider = true }: { showDivider?: boolean } =
                 // SAML is a top-level navigation to the overlay route, which
                 // sets its browser-binding cookie before redirecting to the IdP.
                 const flow = provider.provider_type === 'saml' ? 'saml' : 'oauth';
-                window.location.href = `${API_BASE}/auth/${flow}/${provider.slug}/login`;
+                window.location.href = ssoSignInUrl(flow, provider.slug);
               }}
             >
               <ProviderIcon providerType={provider.provider_type} />

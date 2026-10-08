@@ -307,7 +307,7 @@ describe('browser refresh transport', () => {
         jsonResponse({ access_token: 'sso-1', refresh_token: null, expires_in: 900 }),
       );
       let installedUnderLock: boolean | null = null;
-      const exchange = exchangeSignInCode('one-time-code', (session) => {
+      const exchange = exchangeSignInCode('one-time-code', 'n'.repeat(43), (session) => {
         installedUnderLock = lockHeld;
         return session;
       });
@@ -324,7 +324,7 @@ describe('browser refresh transport', () => {
       expect(url).toBe('/api/auth/oauth/exchange/');
       expect(init).toMatchObject({ method: 'POST', credentials: 'same-origin' });
       expect(init.headers).toMatchObject({ 'X-GeoLens-Auth-Mode': 'cookie' });
-      expect(JSON.parse(init.body as string)).toEqual({ code: 'one-time-code' });
+      expect(JSON.parse(init.body as string)).toEqual({ code: 'one-time-code', nonce: 'n'.repeat(43) });
     } finally {
       Reflect.deleteProperty(navigator, 'locks');
     }
@@ -361,7 +361,7 @@ describe('browser refresh transport', () => {
       });
       const install = vi.fn();
       let settled = false;
-      const exchange = exchangeSignInCode('one-time-code', install).finally(() => { settled = true; });
+      const exchange = exchangeSignInCode('one-time-code', 'n'.repeat(43), install).finally(() => { settled = true; });
 
       await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -385,7 +385,7 @@ describe('browser refresh transport', () => {
   it('rejects with the status when the exchange is refused', async () => {
     mockFetch.mockResolvedValueOnce({ ok: false, status: 401, json: () => Promise.resolve({}) } as Response);
     const install = vi.fn();
-    await expect(exchangeSignInCode('spent-code', install)).rejects.toMatchObject({ status: 401 });
+    await expect(exchangeSignInCode('spent-code', 'n'.repeat(43), install)).rejects.toMatchObject({ status: 401 });
     expect(install).not.toHaveBeenCalled();
   });
 

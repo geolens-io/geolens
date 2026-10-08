@@ -11,7 +11,16 @@ import structlog
 from authlib.integrations.httpx_client import AsyncOAuth2Client
 from authlib.integrations.starlette_client import OAuth
 from authlib.integrations.starlette_client.apps import StarletteOAuth2App
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    status,
+)
 from fastapi.responses import RedirectResponse
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,7 +44,7 @@ from app.modules.auth.oauth.service import (
 )
 from app.modules.auth.oauth.sign_in_redirect import sso_sign_in_redirect
 from app.modules.auth.schemas import TokenResponse
-from app.modules.auth.service import AuthService
+from app.modules.auth.service import SIGN_IN_NONCE_PATTERN, AuthService
 from app.core.dependencies import get_client_ip, get_db
 from app.core.edition import is_enterprise
 from app.core.persistent_config import (
@@ -191,6 +200,31 @@ class _SSRFSafeOAuth2App(StarletteOAuth2App):
             self._endpoints_validated = True
         return metadata
 
+    async def authorize_redirect(
+        self, request, redirect_uri=None, *, sign_in_nonce: str, **kwargs
+    ) -> RedirectResponse:
+        """authlib's redirect, keeping the starting tab's nonce in the flow's state."""
+        rv = await self.create_authorization_url(redirect_uri, **kwargs)
+        await self.save_authorize_data(
+            request, redirect_uri=redirect_uri, sign_in_nonce=sign_in_nonce, **rv
+        )
+        return RedirectResponse(rv["url"], status_code=302)
+
+    async def authorize_access_token(self, request, **kwargs):
+        """authlib's token exchange; leaves the flow's nonce on ``request.state``.
+
+        The state data is read first because authlib clears it.
+        """
+        state = request.query_params.get("state")
+        state_data = (
+            await self.framework.get_state_data(request.session, state)
+            if state
+            else None
+        )
+        token = await super().authorize_access_token(request, **kwargs)
+        request.state.sso_sign_in_nonce = (state_data or {}).get("sign_in_nonce")
+        return token
+
 
 def _id_token_claims_options(
     provider_type: str, discovery_url: str | None
@@ -285,6 +319,12 @@ async def oauth_login(
     provider_slug: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    nonce: str = Query(
+        pattern=SIGN_IN_NONCE_PATTERN,
+        description="A random 256-bit value, base64url without padding, that "
+        "the page starting this sign-in keeps. The callback hands it back, and "
+        "the page completes only a sign-in carrying its own value.",
+    ),
 ) -> RedirectResponse:
     """Redirect user to the IdP authorization URL with PKCE parameters.
 
@@ -340,7 +380,7 @@ async def oauth_login(
             correlation_id=correlation_id,
         )
 
-    return await client.authorize_redirect(request, redirect_uri)
+    return await client.authorize_redirect(request, redirect_uri, sign_in_nonce=nonce)
 
 
 @router.get("/{provider_slug}/callback", response_class=Response)
@@ -424,8 +464,11 @@ async def oauth_callback(
 
         user.last_login_at = func.now()
 
+        sign_in_nonce = getattr(request.state, "sso_sign_in_nonce", None)
+        if not sign_in_nonce:
+            raise ValueError("OAuth state carries no sign-in nonce")
         redirect = await sso_sign_in_redirect(
-            db, request, user, frontend_url=frontend_url
+            db, request, user, frontend_url=frontend_url, sign_in_nonce=sign_in_nonce
         )
 
         # HARDEN-04: emit success audit entry before the commit so it persists
@@ -598,16 +641,17 @@ async def exchange_sign_in_code(
     httpOnly refresh cookie and its CSRF cookie the way ``/auth/login`` does
     in cookie mode, with a null ``refresh_token`` in the body.
 
-    A code is valid once, for about a minute, and only from the browser the
-    callback redirected. Every refusal is the same 401.
+    A code is valid once, for about a minute, only from the browser the
+    callback redirected, and only with the nonce the page started the sign-in
+    with. Every refusal is the same 401.
     """
     if not wants_cookie_auth(request):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"{AUTH_MODE_HEADER}: cookie is required",
         )
-    nonce = read_sso_exchange_cookie(request, body.code)
-    if not nonce:
+    binding = read_sso_exchange_cookie(request, body.code)
+    if not binding:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=_INVALID_EXCHANGE_DETAIL,
@@ -617,7 +661,8 @@ async def exchange_sign_in_code(
     try:
         access_token, refresh_token = await AuthService(db).redeem_sso_sign_in(
             body.code,
-            nonce,
+            binding,
+            body.nonce,
             expire_minutes=expire_minutes,
             expire_days=expire_days,
         )

@@ -1439,7 +1439,7 @@ class TestOAuthLoginEndpoint:
         # endpoint/transport security is covered in test_oauth_destination_security.
         with patch("app.modules.auth.oauth.router.validate_provider_server_endpoints"):
             resp = await client.get(
-                f"/auth/oauth/login-test-{suffix}/login",
+                f"/auth/oauth/login-test-{suffix}/login?nonce={'n' * 43}",
                 follow_redirects=False,
             )
         # Should redirect (302/307) to the IdP authorize URL
@@ -1469,13 +1469,15 @@ class TestOAuthLoginEndpoint:
         )
         await client_session.commit()
 
-        resp = await client.get(f"/auth/oauth/{slug}/login", follow_redirects=False)
+        resp = await client.get(
+            f"/auth/oauth/{slug}/login?nonce={'n' * 43}", follow_redirects=False
+        )
         assert resp.status_code == 404
 
     async def test_oauth_login_not_found(self, client):
         """Login with nonexistent provider returns 404."""
         resp = await client.get(
-            "/auth/oauth/nonexistent-provider/login",
+            f"/auth/oauth/nonexistent-provider/login?nonce={'n' * 43}",
             follow_redirects=False,
         )
         assert resp.status_code == 404
@@ -1517,7 +1519,7 @@ class TestOAuthLoginEndpoint:
 
         oauth_client = MagicMock()
         oauth_client.authorize_redirect = AsyncMock(
-            side_effect=lambda _request, redirect_uri: RedirectResponse(
+            side_effect=lambda _request, redirect_uri, **_kwargs: RedirectResponse(
                 f"https://idp.example.test?redirect_uri={redirect_uri}"
             )
         )
@@ -1535,6 +1537,7 @@ class TestOAuthLoginEndpoint:
                     "tenant-oidc",
                     tenant_request("/auth/oauth/tenant-oidc/login"),
                     test_db_session,
+                    nonce="n" * 43,
                 )
 
             redirect_uri = oauth_client.authorize_redirect.await_args.args[1]

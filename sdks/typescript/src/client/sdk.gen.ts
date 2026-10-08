@@ -1146,8 +1146,9 @@ export const meUsageAuthMeUsageGet = <ThrowOnError extends boolean = false>(opti
  * httpOnly refresh cookie and its CSRF cookie the way ``/auth/login`` does
  * in cookie mode, with a null ``refresh_token`` in the body.
  *
- * A code is valid once, for about a minute, and only from the browser the
- * callback redirected. Every refusal is the same 401.
+ * A code is valid once, for about a minute, only from the browser the
+ * callback redirected, and only with the nonce the page started the sign-in
+ * with. Every refusal is the same 401.
  */
 export const exchangeSignInCodeAuthOauthExchangePost = <ThrowOnError extends boolean = false>(options: Options<ExchangeSignInCodeAuthOauthExchangePostData, ThrowOnError>): RequestResult<ExchangeSignInCodeAuthOauthExchangePostResponses, ExchangeSignInCodeAuthOauthExchangePostErrors, ThrowOnError> => (options.client ?? client).post<ExchangeSignInCodeAuthOauthExchangePostResponses, ExchangeSignInCodeAuthOauthExchangePostErrors, ThrowOnError>({
     url: '/auth/oauth/exchange/',

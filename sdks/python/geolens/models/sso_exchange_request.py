@@ -15,19 +15,24 @@ class SsoExchangeRequest:
     """
     Attributes:
         code (str): The one-time code from the `code` parameter of the sign-in redirect's URL fragment.
+        nonce (str): The nonce the page sent when it started this sign-in.
     """
 
     code: str
+    nonce: str
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         code = self.code
+
+        nonce = self.nonce
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
                 "code": code,
+                "nonce": nonce,
             }
         )
 
@@ -38,8 +43,11 @@ class SsoExchangeRequest:
         d = dict(src_dict)
         code = d.pop("code")
 
+        nonce = d.pop("nonce")
+
         sso_exchange_request = cls(
             code=code,
+            nonce=nonce,
         )
 
         sso_exchange_request.additional_properties = d

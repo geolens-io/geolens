@@ -1,11 +1,12 @@
 """An SSO callback hands the SPA a one-time code; only its exchange sets the session cookie."""
 
 import asyncio
+import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
 from http.cookies import SimpleCookie
 from unittest.mock import AsyncMock, MagicMock, patch
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 import jwt
 import pytest
@@ -32,6 +33,7 @@ class Browser:
     def __init__(self, client):
         self.client = client
         self.jar: dict[str, str] = {}
+        self.nonces: dict[str, str] = {}
 
     async def request(self, method: str, path: str, *, headers=None, **kwargs):
         sent = dict(headers or {})
@@ -47,10 +49,13 @@ class Browser:
                     self.jar[name] = morsel.value
         return response
 
-    async def sso_callback(self, user_id: uuid.UUID):
-        """Complete an IdP round-trip that resolves to *user_id*."""
-        idp = MagicMock()
-        idp.authorize_access_token = AsyncMock(return_value={"userinfo": {"sub": "s"}})
+    async def sso_callback(self, user_id: uuid.UUID, nonce: str | None = None):
+        """Start sign-in with *nonce* and complete an IdP round-trip as *user_id*.
+
+        A real app keeps the flow's state in the signed session; only the
+        IdP's token response is stubbed.
+        """
+        nonce = nonce or secrets.token_urlsafe(32)
         provider = MagicMock(provider_type="oidc", discovery_url=None)
 
         async def resolve_user(db, *_args):
@@ -60,25 +65,63 @@ class Browser:
         with (
             patch(
                 "app.modules.auth.oauth.router.build_oauth_client",
-                AsyncMock(return_value=(idp, provider)),
+                AsyncMock(side_effect=lambda *_: (_idp_app(), provider)),
             ),
             patch(
                 "app.modules.auth.oauth.service.find_or_create_oauth_user",
                 side_effect=resolve_user,
             ),
         ):
-            return await self.request(
-                "GET", "/auth/oauth/sso/callback", follow_redirects=False
+            started = await self.request(
+                "GET", f"/auth/oauth/sso/login?nonce={nonce}", follow_redirects=False
             )
+            assert started.status_code == 302, started.text
+            state = parse_qs(urlsplit(started.headers["location"]).query)["state"][0]
+            response = await self.request(
+                "GET",
+                f"/auth/oauth/sso/callback?code=idp-code&state={state}",
+                follow_redirects=False,
+            )
+        fragment = parse_qs(urlsplit(response.headers.get("location", "")).fragment)
+        if "code" in fragment:
+            self.nonces[fragment["code"][0]] = nonce
+        return response
 
-    async def exchange(self, code: str, headers=COOKIE_MODE):
+    async def exchange(self, code: str, headers=COOKIE_MODE, nonce: str | None = None):
+        body = {"code": code, "nonce": nonce or self.nonces.get(code, "n" * 43)}
         return await self.request(
-            "POST", "/auth/oauth/exchange/", json={"code": code}, headers=headers
+            "POST", "/auth/oauth/exchange/", json=body, headers=headers
         )
 
     async def refresh(self):
         headers = {**COOKIE_MODE, "X-CSRF-Token": self.jar.get("geolens_csrf", "")}
         return await self.request("POST", "/auth/refresh/", headers=headers)
+
+
+def _idp_app():
+    from authlib.integrations.starlette_client import OAuth
+
+    from app.modules.auth.oauth.router import _SSRFSafeOAuth2App
+
+    oauth = OAuth()
+    oauth.register(
+        name="sso",
+        client_cls=_SSRFSafeOAuth2App,
+        client_id="client",
+        client_secret="secret",
+        authorize_url="https://idp.example/authorize",
+        access_token_url="https://idp.example/token",
+        client_kwargs={"scope": "openid email", "code_challenge_method": "S256"},
+    )
+    app = oauth.create_client("sso")
+    app.fetch_access_token = AsyncMock(
+        return_value={
+            "access_token": "idp",
+            "token_type": "bearer",
+            "userinfo": {"sub": "s"},
+        }
+    )
+    return app
 
 
 def _pin_public_urls(monkeypatch, app_url: str, api_url: str) -> None:
@@ -88,6 +131,9 @@ def _pin_public_urls(monkeypatch, app_url: str, api_url: str) -> None:
 
     monkeypatch.setattr(
         oauth_router, "get_public_app_url", AsyncMock(return_value=app_url)
+    )
+    monkeypatch.setattr(
+        oauth_router, "get_public_api_url", AsyncMock(return_value=api_url)
     )
     monkeypatch.setattr(
         sign_in_redirect, "get_public_api_url", AsyncMock(return_value=api_url)
@@ -117,9 +163,9 @@ async def viewer_id(client, admin_auth_header) -> uuid.UUID:
 
 def _code(response) -> str:
     assert response.status_code == 302, response.text
-    fragment = urlsplit(response.headers["location"]).fragment
-    assert fragment.startswith("code="), fragment
-    return fragment.removeprefix("code=")
+    fragment = parse_qs(urlsplit(response.headers["location"]).fragment)
+    assert set(fragment) == {"code", "nonce"}, fragment
+    return fragment["code"][0]
 
 
 def _subject(access_token: str) -> uuid.UUID:
@@ -131,10 +177,12 @@ def _subject(access_token: str) -> uuid.UUID:
 async def test_callback_redirects_with_a_code_and_no_session_cookie(
     browser, viewer_id, same_origin_urls
 ):
-    response = await browser.sso_callback(viewer_id)
+    nonce = secrets.token_urlsafe(32)
+    response = await browser.sso_callback(viewer_id, nonce)
 
     assert response.headers["referrer-policy"] == "no-referrer"
     code = _code(response)
+    assert parse_qs(urlsplit(response.headers["location"]).fragment)["nonce"] == [nonce]
     assert len(code) == 43
     set_cookies = response.headers.get_list("set-cookie")
     assert not any(
@@ -348,10 +396,70 @@ async def test_cross_origin_spa_still_receives_fragment_tokens(
 ):
     _pin_public_urls(monkeypatch, "http://app.test", "http://api.test/api")
 
-    response = await browser.sso_callback(viewer_id)
+    nonce = secrets.token_urlsafe(32)
+    response = await browser.sso_callback(viewer_id, nonce)
 
     location = urlsplit(response.headers["location"])
     assert location.netloc == "app.test"
-    assert location.fragment.startswith("token=")
-    assert "&refresh_token=" in location.fragment
-    assert not response.headers.get_list("set-cookie")
+    fragment = parse_qs(location.fragment)
+    assert {"token", "refresh_token", "expires_in", "nonce"} == set(fragment)
+    assert fragment["nonce"] == [nonce]
+    assert not any(
+        c.startswith("geolens_") for c in response.headers.get_list("set-cookie")
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("query", ["", "?nonce=", "?nonce=short", f"?nonce={'!' * 43}"])
+async def test_sign_in_cannot_start_without_a_nonce(browser, same_origin_urls, query):
+    with patch(
+        "app.modules.auth.oauth.router.build_oauth_client",
+        AsyncMock(side_effect=lambda *_: (_idp_app(), MagicMock())),
+    ):
+        response = await browser.request(
+            "GET", f"/auth/oauth/sso/login{query}", follow_redirects=False
+        )
+    assert response.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_exchange_needs_the_nonce_the_sign_in_started_with(
+    browser, viewer_id, same_origin_urls
+):
+    code = _code(await browser.sso_callback(viewer_id))
+
+    wrong = await browser.exchange(code, nonce=secrets.token_urlsafe(32))
+    assert wrong.status_code == 401
+    assert (await browser.exchange(code)).status_code == 200
+
+
+@pytest.mark.anyio
+async def test_a_code_from_another_browser_redeems_nothing_in_this_tab(
+    client, admin_auth_header, viewer_id, same_origin_urls
+):
+    """Another account's code and binding cookie, presented with this tab's nonce."""
+    other, own = Browser(client), Browser(client)
+    other_code = _code(
+        await other.sso_callback(await _viewer(client, admin_auth_header))
+    )
+    own_nonce = secrets.token_urlsafe(32)
+    _code(await own.sso_callback(viewer_id, own_nonce))
+    binding = sso_exchange_cookie_name(other_code)
+    own.jar[binding] = other.jar[binding]
+
+    assert (await own.exchange(other_code, nonce=own_nonce)).status_code == 401
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("nonce", ["", "short", "!" * 43])
+async def test_the_sign_in_redirect_refuses_a_malformed_nonce(nonce):
+    from app.modules.auth.oauth.sign_in_redirect import sso_sign_in_redirect
+
+    with pytest.raises(ValueError):
+        await sso_sign_in_redirect(
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            frontend_url="http://test",
+            sign_in_nonce=nonce,
+        )

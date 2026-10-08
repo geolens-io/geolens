@@ -3,8 +3,10 @@ import { ApiError } from '@/api/client';
 import { OAuthCallbackPage } from '@/pages/OAuthCallbackPage';
 import { useAuthStore } from '@/stores/auth-store';
 import { denySessionStorage } from '@/test/deny-storage';
+import { _resetSessionStorageFallback, writeSessionStorage } from '@/lib/storage';
 import { otherTab } from '@/test/broadcast-channel';
 import { wireSessionSync } from '@/lib/session-sync';
+import { ssoSignInUrl } from '@/lib/sso-sign-in';
 import type { TokenResponse, UserResponse } from '@/types/api';
 
 const mockNavigate = vi.fn();
@@ -18,9 +20,12 @@ const mockLogoutSession = vi.fn<() => Promise<void>>();
 const mockRevokeCurrentSession = vi.fn<(token: string) => Promise<void>>();
 const mockRefreshAccessToken = vi.fn();
 type Install = (session: TokenResponse) => unknown;
-const mockExchangeSignInCode = vi.fn<(code: string, install: Install) => Promise<unknown>>();
+const mockExchangeSignInCode = vi.fn<
+  (code: string, nonce: string, install: Install) => Promise<unknown>
+>();
 vi.mock('@/api/auth', () => ({
-  exchangeSignInCode: (code: string, install: Install) => mockExchangeSignInCode(code, install),
+  exchangeSignInCode: (code: string, nonce: string, install: Install) =>
+    mockExchangeSignInCode(code, nonce, install),
   getMe: () => mockGetMe(),
   logoutSession: () => mockLogoutSession(),
   revokeCurrentSession: (token: string) => mockRevokeCurrentSession(token),
@@ -64,6 +69,14 @@ async function peerTab(message: { type: 'login' | 'logout'; sessionId: string | 
   }
 }
 
+const NONCE = 'n'.repeat(43);
+
+/** A callback carrying the nonce of a sign-in this tab started. */
+function setStartedHash(hash: string) {
+  sessionStorage.setItem('geolens-sso-nonce', NONCE);
+  setHash(`${hash}&nonce=${NONCE}`);
+}
+
 function setHash(hash: string) {
   window.history.replaceState({}, '', `/oauth/callback${hash}`);
 }
@@ -71,9 +84,11 @@ function setHash(hash: string) {
 describe('OAuthCallbackPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    sessionStorage.clear();
+    _resetSessionStorageFallback();
     mockLogoutSession.mockResolvedValue(undefined);
     mockRevokeCurrentSession.mockResolvedValue(undefined);
-    mockExchangeSignInCode.mockImplementation(async (_code, install) => install(exchanged));
+    mockExchangeSignInCode.mockImplementation(async (_code, _nonce, install) => install(exchanged));
     useAuthStore.getState().logout();
   });
 
@@ -81,9 +96,9 @@ describe('OAuthCallbackPage', () => {
   // comes from exchanging it, inside the cross-tab cookie lock.
   it('exchanges the fragment code for the session', async () => {
     mockGetMe.mockResolvedValueOnce(userA);
-    setHash('#code=one-time-code');
+    setStartedHash('#code=one-time-code');
     let hashAtExchange: string | null = null;
-    mockExchangeSignInCode.mockImplementationOnce(async (_code, install) => {
+    mockExchangeSignInCode.mockImplementationOnce(async (_code, _nonce, install) => {
       hashAtExchange = window.location.hash;
       return install(exchanged);
     });
@@ -91,7 +106,11 @@ describe('OAuthCallbackPage', () => {
     render(<OAuthCallbackPage />);
 
     await waitFor(() => expect(useAuthStore.getState().user).toEqual(userA));
-    expect(mockExchangeSignInCode).toHaveBeenCalledExactlyOnceWith('one-time-code', expect.any(Function));
+    expect(mockExchangeSignInCode).toHaveBeenCalledExactlyOnceWith(
+      'one-time-code',
+      NONCE,
+      expect.any(Function),
+    );
     expect(hashAtExchange).toBe('');
     expect(useAuthStore.getState().token).toBe('access-1');
     expect(useAuthStore.getState().refreshToken).toBeNull();
@@ -101,12 +120,12 @@ describe('OAuthCallbackPage', () => {
   it('installs the exchanged session before the exchange gives up the cookie lock', async () => {
     deferProfile();
     let tokenWhenInstallReturned: string | null = null;
-    mockExchangeSignInCode.mockImplementationOnce(async (_code, install) => {
+    mockExchangeSignInCode.mockImplementationOnce(async (_code, _nonce, install) => {
       const installed = install(exchanged);
       tokenWhenInstallReturned = useAuthStore.getState().token;
       return installed;
     });
-    setHash('#code=one-time-code');
+    setStartedHash('#code=one-time-code');
 
     render(<OAuthCallbackPage />);
 
@@ -116,7 +135,7 @@ describe('OAuthCallbackPage', () => {
 
   it('returns to /login without revoking when the exchange is refused', async () => {
     mockExchangeSignInCode.mockRejectedValueOnce(new ApiError('unauthorized', 401));
-    setHash('#code=spent-code');
+    setStartedHash('#code=spent-code');
 
     render(<OAuthCallbackPage />);
 
@@ -129,20 +148,84 @@ describe('OAuthCallbackPage', () => {
     expect(useAuthStore.getState().token).toBeNull();
   });
 
-  it('still accepts the cookie-mode token fragment of an API that predates the exchange', async () => {
-    mockGetMe.mockResolvedValueOnce(userA);
-    setHash('#token=access-1&expires_in=900&auth_mode=cookie');
+  // A link to this page carrying someone else's sign-in installs nothing,
+  // and the tab keeps the session it already had.
+  it.each([
+    ['a code', '#code=other-code'],
+    ['a token fragment', '#token=other-access&refresh_token=other-r1&expires_in=900'],
+  ])('installs nothing from %s this tab did not start', async (_label, hash) => {
+    useAuthStore.getState().setAuth('own-access', null, 900, userA);
+    sessionStorage.setItem('geolens-sso-nonce', NONCE);
+    setHash(`${hash}&nonce=${'m'.repeat(43)}`);
+
+    render(<OAuthCallbackPage />);
+
+    await waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith('/login', { replace: true }),
+    );
+    expect(mockExchangeSignInCode).not.toHaveBeenCalled();
+    expect(mockGetMe).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().token).toBe('own-access');
+    expect(sessionStorage.getItem('geolens-sso-nonce')).toBeNull();
+  });
+
+  it.each([
+    ['no sign-in was started here', null, `#code=c1&nonce=${NONCE}`],
+    ['the callback carries no nonce', NONCE, '#code=c1'],
+    ['the callback carries an empty nonce', NONCE, '#code=c1&nonce='],
+    ['the nonce differs in length', NONCE, `#code=c1&nonce=${NONCE}x`],
+  ])('installs nothing when %s', async (_label, stored, hash) => {
+    if (stored) sessionStorage.setItem('geolens-sso-nonce', stored);
+    setHash(hash);
+
+    render(<OAuthCallbackPage />);
+
+    await waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith('/login', { replace: true }),
+    );
+    expect(mockExchangeSignInCode).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().token).toBeNull();
+  });
+
+  it('accepts a sign-in nonce only once', async () => {
+    mockGetMe.mockResolvedValue(userA);
+    setStartedHash('#code=one-time-code');
+    const first = render(<OAuthCallbackPage />);
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/', { replace: true }));
+    first.unmount();
+    useAuthStore.getState().logout();
+    mockNavigate.mockClear();
+
+    setHash(`#code=one-time-code&nonce=${NONCE}`);
+    render(<OAuthCallbackPage />);
+
+    await waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith('/login', { replace: true }),
+    );
+    expect(mockExchangeSignInCode).toHaveBeenCalledTimes(1);
+    expect(useAuthStore.getState().token).toBeNull();
+  });
+
+  it('completes the sign-in this tab started most recently', async () => {
+    mockGetMe.mockResolvedValue(userA);
+    const earlier = new URL(ssoSignInUrl('oauth', 'google'), 'http://localhost').searchParams.get('nonce');
+    const latest = new URL(ssoSignInUrl('oauth', 'google'), 'http://localhost').searchParams.get('nonce');
+    expect(latest).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(latest).not.toBe(earlier);
+    setHash(`#code=one-time-code&nonce=${latest}`);
 
     render(<OAuthCallbackPage />);
 
     await waitFor(() => expect(useAuthStore.getState().user).toEqual(userA));
-    expect(mockExchangeSignInCode).not.toHaveBeenCalled();
-    expect(useAuthStore.getState().token).toBe('access-1');
-    expect(useAuthStore.getState().refreshToken).toBeNull();
+    expect(mockExchangeSignInCode).toHaveBeenCalledExactlyOnceWith(
+      'one-time-code',
+      latest,
+      expect.any(Function),
+    );
   });
 
-  it('does not sign in from a token fragment with neither a refresh token nor cookie mode', async () => {
-    setHash('#token=access-1&expires_in=900');
+  it('does not sign in from a token fragment without a refresh token', async () => {
+    setStartedHash('#token=access-1&expires_in=900&auth_mode=cookie');
 
     render(<OAuthCallbackPage />);
 
@@ -161,7 +244,7 @@ describe('OAuthCallbackPage', () => {
   ])('lands on %s only when it stays in the app', async (_label, stored, expected) => {
     mockGetMe.mockResolvedValueOnce(userA);
     sessionStorage.setItem('geolens-login-redirect', stored);
-    setHash('#code=one-time-code');
+    setStartedHash('#code=one-time-code');
 
     render(<OAuthCallbackPage />);
 
@@ -172,7 +255,7 @@ describe('OAuthCallbackPage', () => {
   it('still accepts a legacy fragment refresh token (cross-origin fallback)', async () => {
     const user = { id: '1', username: 'someone', roles: ['viewer'] } as UserResponse;
     mockGetMe.mockResolvedValueOnce(user);
-    setHash('#token=access-1&refresh_token=legacy-r1&expires_in=900');
+    setStartedHash('#token=access-1&refresh_token=legacy-r1&expires_in=900');
 
     render(<OAuthCallbackPage />);
 
@@ -188,7 +271,7 @@ describe('OAuthCallbackPage', () => {
     ['an unconfirmed 401', Object.assign(new ApiError('unauthorized', 401), { unconfirmed: true })],
   ])('keeps the session when getMe fails with %s', async (_label, profileError) => {
     mockGetMe.mockRejectedValueOnce(profileError);
-    setHash('#code=one-time-code');
+    setStartedHash('#code=one-time-code');
 
     render(<OAuthCallbackPage />);
 
@@ -202,7 +285,7 @@ describe('OAuthCallbackPage', () => {
   // must be revoked: clearing the store cannot reach it.
   it('revokes only the issued session when getMe rejects the credential', async () => {
     mockGetMe.mockRejectedValueOnce(new ApiError('unauthorized', 403));
-    setHash('#code=one-time-code');
+    setStartedHash('#code=one-time-code');
 
     render(<OAuthCallbackPage />);
 
@@ -216,7 +299,7 @@ describe('OAuthCallbackPage', () => {
 
   it('does not restore a session that was logged out while the profile loaded', async () => {
     const profile = deferProfile();
-    setHash('#code=one-time-code');
+    setStartedHash('#code=one-time-code');
 
     const view = render(<OAuthCallbackPage />);
     await waitFor(() => expect(mockGetMe).toHaveBeenCalled());
@@ -233,7 +316,7 @@ describe('OAuthCallbackPage', () => {
 
   it('leaves a newer sign-in alone when the older one is rejected late', async () => {
     const profile = deferProfile();
-    setHash('#code=one-time-code');
+    setStartedHash('#code=one-time-code');
 
     render(<OAuthCallbackPage />);
     await waitFor(() => expect(mockGetMe).toHaveBeenCalled());
@@ -250,7 +333,7 @@ describe('OAuthCallbackPage', () => {
 
   it('does not overwrite a newer sign-in of the same user', async () => {
     const profile = deferProfile();
-    setHash('#code=one-time-code');
+    setStartedHash('#code=one-time-code');
 
     render(<OAuthCallbackPage />);
     await waitFor(() => expect(mockGetMe).toHaveBeenCalled());
@@ -263,7 +346,7 @@ describe('OAuthCallbackPage', () => {
 
   it('does not restore a session another tab logged out', async () => {
     const profile = deferProfile();
-    setHash('#code=one-time-code');
+    setStartedHash('#code=one-time-code');
 
     render(<OAuthCallbackPage />);
     await waitFor(() => expect(mockGetMe).toHaveBeenCalled());
@@ -277,7 +360,7 @@ describe('OAuthCallbackPage', () => {
 
   it('does not overwrite a session another tab signed in', async () => {
     const profile = deferProfile();
-    setHash('#code=one-time-code');
+    setStartedHash('#code=one-time-code');
 
     render(<OAuthCallbackPage />);
     await waitFor(() => expect(mockGetMe).toHaveBeenCalled());
@@ -297,7 +380,7 @@ describe('OAuthCallbackPage', () => {
 
   it('keeps the session but does not navigate once the user has left the page', async () => {
     const profile = deferProfile();
-    setHash('#code=one-time-code');
+    setStartedHash('#code=one-time-code');
 
     const view = render(<OAuthCallbackPage />);
     await waitFor(() => expect(mockGetMe).toHaveBeenCalled());
@@ -312,7 +395,7 @@ describe('OAuthCallbackPage', () => {
   // A fragment too incomplete to finish sign-in is no evidence the
   // credential was rejected, and revoking would end every other session.
   it('does not revoke when an incomplete fragment goes back to /login', async () => {
-    setHash('#expires_in=900');
+    setStartedHash('#expires_in=900');
 
     render(<OAuthCallbackPage />);
 
@@ -332,10 +415,12 @@ describe('OAuthCallbackPage', () => {
   it('completes sign-in when sessionStorage access throws', async () => {
     const user = { id: '1', username: 'someone', roles: ['viewer'] } as UserResponse;
     mockGetMe.mockResolvedValueOnce(user);
-    setHash('#code=one-time-code');
 
     const restore = denySessionStorage();
     try {
+      // A denied store keeps the nonce in its in-document mirror.
+      writeSessionStorage('geolens-sso-nonce', NONCE);
+      setHash(`#code=one-time-code&nonce=${NONCE}`);
       render(<OAuthCallbackPage />);
 
       await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/', { replace: true }));

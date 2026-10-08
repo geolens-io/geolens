@@ -21,11 +21,14 @@ SSO_EXCHANGE_TTL_SECONDS = 60
 # A SHA-256 hex digest never contains ":", so no refresh token, however
 # chosen, hashes to a pending sign-in's row.
 _SSO_EXCHANGE_HASH_PREFIX = "sso-exchange:"
+# Codes, bindings and the page's sign-in nonce are all 32 random bytes in
+# unpadded base64url.
+SIGN_IN_NONCE_PATTERN = r"^[A-Za-z0-9_-]{43}$"
 _SSO_EXCHANGE_SECRET = re.compile(r"\A[A-Za-z0-9_-]{43}\Z")
 
 
-def _sso_exchange_hash(code: str, nonce: str) -> str:
-    digest = hashlib.sha256(f"{code}.{nonce}".encode()).hexdigest()
+def _sso_exchange_hash(code: str, binding: str, sign_in_nonce: str) -> str:
+    digest = hashlib.sha256(f"{code}.{binding}.{sign_in_nonce}".encode()).hexdigest()
     return _SSO_EXCHANGE_HASH_PREFIX + digest
 
 
@@ -288,13 +291,14 @@ class AuthService:
         return new_access, new_refresh
 
     async def stage_sso_sign_in(
-        self, user_id: uuid.UUID, *, family_id: uuid.UUID
+        self, user_id: uuid.UUID, *, family_id: uuid.UUID, sign_in_nonce: str
     ) -> tuple[str, str]:
-        """Stage a completed SSO sign-in for one exchange; returns (code, nonce).
+        """Stage a completed SSO sign-in for one exchange; returns (code, binding).
 
         The pending row joins the new session's family, so logout-everywhere
         and the revocation horizon reach it like any refresh token. Its hash
-        covers both values, and the caller hands them out separately. Expired
+        covers the code, the binding and the starting page's nonce, so
+        redeeming needs all three. Expired
         staged rows are swept here, since an abandoned callback is never
         redeemed or rotated.
         """
@@ -309,34 +313,38 @@ class AuthService:
         )
         await self.db.execute(delete(RefreshToken).where(RefreshToken.id.in_(expired)))
         code = secrets.token_urlsafe(32)
-        nonce = secrets.token_urlsafe(32)
+        binding = secrets.token_urlsafe(32)
         self.db.add(
             RefreshToken(
                 user_id=user_id,
-                token_hash=_sso_exchange_hash(code, nonce),
+                token_hash=_sso_exchange_hash(code, binding, sign_in_nonce),
                 family_id=family_id,
                 expires_at=datetime.now(UTC)
                 + timedelta(seconds=SSO_EXCHANGE_TTL_SECONDS),
             )
         )
-        return code, nonce
+        return code, binding
 
     async def redeem_sso_sign_in(
         self,
         code: str,
-        nonce: str,
+        binding: str,
+        sign_in_nonce: str,
         *,
         expire_minutes: int | None = None,
         expire_days: int | None = None,
     ) -> tuple[str, str]:
         """Consume a staged sign-in once; returns (access_token, refresh_token).
 
-        Raises ValueError when the pair names no live staged sign-in: wrong,
+        Raises ValueError when the values name no live staged sign-in: wrong,
         expired, already redeemed, revoked, or its user is no longer active.
         """
-        if not (_SSO_EXCHANGE_SECRET.match(code) and _SSO_EXCHANGE_SECRET.match(nonce)):
+        if not all(
+            _SSO_EXCHANGE_SECRET.match(value)
+            for value in (code, binding, sign_in_nonce)
+        ):
             raise ValueError("Invalid or expired sign-in code")
-        token_hash = _sso_exchange_hash(code, nonce)
+        token_hash = _sso_exchange_hash(code, binding, sign_in_nonce)
         user_id = (
             await self.db.execute(
                 select(RefreshToken.user_id)

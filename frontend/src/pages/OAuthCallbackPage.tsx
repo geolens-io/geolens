@@ -6,6 +6,7 @@ import { useDocumentTitle } from '@/hooks/use-document-title';
 import { exchangeSignInCode } from '@/api/auth';
 import { completeSignIn, type SignInOutcome } from '@/lib/sign-in';
 import { postSignInPath } from '@/lib/post-sign-in-path';
+import { nonceMatches, takeSsoNonce } from '@/lib/sso-sign-in';
 import { readSessionStorage, removeSessionStorage } from '@/lib/storage';
 import { Loader2 } from 'lucide-react';
 
@@ -27,6 +28,9 @@ export function OAuthCallbackPage() {
     if (processedRef.current) return;
     processedRef.current = true;
 
+    // Taken before anything else so it is gone whatever happens next.
+    const expectedNonce = takeSsoNonce();
+
     // Read tokens from URL fragment (not query params) to avoid server log exposure
     const hash = window.location.hash.replace(/^#/, '');
     const params = new URLSearchParams(hash || window.location.search);
@@ -42,12 +46,17 @@ export function OAuthCallbackPage() {
     const token = params.get('token');
     const refreshToken = params.get('refresh_token');
     const expiresIn = params.get('expires_in');
-    // An API from before the code exchange set the cookie on its redirect
-    // and sends no refresh token; accepted while versions can differ.
-    const legacyCookieMode = params.get('auth_mode') === 'cookie';
+    const nonce = params.get('nonce');
 
     // Clean URL immediately (remove fragment with the code or tokens)
     window.history.replaceState({}, '', '/oauth/callback');
+
+    // Only a sign-in this tab started may complete here. Anything else
+    // installs nothing and leaves the current session alone.
+    if (!expectedNonce || !nonce || !nonceMatches(expectedNonce, nonce)) {
+      navigate('/login', { replace: true });
+      return;
+    }
 
     // A same-origin deployment sends a one-time code, exchanged for the
     // session cookie under the cross-tab cookie lock. A cross-origin one
@@ -56,10 +65,10 @@ export function OAuthCallbackPage() {
     if (code) {
       // completeSignIn installs the session before its first await, so the
       // wrapper keeps the profile load from holding the cookie lock.
-      signIn = exchangeSignInCode(code, (session) => ({ done: completeSignIn(session) })).then(
-        ({ done }) => done,
-      );
-    } else if (token && expiresIn && (refreshToken || legacyCookieMode)) {
+      signIn = exchangeSignInCode(code, nonce, (session) => ({
+        done: completeSignIn(session),
+      })).then(({ done }) => done);
+    } else if (token && refreshToken && expiresIn) {
       signIn = completeSignIn({
         access_token: token,
         refresh_token: refreshToken,

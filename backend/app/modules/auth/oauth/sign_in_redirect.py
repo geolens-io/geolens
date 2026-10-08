@@ -1,5 +1,6 @@
 """The redirect that hands a completed SSO sign-in to the SPA's callback page."""
 
+import re
 import uuid
 
 from fastapi import Request
@@ -18,7 +19,11 @@ from app.modules.auth.cookies import (
 )
 from app.modules.auth.models import User
 from app.modules.auth.providers import AuthenticatedIdentity
-from app.modules.auth.service import SSO_EXCHANGE_TTL_SECONDS, AuthService
+from app.modules.auth.service import (
+    SIGN_IN_NONCE_PATTERN,
+    SSO_EXCHANGE_TTL_SECONDS,
+    AuthService,
+)
 
 
 def _callback_redirect(url: str) -> RedirectResponse:
@@ -37,12 +42,17 @@ async def sso_sign_in_redirect(
     user: User,
     *,
     frontend_url: str,
+    sign_in_nonce: str,
     callback_query: str = "",
 ) -> RedirectResponse:
     """Redirect *user*'s completed SSO sign-in to ``/oauth/callback``.
 
     Adds the new session's rows to *db* without committing; the caller commits
     before returning the response.
+
+    *sign_in_nonce* is the value the page that started this sign-in sent; both
+    shapes hand it back, and the page completes only a sign-in carrying its
+    own. A same-origin exchange must present it too.
 
     A same-origin SPA gets ``#code=``: a one-time code it exchanges at
     ``POST /auth/oauth/exchange/`` inside its cross-tab cookie lock. Setting
@@ -51,6 +61,8 @@ async def sso_sign_in_redirect(
     cross-origin SPA can't use that cookie, so it gets the tokens in the
     fragment.
     """
+    if not re.fullmatch(SIGN_IN_NONCE_PATTERN, sign_in_nonce):
+        raise ValueError("A sign-in redirect needs the starting page's nonce")
     family_id = uuid.uuid4()
     service = AuthService(db)
     callback = f"{frontend_url}/oauth/callback{callback_query}"
@@ -58,10 +70,12 @@ async def sso_sign_in_redirect(
     if is_same_origin(frontend_url, api_url) and api_path_is_cookie_scoped(
         request, api_url
     ):
-        code, nonce = await service.stage_sso_sign_in(user.id, family_id=family_id)
-        response = _callback_redirect(f"{callback}#code={code}")
+        code, binding = await service.stage_sso_sign_in(
+            user.id, family_id=family_id, sign_in_nonce=sign_in_nonce
+        )
+        response = _callback_redirect(f"{callback}#code={code}&nonce={sign_in_nonce}")
         set_sso_exchange_cookie(
-            response, request, code, nonce, SSO_EXCHANGE_TTL_SECONDS
+            response, request, code, binding, SSO_EXCHANGE_TTL_SECONDS
         )
         return response
 
@@ -78,5 +92,5 @@ async def sso_sign_in_redirect(
     )
     return _callback_redirect(
         f"{callback}#token={access_token}&refresh_token={refresh_token}"
-        f"&expires_in={expire_minutes * 60}"
+        f"&expires_in={expire_minutes * 60}&nonce={sign_in_nonce}"
     )

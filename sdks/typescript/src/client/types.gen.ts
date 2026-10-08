@@ -9965,6 +9965,12 @@ export type SsoExchangeRequest = {
      * The one-time code from the `code` parameter of the sign-in redirect's URL fragment.
      */
     code: string;
+    /**
+     * Nonce
+     *
+     * The nonce the page sent when it started this sign-in.
+     */
+    nonce: string;
 };
 
 /**
@@ -15425,7 +15431,14 @@ export type OauthLoginAuthOauthProviderSlugLoginGetData = {
          */
         provider_slug: string;
     };
-    query?: never;
+    query: {
+        /**
+         * Nonce
+         *
+         * A random 256-bit value, base64url without padding, that the page starting this sign-in keeps. The callback hands it back, and the page completes only a sign-in carrying its own value.
+         */
+        nonce: string;
+    };
     url: '/auth/oauth/{provider_slug}/login';
 };
 

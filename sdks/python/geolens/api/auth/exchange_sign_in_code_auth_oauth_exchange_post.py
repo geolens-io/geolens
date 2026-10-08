@@ -116,8 +116,9 @@ def sync_detailed(
     httpOnly refresh cookie and its CSRF cookie the way ``/auth/login`` does
     in cookie mode, with a null ``refresh_token`` in the body.
 
-    A code is valid once, for about a minute, and only from the browser the
-    callback redirected. Every refusal is the same 401.
+    A code is valid once, for about a minute, only from the browser the
+    callback redirected, and only with the nonce the page started the sign-in
+    with. Every refusal is the same 401.
 
     Args:
         x_geo_lens_auth_mode (None | str | Unset): Must be `cookie`: this call only establishes a
@@ -160,8 +161,9 @@ def sync(
     httpOnly refresh cookie and its CSRF cookie the way ``/auth/login`` does
     in cookie mode, with a null ``refresh_token`` in the body.
 
-    A code is valid once, for about a minute, and only from the browser the
-    callback redirected. Every refusal is the same 401.
+    A code is valid once, for about a minute, only from the browser the
+    callback redirected, and only with the nonce the page started the sign-in
+    with. Every refusal is the same 401.
 
     Args:
         x_geo_lens_auth_mode (None | str | Unset): Must be `cookie`: this call only establishes a
@@ -199,8 +201,9 @@ async def asyncio_detailed(
     httpOnly refresh cookie and its CSRF cookie the way ``/auth/login`` does
     in cookie mode, with a null ``refresh_token`` in the body.
 
-    A code is valid once, for about a minute, and only from the browser the
-    callback redirected. Every refusal is the same 401.
+    A code is valid once, for about a minute, only from the browser the
+    callback redirected, and only with the nonce the page started the sign-in
+    with. Every refusal is the same 401.
 
     Args:
         x_geo_lens_auth_mode (None | str | Unset): Must be `cookie`: this call only establishes a
@@ -241,8 +244,9 @@ async def asyncio(
     httpOnly refresh cookie and its CSRF cookie the way ``/auth/login`` does
     in cookie mode, with a null ``refresh_token`` in the body.
 
-    A code is valid once, for about a minute, and only from the browser the
-    callback redirected. Every refusal is the same 401.
+    A code is valid once, for about a minute, only from the browser the
+    callback redirected, and only with the nonce the page started the sign-in
+    with. Every refusal is the same 401.
 
     Args:
         x_geo_lens_auth_mode (None | str | Unset): Must be `cookie`: this call only establishes a

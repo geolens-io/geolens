@@ -17129,10 +17129,17 @@
             "maxLength": 64,
             "title": "Code",
             "type": "string"
+          },
+          "nonce": {
+            "description": "The nonce the page sent when it started this sign-in.",
+            "maxLength": 64,
+            "title": "Nonce",
+            "type": "string"
           }
         },
         "required": [
-          "code"
+          "code",
+          "nonce"
         ],
         "title": "SsoExchangeRequest",
         "type": "object"
@@ -28298,7 +28305,7 @@
     },
     "/auth/oauth/exchange/": {
       "post": {
-        "description": "Exchange a single sign-on code for a browser session.\n\nWhen the SPA shares the API's origin, an OAuth or SAML callback redirects\nwith a one-time code in the URL fragment instead of setting the refresh\ncookie. The sign-in page posts that code here, and the response sets the\nhttpOnly refresh cookie and its CSRF cookie the way ``/auth/login`` does\nin cookie mode, with a null ``refresh_token`` in the body.\n\nA code is valid once, for about a minute, and only from the browser the\ncallback redirected. Every refusal is the same 401.",
+        "description": "Exchange a single sign-on code for a browser session.\n\nWhen the SPA shares the API's origin, an OAuth or SAML callback redirects\nwith a one-time code in the URL fragment instead of setting the refresh\ncookie. The sign-in page posts that code here, and the response sets the\nhttpOnly refresh cookie and its CSRF cookie the way ``/auth/login`` does\nin cookie mode, with a null ``refresh_token`` in the body.\n\nA code is valid once, for about a minute, only from the browser the\ncallback redirected, and only with the nonce the page started the sign-in\nwith. Every refusal is the same 401.",
         "operationId": "exchange_sign_in_code_auth_oauth_exchange__post",
         "parameters": [
           {
@@ -28678,6 +28685,18 @@
             "required": true,
             "schema": {
               "title": "Provider Slug",
+              "type": "string"
+            }
+          },
+          {
+            "description": "A random 256-bit value, base64url without padding, that the page starting this sign-in keeps. The callback hands it back, and the page completes only a sign-in carrying its own value.",
+            "in": "query",
+            "name": "nonce",
+            "required": true,
+            "schema": {
+              "description": "A random 256-bit value, base64url without padding, that the page starting this sign-in keeps. The callback hands it back, and the page completes only a sign-in carrying its own value.",
+              "pattern": "^[A-Za-z0-9_-]{43}$",
+              "title": "Nonce",
               "type": "string"
             }
           }

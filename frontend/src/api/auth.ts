@@ -57,8 +57,8 @@ export async function login(
 const EXCHANGE_TIMEOUT_MS = 30_000;
 
 /**
- * Trade the one-time code an SSO callback redirected with for this browser's
- * session cookie. The callback can't set that cookie itself: its redirect
+ * Trade the one-time code an SSO callback redirected with, and the nonce this
+ * tab started the sign-in with, for this browser's session cookie. The callback can't set that cookie itself: its redirect
  * runs outside the cross-tab cookie lock, so a refresh another tab already
  * sent could land afterwards and put the previous session's cookie back.
  *
@@ -68,6 +68,7 @@ const EXCHANGE_TIMEOUT_MS = 30_000;
  */
 export async function exchangeSignInCode<T>(
   code: string,
+  nonce: string,
   install: (session: TokenResponse) => T,
 ): Promise<T> {
   await awaitPendingLogout();
@@ -78,7 +79,7 @@ export async function exchangeSignInCode<T>(
       headers: { 'Content-Type': 'application/json', [AUTH_MODE_HEADER]: 'cookie' },
       credentials: 'same-origin',
       signal: AbortSignal.timeout(EXCHANGE_TIMEOUT_MS),
-      body: JSON.stringify({ code }),
+      body: JSON.stringify({ code, nonce }),
     });
     if (!response.ok) {
       throw new ApiError(translateApiErrorDetail(undefined, response.status), response.status);

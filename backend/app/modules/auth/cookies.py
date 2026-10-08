@@ -139,7 +139,7 @@ def sso_exchange_cookie_name(code: str) -> str:
 
 
 def set_sso_exchange_cookie(
-    response: Response, request: Request, code: str, nonce: str, max_age: int
+    response: Response, request: Request, code: str, binding: str, max_age: int
 ) -> None:
     """Bind a staged SSO sign-in to this browser.
 
@@ -148,7 +148,7 @@ def set_sso_exchange_cookie(
     """
     response.set_cookie(
         sso_exchange_cookie_name(code),
-        nonce,
+        binding,
         max_age=max_age,
         httponly=True,
         secure=_secure_cookies(),
@@ -158,7 +158,7 @@ def set_sso_exchange_cookie(
 
 
 def read_sso_exchange_cookie(request: Request, code: str) -> str | None:
-    """The binding nonce, or None when absent or duplicated (see read_refresh_cookie)."""
+    """The binding value, or None when absent or duplicated (see read_refresh_cookie)."""
     name = sso_exchange_cookie_name(code)
     if _cookie_occurrences(request, name) > 1:
         return None
