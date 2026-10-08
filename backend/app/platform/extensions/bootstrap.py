@@ -315,6 +315,13 @@ async def bootstrap(*, app: "FastAPI | None" = None) -> EditionInfo:
                     error=str(exc),
                 )
 
+    if app is not None:
+        from app.platform.refresh.credentials import (
+            warn_if_credential_store_unconfigured,
+        )
+
+        warn_if_credential_store_unconfigured()
+
     # Step 9: Initialize cache.
     init_cache()
 

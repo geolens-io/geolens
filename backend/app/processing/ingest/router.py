@@ -85,7 +85,7 @@ from app.processing.ingest.schemas import (
 )
 from app.processing.ingest.service import (
     PART_SIZE,
-    _assert_header_token_dispatchable,
+    _assert_commit_credential_dispatchable,
     _cleanup_saved_upload,
     admit_import_commit,
     claim_fan_out_parent,
@@ -1042,11 +1042,10 @@ async def commit_import(
         service_format=job_service_format(job),
     )
 
-    # fix(#1746): judge the credential BEFORE the write below, not just
-    # before the stash inside `queue_ingest_job` — `service_auth_required`
-    # is a one-way door (`_replay_capability` refuses retry once set), so a
-    # late-rejected credential would leave a `pending` job un-retryable.
-    _assert_header_token_dispatchable(job, token)
+    # Judge the credential and the store before the write below:
+    # `service_auth_required` is a one-way door (`_replay_capability` refuses
+    # retry once set), so a later refusal would leave the job un-retryable.
+    _assert_commit_credential_dispatchable(job, token, credential)
 
     # Persist the subclass-filtered view. `auth` is excluded like `token`,
     # and more sharply: user_metadata is durable JSONB, so a nested

@@ -819,10 +819,10 @@ async def ingest_service(
 ) -> None:
     """Background task: import a remote service layer via ogr2ogr.
 
-    ``credential_ref`` is a one-use reference redeemed exactly once below;
-    ``token`` is the durable task argument, produced only when no shared
-    credential store is configured. At most one is ever set — see
-    ``resolve_worker_credential``/``resolve_dispatch_credential``.
+    ``credential_ref`` is a one-use reference redeemed exactly once below.
+    ``token`` is accepted only for a job an earlier release queued with the
+    token as an argument; no current door sends one. See
+    ``resolve_worker_credential``.
 
     Pipeline: update job to running; determine service type; build GDAL
     source and run ogr2ogr; post-process (clip, geom_4326, grants,

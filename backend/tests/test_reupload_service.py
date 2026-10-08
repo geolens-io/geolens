@@ -13,8 +13,10 @@ from app.platform.jobs.heartbeat import attempt_scoped_staging_table
 from app.processing.ingest.ogr import IngestionError
 from app.processing.ingest.tasks import reupload_service
 from app.platform.jobs.models import IngestJob
+from app.platform.refresh import credentials as creds
 
 from tests.factories import create_dataset, get_user_id
+from tests.test_service_refresh_1220 import credential_backend  # noqa: F401
 
 
 async def _create_dataset(
@@ -95,6 +97,7 @@ class TestServiceReuploadCommitDispatch:
         client: AsyncClient,
         admin_auth_header: dict,
         test_db_session,
+        credential_backend,  # noqa: F811
     ):
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _create_dataset(test_db_session, created_by=admin_id)
@@ -131,8 +134,7 @@ class TestServiceReuploadCommitDispatch:
         assert payload["status"] == "pending"
         assert payload["message"] == "Re-upload queued"
 
-        # chore(#1812): a WFS bearer credential defers on the task's own queue
-        # again; the header line still crosses under `token` (D9).
+        # A WFS bearer credential defers on the task's own queue.
         mock_reupload_service.configure.assert_not_called()
         mock_reupload_service.defer_async.assert_awaited_once()
         service_kwargs = mock_reupload_service.defer_async.call_args.kwargs
@@ -141,10 +143,13 @@ class TestServiceReuploadCommitDispatch:
         assert service_kwargs["source_url"] == "https://example.com/wfs"
         assert service_kwargs["source_layer"] == "roads"
         assert service_kwargs["user_id"] == str(admin_id)
-        # feat(#1746 B2b) plan D9: a WFS origin's credential crosses the queue
-        # as the finished header line, under the same kwarg name the purge,
-        # the sweep and the log scrubber already key on.
-        assert service_kwargs["token"] == "Authorization: Bearer super-secret-token"
+        # A WFS origin's credential is staged as the finished header line.
+        assert "token" not in service_kwargs
+        assert "super-secret-token" not in str(service_kwargs)
+        assert (
+            await creds.claim_service_credential(service_kwargs["credential_ref"])
+            == "Authorization: Bearer super-secret-token"
+        )
 
         mock_reupload_file.defer_async.assert_not_awaited()
         mock_reupload_file.configure.assert_not_called()

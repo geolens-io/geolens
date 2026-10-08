@@ -664,13 +664,7 @@ def _worker_log_extra(job: Job, action: str) -> dict:
 
 
 def _authenticated_service_job() -> Job:
-    """A job shaped like the ones the default install actually queues.
-
-    `credential_store_available()` is False whenever `REDIS_URL` is unset --
-    which is how `.env.example` ships -- so `resolve_dispatch_credential()`
-    returns the raw wire credential and it crosses the queue as the `token`
-    kwarg of every authenticated service import and reupload.
-    """
+    """A job an earlier release queued with the wire credential in its `token` kwarg."""
     return Job(
         id=1270,
         queue="ingest",

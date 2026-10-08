@@ -1,25 +1,7 @@
-"""feat(#1676): the import and re-upload-commit doors lease their token too.
+"""The import and re-upload-commit doors stage a token in the credential store or refuse.
 
-#1220 gave the refresh door a one-use Valkey handoff so a service credential
-never lands in ``catalog.procrastinate_jobs.args``. The other two doors kept
-dispatching the raw token, while the import UI promised the opposite. These
-tests pin the three states those doors now have, at both ends of the handoff:
-
-- **state 1** store configured -> a reference travels, the secret does not,
-  and the worker spends the reference exactly once;
-- **state 2** store configured but unreachable -> 503 at the door, nothing
-  dispatched, and no half-written state left for a sweep to unwind;
-- **state 3** no store configured -> the durable argument this door has
-  always sent, which is the whole reason these two doors do not simply refuse.
-
-State 3 has a test of its own for each door because it is the branch a
-tidy-up would delete: it looks like an oversight and is the only thing
-keeping protected import working on a stock install, where ``REDIS_URL`` is
-unset and the ``valkey`` service is behind the ``cloud-dev`` profile.
-
-The last class covers the renewal query, which had to be widened for the
-first-import door — the one leasing door that writes no ``dataset_refresh_
-runs`` row and so matched nothing under the old inner join.
+Covers the configured, unreachable and absent store at both doors, the worker
+end of the import handoff, and the renewal query for run-less import jobs.
 """
 
 from __future__ import annotations
@@ -193,6 +175,64 @@ async def _reload(session, job_id: uuid.UUID) -> IngestJob:
 
 
 # ---------------------------------------------------------------------------
+# The dispatch policy shared by both doors
+# ---------------------------------------------------------------------------
+
+
+class TestDispatchPolicy:
+    async def test_no_token_needs_no_store(self, no_credential_store) -> None:
+        assert await creds.resolve_dispatch_credential(None, door="import") is None
+        assert await creds.resolve_dispatch_credential("", door="import") is None
+
+    async def test_an_absent_store_refuses_and_names_the_setting(
+        self, no_credential_store
+    ) -> None:
+        secret = "tok-" + uuid.uuid4().hex
+        with pytest.raises(creds.CredentialStoreNotConfigured) as caught:
+            await creds.resolve_dispatch_credential(secret, door="import")
+
+        refusal = creds.credential_store_refusal(caught.value, operation="import")
+        assert refusal.status_code == 503
+        assert refusal.detail["code"] == "credential_store_unavailable"
+        assert "REDIS_URL" in refusal.detail["message"]
+        assert secret not in str(caught.value)
+
+    async def test_an_unreachable_store_refuses_as_an_outage(
+        self, down_credential_store
+    ) -> None:
+        with pytest.raises(creds.CredentialStoreUnavailable) as caught:
+            await creds.resolve_dispatch_credential("tok-x", door="import")
+
+        assert not isinstance(caught.value, creds.CredentialStoreNotConfigured)
+        refusal = creds.credential_store_refusal(caught.value, operation="import")
+        assert refusal.status_code == 503
+        assert "reachable" in refusal.detail["message"]
+
+    async def test_a_configured_store_returns_only_a_reference(
+        self,
+        credential_backend,  # noqa: F811
+    ) -> None:
+        secret = "tok-" + uuid.uuid4().hex
+        ref = await creds.resolve_dispatch_credential(secret, door="import")
+
+        assert ref and secret not in ref
+        assert await creds.claim_service_credential(ref) == secret
+
+    def test_startup_warns_when_the_store_is_not_configured(self, monkeypatch) -> None:
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "redis_url", None, raising=False)
+        with structlog.testing.capture_logs() as captured:
+            creds.warn_if_credential_store_unconfigured()
+        assert [e["event"] for e in captured] == ["credential_store_not_configured"]
+
+        monkeypatch.setattr(settings, "redis_url", "redis://valkey:6379/0")
+        with structlog.testing.capture_logs() as captured:
+            creds.warn_if_credential_store_unconfigured()
+        assert captured == []
+
+
+# ---------------------------------------------------------------------------
 # Door 1 — first import (POST /ingest/commit/{job_id})
 # ---------------------------------------------------------------------------
 
@@ -226,7 +266,7 @@ class TestImportDoor:
         assert resp.status_code == 202, resp.text
         kwargs = task.defer_async.call_args.kwargs
         assert kwargs["credential_ref"]
-        assert kwargs["token"] is None
+        assert "token" not in kwargs
         assert secret not in str(kwargs)
 
         reloaded = await _reload(test_db_session, job.id)
@@ -237,22 +277,14 @@ class TestImportDoor:
         # And the secret really is retrievable by the reference, once.
         assert await creds.claim_service_credential(kwargs["credential_ref"]) == secret
 
-    async def test_without_a_store_the_import_still_runs_on_the_durable_argument(
+    async def test_without_a_store_a_token_import_is_refused_before_admission(
         self,
         client: AsyncClient,
         admin_auth_header: dict,
         test_db_session,
         no_credential_store,
     ) -> None:
-        """State 3, pinned deliberately rather than left as an accident.
-
-        A stock install has no ``REDIS_URL``. Refusing here — which is what
-        the refresh door does, and what a later tidy-up would "fix" this into
-        — would stop protected imports working on every one of them. The log
-        line is asserted with the branch so an operator can answer "is this
-        install leasing?" from logs rather than from settings archaeology,
-        and so that deleting the branch cannot pass this test quietly.
-        """
+        """Nothing is queued and the job stays committable once REDIS_URL is set."""
         secret = "tok-" + uuid.uuid4().hex
         admin_id = await get_user_id(test_db_session, "admin")
         job = await _service_import_job(test_db_session, created_by=admin_id)
@@ -265,20 +297,54 @@ class TestImportDoor:
                     headers=admin_auth_header,
                 )
 
-        assert resp.status_code == 202, resp.text
-        kwargs = task.defer_async.call_args.kwargs
-        assert kwargs["token"] == secret
-        assert kwargs["credential_ref"] is None
+        assert resp.status_code == 503, resp.text
+        detail = resp.json()["detail"]
+        assert detail["code"] == "credential_store_unavailable"
+        assert "REDIS_URL" in detail["message"]
+        assert secret not in resp.text
+        task.defer_async.assert_not_awaited()
 
-        fallbacks = [
+        reloaded = await _reload(test_db_session, job.id)
+        assert reloaded.status == "pending"
+        assert "service_auth_required" not in (reloaded.user_metadata or {})
+
+        refusals = [
             entry
             for entry in captured
-            if entry.get("event") == "service_credential_durable_fallback"
+            if entry.get("event") == "service_credential_store_not_configured"
         ]
-        assert len(fallbacks) == 1, captured
-        assert fallbacks[0]["door"] == "import"
-        # The line names the door, never the secret and never a reference.
-        assert secret not in str(fallbacks[0])
+        assert [entry["door"] for entry in refusals] == ["import"]
+        assert secret not in str(captured)
+
+    async def test_without_a_store_an_in_process_caller_is_refused_too(
+        self,
+        test_db_session,
+        no_credential_store,
+    ) -> None:
+        """``queue_ingest_job`` refuses on its own, for callers that skip the route."""
+        from fastapi import HTTPException
+
+        from app.core.service_tokens import CredentialMethod, ServiceCredential
+        from app.processing.ingest.service import queue_ingest_job
+
+        secret = "tok-" + uuid.uuid4().hex
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _service_import_job(test_db_session, created_by=admin_id)
+        credential = ServiceCredential(method=CredentialMethod.BEARER, token=secret)
+
+        async with _import_harness() as task:
+            with pytest.raises(HTTPException) as caught:
+                await queue_ingest_job(
+                    job, str(admin_id), db=test_db_session, credential=credential
+                )
+
+        assert caught.value.status_code == 503
+        assert caught.value.detail["code"] == "credential_store_unavailable"
+        assert "REDIS_URL" in caught.value.detail["message"]
+        task.defer_async.assert_not_awaited()
+        reloaded = await _reload(test_db_session, job.id)
+        assert reloaded.status == "failed"
+        assert secret not in str(reloaded.error_message)
 
     async def test_a_store_that_is_down_returns_503_and_finalizes_the_job(
         self,
@@ -339,8 +405,28 @@ class TestImportDoor:
 
         assert resp.status_code == 202, resp.text
         kwargs = task.defer_async.call_args.kwargs
-        assert kwargs["token"] is None
+        assert "token" not in kwargs
         assert kwargs["credential_ref"] is None
+
+    async def test_a_public_import_needs_no_store(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        no_credential_store,
+    ) -> None:
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _service_import_job(test_db_session, created_by=admin_id)
+
+        async with _import_harness() as task:
+            resp = await client.post(
+                f"/ingest/commit/{job.id}",
+                json={"title": "Parcels"},
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 202, resp.text
+        assert task.defer_async.call_args.kwargs["credential_ref"] is None
 
     async def test_a_queue_outage_discards_the_credential_it_stashed(
         self,
@@ -433,7 +519,7 @@ class TestReuploadCommitDoor:
         assert resp.status_code == 202, resp.text
         kwargs = task.defer_async.call_args.kwargs
         assert kwargs["credential_ref"]
-        assert kwargs["token"] is None
+        assert "token" not in kwargs
         assert secret not in str(kwargs)
 
         reloaded = await _reload(test_db_session, job.id)
@@ -454,19 +540,13 @@ class TestReuploadCommitDoor:
             == f"Authorization: Bearer {secret}"
         )
 
-    async def test_without_a_store_the_reupload_still_runs_on_the_durable_argument(
+    async def test_without_a_store_a_token_reupload_is_refused_and_rolled_back(
         self,
         client: AsyncClient,
         admin_auth_header: dict,
         test_db_session,
         no_credential_store,
     ) -> None:
-        """State 3 at the second door. Same reason, same shape, own test.
-
-        Both doors are pinned separately on purpose: one of them silently
-        losing the fallback is exactly the half-migration this change exists
-        to finish, and a shared test would let either half regress alone.
-        """
         secret = "tok-" + uuid.uuid4().hex
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await self._dataset(test_db_session, created_by=admin_id)
@@ -482,22 +562,22 @@ class TestReuploadCommitDoor:
                     headers=admin_auth_header,
                 )
 
-        assert resp.status_code == 202, resp.text
-        kwargs = task.defer_async.call_args.kwargs
-        # The durable argument is the same wire value the lease would have
-        # staged: a composed header line, because this job's origin is a WFS
-        # service.
-        assert kwargs["token"] == f"Authorization: Bearer {secret}"
-        assert kwargs["credential_ref"] is None
+        assert resp.status_code == 503, resp.text
+        detail = resp.json()["detail"]
+        assert detail["code"] == "credential_store_unavailable"
+        assert "REDIS_URL" in detail["message"]
+        assert secret not in resp.text
+        task.defer_async.assert_not_awaited()
+        assert await self._run_for(test_db_session, dataset.id) is None
+        assert (await _reload(test_db_session, job.id)).status == "pending"
 
-        fallbacks = [
+        refusals = [
             entry
             for entry in captured
-            if entry.get("event") == "service_credential_durable_fallback"
+            if entry.get("event") == "service_credential_store_not_configured"
         ]
-        assert len(fallbacks) == 1, captured
-        assert fallbacks[0]["door"] == "reupload_commit"
-        assert secret not in str(fallbacks[0])
+        assert [entry["door"] for entry in refusals] == ["reupload_commit"]
+        assert secret not in str(captured)
 
     async def test_a_store_that_is_down_returns_503_and_rolls_the_request_back(
         self,
@@ -553,7 +633,7 @@ class TestReuploadCommitDoor:
 
         assert resp.status_code == 202, resp.text
         kwargs = task.defer_async.call_args.kwargs
-        assert kwargs["token"] is None
+        assert "token" not in kwargs
         assert kwargs["credential_ref"] is None
 
 
