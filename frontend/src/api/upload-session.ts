@@ -95,6 +95,8 @@ interface UploadBatchSession {
 }
 
 let current: UploadBatchSession | null = null;
+// Aborts an entry's in-flight direct upload when the entry is dismissed or the batch is cleared.
+const uploadAborts = new Map<string, AbortController>();
 const listeners = new Set<() => void>();
 
 function notify(): void {
@@ -152,11 +154,15 @@ export function startUploadEntry(
     notify();
   };
 
+  const abort = new AbortController();
+  uploadAborts.set(id, abort);
+
   void (async () => {
     try {
       const result = presigned
         ? await uploadPresigned(file, onProgress, kind)
-        : await uploadFile(file, onProgress, kind);
+        : await uploadFile(file, onProgress, kind, abort.signal);
+      uploadAborts.delete(id);
       entry.jobId = result.job_id;
       entry.status = 'previewing';
       entry.progress = null;
@@ -167,6 +173,7 @@ export function startUploadEntry(
       entry.status = 'preview';
       notify();
     } catch (err) {
+      uploadAborts.delete(id);
       entry.status = 'upload-failed';
       entry.error = err;
       entry.progress = null;
@@ -426,6 +433,7 @@ export function peekUploadBatch(): UploadBatchSnapshot | null {
 /** Drop one entry the user dismissed. Clears the session once it empties. */
 export function removeUploadSessionEntry(id: string): void {
   if (!current) return;
+  uploadAborts.get(id)?.abort();
   current.entries.delete(id);
   if (current.entries.size === 0) {
     current = null;
@@ -435,6 +443,8 @@ export function removeUploadSessionEntry(id: string): void {
 
 /** Release the whole batch — an explicit reset, or an identity change. */
 export function clearUploadBatch(): void {
+  for (const abort of uploadAborts.values()) abort.abort();
+  uploadAborts.clear();
   current = null;
   notify();
 }
