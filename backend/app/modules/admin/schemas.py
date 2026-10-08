@@ -495,8 +495,11 @@ class BackfillResponse(BaseModel):
     ``GET /jobs/{job_id}`` for status.
     """
 
-    job_id: uuid.UUID = Field(
-        description="Identifier of the queued backfill job; poll /jobs/{job_id}."
+    job_id: uuid.UUID | None = Field(
+        description=(
+            "Identifier of the queued backfill job; poll /jobs/{job_id}. Null only "
+            "with status 'already_running' when the caller may not read that run."
+        )
     )
     status: str = Field(
         description=(

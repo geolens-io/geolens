@@ -158,9 +158,9 @@ export interface paths {
          *     leaves each tenant to regenerate. Pass ?all_tenants=true to also queue a
          *     run for every other registered tenant; there it needs
          *     manage_tenants instead of manage_users, and ``other_tenants`` reports
-         *     each run. When the calling tenant already has a run in flight, that run's
-         *     id comes back with status ``already_running`` and the other tenants are
-         *     still queued. This request did not queue that run and it may predate the
+         *     each run. When the calling tenant already has a run in flight, the status
+         *     is ``already_running``, ``job_id`` is that run (null when the caller may
+         *     not read it) and the other tenants are still queued. This request did not queue that run and it may predate the
          *     change, so run the backfill again once it ends. A single-tenant
          *     deployment ignores the flag.
          *
@@ -6532,10 +6532,9 @@ export interface components {
         BackfillResponse: {
             /**
              * Job Id
-             * Format: uuid
-             * @description Identifier of the queued backfill job; poll /jobs/{job_id}.
+             * @description Identifier of the queued backfill job; poll /jobs/{job_id}. Null only with status 'already_running' when the caller may not read that run.
              */
-            job_id: string;
+            job_id: string | null;
             /**
              * Status
              * @description 'pending' when this request queued job_id. 'already_running' when an all_tenants request found a run in flight in the calling tenant; job_id is then that run, which this request did not queue. Run the backfill again once it ends.

@@ -1794,7 +1794,7 @@ export interface BackfillTenantRun {
 }
 
 export interface BackfillResponse {
-  job_id: string;
+  job_id: string | null;
   status: string;
   other_tenants?: BackfillTenantRun[];
 }

@@ -81,7 +81,10 @@ from app.platform.jobs.models import (
     URL_IMPORT_METADATA_KEY,
     public_job_metadata,
 )
-from app.platform.jobs.router import get_retry_capability
+from app.platform.jobs.router import (
+    _can_access_another_users_job,
+    get_retry_capability,
+)
 from app.standards.ogc.errors import (
     CONFLICT_RESPONSE,
     ERROR_RESPONSES_AUTH,
@@ -1162,9 +1165,9 @@ async def trigger_backfill(
     leaves each tenant to regenerate. Pass ?all_tenants=true to also queue a
     run for every other registered tenant; there it needs
     manage_tenants instead of manage_users, and ``other_tenants`` reports
-    each run. When the calling tenant already has a run in flight, that run's
-    id comes back with status ``already_running`` and the other tenants are
-    still queued. This request did not queue that run and it may predate the
+    each run. When the calling tenant already has a run in flight, the status
+    is ``already_running``, ``job_id`` is that run (null when the caller may
+    not read it) and the other tenants are still queued. This request did not queue that run and it may predate the
     change, so run the backfill again once it ends. A single-tenant
     deployment ignores the flag.
 
@@ -1192,12 +1195,17 @@ async def trigger_backfill(
             raise
         from app.modules.admin.backfill_jobs import find_active_embedding_backfill
 
-        job = await find_active_embedding_backfill(db)
-        if job is None:
+        active = await find_active_embedding_backfill(db)
+        if active is None:
             raise
-        job_status = "already_running"
+        readable = active.created_by == current_user.id or (
+            await _can_access_another_users_job(
+                request, db, current_user, active, log_denial=False
+            )
+        )
+        job_id, job_status = (active.id if readable else None), "already_running"
     else:
-        job_status = "pending"
+        job_id, job_status = job.id, "pending"
     other_tenants = (
         await _queue_backfill_for_other_tenants(
             force=force, ip_address=ip_address, operation_id=operation_id
@@ -1206,7 +1214,7 @@ async def trigger_backfill(
         else []
     )
     return BackfillResponse(
-        job_id=job.id, status=job_status, other_tenants=other_tenants
+        job_id=job_id, status=job_status, other_tenants=other_tenants
     )
 
 

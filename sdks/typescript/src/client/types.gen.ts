@@ -1195,9 +1195,9 @@ export type BackfillResponse = {
     /**
      * Job Id
      *
-     * Identifier of the queued backfill job; poll /jobs/{job_id}.
+     * Identifier of the queued backfill job; poll /jobs/{job_id}. Null only with status 'already_running' when the caller may not read that run.
      */
-    job_id: string;
+    job_id: string | null;
     /**
      * Status
      *

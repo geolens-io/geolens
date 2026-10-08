@@ -197,7 +197,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
         // does not regenerate for it; ask for a rerun. Reading another user's
         // job takes manage_users, so follow it only with that permission.
         if (data.status === 'already_running') {
-          if (canManageUsers) setBackfillJobId(data.job_id);
+          if (canManageUsers && data.job_id) setBackfillJobId(data.job_id);
           setRegenPending('queue');
         } else {
           setBackfillJobId(data.job_id);
