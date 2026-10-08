@@ -15,6 +15,7 @@ from app.modules.catalog.datasets.domain.models import (
     DatasetRelationship,
     Record,
 )
+from app.modules.catalog.features.service import feature_table_exists
 from app.platform.catalog_locks import lock_catalog_rows
 from app.platform.extensions import get_catalog_port
 
@@ -107,6 +108,8 @@ async def refresh_dropped_join_column(
     )
     # Scanned under the lock: a replacement swap takes its table lock before the
     # catalog rows, so the scan cannot predate a swap that commits during the wait.
+    if not await feature_table_exists(session, table_name):
+        return None
     live = await get_catalog_port().get_column_info(session, table_name)
     if any(c["name"] == join_column for c in live):
         return None
