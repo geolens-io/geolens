@@ -60,7 +60,7 @@ describe('fetchBoundedGeoJson', () => {
 
     expect(mockFetch).toHaveBeenCalledWith(
       '/api/datasets/dataset-1/features.geojson',
-      { headers: { 'X-Embed-Token': 'embed-token' } },
+      { headers: { 'X-Embed-Token': 'embed-token' }, signal: expect.any(AbortSignal) },
     );
   });
 
@@ -73,7 +73,7 @@ describe('fetchBoundedGeoJson', () => {
 
     expect(mockFetch).toHaveBeenCalledWith(
       '/api/datasets/dataset-1/features.geojson',
-      { headers: { 'X-Api-Key': 'key 1' } },
+      { headers: { 'X-Api-Key': 'key 1' }, signal: expect.any(AbortSignal) },
     );
   });
 
@@ -85,7 +85,7 @@ describe('fetchBoundedGeoJson', () => {
     expect(response).toEqual(boundedGeoJson);
     expect(mockFetch).toHaveBeenCalledWith(
       '/api/datasets/dataset-1/features.geojson',
-      { headers: { 'X-Api-Key': 'key' } },
+      { headers: { 'X-Api-Key': 'key' }, signal: expect.any(AbortSignal) },
     );
   });
 
@@ -122,5 +122,25 @@ describe('fetchBoundedGeoJson', () => {
     await expect(fetchBoundedGeoJson('dataset-1', { apiKey: 'bad' }))
       .rejects
       .toThrow('Access denied');
+  });
+
+  it('aborts direct reads when the caller signal aborts', async () => {
+    const controller = new AbortController();
+    mockFetch.mockImplementationOnce((_url: string, init: RequestInit) => new Promise((_, reject) => {
+      init.signal?.addEventListener('abort', () => reject(init.signal?.reason));
+    }));
+
+    const pending = fetchBoundedGeoJson('dataset-1', { apiKey: 'k', signal: controller.signal });
+    controller.abort(new Error('stale'));
+
+    await expect(pending).rejects.toThrow('stale');
+  });
+
+  it('gives direct reads a deadline even without a caller signal', async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse(boundedGeoJson));
+
+    await fetchBoundedGeoJson('dataset-1', { embedToken: 't' });
+
+    expect(mockFetch.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
   });
 });

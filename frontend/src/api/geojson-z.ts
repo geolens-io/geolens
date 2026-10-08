@@ -1,4 +1,5 @@
 import { apiFetch } from './client';
+import { signalWithTimeout } from '@/lib/abort';
 import { API_BASE } from '@/lib/constants';
 import { translateApiErrorDetail } from '@/lib/error-map';
 
@@ -7,6 +8,14 @@ export interface BoundedGeoJsonResponse {
   features: GeoJSON.Feature[];
   truncated: boolean;
   total_count: number;
+}
+
+const GEOJSON_TIMEOUT_MS = 30_000;
+
+export interface GeoJsonFetchOptions {
+  apiKey?: string;
+  embedToken?: string;
+  signal?: AbortSignal;
 }
 
 export type GeoJsonZResponse = BoundedGeoJsonResponse;
@@ -58,11 +67,14 @@ function flattenMultiPoint(feature: GeoJSON.Feature): GeoJSON.Feature[] {
  */
 export async function fetchBoundedGeoJson(
   datasetId: string,
-  options?: { apiKey?: string; embedToken?: string },
+  options?: GeoJsonFetchOptions,
 ): Promise<BoundedGeoJsonResponse> {
+  const signal = signalWithTimeout(options?.signal, GEOJSON_TIMEOUT_MS);
+
   if (options?.embedToken) {
     const res = await fetch(directFetchPath(datasetId), {
       headers: { 'X-Embed-Token': options.embedToken },
+      signal,
     });
     if (!res.ok) await throwLocalizedResponseError(res);
     return res.json() as Promise<BoundedGeoJsonResponse>;
@@ -73,13 +85,14 @@ export async function fetchBoundedGeoJson(
     // path uses above) — a query-string credential lands in server/proxy logs.
     const res = await fetch(directFetchPath(datasetId), {
       headers: { 'X-Api-Key': options.apiKey },
+      signal,
     });
     if (!res.ok) await throwLocalizedResponseError(res);
     return res.json() as Promise<BoundedGeoJsonResponse>;
   }
 
   // Default: JWT auth via apiFetch
-  return apiFetch<BoundedGeoJsonResponse>(boundedGeoJsonPath(datasetId));
+  return apiFetch<BoundedGeoJsonResponse>(boundedGeoJsonPath(datasetId), { signal });
 }
 
 /**
@@ -88,7 +101,7 @@ export async function fetchBoundedGeoJson(
  */
 export async function fetchGeoJsonZ(
   datasetId: string,
-  options?: { apiKey?: string; embedToken?: string },
+  options?: GeoJsonFetchOptions,
 ): Promise<GeoJsonZResponse> {
   return fetchBoundedGeoJson(datasetId, options);
 }

@@ -368,16 +368,18 @@ export const ViewerMap = memo(function ViewerMap({
       return;
     }
     let cancelled = false;
+    const controller = new AbortController();
     async function fetchAll() {
       const newMap = new Map<string, GeoJSON.FeatureCollection>();
       await Promise.all(
         boundedGeoJsonLayers.map(async ({ layer, key }) => {
           try {
-            const data = await fetchBoundedGeoJson(layer.dataset_id, { apiKey, embedToken });
+            const data = await fetchBoundedGeoJson(layer.dataset_id, { apiKey, embedToken, signal: controller.signal });
             if (!cancelled && !data.truncated && data.total_count <= getClusterSourceEligibility(layer).limit) {
               newMap.set(key, asFeatureCollection(data));
             }
           } catch (e) {
+            if (controller.signal.aborted) return;
             if (import.meta.env.DEV) console.warn(`[ViewerMap] Bounded GeoJSON fetch failed for ${layer.dataset_id}:`, e);
             toast.error(t('viewer.geoJsonLoadError', { defaultValue: 'Failed to load layer data' }), { id: `geojson-z-error-${layer.dataset_id}` });
           }
@@ -392,7 +394,10 @@ export const ViewerMap = memo(function ViewerMap({
     fetchAll().catch(() => {
       // Individual layer errors are already toasted above; this only fires on unexpected scaffolding failure
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
   }, [boundedGeoJsonLayers, boundedGeoJsonRequest, apiKey, embedToken, t]);
 
   // Trigger repaint when bounded GeoJSON arrives and map is ready

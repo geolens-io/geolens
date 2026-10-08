@@ -26,9 +26,10 @@ export async function searchDatasets(
 
 export async function fetchFacets(
   params: Record<string, string>,
+  options?: RequestInit,
 ): Promise<FacetResponse> {
   const query = buildSearchParams(params);
-  return apiFetch<FacetResponse>(`/search/facets/?${query}`);
+  return apiFetch<FacetResponse>(`/search/facets/?${query}`, options);
 }
 
 export async function fetchCatalogSummary(): Promise<CatalogCollectionResponse> {

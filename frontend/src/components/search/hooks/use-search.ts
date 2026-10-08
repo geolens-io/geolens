@@ -10,7 +10,7 @@ export function useSearchResults() {
 
   return useQuery({
     queryKey: queryKeys.search.results(params),
-    queryFn: () => searchDatasets(params),
+    queryFn: ({ signal }) => searchDatasets(params, { signal }),
     staleTime: 30_000,
     placeholderData: keepPreviousData,
   });
@@ -22,7 +22,7 @@ export function useMapSearchResults() {
 
   return useQuery({
     queryKey: queryKeys.search.maps(q),
-    queryFn: () => listMaps({ search: q, limit: 6 }),
+    queryFn: ({ signal }) => listMaps({ search: q, limit: 6 }, { signal }),
     enabled: q.length > 0,
     staleTime: 30_000,
   });
@@ -36,7 +36,7 @@ export function useFacets() {
 
   return useQuery({
     queryKey: queryKeys.search.facets(facetParams),
-    queryFn: () => fetchFacets(facetParams),
+    queryFn: ({ signal }) => fetchFacets(facetParams, { signal }),
     staleTime: 5 * 60_000,
     placeholderData: keepPreviousData,
   });

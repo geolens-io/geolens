@@ -1,4 +1,5 @@
 import { API_BASE } from '@/lib/constants';
+import { signalWithTimeout } from '@/lib/abort';
 import { cookieAuthAvailable } from '@/lib/auth-transport';
 import { isEmbedViewer } from '@/lib/embed-context';
 import { translateApiErrorDetail } from '@/lib/error-map';
@@ -384,10 +385,7 @@ async function apiFetchResponse(
   // an explicit cancel still works; whichever fires first wins. `timeoutMs`
   // raises the deadline for endpoints whose legitimate worst case exceeds the
   // default (a caller signal alone can only shorten it, never extend it).
-  const timeoutSignal = AbortSignal.timeout(timeoutMs ?? REQUEST_TIMEOUT_MS);
-  fetchOptions.signal = fetchOptions.signal
-    ? AbortSignal.any([fetchOptions.signal, timeoutSignal])
-    : timeoutSignal;
+  fetchOptions.signal = signalWithTimeout(fetchOptions.signal, timeoutMs ?? REQUEST_TIMEOUT_MS);
 
   const response = await authenticatedFetch(path, fetchOptions, (headers) => {
     if (!headers.has('Content-Type') && !(fetchOptions.body instanceof URLSearchParams) && !(fetchOptions.body instanceof FormData)) {

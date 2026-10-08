@@ -81,7 +81,7 @@ const { polygon, boundedCluster: cluster } = SAVED_LAYERS;
 
 function renderViewer(onDrawnChange: (drawn: ReadonlyMap<string, unknown>) => void) {
   const layers = [polygon, cluster];
-  render(
+  return render(
     <ViewerMap
       layers={layers.map(toSharedLayer)}
       basemapStyle={BLANK_BASEMAP_ID}
@@ -158,5 +158,16 @@ describe('ViewerMap drawn layers', () => {
 
     await waitFor(() => expect(fetchBoundedGeoJson).toHaveBeenCalled());
     expect(onDrawnChange).not.toHaveBeenCalled();
+  });
+
+  it('cancels the bounded GeoJSON read when the viewer unmounts', async () => {
+    vi.mocked(fetchBoundedGeoJson).mockReturnValue(new Promise(() => {}));
+    const { unmount } = renderViewer(vi.fn());
+
+    await waitFor(() => expect(fetchBoundedGeoJson).toHaveBeenCalled());
+    const options = vi.mocked(fetchBoundedGeoJson).mock.calls[0][1];
+    expect(options?.signal?.aborted).toBe(false);
+    unmount();
+    expect(options?.signal?.aborted).toBe(true);
   });
 });

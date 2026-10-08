@@ -55,6 +55,7 @@ export async function listMaps(
     visibility?: string;
     owned_only?: boolean;
   } = {},
+  options?: RequestInit,
 ): Promise<MapListResponse> {
   const query = new URLSearchParams();
   if (params.skip !== undefined) query.set('skip', String(params.skip));
@@ -65,7 +66,7 @@ export async function listMaps(
   if (params.visibility) query.set('visibility', params.visibility);
   if (params.owned_only !== undefined) query.set('owned_only', String(params.owned_only));
   const qs = query.toString();
-  return apiFetch<MapListResponse>(`/maps/${qs ? `?${qs}` : ''}`);
+  return apiFetch<MapListResponse>(`/maps/${qs ? `?${qs}` : ''}`, options);
 }
 
 export async function getMap(id: string): Promise<MapResponse> {
