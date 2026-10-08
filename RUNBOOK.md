@@ -40,6 +40,13 @@ documentation.
 > this 24-hour floor cannot be shortened by changing it. For a tighter RPO,
 > configure [PITR](#optional-point-in-time-recovery-pitr-with-wal-archiving)
 > or use a managed database, where the provider's native PITR applies.
+>
+> **Dump and archive are not one snapshot.** The staging archive is taken after
+> the dump finishes, so staged files can change in between. The dump is
+> authoritative: after a restore, staging objects may lead or lag it by the
+> archive window (dump start to the end of the tar). A dataset whose file is
+> missing from the archive shows as failed and needs a re-upload. An archive
+> file with no catalog row is orphan storage and is safe to prune.
 
 ### Automated backups are on by default
 

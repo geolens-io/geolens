@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import tarfile
 from pathlib import Path
 
 from tests.repo_paths import repo_root
@@ -121,3 +122,55 @@ class TestBackupStagingTarSkew:
         assert not archive.exists()
         assert not (archive.parent / (archive.name + ".tmp")).exists()
         assert "failed verification" in result.stderr
+
+
+def test_archive_reflects_staging_changes_made_after_the_dump(tmp_path: Path):
+    """The dump is authoritative; the archive may lead it by the archive window.
+
+    A fake dump records the catalog (the staging file names and contents it
+    references), then one staged file is replaced and another deleted before
+    the real backup_staging runs with the real tar. The cycle must succeed,
+    the dump must keep the pre-change state, and the archive must hold the
+    changed state, which is what RUNBOOK.md section 1 tells operators to
+    reconcile after a restore.
+    """
+    staging = tmp_path / "staging"
+    daily = tmp_path / "daily"
+    weekly = tmp_path / "weekly"
+    for d in (staging, daily, weekly):
+        d.mkdir()
+    (staging / "replaced.bin").write_bytes(b"old")
+    (staging / "deleted.bin").write_bytes(b"gone-later")
+    (staging / "kept.bin").write_bytes(b"same")
+    dump = tmp_path / "catalog.dump"
+
+    harness = (
+        "set -euo pipefail\n"
+        'log() { echo "$@" >&2; }\n'
+        f'STAGING_DIR="{staging}"\n'
+        f'DAILY_DIR="{daily}"\n'
+        f'WEEKLY_DIR="{weekly}"\n'
+        f"{_extract_backup_staging()}\n"
+        f'(cd "{staging}" && for f in *; do echo "$f=$(cat "$f")"; done) > "{dump}"\n'
+        f'printf new > "{staging}/replaced.bin"\n'
+        f'rm "{staging}/deleted.bin"\n'
+        'backup_staging "20260728_000000"\n'
+    )
+    result = subprocess.run(
+        ["bash", "-c", harness],
+        capture_output=True,
+        text=True,
+        env={"PATH": "/usr/bin:/bin"},
+    )
+    assert result.returncode == 0, result.stderr
+
+    assert sorted(dump.read_text().split()) == [
+        "deleted.bin=gone-later",
+        "kept.bin=same",
+        "replaced.bin=old",
+    ]
+    archive = daily / "staging-20260728_000000.tar.gz"
+    with tarfile.open(archive) as tar:
+        members = {m.name.removeprefix("./"): m for m in tar.getmembers() if m.isfile()}
+        contents = {n: tar.extractfile(m).read() for n, m in members.items()}
+    assert contents == {"replaced.bin": b"new", "kept.bin": b"same"}
