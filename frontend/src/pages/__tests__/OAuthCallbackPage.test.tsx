@@ -17,9 +17,10 @@ const mockGetMe = vi.fn<() => Promise<UserResponse>>();
 const mockLogoutSession = vi.fn<() => Promise<void>>();
 const mockRevokeCurrentSession = vi.fn<(token: string) => Promise<void>>();
 const mockRefreshAccessToken = vi.fn();
-const mockExchangeSignInCode = vi.fn<(code: string) => Promise<TokenResponse>>();
+type Install = (session: TokenResponse) => unknown;
+const mockExchangeSignInCode = vi.fn<(code: string, install: Install) => Promise<unknown>>();
 vi.mock('@/api/auth', () => ({
-  exchangeSignInCode: (code: string) => mockExchangeSignInCode(code),
+  exchangeSignInCode: (code: string, install: Install) => mockExchangeSignInCode(code, install),
   getMe: () => mockGetMe(),
   logoutSession: () => mockLogoutSession(),
   revokeCurrentSession: (token: string) => mockRevokeCurrentSession(token),
@@ -72,7 +73,7 @@ describe('OAuthCallbackPage', () => {
     vi.clearAllMocks();
     mockLogoutSession.mockResolvedValue(undefined);
     mockRevokeCurrentSession.mockResolvedValue(undefined);
-    mockExchangeSignInCode.mockResolvedValue(exchanged);
+    mockExchangeSignInCode.mockImplementation(async (_code, install) => install(exchanged));
     useAuthStore.getState().logout();
   });
 
@@ -82,19 +83,35 @@ describe('OAuthCallbackPage', () => {
     mockGetMe.mockResolvedValueOnce(userA);
     setHash('#code=one-time-code');
     let hashAtExchange: string | null = null;
-    mockExchangeSignInCode.mockImplementationOnce(async () => {
+    mockExchangeSignInCode.mockImplementationOnce(async (_code, install) => {
       hashAtExchange = window.location.hash;
-      return exchanged;
+      return install(exchanged);
     });
 
     render(<OAuthCallbackPage />);
 
     await waitFor(() => expect(useAuthStore.getState().user).toEqual(userA));
-    expect(mockExchangeSignInCode).toHaveBeenCalledExactlyOnceWith('one-time-code');
+    expect(mockExchangeSignInCode).toHaveBeenCalledExactlyOnceWith('one-time-code', expect.any(Function));
     expect(hashAtExchange).toBe('');
     expect(useAuthStore.getState().token).toBe('access-1');
     expect(useAuthStore.getState().refreshToken).toBeNull();
     expect(mockNavigate).toHaveBeenCalledWith('/', { replace: true });
+  });
+
+  it('installs the exchanged session before the exchange gives up the cookie lock', async () => {
+    deferProfile();
+    let tokenWhenInstallReturned: string | null = null;
+    mockExchangeSignInCode.mockImplementationOnce(async (_code, install) => {
+      const installed = install(exchanged);
+      tokenWhenInstallReturned = useAuthStore.getState().token;
+      return installed;
+    });
+    setHash('#code=one-time-code');
+
+    render(<OAuthCallbackPage />);
+
+    await waitFor(() => expect(mockGetMe).toHaveBeenCalled());
+    expect(tokenWhenInstallReturned).toBe('access-1');
   });
 
   it('returns to /login without revoking when the exchange is refused', async () => {

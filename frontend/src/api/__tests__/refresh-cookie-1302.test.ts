@@ -280,10 +280,18 @@ describe('browser refresh transport', () => {
   it('holds an SSO code exchange until a refresh holding the cookie lock has finished', async () => {
     let held: Promise<unknown> = Promise.resolve();
     const lockNames: string[] = [];
+    let lockHeld = false;
     const locks = {
       request: (name: string, _options: unknown, callback: () => Promise<unknown>) => {
         lockNames.push(name);
-        const run = held.then(callback);
+        const run = held.then(async () => {
+          lockHeld = true;
+          try {
+            return await callback();
+          } finally {
+            lockHeld = false;
+          }
+        });
         held = run.catch(() => {});
         return run;
       },
@@ -298,7 +306,11 @@ describe('browser refresh transport', () => {
       mockFetch.mockResolvedValueOnce(
         jsonResponse({ access_token: 'sso-1', refresh_token: null, expires_in: 900 }),
       );
-      const exchange = exchangeSignInCode('one-time-code');
+      let installedUnderLock: boolean | null = null;
+      const exchange = exchangeSignInCode('one-time-code', (session) => {
+        installedUnderLock = lockHeld;
+        return session;
+      });
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(mockFetch).toHaveBeenCalledTimes(1);
 
@@ -307,6 +319,7 @@ describe('browser refresh transport', () => {
       await expect(exchange).resolves.toMatchObject({ access_token: 'sso-1' });
       expect(mockFetch).toHaveBeenCalledTimes(2);
       expect(new Set(lockNames).size).toBe(1);
+      expect(installedUnderLock).toBe(true);
       const [url, init] = mockFetch.mock.calls[1] as [string, RequestInit];
       expect(url).toBe('/api/auth/oauth/exchange/');
       expect(init).toMatchObject({ method: 'POST', credentials: 'same-origin' });
@@ -319,7 +332,9 @@ describe('browser refresh transport', () => {
 
   it('rejects with the status when the exchange is refused', async () => {
     mockFetch.mockResolvedValueOnce({ ok: false, status: 401, json: () => Promise.resolve({}) } as Response);
-    await expect(exchangeSignInCode('spent-code')).rejects.toMatchObject({ status: 401 });
+    const install = vi.fn();
+    await expect(exchangeSignInCode('spent-code', install)).rejects.toMatchObject({ status: 401 });
+    expect(install).not.toHaveBeenCalled();
   });
 
   it('reads the CSRF cookie only once it holds the cookie lock', async () => {

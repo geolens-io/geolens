@@ -61,21 +61,30 @@ const EXCHANGE_TIMEOUT_MS = 30_000;
  * session cookie. The callback can't set that cookie itself: its redirect
  * runs outside the cross-tab cookie lock, so a refresh another tab already
  * sent could land afterwards and put the previous session's cookie back.
+ *
+ * `install` receives the issued session while the lock is still held, so a
+ * sign-in another tab completes later also installs later. It should return
+ * promptly: the lock is released when it returns.
  */
-export async function exchangeSignInCode(code: string): Promise<TokenResponse> {
+export async function exchangeSignInCode<T>(
+  code: string,
+  install: (session: TokenResponse) => T,
+): Promise<T> {
   await awaitPendingLogout();
   abortInflightRefresh();
-  const response = await withCookieWrite(() => fetch(`${API_BASE}/auth/oauth/exchange/`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', [AUTH_MODE_HEADER]: 'cookie' },
-    credentials: 'same-origin',
-    signal: AbortSignal.timeout(EXCHANGE_TIMEOUT_MS),
-    body: JSON.stringify({ code }),
-  }));
-  if (!response.ok) {
-    throw new ApiError(translateApiErrorDetail(undefined, response.status), response.status);
-  }
-  return response.json() as Promise<TokenResponse>;
+  return withCookieWrite(async () => {
+    const response = await fetch(`${API_BASE}/auth/oauth/exchange/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', [AUTH_MODE_HEADER]: 'cookie' },
+      credentials: 'same-origin',
+      signal: AbortSignal.timeout(EXCHANGE_TIMEOUT_MS),
+      body: JSON.stringify({ code }),
+    });
+    if (!response.ok) {
+      throw new ApiError(translateApiErrorDetail(undefined, response.status), response.status);
+    }
+    return install((await response.json()) as TokenResponse);
+  });
 }
 
 export async function getMe(): Promise<UserResponse> {

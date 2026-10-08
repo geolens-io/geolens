@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '@/stores/auth-store';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { exchangeSignInCode } from '@/api/auth';
-import { completeSignIn, type IssuedSession } from '@/lib/sign-in';
+import { completeSignIn, type SignInOutcome } from '@/lib/sign-in';
 import { postSignInPath } from '@/lib/post-sign-in-path';
 import { readSessionStorage, removeSessionStorage } from '@/lib/storage';
 import { Loader2 } from 'lucide-react';
@@ -52,11 +52,15 @@ export function OAuthCallbackPage() {
     // A same-origin deployment sends a one-time code, exchanged for the
     // session cookie under the cross-tab cookie lock. A cross-origin one
     // cannot use that cookie and sends the tokens themselves.
-    let issued: Promise<IssuedSession>;
+    let signIn: Promise<SignInOutcome>;
     if (code) {
-      issued = exchangeSignInCode(code);
+      // completeSignIn installs the session before its first await, so the
+      // wrapper keeps the profile load from holding the cookie lock.
+      signIn = exchangeSignInCode(code, (session) => ({ done: completeSignIn(session) })).then(
+        ({ done }) => done,
+      );
     } else if (token && expiresIn && (refreshToken || legacyCookieMode)) {
-      issued = Promise.resolve({
+      signIn = completeSignIn({
         access_token: token,
         refresh_token: refreshToken,
         expires_in: parseInt(expiresIn, 10),
@@ -69,8 +73,7 @@ export function OAuthCallbackPage() {
       return;
     }
 
-    issued
-      .then((session) => completeSignIn(session))
+    signIn
       .then((outcome) => {
         // The user may have navigated away while the profile loaded.
         if (!mountedRef.current) return;
