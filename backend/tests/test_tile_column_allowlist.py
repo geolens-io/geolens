@@ -100,7 +100,7 @@ def test_build_attr_columns_filters_excluded_and_validates_names():
         {"name": "drop table"},  # invalid (space)
     ]
     sql = _build_attr_columns(columns)
-    assert sql == ', t."name"'
+    assert sql == ', t."name" AS "name"'
 
 
 def test_build_tile_query_uses_pruned_columns():

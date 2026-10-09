@@ -138,6 +138,23 @@ describe('parseFilterExpression', () => {
 // buildFilterExpression — combinator support
 // ---------------------------------------------------------------------------
 describe('buildFilterExpression', () => {
+  it('writes a timestamp with time zone value as the UTC text tiles carry', () => {
+    const tzColumns = [{ name: 'seen', type: 'timestamp with time zone' }];
+    expect(
+      buildFilterExpression(
+        [
+          { id: '1', field: 'seen', operator: '==', value: '2024-11-03 01:15:00-05' },
+          { id: '2', field: 'seen', operator: 'in_list', value: '2024-11-03 05:30, soon' },
+        ],
+        tzColumns,
+      ),
+    ).toEqual([
+      'all',
+      ['==', ['get', 'seen'], '2024-11-03T06:15:00+00:00'],
+      ['in', ['get', 'seen'], ['literal', ['2024-11-03T05:30:00+00:00', 'soon']]],
+    ]);
+  });
+
   it('returns null for empty conditions', () => {
     expect(buildFilterExpression([], columns)).toBeNull();
   });

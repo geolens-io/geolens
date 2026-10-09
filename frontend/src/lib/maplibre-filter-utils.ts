@@ -408,6 +408,11 @@ const CQL2_QUERYABLE_TYPES = new Set([
 const DATE_TEXT_RE = /^\d{4}-\d{2}-\d{2}$/;
 // No trailing zeros in the fraction: PostgreSQL drops them.
 const TIMESTAMP_TEXT_RE = /^(\d{4}-\d{2}-\d{2}) ((?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{0,5}[1-9])?)$/;
+// Mirrors _utc_timestamptz_text in backend/app/processing/tiles/service.py.
+const UTC_TIMESTAMP_TEXT_RE =
+  /^(\d{4}-\d{2}-\d{2})T((?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{0,5}[1-9])?)\+00:00$/;
+const TYPED_TIMESTAMP_RE =
+  /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,6}))?)?\s*(Z|[+-](?:0\d|1[0-5])(?::?[0-5]\d)?)?$/i;
 // PostgreSQL writes a uuid in lowercase, and the map compares case-sensitively.
 const UUID_TEXT_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -420,11 +425,49 @@ function isCalendarDate(day: string): boolean {
   );
 }
 
+const pad = (n: number, width = 2) => String(n).padStart(width, '0');
+
+/**
+ * A typed timestamp as the UTC text vector tiles carry for a timestamp with
+ * time zone, e.g. `2024-03-01T17:00:00+00:00`, or null when `value` is not a
+ * date and time. A value without an offset is read as UTC, the zone the map
+ * shows these values in.
+ */
+export function utcTimestampText(value: string): string | null {
+  const m = TYPED_TIMESTAMP_RE.exec(value.trim());
+  if (!m) return null;
+  const [, y, mo, d, h, mi, s = '00', fraction = '', zone = 'Z'] = m;
+  const at = new Date(0);
+  at.setUTCFullYear(Number(y), Number(mo) - 1, Number(d));
+  at.setUTCHours(Number(h), Number(mi), Number(s));
+  if (
+    at.getUTCFullYear() !== Number(y) ||
+    at.getUTCMonth() !== Number(mo) - 1 ||
+    at.getUTCDate() !== Number(d) ||
+    at.getUTCHours() !== Number(h) ||
+    at.getUTCMinutes() !== Number(mi) ||
+    at.getUTCSeconds() !== Number(s)
+  ) {
+    return null;
+  }
+  if (zone.toUpperCase() !== 'Z') {
+    const digits = zone.slice(1).replace(':', '');
+    const minutes = Number(digits.slice(0, 2)) * 60 + Number(digits.slice(2) || 0);
+    at.setTime(at.getTime() - (zone[0] === '-' ? -minutes : minutes) * 60_000);
+  }
+  const year = at.getUTCFullYear();
+  if (year < 1 || year > 9999) return null;
+  const trimmed = fraction.replace(/0+$/, '');
+  return (
+    `${pad(year, 4)}-${pad(at.getUTCMonth() + 1)}-${pad(at.getUTCDate())}` +
+    `T${pad(at.getUTCHours())}:${pad(at.getUTCMinutes())}:${pad(at.getUTCSeconds())}` +
+    `${trimmed ? `.${trimmed}` : ''}+00:00`
+  );
+}
+
 /**
  * The CQL2 literal for a value compared with a column of `pgType`, or null when
- * SQL can't compare it the way the map does. A timestamp with time zone is
- * always null: its tile text carries the database session's offset, which the
- * builder can't know.
+ * SQL can't compare it the way the map does.
  */
 function cql2Literal(value: string | number | boolean, pgType: string | undefined): unknown {
   if (pgType === 'date') {
@@ -436,7 +479,10 @@ function cql2Literal(value: string | number | boolean, pgType: string | undefine
     const m = typeof value === 'string' ? TIMESTAMP_TEXT_RE.exec(value) : null;
     return m && isCalendarDate(m[1]) ? { timestamp: `${m[1]}T${m[2]}Z` } : null;
   }
-  if (pgType === 'timestamp with time zone') return null;
+  if (pgType === 'timestamp with time zone') {
+    const m = typeof value === 'string' ? UTC_TIMESTAMP_TEXT_RE.exec(value) : null;
+    return m && isCalendarDate(m[1]) ? { timestamp: `${m[1]}T${m[2]}Z` } : null;
+  }
   if (pgType === 'uuid') {
     return typeof value === 'string' && UUID_TEXT_RE.test(value) ? value : null;
   }

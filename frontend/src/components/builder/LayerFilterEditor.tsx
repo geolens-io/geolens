@@ -12,6 +12,7 @@ import {
   validateRawFilter,
   FilterValidationError,
   NUMERIC_COMPARISON_OPERATORS,
+  utcTimestampText,
 } from '@/lib/maplibre-filter-utils';
 import { randomId } from '@/lib/random-id';
 
@@ -109,6 +110,10 @@ function coerceValue(value: string, pgType: string): string | number | boolean {
   }
   if (colType === 'boolean') {
     return value.toLowerCase() === 'true';
+  }
+  // Tiles carry these as UTC text, which the map compares as a string.
+  if (pgType.toLowerCase() === 'timestamp with time zone') {
+    return utcTimestampText(value) ?? value;
   }
   return value;
 }
