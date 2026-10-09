@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime
-from typing import Any, Literal, get_args
+from typing import Any, Literal
 
 from pydantic import (
     AwareDatetime,
@@ -13,11 +13,9 @@ from pydantic import (
     model_validator,
 )
 
-from app.modules.auth.schemas import UserResponse, validate_future_expiry
+from app.modules.auth.schemas import VALID_ROLES, UserResponse, validate_future_expiry
 from app.processing.ai.schemas import AIProbeReport
 
-RoleName = Literal["admin", "editor", "viewer"]
-VALID_ROLES = frozenset(get_args(RoleName))
 
 # Mirror the CHECK constraint on IngestJob.status — see jobs/models.py
 JobStatus = Literal[

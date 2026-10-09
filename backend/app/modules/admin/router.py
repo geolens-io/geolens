@@ -35,7 +35,6 @@ from app.modules.admin.schemas import (
     UserListResponse,
     UserNameItem,
     UserSortField,
-    RoleName,
     UserUpdate,
 )
 from app.modules.admin.service import (
@@ -52,7 +51,7 @@ from app.modules.auth.dependencies import (
 )
 from app.platform.ratelimit import limiter  # HARDEN-01: shared rate-limiter instance
 from app.modules.auth.models import User
-from app.modules.auth.schemas import UserResponse
+from app.modules.auth.schemas import RoleName, UserResponse
 from app.processing.export.service import safe_content_disposition
 from app.core.config import settings as app_settings
 from app.core.permissions import MANAGE_TENANTS

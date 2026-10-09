@@ -57,7 +57,7 @@ class TestRegistration:
         """Registration creates a pending user when REGISTRATION_ENABLED=true."""
         monkeypatch.setattr(
             REGISTRATION_ENABLED,
-            "get",
+            "get_uncached",
             AsyncMock(return_value=True),
         )
 
@@ -88,7 +88,7 @@ class TestRegistration:
         """
         monkeypatch.setattr(
             REGISTRATION_ENABLED,
-            "get",
+            "get_uncached",
             AsyncMock(return_value=True),
         )
 
@@ -340,7 +340,7 @@ class TestLoginAudit:
         """
         monkeypatch.setattr(
             REGISTRATION_ENABLED,
-            "get",
+            "get_uncached",
             AsyncMock(return_value=True),
         )
         unique = uuid.uuid4().hex[:8]
@@ -827,7 +827,7 @@ class TestAdminApproveReject:
 
         monkeypatch.setattr(
             REGISTRATION_ENABLED,
-            "get",
+            "get_uncached",
             AsyncMock(return_value=True),
         )
 
@@ -871,7 +871,7 @@ class TestAdminApproveReject:
 
         monkeypatch.setattr(
             REGISTRATION_ENABLED,
-            "get",
+            "get_uncached",
             AsyncMock(return_value=True),
         )
 

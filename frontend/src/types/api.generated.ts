@@ -1179,7 +1179,17 @@ export interface paths {
         put?: never;
         /**
          * Register
-         * @description Register a new user. Account requires admin approval before login.
+         * @description Create a password account.
+         *
+         *     Needs both self-registration and password login enabled; otherwise 403.
+         *     When the allowed email domains list is set, an email address in one of
+         *     those domains is required.
+         *
+         *     If email verification is required, the request includes an email address
+         *     and the server has SMTP configured, the account activates when its owner
+         *     follows the emailed link and gets the default self-registration role.
+         *     Otherwise it stays pending until an administrator approves it with a role.
+         *     The response is the same whether or not the username or email was taken.
          */
         post: operations["register_auth_register__post"];
         delete?: never;
@@ -7611,12 +7621,12 @@ export interface components {
         ConfigResponse: {
             /**
              * Registration Enabled
-             * @description Whether self-service registration is open
+             * @description Whether self-service registration is open. Single sign-on can create accounts whenever this is true.
              */
             registration_enabled: boolean;
             /**
              * Allow Signup
-             * @description Whether self-serve registration is open. Alias for registration_enabled; login UI uses this to show/hide the signup link.
+             * @description Whether password sign-up is open: registration is enabled and password login is enabled. Login UI uses this to show/hide the signup link.
              * @default false
              */
             allow_signup: boolean;
@@ -10812,7 +10822,7 @@ export interface components {
             group_claim?: string | null;
             /**
              * Group Role Mapping
-             * @description JSON object mapping IdP group names to GeoLens roles. First match wins. Falls back to default_role if no group matches.
+             * @description JSON object mapping IdP group names to GeoLens roles ('viewer', 'editor' or 'admin'). A user in several mapped groups gets the most privileged of their roles; a user in none gets default_role.
              */
             group_role_mapping?: {
                 [key: string]: unknown;
@@ -11044,7 +11054,7 @@ export interface components {
             scopes?: string | null;
             /**
              * Default Role
-             * @description Updated default role for new users.
+             * @description Updated default role for new users: 'viewer', 'editor', or 'admin'.
              */
             default_role?: string | null;
             /**
@@ -11054,7 +11064,7 @@ export interface components {
             group_claim?: string | null;
             /**
              * Group Role Mapping
-             * @description Updated group-to-role mapping. Pass an empty object to clear.
+             * @description Updated group-to-role mapping, with the same rules as on create. Pass an empty object to clear.
              */
             group_role_mapping?: {
                 [key: string]: unknown;
@@ -40924,6 +40934,15 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
             /** @description Validation error */
             422: {
                 headers: {
@@ -41017,6 +41036,15 @@ export interface operations {
             };
             /** @description Not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

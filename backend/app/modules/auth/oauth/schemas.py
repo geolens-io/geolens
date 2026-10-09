@@ -11,6 +11,7 @@ from cryptography import x509
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.edition import is_enterprise
+from app.modules.auth.schemas import validate_role_name
 
 
 def _validate_optional_http_url(value: str | None) -> str | None:
@@ -27,6 +28,13 @@ def _validate_optional_http_url(value: str | None) -> str | None:
         raise ValueError("URL must use http or https scheme")
     if not parsed.netloc:
         raise ValueError("URL must include a host")
+    return value
+
+
+def _validate_group_role_mapping(value: dict | None) -> dict | None:
+    """Reject a mapping whose values are not built-in role names."""
+    for role in (value or {}).values():
+        validate_role_name(role)
     return value
 
 
@@ -153,7 +161,11 @@ class OAuthProviderCreate(BaseModel):
     )
     group_role_mapping: dict | None = Field(
         default=None,
-        description="JSON object mapping IdP group names to GeoLens roles. First match wins. Falls back to default_role if no group matches.",
+        description=(
+            "JSON object mapping IdP group names to GeoLens roles ('viewer', "
+            "'editor' or 'admin'). A user in several mapped groups gets the most "
+            "privileged of their roles; a user in none gets default_role."
+        ),
     )
     enabled: bool = Field(
         default=True,
@@ -169,6 +181,16 @@ class OAuthProviderCreate(BaseModel):
     @classmethod
     def _check_idp_url(cls, value: str | None) -> str | None:
         return _validate_optional_http_url(value)
+
+    @field_validator("default_role")
+    @classmethod
+    def _check_default_role(cls, value: str) -> str:
+        return validate_role_name(value)
+
+    @field_validator("group_role_mapping")
+    @classmethod
+    def _check_group_role_mapping(cls, value: dict | None) -> dict | None:
+        return _validate_group_role_mapping(value)
 
     @field_validator("idp_certificate")
     @classmethod
@@ -302,7 +324,9 @@ class OAuthProviderUpdate(BaseModel):
         default=None, max_length=500, description="Updated space-separated scopes."
     )
     default_role: str | None = Field(
-        default=None, max_length=50, description="Updated default role for new users."
+        default=None,
+        max_length=50,
+        description="Updated default role for new users: 'viewer', 'editor', or 'admin'.",
     )
     group_claim: str | None = Field(
         default=None,
@@ -311,7 +335,10 @@ class OAuthProviderUpdate(BaseModel):
     )
     group_role_mapping: dict | None = Field(
         default=None,
-        description="Updated group-to-role mapping. Pass an empty object to clear.",
+        description=(
+            "Updated group-to-role mapping, with the same rules as on create. "
+            "Pass an empty object to clear."
+        ),
     )
     enabled: bool | None = Field(
         default=None,
@@ -327,6 +354,17 @@ class OAuthProviderUpdate(BaseModel):
     @classmethod
     def _check_idp_url(cls, value: str | None) -> str | None:
         return _validate_optional_http_url(value)
+
+    @field_validator("default_role")
+    @classmethod
+    def _check_default_role(cls, value: str | None) -> str:
+        # Validators skip omitted fields, so None here is an explicit null.
+        return validate_role_name(value)
+
+    @field_validator("group_role_mapping")
+    @classmethod
+    def _check_group_role_mapping(cls, value: dict | None) -> dict | None:
+        return _validate_group_role_mapping(value)
 
     @field_validator("idp_certificate")
     @classmethod

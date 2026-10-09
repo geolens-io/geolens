@@ -34,7 +34,7 @@ from app.modules.auth.dependencies import (
     get_optional_user,
     get_optional_user_fail_open,
 )
-from app.modules.auth.models import ApiKey, User
+from app.modules.auth.models import ApiKey, Role, User, UserRole
 from app.core.identity import Identity
 from app.modules.auth.providers import AuthenticationError
 from app.modules.auth.providers.local import LocalAuthProvider
@@ -63,6 +63,7 @@ from app.core.dependencies import get_client_ip, get_db
 from app.core.tenancy import is_multi_tenant
 from app.core.persistent_config import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
+    ALLOWED_EMAIL_DOMAINS,
     BANNER_COLOR,
     BANNER_ENABLED,
     BANNER_TEXT,
@@ -70,6 +71,7 @@ from app.core.persistent_config import (
     LANDING_FIRST,
     PASSWORD_LOGIN_ENABLED,
     REFRESH_TOKEN_EXPIRE_DAYS,
+    REGISTRATION_DEFAULT_ROLE,
     REGISTRATION_ENABLED,
     get_cached_login_rate_limit,
 )
@@ -396,7 +398,18 @@ async def register(
     body: UserCreate,
     db: AsyncSession = Depends(get_db),
 ) -> RegisterResponse:
-    """Register a new user. Account requires admin approval before login."""
+    """Create a password account.
+
+    Needs both self-registration and password login enabled; otherwise 403.
+    When the allowed email domains list is set, an email address in one of
+    those domains is required.
+
+    If email verification is required, the request includes an email address
+    and the server has SMTP configured, the account activates when its owner
+    follows the emailed link and gets the default self-registration role.
+    Otherwise it stays pending until an administrator approves it with a role.
+    The response is the same whether or not the username or email was taken.
+    """
     # Runtime-extension gate: a deployment with its own tenant-scoped signup
     # path must keep the global self-signup endpoint closed, so users aren't
     # created outside the deployment's isolation boundary. Fires before
@@ -409,16 +422,28 @@ async def register(
             detail="Self-registration is disabled for this deployment.",
         )
 
-    reg_enabled = await REGISTRATION_ENABLED.get(db)
+    reg_enabled = await REGISTRATION_ENABLED.get_uncached(db)
     if not reg_enabled:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Registration is disabled",
         )
+    # A password account could never sign in; SSO sign-up still follows
+    # registration_enabled alone.
+    if not await PASSWORD_LOGIN_ENABLED.get_uncached(db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Password sign-up is disabled; sign in with a single sign-on provider",
+        )
 
     # DOMAIN-02: enforce allowed_email_domains on self-serve signup. No
     # principal exists at signup, so no break-glass user is passed.
     await enforce_email_domain_gate(db, body.email)
+    if not body.email and await ALLOWED_EMAIL_DOMAINS.get_uncached(db):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="An email address in an allowed domain is required to sign up",
+        )
 
     # Phase 279 ADMIN-05 (L-02): user.register audit event for funnel
     # visibility (registration count and IP).
@@ -454,7 +479,7 @@ async def register(
     # Outcome depends on CONFIG + submitted email only, never on whether this
     # was a genuine signup or a swallowed collision (SEC-012 enumeration
     # safety) — the verify-email path once leaked account existence this way.
-    verification_required = await EMAIL_VERIFICATION_REQUIRED.get(db)
+    verification_required = await EMAIL_VERIFICATION_REQUIRED.get_uncached(db)
     smtp_configured = bool(settings.smtp_host)
     wants_email_verification = bool(
         verification_required and body.email and smtp_configured
@@ -562,6 +587,16 @@ async def register(
 
 
 # Email verification endpoints (Phase 1231 SIGNUP-03/05).
+async def _grant_registration_role(db: AsyncSession, user_id: uuid.UUID) -> None:
+    """Give a just-activated account the self-registration role unless it has one."""
+    if await db.scalar(select(UserRole.role_id).where(UserRole.user_id == user_id)):
+        return
+    role_name = await REGISTRATION_DEFAULT_ROLE.get_uncached(db)
+    role_id = await db.scalar(select(Role.id).where(Role.name == role_name))
+    if role_id is not None:
+        db.add(UserRole(user_id=user_id, role_id=role_id))
+
+
 # ROUTE-01 (Phase 1092): dual-shape decorator — see /refresh above.
 @router.post(
     "/verify-email",
@@ -608,15 +643,18 @@ async def verify_email(
     # Only activate accounts still PENDING: an admin may have suspended the
     # account within the token's validity window, and the link must NOT
     # silently undo that (CR-01) — only the activation flip is gated here.
-    await db.execute(
+    activated = await db.scalar(
         update(User)
         .where(
             User.id == user_id,
             User.status == "pending",
             User.is_active.is_(False),
         )
-        .values(is_active=True, status="active")
+        .values(is_active=True, status="active", key_epoch=User.key_epoch + 1)
+        .returning(User.id)
     )
+    if activated is not None:
+        await _grant_registration_role(db, user_id)
 
     await audit_emit(
         db,
@@ -967,7 +1005,7 @@ async def config(
     password_login_enabled = await PASSWORD_LOGIN_ENABLED.get(db)
     return ConfigResponse(
         registration_enabled=reg_enabled,
-        allow_signup=reg_enabled,
+        allow_signup=reg_enabled and password_login_enabled,
         email_verification_required=email_verification_required,
         auth_methods=list(get_auth_extension().get_auth_methods()),
         landing_first=landing_first,

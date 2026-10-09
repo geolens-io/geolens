@@ -1343,7 +1343,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/core/config.py": 1502,
     # Config resolution coordinates validation, overrides, caching, audit and side
     # effects, including model defaults that follow the selected LLM provider.
-    "backend/app/core/persistent_config.py": 1149,
+    "backend/app/core/persistent_config.py": 1159,
     # Backfill batches share vector/model validation and progress/cancellation
     # semantics.
     "backend/app/processing/embeddings/backfill.py": 919,
@@ -1366,7 +1366,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/validation.py": 1206,
     # OAuth destination validation, account linking and role reconciliation share one
     # boundary.
-    "backend/app/modules/auth/oauth/service.py": 1144,
+    "backend/app/modules/auth/oauth/service.py": 1150,
     # Admin mutations share locking and audit outcomes.
     "backend/app/modules/admin/service.py": 1026,
     # Ingest admission, staging, job settlement and table registration share one

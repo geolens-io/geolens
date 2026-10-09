@@ -11,6 +11,7 @@ from app.core.public_urls import (
     is_api_base_path,
     is_usable_public_origin,
 )
+from app.modules.auth.schemas import validate_role_name
 
 
 class BasemapEntry(BaseModel):
@@ -678,4 +679,5 @@ SETTING_VALIDATORS: dict[str, Any] = {
     "max_datasets_per_user": validate_max_datasets_per_user,
     "max_ai_tokens_per_user_per_day": validate_max_ai_tokens_per_user_per_day,
     "allowed_email_domains": validate_allowed_email_domains,
+    "registration_default_role": validate_role_name,
 }

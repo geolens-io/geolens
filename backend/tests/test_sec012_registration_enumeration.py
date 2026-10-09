@@ -52,7 +52,9 @@ class TestSec012UniformRegistrationResponse:
 
     async def test_new_username_returns_201(self, client: AsyncClient, monkeypatch):
         """Baseline: a truly new username returns 201 with a pending message."""
-        monkeypatch.setattr(REGISTRATION_ENABLED, "get", AsyncMock(return_value=True))
+        monkeypatch.setattr(
+            REGISTRATION_ENABLED, "get_uncached", AsyncMock(return_value=True)
+        )
 
         resp = await _register(client, _unique("new"))
         assert resp.status_code == 201
@@ -68,7 +70,9 @@ class TestSec012UniformRegistrationResponse:
         This test FAILS before the fix (router raises 409 Conflict on ValueError
         from register_user) and PASSES after (uniform pending response).
         """
-        monkeypatch.setattr(REGISTRATION_ENABLED, "get", AsyncMock(return_value=True))
+        monkeypatch.setattr(
+            REGISTRATION_ENABLED, "get_uncached", AsyncMock(return_value=True)
+        )
 
         username = _unique("dup_user")
 
@@ -92,7 +96,9 @@ class TestSec012UniformRegistrationResponse:
         self, client: AsyncClient, monkeypatch
     ):
         """SEC-012: a duplicate email must return 201, not 409/400."""
-        monkeypatch.setattr(REGISTRATION_ENABLED, "get", AsyncMock(return_value=True))
+        monkeypatch.setattr(
+            REGISTRATION_ENABLED, "get_uncached", AsyncMock(return_value=True)
+        )
 
         email = f"{_unique('em')}@example.com"
         user1 = _unique("emaildup1")
@@ -115,7 +121,9 @@ class TestSec012UniformRegistrationResponse:
         self, client: AsyncClient, monkeypatch, test_db_session: AsyncSession
     ):
         """SEC-012: on a username collision no extra DB row must be created."""
-        monkeypatch.setattr(REGISTRATION_ENABLED, "get", AsyncMock(return_value=True))
+        monkeypatch.setattr(
+            REGISTRATION_ENABLED, "get_uncached", AsyncMock(return_value=True)
+        )
 
         username = _unique("nodedup")
 
@@ -145,7 +153,9 @@ class TestSec012UniformRegistrationResponse:
         self, client: AsyncClient, monkeypatch, test_db_session: AsyncSession
     ):
         """Happy path: a genuinely new username creates exactly one DB row."""
-        monkeypatch.setattr(REGISTRATION_ENABLED, "get", AsyncMock(return_value=True))
+        monkeypatch.setattr(
+            REGISTRATION_ENABLED, "get_uncached", AsyncMock(return_value=True)
+        )
 
         username = _unique("happypath")
 

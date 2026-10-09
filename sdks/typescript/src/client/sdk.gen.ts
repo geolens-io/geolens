@@ -1222,7 +1222,17 @@ export const refreshAuthRefreshPost = <ThrowOnError extends boolean = false>(opt
 /**
  * Register
  *
- * Register a new user. Account requires admin approval before login.
+ * Create a password account.
+ *
+ * Needs both self-registration and password login enabled; otherwise 403.
+ * When the allowed email domains list is set, an email address in one of
+ * those domains is required.
+ *
+ * If email verification is required, the request includes an email address
+ * and the server has SMTP configured, the account activates when its owner
+ * follows the emailed link and gets the default self-registration role.
+ * Otherwise it stays pending until an administrator approves it with a role.
+ * The response is the same whether or not the username or email was taken.
  */
 export const registerAuthRegisterPost = <ThrowOnError extends boolean = false>(options: Options<RegisterAuthRegisterPostData, ThrowOnError>): RequestResult<RegisterAuthRegisterPostResponses, RegisterAuthRegisterPostErrors, ThrowOnError> => (options.client ?? client).post<RegisterAuthRegisterPostResponses, RegisterAuthRegisterPostErrors, ThrowOnError>({
     url: '/auth/register/',
