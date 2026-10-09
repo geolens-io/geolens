@@ -7,6 +7,64 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.23.0] - 2026-10-09
+
+### Added
+
+- Builder analysis runs on what each layer shows. The panel sends the layer's
+  filter with the preview and materialize requests, and the API applies it to
+  the source layer and to the mask or join layer, so a buffer on a layer
+  filtered down to 6 points makes 6 buffers. The request fields `filter`,
+  `mask_filter` and `join_filter` take CQL2-JSON, are checked against the
+  layer's live columns, and an invalid one answers 422. A filter the server
+  can't apply the way the map does shows the panel's "analysis can't apply"
+  message instead. The output's lineage records the source filter. (#2822,
+  #2838)
+- The History section of a dataset's Metadata tab has a Restore button on the
+  version whose data GeoLens kept. It asks you to type the dataset name, then
+  queues the restore described in 1.22.0. (#2812)
+- `POST /services/stac/asset-sizes` looks up the size of the selected STAC
+  assets whose catalog omits `file:size`, and the import review step shows
+  them instead of "Size unavailable". The probe uses the same checked HTTP
+  client as the other service imports. (#2698)
+- A manifest apply that would queue a replacement already held for review
+  reports `action: "blocked"` with the held job id, dataset id, `run_id` and
+  `review_reasons`, and queues nothing. `geolens apply` counts blocked
+  entries in its summary and prints a RUN ID column. (#2823)
+- A service re-upload from the Re-Upload dialog gets the same review as a
+  file replacement: the column diff, an empty result and the geometry
+  contract. The service preview returns `review_reasons` and
+  `review_fingerprint`, and a commit without the matching fingerprint ends
+  `blocked` with `review_required`. (#2820)
+- A replacement or refresh whose dataset received feature edits while it ran
+  is held for review with the new reason `live_data_changed` instead of
+  discarding the edits. A service re-upload from the dialog has no review
+  step, so it fails with `live_data_changed` and leaves the live data alone.
+  (#2745)
+- Admin Jobs lists a held replacement as awaiting review rather than failed.
+  The job list returns `review_state`, `status=awaiting_review` filters the
+  waiting jobs, and the failed-jobs badge no longer counts them. (#2749)
+- `POST /admin/backfill-embeddings/` takes `all_tenants`. When a deployment
+  hosts several tenants and the settings page regenerates embeddings after a
+  width or model change, it queues a run for every registered tenant, not
+  only the caller's. The flag needs `manage_tenants` in that case. (#2816)
+- Job status gains `quicklook_pending`, and OGC record properties gain
+  `quicklook_version`. The Re-Upload dialog keeps polling until a redrawn
+  quicklook lands, and search results refetch the image when its version
+  changes. (#2680, #2757)
+- Workflow transition refusals return a structured 422 `detail` with `code`,
+  `message`, `current_stage`, `requested_stage` and `allowed_stages`, and the
+  dataset page names the refused step and what is still open. (#2827, #2748)
+- A relationship that points at a join column that no longer exists is
+  marked `broken` in the relationship list, the dataset page shows a
+  "Broken" badge with a hint to delete or recreate it, and the related-records
+  read answers 409 `relationship_column_missing` instead of 503. If the
+  column was dropped directly in the database, the first read confirms it
+  against the live table and updates the stored column list. (#2817, #2837)
+- The `geolens` CLI `scan` lists a GeoJSON or GeoPackage that shares a name
+  with a shapefile, and treats `x.tif.aux.xml` as a sidecar of `x.tif`.
+  (#2719)
+
 ### Changed
 
 - Importing, re-uploading or refreshing a token-protected service now requires
@@ -16,7 +74,7 @@ and releases use semantic versioning.
   of sending the token to the worker in the job's queue arguments. The API
   logs `credential_store_not_configured` at startup when `REDIS_URL` is unset.
   Imports, re-uploads and refreshes that carry no token are unaffected.
-
+  (#2818)
 - Titiler now reads remote (STAC by-reference) rasters through an internal
   API route that checks every connection and redirect and serves only
   GeoTIFF or COG bytes, instead of fetching the remote URL itself. Titiler
@@ -25,7 +83,71 @@ and releases use semantic versioning.
   file; set it for other deployments. Remote VRT assets and assets that are
   not GeoTIFF or COG are refused at STAC import, a remote raster can no
   longer be a VRT member, and a mosaic that names a remote member answers
-  409 until it is rebuilt from managed rasters.
+  409 until it is rebuilt from managed rasters. (#2771)
+- The browser keeps the access token in memory instead of `localStorage`. A
+  reload gets it back from the refresh cookie before the first render, and
+  tabs follow each other's sign-ins and sign-outs through a message that
+  carries only a session id. A session that uses body tokens, which is the
+  case when the API is on another origin or path, ends when the page
+  reloads. Stored tokens from earlier releases are removed on first load.
+  (#2819)
+- Single sign-on on a same-origin deployment redirects with a one-time code,
+  and the callback page exchanges it for the session cookie through the new
+  `POST /auth/oauth/exchange/`, inside the same cross-tab lock as password
+  sign-in and refresh. Deployments with the API on another origin keep
+  fragment token delivery. (#2839)
+- A sign-in, request or upload now finishes only inside the session it
+  started in. If that session ended or was replaced, the work is dropped
+  instead of refreshing, signing out or resending under the newer session. A
+  sign-in whose profile request fails stays signed in. Uploads follow the
+  same refresh rules as other requests. (#2739)
+- Public vector tiles, cluster tiles and derived map images now send
+  `s-maxage=60` or less, so a CDN or proxy that honors origin headers drops
+  them within a minute of a dataset leaving public. Browsers keep their
+  `max-age`. An edge rule that ignores origin `Cache-Control` keeps tiles for
+  its own TTL. Private, signed and token-authorized responses are
+  unchanged. (#2681)
+- The SQL sandbox behind AI chat and `POST /api/query/` caps the bytes a
+  result can return, counted in PostgreSQL before rows leave it, and weights
+  array and other nested columns by their decoded size. Rows past the cap
+  are dropped and the result is marked `truncated`; a first row over the cap
+  is refused with `result_too_large`. Chat also caps the rows it passes to
+  the model. (#2769, #2826)
+- A refused workflow transition returns an object as its 422 `detail`
+  instead of a sentence. `message` keeps the old wording. (#2827)
+- Manifest source URIs accept only `s3://`, the one scheme apply can read,
+  and `VrtCreateRequest.source_dataset_ids` requires 2 to 500 ids. The CLI
+  help and bundled schema say the same. `GET /datasets/{id}/features.geojson`
+  declares a FeatureCollection body, so the Python SDK returns it parsed.
+  (#2814)
+- The Python SDK sends real files for upload, re-upload and icon calls, which
+  answered 422 before, and returns bytes for quicklook, thumbnail, social
+  image, CSV and audit export, tile, icon and sprite routes. (#2735)
+- A signed-in user without the export capability gets the same download of
+  a public dataset that an anonymous visitor gets, on vector export, raster
+  COG download and the STAC `data` asset. Non-public datasets still need the
+  capability. (#2829)
+- The shared map page no longer shows the app footer. "GeoLens" appears in
+  the map's attribution control under the same edition rule the footer badge
+  used, and "Map data" is a tab centered on the bottom edge. (#2653)
+- MCP tool calls run in a worker thread, so a slow upstream request no longer
+  stalls ping or cancellation. The advertised `limit`, `offset` and
+  `row_limit` bounds are enforced, arguments outside the schema are
+  rejected, and the search total counts datasets only. (#2715)
+- `geolens publish --wait` and `analysis materialize --wait` report the job's
+  terminal status in `--json` output, and `whoami --json` reports `roles`.
+  (#2719)
+- `scripts/restore.sh` fails on every nonzero `pg_restore` exit and leaves
+  `api` and `worker` stopped, instead of treating an interrupted restore as
+  warnings only. (#2708)
+- `make migrate` runs the one-shot `migrate` service in the dev stack, and
+  the dev worker mounts the checkout's migrations, so neither needs an image
+  rebuild after a migration. The dev frontend container reinstalls its
+  dependencies when `package-lock.json` changes. (#2774, #2706)
+- The Valkey image is 8.1.10, up from 8.1.7. (#2738)
+- Backend and frontend dependencies are refreshed, including werkzeug 3.1.9,
+  mako 1.4.2, source-map-js 1.2.2, cryptography 50.0.2 and vitest 5.0.3.
+  (#2676, #2677, #2691, #2693, #2695)
 
 - Vector tiles now carry `timestamp with time zone` values as UTC text, for
   example `2024-03-01T17:00:00+00:00`, whatever the database's time zone.
@@ -35,7 +157,145 @@ and releases use semantic versioning.
   compares one. A saved filter or style that compares the old text form no
   longer matches; editing a filter's value in the editor converts it.
   Datasets with these columns get a new tile version on upgrade, so caches
-  stop serving the old text.
+  stop serving the old text. (#2849)
+
+### Fixed
+
+- Two tabs that finish signing in at nearly the same time no longer sign
+  each other out. Each sign-in gets a number while it holds the cookie lock,
+  the cross-tab notice carries it, and a tab ignores a notice that is not
+  newer than a sign-in it already knows. A password login also cancels any
+  refresh queued behind it. A notice from an older build still counts as
+  newer. (#2847)
+- Restoring a previous version now records the live version's row first and
+  reinstates the version's source CRS, origin and dimensionality. The Source
+  panel names the restored file, a drawn layer keeps the type its edits
+  expect, and an empty unconstrained table keeps its dimensions. (#2688)
+- The version history no longer presents current facts as the original
+  upload's. A dataset replaced before its first version row was recorded
+  shows those facts as unknown with a note. (#2758)
+- Attempt staging tables left by killed ingests are dropped once the attempt
+  is settled, and settling a lost worker frees the dataset for the next
+  replacement in the same commit. (#2758)
+- A replacement of a dataset with a generic geometry column no longer rescans
+  geometry types while holding the live table locked. The scan before the
+  lock records a witness, and the second scan runs only when GeoLens wrote
+  to the table since. Owed publish follow-ups are held through a rollback. (#2686)
+- Vector and cluster tiles work for tables with a mixed-case attribute
+  column, such as registered tables and service imports that keep upstream
+  casing. Tiles at z10 and above answered 503 before. The property keeps its
+  stored name. (#2844)
+- Date and datetime filters compare against explicit UTC midnights, so OGC
+  Records, STAC, `date_from`/`date_to` and CQL2 date literals no longer move
+  with the database session time zone. (#2744)
+- AI-generated map specs are clamped to the ranges the map save API enforces,
+  so a generated map can be saved. Creating a relationship checks that both
+  join columns exist and answers 422 otherwise. `PATCH /admin/users/{id}`
+  clears an email on an explicit null or blank value. (#2744)
+- A CSV import stores numeric columns as numbers, matching the preview, for
+  single imports and Import All with Defaults. The re-upload preview diffs
+  the same types. (#2678)
+- The 0077 downgrade drops each dataset's kept previous-version table unless
+  a dataset in the same tenant uses the name, instead of keeping it because
+  a same-named table exists in another tenant. (#2679)
+- A Shapefile that declares a code page imports in that encoding, and a ZIP
+  with the Shapefile set inside one folder opens. (#2752)
+- A zip holding a CSV, GeoJSON or GeoPackage is recorded under that format
+  instead of `shapefile`. (#2696)
+- Z and M dimensions survive GeoParquet export and CSV WKT imports, and a
+  CSV exported by GeoLens can be imported again. (#2737)
+- A source that mixes geometry kinds is cataloged as `GEOMETRY` instead of
+  the type of its first row. (#2749)
+- Concurrent first vector imports into a database that `ogr2ogr` had never
+  written to no longer fail on GDAL's metadata schema. (#2762)
+- ArcGIS imports and refreshes refuse a server that can't page when the
+  feature count is unknown, instead of publishing a truncated table. They
+  record the order field they used, and a failed query reports the
+  service's own error code and message. (#2684)
+- A blank LLM model resolves against the settings an import would apply, and
+  the audit of a cleared model override resolves against a locked snapshot
+  of the provider settings. (#2697, #2815)
+- A redrawn quicklook shows without a hard reload. Each redraw writes an
+  image under its own key, and a sweep removes images no dataset points at.
+  (#2680, #2757)
+- After Back to Results in the STAC import, the form restores its date, area
+  and cloud cover filters and the Load more button. (#2698)
+- A failed URL import whose staged file is gone offers Start again with the
+  File URL filled in, using a stored URL reduced to scheme, host and path.
+  (#2700)
+- Catalog geometry search and STAC `intersects` probe the spatial index once
+  per piece of a search area that crosses the antimeridian, instead of
+  scanning the whole latitude band. Results are unchanged. (#2699)
+- Admin SAML: the provider list returns the stored entity IDs and SSO URL so
+  Edit opens with values, a signing certificate that isn't X.509 is rejected
+  with a field error, and malformed group-role mapping JSON shows an inline
+  error. SAML sign-in buttons go to the SAML login route and appear only
+  where SAML sign-in is available. (#2725, #2770, #2809, #2817)
+- The viewer resets its basemap and drawings when the route switches to
+  another map or share link, and layer visibility is tied to the map it was
+  set on. (#2807, #2720)
+- Cancelling the AI chat also stops its non-streaming retry. The search-area
+  picker survives a basemap change, and a plain click on the dataset map
+  finds related records. (#2720)
+- Direct-POST uploads settle once on abort, inactivity timeout or network
+  error, and can be cancelled. (#2808)
+- Search, facet, map-list and GeoJSON reads cancel when superseded, GeoJSON
+  reads always carry a 30 second deadline, and downloads share one save
+  helper. (#2824)
+- The catalog keeps a filter entry between 768 and 1023 px, admin pages no
+  longer widen behind the sidebar, and the Published Maps filters and the
+  attribute table pagination wrap at 320 px. The table-name copy button and
+  footer links have 44 px targets on touch devices. (#2709, #2813)
+- Closing a dialog without a trigger returns focus to the element that opened
+  it. (#2760)
+- The tablet layer style sheet no longer dims or blocks the map being styled.
+  (#2811)
+- Wording and layout: held replacements read as "held for review" in the
+  Re-Upload dialog, Jobs and Sources, accepted runs introduce their reasons
+  as accepted, the analysis empty state asks for a vector layer, empty
+  catalog and map lists depend on the viewer, ArcGIS organization or portal
+  URLs get a hint to paste a layer REST URL, admin pages show one title,
+  the builder map name uses the room it has, and the opacity sliders explain
+  how they combine. Validation messages name fields in plain language. (#2675,
+  #2810, #2748, #2825, #2809)
+
+### Upgrade notes
+
+- Migrations 0078, 0079 and 0080 run on upgrade. 0078 adds nullable
+  `original_srid`, `is_3d` and `n_dims` to dataset versions. 0079 adds
+  `datasets.data_revision` and the refresh run's `data_revision_baseline`.
+  0080 adds 1 to the tile version of every dataset with a
+  `timestamp with time zone` column, so tile caches stop serving the old text.
+  None needs a backfill, and runs admitted before 0079 are not compared for
+  live-data changes.
+- Set `REMOTE_RASTER_RELAY_BASE_URL` if Titiler reaches the API at an address
+  other than `http://api:8000`, and make sure Titiler can connect to it. The
+  default needs no change under either Compose file. Deployments that send
+  Titiler's traffic through a forward proxy should add the API host to
+  `NO_PROXY`. Templates for other deployments are in
+  [geolens-deployments](https://github.com/geolens-io/geolens-deployments).
+  (#2771)
+- Set `REDIS_URL` to a shared Valkey or Redis instance before importing,
+  re-uploading or refreshing a token-protected service. (#2818)
+- Browser sessions on a deployment whose API is on another origin or path end
+  when the page reloads. Same-origin deployments recover from the refresh
+  cookie. (#2819)
+- A CDN rule that overrides origin cache headers is not bounded by
+  `s-maxage`. Public tiles stay cached for that rule's TTL. (#2681)
+- Clients that read a refused workflow transition's 422 `detail` as a string
+  must read `detail.message`. (#2827)
+- Source-build installs keep their dev frontend volume in sync with the
+  lockfile on start, so the first start after an upgrade can take a minute
+  longer. See UPGRADING.md. (#2706)
+
+### Known limitations
+
+- A cached vector tile keeps a column that was dropped outside GeoLens until
+  its cache entry expires. The relationship repair removes only the missing
+  join column from the stored list. (#2837)
+- Style categories picked from a timestamp-with-time-zone column's stored
+  sample values still use the old text form, so they don't match the UTC tile
+  text. (#2848)
 
 ## [1.22.0] - 2026-10-05
 
@@ -4859,7 +5119,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.22.0...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.23.0...HEAD
+[1.23.0]: https://github.com/geolens-io/geolens/compare/v1.22.0...v1.23.0
 [1.22.0]: https://github.com/geolens-io/geolens/compare/v1.21.1...v1.22.0
 [1.21.1]: https://github.com/geolens-io/geolens/compare/v1.21.0...v1.21.1
 [1.21.0]: https://github.com/geolens-io/geolens/compare/v1.20.0...v1.21.0
