@@ -159,7 +159,7 @@ test.describe('Admin Panel', () => {
       timeout: 10_000,
     });
     await expect(page.getByText('Access Token Lifetime (minutes)')).toBeVisible();
-    await expect(page.getByText('Refresh Token Lifetime (days)')).toBeVisible();
+    await expect(page.getByText('Session idle timeout (days)')).toBeVisible();
   });
 
   test('settings: network page loads', async ({ page }) => {
