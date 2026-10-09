@@ -133,7 +133,9 @@ async def test_change_password_leaves_the_loop_free(
 async def test_registration_leaves_the_loop_free(
     client: AsyncClient, gate_hasher, monkeypatch
 ):
-    monkeypatch.setattr(REGISTRATION_ENABLED, "get", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        REGISTRATION_ENABLED, "get_uncached", AsyncMock(return_value=True)
+    )
     gate = gate_hasher()
 
     resp = await gate.run(

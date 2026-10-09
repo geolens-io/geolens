@@ -168,7 +168,7 @@ class TestCloudActiveRegistrationClosed:
 
         monkeypatch.setattr(
             REGISTRATION_ENABLED,
-            "get",
+            "get_uncached",
             AsyncMock(return_value=True),  # enabled, but cloud takes priority
         )
 
@@ -209,7 +209,7 @@ class TestCloudAbsentRegistrationUnchanged:
 
         monkeypatch.setattr(
             REGISTRATION_ENABLED,
-            "get",
+            "get_uncached",
             AsyncMock(return_value=True),
         )
 

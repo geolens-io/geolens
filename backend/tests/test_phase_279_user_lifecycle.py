@@ -146,7 +146,7 @@ async def test_register_emits_user_register_audit(
     # Enable registration for this test (default is disabled).
     monkeypatch.setattr(
         REGISTRATION_ENABLED,
-        "get",
+        "get_uncached",
         AsyncMock(return_value=True),
     )
 

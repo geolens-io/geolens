@@ -156,7 +156,7 @@ class TestRegisterPasswordPolicy:
         """Registering with 'password' (8 chars, 1 class) must return 422."""
         monkeypatch.setattr(
             REGISTRATION_ENABLED,
-            "get",
+            "get_uncached",
             AsyncMock(return_value=True),
         )
         unique = uuid.uuid4().hex[:8]
@@ -177,7 +177,7 @@ class TestRegisterPasswordPolicy:
         """Registering with a strong password (12+, 3+ classes) succeeds."""
         monkeypatch.setattr(
             REGISTRATION_ENABLED,
-            "get",
+            "get_uncached",
             AsyncMock(return_value=True),
         )
         unique = uuid.uuid4().hex[:8]

@@ -3,11 +3,12 @@
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NoReturn
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.service import AuditEvent, audit_emit
@@ -63,6 +64,7 @@ from app.modules.settings.schemas import (
 )
 from app.standards.ogc.errors import (
     BAD_GATEWAY_RESPONSE,
+    CONFLICT_RESPONSE,
     EMBEDDING_CHANGE_CONFLICT_RESPONSE,
     EMBEDDING_REBUILD_UNAVAILABLE_RESPONSE,
     ERROR_RESPONSES_AUTH,
@@ -340,6 +342,22 @@ async def _refuse_password_lockout(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=detail
         )
+
+
+_PROVIDER_SLUG_CONSTRAINT = "oauth_providers_slug_key"
+
+
+async def _refuse_duplicate_slug(
+    db: AsyncSession, exc: IntegrityError, slug: str | None
+) -> NoReturn:
+    """409 when the unique slug index refused the write; other violations re-raise."""
+    await db.rollback()
+    if _PROVIDER_SLUG_CONSTRAINT not in str(exc.orig):
+        raise exc
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=f"Another provider already uses the slug '{slug}'. Choose a different slug.",
+    ) from None
 
 
 @asynccontextmanager
@@ -995,6 +1013,7 @@ async def list_oauth_providers(
     "/oauth-providers/",
     response_model=OAuthProviderResponse,
     status_code=status.HTTP_201_CREATED,
+    responses={409: CONFLICT_RESPONSE},
 )
 @limiter.limit("30/minute")
 async def create_oauth_provider(
@@ -1016,6 +1035,8 @@ async def create_oauth_provider(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
         ) from exc
+    except IntegrityError as exc:
+        await _refuse_duplicate_slug(db, exc, body.slug)
     ip = get_client_ip(request)
 
     created_state = {
@@ -1059,6 +1080,7 @@ async def create_oauth_provider(
 @router.put(
     "/oauth-providers/{provider_id}",
     response_model=OAuthProviderResponse,
+    responses={409: CONFLICT_RESPONSE},
 )
 @limiter.limit("30/minute")
 async def update_oauth_provider(
@@ -1119,6 +1141,8 @@ async def update_oauth_provider(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
         ) from exc
+    except IntegrityError as exc:
+        await _refuse_duplicate_slug(db, exc, body.slug)
 
     # Build the changes diff. SECRET_FIELDS membership flips any matching
     # field to <redacted>/<redacted>, protecting against a future old_values

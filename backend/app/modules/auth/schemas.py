@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Literal, get_args
 
 from pydantic import AwareDatetime, BaseModel, EmailStr, Field, field_validator
 
@@ -10,6 +10,18 @@ from app.modules.quota.schemas import UserQuotaUsage
 
 # User account status enum mirrors the CHECK constraint on User.status.
 UserStatus = Literal["active", "pending", "suspended", "deactivated"]
+
+RoleName = Literal["admin", "editor", "viewer"]
+VALID_ROLES = frozenset(get_args(RoleName))
+
+
+def validate_role_name(value: object) -> str:
+    """Return *value* when it names a built-in role, else raise ValueError."""
+    if not isinstance(value, str) or value not in VALID_ROLES:
+        raise ValueError(
+            f"Unknown role {value!r}; must be one of: {', '.join(sorted(VALID_ROLES))}"
+        )
+    return value
 
 
 class TokenResponse(BaseModel):
@@ -112,13 +124,16 @@ class ResendVerificationRequest(BaseModel):
 
 class ConfigResponse(BaseModel):
     registration_enabled: bool = Field(
-        description="Whether self-service registration is open"
+        description=(
+            "Whether self-service registration is open. Single sign-on can "
+            "create accounts whenever this is true."
+        )
     )
     allow_signup: bool = Field(
         default=False,
         description=(
-            "Whether self-serve registration is open. "
-            "Alias for registration_enabled; login UI uses this to show/hide the signup link."
+            "Whether password sign-up is open: registration is enabled and "
+            "password login is enabled. Login UI uses this to show/hide the signup link."
         ),
     )
     email_verification_required: bool = Field(

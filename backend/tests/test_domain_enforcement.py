@@ -173,10 +173,10 @@ class TestSignupDomainEnforcement:
         finally:
             await _disable_registration(client, admin_auth_header)
 
-    async def test_null_email_signup_unaffected(
+    async def test_null_email_signup_rejected(
         self, client: AsyncClient, admin_auth_header: dict
     ) -> None:
-        """Signup without an email is allowed even with a non-empty allowlist."""
+        """Signup without an email is refused while the allowlist is non-empty."""
         await _enable_registration(client, admin_auth_header)
         await _set_allowed_domains(client, admin_auth_header, _ALLOWLIST)
         try:
@@ -185,8 +185,8 @@ class TestSignupDomainEnforcement:
                 "/auth/register/",
                 json={"username": username, "password": "TestPass1234!"},
             )
-            assert resp.status_code == 201, (
-                f"Expected 201, got {resp.status_code}: {resp.text}"
+            assert resp.status_code == 422, (
+                f"Expected 422, got {resp.status_code}: {resp.text}"
             )
         finally:
             await _clear_allowed_domains(client, admin_auth_header)

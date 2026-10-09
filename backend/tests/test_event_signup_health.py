@@ -51,7 +51,9 @@ class TestSignupEmit:
     ) -> None:
         """A successful signup fires notify() with event_type 'signup' when toggle ON."""
         # Enable registration
-        monkeypatch.setattr(REGISTRATION_ENABLED, "get", AsyncMock(return_value=True))
+        monkeypatch.setattr(
+            REGISTRATION_ENABLED, "get_uncached", AsyncMock(return_value=True)
+        )
 
         # Enable the signup toggle
         monkeypatch.setattr("app.core.config.settings.notify_on_signup", True)
@@ -101,7 +103,9 @@ class TestSignupEmit:
         self, client: AsyncClient, monkeypatch
     ) -> None:
         """A successful signup fires ZERO notify() calls when notify_on_signup is OFF."""
-        monkeypatch.setattr(REGISTRATION_ENABLED, "get", AsyncMock(return_value=True))
+        monkeypatch.setattr(
+            REGISTRATION_ENABLED, "get_uncached", AsyncMock(return_value=True)
+        )
 
         # Ensure toggle is OFF (default)
         monkeypatch.setattr("app.core.config.settings.notify_on_signup", False)
@@ -136,7 +140,9 @@ class TestSignupEmit:
         self, client: AsyncClient, monkeypatch
     ) -> None:
         """A duplicate username/email collision does NOT emit a signup notification."""
-        monkeypatch.setattr(REGISTRATION_ENABLED, "get", AsyncMock(return_value=True))
+        monkeypatch.setattr(
+            REGISTRATION_ENABLED, "get_uncached", AsyncMock(return_value=True)
+        )
         monkeypatch.setattr("app.core.config.settings.notify_on_signup", True)
         monkeypatch.setattr(
             "app.core.config.settings.notification_admin_email", "admin@example.com"
@@ -178,7 +184,9 @@ class TestSignupEmit:
         self, client: AsyncClient, monkeypatch
     ) -> None:
         """A throwing notify path must NOT break signup — still returns 201."""
-        monkeypatch.setattr(REGISTRATION_ENABLED, "get", AsyncMock(return_value=True))
+        monkeypatch.setattr(
+            REGISTRATION_ENABLED, "get_uncached", AsyncMock(return_value=True)
+        )
         monkeypatch.setattr("app.core.config.settings.notify_on_signup", True)
         monkeypatch.setattr(
             "app.core.config.settings.notification_admin_email", "admin@example.com"

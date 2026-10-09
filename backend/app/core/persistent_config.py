@@ -428,6 +428,16 @@ EMAIL_VERIFICATION_REQUIRED = PersistentConfig[bool](
     label="Require Email Verification",
 )
 
+# Granted when a password sign-up activates by verifying its email. Admin
+# approval names its own role, and SSO accounts use the provider's default_role.
+REGISTRATION_DEFAULT_ROLE = PersistentConfig[str](
+    key="registration_default_role",
+    type_=str,
+    env_default="viewer",
+    tab="auth",
+    label="Default Role for Self-Registration",
+)
+
 
 PUBLIC_BASE_URL = PersistentConfig[str](
     key="public_base_url",
