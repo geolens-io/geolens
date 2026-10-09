@@ -22,3 +22,12 @@ def test_valkey_restarts_and_is_memory_limited():
 
 def test_valkey_is_not_published_on_the_host():
     assert "ports" not in _valkey()
+
+
+def test_valkey_keeps_credentials_off_disk_and_evicts_below_the_cap():
+    svc = _valkey()
+    cmd = svc["command"]
+    assert cmd[cmd.index("--save") + 1] == ""
+    assert cmd[cmd.index("--appendonly") + 1] == "no"
+    assert "--maxmemory" in cmd
+    assert not any("/data" in str(v) for v in svc.get("volumes", []))
