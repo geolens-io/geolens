@@ -769,7 +769,7 @@
       "groupClaim": "Group Claim",
       "groupClaimHint": "JWT claim containing user group memberships for automatic role mapping.",
       "groupRoleMapping": "Group Role Mapping (JSON)",
-      "groupRoleMappingHint": "Maps IdP group names to GeoLens roles. JSON object format.",
+      "groupRoleMappingHint": "Maps IdP group names to GeoLens roles, as a JSON object. If a user matches several groups, the highest-privilege role wins (admin, then editor, then viewer; custom roles rank by how many permissions they grant). With no match, the provider's default role applies.",
       "enabledToggle": "Enabled",
       "saveChanges": "Save Changes",
       "createProvider": "Create Provider",

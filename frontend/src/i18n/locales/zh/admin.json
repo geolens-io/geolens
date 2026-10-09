@@ -769,7 +769,7 @@
       "groupClaim": "组声明",
       "groupClaimHint": "包含用户组成员身份的 JWT 声明，用于自动角色映射。",
       "groupRoleMapping": "组角色映射（JSON）",
-      "groupRoleMappingHint": "将 IdP 组名映射到 GeoLens 角色。JSON 对象格式。",
+      "groupRoleMappingHint": "以 JSON 对象将 IdP 组名映射到 GeoLens 角色。用户匹配多个组时，权限最高的角色优先（管理员，其次编辑者，再次查看者；自定义角色按其授予的权限数量排序）。没有匹配时，使用提供商的默认角色。",
       "enabledToggle": "已启用",
       "saveChanges": "保存更改",
       "createProvider": "创建提供商",
