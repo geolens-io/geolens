@@ -333,3 +333,28 @@ async def test_provider_group_mapping_rejects_unknown_roles(
         headers=admin_auth_header,
     )
     assert update.status_code == 422, update.text
+
+
+# ---------------------------------------------------------------------------
+# Group mapping precedence
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("groups", "expected"),
+    [
+        (["Viewers", "Admins"], "admin"),
+        (["Admins", "Viewers"], "admin"),
+        (["Viewers", "Editors"], "editor"),
+        (["Editors", "Viewers"], "editor"),
+        (["Viewers"], "viewer"),
+        (["Unmapped"], "editor"),
+        (None, "editor"),
+    ],
+)
+def test_group_mapping_picks_the_most_privileged_matched_role(groups, expected):
+    from app.modules.auth.oauth.service import _resolve_role
+
+    mapping = {"Viewers": "viewer", "Admins": "admin", "Editors": "editor"}
+
+    assert _resolve_role(groups, mapping, "editor") == expected

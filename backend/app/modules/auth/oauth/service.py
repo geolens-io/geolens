@@ -640,17 +640,23 @@ def _generate_username(display_name: str | None, email: str | None) -> str:
     return "oauth_user"
 
 
+_ROLE_RANK = {"viewer": 0, "editor": 1, "admin": 2}
+
+
 def _resolve_role(
     groups: list[str] | None,
     mapping: dict | None,
     default: str,
 ) -> str:
-    """Match first group from mapping, fallback to default role."""
-    if groups and mapping:
-        for group in groups:
-            if group in mapping:
-                return mapping[group]
-    return default
+    """Return the most privileged role among the user's mapped groups, else default.
+
+    JSONB keeps no key order, so precedence comes from the roles themselves:
+    admin, then editor, then viewer; any other name ranks lowest, by name.
+    """
+    matched = [mapping[group] for group in groups or () if group in (mapping or {})]
+    if not matched:
+        return default
+    return max(matched, key=lambda role: (_ROLE_RANK.get(str(role), -1), str(role)))
 
 
 async def _reconcile_mapped_role(
