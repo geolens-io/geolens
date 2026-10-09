@@ -499,6 +499,28 @@ describe('SettingsAuthTab', () => {
       vi.mocked(listOAuthProviders).mockResolvedValue([]);
     });
 
+    it.each([
+      'https://login.microsoftonline.us/common/v2.0/.well-known/openid-configuration',
+      'https://login.microsoftonline.com/Organizations/v2.0/.well-known/openid-configuration',
+    ])('warns for the multi-tenant Microsoft authority %s', async (discovery_url) => {
+      vi.mocked(listOAuthProviders).mockResolvedValue([
+        { ...GOOGLE_PROVIDER, provider_type: 'microsoft', discovery_url },
+      ]);
+      renderTab([makeSetting('registration_enabled', true)]);
+      expect(await screen.findByText(/anyone with such an account/i)).toBeInTheDocument();
+      vi.mocked(listOAuthProviders).mockResolvedValue([]);
+    });
+
+    it('confirms before resetting Self-Registration', async () => {
+      const user = userEvent.setup();
+      const onReset = vi.fn();
+      renderTab([makeSetting('registration_enabled', false)], { onReset });
+      await user.click(screen.getAllByRole('button', { name: /reset/i })[0]);
+      expect(onReset).not.toHaveBeenCalled();
+      await user.click(await screen.findByRole('button', { name: /^reset$/i }));
+      expect(onReset).toHaveBeenCalledWith('registration_enabled');
+    });
+
     it('shows the default sign-up role control when the backend exposes the key', () => {
       renderTab([makeSetting('registration_default_role', 'editor')]);
       expect(screen.getByRole('combobox', { name: /default role for new sign-ups/i })).toHaveTextContent('Editor');

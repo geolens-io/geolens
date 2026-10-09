@@ -12,7 +12,8 @@ export function isValidDomainPattern(pattern: string): boolean {
   return labels.length >= 2 && labels.every((label) => DOMAIN_LABEL.test(label));
 }
 
-const MULTITENANT_MICROSOFT = /microsoftonline\.com\/(common|organizations|consumers)\//;
+// Any Azure cloud host counts, and the authority segment is case-insensitive.
+const MULTITENANT_MICROSOFT = /^https?:\/\/[^/]+\/(common|organizations|consumers)\//i;
 
 function acceptsAnyAccount(provider: OAuthProviderConfig): boolean {
   if (provider.provider_type === 'google' || provider.provider_type === 'github') return true;

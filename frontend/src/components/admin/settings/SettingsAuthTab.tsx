@@ -807,6 +807,7 @@ const AUTH_FIELDS = [
 
 // Resetting these loosens sign-up or sign-in at once, with no Save step.
 const CONFIRM_RESET_KEYS = new Set([
+  'registration_enabled',
   'allowed_email_domains',
   'email_verification_required',
   'password_login_enabled',
