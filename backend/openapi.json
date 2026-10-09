@@ -28305,7 +28305,7 @@
     },
     "/auth/oauth/exchange/": {
       "post": {
-        "description": "Exchange a single sign-on code for a browser session.\n\nWhen the SPA shares the API's origin, an OAuth or SAML callback redirects\nwith a one-time code in the URL fragment instead of setting the refresh\ncookie. The sign-in page posts that code here, and the response sets the\nhttpOnly refresh cookie and its CSRF cookie the way ``/auth/login`` does\nin cookie mode, with a null ``refresh_token`` in the body.\n\nA code is valid once, for about a minute, only from the browser the\ncallback redirected, and only with the nonce the page started the sign-in\nwith. Every refusal is the same 401.",
+        "description": "Exchange a single sign-on code for a browser session.\n\nWhen the SPA shares the API's origin, an OAuth or SAML callback redirects\nwith a one-time code in the URL fragment instead of setting the refresh\ncookie. The sign-in page posts that code here, and the response sets the\nhttpOnly refresh cookie and its CSRF cookie the way ``/auth/login`` does\nin cookie mode, with a null ``refresh_token`` in the body.\n\nA code is valid once, for two minutes, only from the browser the\ncallback redirected, and only with the nonce the page started the sign-in\nwith. Every refusal is the same 401.",
         "operationId": "exchange_sign_in_code_auth_oauth_exchange__post",
         "parameters": [
           {
