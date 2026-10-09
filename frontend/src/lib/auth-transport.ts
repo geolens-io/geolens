@@ -109,16 +109,16 @@ export function takeSignInOrder(): number {
 }
 
 /**
- * Whether another tab's sign-in numbered `order` still holds the refresh
- * cookie, as far as this tab knows, and if so record it as the latest.
- * Notices arrive after the cookie lock is released, so an earlier sign-in's
- * can follow a later one's. A tie, possible only on the clock, keeps the
- * session this tab has. A notice without a number, from an older build, is
- * taken as current.
+ * Place another tab's sign-in numbered `order` against the latest one this
+ * tab knows of, recording it when it is newer. Notices arrive after the
+ * cookie lock is released, so an earlier sign-in's can follow a later one's.
+ * A tie is possible only on the clock fallback. A notice without a number,
+ * from an older build, counts as newer.
  */
-export function acceptSignInOrder(order: unknown): boolean {
-  if (typeof order !== 'number') return true;
-  if (order < storedSignInOrder() || order <= latestSignInOrder) return false;
+export function compareSignInOrder(order: unknown): 'newer' | 'tie' | 'older' {
+  if (typeof order !== 'number') return 'newer';
+  if (order < storedSignInOrder() || order < latestSignInOrder) return 'older';
+  if (order === latestSignInOrder) return 'tie';
   latestSignInOrder = order;
-  return true;
+  return 'newer';
 }

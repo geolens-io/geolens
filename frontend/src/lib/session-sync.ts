@@ -1,6 +1,6 @@
-import { abortInflightRefresh, attemptRefresh, TRANSIENT_COOLDOWN_MS } from '@/api/client';
+import { abortInflightRefresh, attemptRefresh, TRANSIENT_COOLDOWN_MS, tryRefresh } from '@/api/client';
 import { onAuthMessage } from '@/lib/auth-channel';
-import { acceptSignInOrder, cookieAuthAvailable } from '@/lib/auth-transport';
+import { compareSignInOrder, cookieAuthAvailable } from '@/lib/auth-transport';
 import { isEmbedViewer } from '@/lib/embed-context';
 import { readPersistedUser, SIGNED_OUT, useAuthStore } from '@/stores/auth-store';
 
@@ -54,12 +54,12 @@ export function wireSessionSync(): () => void {
     const { sessionId } = useAuthStore.getState();
     if (message.type === 'logout') {
       if (message.sessionId === sessionId) endSession();
-    } else if (
-      message.sessionId !== sessionId &&
-      cookieAuthAvailable() &&
-      acceptSignInOrder(message.order)
-    ) {
-      adoptSession(message.sessionId);
+    } else if (message.sessionId !== sessionId && cookieAuthAvailable()) {
+      const order = compareSignInOrder(message.order);
+      if (order === 'newer') adoptSession(message.sessionId);
+      // Sign-ins on the same clock tick can't be told apart. A refresh finds
+      // out which one the cookie holds and switches to it without revoking.
+      else if (order === 'tie') void tryRefresh();
     }
   });
 }

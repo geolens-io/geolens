@@ -17,8 +17,9 @@ function reply(body: unknown, status = 200): Response {
 
 /**
  * The API and the one refresh cookie every tab of the browser shares. Profile
- * requests wait for `releaseProfiles`, and `holdSignIn` holds the next sign-in
- * response until its release is called.
+ * requests wait for `releaseProfiles`, `holdSignIn` holds the next sign-in
+ * response until its release is called, and each sign-in moves the shared
+ * clock on by `signInMs`.
  */
 function fakeServer() {
   const revoked = new Set<string>();
@@ -31,6 +32,7 @@ function fakeServer() {
     cookie: null as string | null,
     revoked,
     issued: 0,
+    signInMs: 5,
     releaseProfiles,
     holdSignIn(): () => void {
       let release!: () => void;
@@ -53,8 +55,7 @@ function fakeServer() {
       const gate = signInGate;
       signInGate = null;
       await gate;
-      // A sign-in takes time on the clock every tab shares.
-      vi.setSystemTime(Date.now() + 5);
+      vi.setSystemTime(Date.now() + server.signInMs);
       server.issued += 1;
       server.cookie = `family-${server.issued}`;
       return reply(issue(server.cookie));
@@ -193,15 +194,31 @@ describe('two tabs signing in at the same moment', () => {
     expectBothOnLaterSession();
   });
 
-  it('orders the sign-ins by the clock where storage is unavailable', async () => {
+  function denyStorage(): void {
     const denied = () => {
       throw new DOMException('denied', 'SecurityError');
     };
     vi.stubGlobal('localStorage', { getItem: denied, setItem: denied, removeItem: denied });
+  }
+
+  it('orders the sign-ins by the clock where storage is unavailable', async () => {
+    denyStorage();
 
     const [first, second] = await Promise.all([earlier.login(), later.login()]);
     await finish([earlier.install(first), later.install(second)]);
 
     expectBothOnLaterSession();
+  });
+
+  it('settles sign-ins on the same clock tick on the session the cookie holds', async () => {
+    denyStorage();
+    server.signInMs = 0;
+
+    const [first, second] = await Promise.all([earlier.login(), later.login()]);
+    await finish([earlier.install(first), later.install(second)]);
+
+    expect(server.revoked.has('family-2')).toBe(false);
+    expect(familyOf(later.state().token)).toBe('family-2');
+    expect(familyOf(earlier.state().token)).toBe('family-2');
   });
 });
