@@ -286,17 +286,20 @@ def _utc_timestamptz_text(ref: str) -> str:
 
     ST_AsMVT writes a timestamptz in the session TimeZone, which a client
     cannot know and whose daylight-saving offsets break text ordering. In
-    this form text order is time order: the fraction drops trailing zeros,
-    and ``+`` sorts below ``.`` and every digit. Infinite values keep
-    PostgreSQL's ``infinity`` text.
+    this form text order is time order against any year 1-9999 value: the
+    fraction drops trailing zeros, ``+`` sorts below ``.`` and every digit,
+    a BC value takes ISO 8601's signed astronomical year (``-0043`` is 44
+    BC) and sorts first, and a value past year 9999 reads ``infinity``.
     """
     utc = f"({ref} AT TIME ZONE 'UTC')"
     return (
-        f"CASE WHEN isfinite({ref}) THEN "
-        f"to_char({utc}, 'YYYY-MM-DD\"T\"HH24:MI:SS') "
-        f"|| rtrim(rtrim(to_char({utc}, '.US'), '0'), '.') || '+00:00' "
-        f"|| CASE WHEN {utc} < '0001-01-01' THEN ' BC' ELSE '' END "
-        f"ELSE {ref}::text END"
+        f"CASE WHEN NOT isfinite({ref}) THEN {ref}::text "
+        f"WHEN {utc} >= '10000-01-01' THEN 'infinity' "
+        f"ELSE CASE WHEN {utc} < '0001-01-01' "
+        f"THEN '-' || lpad((-1 - extract(year FROM {utc})::int)::text, 4, '0') "
+        f"|| to_char({utc}, '-MM-DD\"T\"HH24:MI:SS') "
+        f"ELSE to_char({utc}, 'YYYY-MM-DD\"T\"HH24:MI:SS') END "
+        f"|| rtrim(rtrim(to_char({utc}, '.US'), '0'), '.') || '+00:00' END"
     )
 
 

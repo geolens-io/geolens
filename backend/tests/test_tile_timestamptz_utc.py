@@ -20,6 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.processing.tiles.pool as pool_module
+from app.processing.tiles.service import _utc_timestamptz_text
 from app.core.config import settings
 from app.modules.catalog.datasets.domain.models import Dataset
 
@@ -250,6 +251,54 @@ async def test_analysis_keeps_the_features_the_map_filter_keeps(
         f["properties"]["gid"] for f in resp.json()["geojson"]["features"]
     )
     assert analysed == on_map
+
+
+@pytest.mark.usefixtures("new_york_tile_pool")
+async def test_tile_text_orders_every_value_like_time_against_a_filter_literal(
+    test_db_session: AsyncSession,
+):
+    values = [
+        "-infinity",
+        "0044-03-15 12:00:00.5Z BC",
+        "0001-12-31 23:00Z BC",
+        "0001-01-01 00:00Z",
+        "2024-11-03 05:30Z",
+        "2024-11-03 06:15Z",
+        "2024-11-03 06:15:00.5Z",
+        "9999-12-31 23:59:59.999999Z",
+        "10000-01-01 00:00Z",
+        "infinity",
+    ]
+    # A filter literal the builder accepts: years 1 to 9999.
+    literals = [
+        "0001-01-01 00:00Z",
+        "0044-03-15 12:00Z",
+        "2024-11-03 06:15Z",
+        "9999-12-31 23:59:59.999999Z",
+    ]
+    as_text = _utc_timestamptz_text
+    async with pool_module._tile_pool.acquire() as conn:
+        rendered = dict(
+            await conn.fetch(
+                f"SELECT s, {as_text('s::timestamptz')} FROM unnest($1::text[]) s",
+                values,
+            )
+        )
+        pairs = await conn.fetch(
+            f"SELECT v, l, v::timestamptz < l::timestamptz AS before,"
+            f" v::timestamptz = l::timestamptz AS same,"
+            f" {as_text('v::timestamptz')} AS vt, {as_text('l::timestamptz')} AS lt"
+            " FROM unnest($1::text[]) v, unnest($2::text[]) l",
+            values,
+            literals,
+        )
+
+    assert rendered["0044-03-15 12:00:00.5Z BC"] == "-0043-03-15T12:00:00.5+00:00"
+    assert rendered["10000-01-01 00:00Z"] == "infinity"
+    assert len(pairs) == len(values) * len(literals)
+    for row in pairs:
+        assert (row["vt"] < row["lt"]) == row["before"], (row["vt"], row["lt"])
+        assert (row["vt"] == row["lt"]) == row["same"], (row["vt"], row["lt"])
 
 
 async def test_migration_rolls_only_timestamptz_datasets(

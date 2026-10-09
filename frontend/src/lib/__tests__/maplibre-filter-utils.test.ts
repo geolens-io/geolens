@@ -315,7 +315,7 @@ describe('maplibreFilterToCql2', () => {
       ['a timestamptz fraction with a trailing zero', ['==', ['get', 'atz'], '2024-02-01T06:30:00.50+00:00']],
       ['a timestamptz off the calendar', ['==', ['get', 'atz'], '2024-02-30T06:30:00+00:00']],
       // The server's CQL2 timestamps cover years 1 to 9999 only.
-      ['a BC timestamptz', ['==', ['get', 'atz'], '0044-03-15T12:00:00+00:00 BC']],
+      ['a BC timestamptz', ['==', ['get', 'atz'], '-0043-03-15T12:00:00+00:00']],
       ['an infinite timestamptz', ['<', ['get', 'atz'], 'infinity']],
       ['an uppercase uuid', ['==', ['get', 'ref'], '6F1C3A52-2B8E-4F0E-9A51-3D6A8F9C0B11']],
       ['a value that is not a uuid', ['==', ['get', 'ref'], 'abc']],
