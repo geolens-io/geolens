@@ -1,14 +1,16 @@
 /**
  * Cross-tab notice that a cookie session started or ended.
  *
- * Messages carry only the session id, never a credential: a receiving tab
- * recovers its own access token from the shared refresh cookie. Where
- * `BroadcastChannel` is unavailable, tabs do not sync and each one finds out
- * on its next refresh.
+ * Messages carry only the session id and, for a sign-in, its place in
+ * cookie-write order, never a credential: a receiving tab recovers its own
+ * access token from the shared refresh cookie. Where `BroadcastChannel` is
+ * unavailable, tabs do not sync and each one finds out on its next refresh.
  */
 export interface AuthMessage {
   type: 'login' | 'logout';
   sessionId: string;
+  /** From takeSignInOrder, on a login whose cookie write it numbered. */
+  order?: number;
 }
 
 const CHANNEL_NAME = 'geolens-auth';

@@ -1,4 +1,5 @@
 import { API_BASE } from '@/lib/constants';
+import { readStorage, writeStorage } from '@/lib/storage';
 
 /**
  * GH-1302: how this browser talks to /auth/login and /auth/refresh/.
@@ -85,4 +86,39 @@ export function withCookieWrite<T>(request: () => Promise<T>, signal?: AbortSign
   const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
   if (!locks) return request();
   return locks.request(COOKIE_WRITE_LOCK, signal ? { signal } : {}, request);
+}
+
+const SIGN_IN_ORDER_KEY = 'geolens-auth-order';
+let latestSignInOrder = 0;
+
+function storedSignInOrder(): number {
+  const stored = Number(readStorage(SIGN_IN_ORDER_KEY));
+  return Number.isFinite(stored) ? stored : 0;
+}
+
+/**
+ * Number a write that installs a new session in the refresh cookie, above
+ * every earlier one. Call it while holding the cookie lock. Storage keeps the
+ * numbers strictly increasing across tabs, and the clock keeps them in order
+ * where storage is unavailable.
+ */
+export function takeSignInOrder(): number {
+  latestSignInOrder = Math.max(storedSignInOrder() + 1, latestSignInOrder + 1, Date.now());
+  writeStorage(SIGN_IN_ORDER_KEY, String(latestSignInOrder));
+  return latestSignInOrder;
+}
+
+/**
+ * Place another tab's sign-in numbered `order` against the latest one this
+ * tab knows of, recording it when it is newer. Notices arrive after the
+ * cookie lock is released, so an earlier sign-in's can follow a later one's.
+ * A tie is possible only on the clock fallback. A notice without a number,
+ * from an older build, counts as newer.
+ */
+export function compareSignInOrder(order: unknown): 'newer' | 'tie' | 'older' {
+  if (typeof order !== 'number') return 'newer';
+  if (order < storedSignInOrder() || order < latestSignInOrder) return 'older';
+  if (order === latestSignInOrder) return 'tie';
+  latestSignInOrder = order;
+  return 'newer';
 }

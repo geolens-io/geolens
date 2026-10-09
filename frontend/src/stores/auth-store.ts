@@ -34,14 +34,18 @@ interface AuthState {
    * it marks a session the next page load can recover.
    */
   sessionId: string | null;
-  /** Install a new session. `user` is null while its profile is still loading. */
+  /**
+   * Install a new session. `user` is null while its profile is still loading.
+   * `order` is the cookie write's number from takeSignInOrder.
+   */
   setAuth: (
     token: string,
     refreshToken: string | null,
     expiresIn: number,
     user: UserResponse | null,
+    order?: number,
   ) => void;
-  setTokens: (token: string, refreshToken: string | null, expiresIn: number) => void;
+  setTokens: (token: string, refreshToken: string | null, expiresIn: number, order?: number) => void;
   logout: () => void;
   isAdmin: () => boolean;
   isEditor: () => boolean;
@@ -169,7 +173,7 @@ export const useAuthStore = create<AuthState>()(
     (set, get) => ({
       ...SIGNED_OUT,
       sessionEpoch: 0,
-      setAuth: (token, refreshToken, expiresIn, user) => {
+      setAuth: (token, refreshToken, expiresIn, user, order) => {
         const sessionId = randomId();
         set((state) => ({
           token,
@@ -180,9 +184,9 @@ export const useAuthStore = create<AuthState>()(
           sessionEpoch: state.sessionEpoch + 1,
         }));
         // Every tab shares the cookie this sign-in just replaced.
-        if (!refreshToken) postAuthMessage({ type: 'login', sessionId });
+        if (!refreshToken) postAuthMessage({ type: 'login', sessionId, order });
       },
-      setTokens: (token, refreshToken, expiresIn) => {
+      setTokens: (token, refreshToken, expiresIn, order) => {
         const { refreshToken: spent, sessionId, token: previous, user } = get();
         const before = tokenIdentity(previous);
         const after = tokenIdentity(token);
@@ -212,7 +216,7 @@ export const useAuthStore = create<AuthState>()(
         });
         // A legacy session just traded its stored refresh token for the
         // cookie, so other tabs can now recover it too.
-        if (spent && !refreshToken && sessionId) postAuthMessage({ type: 'login', sessionId });
+        if (spent && !refreshToken && sessionId) postAuthMessage({ type: 'login', sessionId, order });
       },
       logout: () => {
         const { sessionId, refreshToken } = get();

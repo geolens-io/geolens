@@ -3,7 +3,10 @@ import { abortInflightRefresh, isCredentialRejected } from '@/api/client';
 import { useAuthStore } from '@/stores/auth-store';
 import type { TokenResponse } from '@/types/api';
 
-export type IssuedSession = Pick<TokenResponse, 'access_token' | 'refresh_token' | 'expires_in'>;
+export type IssuedSession = Pick<TokenResponse, 'access_token' | 'refresh_token' | 'expires_in'> & {
+  /** The cookie write's number from takeSignInOrder. */
+  order?: number;
+};
 
 /**
  * `current` when the issued session is the one this tab is signed in with;
@@ -31,7 +34,9 @@ export async function completeSignIn(
   // A refresh of the replaced session landing now would revoke its family on
   // the epoch check, or overwrite the issued session's cookie.
   abortInflightRefresh();
-  useAuthStore.getState().setAuth(accessToken, issued.refresh_token ?? null, issued.expires_in, null);
+  useAuthStore
+    .getState()
+    .setAuth(accessToken, issued.refresh_token ?? null, issued.expires_in, null, issued.order);
   const epoch = useAuthStore.getState().sessionEpoch;
   const isCurrent = () => useAuthStore.getState().sessionEpoch === epoch;
   const discard = () => {

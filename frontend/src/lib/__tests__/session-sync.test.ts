@@ -134,7 +134,7 @@ describe('session recovery and cross-tab sync', () => {
   });
 
   it('recovers a migrating legacy session with its in-memory refresh token', async () => {
-    vi.mocked(refreshAccessToken).mockResolvedValueOnce(issued('migrated'));
+    vi.mocked(refreshAccessToken).mockResolvedValueOnce({ ...issued('migrated'), order: 7 });
     window.localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({ state: { token: 'legacy-access', refreshToken: 'legacy-refresh', user } }),
@@ -148,7 +148,7 @@ describe('session recovery and cross-tab sync', () => {
     expect(useAuthStore.getState()).toMatchObject({ token: 'migrated', refreshToken: null });
     expect(window.localStorage.getItem(STORAGE_KEY)).not.toContain('legacy');
     // Other tabs can recover the migrated session from the cookie now.
-    expect(peer.received).toEqual([{ type: 'login', sessionId: useAuthStore.getState().sessionId }]);
+    expect(peer.received).toEqual([{ type: 'login', sessionId: useAuthStore.getState().sessionId, order: 7 }]);
   });
 
   it('slow refresh does not delay render', async () => {
