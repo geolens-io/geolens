@@ -349,6 +349,8 @@ describe('utcTimestampText', () => {
     ['an hour past the day', '2024-11-03 24:00'],
     ['free text', 'yesterday'],
     ['seven fraction digits', '2024-11-03 06:15:00.1234567'],
+    ['offset minutes past the hour', '2024-01-01 00:00+00:99'],
+    ['an offset past the range PostgreSQL accepts', '2024-01-01 00:00+16:00'],
   ])('rejects %s', (_label, typed) => {
     expect(utcTimestampText(typed)).toBeNull();
   });

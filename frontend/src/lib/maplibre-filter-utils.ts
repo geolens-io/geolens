@@ -412,7 +412,7 @@ const TIMESTAMP_TEXT_RE = /^(\d{4}-\d{2}-\d{2}) ((?:[01]\d|2[0-3]):[0-5]\d:[0-5]
 const UTC_TIMESTAMP_TEXT_RE =
   /^(\d{4}-\d{2}-\d{2})T((?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{0,5}[1-9])?)\+00:00$/;
 const TYPED_TIMESTAMP_RE =
-  /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,6}))?)?\s*(Z|[+-]\d{2}(?::?\d{2})?)?$/i;
+  /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,6}))?)?\s*(Z|[+-](?:0\d|1[0-5])(?::?[0-5]\d)?)?$/i;
 // PostgreSQL writes a uuid in lowercase, and the map compares case-sensitively.
 const UUID_TEXT_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
