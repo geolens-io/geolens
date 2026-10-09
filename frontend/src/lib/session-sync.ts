@@ -1,4 +1,4 @@
-import { abortInflightRefresh, attemptRefresh, TRANSIENT_COOLDOWN_MS, tryRefresh } from '@/api/client';
+import { abortInflightRefresh, attemptRefresh, TRANSIENT_COOLDOWN_MS } from '@/api/client';
 import { onAuthMessage } from '@/lib/auth-channel';
 import { compareSignInOrder, cookieAuthAvailable } from '@/lib/auth-transport';
 import { isEmbedViewer } from '@/lib/embed-context';
@@ -59,8 +59,19 @@ export function wireSessionSync(): () => void {
       if (order === 'newer') adoptSession(message.sessionId);
       // Sign-ins on the same clock tick can't be told apart. A refresh finds
       // out which one the cookie holds and switches to it without revoking.
-      else if (order === 'tie') void tryRefresh();
+      else if (order === 'tie') checkCookieSession(useAuthStore.getState().sessionEpoch);
     }
+  });
+}
+
+/** Refresh from the cookie, trying again after the back-off until one lands or the session ends. */
+function checkCookieSession(epoch: number): void {
+  const { token } = useAuthStore.getState();
+  void attemptRefresh().then((outcome) => {
+    const current = useAuthStore.getState();
+    // Inside the back-off no request is sent and the token stays as it was.
+    if (outcome === 'rejected' || current.sessionEpoch !== epoch || current.token !== token) return;
+    setTimeout(() => checkCookieSession(epoch), TRANSIENT_COOLDOWN_MS);
   });
 }
 

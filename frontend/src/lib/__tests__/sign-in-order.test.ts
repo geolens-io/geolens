@@ -18,8 +18,8 @@ function reply(body: unknown, status = 200): Response {
 /**
  * The API and the one refresh cookie every tab of the browser shares. Profile
  * requests wait for `releaseProfiles`, `holdSignIn` holds the next sign-in
- * response until its release is called, and each sign-in moves the shared
- * clock on by `signInMs`.
+ * response until its release is called, each sign-in moves the shared clock
+ * on by `signInMs`, and the next `failRefreshes` refreshes answer 503.
  */
 function fakeServer() {
   const revoked = new Set<string>();
@@ -33,6 +33,7 @@ function fakeServer() {
     revoked,
     issued: 0,
     signInMs: 5,
+    failRefreshes: 0,
     releaseProfiles,
     holdSignIn(): () => void {
       let release!: () => void;
@@ -61,6 +62,10 @@ function fakeServer() {
       return reply(issue(server.cookie));
     }
     if (url.endsWith('/auth/refresh/')) {
+      if (server.failRefreshes > 0) {
+        server.failRefreshes -= 1;
+        return reply({ detail: 'unavailable' }, 503);
+      }
       if (!server.cookie || revoked.has(server.cookie)) return reply({ detail: 'expired' }, 401);
       return reply(issue(server.cookie));
     }
@@ -219,6 +224,20 @@ describe('two tabs signing in at the same moment', () => {
 
     expect(server.revoked.has('family-2')).toBe(false);
     expect(familyOf(later.state().token)).toBe('family-2');
+    expect(familyOf(earlier.state().token)).toBe('family-2');
+  });
+
+  it('settles a same-tick tie once the refresh endpoint answers again', async () => {
+    denyStorage();
+    server.signInMs = 0;
+    server.failRefreshes = 2;
+
+    const [first, second] = await Promise.all([earlier.login(), later.login()]);
+    await finish([earlier.install(first), later.install(second)]);
+    expect(familyOf(earlier.state().token)).toBe('family-1');
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(server.revoked.has('family-2')).toBe(false);
     expect(familyOf(earlier.state().token)).toBe('family-2');
   });
 });
