@@ -346,7 +346,7 @@ services:
       PRIVACY_URL: ${PRIVACY_URL:-}
       DCAT_CONTACT_EMAIL: ${DCAT_CONTACT_EMAIL:-}
       # fix(#2041): empty = rate limits are counted per worker (two above); a
-      # shared Valkey/Redis here, e.g. the cloud-dev valkey service, shares them.
+      # shared Valkey/Redis here, e.g. the bundled valkey service (profile cache), shares them.
       REDIS_URL: "${REDIS_URL:-}"
       CDN_BASE_URL: "${CDN_BASE_URL:-}"
       PRESIGNED_MULTIPART_THRESHOLD_MB: "${PRESIGNED_MULTIPART_THRESHOLD_MB:-100}"
@@ -784,15 +784,18 @@ services:
   valkey:
     logging: *bounded-logs
     image: valkey/valkey:8.1.10-alpine
-    profiles: ["cloud-dev"]
+    profiles: ["cache", "cloud-dev"]
+    restart: unless-stopped
     # fix(#1746): cap_drop ALL removes CAP_SETUID, so the entrypoint's setpriv fails; a non-root user skips setpriv.
     user: "valkey"
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    ports:
-      - "127.0.0.1:6379:6379"
+    # Without a limit, memory alerts that divide usage by the limit read +Inf.
+    mem_limit: "${VALKEY_MEM_LIMIT:-256m}"
+    # No host port: the API and worker reach it at valkey:6379 over the compose
+    # network, and the cache has no auth, so it stays off the host.
     volumes:
       - valkey_data:/data
     healthcheck:

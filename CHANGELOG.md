@@ -7,6 +7,16 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- `docker-compose.prod.yml` bundles an opt-in cache. Start it with
+  `--profile cache` (or `COMPOSE_PROFILES=cache`) and set
+  `REDIS_URL=redis://valkey:6379/0` so token-protected service imports, shared
+  rate limits and tile content versions work on a single host. The valkey
+  service now restarts with the host, takes a `VALKEY_MEM_LIMIT` (default
+  256m) and no longer publishes port 6379 on the host. The `cloud-dev`
+  profile still starts it.
+
 ## [1.23.0] - 2026-10-09
 
 ### Added
