@@ -336,12 +336,15 @@ async def test_migration_rolls_only_timestamptz_datasets(
 
     before = await versions()
 
-    def upgrade(sync_session):
+    def run(sync_session, direction):
         with Operations.context(MigrationContext.configure(sync_session.connection())):
-            migration.upgrade()
+            getattr(migration, direction)()
 
-    await session.run_sync(upgrade)
+    await session.run_sync(run, "upgrade")
+    upgraded = await versions()
+    await session.run_sync(run, "downgrade")
+    downgraded = await versions()
 
-    after = await versions()
-    assert after[with_tz.id] == before[with_tz.id] + 1
-    assert after[without_tz.id] == before[without_tz.id]
+    assert upgraded[with_tz.id] == before[with_tz.id] + 1
+    assert downgraded[with_tz.id] == before[with_tz.id] + 2
+    assert downgraded[without_tz.id] == upgraded[without_tz.id] == before[without_tz.id]
