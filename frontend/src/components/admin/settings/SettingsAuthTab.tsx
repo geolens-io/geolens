@@ -283,7 +283,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
   function handleSubmit(adminRoleConfirmed = false) {
     // The backend refuses group mapping outside enterprise, so a hidden field
     // is cleared rather than resent; until the edition is known, keep it.
-    const clearGroupFields = editionResolved && !showGroupFields;
+    const clearGroupFields = editionResolved && !isEnterprise;
     let groupMapping: Record<string, string> | null = null;
     if (!clearGroupFields && form.group_role_mapping.trim()) {
       try {

@@ -670,6 +670,26 @@ describe('SettingsAuthTab', () => {
       );
     });
 
+    it('keeps a GitHub provider\'s group mapping on enterprise edits', async () => {
+      vi.mocked(fetchEdition).mockResolvedValueOnce({ edition: 'enterprise', features: [] });
+      vi.mocked(updateOAuthProvider).mockResolvedValueOnce(OIDC_PROVIDER);
+      const mapping = { Admins: 'admin' };
+      const user = await openEdit({
+        ...OIDC_PROVIDER,
+        provider_type: 'github',
+        group_claim: 'groups',
+        group_role_mapping: mapping,
+      });
+      await screen.findByLabelText('Display Name');
+      await waitFor(() => expect(fetchEdition).toHaveBeenCalled());
+      await user.click(screen.getByRole('button', { name: 'Save Changes' }));
+      await waitFor(() => expect(updateOAuthProvider).toHaveBeenCalledOnce());
+      expect(updateOAuthProvider).toHaveBeenCalledWith(
+        OIDC_PROVIDER.id,
+        expect.objectContaining({ group_claim: 'groups', group_role_mapping: mapping }),
+      );
+    });
+
     it('lists default roles, keeps unknown roles visible and drops SAML rows', async () => {
       vi.mocked(listOAuthProviders).mockResolvedValueOnce([
         { ...OIDC_PROVIDER, default_role: 'curator' },
