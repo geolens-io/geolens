@@ -17,8 +17,7 @@ and releases use semantic versioning.
   filtered down to 6 points makes 6 buffers. The request fields `filter`,
   `mask_filter` and `join_filter` take CQL2-JSON, are checked against the
   layer's live columns, and an invalid one answers 422. A filter the server
-  can't apply the way the map does, such as a comparison on a
-  timestamp-with-time-zone column, shows the panel's "analysis can't apply"
+  can't apply the way the map does shows the panel's "analysis can't apply"
   message instead. The output's lineage records the source filter. (#2822,
   #2838)
 - The History section of a dataset's Metadata tab has a Restore button on the
@@ -294,6 +293,9 @@ and releases use semantic versioning.
 - A cached vector tile keeps a column that was dropped outside GeoLens until
   its cache entry expires. The relationship repair removes only the missing
   join column from the stored list. (#2837)
+- Style categories picked from a timestamp-with-time-zone column's stored
+  sample values still use the old text form, so they don't match the UTC tile
+  text. (#2848)
 
 ## [1.22.0] - 2026-10-05
 
