@@ -158,7 +158,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
   const invalidateAuthProviders = useInvalidateAuthProviders();
 
   const { providers, isLoading, isError } = useOAuthProviders();
-  const { isEnterprise } = useEdition();
+  const { isEnterprise, isResolved: editionResolved } = useEdition();
 
   const createMutation = useMutation({
     mutationFn: (data: OAuthProviderCreateData) => createOAuthProvider(data),
@@ -199,6 +199,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
   const [deleteTarget, setDeleteTarget] = useState<OAuthProviderConfig | null>(null);
   const [adminRoleConfirmOpen, setAdminRoleConfirmOpen] = useState(false);
   const [form, setForm] = useState<ProviderFormData>(EMPTY_FORM);
+  const showGroupFields = isEnterprise && form.provider_type !== 'github';
   const { data: tileConfig, isLoading: tileConfigLoading } = useTileConfig();
   // #305: derive the callback from the CONFIGURED public
   // API URL (what the backend builds redirect_uri from, same as SAML settings),
@@ -280,8 +281,11 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
   }
 
   function handleSubmit(adminRoleConfirmed = false) {
+    // The backend refuses group mapping outside enterprise, so a hidden field
+    // is cleared rather than resent; until the edition is known, keep it.
+    const clearGroupFields = editionResolved && !showGroupFields;
     let groupMapping: Record<string, string> | null = null;
-    if (form.group_role_mapping.trim()) {
+    if (!clearGroupFields && form.group_role_mapping.trim()) {
       try {
         groupMapping = JSON.parse(form.group_role_mapping);
       } catch {
@@ -313,7 +317,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
         client_id: form.client_id,
         scopes: form.scopes,
         default_role: form.default_role,
-        group_claim: form.group_claim || null,
+        group_claim: clearGroupFields ? null : form.group_claim || null,
         group_role_mapping: groupMapping,
         enabled: form.enabled,
         ...endpointFields,
@@ -335,7 +339,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
         client_secret: form.client_secret,
         scopes: form.scopes,
         default_role: form.default_role,
-        group_claim: form.group_claim || null,
+        group_claim: clearGroupFields ? null : form.group_claim || null,
         group_role_mapping: groupMapping,
         enabled: form.enabled,
         ...endpointFields,
@@ -676,7 +680,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
               </p>
             </div>
 
-            {isEnterprise && form.provider_type !== 'github' && (
+            {showGroupFields && (
               <>
               <div className="space-y-2">
                 <Label htmlFor="group-claim">{t('settings.oauth.groupClaim')}</Label>
@@ -854,6 +858,7 @@ export function SettingsAuthTab({ settings, envOnly, onSave, onReset: submitRese
   const { providers } = useOAuthProviders();
   const { data: notifStatus } = useNotificationStatus();
   const [pendingReset, setPendingReset] = useState<string | null>(null);
+  const [pendingAdminSave, setPendingAdminSave] = useState<Record<string, unknown> | null>(null);
 
   function onReset(key: string) {
     if (CONFIRM_RESET_KEYS.has(key)) setPendingReset(key);
@@ -1117,12 +1122,36 @@ export function SettingsAuthTab({ settings, envOnly, onSave, onReset: submitRese
       </section>
 
       <div className="sticky bottom-0 z-10 -mx-1 border-t border-border bg-background px-1 pb-2">
-        <SettingsFormActions dirty={dirty} hasDirty={hasDirty} envOnly={envOnly} isSaving={isSaving} onSave={onSave} onDiscard={discard} onDirtyChange={onDirtyChange} />
+        <SettingsFormActions dirty={dirty} hasDirty={hasDirty} envOnly={envOnly} isSaving={isSaving} onSave={(changes) => {
+          if (changes.registration_default_role === 'admin') setPendingAdminSave(changes);
+          else onSave(changes);
+        }} onDiscard={discard} onDirtyChange={onDirtyChange} />
       </div>
 
       <hr className="border-border" />
 
       <OAuthProvidersSection envOnly={envOnly} />
+
+      <AlertDialog open={pendingAdminSave !== null} onOpenChange={(open) => { if (!open) setPendingAdminSave(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('settings.auth.adminRoleConfirmTitle')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('settings.auth.registrationAdminConfirmDescription')}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common:cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                if (pendingAdminSave) onSave(pendingAdminSave);
+                setPendingAdminSave(null);
+              }}
+            >
+              {t('settings.auth.adminRoleConfirm')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={pendingReset !== null} onOpenChange={(open) => { if (!open) setPendingReset(null); }}>
         <AlertDialogContent>

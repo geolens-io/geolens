@@ -733,7 +733,7 @@
       "saveChanges": "Enregistrer les modifications",
       "createProvider": "Créer le fournisseur",
       "deleteTitle": "Supprimer le fournisseur OAuth",
-      "deleteDescription": "Voulez-vous vraiment supprimer « {{name}} » ? Les comptes créés par ce fournisseur n'ont pas de mot de passe et ne pourront plus se connecter ensuite.",
+      "deleteDescription": "Voulez-vous vraiment supprimer « {{name}} » ? Les comptes dont ce fournisseur est la seule méthode de connexion n'ont pas de mot de passe et ne pourront plus se connecter ensuite.",
       "created": "Fournisseur OAuth créé",
       "createFailed": "Échec de la création",
       "updated": "Fournisseur OAuth mis à jour",
@@ -792,7 +792,8 @@
       "adminRoleConfirm": "Enregistrer avec le rôle administrateur",
       "resetConfirmTitle": "Réinitialiser ce paramètre ?",
       "resetConfirmDescription": "La valeur par défaut s'applique immédiatement, sans cliquer sur Enregistrer. Cela peut assouplir les restrictions d'inscription ou de connexion.",
-      "resetConfirm": "Réinitialiser"
+      "resetConfirm": "Réinitialiser",
+      "registrationAdminConfirmDescription": "Chaque inscription par mot de passe dont l'e-mail est vérifié deviendra administrateur. Assurez-vous que c'est bien voulu."
     }
   },
   "infrastructure": {

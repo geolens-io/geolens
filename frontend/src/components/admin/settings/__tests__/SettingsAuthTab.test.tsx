@@ -2,6 +2,7 @@ import { QueryClient } from '@tanstack/react-query';
 import { render, screen, waitFor, within } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { toast } from 'sonner';
+import { fetchEdition } from '@/api/edition';
 import { SettingsAuthTab } from '../SettingsAuthTab';
 import { buildOAuthEndpointFields } from '../oauth-endpoint-fields';
 import { queryKeys } from '@/lib/query-keys';
@@ -32,6 +33,10 @@ vi.mock('@/api/settings', async () => {
     }),
   };
 });
+
+vi.mock('@/api/edition', () => ({
+  fetchEdition: vi.fn().mockResolvedValue({ edition: 'community', features: [] }),
+}));
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
@@ -499,6 +504,20 @@ describe('SettingsAuthTab', () => {
       expect(screen.getByRole('combobox', { name: /default role for new sign-ups/i })).toHaveTextContent('Editor');
     });
 
+    it('confirms before saving admin as the sign-up default role', async () => {
+      // jsdom lacks scrollIntoView, which Radix Select calls when it opens.
+      Element.prototype.scrollIntoView = vi.fn();
+      const user = userEvent.setup();
+      const { onSave } = renderTab([makeSetting('registration_default_role', 'viewer')]);
+      screen.getByRole('combobox', { name: /default role for new sign-ups/i }).focus();
+      await user.keyboard('{Enter}');
+      await user.click(await screen.findByRole('option', { name: 'Admin' }));
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+      expect(onSave).not.toHaveBeenCalled();
+      await user.click(await screen.findByRole('button', { name: /save with admin role/i }));
+      expect(onSave).toHaveBeenCalledOnce();
+    });
+
     it('hides the default sign-up role control when the key is absent', () => {
       renderTab();
       expect(screen.queryByText(/default role for new sign-ups/i)).not.toBeInTheDocument();
@@ -610,6 +629,23 @@ describe('SettingsAuthTab', () => {
       await screen.findByLabelText('Display Name');
       expect(screen.queryByLabelText('Group Claim')).not.toBeInTheDocument();
       expect(screen.queryByLabelText(/group role mapping/i)).not.toBeInTheDocument();
+    });
+
+    it('clears legacy group fields on save outside the enterprise edition', async () => {
+      vi.mocked(updateOAuthProvider).mockResolvedValueOnce(OIDC_PROVIDER);
+      const user = await openEdit({
+        ...OIDC_PROVIDER,
+        group_claim: 'groups',
+        group_role_mapping: { Admins: 'admin' },
+      });
+      await screen.findByLabelText('Display Name');
+      await waitFor(() => expect(fetchEdition).toHaveBeenCalled());
+      await user.click(screen.getByRole('button', { name: 'Save Changes' }));
+      await waitFor(() => expect(updateOAuthProvider).toHaveBeenCalledOnce());
+      expect(updateOAuthProvider).toHaveBeenCalledWith(
+        OIDC_PROVIDER.id,
+        expect.objectContaining({ group_claim: null, group_role_mapping: null }),
+      );
     });
 
     it('lists default roles, keeps unknown roles visible and drops SAML rows', async () => {

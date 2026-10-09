@@ -733,7 +733,7 @@
       "saveChanges": "Änderungen speichern",
       "createProvider": "Anbieter erstellen",
       "deleteTitle": "OAuth-Anbieter löschen",
-      "deleteDescription": "Möchten Sie „{{name}}“ wirklich löschen? Von diesem Anbieter erstellte Konten haben kein Passwort und können sich danach nicht mehr anmelden.",
+      "deleteDescription": "Möchten Sie „{{name}}“ wirklich löschen? Konten, deren einzige Anmeldemethode dieser Anbieter ist, haben kein Passwort und können sich danach nicht mehr anmelden.",
       "created": "OAuth-Anbieter erstellt",
       "createFailed": "OAuth-Anbieter konnte nicht erstellt werden",
       "updated": "OAuth-Anbieter aktualisiert",
@@ -792,7 +792,8 @@
       "adminRoleConfirm": "Mit Administratorrolle speichern",
       "resetConfirmTitle": "Diese Einstellung zurücksetzen?",
       "resetConfirmDescription": "Der Standardwert gilt sofort, ohne Speichern. Das kann Einschränkungen bei Registrierung oder Anmeldung lockern.",
-      "resetConfirm": "Zurücksetzen"
+      "resetConfirm": "Zurücksetzen",
+      "registrationAdminConfirmDescription": "Jede Registrierung mit Passwort, die ihre E-Mail bestätigt, wird Administrator. Stellen Sie sicher, dass das beabsichtigt ist."
     }
   },
   "infrastructure": {

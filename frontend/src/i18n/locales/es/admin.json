@@ -733,7 +733,7 @@
       "saveChanges": "Guardar cambios",
       "createProvider": "Crear proveedor",
       "deleteTitle": "Eliminar proveedor OAuth",
-      "deleteDescription": "¿Seguro que quieres eliminar \"{{name}}\"? Las cuentas creadas por este proveedor no tienen contraseña y no podrán iniciar sesión después.",
+      "deleteDescription": "¿Seguro que quieres eliminar \"{{name}}\"? Las cuentas cuyo único método de inicio de sesión es este proveedor no tienen contraseña y no podrán iniciar sesión después.",
       "created": "Proveedor OAuth creado",
       "createFailed": "Error al crear proveedor OAuth",
       "updated": "Proveedor OAuth actualizado",
@@ -792,7 +792,8 @@
       "adminRoleConfirm": "Guardar con rol de administrador",
       "resetConfirmTitle": "¿Restablecer este ajuste?",
       "resetConfirmDescription": "El valor predeterminado se aplica de inmediato, sin pulsar Guardar. Esto puede relajar las restricciones de registro o de inicio de sesión.",
-      "resetConfirm": "Restablecer"
+      "resetConfirm": "Restablecer",
+      "registrationAdminConfirmDescription": "Todo registro con contraseña que verifique su correo se convertirá en administrador. Asegúrate de que es lo que quieres."
     }
   },
   "infrastructure": {

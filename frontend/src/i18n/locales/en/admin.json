@@ -774,7 +774,7 @@
       "saveChanges": "Save Changes",
       "createProvider": "Create Provider",
       "deleteTitle": "Delete OAuth Provider",
-      "deleteDescription": "Are you sure you want to delete \"{{name}}\"? Accounts created by this provider have no password and can't sign in afterwards.",
+      "deleteDescription": "Are you sure you want to delete \"{{name}}\"? Accounts whose only sign-in method is this provider have no password and can't sign in afterwards.",
       "created": "OAuth provider created",
       "createFailed": "Failed to create OAuth provider",
       "updated": "OAuth provider updated",
@@ -817,7 +817,8 @@
       "adminRoleConfirm": "Save with admin role",
       "resetConfirmTitle": "Reset this setting?",
       "resetConfirmDescription": "The default takes effect immediately, without pressing Save. This can loosen sign-up or sign-in restrictions.",
-      "resetConfirm": "Reset"
+      "resetConfirm": "Reset",
+      "registrationAdminConfirmDescription": "Every password sign-up that verifies its email will become an administrator. Make sure that is what you want."
     }
   },
   "saml": {
