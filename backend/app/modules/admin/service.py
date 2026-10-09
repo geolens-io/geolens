@@ -257,6 +257,9 @@ class AdminService:
             email=email,
             status="active",
             is_active=True,
+            # An address an admin entered counts as verified, so the person's
+            # first SSO sign-in links to this account.
+            email_verified=email is not None,
         )
         self.db.add(user)
         await self.db.flush()
@@ -390,6 +393,8 @@ class AdminService:
                 await self._ensure_unique_user_field(
                     User.email, email, "Email already registered", exclude_id=user_id
                 )
+            if email != user.email:
+                user.email_verified = email is not None
             user.email = email
 
         if target_status is not None:

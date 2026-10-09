@@ -34,6 +34,12 @@ function getOAuthErrorMessage(error: string, t: (key: string, opts?: Record<stri
   if (error.includes('registration_disabled')) {
     return t('oauthErrors.registrationDisabled');
   }
+  if (error.includes('account_not_linkable')) {
+    return t('oauthErrors.accountNotLinkable');
+  }
+  if (error.includes('account_inactive')) {
+    return t('oauthErrors.accountInactive');
+  }
   return t('oauthErrors.generic', { error });
 }
 

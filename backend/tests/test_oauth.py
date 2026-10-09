@@ -2,9 +2,10 @@
 
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, update
 from starlette.requests import Request
 from starlette.responses import RedirectResponse
 
@@ -959,6 +960,7 @@ class TestFindOrCreateOAuthUser:
             is_active=True,
             status="active",
             auth_provider="local",
+            email_verified=True,
         )
         test_db_session.add(local_user)
         await test_db_session.flush()
@@ -1119,6 +1121,169 @@ class TestFindOrCreateOAuthUser:
             "name": "Unknown Verification",
         }
         with pytest.raises(OAuthEmailUnverifiedError):
+            await find_or_create_oauth_user(test_db_session, provider, userinfo, {})
+
+    async def _verified_sign_in(self, db, provider, email):
+        from app.modules.auth.oauth.service import find_or_create_oauth_user
+
+        userinfo = {
+            "sub": f"sso-{uuid.uuid4().hex[:8]}",
+            "email": email,
+            "email_verified": True,
+            "name": "SSO User",
+        }
+        return await find_or_create_oauth_user(db, provider, userinfo, {})
+
+    async def _link_count(self, db, provider) -> int:
+        from sqlalchemy import func as sa_func
+
+        from app.modules.auth.oauth.models import OAuthAccount
+
+        return (
+            await db.execute(
+                select(sa_func.count())
+                .select_from(OAuthAccount)
+                .where(OAuthAccount.provider_id == provider.id)
+            )
+        ).scalar_one()
+
+    async def _self_register(self, db, email) -> uuid.UUID:
+        from app.modules.auth.service import AuthService
+
+        user_id = await AuthService(db).register_user(
+            username=f"selfreg-{uuid.uuid4().hex[:6]}",
+            password="Password-1234",
+            email=email,
+        )
+        await db.commit()
+        return user_id
+
+    async def test_email_link_refused_for_self_registered_pending_account(
+        self, client, test_db_session
+    ):
+        """A verified IdP email does not link to a self-registered account
+        still awaiting verification or approval."""
+        from app.modules.auth.oauth.service import OAuthAccountNotLinkableError
+
+        email = f"pending-{uuid.uuid4().hex[:6]}@example.com"
+        await self._self_register(test_db_session, email)
+        provider = await self._create_test_provider(test_db_session)
+        await test_db_session.commit()
+
+        with pytest.raises(OAuthAccountNotLinkableError):
+            await self._verified_sign_in(test_db_session, provider, email)
+        assert await self._link_count(test_db_session, provider) == 0
+
+    async def test_email_link_refused_for_approved_unverified_account(
+        self, client, test_db_session
+    ):
+        """Approving a self-registration activates it without verifying its
+        address, so it still does not link by email."""
+        from app.modules.admin.service import AdminService
+        from app.modules.auth.oauth.service import OAuthAccountNotLinkableError
+
+        email = f"approved-{uuid.uuid4().hex[:6]}@example.com"
+        user_id = await self._self_register(test_db_session, email)
+        await AdminService(test_db_session).approve_user(user_id, "viewer")
+        provider = await self._create_test_provider(test_db_session)
+        await test_db_session.commit()
+
+        with pytest.raises(OAuthAccountNotLinkableError):
+            await self._verified_sign_in(test_db_session, provider, email)
+        assert await self._link_count(test_db_session, provider) == 0
+
+    async def test_email_link_refused_for_inactive_verified_account(
+        self, client, test_db_session
+    ):
+        from app.modules.auth.models import User
+        from app.modules.auth.oauth.service import OAuthAccountInactiveError
+
+        email = f"deactivated-{uuid.uuid4().hex[:6]}@example.com"
+        test_db_session.add(
+            User(
+                username=f"deactivated-{uuid.uuid4().hex[:6]}",
+                email=email,
+                is_active=False,
+                status="deactivated",
+                email_verified=True,
+            )
+        )
+        provider = await self._create_test_provider(test_db_session)
+        await test_db_session.commit()
+
+        with pytest.raises(OAuthAccountInactiveError):
+            await self._verified_sign_in(test_db_session, provider, email)
+        assert await self._link_count(test_db_session, provider) == 0
+
+    async def test_admin_created_account_links_by_email(self, client, test_db_session):
+        """An account an admin created for someone links on their first SSO
+        sign-in."""
+        from app.modules.admin.service import AdminService
+
+        email = f"admin-made-{uuid.uuid4().hex[:6]}@example.com"
+        created = await AdminService(test_db_session).create_user(
+            username=f"admin-made-{uuid.uuid4().hex[:6]}",
+            password="Password-1234",
+            email=email,
+        )
+        provider = await self._create_test_provider(test_db_session)
+        await test_db_session.commit()
+
+        user = await self._verified_sign_in(test_db_session, provider, email)
+        await test_db_session.commit()
+
+        assert user.id == created.id
+        assert await self._link_count(test_db_session, provider) == 1
+
+    async def test_admin_entered_email_links_an_approved_account(
+        self, client, test_db_session
+    ):
+        """An admin setting an approved account's address vouches for it the
+        way creating the account does."""
+        from app.modules.admin.schemas import UserUpdate
+        from app.modules.admin.service import AdminService
+
+        user_id = await self._self_register(
+            test_db_session, f"typo-{uuid.uuid4().hex[:6]}@example.com"
+        )
+        admin = AdminService(test_db_session)
+        await admin.approve_user(user_id, "viewer")
+        email = f"corrected-{uuid.uuid4().hex[:6]}@example.com"
+        await admin.update_user(user_id, UserUpdate(email=email))
+        provider = await self._create_test_provider(test_db_session)
+        await test_db_session.commit()
+
+        user = await self._verified_sign_in(test_db_session, provider, email)
+
+        assert user.id == user_id
+
+    async def test_returning_user_refused_when_account_inactive(
+        self, client, test_db_session
+    ):
+        from app.modules.auth.models import User
+        from app.modules.auth.oauth.service import (
+            OAuthAccountInactiveError,
+            find_or_create_oauth_user,
+        )
+
+        provider = await self._create_test_provider(test_db_session)
+        await test_db_session.commit()
+        userinfo = {
+            "sub": f"returning-{uuid.uuid4().hex[:8]}",
+            "email": f"returning-{uuid.uuid4().hex[:6]}@example.com",
+            "email_verified": True,
+            "name": "Returning User",
+        }
+        user = await find_or_create_oauth_user(test_db_session, provider, userinfo, {})
+        await test_db_session.commit()
+        await test_db_session.execute(
+            update(User)
+            .where(User.id == user.id)
+            .values(status="deactivated", is_active=False)
+        )
+        await test_db_session.commit()
+
+        with pytest.raises(OAuthAccountInactiveError):
             await find_or_create_oauth_user(test_db_session, provider, userinfo, {})
 
     async def test_unverified_email_no_collision_creates_user_without_email(
@@ -1725,3 +1890,94 @@ class TestOAuthProvidersEndpoint:
         resp = await client.get("/auth/oauth/providers/")
         assert resp.status_code == 200
         assert (slug in {p["slug"] for p in resp.json()}) is enterprise
+
+
+async def test_callback_issues_no_session_to_an_inactive_account(
+    client, test_db_session, monkeypatch
+):
+    """A returning SSO identity whose account was deactivated gets a named
+    refusal: no tokens, no staged session and a failure audit row."""
+    from app.modules.audit.models import AuditLog
+    from app.modules.auth.models import RefreshToken, User
+    from app.modules.auth.oauth.models import OAuthAccount
+    from app.modules.auth.oauth.schemas import OAuthProviderCreate
+    from app.modules.auth.oauth.service import create_provider
+    from tests.test_sso_sign_in_exchange import Browser, _idp_app, _pin_public_urls
+
+    _pin_public_urls(monkeypatch, "http://app.test", "http://api.test/api")
+    suffix = uuid.uuid4().hex[:6]
+    provider = await create_provider(
+        test_db_session,
+        OAuthProviderCreate(
+            slug=f"inactive-{suffix}",
+            display_name="Inactive Account Provider",
+            provider_type="oidc",
+            client_id=f"client-{suffix}",
+            client_secret="test-secret",
+            enabled=True,
+            default_role="viewer",
+        ),
+    )
+    user = User(
+        username=f"inactive-{suffix}",
+        email=f"inactive-{suffix}@example.com",
+        status="deactivated",
+        is_active=False,
+        email_verified=True,
+        auth_provider="oauth",
+    )
+    test_db_session.add(user)
+    await test_db_session.flush()
+    subject = f"inactive-sub-{suffix}"
+    test_db_session.add(
+        OAuthAccount(provider_id=provider.id, user_id=user.id, subject=subject)
+    )
+    await test_db_session.commit()
+
+    idp = _idp_app()
+    idp.fetch_access_token = AsyncMock(
+        return_value={
+            "access_token": "idp",
+            "token_type": "bearer",
+            "userinfo": {
+                "sub": subject,
+                "email": user.email,
+                "email_verified": True,
+            },
+        }
+    )
+    client.cookies.clear()
+    browser = Browser(client)
+    with patch(
+        "app.modules.auth.oauth.router.build_oauth_client",
+        AsyncMock(return_value=(idp, provider)),
+    ):
+        started = await browser.request(
+            "GET", f"/auth/oauth/sso/login?nonce={'n' * 43}", follow_redirects=False
+        )
+        assert started.status_code == 302, started.text
+        state = parse_qs(urlsplit(started.headers["location"]).query)["state"][0]
+        response = await browser.request(
+            "GET",
+            f"/auth/oauth/sso/callback?code=idp-code&state={state}",
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 302
+    fragment = parse_qs(urlsplit(response.headers["location"]).fragment)
+    assert fragment["error"] == ["account_inactive"]
+    assert "token" not in fragment and "code" not in fragment
+    sessions = await test_db_session.execute(
+        select(RefreshToken.id).where(RefreshToken.user_id == user.id)
+    )
+    assert sessions.first() is None
+    correlation_id = fragment["correlation_id"][0]
+    outcomes = (
+        await test_db_session.execute(
+            select(AuditLog.action, AuditLog.details["outcome"].astext).where(
+                AuditLog.details["correlation_id"].astext == correlation_id
+            )
+        )
+    ).all()
+    assert ("oauth.login.failure", "account_inactive") in outcomes
+    assert not any(action == "oauth.login.success" for action, _ in outcomes)

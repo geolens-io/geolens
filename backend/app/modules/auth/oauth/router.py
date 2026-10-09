@@ -494,12 +494,11 @@ async def oauth_callback(
         raise  # Let 404s from build_oauth_client pass through
     except Exception as exc:  # broad: OAuth provider can return arbitrary errors; map to redirect with correlation_id
         # Refusals told to the caller by name rather than the generic
-        # "OAuth callback failed" below: H-30's email-not-verified collision,
-        # DOMAIN-03's allowlist rejection, and fix(#1778)'s
-        # registration-disabled gate. All three do the same thing, so they
-        # share one loop. DOMAIN-03 (T-1236-04): the log records provider
-        # slug and correlation_id ONLY, never the attempted email/subject.
+        # "OAuth callback failed" below. The log records provider slug and
+        # correlation_id only, never the attempted email or subject.
         from app.modules.auth.oauth.service import (
+            OAuthAccountInactiveError,
+            OAuthAccountNotLinkableError,
             OAuthDomainNotAllowedError,
             OAuthEmailUnverifiedError,
             OAuthRegistrationDisabledError,
@@ -520,6 +519,16 @@ async def oauth_callback(
                 OAuthRegistrationDisabledError,
                 "registration_disabled",
                 "OAuth callback refused: self-serve registration is disabled",
+            ),
+            (
+                OAuthAccountNotLinkableError,
+                "account_not_linkable",
+                "OAuth callback refused: matching account's email is unverified",
+            ),
+            (
+                OAuthAccountInactiveError,
+                "account_inactive",
+                "OAuth callback refused: account is not active",
             ),
         )
         for refusal_type, outcome, log_message in named_refusals:
