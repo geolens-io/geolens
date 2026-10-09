@@ -14,8 +14,8 @@ and releases use semantic versioning.
   `REDIS_URL=redis://valkey:6379/0` so token-protected service imports, shared
   rate limits and tile content versions work on a single host. The valkey
   service now restarts with the host, takes a `VALKEY_MEM_LIMIT` (default
-  256m) with a lower `VALKEY_MAXMEMORY`, keeps nothing on disk and no longer
-  publishes port 6379 on the host. The `cloud-dev`
+  256m) with a lower `VALKEY_MAXMEMORY` that evicts the soonest-expiring keys
+  first, keeps nothing on disk and no longer publishes port 6379 on the host. The `cloud-dev`
   profile still starts it. An install that ran the old prod `valkey` service
   keeps its `<project>_valkey_data` volume, which may hold a snapshot with
   service credentials: stop the service, then remove it with

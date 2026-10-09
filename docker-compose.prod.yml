@@ -796,9 +796,9 @@ services:
     mem_limit: "${VALKEY_MEM_LIMIT:-256m}"
     # The cache holds short-lived service credentials, which must never reach
     # disk, so snapshots and the append-only file are off and /data is not
-    # mounted. maxmemory sits below mem_limit and noeviction refuses new writes
-    # at the ceiling, so an accepted credential is never evicted before its TTL
-    # and Valkey is not OOM-killed.
+    # mounted. maxmemory sits below mem_limit so Valkey evicts instead of being
+    # OOM-killed. volatile-ttl drops the soonest-expiring keys first: tiles
+    # (300s) and rate-limit windows go before credential handoffs (900s).
     command:
       - valkey-server
       - --save
@@ -808,7 +808,7 @@ services:
       - --maxmemory
       - "${VALKEY_MAXMEMORY:-192mb}"
       - --maxmemory-policy
-      - noeviction
+      - volatile-ttl
     # No host port: the API and worker reach it at valkey:6379 over the compose
     # network, and the cache has no auth, so it stays off the host.
     healthcheck:
