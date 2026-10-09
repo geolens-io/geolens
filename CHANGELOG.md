@@ -20,7 +20,8 @@ and releases use semantic versioning.
   keeps its `<project>_valkey_data` volume, which may hold a snapshot with
   service credentials: remove the old container with
   `docker compose --profile cache rm -sf valkey`, then the volume with
-  `docker volume rm <project>_valkey_data`.
+  `docker volume rm <project>_valkey_data`. If you already upgraded, start the
+  cache again afterwards with `docker compose --profile cache up -d valkey`.
 
 ## [1.23.0] - 2026-10-09
 
