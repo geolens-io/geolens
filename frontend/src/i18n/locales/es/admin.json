@@ -728,7 +728,7 @@
       "groupClaim": "Claim de grupo",
       "groupClaimHint": "Claim JWT que contiene las membresías de grupo del usuario.",
       "groupRoleMapping": "Mapeo de roles de grupo (JSON)",
-      "groupRoleMappingHint": "Asigna nombres de grupo del IdP a roles de GeoLens, como objeto JSON. Si un usuario coincide con varios grupos, gana el rol de mayor privilegio (admin, luego editor, luego lector; los roles personalizados se ordenan por el número de permisos que otorgan). Sin coincidencia, se aplica el rol predeterminado del proveedor.",
+      "groupRoleMappingHint": "Asigna nombres de grupo del IdP a roles de GeoLens, como objeto JSON. Si un usuario coincide con varios grupos, gana el rol de mayor privilegio (admin, luego editor, luego lector). Sin coincidencia, se aplica el rol predeterminado del proveedor.",
       "enabledToggle": "Habilitado",
       "saveChanges": "Guardar cambios",
       "createProvider": "Crear proveedor",

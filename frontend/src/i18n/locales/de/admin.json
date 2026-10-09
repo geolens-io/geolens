@@ -728,7 +728,7 @@
       "groupClaim": "Gruppen-Claim",
       "groupClaimHint": "JWT-Claim mit Gruppenmitgliedschaften des Benutzers.",
       "groupRoleMapping": "Gruppen-Rollen-Zuordnung (JSON)",
-      "groupRoleMappingHint": "Ordnet IdP-Gruppennamen GeoLens-Rollen zu, als JSON-Objekt. Passt ein Benutzer auf mehrere Gruppen, gewinnt die Rolle mit den meisten Rechten (Administrator, dann Bearbeiter, dann Betrachter; eigene Rollen werden nach der Zahl ihrer Berechtigungen eingestuft). Ohne Treffer gilt die Standardrolle des Anbieters.",
+      "groupRoleMappingHint": "Ordnet IdP-Gruppennamen GeoLens-Rollen zu, als JSON-Objekt. Passt ein Benutzer auf mehrere Gruppen, gewinnt die Rolle mit den meisten Rechten (Administrator, dann Bearbeiter, dann Betrachter). Ohne Treffer gilt die Standardrolle des Anbieters.",
       "enabledToggle": "Aktiviert",
       "saveChanges": "Änderungen speichern",
       "createProvider": "Anbieter erstellen",

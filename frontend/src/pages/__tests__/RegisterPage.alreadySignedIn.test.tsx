@@ -24,6 +24,7 @@ vi.mock('@/api/auth', () => ({
 
 // Import after mocks are registered.
 import { toast } from 'sonner';
+import { getAuthConfig } from '@/api/auth';
 
 function makeWrapper() {
   const queryClient = new QueryClient({
@@ -109,6 +110,17 @@ describe('RegisterPage — authenticated user redirect (ROUTE-03)', () => {
     // No toast should fire.
     expect(toast.info).not.toHaveBeenCalled();
     expect(toast.success).not.toHaveBeenCalled();
+  });
+
+  it('shows the closed card when sign-up is off although registration is on', async () => {
+    vi.mocked(getAuthConfig).mockResolvedValueOnce({
+      registration_enabled: true,
+      allow_signup: false,
+    });
+    const { Wrapper } = makeWrapper();
+    render(<RegisterPage />, { wrapper: Wrapper });
+
+    await screen.findByText('Registration Disabled');
   });
 
   it('Test 3: re-rendering the authenticated page does not fire toast a second time', async () => {
