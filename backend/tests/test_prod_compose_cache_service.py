@@ -30,4 +30,5 @@ def test_valkey_keeps_credentials_off_disk_and_evicts_below_the_cap():
     assert cmd[cmd.index("--save") + 1] == ""
     assert cmd[cmd.index("--appendonly") + 1] == "no"
     assert "--maxmemory" in cmd
+    assert cmd[cmd.index("--maxmemory-policy") + 1] == "noeviction"
     assert not any("/data" in str(v) for v in svc.get("volumes", []))
