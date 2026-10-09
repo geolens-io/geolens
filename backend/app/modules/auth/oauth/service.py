@@ -361,6 +361,21 @@ class OAuthRegistrationDisabledError(Exception):
     """
 
 
+class OAuthAccountNotLinkableError(Exception):
+    """Raised when a verified IdP email matches an existing account whose own
+    address is unverified, so the identity is not linked to it.
+
+    Router redirects with ``error=account_not_linkable``.
+    """
+
+
+class OAuthAccountInactiveError(Exception):
+    """Raised when the account an SSO identity resolves to is not active.
+
+    No session is issued. Router redirects with ``error=account_inactive``.
+    """
+
+
 async def create_provider(
     db: AsyncSession,
     data: OAuthProviderCreate,
@@ -841,10 +856,14 @@ async def find_or_create_oauth_user(
 
     Three-step resolution:
     1. Existing OAuthAccount link (returning user) -> return linked user
-    2. Email match (OAUTH-06) -> link to existing user, return user
-    3. New user (OAUTH-05) -> create user with default_role, create OAuthAccount
+    2. Email match -> link to the existing user when its own address is
+       verified, return user
+    3. New user -> create user with default_role, create OAuthAccount
 
-    Group claims are mapped to roles per provider config (OAUTH-07).
+    Group claims are mapped to roles per provider config.
+
+    Raises ``OAuthAccountInactiveError`` rather than return an account that
+    is not active, so no caller issues it a session.
 
     fix(#1778): steps 1 and 2 both yield an EXISTING account and both
     call ``_reconcile_mapped_role``; step 3 sets the role inline via
@@ -878,6 +897,8 @@ async def find_or_create_oauth_user(
     # cross-tenant collision the tid: prefix prevents.
     if existing_link is not None:
         returning_user = existing_link.user
+        if not returning_user.is_active or returning_user.status != "active":
+            raise OAuthAccountInactiveError("The linked account is not active.")
 
         # WR-02: domain check also applies to RETURNING users (the original
         # DOMAIN-03 ran only before Step 1, letting a returning user with an
@@ -984,6 +1005,18 @@ async def find_or_create_oauth_user(
         )
         existing_user = result.scalar_one_or_none()
         if existing_user is not None:
+            # The IdP vouches for the address, not for whoever created the
+            # local row, so link only to a row whose address its owner
+            # verified or an admin entered.
+            if not existing_user.email_verified:
+                raise OAuthAccountNotLinkableError(
+                    "An account with this email exists but its address is not "
+                    "verified, so this sign-in cannot be linked to it."
+                )
+            if not existing_user.is_active or existing_user.status != "active":
+                raise OAuthAccountInactiveError(
+                    "The account with this email is not active."
+                )
             # Link OAuth account to existing user
             link = OAuthAccount(
                 provider_id=provider.id,
