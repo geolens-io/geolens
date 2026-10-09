@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -47,10 +47,13 @@ import {
 } from '@/api/settings';
 import { queryKeys } from '@/lib/query-keys';
 import { useInvalidateAuthProviders } from '@/hooks/use-auth-providers';
-import { useTileConfig } from '@/hooks/use-settings';
+import { useTileConfig, useNotificationStatus } from '@/hooks/use-settings';
+import { useEdition } from '@/hooks/use-edition';
+import { formatMutationError } from '@/lib/error-map';
 import { getPublicApiBaseUrl } from '@/lib/dataset-access';
 import { Textarea } from '@/components/ui/textarea';
 import { buildOAuthEndpointFields } from './oauth-endpoint-fields';
+import { hasOpenSignupRisk, isValidDomainPattern } from './auth-tab-rules';
 
 interface TabProps {
   settings: SettingItem[];
@@ -61,6 +64,16 @@ interface TabProps {
   settingsUpdatedAt?: number;
   saveFailed?: boolean;
   onDirtyChange?: (dirty: boolean) => void;
+}
+
+// The list endpoint also returns SAML rows, which the SAML page manages.
+function useOAuthProviders() {
+  const { data = [], isLoading, isError } = useQuery({
+    queryKey: queryKeys.settingsOAuth.providers,
+    queryFn: listOAuthProviders,
+  });
+  const providers = useMemo(() => data.filter((p) => (p.provider_type as string) !== 'saml'), [data]);
+  return { providers, isLoading, isError };
 }
 
 function useProviderTypeLabels(): Record<string, string> {
@@ -111,6 +124,12 @@ interface ProviderFormData {
   microsoft_tenant_id: string; // UI-only field
 }
 
+const BUILTIN_ROLES = ['viewer', 'editor', 'admin'];
+
+function roleLabel(t: (key: string) => string, role: string): string {
+  return BUILTIN_ROLES.includes(role) ? t(`settings.oauth.roles.${role}`) : role;
+}
+
 const EMPTY_FORM: ProviderFormData = {
   provider_type: 'google',
   display_name: 'Google',
@@ -138,10 +157,8 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
   // table — the two used to drift, see hooks/use-auth-providers.ts.
   const invalidateAuthProviders = useInvalidateAuthProviders();
 
-  const { data: providers = [], isLoading, isError } = useQuery({
-    queryKey: queryKeys.settingsOAuth.providers,
-    queryFn: listOAuthProviders,
-  });
+  const { providers, isLoading, isError } = useOAuthProviders();
+  const { isEnterprise } = useEdition();
 
   const createMutation = useMutation({
     mutationFn: (data: OAuthProviderCreateData) => createOAuthProvider(data),
@@ -149,8 +166,8 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
       invalidateAuthProviders();
       toast.success(t('settings.oauth.created'));
     },
-    onError: () => {
-      toast.error(t('settings.oauth.createFailed'));
+    onError: (err) => {
+      toast.error(formatMutationError('admin:settings.oauth.createFailed', err));
     },
   });
 
@@ -161,8 +178,8 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
       invalidateAuthProviders();
       toast.success(t('settings.oauth.updated'));
     },
-    onError: () => {
-      toast.error(t('settings.oauth.updateFailed'));
+    onError: (err) => {
+      toast.error(formatMutationError('admin:settings.oauth.updateFailed', err));
     },
   });
 
@@ -172,14 +189,15 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
       invalidateAuthProviders();
       toast.success(t('settings.oauth.deleted'));
     },
-    onError: () => {
-      toast.error(t('settings.oauth.deleteFailed'));
+    onError: (err) => {
+      toast.error(formatMutationError('admin:settings.oauth.deleteFailed', err));
     },
   });
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProvider, setEditingProvider] = useState<OAuthProviderConfig | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<OAuthProviderConfig | null>(null);
+  const [adminRoleConfirmOpen, setAdminRoleConfirmOpen] = useState(false);
   const [form, setForm] = useState<ProviderFormData>(EMPTY_FORM);
   const { data: tileConfig, isLoading: tileConfigLoading } = useTileConfig();
   // #305: derive the callback from the CONFIGURED public
@@ -239,8 +257,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
     setForm((prev) => ({
       ...prev,
       provider_type: providerType,
-      display_name: displayName,
-      slug: slugify(displayName),
+      ...(editingProvider ? {} : { display_name: displayName, slug: slugify(displayName) }),
       // GitHub has no discovery URL; its endpoints are auto-filled by the
       // backend (or supplied per-field below for GitHub Enterprise).
       discovery_url: isGithub ? '' : discoveryUrl,
@@ -262,7 +279,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
     }));
   }
 
-  function handleSubmit() {
+  function handleSubmit(adminRoleConfirmed = false) {
     let groupMapping: Record<string, string> | null = null;
     if (form.group_role_mapping.trim()) {
       try {
@@ -271,6 +288,16 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
         toast.error(t('settings.oauth.invalidJson'));
         return;
       }
+    }
+
+    if (!editingProvider && !form.client_secret) {
+      toast.error(t('settings.oauth.secretRequired'));
+      return;
+    }
+
+    if (form.default_role === 'admin' && !adminRoleConfirmed) {
+      setAdminRoleConfirmOpen(true);
+      return;
     }
 
     // Clear the inactive endpoint mode while preserving an existing generic
@@ -300,10 +327,6 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
         { onSuccess: () => setDialogOpen(false) },
       );
     } else {
-      if (!form.client_secret) {
-        toast.error(t('settings.oauth.secretRequired'));
-        return;
-      }
       const data: OAuthProviderCreateData = {
         slug: form.slug,
         display_name: form.display_name,
@@ -357,6 +380,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
               <TableRow>
                 <TableHead>{t('settings.oauth.provider')}</TableHead>
                 <TableHead>{t('settings.oauth.type')}</TableHead>
+                <TableHead>{t('settings.oauth.defaultRole')}</TableHead>
                 <TableHead>{t('settings.oauth.status')}</TableHead>
                 <TableHead className="text-end">{t('settings.oauth.actions')}</TableHead>
               </TableRow>
@@ -370,6 +394,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
                       {PROVIDER_TYPE_LABELS[provider.provider_type] ?? provider.provider_type}
                     </Badge>
                   </TableCell>
+                  <TableCell>{roleLabel(t, provider.default_role)}</TableCell>
                   <TableCell>
                     <Badge variant={provider.enabled ? 'default' : 'secondary'}>
                       {provider.enabled ? t('settings.oauth.enabled') : t('settings.oauth.disabled')}
@@ -462,7 +487,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
                   setForm((prev) => ({
                     ...prev,
                     display_name: name,
-                    slug: slugify(name),
+                    ...(editingProvider ? {} : { slug: slugify(name) }),
                   }));
                 }}
                 disabled={envOnly}
@@ -480,12 +505,17 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
               <p className="text-xs text-muted-foreground">
                 {t('settings.oauth.slugHint')}
               </p>
+              {editingProvider && form.slug !== editingProvider.slug && (
+                <p role="alert" className="text-xs text-warning">
+                  {t('settings.auth.slugChangeWarning')}
+                </p>
+              )}
             </div>
 
             {/* #305: read-only redirect/callback URL admins must register with the provider. */}
             <div className="space-y-2">
               <Label htmlFor="callback-url">
-                {t('settings.oauth.callbackUrl', { defaultValue: 'Redirect / Callback URL' })}
+                {t('settings.oauth.callbackUrl')}
               </Label>
               <div className="flex items-center gap-2">
                 <Input
@@ -502,22 +532,16 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
                   // origin fallback (wrong on split-host deployments) — block
                   // copying so an admin can't register a premature value.
                   disabled={tileConfigLoading}
-                  aria-label={t('settings.oauth.copyCallbackUrl', { defaultValue: 'Copy callback URL' })}
+                  aria-label={t('settings.oauth.copyCallbackUrl')}
                   onClick={async () => {
                     // #305: the Clipboard API is unavailable on non-secure
                     // (HTTP) origins and can reject — await + catch so a failure
                     // surfaces an error toast instead of a false success / throw.
                     try {
                       await navigator.clipboard.writeText(oauthCallbackUrl);
-                      toast.success(
-                        t('settings.oauth.callbackUrlCopied', { defaultValue: 'Callback URL copied to clipboard' }),
-                      );
+                      toast.success(t('settings.oauth.callbackUrlCopied'));
                     } catch {
-                      toast.error(
-                        t('settings.oauth.callbackUrlCopyFailed', {
-                          defaultValue: 'Could not copy — copy the URL manually.',
-                        }),
-                      );
+                      toast.error(t('settings.oauth.callbackUrlCopyFailed'));
                     }
                   }}
                 >
@@ -525,10 +549,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
-                {t('settings.oauth.callbackUrlHint', {
-                  defaultValue:
-                    'Register this exact URL as the authorized redirect / callback URL with your provider (Google, Microsoft, or GitHub).',
-                })}
+                {t('settings.oauth.callbackUrlHint')}
               </p>
             </div>
 
@@ -642,6 +663,9 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
                   <SelectItem value="viewer">{t('settings.oauth.roles.viewer')}</SelectItem>
                   <SelectItem value="editor">{t('settings.oauth.roles.editor')}</SelectItem>
                   <SelectItem value="admin">{t('settings.oauth.roles.admin')}</SelectItem>
+                  {!BUILTIN_ROLES.includes(form.default_role) && (
+                    <SelectItem value={form.default_role}>{form.default_role}</SelectItem>
+                  )}
                 </SelectContent>
               </Select>
               {/* fix(#1778): the role only applies to accounts this provider
@@ -652,34 +676,38 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
               </p>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="group-claim">{t('settings.oauth.groupClaim')}</Label>
-              <Input
-                id="group-claim"
-                value={form.group_claim}
-                onChange={(e) => setForm((prev) => ({ ...prev, group_claim: e.target.value }))}
-                placeholder='e.g. "groups"'
-                disabled={envOnly}
-              />
-              <p className="text-xs text-muted-foreground">
-                {t('settings.oauth.groupClaimHint')}
-              </p>
-            </div>
+            {isEnterprise && form.provider_type !== 'github' && (
+              <>
+              <div className="space-y-2">
+                <Label htmlFor="group-claim">{t('settings.oauth.groupClaim')}</Label>
+                <Input
+                  id="group-claim"
+                  value={form.group_claim}
+                  onChange={(e) => setForm((prev) => ({ ...prev, group_claim: e.target.value }))}
+                  placeholder='e.g. "groups"'
+                  disabled={envOnly}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t('settings.oauth.groupClaimHint')}
+                </p>
+              </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="group-role-mapping">{t('settings.oauth.groupRoleMapping')}</Label>
-              <Textarea
-                id="group-role-mapping"
-                className="min-h-[80px]"
-                value={form.group_role_mapping}
-                onChange={(e) => setForm((prev) => ({ ...prev, group_role_mapping: e.target.value }))}
-                placeholder='{"IdP Group": "viewer", "Admins": "admin"}'
-                disabled={envOnly}
-              />
-              <p className="text-xs text-muted-foreground">
-                {t('settings.oauth.groupRoleMappingHint')}
-              </p>
-            </div>
+              <div className="space-y-2">
+                <Label htmlFor="group-role-mapping">{t('settings.oauth.groupRoleMapping')}</Label>
+                <Textarea
+                  id="group-role-mapping"
+                  className="min-h-[80px]"
+                  value={form.group_role_mapping}
+                  onChange={(e) => setForm((prev) => ({ ...prev, group_role_mapping: e.target.value }))}
+                  placeholder='{"IdP Group": "viewer", "Admins": "admin"}'
+                  disabled={envOnly}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t('settings.oauth.groupRoleMappingHint')}
+                </p>
+              </div>
+              </>
+            )}
 
             <div className="flex items-center gap-3">
               <Switch
@@ -699,7 +727,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
               {t('common:cancel')}
             </Button>
             <Button
-              onClick={handleSubmit}
+              onClick={() => handleSubmit()}
               disabled={envOnly || isMutating || !form.slug || !form.client_id}
             >
               {editingProvider ? t('settings.oauth.saveChanges') : t('settings.oauth.createProvider')}
@@ -707,6 +735,23 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={adminRoleConfirmOpen} onOpenChange={setAdminRoleConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('settings.auth.adminRoleConfirmTitle')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('settings.auth.adminRoleConfirmDescription')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common:cancel')}</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={() => handleSubmit(true)}>
+              {t('settings.auth.adminRoleConfirm')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Delete Confirmation */}
       <AlertDialog
@@ -745,37 +790,100 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
 
 const AUTH_FIELDS = [
   { key: 'registration_enabled', defaultValue: false },
-  // FRONT-01 (Phase 1223): toggle for login-as-landing front door.
+  { key: 'registration_default_role', defaultValue: 'viewer' },
   { key: 'landing_first', defaultValue: false },
-  // ORG-01 (Phase 1239): password-login enable/disable toggle.
   { key: 'password_login_enabled', defaultValue: true },
-  // ORG-02 (Phase 1239): email domain allowlist. compare:'json' is required so
-  // array references are deep-compared and the dirty flag clears after a save.
+  // compare:'json' deep-compares the array so the dirty flag clears after a save.
   { key: 'allowed_email_domains', defaultValue: [] as string[], compare: 'json' as const },
   { key: 'access_token_expire_minutes', defaultValue: 15 },
   { key: 'refresh_token_expire_days', defaultValue: 7 },
   { key: 'login_rate_limit', defaultValue: 5 },
-  // fix(#1778): SIGNUP-04 registers this on tab="auth" but no tab component
-  // ever read it, so it decided self-serve activation invisibly.
   { key: 'email_verification_required', defaultValue: true },
 ] as const;
 
+// Resetting these loosens sign-up or sign-in at once, with no Save step.
+const CONFIRM_RESET_KEYS = new Set([
+  'allowed_email_domains',
+  'email_verification_required',
+  'password_login_enabled',
+]);
+
+function NumberField({
+  id,
+  value,
+  min,
+  max,
+  disabled,
+  onValue,
+}: {
+  id: string;
+  value: number;
+  min: number;
+  max: number;
+  disabled: boolean;
+  onValue: (n: number) => void;
+}) {
+  // An emptied field keeps the last number in form state rather than sending 0.
+  const [draft, setDraft] = useState<string | null>(null);
+  return (
+    <Input
+      id={id}
+      type="number"
+      min={min}
+      max={max}
+      value={draft ?? String(value)}
+      onChange={(e) => {
+        const raw = e.target.value;
+        setDraft(raw);
+        if (raw !== '' && Number.isFinite(Number(raw))) onValue(Number(raw));
+      }}
+      onBlur={() => setDraft(null)}
+      disabled={disabled}
+      className="w-32"
+    />
+  );
+}
+
+function SettingHeading({ id, children }: { id: string; children: string }) {
+  return <h3 id={id} className="border-b border-border pb-2 text-base font-medium">{children}</h3>;
+}
+
 export function SettingsAuthTab({ settings, envOnly, onSave, onReset: submitReset, isSaving, settingsUpdatedAt, saveFailed, onDirtyChange }: TabProps) {
   const { t } = useTranslation('admin');
-  const { values, setters, dirty, hasDirty, discard, onReset } = useSettingsForm(settings, AUTH_FIELDS, isSaving, settingsUpdatedAt, saveFailed, submitReset);
+  const { values, setters, dirty, hasDirty, discard, onReset: resetSetting } = useSettingsForm(settings, AUTH_FIELDS, isSaving, settingsUpdatedAt, saveFailed, submitReset);
+  const { providers } = useOAuthProviders();
+  const { data: notifStatus } = useNotificationStatus();
+  const [pendingReset, setPendingReset] = useState<string | null>(null);
+
+  function onReset(key: string) {
+    if (CONFIRM_RESET_KEYS.has(key)) setPendingReset(key);
+    else void resetSetting(key);
+  }
 
   // Local input state for the domain allowlist add-input (not part of form state).
   const [domainInput, setDomainInput] = useState('');
+  const [domainError, setDomainError] = useState<string | null>(null);
 
   const domains = (values.allowed_email_domains as string[]) ?? [];
+  const registrationEnabled = values.registration_enabled as boolean;
+  const defaultRoleSetting = findSetting(settings, 'registration_default_role');
+  const defaultRole = values.registration_default_role as string;
+  const smtpMissing = notifStatus?.smtp_configured === false;
 
   function handleAddDomain() {
     const normalized = domainInput.trim().toLowerCase();
-    if (!normalized || domains.includes(normalized)) {
+    if (!normalized) {
       setDomainInput('');
       return;
     }
-    setters.allowed_email_domains([...domains, normalized]);
+    if (!isValidDomainPattern(normalized)) {
+      setDomainError(normalized);
+      return;
+    }
+    setDomainError(null);
+    if (!domains.includes(normalized)) {
+      setters.allowed_email_domains([...domains, normalized]);
+    }
     setDomainInput('');
   }
 
@@ -785,158 +893,171 @@ export function SettingsAuthTab({ settings, envOnly, onSave, onReset: submitRese
 
   return (
     <div className="space-y-8">
-      {/* Registration Toggle */}
-      <div className="flex items-center justify-between max-w-md">
-        <div className="space-y-0.5">
-          <div className="flex items-center gap-2">
-            <Label htmlFor="registration-toggle">{t('settings.general.registration')}</Label>
-            <SettingSourceBadge source={findSetting(settings, 'registration_enabled')?.source ?? 'default'} settingKey="registration_enabled" onReset={onReset} />
+      {hasDirty && (
+        <p role="status" className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm">
+          {t('settings.auth.unsavedIndicator')}
+        </p>
+      )}
+
+      <section className="space-y-6" aria-labelledby="auth-section-signup">
+        <SettingHeading id="auth-section-signup">{t('settings.auth.sectionSignUp')}</SettingHeading>
+
+        <div className="flex items-center justify-between max-w-md">
+          <div className="space-y-0.5">
+            <div className="flex items-center gap-2">
+              <Label htmlFor="registration-toggle">{t('settings.general.registration')}</Label>
+              <SettingSourceBadge source={findSetting(settings, 'registration_enabled')?.source ?? 'default'} settingKey="registration_enabled" onReset={onReset} />
+            </div>
+            <p className="text-sm text-muted-foreground">{t('settings.general.registrationDescription')}</p>
           </div>
-          <p className="text-sm text-muted-foreground">{t('settings.general.registrationDescription')}</p>
+          <Switch
+            id="registration-toggle"
+            checked={registrationEnabled}
+            onCheckedChange={setters.registration_enabled}
+            disabled={envOnly}
+          />
         </div>
-        <Switch
-          id="registration-toggle"
-          checked={values.registration_enabled as boolean}
-          onCheckedChange={setters.registration_enabled}
-          disabled={envOnly}
-        />
-      </div>
 
-      {/* SIGNUP-04 (Phase 1231): Email Verification Required toggle */}
-      <div className="flex items-center justify-between max-w-md">
-        <div className="space-y-0.5">
-          <div className="flex items-center gap-2">
-            <Label htmlFor="email-verification-toggle">{t('settings.security.emailVerificationRequired')}</Label>
-            <SettingSourceBadge source={findSetting(settings, 'email_verification_required')?.source ?? 'default'} settingKey="email_verification_required" onReset={onReset} />
-          </div>
-          <p className="text-sm text-muted-foreground">{t('settings.security.emailVerificationRequiredDescription')}</p>
-        </div>
-        <Switch
-          id="email-verification-toggle"
-          checked={values.email_verification_required as boolean}
-          onCheckedChange={setters.email_verification_required}
-          disabled={envOnly}
-        />
-      </div>
-
-      {/* FRONT-01 (Phase 1223): Login-as-Landing toggle */}
-      <div className="flex items-center justify-between max-w-md">
-        <div className="space-y-0.5">
-          <div className="flex items-center gap-2">
-            <Label htmlFor="landing-first-toggle">{t('settings.general.landingFirst')}</Label>
-            <SettingSourceBadge source={findSetting(settings, 'landing_first')?.source ?? 'default'} settingKey="landing_first" onReset={onReset} />
-          </div>
-          <p className="text-sm text-muted-foreground">{t('settings.general.landingFirstDescription')}</p>
-        </div>
-        <Switch
-          id="landing-first-toggle"
-          checked={values.landing_first as boolean}
-          onCheckedChange={setters.landing_first}
-          disabled={envOnly}
-        />
-      </div>
-
-      {/* ORG-01 (Phase 1239): Password Login toggle */}
-      <div className="flex items-center justify-between max-w-md">
-        <div className="space-y-0.5">
-          <div className="flex items-center gap-2">
-            <Label htmlFor="password-login-toggle">{t('settings.security.passwordLogin')}</Label>
-            <SettingSourceBadge source={findSetting(settings, 'password_login_enabled')?.source ?? 'default'} settingKey="password_login_enabled" onReset={onReset} />
-          </div>
-          <p className="text-sm text-muted-foreground">{t('settings.security.passwordLoginDescription')}</p>
-        </div>
-        <Switch
-          id="password-login-toggle"
-          checked={values.password_login_enabled as boolean}
-          onCheckedChange={setters.password_login_enabled}
-          disabled={envOnly}
-        />
-      </div>
-
-      {/* ORG-02 (Phase 1239): Email Domain Allowlist */}
-      <div className="space-y-3 max-w-md">
-        <div className="flex items-center gap-2">
-          <Label>{t('settings.security.allowedEmailDomains')}</Label>
-          <SettingSourceBadge source={findSetting(settings, 'allowed_email_domains')?.source ?? 'default'} settingKey="allowed_email_domains" onReset={onReset} />
-        </div>
-        <p className="text-sm text-muted-foreground">{t('settings.security.allowedEmailDomainsDescription')}</p>
-
-        {domains.length === 0 ? (
-          <p className="text-sm text-muted-foreground italic">{t('settings.security.allowedEmailDomainsUnrestricted')}</p>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            {domains.map((domain) => (
-              <Badge key={domain} variant="secondary" className="flex items-center gap-1 px-2 py-1">
-                <span>{domain}</span>
-                <button
-                  type="button"
-                  aria-label={t('settings.security.removeDomain', { domain })}
-                  onClick={() => handleRemoveDomain(domain)}
-                  disabled={envOnly}
-                  className="ml-1 rounded-full hover:bg-muted-foreground/20 disabled:pointer-events-none"
-                >
-                  <span aria-hidden="true" className="text-xs leading-none">&times;</span>
-                </button>
-              </Badge>
-            ))}
+        {defaultRoleSetting && (
+          <div className="space-y-2 max-w-md">
+            <div className="flex items-center gap-2">
+              <Label htmlFor="registration-default-role">{t('settings.auth.registrationDefaultRole')}</Label>
+              <SettingSourceBadge source={defaultRoleSetting.source ?? 'default'} settingKey="registration_default_role" onReset={onReset} />
+            </div>
+            <Select
+              value={defaultRole}
+              onValueChange={setters.registration_default_role}
+              disabled={envOnly}
+            >
+              <SelectTrigger id="registration-default-role" className="w-48">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="viewer">{t('settings.oauth.roles.viewer')}</SelectItem>
+                <SelectItem value="editor">{t('settings.oauth.roles.editor')}</SelectItem>
+                <SelectItem value="admin">{t('settings.oauth.roles.admin')}</SelectItem>
+                {!BUILTIN_ROLES.includes(defaultRole) && (
+                  <SelectItem value={defaultRole}>{defaultRole}</SelectItem>
+                )}
+              </SelectContent>
+            </Select>
+            <p className="text-sm text-muted-foreground">{t('settings.auth.registrationDefaultRoleHint')}</p>
           </div>
         )}
 
-        <div className="flex items-center gap-2">
-          <Input
-            id="domain-input"
-            value={domainInput}
-            onChange={(e) => setDomainInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddDomain(); } }}
-            placeholder={t('settings.security.addDomainPlaceholder')}
-            disabled={envOnly}
-            className="w-48"
-          />
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={handleAddDomain}
-            disabled={envOnly || !domainInput.trim()}
-          >
-            {t('settings.security.addDomain')}
-          </Button>
-        </div>
-      </div>
-
-      {/* Token & Rate Limit Settings */}
-      <div className="space-y-6">
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <Label htmlFor="access-token-expire">{t('settings.security.accessTokenExpire')}</Label>
-            <SettingSourceBadge source={findSetting(settings, 'access_token_expire_minutes')?.source ?? 'default'} settingKey="access_token_expire_minutes" onReset={onReset} />
+        <div className={`flex items-center justify-between max-w-md ${registrationEnabled ? '' : 'opacity-50'}`}>
+          <div className="space-y-0.5">
+            <div className="flex items-center gap-2">
+              <Label htmlFor="email-verification-toggle">{t('settings.security.emailVerificationRequired')}</Label>
+              <SettingSourceBadge source={findSetting(settings, 'email_verification_required')?.source ?? 'default'} settingKey="email_verification_required" onReset={onReset} />
+            </div>
+            <p className="text-sm text-muted-foreground">{t('settings.security.emailVerificationRequiredDescription')}</p>
+            {smtpMissing && (
+              <p className="text-sm text-warning">{t('settings.auth.smtpMissingNote')}</p>
+            )}
           </div>
-          <Input
-            id="access-token-expire"
-            type="number"
-            min={1}
-            max={1440}
-            value={values.access_token_expire_minutes as number}
-            onChange={(e) => setters.access_token_expire_minutes(Number(e.target.value))}
-            disabled={envOnly}
-            className="w-32"
+          <Switch
+            id="email-verification-toggle"
+            checked={values.email_verification_required as boolean}
+            onCheckedChange={setters.email_verification_required}
+            disabled={envOnly || !registrationEnabled}
           />
         </div>
 
-        <div className="space-y-2">
+        <div className="space-y-3 max-w-md">
           <div className="flex items-center gap-2">
-            <Label htmlFor="refresh-token-expire">{t('settings.security.refreshTokenExpire')}</Label>
-            <SettingSourceBadge source={findSetting(settings, 'refresh_token_expire_days')?.source ?? 'default'} settingKey="refresh_token_expire_days" onReset={onReset} />
+            <Label htmlFor="domain-input">{t('settings.security.allowedEmailDomains')}</Label>
+            <SettingSourceBadge source={findSetting(settings, 'allowed_email_domains')?.source ?? 'default'} settingKey="allowed_email_domains" onReset={onReset} />
           </div>
-          <Input
-            id="refresh-token-expire"
-            type="number"
-            min={1}
-            max={365}
-            value={values.refresh_token_expire_days as number}
-            onChange={(e) => setters.refresh_token_expire_days(Number(e.target.value))}
+          <p className="text-sm text-muted-foreground">{t('settings.security.allowedEmailDomainsDescription')}</p>
+
+          {domains.length === 0 ? (
+            <p className="text-sm text-muted-foreground italic">{t('settings.security.allowedEmailDomainsUnrestricted')}</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {domains.map((domain) => (
+                <Badge key={domain} variant="secondary" className="flex items-center gap-1 px-2 py-1">
+                  <span>{domain}</span>
+                  <button
+                    type="button"
+                    aria-label={t('settings.security.removeDomain', { domain })}
+                    onClick={() => handleRemoveDomain(domain)}
+                    disabled={envOnly}
+                    className="ml-1 rounded-full hover:bg-muted-foreground/20 disabled:pointer-events-none"
+                  >
+                    <span aria-hidden="true" className="text-xs leading-none">&times;</span>
+                  </button>
+                </Badge>
+              ))}
+            </div>
+          )}
+
+          <div className="flex items-center gap-2">
+            <Input
+              id="domain-input"
+              value={domainInput}
+              onChange={(e) => { setDomainInput(e.target.value); setDomainError(null); }}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddDomain(); } }}
+              placeholder={t('settings.security.addDomainPlaceholder')}
+              aria-invalid={domainError !== null}
+              disabled={envOnly}
+              className="w-48"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleAddDomain}
+              disabled={envOnly || !domainInput.trim()}
+            >
+              {t('settings.security.addDomain')}
+            </Button>
+          </div>
+          {domainError !== null && (
+            <p role="alert" className="text-sm text-destructive">
+              {t('settings.auth.invalidDomain', { domain: domainError })}
+            </p>
+          )}
+          {hasOpenSignupRisk(registrationEnabled, domains, providers) && (
+            <p role="alert" className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm">
+              {t('settings.auth.openSignupWarning')}
+            </p>
+          )}
+        </div>
+      </section>
+
+      <section className="space-y-6" aria-labelledby="auth-section-signin">
+        <SettingHeading id="auth-section-signin">{t('settings.auth.sectionSignIn')}</SettingHeading>
+
+        <div className="flex items-center justify-between max-w-md">
+          <div className="space-y-0.5">
+            <div className="flex items-center gap-2">
+              <Label htmlFor="password-login-toggle">{t('settings.security.passwordLogin')}</Label>
+              <SettingSourceBadge source={findSetting(settings, 'password_login_enabled')?.source ?? 'default'} settingKey="password_login_enabled" onReset={onReset} />
+            </div>
+            <p className="text-sm text-muted-foreground">{t('settings.security.passwordLoginDescription')}</p>
+          </div>
+          <Switch
+            id="password-login-toggle"
+            checked={values.password_login_enabled as boolean}
+            onCheckedChange={setters.password_login_enabled}
             disabled={envOnly}
-            className="w-32"
+          />
+        </div>
+
+        <div className="flex items-center justify-between max-w-md">
+          <div className="space-y-0.5">
+            <div className="flex items-center gap-2">
+              <Label htmlFor="landing-first-toggle">{t('settings.general.landingFirst')}</Label>
+              <SettingSourceBadge source={findSetting(settings, 'landing_first')?.source ?? 'default'} settingKey="landing_first" onReset={onReset} />
+            </div>
+            <p className="text-sm text-muted-foreground">{t('settings.general.landingFirstDescription')}</p>
+          </div>
+          <Switch
+            id="landing-first-toggle"
+            checked={values.landing_first as boolean}
+            onCheckedChange={setters.landing_first}
+            disabled={envOnly}
           />
         </div>
 
@@ -946,28 +1067,82 @@ export function SettingsAuthTab({ settings, envOnly, onSave, onReset: submitRese
             <SettingSourceBadge source={findSetting(settings, 'login_rate_limit')?.source ?? 'default'} settingKey="login_rate_limit" onReset={onReset} />
           </div>
           <p className="text-sm text-muted-foreground">{t('settings.security.loginRateLimitDescription')}</p>
-          <Input
+          <NumberField
             id="login-rate-limit"
-            type="number"
             min={1}
             max={1000}
             value={values.login_rate_limit as number}
-            onChange={(e) => setters.login_rate_limit(Number(e.target.value))}
+            onValue={setters.login_rate_limit}
             disabled={envOnly}
-            className="w-32"
+          />
+        </div>
+      </section>
+
+      <section className="space-y-6" aria-labelledby="auth-section-sessions">
+        <SettingHeading id="auth-section-sessions">{t('settings.auth.sectionSessions')}</SettingHeading>
+
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <Label htmlFor="access-token-expire">{t('settings.security.accessTokenExpire')}</Label>
+            <SettingSourceBadge source={findSetting(settings, 'access_token_expire_minutes')?.source ?? 'default'} settingKey="access_token_expire_minutes" onReset={onReset} />
+          </div>
+          <p className="text-sm text-muted-foreground">{t('settings.security.accessTokenExpireDescription')}</p>
+          <NumberField
+            id="access-token-expire"
+            min={1}
+            max={1440}
+            value={values.access_token_expire_minutes as number}
+            onValue={setters.access_token_expire_minutes}
+            disabled={envOnly}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <Label htmlFor="refresh-token-expire">{t('settings.security.refreshTokenExpire')}</Label>
+            <SettingSourceBadge source={findSetting(settings, 'refresh_token_expire_days')?.source ?? 'default'} settingKey="refresh_token_expire_days" onReset={onReset} />
+          </div>
+          <p className="text-sm text-muted-foreground">{t('settings.security.refreshTokenExpireDescription')}</p>
+          <NumberField
+            id="refresh-token-expire"
+            min={1}
+            max={365}
+            value={values.refresh_token_expire_days as number}
+            onValue={setters.refresh_token_expire_days}
+            disabled={envOnly}
           />
         </div>
 
         <p className="text-sm text-muted-foreground italic">{t('settings.security.tokenLifetimeNote')}</p>
+      </section>
 
+      <div className="sticky bottom-0 z-10 -mx-1 border-t border-border bg-background px-1 pb-2">
         <SettingsFormActions dirty={dirty} hasDirty={hasDirty} envOnly={envOnly} isSaving={isSaving} onSave={onSave} onDiscard={discard} onDirtyChange={onDirtyChange} />
       </div>
 
-      {/* Separator */}
       <hr className="border-border" />
 
-      {/* OAuth Providers */}
       <OAuthProvidersSection envOnly={envOnly} />
+
+      <AlertDialog open={pendingReset !== null} onOpenChange={(open) => { if (!open) setPendingReset(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('settings.auth.resetConfirmTitle')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('settings.auth.resetConfirmDescription')}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common:cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (pendingReset) void resetSetting(pendingReset);
+                setPendingReset(null);
+              }}
+            >
+              {t('settings.auth.resetConfirm')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
