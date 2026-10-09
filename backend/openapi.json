@@ -4393,13 +4393,13 @@
       "ConfigResponse": {
         "properties": {
           "registration_enabled": {
-            "description": "Whether self-service registration is open",
+            "description": "Whether self-service registration is open. Single sign-on can create accounts whenever this is true.",
             "title": "Registration Enabled",
             "type": "boolean"
           },
           "allow_signup": {
             "default": false,
-            "description": "Whether self-serve registration is open. Alias for registration_enabled; login UI uses this to show/hide the signup link.",
+            "description": "Whether password sign-up is open: registration is enabled and password login is enabled. Login UI uses this to show/hide the signup link.",
             "title": "Allow Signup",
             "type": "boolean"
           },
@@ -12030,7 +12030,7 @@
                 "type": "null"
               }
             ],
-            "description": "JSON object mapping IdP group names to GeoLens roles. First match wins. Falls back to default_role if no group matches.",
+            "description": "JSON object mapping IdP group names to GeoLens roles ('viewer', 'editor' or 'admin'). A user in several mapped groups gets the most privileged of their roles; a user in none gets default_role.",
             "title": "Group Role Mapping"
           },
           "enabled": {
@@ -12467,7 +12467,7 @@
                 "type": "null"
               }
             ],
-            "description": "Updated default role for new users.",
+            "description": "Updated default role for new users: 'viewer', 'editor', or 'admin'.",
             "title": "Default Role"
           },
           "group_claim": {
@@ -12493,7 +12493,7 @@
                 "type": "null"
               }
             ],
-            "description": "Updated group-to-role mapping. Pass an empty object to clear.",
+            "description": "Updated group-to-role mapping, with the same rules as on create. Pass an empty object to clear.",
             "title": "Group Role Mapping"
           },
           "enabled": {
@@ -28969,7 +28969,7 @@
     },
     "/auth/register/": {
       "post": {
-        "description": "Register a new user. Account requires admin approval before login.",
+        "description": "Create a password account.\n\nNeeds both self-registration and password login enabled; otherwise 403.\nWhen the allowed email domains list is set, an email address in one of\nthose domains is required.\n\nIf email verification is required, the request includes an email address\nand the server has SMTP configured, the account activates when its owner\nfollows the emailed link and gets the default self-registration role.\nOtherwise it stays pending until an administrator approves it with a role.\nThe response is the same whether or not the username or email was taken.",
         "operationId": "register_auth_register__post",
         "requestBody": {
           "content": {
@@ -59620,6 +59620,16 @@
             },
             "description": "Not found"
           },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Conflict \u2014 resource state prevents the operation"
+          },
           "422": {
             "content": {
               "application/problem+json": {
@@ -59888,6 +59898,16 @@
               }
             },
             "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Conflict \u2014 resource state prevents the operation"
           },
           "422": {
             "content": {

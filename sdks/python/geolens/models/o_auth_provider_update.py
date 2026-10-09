@@ -47,10 +47,10 @@ class OAuthProviderUpdate:
             stored cert; omit to leave unchanged.
         sp_entity_id (None | str | Unset): Updated SP entityID.
         scopes (None | str | Unset): Updated space-separated scopes.
-        default_role (None | str | Unset): Updated default role for new users.
+        default_role (None | str | Unset): Updated default role for new users: 'viewer', 'editor', or 'admin'.
         group_claim (None | str | Unset): Updated group claim name.
-        group_role_mapping (None | OAuthProviderUpdateGroupRoleMappingType0 | Unset): Updated group-to-role mapping.
-            Pass an empty object to clear.
+        group_role_mapping (None | OAuthProviderUpdateGroupRoleMappingType0 | Unset): Updated group-to-role mapping,
+            with the same rules as on create. Pass an empty object to clear.
         enabled (bool | None | Unset): Set to false to hide the provider button without deleting the configuration.
     """
 

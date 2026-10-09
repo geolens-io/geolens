@@ -108,7 +108,17 @@ def sync_detailed(
 ) -> Response[ProblemDetail | RegisterResponse]:
     """Register
 
-     Register a new user. Account requires admin approval before login.
+     Create a password account.
+
+    Needs both self-registration and password login enabled; otherwise 403.
+    When the allowed email domains list is set, an email address in one of
+    those domains is required.
+
+    If email verification is required, the request includes an email address
+    and the server has SMTP configured, the account activates when its owner
+    follows the emailed link and gets the default self-registration role.
+    Otherwise it stays pending until an administrator approves it with a role.
+    The response is the same whether or not the username or email was taken.
 
     Args:
         body (UserCreate):
@@ -139,7 +149,17 @@ def sync(
 ) -> ProblemDetail | RegisterResponse | None:
     """Register
 
-     Register a new user. Account requires admin approval before login.
+     Create a password account.
+
+    Needs both self-registration and password login enabled; otherwise 403.
+    When the allowed email domains list is set, an email address in one of
+    those domains is required.
+
+    If email verification is required, the request includes an email address
+    and the server has SMTP configured, the account activates when its owner
+    follows the emailed link and gets the default self-registration role.
+    Otherwise it stays pending until an administrator approves it with a role.
+    The response is the same whether or not the username or email was taken.
 
     Args:
         body (UserCreate):
@@ -165,7 +185,17 @@ async def asyncio_detailed(
 ) -> Response[ProblemDetail | RegisterResponse]:
     """Register
 
-     Register a new user. Account requires admin approval before login.
+     Create a password account.
+
+    Needs both self-registration and password login enabled; otherwise 403.
+    When the allowed email domains list is set, an email address in one of
+    those domains is required.
+
+    If email verification is required, the request includes an email address
+    and the server has SMTP configured, the account activates when its owner
+    follows the emailed link and gets the default self-registration role.
+    Otherwise it stays pending until an administrator approves it with a role.
+    The response is the same whether or not the username or email was taken.
 
     Args:
         body (UserCreate):
@@ -194,7 +224,17 @@ async def asyncio(
 ) -> ProblemDetail | RegisterResponse | None:
     """Register
 
-     Register a new user. Account requires admin approval before login.
+     Create a password account.
+
+    Needs both self-registration and password login enabled; otherwise 403.
+    When the allowed email domains list is set, an email address in one of
+    those domains is required.
+
+    If email verification is required, the request includes an email address
+    and the server has SMTP configured, the account activates when its owner
+    follows the emailed link and gets the default self-registration role.
+    Otherwise it stays pending until an administrator approves it with a role.
+    The response is the same whether or not the username or email was taken.
 
     Args:
         body (UserCreate):

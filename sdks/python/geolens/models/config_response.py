@@ -18,9 +18,10 @@ T = TypeVar("T", bound="ConfigResponse")
 class ConfigResponse:
     """
     Attributes:
-        registration_enabled (bool): Whether self-service registration is open
-        allow_signup (bool | Unset): Whether self-serve registration is open. Alias for registration_enabled; login UI
-            uses this to show/hide the signup link. Default: False.
+        registration_enabled (bool): Whether self-service registration is open. Single sign-on can create accounts
+            whenever this is true.
+        allow_signup (bool | Unset): Whether password sign-up is open: registration is enabled and password login is
+            enabled. Login UI uses this to show/hide the signup link. Default: False.
         email_verification_required (bool | Unset): When true, new self-registered users must verify their email before
             logging in. Default false for back-compat-safe parsing by older clients. Default: False.
         auth_methods (list[str] | Unset): Auth methods contributed by the active AuthExtension. Empty by default;

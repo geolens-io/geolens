@@ -58,7 +58,8 @@ class OAuthProviderCreate:
         group_claim (None | str | Unset): Name of the JWT/userinfo claim (or SAML attribute) that contains group
             memberships. Set to enable group-based role mapping.
         group_role_mapping (None | OAuthProviderCreateGroupRoleMappingType0 | Unset): JSON object mapping IdP group
-            names to GeoLens roles. First match wins. Falls back to default_role if no group matches.
+            names to GeoLens roles ('viewer', 'editor' or 'admin'). A user in several mapped groups gets the most privileged
+            of their roles; a user in none gets default_role.
         enabled (bool | Unset): Whether the provider button appears on the login page. Default: True.
     """
 

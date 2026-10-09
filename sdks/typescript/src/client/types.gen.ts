@@ -2633,13 +2633,13 @@ export type ConfigResponse = {
     /**
      * Registration Enabled
      *
-     * Whether self-service registration is open
+     * Whether self-service registration is open. Single sign-on can create accounts whenever this is true.
      */
     registration_enabled: boolean;
     /**
      * Allow Signup
      *
-     * Whether self-serve registration is open. Alias for registration_enabled; login UI uses this to show/hide the signup link.
+     * Whether password sign-up is open: registration is enabled and password login is enabled. Login UI uses this to show/hide the signup link.
      */
     allow_signup?: boolean;
     /**
@@ -6969,7 +6969,7 @@ export type OAuthProviderCreate = {
     /**
      * Group Role Mapping
      *
-     * JSON object mapping IdP group names to GeoLens roles. First match wins. Falls back to default_role if no group matches.
+     * JSON object mapping IdP group names to GeoLens roles ('viewer', 'editor' or 'admin'). A user in several mapped groups gets the most privileged of their roles; a user in none gets default_role.
      */
     group_role_mapping?: {
         [key: string]: unknown;
@@ -7241,7 +7241,7 @@ export type OAuthProviderUpdate = {
     /**
      * Default Role
      *
-     * Updated default role for new users.
+     * Updated default role for new users: 'viewer', 'editor', or 'admin'.
      */
     default_role?: string | null;
     /**
@@ -7253,7 +7253,7 @@ export type OAuthProviderUpdate = {
     /**
      * Group Role Mapping
      *
-     * Updated group-to-role mapping. Pass an empty object to clear.
+     * Updated group-to-role mapping, with the same rules as on create. Pass an empty object to clear.
      */
     group_role_mapping?: {
         [key: string]: unknown;
@@ -28417,6 +28417,10 @@ export type CreateOauthProviderSettingsOauthProvidersPostErrors = {
      */
     404: ProblemDetail;
     /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
      * Validation error
      */
     422: ProblemDetail;
@@ -28532,6 +28536,10 @@ export type UpdateOauthProviderSettingsOauthProvidersProviderIdPutErrors = {
      * Not found
      */
     404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
     /**
      * Validation error
      */
