@@ -88,6 +88,13 @@ async def _create_dataset(
     )
 
 
+def _lon_in_bbox(lon: float, bbox: list[float]) -> bool:
+    west, east = bbox[0], bbox[2]
+    if west <= east:
+        return west <= lon <= east
+    return lon >= west or lon <= east
+
+
 # WKT extent constants
 _NYC_EXTENT = (
     "SRID=4326;POLYGON((-74.1 40.5, -74.1 40.9, -73.7 40.9, -73.7 40.5, -74.1 40.5))"
@@ -122,10 +129,11 @@ async def test_collection_has_spatial_extent(client: AsyncClient, test_db_sessio
     assert len(bbox) >= 1
     b = bbox[0]
     assert len(b) == 4
-    # Aggregated bbox should encompass both NYC and LA
-    assert b[0] <= -118.5  # min_x from LA
+    # Public datasets committed by other tests can share this catalog, and the
+    # rollup may then return a bbox crossing the antimeridian (west > east).
+    for lon in (-118.5, -117.9, -74.1, -73.7):
+        assert _lon_in_bbox(lon, b), (lon, b)
     assert b[1] <= 33.7  # min_y from LA
-    assert b[2] >= -73.7  # max_x from NYC
     assert b[3] >= 40.9  # max_y from NYC
 
 
