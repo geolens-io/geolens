@@ -18,7 +18,8 @@ and releases use semantic versioning.
   first, keeps nothing on disk and no longer publishes port 6379 on the host. The `cloud-dev`
   profile still starts it. An install that ran the old prod `valkey` service
   keeps its `<project>_valkey_data` volume, which may hold a snapshot with
-  service credentials: stop the service, then remove it with
+  service credentials: remove the old container with
+  `docker compose --profile cache rm -sf valkey`, then the volume with
   `docker volume rm <project>_valkey_data`.
 
 ## [1.23.0] - 2026-10-09
