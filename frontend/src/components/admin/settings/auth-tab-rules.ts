@@ -87,6 +87,23 @@ export function adminSignUpReach(
   return state.allowed_email_domains.length > 0 ? 1 : 2;
 }
 
+/**
+ * True when a save lets more people sign up as an administrator: a wider reach,
+ * or a domain added to an allowlist that already limits it.
+ */
+export function widensAdminSignUp(
+  reachNow: 0 | 1 | 2,
+  reachAfter: 0 | 1 | 2,
+  domainsNow: readonly string[],
+  domainsAfter: readonly string[],
+): boolean {
+  if (reachAfter > reachNow) return true;
+  if (reachNow !== 1 || reachAfter !== 1) return false;
+  const normalize = (domain: string) => domain.trim().toLowerCase();
+  const known = new Set(domainsNow.map(normalize));
+  return domainsAfter.some((domain) => !known.has(normalize(domain)));
+}
+
 /** The settings that, with the providers and SMTP, decide who can sign up as an administrator. */
 export const SIGN_UP_GATE_KEYS: ReadonlySet<string> = new Set([
   'registration_enabled',

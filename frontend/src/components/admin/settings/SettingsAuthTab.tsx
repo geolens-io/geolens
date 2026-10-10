@@ -53,7 +53,7 @@ import { formatMutationError } from '@/lib/error-map';
 import { getPublicApiBaseUrl } from '@/lib/dataset-access';
 import { Textarea } from '@/components/ui/textarea';
 import { buildOAuthEndpointFields } from './oauth-endpoint-fields';
-import { SIGN_UP_GATE_KEYS, adminSignUpReach, hasOpenSignupRisk, isValidDomainPattern, providerGrantsAdmin, readSignUpState } from './auth-tab-rules';
+import { SIGN_UP_GATE_KEYS, adminSignUpReach, hasOpenSignupRisk, isValidDomainPattern, providerGrantsAdmin, readSignUpState, widensAdminSignUp } from './auth-tab-rules';
 
 interface TabProps {
   settings: SettingItem[];
@@ -886,13 +886,15 @@ export function SettingsAuthTab({ settings, envOnly, onSave, onReset: submitRese
   const providerGivesAdmin = providerGrantsAdmin(allProviders);
   const providerMayGiveAdmin = providerGivesAdmin || !providersKnown;
   const adminRoleInEffect = defaultRole === 'admin' || providerMayGiveAdmin;
+  const signUpNow = readSignUpState((key) => findSetting(settings, key)?.value);
+  const signUpAfterSave = readSignUpState((key) => values[key as keyof typeof values]);
   const adminReachNow = adminSignUpReach(
-    readSignUpState((key) => findSetting(settings, key)?.value),
+    signUpNow,
     providerGivesAdmin,
     notifStatus?.smtp_configured === true,
   );
   const adminReachAfterSave = adminSignUpReach(
-    readSignUpState((key) => values[key as keyof typeof values]),
+    signUpAfterSave,
     providerMayGiveAdmin,
     !smtpMissing,
   );
@@ -1150,7 +1152,12 @@ export function SettingsAuthTab({ settings, envOnly, onSave, onReset: submitRese
         <SettingsFormActions dirty={dirty} hasDirty={hasDirty} envOnly={envOnly} isSaving={isSaving} onSave={(changes) => {
           const opensAdminSignUp = changes.registration_default_role === 'admin'
             || (Object.keys(changes).some((key) => SIGN_UP_GATE_KEYS.has(key))
-              && adminReachAfterSave > adminReachNow);
+              && widensAdminSignUp(
+                adminReachNow,
+                adminReachAfterSave,
+                signUpNow.allowed_email_domains,
+                signUpAfterSave.allowed_email_domains,
+              ));
           if (opensAdminSignUp) setPendingAdminSave(changes);
           else onSave(changes);
         }} onDiscard={discard} onDirtyChange={onDirtyChange} />

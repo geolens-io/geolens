@@ -654,6 +654,36 @@ describe('SettingsAuthTab', () => {
       vi.mocked(listOAuthProviders).mockResolvedValue([]);
     });
 
+    it('confirms adding a domain to the allowlist while a provider grants admin', async () => {
+      vi.mocked(listOAuthProviders).mockResolvedValue([{ ...GOOGLE_PROVIDER, enabled: true, default_role: 'admin' }]);
+      const user = userEvent.setup();
+      const { onSave } = renderTab([
+        makeSetting('registration_enabled', true),
+        makeSetting('allowed_email_domains', ['acme.com']),
+      ]);
+      await screen.findByRole('button', { name: 'Edit Google' });
+      await user.type(screen.getByPlaceholderText(/example\.com/i), 'gmail.com');
+      await user.click(screen.getByRole('button', { name: /^add$/i }));
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+      expect(onSave).not.toHaveBeenCalled();
+      expect(await screen.findByText(/can become administrators without an administrator approving/i)).toBeInTheDocument();
+      vi.mocked(listOAuthProviders).mockResolvedValue([]);
+    });
+
+    it('saves a narrower allowlist without confirming while a provider grants admin', async () => {
+      vi.mocked(listOAuthProviders).mockResolvedValue([{ ...GOOGLE_PROVIDER, enabled: true, default_role: 'admin' }]);
+      const user = userEvent.setup();
+      const { onSave } = renderTab([
+        makeSetting('registration_enabled', true),
+        makeSetting('allowed_email_domains', ['acme.com', 'example.org']),
+      ]);
+      await screen.findByRole('button', { name: 'Edit Google' });
+      await user.click(screen.getByRole('button', { name: /example\.org/i }));
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+      expect(onSave).toHaveBeenCalledWith({ allowed_email_domains: ['acme.com'] });
+      vi.mocked(listOAuthProviders).mockResolvedValue([]);
+    });
+
     it('counts an enabled SAML provider with the admin role', async () => {
       vi.mocked(listOAuthProviders).mockResolvedValue([
         { ...GOOGLE_PROVIDER, id: 'saml-1', slug: 'okta', display_name: 'Okta', provider_type: 'saml' as OAuthProviderConfig['provider_type'], enabled: true, default_role: 'admin' },
