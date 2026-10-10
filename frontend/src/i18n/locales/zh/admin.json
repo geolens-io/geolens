@@ -820,7 +820,8 @@
       "resetConfirmTitle": "重置此设置？",
       "resetConfirmDescription": "默认值会立即生效，无需点击保存。这可能会放宽注册或登录限制。",
       "resetConfirm": "重置",
-      "registrationAdminConfirmDescription": "每个通过邮箱验证的密码注册用户都将成为管理员。请确认这是您想要的。"
+      "registrationAdminConfirmDescription": "每个通过邮箱验证的密码注册用户都将成为管理员。请确认这是您想要的。",
+      "verificationNeedsRegistration": "在启用自助注册时适用。"
     }
   },
   "saml": {

@@ -795,7 +795,8 @@
       "resetConfirmTitle": "Diese Einstellung zurücksetzen?",
       "resetConfirmDescription": "Der Standardwert gilt sofort, ohne Speichern. Das kann Einschränkungen bei Registrierung oder Anmeldung lockern.",
       "resetConfirm": "Zurücksetzen",
-      "registrationAdminConfirmDescription": "Jede Registrierung mit Passwort, die ihre E-Mail bestätigt, wird Administrator. Stellen Sie sicher, dass das beabsichtigt ist."
+      "registrationAdminConfirmDescription": "Jede Registrierung mit Passwort, die ihre E-Mail bestätigt, wird Administrator. Stellen Sie sicher, dass das beabsichtigt ist.",
+      "verificationNeedsRegistration": "Gilt, wenn die Selbstregistrierung aktiv ist."
     }
   },
   "infrastructure": {

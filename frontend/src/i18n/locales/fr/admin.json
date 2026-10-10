@@ -795,7 +795,8 @@
       "resetConfirmTitle": "Réinitialiser ce paramètre ?",
       "resetConfirmDescription": "La valeur par défaut s'applique immédiatement, sans cliquer sur Enregistrer. Cela peut assouplir les restrictions d'inscription ou de connexion.",
       "resetConfirm": "Réinitialiser",
-      "registrationAdminConfirmDescription": "Chaque inscription par mot de passe dont l'e-mail est vérifié deviendra administrateur. Assurez-vous que c'est bien voulu."
+      "registrationAdminConfirmDescription": "Chaque inscription par mot de passe dont l'e-mail est vérifié deviendra administrateur. Assurez-vous que c'est bien voulu.",
+      "verificationNeedsRegistration": "S'applique lorsque l'auto-inscription est activée."
     }
   },
   "infrastructure": {

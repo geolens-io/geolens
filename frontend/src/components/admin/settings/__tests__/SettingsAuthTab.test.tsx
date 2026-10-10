@@ -454,6 +454,7 @@ describe('SettingsAuthTab', () => {
     it('dims Require Email Verification while Self-Registration is off', () => {
       renderTab([makeSetting('registration_enabled', false)]);
       expect(screen.getByRole('switch', { name: /require email verification/i })).toBeDisabled();
+      expect(screen.getByText(/applies when self-registration is on/i)).toBeInTheDocument();
     });
 
     it('notes a missing SMTP host next to Require Email Verification', async () => {

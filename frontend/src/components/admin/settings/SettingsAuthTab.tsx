@@ -953,13 +953,16 @@ export function SettingsAuthTab({ settings, envOnly, onSave, onReset: submitRese
           </div>
         )}
 
-        <div className={`flex items-center justify-between max-w-md ${registrationEnabled ? '' : 'opacity-50'}`}>
+        <div className="flex items-center justify-between max-w-md">
           <div className="space-y-0.5">
             <div className="flex items-center gap-2">
               <Label htmlFor="email-verification-toggle">{t('settings.security.emailVerificationRequired')}</Label>
               <SettingSourceBadge source={findSetting(settings, 'email_verification_required')?.source ?? 'default'} settingKey="email_verification_required" onReset={onReset} />
             </div>
             <p className="text-sm text-muted-foreground">{t('settings.security.emailVerificationRequiredDescription')}</p>
+            {!registrationEnabled && (
+              <p className="text-sm text-muted-foreground">{t('settings.auth.verificationNeedsRegistration')}</p>
+            )}
             {smtpMissing && (
               <p className="text-sm text-warning">{t('settings.auth.smtpMissingNote')}</p>
             )}

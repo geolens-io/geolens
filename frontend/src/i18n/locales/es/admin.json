@@ -795,7 +795,8 @@
       "resetConfirmTitle": "¿Restablecer este ajuste?",
       "resetConfirmDescription": "El valor predeterminado se aplica de inmediato, sin pulsar Guardar. Esto puede relajar las restricciones de registro o de inicio de sesión.",
       "resetConfirm": "Restablecer",
-      "registrationAdminConfirmDescription": "Todo registro con contraseña que verifique su correo se convertirá en administrador. Asegúrate de que es lo que quieres."
+      "registrationAdminConfirmDescription": "Todo registro con contraseña que verifique su correo se convertirá en administrador. Asegúrate de que es lo que quieres.",
+      "verificationNeedsRegistration": "Se aplica cuando el autorregistro está activado."
     }
   },
   "infrastructure": {

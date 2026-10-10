@@ -820,7 +820,8 @@
       "resetConfirmTitle": "Reset this setting?",
       "resetConfirmDescription": "The default takes effect immediately, without pressing Save. This can loosen sign-up or sign-in restrictions.",
       "resetConfirm": "Reset",
-      "registrationAdminConfirmDescription": "Every password sign-up that verifies its email will become an administrator. Make sure that is what you want."
+      "registrationAdminConfirmDescription": "Every password sign-up that verifies its email will become an administrator. Make sure that is what you want.",
+      "verificationNeedsRegistration": "Applies when Self-Registration is on."
     }
   },
   "saml": {
