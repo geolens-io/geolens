@@ -796,6 +796,7 @@
       "resetConfirmDescription": "La valeur par défaut s'applique immédiatement, sans cliquer sur Enregistrer. Cela peut assouplir les restrictions d'inscription ou de connexion.",
       "resetConfirm": "Réinitialiser",
       "registrationAdminConfirmDescription": "Chaque inscription par mot de passe dont l'e-mail est vérifié deviendra administrateur. Assurez-vous que c'est bien voulu.",
+      "signupAdminActivationDescription": "Si l'auto-inscription est activée, les nouveaux comptes reçoivent le rôle administrateur : toute personne qui s'inscrit devient administratrice. Assurez-vous que c'est bien ce que vous voulez.",
       "verificationNeedsRegistration": "S'applique lorsque l'auto-inscription est activée."
     }
   },

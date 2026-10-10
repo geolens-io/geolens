@@ -876,6 +876,8 @@ export function SettingsAuthTab({ settings, envOnly, onSave, onReset: submitRese
   const registrationEnabled = values.registration_enabled as boolean;
   const defaultRoleSetting = findSetting(settings, 'registration_default_role');
   const defaultRole = values.registration_default_role as string;
+  const adminSignUpRole = defaultRole === 'admin'
+    || providers.some((p) => p.enabled && p.default_role === 'admin');
   const smtpMissing = notifStatus?.smtp_configured === false;
 
   function handleAddDomain() {
@@ -1130,7 +1132,7 @@ export function SettingsAuthTab({ settings, envOnly, onSave, onReset: submitRese
       <div className="sticky bottom-0 z-10 -mx-1 border-t border-border bg-background px-1 pb-2">
         <SettingsFormActions dirty={dirty} hasDirty={hasDirty} envOnly={envOnly} isSaving={isSaving} onSave={(changes) => {
           const opensAdminSignUp = changes.registration_default_role === 'admin'
-            || (changes.registration_enabled === true && defaultRole === 'admin');
+            || (changes.registration_enabled === true && adminSignUpRole);
           if (opensAdminSignUp) setPendingAdminSave(changes);
           else onSave(changes);
         }} onDiscard={discard} onDirtyChange={onDirtyChange} />
@@ -1144,7 +1146,11 @@ export function SettingsAuthTab({ settings, envOnly, onSave, onReset: submitRese
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t('settings.auth.adminRoleConfirmTitle')}</AlertDialogTitle>
-            <AlertDialogDescription>{t('settings.auth.registrationAdminConfirmDescription')}</AlertDialogDescription>
+            <AlertDialogDescription>
+              {pendingAdminSave?.registration_enabled === true
+                ? t('settings.auth.signupAdminActivationDescription')
+                : t('settings.auth.registrationAdminConfirmDescription')}
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common:cancel')}</AlertDialogCancel>
@@ -1166,6 +1172,9 @@ export function SettingsAuthTab({ settings, envOnly, onSave, onReset: submitRese
           <AlertDialogHeader>
             <AlertDialogTitle>{t('settings.auth.resetConfirmTitle')}</AlertDialogTitle>
             <AlertDialogDescription>{t('settings.auth.resetConfirmDescription')}</AlertDialogDescription>
+            {pendingReset === 'registration_enabled' && !registrationEnabled && adminSignUpRole && (
+              <p className="text-sm font-medium text-destructive">{t('settings.auth.signupAdminActivationDescription')}</p>
+            )}
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common:cancel')}</AlertDialogCancel>

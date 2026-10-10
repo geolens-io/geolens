@@ -551,6 +551,25 @@ describe('SettingsAuthTab', () => {
       expect(onSave).toHaveBeenCalledWith({ registration_enabled: true });
     });
 
+    it('confirms before turning on Self-Registration when an enabled provider gives the admin role', async () => {
+      vi.mocked(listOAuthProviders).mockResolvedValue([{ ...GOOGLE_PROVIDER, enabled: true, default_role: 'admin' }]);
+      const user = userEvent.setup();
+      const { onSave } = renderTab();
+      await screen.findByRole('button', { name: 'Edit Google' });
+      await user.click(screen.getByRole('switch', { name: /self-registration/i }));
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+      expect(onSave).not.toHaveBeenCalled();
+      expect(await screen.findByText(/everyone who signs up becomes an administrator/i)).toBeInTheDocument();
+      vi.mocked(listOAuthProviders).mockResolvedValue([]);
+    });
+
+    it('warns about admin sign-ups before resetting Self-Registration', async () => {
+      const user = userEvent.setup();
+      renderTab([makeSetting('registration_default_role', 'admin')]);
+      await user.click(screen.getAllByRole('button', { name: /reset/i })[0]);
+      expect(await screen.findByText(/everyone who signs up becomes an administrator/i)).toBeInTheDocument();
+    });
+
     it('hides the default sign-up role control when the key is absent', () => {
       renderTab();
       expect(screen.queryByText(/default role for new sign-ups/i)).not.toBeInTheDocument();

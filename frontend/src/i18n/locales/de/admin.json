@@ -796,6 +796,7 @@
       "resetConfirmDescription": "Der Standardwert gilt sofort, ohne Speichern. Das kann Einschränkungen bei Registrierung oder Anmeldung lockern.",
       "resetConfirm": "Zurücksetzen",
       "registrationAdminConfirmDescription": "Jede Registrierung mit Passwort, die ihre E-Mail bestätigt, wird Administrator. Stellen Sie sicher, dass das beabsichtigt ist.",
+      "signupAdminActivationDescription": "Wenn die Selbstregistrierung aktiviert wird, erhalten neue Konten die Administratorrolle: Alle, die sich registrieren, werden Administratoren. Stellen Sie sicher, dass Sie das wollen.",
       "verificationNeedsRegistration": "Gilt, wenn die Selbstregistrierung aktiv ist."
     }
   },
