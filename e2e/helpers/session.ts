@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { test as base, type TestInfo } from '@playwright/test';
+import { test as base, type BrowserContext, type TestInfo } from '@playwright/test';
 
 export * from '@playwright/test';
 
@@ -22,34 +22,75 @@ export function getAuthToken(): string {
   return token;
 }
 
-const REFRESH_WINDOW_MS = 60_000;
-/** Refreshes a test may start with, leaving the rest of the endpoint's 30 per minute per IP to the test itself. */
-const REFRESH_START_BUDGET = 12;
-// On disk because a failed test restarts the worker while the API's bucket keeps counting.
-const REFRESH_LOG = path.join(path.dirname(AUTH_FILE), 'refresh-times.json');
+const RATE_WINDOW_MS = 60_000;
 
-function readRefreshTimes(): number[] {
+/**
+ * Requests this run has sent to a per-IP rate-limited endpoint in the last
+ * minute. The log is on disk because a failed test restarts the worker while
+ * the API's bucket keeps counting.
+ */
+class RateBudget {
+  private readonly file: string;
+
+  /** `startBudget` is how many requests a test may start with; the rest of the endpoint's limit is left to the test itself. */
+  constructor(name: string, private readonly startBudget: number) {
+    this.file = path.join(path.dirname(AUTH_FILE), `${name}-times.json`);
+  }
+
+  private recent(): number[] {
+    try {
+      const parsed: unknown = JSON.parse(fs.readFileSync(this.file, 'utf-8'));
+      const cutoff = Date.now() - RATE_WINDOW_MS;
+      return Array.isArray(parsed) ? parsed.filter((t): t is number => typeof t === 'number' && t > cutoff) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  record(): void {
+    fs.mkdirSync(path.dirname(this.file), { recursive: true });
+    fs.writeFileSync(this.file, JSON.stringify([...this.recent(), Date.now()]));
+  }
+
+  async waitForRoom(testInfo: TestInfo | undefined): Promise<void> {
+    for (;;) {
+      const times = this.recent();
+      if (times.length < this.startBudget) return;
+      const waitMs = times[0] + RATE_WINDOW_MS - Date.now() + 100;
+      testInfo?.setTimeout(testInfo.timeout + waitMs);
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+  }
+}
+
+// Every page load spends one refresh (30 per minute per IP). A 429 leaves the SPA
+// holding a stored user but no access token, so capability-gated UI such as the
+// Admin menu item never renders.
+const refreshBudget = new RateBudget('refresh', 12);
+
+// Dataset and facet search share one 30 per minute bucket. A 429 renders as a
+// failed catalog instead of the fixture the test expects.
+const searchBudget = new RateBudget('search', 12);
+
+/** Waits for room, then counts a search the test process sends outside the browser, including from hooks. */
+export async function reserveSearchRequest(): Promise<void> {
+  let testInfo: TestInfo | undefined;
   try {
-    const parsed: unknown = JSON.parse(fs.readFileSync(REFRESH_LOG, 'utf-8'));
-    const cutoff = Date.now() - REFRESH_WINDOW_MS;
-    return Array.isArray(parsed) ? parsed.filter((t): t is number => typeof t === 'number' && t > cutoff) : [];
+    testInfo = base.info();
   } catch {
-    return [];
+    // Called outside a test or hook: nothing to extend.
   }
+  await searchBudget.waitForRoom(testInfo);
+  searchBudget.record();
 }
 
-function recordRefresh(): void {
-  fs.writeFileSync(REFRESH_LOG, JSON.stringify([...readRefreshTimes(), Date.now()]));
-}
-
-async function waitForRefreshBudget(testInfo: TestInfo): Promise<void> {
-  for (;;) {
-    const refreshTimes = readRefreshTimes();
-    if (refreshTimes.length < REFRESH_START_BUDGET) return;
-    const waitMs = refreshTimes[0] + REFRESH_WINDOW_MS - Date.now() + 100;
-    testInfo.setTimeout(testInfo.timeout + waitMs);
-    await new Promise((resolve) => setTimeout(resolve, waitMs));
-  }
+/** Counts the rate-limited responses a browser context receives; anonymous and setup contexts share the per-IP buckets. */
+export function countRateLimitedResponses(context: BrowserContext): void {
+  context.on('response', (response) => {
+    const { pathname } = new URL(response.url());
+    if (/^\/api\/search\/(datasets|facets)\/?$/.test(pathname)) searchBudget.record();
+    if (/\/auth\/refresh\/?$/.test(pathname)) refreshBudget.record();
+  });
 }
 
 /**
@@ -62,17 +103,16 @@ async function waitForRefreshBudget(testInfo: TestInfo): Promise<void> {
 export const test = base.extend({
   context: async ({ context, storageState }, use, testInfo) => {
     const shared = typeof storageState === 'string' && path.resolve(storageState) === AUTH_FILE;
+    if (shared) {
+      await refreshBudget.waitForRoom(testInfo);
+      await searchBudget.waitForRoom(testInfo);
+    }
+    countRateLimitedResponses(context);
     // The same refreshes renew the access token API calls from Node use, which
     // would otherwise expire partway through a long serial run.
     if (shared) {
-      // Every page load spends one refresh. A 429 leaves the SPA holding a
-      // stored user but no access token, so capability-gated UI such as the
-      // Admin menu item never renders; staying under the limit is the only fix.
-      await waitForRefreshBudget(testInfo);
       context.on('response', (response) => {
-        if (!/\/auth\/refresh\/?$/.test(new URL(response.url()).pathname)) return;
-        recordRefresh();
-        if (!response.ok()) return;
+        if (!/\/auth\/refresh\/?$/.test(new URL(response.url()).pathname) || !response.ok()) return;
         void response
           .json()
           .then((body: { access_token?: unknown }) => {
