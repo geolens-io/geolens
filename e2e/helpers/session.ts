@@ -86,26 +86,27 @@ export function recordSearchRequest(): void {
 export const test = base.extend({
   context: async ({ context, storageState }, use, testInfo) => {
     const shared = typeof storageState === 'string' && path.resolve(storageState) === AUTH_FILE;
-    // The same refreshes renew the access token API calls from Node use, which
-    // would otherwise expire partway through a long serial run.
     if (shared) {
       await refreshBudget.waitForRoom(testInfo);
       await searchBudget.waitForRoom(testInfo);
-      context.on('response', (response) => {
-        const { pathname } = new URL(response.url());
-        if (/^\/api\/search\/(datasets|facets)\/?$/.test(pathname)) searchBudget.record();
-        if (!/\/auth\/refresh\/?$/.test(pathname)) return;
-        refreshBudget.record();
-        if (!response.ok()) return;
-        void response
-          .json()
-          .then((body: { access_token?: unknown }) => {
-            if (typeof body.access_token !== 'string') return;
-            fs.writeFileSync(tokenFileFor(AUTH_FILE), JSON.stringify({ token: body.access_token }), { mode: 0o600 });
-          })
-          .catch(() => {});
-      });
     }
+    // Anonymous contexts draw on the same per-IP buckets, so every context is counted.
+    context.on('response', (response) => {
+      const { pathname } = new URL(response.url());
+      if (/^\/api\/search\/(datasets|facets)\/?$/.test(pathname)) searchBudget.record();
+      if (!/\/auth\/refresh\/?$/.test(pathname)) return;
+      refreshBudget.record();
+      // The same refreshes renew the access token API calls from Node use, which
+      // would otherwise expire partway through a long serial run.
+      if (!shared || !response.ok()) return;
+      void response
+        .json()
+        .then((body: { access_token?: unknown }) => {
+          if (typeof body.access_token !== 'string') return;
+          fs.writeFileSync(tokenFileFor(AUTH_FILE), JSON.stringify({ token: body.access_token }), { mode: 0o600 });
+        })
+        .catch(() => {});
+    });
     await use(context);
     if (shared) await context.storageState({ path: AUTH_FILE });
   },
