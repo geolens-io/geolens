@@ -541,6 +541,16 @@ describe('SettingsAuthTab', () => {
       expect(onSave).toHaveBeenCalledOnce();
     });
 
+    it('confirms before turning on Self-Registration when the stored sign-up role is admin', async () => {
+      const user = userEvent.setup();
+      const { onSave } = renderTab([makeSetting('registration_default_role', 'admin')]);
+      await user.click(screen.getByRole('switch', { name: /self-registration/i }));
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+      expect(onSave).not.toHaveBeenCalled();
+      await user.click(await screen.findByRole('button', { name: /save with admin role/i }));
+      expect(onSave).toHaveBeenCalledWith({ registration_enabled: true });
+    });
+
     it('hides the default sign-up role control when the key is absent', () => {
       renderTab();
       expect(screen.queryByText(/default role for new sign-ups/i)).not.toBeInTheDocument();

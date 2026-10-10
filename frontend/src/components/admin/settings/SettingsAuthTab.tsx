@@ -1129,7 +1129,9 @@ export function SettingsAuthTab({ settings, envOnly, onSave, onReset: submitRese
 
       <div className="sticky bottom-0 z-10 -mx-1 border-t border-border bg-background px-1 pb-2">
         <SettingsFormActions dirty={dirty} hasDirty={hasDirty} envOnly={envOnly} isSaving={isSaving} onSave={(changes) => {
-          if (changes.registration_default_role === 'admin') setPendingAdminSave(changes);
+          const opensAdminSignUp = changes.registration_default_role === 'admin'
+            || (changes.registration_enabled === true && defaultRole === 'admin');
+          if (opensAdminSignUp) setPendingAdminSave(changes);
           else onSave(changes);
         }} onDiscard={discard} onDirtyChange={onDirtyChange} />
       </div>
