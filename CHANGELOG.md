@@ -7,6 +7,8 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.23.1] - 2026-10-10
+
 ### Added
 
 - `docker-compose.prod.yml` bundles an opt-in cache. Start it with
@@ -29,6 +31,42 @@ and releases use semantic versioning.
   vector tiles write (`2024-03-01T17:00:00+00:00`), so a category picked from
   the samples matches the features. Existing datasets keep their stored samples
   until their metadata is next refreshed.
+- Single sign-on links an identity to an existing account by email only when
+  that account is active and its own address is verified. A sign-in that
+  resolves to an account that is pending, suspended or deactivated is refused
+  with `error=account_inactive` before any session or sign-in code is issued,
+  and it is recorded as `oauth.login.failure`. SAML reports the same refusal
+  as `saml_failed`. An address an admin enters counts as verified, so the
+  documented flow where an admin creates the account and the person's first
+  sign-in links to it keeps working. Migration `0081` marks existing local
+  accounts with an email and no self-registration record as verified. An
+  account that signed up itself and was approved without verifying its
+  address no longer links by email: the owner can verify the address, or an
+  admin can set it. The sign-in page shows a specific message for each new
+  error code. The sign-in code's lifetime is documented as two minutes, which
+  is what it always was. (#2859, #2862)
+- A password sign-up that activates through the email link now gets a role
+  instead of none. The new auth setting `registration_default_role` (`viewer`
+  by default, or `editor` or `admin`) sets it. `/auth/register` answers 403
+  while password login is off, answers 422 for a sign-up without an email while
+  an email-domain allowlist is set, and reads the registration switches
+  without the cache. `/auth/config` reports `allow_signup=false` while
+  password login is off. Creating or renaming a provider onto a slug another
+  provider uses answers 409 instead of 500, and a provider's `default_role` and
+  group role mapping values must be `viewer`, `editor` or `admin`. A user in
+  several mapped groups gets the most privileged mapped role instead of the
+  one the identity provider listed first. Providers already stored keep
+  working until edited. (#2860)
+- Admin > Settings > Auth describes what each setting does: new SSO accounts
+  and email-verified password sign-ups are active right away, and approval
+  applies to the rest. It adds a "Default role for new sign-ups" control and
+  warns when sign-up is on with a public provider and no domain allowlist.
+  Saving a sign-up default role or provider default role of admin, enabling
+  sign-ups or widening the domain allowlist while a path grants admin, or
+  saving a group mapped to admin asks for confirmation, as does resetting the
+  domain list, email verification or password login. The register page shows
+  its closed state while password login is off, and the provider dialog keeps
+  the slug when editing and shows the server's error text. (#2861)
 
 ## [1.23.0] - 2026-10-09
 
@@ -5142,7 +5180,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.23.0...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.23.1...HEAD
+[1.23.1]: https://github.com/geolens-io/geolens/compare/v1.23.0...v1.23.1
 [1.23.0]: https://github.com/geolens-io/geolens/compare/v1.22.0...v1.23.0
 [1.22.0]: https://github.com/geolens-io/geolens/compare/v1.21.1...v1.22.0
 [1.21.1]: https://github.com/geolens-io/geolens/compare/v1.21.0...v1.21.1
