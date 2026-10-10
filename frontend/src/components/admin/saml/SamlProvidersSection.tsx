@@ -174,6 +174,7 @@ export function SamlProvidersSection() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProvider, setEditingProvider] = useState<SamlProviderConfig | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<SamlProviderConfig | null>(null);
+  const [adminRoleConfirmOpen, setAdminRoleConfirmOpen] = useState(false);
   const [form, setForm] = useState<SamlFormData>(EMPTY_FORM);
   const [certError, setCertError] = useState<string | null>(null);
   const [mappingError, setMappingError] = useState<string | null>(null);
@@ -258,7 +259,7 @@ export function SamlProvidersSection() {
     }
   }
 
-  function handleSubmit() {
+  function handleSubmit(adminRoleConfirmed = false) {
     let groupMapping: Record<string, string> | null = null;
     if (form.group_role_mapping.trim()) {
       try {
@@ -268,6 +269,18 @@ export function SamlProvidersSection() {
         mappingRef.current?.focus();
         return;
       }
+    }
+
+    if (!editingProvider && !form.idp_certificate) {
+      toast.error(t('saml.certRequired'));
+      return;
+    }
+
+    const grantsAdmin = form.default_role === 'admin'
+      || Object.values(groupMapping ?? {}).includes('admin');
+    if (grantsAdmin && !adminRoleConfirmed) {
+      setAdminRoleConfirmOpen(true);
+      return;
     }
 
     if (editingProvider) {
@@ -293,10 +306,6 @@ export function SamlProvidersSection() {
         { onSuccess: () => setDialogOpen(false), onError: handleSaveError },
       );
     } else {
-      if (!form.idp_certificate) {
-        toast.error(t('saml.certRequired'));
-        return;
-      }
       const data: SamlProviderCreateData = {
         slug: form.slug,
         display_name: form.display_name,
@@ -593,7 +602,7 @@ export function SamlProvidersSection() {
               {t('common:cancel')}
             </Button>
             <Button
-              onClick={handleSubmit}
+              onClick={() => handleSubmit()}
               disabled={
                 isMutating ||
                 !form.slug ||
@@ -608,6 +617,25 @@ export function SamlProvidersSection() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={adminRoleConfirmOpen} onOpenChange={setAdminRoleConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('settings.auth.adminRoleConfirmTitle')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {form.default_role === 'admin'
+                ? t('settings.auth.adminRoleConfirmDescription')
+                : t('settings.auth.adminGroupConfirmDescription')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common:cancel')}</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={() => handleSubmit(true)}>
+              {t('settings.auth.adminRoleConfirm')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Delete Confirmation */}
       <AlertDialog
