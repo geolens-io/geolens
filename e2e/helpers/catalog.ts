@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { getAuthToken } from './session';
+import { getAuthToken, recordSearchRequest } from './session';
 
 export { getAuthToken };
 
@@ -66,6 +66,7 @@ function searchUrl(params: Record<string, string | number | boolean>): string {
 async function fetchSearchPayload(url: string): Promise<SearchPayload> {
   let lastStatus = 0;
   for (let attempt = 0; attempt < 4; attempt += 1) {
+    recordSearchRequest();
     const response = await fetch(url, { headers: authHeaders() });
     if (response.ok) {
       return response.json() as Promise<SearchPayload>;
