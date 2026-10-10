@@ -162,8 +162,19 @@ test.describe('live demo read-only smoke', () => {
     await expect(page.getByRole('button', { name: 'Sign in with GitHub' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Sign in with Google' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Sign in with Microsoft' })).toBeVisible();
-    await expect(page.getByText('Need access? Contact a GeoLens administrator.')).toBeVisible();
-    await expect(page.locator('a[href*="register"]')).toHaveCount(0);
+    const authConfig = await (await page.request.get('/api/auth/config/')).json();
+    const signupOpen =
+      authConfig.allow_signup === true ||
+      (authConfig.allow_signup === undefined && authConfig.registration_enabled === true);
+    const supportHint = page.getByText('Need access? Contact a GeoLens administrator.');
+    const registerLink = page.locator('a[href*="register"]');
+    if (signupOpen) {
+      await expect(registerLink).toHaveCount(1);
+      await expect(supportHint).toHaveCount(0);
+    } else {
+      await expect(supportHint).toBeVisible();
+      await expect(registerLink).toHaveCount(0);
+    }
 
     diagnostics.assertClean();
   });

@@ -17,9 +17,11 @@ import { postSignInPath } from '@/lib/post-sign-in-path';
  * destination (from `location.state.from`) or the catalog home. Renders inside
  * the right-hand sign-in panel next to the optional OAuth provider buttons;
  * both code paths feed the same auth store. Handles password visibility
- * toggling and inline error display.
+ * toggling and inline error display. The contact-an-administrator hint shows
+ * only while sign-up is closed, since the page offers its own sign-up link
+ * otherwise.
  */
-export function LoginForm() {
+export function LoginForm({ signupOpen = false }: { signupOpen?: boolean }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -109,9 +111,11 @@ export function LoginForm() {
         {loading && <Loader2 className="size-4 animate-spin" />}
         {loading ? t('signingIn') : t('signIn')}
       </Button>
-      <p className="text-xs leading-relaxed text-muted-foreground">
-        {t('supportHint')}
-      </p>
+      {!signupOpen && (
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          {t('supportHint')}
+        </p>
+      )}
     </form>
   );
 }
