@@ -235,6 +235,27 @@ describe('SamlProvidersSection provider mutations', () => {
       screen.queryByText('IdP certificate must be a valid X.509 certificate (PEM)'),
     ).not.toBeInTheDocument();
   });
+  it.each([
+    ['a default role of admin', { default_role: 'admin' }, /everyone this provider signs up/i],
+    ['a group mapped to admin', { group_claim: 'groups', group_role_mapping: { Admins: 'admin' } }, /members of the groups mapped to admin/i],
+  ])('asks for confirmation before saving %s', async (_label, overrides, description) => {
+    vi.mocked(listSamlProviders).mockResolvedValueOnce([{ ...SAML_PROVIDER, ...overrides }]);
+    vi.mocked(updateSamlProvider).mockResolvedValueOnce(SAML_PROVIDER);
+    const user = userEvent.setup();
+
+    render(<SamlProvidersSection />);
+
+    const providerRow = (await screen.findByText('Okta')).closest('tr');
+    await user.click(within(providerRow!).getByRole('button', { name: 'Edit provider' }));
+    await screen.findByLabelText('Display Name');
+    await user.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+    expect(updateSamlProvider).not.toHaveBeenCalled();
+    expect(await screen.findByText(description)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /save with admin role/i }));
+    await waitFor(() => expect(updateSamlProvider).toHaveBeenCalledOnce());
+  });
+
   it('binds malformed group role mapping JSON to its textarea and focuses it', async () => {
     const user = userEvent.setup();
 

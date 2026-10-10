@@ -89,7 +89,10 @@ export function RegisterPage() {
     );
   }
 
-  if (!config || config.registration_enabled === false) {
+  // allow_signup is false when password login is off even though registration
+  // is on; older servers omit it.
+  const signupOpen = config?.allow_signup ?? config?.registration_enabled === true;
+  if (!config || !signupOpen) {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center gap-6 bg-background px-4">
         <div className="text-center">

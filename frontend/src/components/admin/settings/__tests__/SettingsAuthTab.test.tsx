@@ -1,6 +1,8 @@
 import { QueryClient } from '@tanstack/react-query';
 import { render, screen, waitFor, within } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
+import { toast } from 'sonner';
+import { fetchEdition } from '@/api/edition';
 import { SettingsAuthTab } from '../SettingsAuthTab';
 import { buildOAuthEndpointFields } from '../oauth-endpoint-fields';
 import { queryKeys } from '@/lib/query-keys';
@@ -9,6 +11,7 @@ import {
   createOAuthProvider,
   updateOAuthProvider,
   deleteOAuthProvider,
+  getNotificationStatus,
   type OAuthProviderConfig,
   type SettingItem,
 } from '@/api/settings';
@@ -23,8 +26,19 @@ vi.mock('@/api/settings', async () => {
     createOAuthProvider: vi.fn(),
     updateOAuthProvider: vi.fn(),
     deleteOAuthProvider: vi.fn(),
+    getNotificationStatus: vi.fn().mockResolvedValue({
+      notifications_enabled: true,
+      smtp_configured: true,
+      webhook_configured: false,
+    }),
   };
 });
+
+vi.mock('@/api/edition', () => ({
+  fetchEdition: vi.fn().mockResolvedValue({ edition: 'community', features: [] }),
+}));
+
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 const OIDC_PROVIDER: OAuthProviderConfig = {
   id: 'provider-1',
@@ -413,7 +427,10 @@ describe('SettingsAuthTab', () => {
   describe('Email Verification Required toggle (#1778)', () => {
     it('renders, reflects the current value, and reports a change', async () => {
       const user = userEvent.setup();
-      const { onDirtyChange } = renderTab([makeSetting('email_verification_required', true)]);
+      const { onDirtyChange } = renderTab([
+        makeSetting('registration_enabled', true),
+        makeSetting('email_verification_required', true),
+      ]);
 
       const toggle = screen.getByRole('switch', { name: /require email verification/i });
       expect(toggle).toHaveAttribute('aria-checked', 'true');
@@ -422,6 +439,469 @@ describe('SettingsAuthTab', () => {
 
       expect(toggle).toHaveAttribute('aria-checked', 'false');
       expect(onDirtyChange).toHaveBeenCalledWith(true);
+    });
+  });
+
+  describe('sign-up safeguards', () => {
+    const GOOGLE_PROVIDER: OAuthProviderConfig = {
+      ...OIDC_PROVIDER,
+      id: 'google-1',
+      slug: 'google',
+      display_name: 'Google',
+      provider_type: 'google',
+    };
+
+    it('dims Require Email Verification while Self-Registration is off', () => {
+      renderTab([makeSetting('registration_enabled', false)]);
+      expect(screen.getByRole('switch', { name: /require email verification/i })).toBeDisabled();
+      expect(screen.getByText(/applies when self-registration is on/i)).toBeInTheDocument();
+    });
+
+    it('notes a missing SMTP host next to Require Email Verification', async () => {
+      vi.mocked(getNotificationStatus).mockResolvedValueOnce({
+        notifications_enabled: false,
+        smtp_configured: false,
+        webhook_configured: false,
+      });
+      renderTab([makeSetting('registration_enabled', true)]);
+      expect(await screen.findByText(/smtp is not configured/i)).toBeInTheDocument();
+    });
+
+    it('warns when registration is on, a public provider is enabled and no domains are listed', async () => {
+      vi.mocked(listOAuthProviders).mockResolvedValue([GOOGLE_PROVIDER]);
+      renderTab([makeSetting('registration_enabled', true)]);
+      expect(await screen.findByText(/anyone with such an account/i)).toBeInTheDocument();
+      vi.mocked(listOAuthProviders).mockResolvedValue([]);
+    });
+
+    it.each([
+      ['a domain is listed', [makeSetting('registration_enabled', true), makeSetting('allowed_email_domains', ['acme.com'])], [GOOGLE_PROVIDER]],
+      ['registration is off', [makeSetting('registration_enabled', false)], [GOOGLE_PROVIDER]],
+      ['the provider is disabled', [makeSetting('registration_enabled', true)], [{ ...GOOGLE_PROVIDER, enabled: false }]],
+      ['the provider is a single-tenant OIDC one', [makeSetting('registration_enabled', true)], [OIDC_PROVIDER]],
+    ])('does not warn when %s', async (_name, settings, providers) => {
+      vi.mocked(listOAuthProviders).mockResolvedValue(providers);
+      renderTab(settings);
+      await screen.findAllByText(providers[0].display_name);
+      expect(screen.queryByText(/anyone with such an account/i)).not.toBeInTheDocument();
+      vi.mocked(listOAuthProviders).mockResolvedValue([]);
+    });
+
+    it('warns for a multi-tenant Microsoft provider', async () => {
+      vi.mocked(listOAuthProviders).mockResolvedValue([
+        {
+          ...GOOGLE_PROVIDER,
+          provider_type: 'microsoft',
+          discovery_url: 'https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration',
+        },
+      ]);
+      renderTab([makeSetting('registration_enabled', true)]);
+      expect(await screen.findByText(/anyone with such an account/i)).toBeInTheDocument();
+      vi.mocked(listOAuthProviders).mockResolvedValue([]);
+    });
+
+    it.each([
+      'https://login.microsoftonline.us/common/v2.0/.well-known/openid-configuration',
+      'https://login.microsoftonline.com/Organizations/v2.0/.well-known/openid-configuration',
+    ])('warns for the multi-tenant Microsoft authority %s', async (discovery_url) => {
+      vi.mocked(listOAuthProviders).mockResolvedValue([
+        { ...GOOGLE_PROVIDER, provider_type: 'microsoft', discovery_url },
+      ]);
+      renderTab([makeSetting('registration_enabled', true)]);
+      expect(await screen.findByText(/anyone with such an account/i)).toBeInTheDocument();
+      vi.mocked(listOAuthProviders).mockResolvedValue([]);
+    });
+
+    it('confirms before resetting Self-Registration', async () => {
+      const user = userEvent.setup();
+      const onReset = vi.fn();
+      renderTab([makeSetting('registration_enabled', false)], { onReset });
+      await user.click(screen.getAllByRole('button', { name: /reset/i })[0]);
+      expect(onReset).not.toHaveBeenCalled();
+      await user.click(await screen.findByRole('button', { name: /^reset$/i }));
+      expect(onReset).toHaveBeenCalledWith('registration_enabled');
+    });
+
+    it('shows the default sign-up role control when the backend exposes the key', () => {
+      renderTab([makeSetting('registration_default_role', 'editor')]);
+      expect(screen.getByRole('combobox', { name: /default role for new sign-ups/i })).toHaveTextContent('Editor');
+    });
+
+    it('confirms before saving admin as the sign-up default role', async () => {
+      // jsdom lacks scrollIntoView, which Radix Select calls when it opens.
+      Element.prototype.scrollIntoView = vi.fn();
+      const user = userEvent.setup();
+      const { onSave } = renderTab([makeSetting('registration_default_role', 'viewer')]);
+      screen.getByRole('combobox', { name: /default role for new sign-ups/i }).focus();
+      await user.keyboard('{Enter}');
+      await user.click(await screen.findByRole('option', { name: 'Admin' }));
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+      expect(onSave).not.toHaveBeenCalled();
+      await user.click(await screen.findByRole('button', { name: /save with admin role/i }));
+      expect(onSave).toHaveBeenCalledOnce();
+    });
+
+    it('confirms before turning on Self-Registration when the stored sign-up role is admin', async () => {
+      const user = userEvent.setup();
+      const { onSave } = renderTab([makeSetting('registration_default_role', 'admin')]);
+      await user.click(screen.getByRole('switch', { name: /self-registration/i }));
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+      expect(onSave).not.toHaveBeenCalled();
+      await user.click(await screen.findByRole('button', { name: /save with admin role/i }));
+      expect(onSave).toHaveBeenCalledWith({ registration_enabled: true });
+    });
+
+    it('confirms before turning on Self-Registration when an enabled provider gives the admin role', async () => {
+      vi.mocked(listOAuthProviders).mockResolvedValue([{ ...GOOGLE_PROVIDER, enabled: true, default_role: 'admin' }]);
+      const user = userEvent.setup();
+      const { onSave } = renderTab();
+      await screen.findByRole('button', { name: 'Edit Google' });
+      await user.click(screen.getByRole('switch', { name: /self-registration/i }));
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+      expect(onSave).not.toHaveBeenCalled();
+      expect(await screen.findByText(/can become administrators without an administrator approving/i)).toBeInTheDocument();
+      vi.mocked(listOAuthProviders).mockResolvedValue([]);
+    });
+
+    it('warns about admin sign-ups before resetting Self-Registration', async () => {
+      const user = userEvent.setup();
+      renderTab([makeSetting('registration_default_role', 'admin')]);
+      await user.click(screen.getAllByRole('button', { name: /reset/i })[0]);
+      expect(await screen.findByText(/can become administrators without an administrator approving/i)).toBeInTheDocument();
+    });
+
+    it('confirms before turning password login back on opens admin sign-ups', async () => {
+      const user = userEvent.setup();
+      const { onSave } = renderTab([
+        makeSetting('registration_enabled', true),
+        makeSetting('password_login_enabled', false),
+        makeSetting('registration_default_role', 'admin'),
+      ]);
+      await user.click(screen.getByRole('switch', { name: /allow password login/i }));
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+      expect(onSave).not.toHaveBeenCalled();
+      await user.click(await screen.findByRole('button', { name: /save with admin role/i }));
+      expect(onSave).toHaveBeenCalledWith({ password_login_enabled: true });
+    });
+
+    it('confirms before email verification lets admin sign-ups activate themselves', async () => {
+      const user = userEvent.setup();
+      const { onSave } = renderTab([
+        makeSetting('registration_enabled', true),
+        makeSetting('email_verification_required', false),
+        makeSetting('registration_default_role', 'admin'),
+      ]);
+      await user.click(screen.getByRole('switch', { name: /require email verification/i }));
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+      expect(onSave).not.toHaveBeenCalled();
+      expect(await screen.findByText(/can become administrators without an administrator approving/i)).toBeInTheDocument();
+    });
+
+    it.each([
+      ['is still loading', () => new Promise<never>(() => {})],
+      ['failed to load', () => Promise.reject(new Error('down'))],
+    ])('confirms turning on Self-Registration while the provider list %s', async (_state, load) => {
+      vi.mocked(listOAuthProviders).mockImplementation(load);
+      const user = userEvent.setup();
+      const { onSave } = renderTab();
+      await user.click(screen.getByRole('switch', { name: /self-registration/i }));
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+      expect(onSave).not.toHaveBeenCalled();
+      expect(await screen.findByText(/can become administrators without an administrator approving/i)).toBeInTheDocument();
+      vi.mocked(listOAuthProviders).mockReset();
+      vi.mocked(listOAuthProviders).mockResolvedValue([]);
+    });
+
+    it('saves other settings without a prompt while the provider list is loading', async () => {
+      vi.mocked(listOAuthProviders).mockImplementation(() => new Promise<never>(() => {}));
+      const user = userEvent.setup();
+      const { onSave } = renderTab();
+      const input = screen.getByLabelText(/login rate limit/i);
+      await user.clear(input);
+      await user.type(input, '9');
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+      expect(onSave).toHaveBeenCalledWith({ login_rate_limit: 9 });
+      vi.mocked(listOAuthProviders).mockReset();
+      vi.mocked(listOAuthProviders).mockResolvedValue([]);
+    });
+
+    it('counts a provider that maps a group to the admin role', async () => {
+      vi.mocked(listOAuthProviders).mockResolvedValue([
+        { ...GOOGLE_PROVIDER, enabled: true, default_role: 'viewer', group_role_mapping: { 'it-admins': 'admin' } },
+      ]);
+      const user = userEvent.setup();
+      const { onSave } = renderTab();
+      await screen.findByRole('button', { name: 'Edit Google' });
+      await user.click(screen.getByRole('switch', { name: /self-registration/i }));
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+      expect(onSave).not.toHaveBeenCalled();
+      expect(await screen.findByText(/can become administrators without an administrator approving/i)).toBeInTheDocument();
+      vi.mocked(listOAuthProviders).mockResolvedValue([]);
+    });
+
+    it('confirms removing the last allowed domain while a provider grants admin', async () => {
+      vi.mocked(listOAuthProviders).mockResolvedValue([{ ...GOOGLE_PROVIDER, enabled: true, default_role: 'admin' }]);
+      const user = userEvent.setup();
+      const { onSave } = renderTab([
+        makeSetting('registration_enabled', true),
+        makeSetting('allowed_email_domains', ['acme.com']),
+      ]);
+      await screen.findByRole('button', { name: 'Edit Google' });
+      await user.click(screen.getByRole('button', { name: /acme\.com/i }));
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+      expect(onSave).not.toHaveBeenCalled();
+      expect(await screen.findByText(/can become administrators without an administrator approving/i)).toBeInTheDocument();
+      vi.mocked(listOAuthProviders).mockResolvedValue([]);
+    });
+
+    it('confirms adding a domain to the allowlist while a provider grants admin', async () => {
+      vi.mocked(listOAuthProviders).mockResolvedValue([{ ...GOOGLE_PROVIDER, enabled: true, default_role: 'admin' }]);
+      const user = userEvent.setup();
+      const { onSave } = renderTab([
+        makeSetting('registration_enabled', true),
+        makeSetting('allowed_email_domains', ['acme.com']),
+      ]);
+      await screen.findByRole('button', { name: 'Edit Google' });
+      await user.type(screen.getByPlaceholderText(/example\.com/i), 'gmail.com');
+      await user.click(screen.getByRole('button', { name: /^add$/i }));
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+      expect(onSave).not.toHaveBeenCalled();
+      expect(await screen.findByText(/can become administrators without an administrator approving/i)).toBeInTheDocument();
+      vi.mocked(listOAuthProviders).mockResolvedValue([]);
+    });
+
+    it('saves a narrower allowlist without confirming while a provider grants admin', async () => {
+      vi.mocked(listOAuthProviders).mockResolvedValue([{ ...GOOGLE_PROVIDER, enabled: true, default_role: 'admin' }]);
+      const user = userEvent.setup();
+      const { onSave } = renderTab([
+        makeSetting('registration_enabled', true),
+        makeSetting('allowed_email_domains', ['acme.com', 'example.org']),
+      ]);
+      await screen.findByRole('button', { name: 'Edit Google' });
+      await user.click(screen.getByRole('button', { name: /example\.org/i }));
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+      expect(onSave).toHaveBeenCalledWith({ allowed_email_domains: ['acme.com'] });
+      vi.mocked(listOAuthProviders).mockResolvedValue([]);
+    });
+
+    it('counts an enabled SAML provider with the admin role', async () => {
+      vi.mocked(listOAuthProviders).mockResolvedValue([
+        { ...GOOGLE_PROVIDER, id: 'saml-1', slug: 'okta', display_name: 'Okta', provider_type: 'saml' as OAuthProviderConfig['provider_type'], enabled: true, default_role: 'admin' },
+      ]);
+      const user = userEvent.setup();
+      const { onSave } = renderTab();
+      await waitFor(() => expect(listOAuthProviders).toHaveBeenCalled());
+      await screen.findByText(/no oauth providers configured/i);
+      await user.click(screen.getByRole('switch', { name: /self-registration/i }));
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+      expect(onSave).not.toHaveBeenCalled();
+      expect(await screen.findByText(/can become administrators without an administrator approving/i)).toBeInTheDocument();
+      vi.mocked(listOAuthProviders).mockResolvedValue([]);
+    });
+
+    it('hides the default sign-up role control when the key is absent', () => {
+      renderTab();
+      expect(screen.queryByText(/default role for new sign-ups/i)).not.toBeInTheDocument();
+    });
+  });
+
+  describe('input checks', () => {
+    it.each(['*', '@acme.com', 'com', '*.com', 'a b.com'])('refuses the domain chip %s', async (bad) => {
+      const user = userEvent.setup();
+      renderTab();
+      await user.type(screen.getByPlaceholderText(/example\.com/i), bad);
+      await user.click(screen.getByRole('button', { name: /^add$/i }));
+      expect(screen.getByRole('alert')).toHaveTextContent(/not a valid domain/i);
+      expect(screen.getByRole('button', { name: /save/i })).toBeDisabled();
+    });
+
+    it('accepts a wildcard subdomain chip', async () => {
+      const user = userEvent.setup();
+      renderTab();
+      await user.type(screen.getByPlaceholderText(/example\.com/i), '*.Acme.com');
+      await user.click(screen.getByRole('button', { name: /^add$/i }));
+      expect(screen.getByText('*.acme.com')).toBeInTheDocument();
+    });
+
+    it('does not send 0 for an emptied number field', async () => {
+      const user = userEvent.setup();
+      const { onSave } = renderTab();
+      const input = screen.getByLabelText(/login rate limit/i);
+      await user.clear(input);
+      expect(screen.getByRole('button', { name: /save/i })).toBeDisabled();
+      await user.type(input, '9');
+      await user.click(screen.getByRole('button', { name: /save/i }));
+      expect(onSave).toHaveBeenCalledWith({ login_rate_limit: 9 });
+    });
+
+    it('confirms before resetting the domain allowlist', async () => {
+      const user = userEvent.setup();
+      const onReset = vi.fn();
+      renderTab([makeSetting('allowed_email_domains', ['acme.com'])], { onReset });
+      const resetButtons = screen.getAllByRole('button', { name: /reset/i });
+      // the allowlist badge is the only overridden key whose reset sits inside its section
+      const allowlistReset = resetButtons.find((b) =>
+        b.closest('div.space-y-3')?.textContent?.includes('Allowed Email Domains'),
+      );
+      await user.click(allowlistReset!);
+      expect(onReset).not.toHaveBeenCalled();
+      await user.click(await screen.findByRole('button', { name: /^reset$/i }));
+      expect(onReset).toHaveBeenCalledWith('allowed_email_domains');
+    });
+  });
+
+  describe('provider dialog and table', () => {
+    async function openEditByName(provider: OAuthProviderConfig) {
+      vi.mocked(listOAuthProviders).mockResolvedValueOnce([provider]);
+      const user = userEvent.setup();
+      renderTab();
+      expect(await screen.findByRole('button', { name: `Delete ${provider.display_name}` })).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: `Edit ${provider.display_name}` }));
+      return user;
+    }
+
+    async function openEdit(provider: OAuthProviderConfig) {
+      vi.mocked(listOAuthProviders).mockResolvedValueOnce([provider]);
+      const user = userEvent.setup();
+      renderTab();
+      const row = (await screen.findByText(provider.display_name)).closest('tr');
+      await user.click(within(row!).getAllByRole('button')[0]);
+      return user;
+    }
+
+    it('names the row buttons and the dialog selects for assistive tech', async () => {
+      const user = await openEditByName(OIDC_PROVIDER);
+      expect(await screen.findByRole('combobox', { name: 'Provider Type' })).toBeInTheDocument();
+      expect(screen.getByRole('combobox', { name: 'Default Role' })).toBeInTheDocument();
+      expect(user).toBeDefined();
+    });
+
+    it('keeps the slug when the display name is edited on an existing provider', async () => {
+      const user = await openEdit(OIDC_PROVIDER);
+      const name = await screen.findByLabelText('Display Name');
+      await user.clear(name);
+      await user.type(name, 'Renamed');
+      expect(screen.getByLabelText('Slug')).toHaveValue('legacy-oidc');
+      expect(screen.queryByText(/changing the slug/i)).not.toBeInTheDocument();
+    });
+
+    it('warns when the slug of an existing provider is changed', async () => {
+      const user = await openEdit(OIDC_PROVIDER);
+      await user.type(await screen.findByLabelText('Slug'), 'x');
+      expect(screen.getByText(/changing the slug changes the callback url/i)).toBeInTheDocument();
+    });
+
+    it('still derives the slug from the display name for a new provider', async () => {
+      const user = userEvent.setup();
+      renderTab();
+      await user.click(screen.getByRole('button', { name: /add provider/i }));
+      const name = await screen.findByLabelText('Display Name');
+      await user.clear(name);
+      await user.type(name, 'Acme SSO');
+      expect(screen.getByLabelText('Slug')).toHaveValue('acme-sso');
+    });
+
+    it('shows the backend error detail when a save is refused', async () => {
+      vi.mocked(updateOAuthProvider).mockRejectedValueOnce(new Error('Would remove the last sign-in method'));
+      const user = await openEdit(OIDC_PROVIDER);
+      await screen.findByLabelText('Display Name');
+      await user.click(screen.getByRole('button', { name: 'Save Changes' }));
+      await waitFor(() =>
+        expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('Would remove the last sign-in method')),
+      );
+    });
+
+    it('asks for confirmation before saving a provider whose default role is admin', async () => {
+      vi.mocked(updateOAuthProvider).mockResolvedValueOnce(OIDC_PROVIDER);
+      const user = await openEdit({ ...OIDC_PROVIDER, default_role: 'admin' });
+      await screen.findByLabelText('Display Name');
+      await user.click(screen.getByRole('button', { name: 'Save Changes' }));
+      expect(updateOAuthProvider).not.toHaveBeenCalled();
+      await user.click(await screen.findByRole('button', { name: /save with admin role/i }));
+      await waitFor(() => expect(updateOAuthProvider).toHaveBeenCalledOnce());
+    });
+
+    it('asks for confirmation before saving a group mapped to the admin role', async () => {
+      vi.mocked(fetchEdition).mockResolvedValueOnce({ edition: 'enterprise', features: [] });
+      vi.mocked(updateOAuthProvider).mockResolvedValueOnce(OIDC_PROVIDER);
+      const user = await openEdit({ ...OIDC_PROVIDER, group_claim: 'groups', group_role_mapping: { Admins: 'admin' } });
+      await screen.findByLabelText('Display Name');
+      await waitFor(() => expect(fetchEdition).toHaveBeenCalled());
+      await user.click(screen.getByRole('button', { name: 'Save Changes' }));
+      expect(updateOAuthProvider).not.toHaveBeenCalled();
+      expect(await screen.findByText(/members of the groups mapped to admin/i)).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: /save with admin role/i }));
+      await waitFor(() => expect(updateOAuthProvider).toHaveBeenCalledOnce());
+    });
+
+    it('hides group mapping fields outside the enterprise edition', async () => {
+      await openEdit(OIDC_PROVIDER);
+      await screen.findByLabelText('Display Name');
+      await waitFor(() => expect(screen.queryByLabelText('Group Claim')).not.toBeInTheDocument());
+      expect(screen.queryByLabelText(/group role mapping/i)).not.toBeInTheDocument();
+    });
+
+    it('keeps saved group mapping editable when the edition lookup fails', async () => {
+      vi.mocked(fetchEdition).mockRejectedValueOnce(new Error('edition unavailable'));
+      vi.mocked(updateOAuthProvider).mockResolvedValueOnce(OIDC_PROVIDER);
+      const user = await openEdit({ ...OIDC_PROVIDER, group_claim: 'groups', group_role_mapping: { Editors: 'editor' } });
+      await screen.findByLabelText('Display Name');
+      await waitFor(() => expect(fetchEdition).toHaveBeenCalled());
+      await user.clear(screen.getByLabelText('Group Claim'));
+      await user.clear(screen.getByLabelText(/group role mapping/i));
+      await user.click(screen.getByRole('button', { name: 'Save Changes' }));
+      await waitFor(() => expect(updateOAuthProvider).toHaveBeenCalledOnce());
+      expect(updateOAuthProvider).toHaveBeenCalledWith(
+        OIDC_PROVIDER.id,
+        expect.objectContaining({ group_claim: null, group_role_mapping: null }),
+      );
+    });
+
+    it('clears legacy group fields on save outside the enterprise edition', async () => {
+      vi.mocked(updateOAuthProvider).mockResolvedValueOnce(OIDC_PROVIDER);
+      const user = await openEdit({
+        ...OIDC_PROVIDER,
+        group_claim: 'groups',
+        group_role_mapping: { Admins: 'admin' },
+      });
+      await screen.findByLabelText('Display Name');
+      await waitFor(() => expect(fetchEdition).toHaveBeenCalled());
+      await user.click(screen.getByRole('button', { name: 'Save Changes' }));
+      await waitFor(() => expect(updateOAuthProvider).toHaveBeenCalledOnce());
+      expect(updateOAuthProvider).toHaveBeenCalledWith(
+        OIDC_PROVIDER.id,
+        expect.objectContaining({ group_claim: null, group_role_mapping: null }),
+      );
+    });
+
+    it('keeps a GitHub provider\'s group mapping on enterprise edits', async () => {
+      vi.mocked(fetchEdition).mockResolvedValueOnce({ edition: 'enterprise', features: [] });
+      vi.mocked(updateOAuthProvider).mockResolvedValueOnce(OIDC_PROVIDER);
+      const mapping = { Editors: 'editor' };
+      const user = await openEdit({
+        ...OIDC_PROVIDER,
+        provider_type: 'github',
+        group_claim: 'groups',
+        group_role_mapping: mapping,
+      });
+      await screen.findByLabelText('Display Name');
+      await waitFor(() => expect(fetchEdition).toHaveBeenCalled());
+      await user.click(screen.getByRole('button', { name: 'Save Changes' }));
+      await waitFor(() => expect(updateOAuthProvider).toHaveBeenCalledOnce());
+      expect(updateOAuthProvider).toHaveBeenCalledWith(
+        OIDC_PROVIDER.id,
+        expect.objectContaining({ group_claim: 'groups', group_role_mapping: mapping }),
+      );
+    });
+
+    it('lists default roles, keeps unknown roles visible and drops SAML rows', async () => {
+      vi.mocked(listOAuthProviders).mockResolvedValueOnce([
+        { ...OIDC_PROVIDER, default_role: 'curator' },
+        { ...OIDC_PROVIDER, id: 'saml-1', display_name: 'Corp SAML', provider_type: 'saml' as never },
+      ]);
+      renderTab();
+      expect(await screen.findByText('curator')).toBeInTheDocument();
+      expect(screen.queryByText('Corp SAML')).not.toBeInTheDocument();
     });
   });
 });
