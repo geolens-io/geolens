@@ -199,7 +199,9 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
   const [deleteTarget, setDeleteTarget] = useState<OAuthProviderConfig | null>(null);
   const [adminRoleConfirmOpen, setAdminRoleConfirmOpen] = useState(false);
   const [form, setForm] = useState<ProviderFormData>(EMPTY_FORM);
-  const showGroupFields = isEnterprise && form.provider_type !== 'github';
+  // Until the edition is known the fields stay visible, so a saved mapping can
+  // still be seen and cleared if the edition lookup fails.
+  const showGroupFields = (isEnterprise || !editionResolved) && form.provider_type !== 'github';
   const { data: tileConfig, isLoading: tileConfigLoading } = useTileConfig();
   // #305: derive the callback from the CONFIGURED public
   // API URL (what the backend builds redirect_uri from, same as SAML settings),

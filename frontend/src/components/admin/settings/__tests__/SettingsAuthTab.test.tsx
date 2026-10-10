@@ -837,8 +837,24 @@ describe('SettingsAuthTab', () => {
     it('hides group mapping fields outside the enterprise edition', async () => {
       await openEdit(OIDC_PROVIDER);
       await screen.findByLabelText('Display Name');
-      expect(screen.queryByLabelText('Group Claim')).not.toBeInTheDocument();
+      await waitFor(() => expect(screen.queryByLabelText('Group Claim')).not.toBeInTheDocument());
       expect(screen.queryByLabelText(/group role mapping/i)).not.toBeInTheDocument();
+    });
+
+    it('keeps saved group mapping editable when the edition lookup fails', async () => {
+      vi.mocked(fetchEdition).mockRejectedValueOnce(new Error('edition unavailable'));
+      vi.mocked(updateOAuthProvider).mockResolvedValueOnce(OIDC_PROVIDER);
+      const user = await openEdit({ ...OIDC_PROVIDER, group_claim: 'groups', group_role_mapping: { Editors: 'editor' } });
+      await screen.findByLabelText('Display Name');
+      await waitFor(() => expect(fetchEdition).toHaveBeenCalled());
+      await user.clear(screen.getByLabelText('Group Claim'));
+      await user.clear(screen.getByLabelText(/group role mapping/i));
+      await user.click(screen.getByRole('button', { name: 'Save Changes' }));
+      await waitFor(() => expect(updateOAuthProvider).toHaveBeenCalledOnce());
+      expect(updateOAuthProvider).toHaveBeenCalledWith(
+        OIDC_PROVIDER.id,
+        expect.objectContaining({ group_claim: null, group_role_mapping: null }),
+      );
     });
 
     it('clears legacy group fields on save outside the enterprise edition', async () => {
