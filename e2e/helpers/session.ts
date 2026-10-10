@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { test as base, type TestInfo } from '@playwright/test';
+import { test as base, type BrowserContext, type TestInfo } from '@playwright/test';
 
 export * from '@playwright/test';
 
@@ -76,6 +76,15 @@ export function recordSearchRequest(): void {
   searchBudget.record();
 }
 
+/** Counts the rate-limited responses a browser context receives; anonymous and setup contexts share the per-IP buckets. */
+export function countRateLimitedResponses(context: BrowserContext): void {
+  context.on('response', (response) => {
+    const { pathname } = new URL(response.url());
+    if (/^\/api\/search\/(datasets|facets)\/?$/.test(pathname)) searchBudget.record();
+    if (/\/auth\/refresh\/?$/.test(pathname)) refreshBudget.record();
+  });
+}
+
 /**
  * The app recovers its access token from the refresh cookie on every page
  * load, and each recovery rotates the cookie. Presenting a rotated cookie again
@@ -90,23 +99,21 @@ export const test = base.extend({
       await refreshBudget.waitForRoom(testInfo);
       await searchBudget.waitForRoom(testInfo);
     }
-    // Anonymous contexts draw on the same per-IP buckets, so every context is counted.
-    context.on('response', (response) => {
-      const { pathname } = new URL(response.url());
-      if (/^\/api\/search\/(datasets|facets)\/?$/.test(pathname)) searchBudget.record();
-      if (!/\/auth\/refresh\/?$/.test(pathname)) return;
-      refreshBudget.record();
-      // The same refreshes renew the access token API calls from Node use, which
-      // would otherwise expire partway through a long serial run.
-      if (!shared || !response.ok()) return;
-      void response
-        .json()
-        .then((body: { access_token?: unknown }) => {
-          if (typeof body.access_token !== 'string') return;
-          fs.writeFileSync(tokenFileFor(AUTH_FILE), JSON.stringify({ token: body.access_token }), { mode: 0o600 });
-        })
-        .catch(() => {});
-    });
+    countRateLimitedResponses(context);
+    // The same refreshes renew the access token API calls from Node use, which
+    // would otherwise expire partway through a long serial run.
+    if (shared) {
+      context.on('response', (response) => {
+        if (!/\/auth\/refresh\/?$/.test(new URL(response.url()).pathname) || !response.ok()) return;
+        void response
+          .json()
+          .then((body: { access_token?: unknown }) => {
+            if (typeof body.access_token !== 'string') return;
+            fs.writeFileSync(tokenFileFor(AUTH_FILE), JSON.stringify({ token: body.access_token }), { mode: 0o600 });
+          })
+          .catch(() => {});
+      });
+    }
     await use(context);
     if (shared) await context.storageState({ path: AUTH_FILE });
   },

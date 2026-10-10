@@ -6,7 +6,7 @@ import {
   seedDataset,
   type SeededDataset,
 } from './helpers/catalog';
-import { tokenFileFor } from './helpers/session';
+import { countRateLimitedResponses, tokenFileFor } from './helpers/session';
 
 const authFile = process.env.E2E_AUTH_FILE
   ? path.resolve(process.env.E2E_AUTH_FILE)
@@ -17,6 +17,7 @@ setup('authenticate as admin', async ({ page }) => {
   setup.slow();
   const adminUser = process.env.GEOLENS_ADMIN_USERNAME ?? 'admin';
   const adminPass = process.env.GEOLENS_ADMIN_PASSWORD ?? 'admin';
+  countRateLimitedResponses(page.context());
 
   await page.goto('/login');
 
