@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { test as base } from '@playwright/test';
+import { test as base, type TestInfo } from '@playwright/test';
 
 export * from '@playwright/test';
 
@@ -22,6 +22,22 @@ export function getAuthToken(): string {
   return token;
 }
 
+const REFRESH_WINDOW_MS = 60_000;
+/** Refreshes a test may start with, leaving the rest of the endpoint's 30 per minute per IP to the test itself. */
+const REFRESH_START_BUDGET = 12;
+const refreshTimes: number[] = [];
+
+async function waitForRefreshBudget(testInfo: TestInfo): Promise<void> {
+  for (;;) {
+    const cutoff = Date.now() - REFRESH_WINDOW_MS;
+    while (refreshTimes.length && refreshTimes[0] <= cutoff) refreshTimes.shift();
+    if (refreshTimes.length < REFRESH_START_BUDGET) return;
+    const waitMs = refreshTimes[0] + REFRESH_WINDOW_MS - Date.now() + 100;
+    testInfo.setTimeout(testInfo.timeout + waitMs);
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+  }
+}
+
 /**
  * The app recovers its access token from the refresh cookie on every page
  * load, and each recovery rotates the cookie. Presenting a rotated cookie again
@@ -30,13 +46,19 @@ export function getAuthToken(): string {
  * saved session writes its cookies back when the test ends.
  */
 export const test = base.extend({
-  context: async ({ context, storageState }, use) => {
+  context: async ({ context, storageState }, use, testInfo) => {
     const shared = typeof storageState === 'string' && path.resolve(storageState) === AUTH_FILE;
     // The same refreshes renew the access token API calls from Node use, which
     // would otherwise expire partway through a long serial run.
     if (shared) {
+      // Every page load spends one refresh. A 429 leaves the SPA holding a
+      // stored user but no access token, so capability-gated UI such as the
+      // Admin menu item never renders; staying under the limit is the only fix.
+      await waitForRefreshBudget(testInfo);
       context.on('response', (response) => {
-        if (!response.ok() || !/\/auth\/refresh\/?$/.test(new URL(response.url()).pathname)) return;
+        if (!/\/auth\/refresh\/?$/.test(new URL(response.url()).pathname)) return;
+        refreshTimes.push(Date.now());
+        if (!response.ok()) return;
         void response
           .json()
           .then((body: { access_token?: unknown }) => {
