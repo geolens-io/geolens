@@ -48,6 +48,7 @@ class RateBudget {
   }
 
   record(): void {
+    fs.mkdirSync(path.dirname(this.file), { recursive: true });
     fs.writeFileSync(this.file, JSON.stringify([...this.recent(), Date.now()]));
   }
 
