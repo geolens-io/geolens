@@ -570,6 +570,48 @@ describe('SettingsAuthTab', () => {
       expect(await screen.findByText(/everyone who signs up becomes an administrator/i)).toBeInTheDocument();
     });
 
+    it('confirms before turning password login back on opens admin sign-ups', async () => {
+      const user = userEvent.setup();
+      const { onSave } = renderTab([
+        makeSetting('registration_enabled', true),
+        makeSetting('password_login_enabled', false),
+        makeSetting('registration_default_role', 'admin'),
+      ]);
+      await user.click(screen.getByRole('switch', { name: /allow password login/i }));
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+      expect(onSave).not.toHaveBeenCalled();
+      await user.click(await screen.findByRole('button', { name: /save with admin role/i }));
+      expect(onSave).toHaveBeenCalledWith({ password_login_enabled: true });
+    });
+
+    it('confirms before email verification lets admin sign-ups activate themselves', async () => {
+      const user = userEvent.setup();
+      const { onSave } = renderTab([
+        makeSetting('registration_enabled', true),
+        makeSetting('email_verification_required', false),
+        makeSetting('registration_default_role', 'admin'),
+      ]);
+      await user.click(screen.getByRole('switch', { name: /require email verification/i }));
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+      expect(onSave).not.toHaveBeenCalled();
+      expect(await screen.findByText(/everyone who signs up becomes an administrator/i)).toBeInTheDocument();
+    });
+
+    it('counts an enabled SAML provider with the admin role', async () => {
+      vi.mocked(listOAuthProviders).mockResolvedValue([
+        { ...GOOGLE_PROVIDER, id: 'saml-1', slug: 'okta', display_name: 'Okta', provider_type: 'saml' as OAuthProviderConfig['provider_type'], enabled: true, default_role: 'admin' },
+      ]);
+      const user = userEvent.setup();
+      const { onSave } = renderTab();
+      await waitFor(() => expect(listOAuthProviders).toHaveBeenCalled());
+      await screen.findByText(/no oauth providers configured/i);
+      await user.click(screen.getByRole('switch', { name: /self-registration/i }));
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+      expect(onSave).not.toHaveBeenCalled();
+      expect(await screen.findByText(/everyone who signs up becomes an administrator/i)).toBeInTheDocument();
+      vi.mocked(listOAuthProviders).mockResolvedValue([]);
+    });
+
     it('hides the default sign-up role control when the key is absent', () => {
       renderTab();
       expect(screen.queryByText(/default role for new sign-ups/i)).not.toBeInTheDocument();

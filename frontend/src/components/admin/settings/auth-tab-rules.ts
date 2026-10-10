@@ -35,3 +35,40 @@ export function hasOpenSignupRisk(
     providers.some((provider) => provider.enabled && acceptsAnyAccount(provider))
   );
 }
+
+export interface SignUpState {
+  registration_enabled: boolean;
+  password_login_enabled: boolean;
+  email_verification_required: boolean;
+  registration_default_role: string;
+}
+
+/** Reads the sign-up settings, falling back to the backend defaults for a key the backend doesn't send. */
+export function readSignUpState(read: (key: string) => unknown): SignUpState {
+  return {
+    registration_enabled: read('registration_enabled') === true,
+    password_login_enabled: read('password_login_enabled') !== false,
+    email_verification_required: read('email_verification_required') !== false,
+    registration_default_role: String(read('registration_default_role') ?? 'viewer'),
+  };
+}
+
+/**
+ * True when a stranger can create an active administrator account without an
+ * administrator approving it: through an enabled SSO or SAML provider whose
+ * default role is admin, or a password sign-up that activates by verifying its email.
+ */
+export function isAdminSignUpOpen(
+  state: SignUpState,
+  providers: readonly OAuthProviderConfig[],
+  smtpConfigured: boolean,
+): boolean {
+  if (!state.registration_enabled) return false;
+  if (providers.some((provider) => provider.enabled && provider.default_role === 'admin')) return true;
+  return (
+    state.password_login_enabled &&
+    state.email_verification_required &&
+    smtpConfigured &&
+    state.registration_default_role === 'admin'
+  );
+}
