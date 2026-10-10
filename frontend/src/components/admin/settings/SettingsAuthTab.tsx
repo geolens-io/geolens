@@ -299,7 +299,9 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
       return;
     }
 
-    if (form.default_role === 'admin' && !adminRoleConfirmed) {
+    const grantsAdmin = form.default_role === 'admin'
+      || Object.values(groupMapping ?? {}).includes('admin');
+    if (grantsAdmin && !adminRoleConfirmed) {
       setAdminRoleConfirmOpen(true);
       return;
     }
@@ -747,7 +749,9 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
           <AlertDialogHeader>
             <AlertDialogTitle>{t('settings.auth.adminRoleConfirmTitle')}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t('settings.auth.adminRoleConfirmDescription')}
+              {form.default_role === 'admin'
+                ? t('settings.auth.adminRoleConfirmDescription')
+                : t('settings.auth.adminGroupConfirmDescription')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

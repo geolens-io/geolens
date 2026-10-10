@@ -816,6 +816,7 @@
       "slugChangeWarning": "更改 slug 会改变回调 URL。在身份提供商处登记新 URL 之前，通过该提供商登录将失效。",
       "adminRoleConfirmTitle": "为新账户授予管理员角色？",
       "adminRoleConfirmDescription": "通过此提供商注册的所有人都会成为管理员。请确保此提供商只接受您信任的人。",
+      "adminGroupConfirmDescription": "映射到管理员角色的组成员通过此提供商登录时将成为管理员。请确保这些组只包含您信任的人。",
       "adminRoleConfirm": "以管理员角色保存",
       "resetConfirmTitle": "重置此设置？",
       "resetConfirmDescription": "默认值会立即生效，无需点击保存。这可能会放宽注册或登录限制。",

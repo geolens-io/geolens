@@ -791,6 +791,7 @@
       "slugChangeWarning": "Cambiar el slug cambia la URL de retorno. El inicio de sesión con este proveedor deja de funcionar hasta que registres la nueva URL en el proveedor de identidad.",
       "adminRoleConfirmTitle": "¿Asignar el rol de administrador a las cuentas nuevas?",
       "adminRoleConfirmDescription": "Todas las personas que se registren con este proveedor serán administradoras. Asegúrate de que este proveedor solo acepte a personas de confianza.",
+      "adminGroupConfirmDescription": "Los miembros de los grupos asignados a administrador se convertirán en administradores al iniciar sesión con este proveedor. Asegúrate de que esos grupos solo incluyan personas de confianza.",
       "adminRoleConfirm": "Guardar con rol de administrador",
       "resetConfirmTitle": "¿Restablecer este ajuste?",
       "resetConfirmDescription": "El valor predeterminado se aplica de inmediato, sin pulsar Guardar. Esto puede relajar las restricciones de registro o de inicio de sesión.",

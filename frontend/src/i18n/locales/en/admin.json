@@ -816,6 +816,7 @@
       "slugChangeWarning": "Changing the slug changes the callback URL. Sign-in through this provider breaks until the new URL is registered with the identity provider.",
       "adminRoleConfirmTitle": "Give new accounts the admin role?",
       "adminRoleConfirmDescription": "Everyone this provider signs up will become an administrator. Make sure this provider only accepts people you trust.",
+      "adminGroupConfirmDescription": "Members of the groups mapped to admin will become administrators when they sign in through this provider. Make sure those groups only contain people you trust.",
       "adminRoleConfirm": "Save with admin role",
       "resetConfirmTitle": "Reset this setting?",
       "resetConfirmDescription": "The default takes effect immediately, without pressing Save. This can loosen sign-up or sign-in restrictions.",

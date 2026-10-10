@@ -791,6 +791,7 @@
       "slugChangeWarning": "Modifier le slug change l'URL de rappel. La connexion via ce fournisseur ne fonctionnera plus tant que la nouvelle URL n'est pas enregistrée auprès du fournisseur d'identité.",
       "adminRoleConfirmTitle": "Attribuer le rôle administrateur aux nouveaux comptes ?",
       "adminRoleConfirmDescription": "Toutes les personnes inscrites via ce fournisseur deviendront administrateurs. Assurez-vous que ce fournisseur n'accepte que des personnes de confiance.",
+      "adminGroupConfirmDescription": "Les membres des groupes associés au rôle administrateur deviendront administrateurs en se connectant via ce fournisseur. Assurez-vous que ces groupes ne contiennent que des personnes de confiance.",
       "adminRoleConfirm": "Enregistrer avec le rôle administrateur",
       "resetConfirmTitle": "Réinitialiser ce paramètre ?",
       "resetConfirmDescription": "La valeur par défaut s'applique immédiatement, sans cliquer sur Enregistrer. Cela peut assouplir les restrictions d'inscription ou de connexion.",

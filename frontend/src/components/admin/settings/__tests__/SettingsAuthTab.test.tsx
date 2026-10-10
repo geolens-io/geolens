@@ -791,6 +791,19 @@ describe('SettingsAuthTab', () => {
       await waitFor(() => expect(updateOAuthProvider).toHaveBeenCalledOnce());
     });
 
+    it('asks for confirmation before saving a group mapped to the admin role', async () => {
+      vi.mocked(fetchEdition).mockResolvedValueOnce({ edition: 'enterprise', features: [] });
+      vi.mocked(updateOAuthProvider).mockResolvedValueOnce(OIDC_PROVIDER);
+      const user = await openEdit({ ...OIDC_PROVIDER, group_claim: 'groups', group_role_mapping: { Admins: 'admin' } });
+      await screen.findByLabelText('Display Name');
+      await waitFor(() => expect(fetchEdition).toHaveBeenCalled());
+      await user.click(screen.getByRole('button', { name: 'Save Changes' }));
+      expect(updateOAuthProvider).not.toHaveBeenCalled();
+      expect(await screen.findByText(/members of the groups mapped to admin/i)).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: /save with admin role/i }));
+      await waitFor(() => expect(updateOAuthProvider).toHaveBeenCalledOnce());
+    });
+
     it('hides group mapping fields outside the enterprise edition', async () => {
       await openEdit(OIDC_PROVIDER);
       await screen.findByLabelText('Display Name');
@@ -818,7 +831,7 @@ describe('SettingsAuthTab', () => {
     it('keeps a GitHub provider\'s group mapping on enterprise edits', async () => {
       vi.mocked(fetchEdition).mockResolvedValueOnce({ edition: 'enterprise', features: [] });
       vi.mocked(updateOAuthProvider).mockResolvedValueOnce(OIDC_PROVIDER);
-      const mapping = { Admins: 'admin' };
+      const mapping = { Editors: 'editor' };
       const user = await openEdit({
         ...OIDC_PROVIDER,
         provider_type: 'github',

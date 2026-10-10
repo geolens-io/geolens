@@ -791,6 +791,7 @@
       "slugChangeWarning": "Eine Änderung des Slugs ändert die Callback-URL. Die Anmeldung über diesen Anbieter funktioniert erst wieder, wenn die neue URL beim Identitätsanbieter registriert ist.",
       "adminRoleConfirmTitle": "Neuen Konten die Administratorrolle geben?",
       "adminRoleConfirmDescription": "Alle, die sich über diesen Anbieter registrieren, werden Administratoren. Stellen Sie sicher, dass dieser Anbieter nur vertrauenswürdige Personen zulässt.",
+      "adminGroupConfirmDescription": "Mitglieder der Gruppen, die der Administratorrolle zugeordnet sind, werden bei der Anmeldung über diesen Anbieter zu Administratoren. Stellen Sie sicher, dass diese Gruppen nur vertrauenswürdige Personen enthalten.",
       "adminRoleConfirm": "Mit Administratorrolle speichern",
       "resetConfirmTitle": "Diese Einstellung zurücksetzen?",
       "resetConfirmDescription": "Der Standardwert gilt sofort, ohne Speichern. Das kann Einschränkungen bei Registrierung oder Anmeldung lockern.",
