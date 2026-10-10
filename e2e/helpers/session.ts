@@ -25,12 +25,26 @@ export function getAuthToken(): string {
 const REFRESH_WINDOW_MS = 60_000;
 /** Refreshes a test may start with, leaving the rest of the endpoint's 30 per minute per IP to the test itself. */
 const REFRESH_START_BUDGET = 12;
-const refreshTimes: number[] = [];
+// On disk because a failed test restarts the worker while the API's bucket keeps counting.
+const REFRESH_LOG = path.join(path.dirname(AUTH_FILE), 'refresh-times.json');
+
+function readRefreshTimes(): number[] {
+  try {
+    const parsed: unknown = JSON.parse(fs.readFileSync(REFRESH_LOG, 'utf-8'));
+    const cutoff = Date.now() - REFRESH_WINDOW_MS;
+    return Array.isArray(parsed) ? parsed.filter((t): t is number => typeof t === 'number' && t > cutoff) : [];
+  } catch {
+    return [];
+  }
+}
+
+function recordRefresh(): void {
+  fs.writeFileSync(REFRESH_LOG, JSON.stringify([...readRefreshTimes(), Date.now()]));
+}
 
 async function waitForRefreshBudget(testInfo: TestInfo): Promise<void> {
   for (;;) {
-    const cutoff = Date.now() - REFRESH_WINDOW_MS;
-    while (refreshTimes.length && refreshTimes[0] <= cutoff) refreshTimes.shift();
+    const refreshTimes = readRefreshTimes();
     if (refreshTimes.length < REFRESH_START_BUDGET) return;
     const waitMs = refreshTimes[0] + REFRESH_WINDOW_MS - Date.now() + 100;
     testInfo.setTimeout(testInfo.timeout + waitMs);
@@ -57,7 +71,7 @@ export const test = base.extend({
       await waitForRefreshBudget(testInfo);
       context.on('response', (response) => {
         if (!/\/auth\/refresh\/?$/.test(new URL(response.url()).pathname)) return;
-        refreshTimes.push(Date.now());
+        recordRefresh();
         if (!response.ok()) return;
         void response
           .json()
