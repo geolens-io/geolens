@@ -799,7 +799,9 @@
       "callbackUrlCopied": "回调 URL 已复制到剪贴板",
       "callbackUrlHint": "请将此 URL 注册到您的提供商（Google、Microsoft 或 GitHub）作为授权重定向 / 回调 URL。它必须与部署配置的公开 API URL 一致（设置 PUBLIC_API_URL，或常规设置中的公开 API URL），否则 OAuth 登录将因重定向不匹配而失败。",
       "callbackUrlCopyFailed": "无法复制——请手动复制该 URL。",
-      "tenantIdPlaceholder": "例如 your-tenant-id"
+      "tenantIdPlaceholder": "例如 your-tenant-id",
+      "editProvider": "编辑 {{name}}",
+      "deleteProvider": "删除 {{name}}"
     },
     "auth": {
       "sectionSignUp": "注册",

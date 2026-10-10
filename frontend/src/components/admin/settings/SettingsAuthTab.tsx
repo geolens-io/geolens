@@ -411,6 +411,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
                         size="sm"
                         onClick={() => openEditDialog(provider)}
                         disabled={envOnly}
+                        aria-label={t('settings.oauth.editProvider', { name: provider.display_name })}
                       >
                         <Pencil className="h-4 w-4" />
                       </Button>
@@ -419,6 +420,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
                         size="sm"
                         onClick={() => setDeleteTarget(provider)}
                         disabled={envOnly}
+                        aria-label={t('settings.oauth.deleteProvider', { name: provider.display_name })}
                       >
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
@@ -447,13 +449,13 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
 
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>{t('settings.oauth.providerType')}</Label>
+              <Label htmlFor="provider-type">{t('settings.oauth.providerType')}</Label>
               <Select
                 value={form.provider_type}
                 onValueChange={handleProviderTypeChange}
                 disabled={envOnly}
               >
-                <SelectTrigger className="w-full">
+                <SelectTrigger id="provider-type" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -654,13 +656,13 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
             </div>
 
             <div className="space-y-2">
-              <Label>{t('settings.oauth.defaultRole')}</Label>
+              <Label htmlFor="provider-default-role">{t('settings.oauth.defaultRole')}</Label>
               <Select
                 value={form.default_role}
                 onValueChange={(v) => setForm((prev) => ({ ...prev, default_role: v }))}
                 disabled={envOnly}
               >
-                <SelectTrigger className="w-full">
+                <SelectTrigger id="provider-default-role" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

@@ -592,6 +592,15 @@ describe('SettingsAuthTab', () => {
   });
 
   describe('provider dialog and table', () => {
+    async function openEditByName(provider: OAuthProviderConfig) {
+      vi.mocked(listOAuthProviders).mockResolvedValueOnce([provider]);
+      const user = userEvent.setup();
+      renderTab();
+      expect(await screen.findByRole('button', { name: `Delete ${provider.display_name}` })).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: `Edit ${provider.display_name}` }));
+      return user;
+    }
+
     async function openEdit(provider: OAuthProviderConfig) {
       vi.mocked(listOAuthProviders).mockResolvedValueOnce([provider]);
       const user = userEvent.setup();
@@ -600,6 +609,13 @@ describe('SettingsAuthTab', () => {
       await user.click(within(row!).getAllByRole('button')[0]);
       return user;
     }
+
+    it('names the row buttons and the dialog selects for assistive tech', async () => {
+      const user = await openEditByName(OIDC_PROVIDER);
+      expect(await screen.findByRole('combobox', { name: 'Provider Type' })).toBeInTheDocument();
+      expect(screen.getByRole('combobox', { name: 'Default Role' })).toBeInTheDocument();
+      expect(user).toBeDefined();
+    });
 
     it('keeps the slug when the display name is edited on an existing provider', async () => {
       const user = await openEdit(OIDC_PROVIDER);
