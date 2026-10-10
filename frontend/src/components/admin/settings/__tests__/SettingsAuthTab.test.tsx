@@ -597,6 +597,34 @@ describe('SettingsAuthTab', () => {
       expect(await screen.findByText(/everyone who signs up becomes an administrator/i)).toBeInTheDocument();
     });
 
+    it.each([
+      ['is still loading', () => new Promise<never>(() => {})],
+      ['failed to load', () => Promise.reject(new Error('down'))],
+    ])('confirms turning on Self-Registration while the provider list %s', async (_state, load) => {
+      vi.mocked(listOAuthProviders).mockImplementation(load);
+      const user = userEvent.setup();
+      const { onSave } = renderTab();
+      await user.click(screen.getByRole('switch', { name: /self-registration/i }));
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+      expect(onSave).not.toHaveBeenCalled();
+      expect(await screen.findByText(/everyone who signs up becomes an administrator/i)).toBeInTheDocument();
+      vi.mocked(listOAuthProviders).mockReset();
+      vi.mocked(listOAuthProviders).mockResolvedValue([]);
+    });
+
+    it('saves other settings without a prompt while the provider list is loading', async () => {
+      vi.mocked(listOAuthProviders).mockImplementation(() => new Promise<never>(() => {}));
+      const user = userEvent.setup();
+      const { onSave } = renderTab();
+      const input = screen.getByLabelText(/login rate limit/i);
+      await user.clear(input);
+      await user.type(input, '9');
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+      expect(onSave).toHaveBeenCalledWith({ login_rate_limit: 9 });
+      vi.mocked(listOAuthProviders).mockReset();
+      vi.mocked(listOAuthProviders).mockResolvedValue([]);
+    });
+
     it('counts an enabled SAML provider with the admin role', async () => {
       vi.mocked(listOAuthProviders).mockResolvedValue([
         { ...GOOGLE_PROVIDER, id: 'saml-1', slug: 'okta', display_name: 'Okta', provider_type: 'saml' as OAuthProviderConfig['provider_type'], enabled: true, default_role: 'admin' },

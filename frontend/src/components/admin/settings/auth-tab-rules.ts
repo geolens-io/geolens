@@ -60,11 +60,11 @@ export function readSignUpState(read: (key: string) => unknown): SignUpState {
  */
 export function isAdminSignUpOpen(
   state: SignUpState,
-  providers: readonly OAuthProviderConfig[],
+  providerGivesAdmin: boolean,
   smtpConfigured: boolean,
 ): boolean {
   if (!state.registration_enabled) return false;
-  if (providers.some((provider) => provider.enabled && provider.default_role === 'admin')) return true;
+  if (providerGivesAdmin) return true;
   return (
     state.password_login_enabled &&
     state.email_verification_required &&
@@ -72,3 +72,11 @@ export function isAdminSignUpOpen(
     state.registration_default_role === 'admin'
   );
 }
+
+/** The settings that, with the providers and SMTP, decide whether admin sign-ups are open. */
+export const SIGN_UP_GATE_KEYS: ReadonlySet<string> = new Set([
+  'registration_enabled',
+  'password_login_enabled',
+  'email_verification_required',
+  'registration_default_role',
+]);
