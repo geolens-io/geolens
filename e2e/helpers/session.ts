@@ -52,12 +52,12 @@ class RateBudget {
     fs.writeFileSync(this.file, JSON.stringify([...this.recent(), Date.now()]));
   }
 
-  async waitForRoom(testInfo: TestInfo): Promise<void> {
+  async waitForRoom(testInfo: TestInfo | undefined): Promise<void> {
     for (;;) {
       const times = this.recent();
       if (times.length < this.startBudget) return;
       const waitMs = times[0] + RATE_WINDOW_MS - Date.now() + 100;
-      testInfo.setTimeout(testInfo.timeout + waitMs);
+      testInfo?.setTimeout(testInfo.timeout + waitMs);
       await new Promise((resolve) => setTimeout(resolve, waitMs));
     }
   }
@@ -72,8 +72,15 @@ const refreshBudget = new RateBudget('refresh', 12);
 // failed catalog instead of the fixture the test expects.
 const searchBudget = new RateBudget('search', 12);
 
-/** Counts a search the test process sends outside the browser. */
-export function recordSearchRequest(): void {
+/** Waits for room, then counts a search the test process sends outside the browser, including from hooks. */
+export async function reserveSearchRequest(): Promise<void> {
+  let testInfo: TestInfo | undefined;
+  try {
+    testInfo = base.info();
+  } catch {
+    // Called outside a test or hook: nothing to extend.
+  }
+  await searchBudget.waitForRoom(testInfo);
   searchBudget.record();
 }
 
