@@ -23,6 +23,13 @@ and releases use semantic versioning.
   `docker volume rm <project>_valkey_data`. If you already upgraded, start the
   cache again afterwards with `docker compose --profile cache up -d valkey`.
 
+### Fixed
+
+- Sample values for a `timestamptz` column now use the same UTC text that
+  vector tiles write (`2024-03-01T17:00:00+00:00`), so a category picked from
+  the samples matches the features. Existing datasets keep their stored samples
+  until their metadata is next refreshed.
+
 ## [1.23.0] - 2026-10-09
 
 ### Added

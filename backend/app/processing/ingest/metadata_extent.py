@@ -18,6 +18,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.geo import seam_extent_wkt_for_table
+from app.platform.timestamptz_text import utc_timestamptz_text
 from app.processing.ingest.metadata_sql import (
     _qtable,
     _sql_quote_ident,
@@ -479,7 +480,7 @@ async def get_sample_values(
     if not live_columns:
         return {}
 
-    candidates: list[tuple[str, str]] = []
+    candidates: list[tuple[str, str, str]] = []
     for col in column_info:
         col_name = col.get("name", "")
         col_type = col.get("type", "")
@@ -489,7 +490,12 @@ async def get_sample_values(
             continue
         if col_name not in live_columns:
             continue
-        candidates.append((col_name, _sql_quote_ident(col_name)))
+        quoted = _sql_quote_ident(col_name)
+        if col_type.lower() == "timestamp with time zone":
+            sample_expr = utc_timestamptz_text(quoted)
+        else:
+            sample_expr = f"{quoted}::text"
+        candidates.append((col_name, quoted, sample_expr))
 
     if not candidates:
         return {}
@@ -497,12 +503,12 @@ async def get_sample_values(
     # Tag each row with its column index; names are looked up by index on
     # the Python side so the SQL never embeds arbitrary identifiers as
     # literals in SELECT aliases.
-    select_cols = ", ".join(q for _, q in candidates)
+    select_cols = ", ".join(q for _, q, _ in candidates)
     union_branches: list[str] = []
-    for idx, (_, quoted) in enumerate(candidates):
+    for idx, (_, quoted, sample_expr) in enumerate(candidates):
         union_branches.append(
             f"(SELECT {idx} AS col_idx, val FROM "
-            f"(SELECT DISTINCT {quoted}::text AS val FROM sampled "
+            f"(SELECT DISTINCT {sample_expr} AS val FROM sampled "
             f"WHERE {quoted} IS NOT NULL LIMIT 10) s)"
         )
     union_sql = " UNION ALL ".join(union_branches)

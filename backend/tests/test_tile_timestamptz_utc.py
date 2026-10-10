@@ -20,7 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.processing.tiles.pool as pool_module
-from app.processing.tiles.service import _utc_timestamptz_text
+from app.platform.timestamptz_text import utc_timestamptz_text
 from app.core.config import settings
 from app.modules.catalog.datasets.domain.models import Dataset
 
@@ -276,7 +276,7 @@ async def test_tile_text_orders_every_value_like_time_against_a_filter_literal(
         "2024-11-03 06:15Z",
         "9999-12-31 23:59:59.999999Z",
     ]
-    as_text = _utc_timestamptz_text
+    as_text = utc_timestamptz_text
     async with pool_module._tile_pool.acquire() as conn:
         rendered = dict(
             await conn.fetch(
