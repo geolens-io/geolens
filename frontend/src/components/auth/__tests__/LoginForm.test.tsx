@@ -48,6 +48,18 @@ describe('LoginForm', () => {
     expect(screen.getByLabelText('Password', { exact: true })).toBeInTheDocument();
   });
 
+  it('shows the support hint while sign-up is closed', () => {
+    render(<LoginForm />);
+
+    expect(screen.getByText(/contact a geolens administrator/i)).toBeInTheDocument();
+  });
+
+  it('hides the support hint while sign-up is open', () => {
+    render(<LoginForm signupOpen />);
+
+    expect(screen.queryByText(/contact a geolens administrator/i)).not.toBeInTheDocument();
+  });
+
   it('renders sign in button', () => {
     render(<LoginForm />);
 

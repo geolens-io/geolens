@@ -345,7 +345,7 @@ export function LoginPage() {
               absent field (older servers) and a config error as true. */}
           {showPasswordForm ? (
             <>
-              <LoginForm />
+              <LoginForm signupOpen={showSignup} />
               {!passwordLoginEnabled && (
                 <Button
                   variant="link"
