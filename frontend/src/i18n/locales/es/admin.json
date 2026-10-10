@@ -796,7 +796,7 @@
       "resetConfirmDescription": "El valor predeterminado se aplica de inmediato, sin pulsar Guardar. Esto puede relajar las restricciones de registro o de inicio de sesión.",
       "resetConfirm": "Restablecer",
       "registrationAdminConfirmDescription": "Todo registro con contraseña que verifique su correo se convertirá en administrador. Asegúrate de que es lo que quieres.",
-      "signupAdminActivationDescription": "Si se activa el autorregistro, las cuentas nuevas reciben el rol de administrador: todas las personas que se registren serán administradoras. Asegúrate de que es lo que quieres.",
+      "signupAdminActivationDescription": "Después de este cambio, quienes se registren pueden convertirse en administradores sin que un administrador los apruebe. Asegúrate de que es lo que quieres.",
       "verificationNeedsRegistration": "Se aplica cuando el autorregistro está activado."
     }
   },

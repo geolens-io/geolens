@@ -559,7 +559,7 @@ describe('SettingsAuthTab', () => {
       await user.click(screen.getByRole('switch', { name: /self-registration/i }));
       await user.click(screen.getByRole('button', { name: /^save$/i }));
       expect(onSave).not.toHaveBeenCalled();
-      expect(await screen.findByText(/everyone who signs up becomes an administrator/i)).toBeInTheDocument();
+      expect(await screen.findByText(/can become administrators without an administrator approving/i)).toBeInTheDocument();
       vi.mocked(listOAuthProviders).mockResolvedValue([]);
     });
 
@@ -567,7 +567,7 @@ describe('SettingsAuthTab', () => {
       const user = userEvent.setup();
       renderTab([makeSetting('registration_default_role', 'admin')]);
       await user.click(screen.getAllByRole('button', { name: /reset/i })[0]);
-      expect(await screen.findByText(/everyone who signs up becomes an administrator/i)).toBeInTheDocument();
+      expect(await screen.findByText(/can become administrators without an administrator approving/i)).toBeInTheDocument();
     });
 
     it('confirms before turning password login back on opens admin sign-ups', async () => {
@@ -594,7 +594,7 @@ describe('SettingsAuthTab', () => {
       await user.click(screen.getByRole('switch', { name: /require email verification/i }));
       await user.click(screen.getByRole('button', { name: /^save$/i }));
       expect(onSave).not.toHaveBeenCalled();
-      expect(await screen.findByText(/everyone who signs up becomes an administrator/i)).toBeInTheDocument();
+      expect(await screen.findByText(/can become administrators without an administrator approving/i)).toBeInTheDocument();
     });
 
     it.each([
@@ -607,7 +607,7 @@ describe('SettingsAuthTab', () => {
       await user.click(screen.getByRole('switch', { name: /self-registration/i }));
       await user.click(screen.getByRole('button', { name: /^save$/i }));
       expect(onSave).not.toHaveBeenCalled();
-      expect(await screen.findByText(/everyone who signs up becomes an administrator/i)).toBeInTheDocument();
+      expect(await screen.findByText(/can become administrators without an administrator approving/i)).toBeInTheDocument();
       vi.mocked(listOAuthProviders).mockReset();
       vi.mocked(listOAuthProviders).mockResolvedValue([]);
     });
@@ -625,6 +625,35 @@ describe('SettingsAuthTab', () => {
       vi.mocked(listOAuthProviders).mockResolvedValue([]);
     });
 
+    it('counts a provider that maps a group to the admin role', async () => {
+      vi.mocked(listOAuthProviders).mockResolvedValue([
+        { ...GOOGLE_PROVIDER, enabled: true, default_role: 'viewer', group_role_mapping: { 'it-admins': 'admin' } },
+      ]);
+      const user = userEvent.setup();
+      const { onSave } = renderTab();
+      await screen.findByRole('button', { name: 'Edit Google' });
+      await user.click(screen.getByRole('switch', { name: /self-registration/i }));
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+      expect(onSave).not.toHaveBeenCalled();
+      expect(await screen.findByText(/can become administrators without an administrator approving/i)).toBeInTheDocument();
+      vi.mocked(listOAuthProviders).mockResolvedValue([]);
+    });
+
+    it('confirms removing the last allowed domain while a provider grants admin', async () => {
+      vi.mocked(listOAuthProviders).mockResolvedValue([{ ...GOOGLE_PROVIDER, enabled: true, default_role: 'admin' }]);
+      const user = userEvent.setup();
+      const { onSave } = renderTab([
+        makeSetting('registration_enabled', true),
+        makeSetting('allowed_email_domains', ['acme.com']),
+      ]);
+      await screen.findByRole('button', { name: 'Edit Google' });
+      await user.click(screen.getByRole('button', { name: /acme\.com/i }));
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+      expect(onSave).not.toHaveBeenCalled();
+      expect(await screen.findByText(/can become administrators without an administrator approving/i)).toBeInTheDocument();
+      vi.mocked(listOAuthProviders).mockResolvedValue([]);
+    });
+
     it('counts an enabled SAML provider with the admin role', async () => {
       vi.mocked(listOAuthProviders).mockResolvedValue([
         { ...GOOGLE_PROVIDER, id: 'saml-1', slug: 'okta', display_name: 'Okta', provider_type: 'saml' as OAuthProviderConfig['provider_type'], enabled: true, default_role: 'admin' },
@@ -636,7 +665,7 @@ describe('SettingsAuthTab', () => {
       await user.click(screen.getByRole('switch', { name: /self-registration/i }));
       await user.click(screen.getByRole('button', { name: /^save$/i }));
       expect(onSave).not.toHaveBeenCalled();
-      expect(await screen.findByText(/everyone who signs up becomes an administrator/i)).toBeInTheDocument();
+      expect(await screen.findByText(/can become administrators without an administrator approving/i)).toBeInTheDocument();
       vi.mocked(listOAuthProviders).mockResolvedValue([]);
     });
 

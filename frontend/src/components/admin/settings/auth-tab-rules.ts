@@ -41,42 +41,57 @@ export interface SignUpState {
   password_login_enabled: boolean;
   email_verification_required: boolean;
   registration_default_role: string;
+  allowed_email_domains: readonly string[];
 }
 
 /** Reads the sign-up settings, falling back to the backend defaults for a key the backend doesn't send. */
 export function readSignUpState(read: (key: string) => unknown): SignUpState {
+  const domains = read('allowed_email_domains');
   return {
     registration_enabled: read('registration_enabled') === true,
     password_login_enabled: read('password_login_enabled') !== false,
     email_verification_required: read('email_verification_required') !== false,
     registration_default_role: String(read('registration_default_role') ?? 'viewer'),
+    allowed_email_domains: Array.isArray(domains) ? domains : [],
   };
 }
 
-/**
- * True when a stranger can create an active administrator account without an
- * administrator approving it: through an enabled SSO or SAML provider whose
- * default role is admin, or a password sign-up that activates by verifying its email.
- */
-export function isAdminSignUpOpen(
-  state: SignUpState,
-  providerGivesAdmin: boolean,
-  smtpConfigured: boolean,
-): boolean {
-  if (!state.registration_enabled) return false;
-  if (providerGivesAdmin) return true;
-  return (
-    state.password_login_enabled &&
-    state.email_verification_required &&
-    smtpConfigured &&
-    state.registration_default_role === 'admin'
+/** True when an enabled provider can create accounts with the admin role, by default or through a group mapping. SAML included. */
+export function providerGrantsAdmin(providers: readonly OAuthProviderConfig[]): boolean {
+  return providers.some(
+    (provider) =>
+      provider.enabled &&
+      (provider.default_role === 'admin' ||
+        Object.values(provider.group_role_mapping ?? {}).includes('admin')),
   );
 }
 
-/** The settings that, with the providers and SMTP, decide whether admin sign-ups are open. */
+/**
+ * Who can create an active administrator account without an administrator
+ * approving it: 0 nobody, 1 people at the allowed email domains, 2 anyone.
+ * The paths are an enabled provider that grants admin, and a password sign-up
+ * with the admin role that activates by verifying its email.
+ */
+export function adminSignUpReach(
+  state: SignUpState,
+  providerGivesAdmin: boolean,
+  smtpConfigured: boolean,
+): 0 | 1 | 2 {
+  if (!state.registration_enabled) return 0;
+  const passwordPath =
+    state.password_login_enabled &&
+    state.email_verification_required &&
+    smtpConfigured &&
+    state.registration_default_role === 'admin';
+  if (!providerGivesAdmin && !passwordPath) return 0;
+  return state.allowed_email_domains.length > 0 ? 1 : 2;
+}
+
+/** The settings that, with the providers and SMTP, decide who can sign up as an administrator. */
 export const SIGN_UP_GATE_KEYS: ReadonlySet<string> = new Set([
   'registration_enabled',
   'password_login_enabled',
   'email_verification_required',
   'registration_default_role',
+  'allowed_email_domains',
 ]);

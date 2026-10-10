@@ -821,7 +821,7 @@
       "resetConfirmDescription": "The default takes effect immediately, without pressing Save. This can loosen sign-up or sign-in restrictions.",
       "resetConfirm": "Reset",
       "registrationAdminConfirmDescription": "Every password sign-up that verifies its email will become an administrator. Make sure that is what you want.",
-      "signupAdminActivationDescription": "If Self-Registration turns on, new accounts get the admin role: everyone who signs up becomes an administrator. Make sure that is what you want.",
+      "signupAdminActivationDescription": "After this change, people who sign up can become administrators without an administrator approving them. Make sure that is what you want.",
       "verificationNeedsRegistration": "Applies when Self-Registration is on."
     }
   },

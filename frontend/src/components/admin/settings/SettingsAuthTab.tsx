@@ -53,7 +53,7 @@ import { formatMutationError } from '@/lib/error-map';
 import { getPublicApiBaseUrl } from '@/lib/dataset-access';
 import { Textarea } from '@/components/ui/textarea';
 import { buildOAuthEndpointFields } from './oauth-endpoint-fields';
-import { SIGN_UP_GATE_KEYS, hasOpenSignupRisk, isAdminSignUpOpen, isValidDomainPattern, readSignUpState } from './auth-tab-rules';
+import { SIGN_UP_GATE_KEYS, adminSignUpReach, hasOpenSignupRisk, isValidDomainPattern, providerGrantsAdmin, readSignUpState } from './auth-tab-rules';
 
 interface TabProps {
   settings: SettingItem[];
@@ -879,15 +879,15 @@ export function SettingsAuthTab({ settings, envOnly, onSave, onReset: submitRese
   const smtpMissing = notifStatus?.smtp_configured === false;
   // SAML rows count here: they provision accounts the same way. Until the
   // providers load, assume one may give the admin role, so the check fails closed.
-  const providerGivesAdmin = allProviders.some((p) => p.enabled && p.default_role === 'admin');
+  const providerGivesAdmin = providerGrantsAdmin(allProviders);
   const providerMayGiveAdmin = providerGivesAdmin || !providersKnown;
   const adminRoleInEffect = defaultRole === 'admin' || providerMayGiveAdmin;
-  const adminSignUpOpenNow = isAdminSignUpOpen(
+  const adminReachNow = adminSignUpReach(
     readSignUpState((key) => findSetting(settings, key)?.value),
     providerGivesAdmin,
     notifStatus?.smtp_configured === true,
   );
-  const adminSignUpOpenAfterSave = isAdminSignUpOpen(
+  const adminReachAfterSave = adminSignUpReach(
     readSignUpState((key) => values[key as keyof typeof values]),
     providerMayGiveAdmin,
     !smtpMissing,
@@ -1146,7 +1146,7 @@ export function SettingsAuthTab({ settings, envOnly, onSave, onReset: submitRese
         <SettingsFormActions dirty={dirty} hasDirty={hasDirty} envOnly={envOnly} isSaving={isSaving} onSave={(changes) => {
           const opensAdminSignUp = changes.registration_default_role === 'admin'
             || (Object.keys(changes).some((key) => SIGN_UP_GATE_KEYS.has(key))
-              && adminSignUpOpenAfterSave && !adminSignUpOpenNow);
+              && adminReachAfterSave > adminReachNow);
           if (opensAdminSignUp) setPendingAdminSave(changes);
           else onSave(changes);
         }} onDiscard={discard} onDirtyChange={onDirtyChange} />
@@ -1161,7 +1161,7 @@ export function SettingsAuthTab({ settings, envOnly, onSave, onReset: submitRese
           <AlertDialogHeader>
             <AlertDialogTitle>{t('settings.auth.adminRoleConfirmTitle')}</AlertDialogTitle>
             <AlertDialogDescription>
-              {adminSignUpOpenAfterSave
+              {adminReachAfterSave > 0
                 ? t('settings.auth.signupAdminActivationDescription')
                 : t('settings.auth.registrationAdminConfirmDescription')}
             </AlertDialogDescription>
@@ -1187,7 +1187,7 @@ export function SettingsAuthTab({ settings, envOnly, onSave, onReset: submitRese
             <AlertDialogTitle>{t('settings.auth.resetConfirmTitle')}</AlertDialogTitle>
             <AlertDialogDescription>{t('settings.auth.resetConfirmDescription')}</AlertDialogDescription>
             {/* The backend default is unknown here, so a reset may open admin sign-ups. */}
-            {pendingReset !== null && SIGN_UP_GATE_KEYS.has(pendingReset) && adminRoleInEffect && !adminSignUpOpenNow && (
+            {pendingReset !== null && SIGN_UP_GATE_KEYS.has(pendingReset) && adminRoleInEffect && adminReachNow < 2 && (
               <p className="text-sm font-medium text-destructive">{t('settings.auth.signupAdminActivationDescription')}</p>
             )}
           </AlertDialogHeader>
