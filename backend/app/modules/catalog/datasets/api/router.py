@@ -407,8 +407,7 @@ async def update_dataset_metadata(
     if new_owner is not None:
         await transfer_dataset_owner(
             db,
-            dataset.record,
-            dataset_id,
+            dataset,
             new_owner,
             actor=user,
             ip_address=request.client.host if request.client else None,

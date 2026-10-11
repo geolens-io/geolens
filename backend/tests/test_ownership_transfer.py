@@ -46,6 +46,13 @@ async def _dataset_owner(session: AsyncSession, dataset_id: uuid.UUID) -> uuid.U
     )
 
 
+async def _publication_version(session: AsyncSession, dataset_id: uuid.UUID) -> int:
+    session.expire_all()
+    return await session.scalar(
+        select(Dataset.publication_version).where(Dataset.id == dataset_id)
+    )
+
+
 async def _map_owner(session: AsyncSession, map_id: uuid.UUID) -> uuid.UUID:
     session.expire_all()
     return await session.scalar(select(Map.created_by).where(Map.id == map_id))
@@ -141,6 +148,7 @@ async def test_admin_transfers_a_dataset_and_back(
     target_headers, target_id = people["target"]
     dataset_id = await _private_dataset(test_db_session, owner_id)
     admin_id = await _admin_id(test_db_session)
+    version_before = await _publication_version(test_db_session, dataset_id)
 
     resp = await client.patch(
         f"/datasets/{dataset_id}",
@@ -152,6 +160,9 @@ async def test_admin_transfers_a_dataset_and_back(
     assert body["created_by"] == target_id
     assert body["title"] == "Handed over"
     assert body["visibility"] == "private"
+
+    # Signed tile templates minted for the previous owner stop validating.
+    assert await _publication_version(test_db_session, dataset_id) > version_before
 
     rows = await _transfer_rows(test_db_session, "dataset.transfer_owner", dataset_id)
     assert len(rows) == 1
@@ -201,6 +212,7 @@ async def test_transfer_to_the_current_owner_writes_no_row(
 ) -> None:
     _, owner_id = people["owner"]
     dataset_id = await _private_dataset(test_db_session, owner_id)
+    version_before = await _publication_version(test_db_session, dataset_id)
 
     resp = await client.patch(
         f"/datasets/{dataset_id}",
@@ -208,6 +220,7 @@ async def test_transfer_to_the_current_owner_writes_no_row(
         headers=admin_auth_header,
     )
     assert resp.status_code == 200, resp.text
+    assert await _publication_version(test_db_session, dataset_id) == version_before
     assert (
         await _transfer_rows(test_db_session, "dataset.transfer_owner", dataset_id)
         == []

@@ -15,8 +15,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
 from app.modules.audit.service import AuditEvent, audit_emit
-from app.modules.auth.models import User
+from app.modules.auth.service import get_user_identity
 from app.modules.catalog.authorization import get_user_roles
+from app.platform.catalog_locks import bump_publication_version_on
 from app.platform.extensions import get_permission_extension
 
 
@@ -32,7 +33,7 @@ async def resolve_new_owner(
     *,
     actor_roles: set[str],
     capability: str,
-) -> User:
+) -> Identity:
     """Return the user an admin is handing an object to.
 
     Raises 403 unless the actor is an admin, whoever owns the object now.
@@ -47,7 +48,7 @@ async def resolve_new_owner(
         )
     if owner_id is None:
         raise _refuse_target("owner_id cannot be null.")
-    new_owner = await db.get(User, owner_id)
+    new_owner = await get_user_identity(db, owner_id)
     if new_owner is None:
         raise _refuse_target("owner_id does not name a user.")
     if not new_owner.is_active:
@@ -74,7 +75,7 @@ async def _locked_owner(db: AsyncSession, owned: Any) -> uuid.UUID | None:
 
 
 def _transfer_details(
-    previous: uuid.UUID | None, new_owner: User
+    previous: uuid.UUID | None, new_owner: Identity
 ) -> dict[str, str | None]:
     return {
         "previous_owner_id": str(previous) if previous is not None else None,
@@ -84,9 +85,8 @@ def _transfer_details(
 
 async def transfer_dataset_owner(
     db: AsyncSession,
-    record: Any,
-    dataset_id: uuid.UUID,
-    new_owner: User,
+    dataset: Any,
+    new_owner: Identity,
     *,
     actor: Identity,
     ip_address: str | None,
@@ -96,18 +96,22 @@ async def transfer_dataset_owner(
     Call after the dataset's catalog rows are locked. A transfer to the
     current owner changes nothing and writes no row. Does not commit.
     """
+    record = dataset.record
     previous = await _locked_owner(db, record)
     if previous == new_owner.id:
         return
     record.created_by = new_owner.id
     record.updated_by = actor.id
+    # Signed tile templates bind this counter, and the previous owner may
+    # hold one for a dataset they can no longer read.
+    await bump_publication_version_on(db, dataset)
     await audit_emit(
         db,
         AuditEvent(
             user_id=actor.id,
             action="dataset.transfer_owner",
             resource_type="dataset",
-            resource_id=dataset_id,
+            resource_id=dataset.id,
             details=_transfer_details(previous, new_owner),
             ip_address=ip_address,
         ),
@@ -117,7 +121,7 @@ async def transfer_dataset_owner(
 async def transfer_map_owner(
     db: AsyncSession,
     map_obj: Any,
-    new_owner: User,
+    new_owner: Identity,
     *,
     actor: Identity,
     ip_address: str | None,
