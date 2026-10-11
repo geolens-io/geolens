@@ -12,6 +12,7 @@ from ..models.dataset_meta_visibility_type_0 import check_dataset_meta_visibilit
 from ..models.dataset_meta_visibility_type_0 import DatasetMetaVisibilityType0
 from dateutil.parser import isoparse
 from typing import cast
+from uuid import UUID
 import datetime
 
 
@@ -51,6 +52,7 @@ class DatasetMeta:
             is_dem (bool | None | Unset): Flag raster as a Digital Elevation Model for terrain rendering
             tile_columns (list[str] | None | Unset): Ordered vector-tile property allowlist; null restores zoom defaults, []
                 emits geometry-only tiles, list emits those properties at any zoom.
+            owner_id (None | Unset | UUID): Admin only: transfer the dataset to this active user.
     """
 
     title: None | str | Unset = UNSET
@@ -74,6 +76,7 @@ class DatasetMeta:
     language: None | str | Unset = UNSET
     is_dem: bool | None | Unset = UNSET
     tile_columns: list[str] | None | Unset = UNSET
+    owner_id: None | Unset | UUID = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -215,6 +218,14 @@ class DatasetMeta:
         else:
             tile_columns = self.tile_columns
 
+        owner_id: None | str | Unset
+        if isinstance(self.owner_id, Unset):
+            owner_id = UNSET
+        elif isinstance(self.owner_id, UUID):
+            owner_id = str(self.owner_id)
+        else:
+            owner_id = self.owner_id
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
@@ -260,6 +271,8 @@ class DatasetMeta:
             field_dict["is_dem"] = is_dem
         if tile_columns is not UNSET:
             field_dict["tile_columns"] = tile_columns
+        if owner_id is not UNSET:
+            field_dict["owner_id"] = owner_id
 
         return field_dict
 
@@ -506,6 +519,23 @@ class DatasetMeta:
 
         tile_columns = _parse_tile_columns(d.pop("tile_columns", UNSET))
 
+        def _parse_owner_id(data: object) -> None | Unset | UUID:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                owner_id_type_0 = UUID(data)
+
+                return owner_id_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | Unset | UUID, data)
+
+        owner_id = _parse_owner_id(d.pop("owner_id", UNSET))
+
         dataset_meta = cls(
             title=title,
             summary=summary,
@@ -528,6 +558,7 @@ class DatasetMeta:
             language=language,
             is_dem=is_dem,
             tile_columns=tile_columns,
+            owner_id=owner_id,
         )
 
         dataset_meta.additional_properties = d

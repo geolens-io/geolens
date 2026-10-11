@@ -20,6 +20,7 @@ from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.exc import NoInspectionAvailable
 
 from app.core.identity import Identity
+from app.core.permissions import UPLOAD
 from app.core.db.sqlstate import is_lock_conflict
 from app.platform.binary_response import binary_response
 from app.platform.catalog_locks import (
@@ -68,6 +69,7 @@ from app.platform.cache.scope import is_publicly_cacheable, public_cache_control
 from app.platform.http.ranges import if_none_match_matches
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.modules.catalog.collections.service import get_dataset_collections
+from app.modules.catalog.ownership import resolve_new_owner, transfer_dataset_owner
 from app.modules.catalog.datasets.domain.service import (
     DatasetTitleMismatchError,
     DependentVrtError,
@@ -351,6 +353,13 @@ async def update_dataset_metadata(
             detail="Dataset not found",
         )
     user_roles = await check_dataset_write_access(db, dataset, dataset_id, user)
+    new_owner = (
+        await resolve_new_owner(
+            db, meta.owner_id, actor_roles=user_roles, capability=UPLOAD
+        )
+        if "owner_id" in meta.model_fields_set
+        else None
+    )
     # feat(#1691): a non-admin may not move a dataset TO public when the
     # restrict_public_visibility instance setting is on.
     await check_public_visibility_allowed(
@@ -395,23 +404,36 @@ async def update_dataset_metadata(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=msg,
         )
-
-    await audit_emit(
-        db,
-        AuditEvent(
-            user_id=user.id,
-            action="metadata.edit",
-            resource_type="dataset",
-            resource_id=dataset_id,
-            # exclude_unset, not exclude_none: an explicit null clear
-            # (#458) must appear in the audit/history details. fix(#1484):
-            # mode="json" -- details is JSONB serialized with stdlib
-            # json.dumps, and data_vintage_start/end are real date objects;
-            # python-mode raised at flush and rolled back the UPDATE above.
-            details=meta.model_dump(mode="json", exclude_unset=True),
+    if new_owner is not None:
+        await transfer_dataset_owner(
+            db,
+            dataset.record,
+            dataset_id,
+            new_owner,
+            actor=user,
             ip_address=request.client.host if request.client else None,
-        ),
-    )
+        )
+
+    # A transfer has its own audit row, so a body naming only owner_id is
+    # not also a metadata edit.
+    if meta.model_fields_set != {"owner_id"}:
+        await audit_emit(
+            db,
+            AuditEvent(
+                user_id=user.id,
+                action="metadata.edit",
+                resource_type="dataset",
+                resource_id=dataset_id,
+                # exclude_unset, not exclude_none: an explicit null clear must
+                # appear in the history. mode="json" because details is JSONB
+                # serialized with stdlib json.dumps, which cannot take the
+                # vintage dates and would roll back the UPDATE at flush.
+                details=meta.model_dump(
+                    mode="json", exclude_unset=True, exclude={"owner_id"}
+                ),
+                ip_address=request.client.host if request.client else None,
+            ),
+        )
     # fix(#458): only when the value actually changed; a no-op echo must
     # not purge every cached tile for the table.
     tile_columns_changed = (

@@ -3929,7 +3929,11 @@ export interface paths {
         delete: operations["delete_map_endpoint_maps__map_id__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Patch Map Endpoint
+         * @description Transfer a map to another owner. Admin only.
+         */
+        patch: operations["patch_map_endpoint_maps__map_id__patch"];
         trace?: never;
     };
     "/maps/{map_id}/access/": {
@@ -8071,6 +8075,11 @@ export interface components {
              * @description Ordered vector-tile property allowlist; null restores zoom defaults, [] emits geometry-only tiles, list emits those properties at any zoom.
              */
             tile_columns?: string[] | null;
+            /**
+             * Owner Id
+             * @description Admin only: transfer the dataset to this active user.
+             */
+            owner_id?: string | null;
         };
         /**
          * DatasetRefreshRequest
@@ -10336,6 +10345,18 @@ export interface components {
             maps: components["schemas"]["MapSummaryResponse"][];
             /** Total */
             total: number;
+        };
+        /**
+         * MapPatch
+         * @description Partial map update. PUT /maps/{map_id} edits the map's content.
+         */
+        MapPatch: {
+            /**
+             * Owner Id
+             * Format: uuid
+             * @description Admin only: transfer the map to this active user.
+             */
+            owner_id: string;
         };
         /** MapResponse */
         MapResponse: {
@@ -34067,6 +34088,115 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    patch_map_endpoint_maps__map_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                map_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MapPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MapResponse"];
+                };
             };
             /** @description Bad request — invalid payload */
             400: {

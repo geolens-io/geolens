@@ -235,7 +235,8 @@
     "actions": {
       "metadataEdit": "元数据已更新",
       "datasetDelete": "数据集已删除",
-      "datasetCreate": "数据集已创建"
+      "datasetCreate": "数据集已创建",
+      "datasetTransferOwner": "所有者已变更"
     }
   },
   "versionHistory": {

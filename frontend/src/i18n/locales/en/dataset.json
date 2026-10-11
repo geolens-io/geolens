@@ -235,7 +235,8 @@
     "actions": {
       "metadataEdit": "Metadata updated",
       "datasetDelete": "Dataset deleted",
-      "datasetCreate": "Dataset created"
+      "datasetCreate": "Dataset created",
+      "datasetTransferOwner": "Owner changed"
     }
   },
   "versionHistory": {
