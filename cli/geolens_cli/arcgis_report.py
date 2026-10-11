@@ -30,8 +30,6 @@ _CLASS_HEADINGS = {
     "partial": "Partial",
     "unsupported": "Unsupported",
 }
-# Owner and folder errors are keyed by username, not item id.
-_ITEM_PHASES = frozenset({"item_data", "item_details", "item_groups", "related"})
 _MD_SPECIAL = "\\`*_[]#|!~"
 
 
@@ -82,9 +80,7 @@ def build_report(
             "by_class": by_class,
             "by_type": dict(sorted(by_type.items())),
             "retired": sum(by_retirement.values()),
-            "failed": len(
-                {e["item_id"] for e in inv.errors if e["phase"] in _ITEM_PHASES}
-            ),
+            "failed": len({e["item_id"] for e in inv.errors}),
         },
         "retirements": [
             {
@@ -202,7 +198,7 @@ def render_markdown(report: Mapping[str, Any]) -> str:
         ]
         + [["**Total**", str(counts["total"])]],
     )
-    lines += ["", f"Items that could not be read: {counts['failed']}.", ""]
+    lines += ["", f"Items and owners that could not be read: {counts['failed']}.", ""]
 
     for name, heading in _CLASS_HEADINGS.items():
         rows = [row for row in report["items"] if row["class"] == name]

@@ -2256,6 +2256,7 @@ def test_registered_group_layer_keeps_its_own_reference(run):
         ("https://s.example/q?apiKey=abc123KEY&f=json", "abc123KEY"),
         ("https://s.example/q?f=json&client_secret=abc123KEY", "abc123KEY"),
         ("https://user:abc123KEY@s.example/x", "abc123KEY"),
+        ("https://s.example/q?authorization=abc123KEY", "abc123KEY"),
     ],
 )
 def test_sidecar_strings_lose_url_embedded_credentials(raw, gone):
@@ -2438,3 +2439,21 @@ def test_web_scene_base_map_elevation_layers_are_dependencies(run):
     result, _ = run(FakePortal(routes), "--scope", "org")
     links = _links(_report(result), item_id)
     assert {(A1, "basemap", "g"), (A2, "basemap", "e")} <= links
+
+
+def test_rate_limited_external_lookup_is_an_error_row_and_counts_as_failed(run):
+    stranger = "9c" * 16
+    layers = [{"id": "x", "layerType": "ArcGISFeatureLayer", "itemId": stranger}]
+    data = {"operationalLayers": layers, "baseMap": {"baseMapLayers": []}}
+    routes = _one_item(
+        B1,
+        "Web Map",
+        data=data,
+        **{f"content/items/{stranger}": (429, {"error": {"code": 429}})},
+    )
+    result, _ = run(FakePortal(routes), "--scope", "org")
+    report = _report(result)
+    assert [(e["item_id"], e["phase"]) for e in report["errors"]] == [
+        (stranger, "external")
+    ]
+    assert report["counts"]["failed"] == 1

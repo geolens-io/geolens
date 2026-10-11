@@ -204,7 +204,7 @@ _SECRET_KEY_PARTS = (
     "credential",
 )
 _URL_SECRET_PARAM = re.compile(
-    r"([?&;](?:access_token|api_?key|client_secret|secret|sig|signature)=)[^&\s\"'#]+",
+    r"([?&;](?:access_token|api_?key|client_secret|secret|sig|signature|authorization|bearer|passwd|pwd)=)[^&\s\"'#]+",
     re.IGNORECASE,
 )
 _URL_USERINFO = re.compile(r"(://)[^/@\s]+@")
@@ -213,6 +213,7 @@ _SAFE_FILENAME = re.compile(r"[A-Za-z0-9_-]{1,64}")
 _WEB_MAP_TYPE = "Web Map"
 # Statuses a portal answers with for members or folders the caller may not see.
 _HIDDEN_STATUSES = frozenset({400, 403})
+_HIDDEN_ITEM_STATUSES = frozenset({400, 401, 403, 404})
 _SERVICE_LAYER_URL = re.compile(r"/(?:Feature|Map)Server/(\d+)/?$")
 _WAB_KEYWORDS = frozenset({"web appbuilder", "wab2d", "wab3d"})
 
@@ -1929,7 +1930,7 @@ def _resolve_external(client: PortalClient, inv: Inventory, concurrency: int) ->
             continue
         if failure.kind == "auth":
             inv.abort = inv.abort or failure
-        elif failure.kind != "refused":
+        elif failure.http_status not in _HIDDEN_ITEM_STATUSES:
             inv.errors.append(_error_row(client._redact(item_id), "external", failure))
     for dep in inv.dependencies:
         if dep["resolved"]:
