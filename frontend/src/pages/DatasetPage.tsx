@@ -660,8 +660,8 @@ export function DatasetPage() {
                     every draw mode. */}
                 <DatasetMap
                   // A map keeps every source it was given, so each dataset
-                  // needs its own instance (and, for raster/VRT, each tile kind).
-                  key={`${dataset.id}:${isRasterOrVrt ? mapKey : tileKind ?? 'no-tiles'}`}
+                  // needs its own instance (and, for raster/VRT, each tile kind and DEM or imagery source type).
+                  key={`${dataset.id}:${isRasterOrVrt ? `${mapKey}:${dataset.raster?.is_dem ? 'dem' : 'img'}` : tileKind ?? 'no-tiles'}`}
                   bbox={bbox}
                   tableName={dataset.table_name}
                   geometryType={dataset.geometry_type}
