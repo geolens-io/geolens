@@ -803,7 +803,7 @@
       "table": "Registered table",
       "serviceType": "Service type",
       "layer": "Layer identifier",
-      "endpoint": "Safe source pointer",
+      "endpoint": "Source URL (credentials removed)",
       "collection": "STAC collection",
       "asset": "STAC asset",
       "item": "STAC item"
@@ -827,6 +827,7 @@
         "unknown": "Not compared"
       }
     },
+    "healthUnknownHint": "Checked when the source is refreshed.",
     "healthDetail": {
       "not_found": "The source resource was not found.",
       "item_withdrawn": "The STAC item was withdrawn.",

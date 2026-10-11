@@ -852,7 +852,7 @@
       "table": "Tabla registrada",
       "serviceType": "Tipo de servicio",
       "layer": "Identificador de capa",
-      "endpoint": "Puntero seguro a la fuente",
+      "endpoint": "URL de la fuente (credenciales eliminadas)",
       "collection": "Colección STAC",
       "asset": "Recurso STAC",
       "item": "Elemento STAC"
@@ -876,6 +876,7 @@
         "unknown": "Sin comparar"
       }
     },
+    "healthUnknownHint": "Se comprueba al actualizar la fuente.",
     "healthDetail": {
       "not_found": "No se encontró el recurso de origen.",
       "item_withdrawn": "El elemento STAC fue retirado.",

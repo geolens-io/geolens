@@ -852,7 +852,7 @@
       "table": "Registrierte Tabelle",
       "serviceType": "Diensttyp",
       "layer": "Layer-ID",
-      "endpoint": "Sicherer Quellzeiger",
+      "endpoint": "Quell-URL (Zugangsdaten entfernt)",
       "collection": "STAC-Collection",
       "asset": "STAC-Asset",
       "item": "STAC-Element"
@@ -876,6 +876,7 @@
         "unknown": "Nicht verglichen"
       }
     },
+    "healthUnknownHint": "Wird beim Aktualisieren der Quelle geprüft.",
     "healthDetail": {
       "not_found": "Die Quellressource wurde nicht gefunden.",
       "item_withdrawn": "Das STAC-Element wurde zurückgezogen.",

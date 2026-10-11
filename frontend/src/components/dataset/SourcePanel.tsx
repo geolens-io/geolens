@@ -102,6 +102,9 @@ const HEALTH_DETAILS = new Set<HealthDetail>([
 
 const MAX_REFRESH_HISTORY_LIMIT = 200;
 
+// Service refreshes leave health unset, so only these origins get a verdict from a refresh.
+const HEALTH_CHECKED_ON_REFRESH: ReadonlySet<string> = new Set(['postgis', 'stac']);
+
 const healthClasses: Record<SourceHealth, string> = {
   healthy: semanticBadgeColors.success,
   missing: semanticBadgeColors.destructive,
@@ -774,6 +777,11 @@ export function SourcePanel({
   const translatedHealthDetail = healthDetail && HEALTH_DETAILS.has(healthDetail as HealthDetail)
     ? t(`sourcePanel.healthDetail.${healthDetail}`)
     : null;
+  const healthNote =
+    translatedHealthDetail ??
+    (health === 'unknown' && origin != null && HEALTH_CHECKED_ON_REFRESH.has(origin)
+      ? t('sourcePanel.healthUnknownHint')
+      : null);
   const originKey = isVrt ? 'vrt' : origin ?? 'unknown';
   const storageKey = isVrt ? 'vrt' : origin ?? 'unknown';
 
@@ -829,9 +837,9 @@ export function SourcePanel({
             </SourceMetric>
             <SourceMetric label={t('sourcePanel.health')}>
               <StatusBadge kind="health" value={health} />
-              {translatedHealthDetail && (
+              {healthNote && (
                 <span className="mt-1 block text-xs font-normal text-muted-foreground">
-                  {translatedHealthDetail}
+                  {healthNote}
                 </span>
               )}
             </SourceMetric>

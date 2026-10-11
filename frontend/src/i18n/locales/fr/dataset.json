@@ -852,7 +852,7 @@
       "table": "Table référencée",
       "serviceType": "Type de service",
       "layer": "Identifiant de couche",
-      "endpoint": "Pointeur source sécurisé",
+      "endpoint": "URL de la source (identifiants retirés)",
       "collection": "Collection STAC",
       "asset": "Ressource STAC",
       "item": "Élément STAC"
@@ -876,6 +876,7 @@
         "unknown": "Non comparé"
       }
     },
+    "healthUnknownHint": "Vérifié lors de l'actualisation de la source.",
     "healthDetail": {
       "not_found": "La ressource source est introuvable.",
       "item_withdrawn": "L’élément STAC a été retiré.",
