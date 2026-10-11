@@ -2257,6 +2257,9 @@ def test_registered_group_layer_keeps_its_own_reference(run):
         ("https://s.example/q?f=json&client_secret=abc123KEY", "abc123KEY"),
         ("https://user:abc123KEY@s.example/x", "abc123KEY"),
         ("https://s.example/q?authorization=abc123KEY", "abc123KEY"),
+        ("https://s.example/q?x-amz-security-token=abc123KEY&f=1", "abc123KEY"),
+        ("https://s.example/q?sasKey=abc123KEY", "abc123KEY"),
+        ("https://s.example/q?auth_code=abc123KEY", "abc123KEY"),
     ],
 )
 def test_sidecar_strings_lose_url_embedded_credentials(raw, gone):

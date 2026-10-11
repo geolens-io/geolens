@@ -204,7 +204,8 @@ _SECRET_KEY_PARTS = (
     "credential",
 )
 _URL_SECRET_PARAM = re.compile(
-    r"([?&;](?:access_token|api_?key|client_secret|secret|sig|signature|authorization|bearer|passwd|pwd)=)[^&\s\"'#]+",
+    r"([?&;](?:[^=&\s\"'#]*(?:token|password|passwd|pwd|secret|key|auth|credential|bearer)"
+    r"[^=&\s\"'#]*|sig|signature)=)[^&\s\"'#]+",
     re.IGNORECASE,
 )
 _URL_USERINFO = re.compile(r"(://)[^/@\s]+@")
