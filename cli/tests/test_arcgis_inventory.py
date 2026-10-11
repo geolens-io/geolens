@@ -605,6 +605,14 @@ def test_detail_reads_in_small_windows_give_the_same_report(run, monkeypatch):
     assert _report(windowed)["items"] == _report(baseline)["items"]
 
 
+def test_owner_lookups_use_the_raw_username_even_when_it_contains_a_secret(run):
+    """A password such as "admin" must not rewrite the "gis_admin" account name."""
+    portal = FakePortal(portal_routes())
+    result, _ = run(portal, "--scope", "org", token="admin")
+    assert _rows(_report(result))[A1]["owner"] == USER
+    assert portal.requests_to(f"community/users/{USER}")
+
+
 def test_detail_type_keywords_are_redacted(run):
     detail = load("item_detail_rich.json") | {
         "typeKeywords": ["Data", "token=abc123SECRET"]

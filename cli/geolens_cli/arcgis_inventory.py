@@ -813,7 +813,7 @@ def _item_row(item: Mapping[str, Any], redact: Redactor) -> dict[str, Any]:
         "id": str(item.get("id") or ""),
         "type": item_type,
         "title": redact(str(item.get("title") or "")),
-        "owner": redact(str(item.get("owner") or "")),
+        "owner": str(item.get("owner") or ""),
         "sharing": {"access": str(item.get("access") or "private"), "groups": None},
         "size_bytes": size
         if isinstance(size, int) and not isinstance(size, bool) and size >= 0
