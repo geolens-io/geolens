@@ -774,6 +774,8 @@ export function SourcePanel({
   const translatedHealthDetail = healthDetail && HEALTH_DETAILS.has(healthDetail as HealthDetail)
     ? t(`sourcePanel.healthDetail.${healthDetail}`)
     : null;
+  const healthNote =
+    translatedHealthDetail ?? (health === 'unknown' ? t('sourcePanel.healthUnknownHint') : null);
   const originKey = isVrt ? 'vrt' : origin ?? 'unknown';
   const storageKey = isVrt ? 'vrt' : origin ?? 'unknown';
 
@@ -829,9 +831,9 @@ export function SourcePanel({
             </SourceMetric>
             <SourceMetric label={t('sourcePanel.health')}>
               <StatusBadge kind="health" value={health} />
-              {translatedHealthDetail && (
+              {healthNote && (
                 <span className="mt-1 block text-xs font-normal text-muted-foreground">
-                  {translatedHealthDetail}
+                  {healthNote}
                 </span>
               )}
             </SourceMetric>

@@ -244,6 +244,28 @@ describe('SourcePanel', () => {
     expect(screen.getByRole('button', { name: 'Future source action' })).toBeInTheDocument();
   });
 
+  it('labels the pointer as a credential-free source URL', () => {
+    render(
+      <SourcePanel
+        dataset={makeDataset({
+          origin: 'service',
+          source_format: 'arcgis_featureserver',
+          origin_ref: { kind: 'service', service_type: 'arcgis_featureserver', url: 'https://origin.test/FeatureServer' },
+        })}
+      />,
+    );
+
+    expect(screen.getByText('Source URL (credentials removed)')).toBeInTheDocument();
+    expect(screen.queryByText('Safe source pointer')).not.toBeInTheDocument();
+  });
+
+  it('explains when an unchecked source health is evaluated', () => {
+    render(<SourcePanel dataset={makeDataset({ source_health: 'unknown' })} />);
+
+    expect(screen.getByText('Not checked')).toBeInTheDocument();
+    expect(screen.getByText('Checked when the source is refreshed.')).toBeInTheDocument();
+  });
+
   it('renders refresh run history distinctly from source version history', () => {
     vi.mocked(useDatasetRefreshRuns).mockReturnValue({
       data: {

@@ -803,7 +803,7 @@
       "table": "已注册的表",
       "serviceType": "服务类型",
       "layer": "图层标识符",
-      "endpoint": "安全的数据源地址",
+      "endpoint": "数据源 URL（已移除凭据）",
       "collection": "STAC 集合",
       "asset": "STAC 资产",
       "item": "STAC 条目"
@@ -827,6 +827,7 @@
         "unknown": "未比较"
       }
     },
+    "healthUnknownHint": "刷新数据源时检查。",
     "healthDetail": {
       "not_found": "未找到源资源。",
       "item_withdrawn": "该 STAC 条目已被撤回。",
