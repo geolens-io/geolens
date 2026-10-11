@@ -45,6 +45,7 @@ def _make_auth_response(
     open_path: str = "/app/staging/rasters/test.tif",
     render_params: str = "bidx=1&rescale=0,65535",
     band_count: int = 1,
+    data_range_default: bool = False,
 ) -> httpx.Response:
     """Build a fake raster-auth-check response matching the real handler's shape."""
     return MagicMock(
@@ -54,6 +55,7 @@ def _make_auth_response(
             "X-GeoLens-Cache-Status": "public",
             "X-GeoLens-Render-Params": render_params,
             "X-GeoLens-Band-Count": str(band_count),
+            **({"X-GeoLens-Data-Range-Default": "1"} if data_range_default else {}),
         },
         content=b"",
     )
@@ -131,6 +133,7 @@ class TestRasterColormapProxy:
         """Replace raster_auth_check so tests don't touch the DB."""
         self._auth_render_params = "bidx=1&rescale=0,65535"
         self._auth_open_path = "/app/staging/rasters/test.tif"
+        self._auth_data_range_default = False
         self._auth_band_count = 1  # default single-band; override in multi-band tests
 
         async def _fake_auth_check(request, dataset_id, user=None, db=None):
@@ -138,6 +141,7 @@ class TestRasterColormapProxy:
                 self._auth_open_path,
                 self._auth_render_params,
                 self._auth_band_count,
+                self._auth_data_range_default,
             )
 
         from app.platform.storage import titiler_url
@@ -325,6 +329,46 @@ class TestRasterColormapProxy:
         assert len(self._stats_titiler_calls) == 1  # attempted once
         tile_url = self._tile_titiler_calls[0]
         assert "rescale=0,65535" in tile_url, tile_url  # original rescale preserved
+
+    async def test_float_default_stretch_uses_the_data_range(self, client):
+        self._auth_render_params = "rescale=0,1.0"
+        self._auth_data_range_default = True
+        for params in ({}, {"stretch": "minmax"}):
+            resp = await client.get(_TILE_PATH, params=params)
+            assert resp.status_code in (200, 204)
+            tile_url = self._tile_titiler_calls[-1]
+            assert "rescale=490.6,1625.6" in tile_url, tile_url
+            assert "rescale=0,1.0" not in tile_url, tile_url
+        assert len(self._stats_titiler_calls) == 1, "second tile reuses the cache"
+
+    async def test_float_default_stretch_without_statistics_keeps_dtype_rescale(
+        self, client
+    ):
+        self._auth_render_params = "rescale=0,1.0"
+        self._auth_data_range_default = True
+        self._stats_status = 500
+        resp = await client.get(_TILE_PATH)
+        assert resp.status_code in (200, 204)
+        assert "rescale=0,1.0" in self._tile_titiler_calls[0]
+
+    async def test_unflagged_raster_default_stretch_makes_no_statistics_call(
+        self, client
+    ):
+        resp = await client.get(_TILE_PATH)
+        assert resp.status_code in (200, 204)
+        assert len(self._stats_titiler_calls) == 0
+        assert "rescale=0,65535" in self._tile_titiler_calls[0]
+
+    async def test_float_custom_percentile_scans_once(self, client):
+        self._auth_render_params = "rescale=0,1.0"
+        self._auth_data_range_default = True
+        resp = await client.get(
+            _TILE_PATH, params={"stretch": "percentile", "pmin": 5, "pmax": 95}
+        )
+        assert resp.status_code in (200, 204)
+        assert len(self._stats_titiler_calls) == 1
+        assert "rescale=530.0,1280.0" in self._tile_titiler_calls[0]
+        assert "rescale=0,1.0" not in self._tile_titiler_calls[0]
 
     async def test_stretch_not_applied_to_dem(self, client):
         """For DEM (algorithm=terrainrgb), stretch is ignored — no statistics call."""

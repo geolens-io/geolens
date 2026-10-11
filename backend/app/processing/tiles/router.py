@@ -320,6 +320,11 @@ _DTYPE_MAX = {
 
 _FLOAT_DTYPES = frozenset({"float32", "float64"})
 
+# Set by raster_auth_check when the default rescale for a float raster should
+# come from the data range; the tile proxy reads statistics so that work sits
+# behind the tile rate limit and is skipped when another stretch replaces it.
+_DATA_RANGE_HEADER = "X-GeoLens-Data-Range-Default"
+
 _WEB_MERCATOR_EQUATOR_RESOLUTION_M = 156543.03392804097
 _DEFAULT_RASTER_MAXZOOM = 18
 _MAX_RASTER_MAXZOOM = 22
@@ -993,6 +998,7 @@ async def raster_auth_check(
         )
     ):
         cache_status = "private"
+    float_default_range = False
     if meta.is_dem:
         # DEM terrain: terrainrgb with NO rescale, which encodes raw elevation
         # into RGB. Issue #186: mask the nodata so fill pixels in edge tiles are
@@ -1015,17 +1021,7 @@ async def raster_auth_check(
         render_params = "&".join(parts)
     else:
         render_params = _titiler_render_params(meta.band_count, meta.dtype)
-        if (meta.dtype or "").lower() in _FLOAT_DTYPES:
-            # The dtype rescale of 0..1 collapses elevation-like floats to
-            # black and white; stretch over the data range instead. The default
-            # percentiles share the cache entry a later percentile request reads.
-            bands = await _fetch_band_statistics(open_path, 2.0, 98.0)
-            bc = meta.band_count or 1
-            rescale_parts = _data_range_rescale(
-                bands or [], min(bc, 3) if bc >= 3 else 1
-            )
-            if rescale_parts:
-                render_params = _apply_stretch_rescale(render_params, rescale_parts)
+        float_default_range = (meta.dtype or "").lower() in _FLOAT_DTYPES
 
     return Response(
         status_code=status.HTTP_200_OK,
@@ -1034,6 +1030,7 @@ async def raster_auth_check(
             "X-GeoLens-Cache-Status": cache_status,
             "X-GeoLens-Render-Params": render_params,
             "X-GeoLens-Band-Count": str(meta.band_count or 1),
+            **({_DATA_RANGE_HEADER: "1"} if float_default_range else {}),
         },
     )
 
@@ -1252,7 +1249,8 @@ async def raster_tile_proxy(
             else f"colormap_name={colormap_name}"
         )
 
-    # minmax keeps the default rescale already in render_params;
+    # minmax keeps the default rescale already in render_params, except for a
+    # float raster, whose data range replaces the 0..1 dtype rescale;
     # percentile/stddev override it from Titiler band statistics, one fragment
     # per band up to three. Falls back to minmax when stats are missing.
     if stretch and stretch != "minmax" and not render_params.startswith("algorithm="):
@@ -1273,6 +1271,14 @@ async def raster_tile_proxy(
                 stretch=stretch,
                 dataset_id=str(dataset_id),
             )
+    elif auth_resp.headers.get(_DATA_RANGE_HEADER):
+        # Default bounds share the cache entry a percentile request reads.
+        bands = await _fetch_band_statistics(open_path, 2.0, 98.0)
+        rescale_parts = _data_range_rescale(
+            bands or [], min(band_count, 3) if band_count >= 3 else 1
+        )
+        if rescale_parts:
+            render_params = _apply_stretch_rescale(render_params, rescale_parts)
 
     titiler_url = build_titiler_cog_url(
         f"tiles/WebMercatorQuad/{z}/{x}/{y}.{fmt}",

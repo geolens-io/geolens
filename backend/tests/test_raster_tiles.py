@@ -671,141 +671,40 @@ class TestDemTerrainNodataAuthCheck:
 
 
 class TestDefaultRescaleAuthCheck:
-    """raster_auth_check picks the default rescale from the data type."""
+    """raster_auth_check flags float rasters whose default rescale is the data range."""
 
-    _STATS = [{"min": -4200.5, "max": 8848.25}]
-
-    async def _render_params(
-        self, client, session, monkeypatch, *, stats, is_dem=False, **raster
-    ) -> tuple[str, AsyncMock]:
+    async def _headers(self, client, session, **raster):
         admin_id = await _get_admin_id(session)
         _, dataset, _ = await _create_raster_dataset(
-            session, created_by=admin_id, is_dem=is_dem, **raster
+            session, created_by=admin_id, band_count=1, **raster
         )
-        fetch = AsyncMock(return_value=stats)
-        monkeypatch.setattr("app.processing.tiles.router._fetch_band_statistics", fetch)
         resp = await client.get(
             "/tiles/raster-auth-check/", params={"dataset_id": str(dataset.id)}
         )
         assert resp.status_code == 200
-        return resp.headers.get("x-geolens-render-params", ""), fetch
+        return resp.headers
 
     @pytest.mark.parametrize("dtype", ["float32", "float64"])
-    async def test_float_raster_rescales_over_its_data_range(
-        self, client: AsyncClient, test_db_session, monkeypatch, dtype
+    async def test_float_raster_is_flagged_and_keeps_the_dtype_fallback(
+        self, client: AsyncClient, test_db_session, dtype
     ):
-        params, fetch = await self._render_params(
-            client,
-            test_db_session,
-            monkeypatch,
-            stats=self._STATS,
-            dtype=dtype,
-            band_count=1,
-        )
-        assert params == "rescale=-4200.5,8848.25"
-        fetch.assert_awaited_once()
-        assert fetch.await_args.args[1:] == (2.0, 98.0)
+        headers = await self._headers(client, test_db_session, dtype=dtype)
+        assert headers.get("x-geolens-data-range-default") == "1"
+        assert headers["x-geolens-render-params"] == "rescale=0,1.0"
 
-    async def test_float_rgb_raster_rescales_each_band(
-        self, client: AsyncClient, test_db_session, monkeypatch
+    @pytest.mark.parametrize("dtype", ["int16", "uint8", None])
+    async def test_other_rasters_are_not_flagged(
+        self, client: AsyncClient, test_db_session, dtype
     ):
-        stats = [{"min": 0.0, "max": 0.5}, {"min": 1.0, "max": 2.0}] + [
-            {"min": 3.0, "max": 4.0}
-        ] * 2
-        params, _ = await self._render_params(
-            client,
-            test_db_session,
-            monkeypatch,
-            stats=stats,
-            dtype="float32",
-            band_count=4,
-        )
-        assert params == (
-            "bidx=1&bidx=2&bidx=3&rescale=0.0,0.5&rescale=1.0,2.0&rescale=3.0,4.0"
-        )
+        headers = await self._headers(client, test_db_session, dtype=dtype)
+        assert "x-geolens-data-range-default" not in headers
 
-    async def test_float_raster_without_statistics_keeps_the_dtype_rescale(
-        self, client: AsyncClient, test_db_session, monkeypatch
-    ):
-        params, _ = await self._render_params(
-            client,
-            test_db_session,
-            monkeypatch,
-            stats=None,
-            dtype="float32",
-            band_count=1,
+    async def test_float_dem_is_not_flagged(self, client: AsyncClient, test_db_session):
+        headers = await self._headers(
+            client, test_db_session, dtype="float32", is_dem=True
         )
-        assert params == "rescale=0,1.0"
-
-    async def test_float_raster_with_a_flat_band_keeps_the_dtype_rescale(
-        self, client: AsyncClient, test_db_session, monkeypatch
-    ):
-        params, _ = await self._render_params(
-            client,
-            test_db_session,
-            monkeypatch,
-            stats=[{"min": 5.0, "max": 5.0}],
-            dtype="float32",
-            band_count=1,
-        )
-        assert params == "rescale=0,1.0"
-
-    async def test_float_raster_with_a_tiny_range_keeps_it_distinct(
-        self, client: AsyncClient, test_db_session, monkeypatch
-    ):
-        params, _ = await self._render_params(
-            client,
-            test_db_session,
-            monkeypatch,
-            stats=[{"min": 0.00001, "max": 0.00002}],
-            dtype="float32",
-            band_count=1,
-        )
-        lo, hi = params.removeprefix("rescale=").split(",")
-        assert float(lo) < float(hi)
-
-    async def test_float_raster_bounds_with_an_exponent_are_percent_encoded(
-        self, client: AsyncClient, test_db_session, monkeypatch
-    ):
-        params, _ = await self._render_params(
-            client,
-            test_db_session,
-            monkeypatch,
-            stats=[{"min": -1.5, "max": 1e20}],
-            dtype="float32",
-            band_count=1,
-        )
-        assert params == "rescale=-1.5,1e%2B20"
-
-    async def test_integer_raster_keeps_the_dtype_rescale(
-        self, client: AsyncClient, test_db_session, monkeypatch
-    ):
-        params, fetch = await self._render_params(
-            client,
-            test_db_session,
-            monkeypatch,
-            stats=self._STATS,
-            dtype="int16",
-            band_count=1,
-        )
-        assert params == "rescale=0,32767"
-        fetch.assert_not_awaited()
-
-    async def test_float_dem_keeps_terrain_encoding(
-        self, client: AsyncClient, test_db_session, monkeypatch
-    ):
-        params, fetch = await self._render_params(
-            client,
-            test_db_session,
-            monkeypatch,
-            stats=self._STATS,
-            dtype="float32",
-            band_count=1,
-            is_dem=True,
-        )
-        assert params.startswith("algorithm=terrainrgb")
-        assert "rescale" not in params
-        fetch.assert_not_awaited()
+        assert "x-geolens-data-range-default" not in headers
+        assert headers["x-geolens-render-params"].startswith("algorithm=terrainrgb")
 
 
 # ---------------------------------------------------------------------------
@@ -1092,6 +991,27 @@ async def test_band_stats_cache_hit(monkeypatch):
     assert mock_get.call_count == 1, "Second call must be served from cache"
     assert result1 == result2
     assert result1 is not None
+
+
+@pytest.mark.parametrize(
+    ("bands", "n_bands", "expected"),
+    [
+        ([{"min": -4200.5, "max": 8848.25}], 1, ["rescale=-4200.5,8848.25"]),
+        (
+            [{"min": 0.0, "max": 0.5}, {"min": 1.0, "max": 2.0}] * 2,
+            3,
+            ["rescale=0.0,0.5", "rescale=1.0,2.0", "rescale=0.0,0.5"],
+        ),
+        ([{"min": 5.0, "max": 5.0}], 1, []),
+        ([{"min": 0.0, "max": 1.0}], 3, []),
+        ([{"min": 1.0}], 1, []),
+        ([{"min": -1.5, "max": 1e20}], 1, ["rescale=-1.5,1e%2B20"]),
+    ],
+)
+def test_data_range_rescale(bands, n_bands, expected):
+    from app.processing.tiles.router import _data_range_rescale
+
+    assert _data_range_rescale(bands, n_bands) == expected
 
 
 @pytest.mark.asyncio
