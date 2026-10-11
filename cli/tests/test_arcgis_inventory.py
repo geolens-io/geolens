@@ -39,6 +39,7 @@ from .arcgis_fake import (
     D3,
     D4,
     D5,
+    EMPTY_GROUPS,
     FOLDER,
     HYDRANTS,
     PORTAL,
@@ -257,10 +258,503 @@ def test_item_rows_record_size_sharing_owner_and_dates(run):
     assert rows[A1]["size_bytes"] == 1048576
     assert rows[A3]["size_bytes"] is None
     assert rows[D4]["size_bytes"] is None
-    assert rows[A2]["sharing"] == {"access": "public", "groups": None}
+    assert rows[A2]["sharing"] == {"access": "public", "groups": []}
     assert rows[A1]["owner"] == USER
     assert rows[A1]["created"] == "2026-01-01T00:00:00Z"
     assert rows[A1]["modified"] == "2026-01-02T00:00:00Z"
+
+
+def _read_errors(report: dict) -> list[dict]:
+    """Errors from the metadata reads; the fixture's broken web map is not one."""
+    return [e for e in report["errors"] if e["phase"] != "item_data"]
+
+
+def _rich_routes(**overrides: Any) -> dict[str, Any]:
+    return portal_routes(
+        {f"content/items/{A1}": load("item_detail_rich.json"), **overrides}
+    )
+
+
+def test_item_metadata_is_recorded_and_validates_against_v2(run):
+    result, _ = run(FakePortal(_rich_routes()), "--scope", "org")
+    report = _report(result)
+    Draft202012Validator(
+        arcgis_report.inventory_schema(), format_checker=FormatChecker()
+    ).validate(report)
+    row = _rows(report)[A1]
+    assert report["schema_version"] == "2"
+    assert row["snippet"] == "Tax parcels, updated nightly."
+    assert row["description"] == "<p>County parcel boundaries.</p>"
+    assert row["tags"] == ["parcels", "cadastre"]
+    assert row["access_information"] == "Example County Assessor"
+    assert row["license_info"] == "<p>Public domain.</p>"
+    assert row["extent"] == [[-75.2, 40.5], [-74.1, 41.3]]
+    assert row["thumbnail"] == "thumbnail/thumbnail.png"
+    assert row["spatial_reference"] == "102711"
+    assert row["culture"] == "en-us"
+    assert row["layers"] == [
+        {
+            "id": 0,
+            "url": "https://services1.arcgis.com/ExAmPlEoRg0123/arcgis/rest/services/Parcels/FeatureServer/0",
+        }
+    ]
+    assert row["data_saved"] is False
+    # v1 readers keep their fields.
+    assert (row["id"], row["type"], row["title"], row["class"]) == (
+        A1,
+        "Feature Service",
+        "Parcels",
+        "supported",
+    )
+
+
+def test_org_scope_resolves_folder_titles_from_the_owners_folder_list(run):
+    portal = FakePortal(_rich_routes())
+    result, _ = run(portal, "--scope", "org")
+    rows = _rows(_report(result))
+    assert rows[A1]["folder"] == {"id": FOLDER, "title": "Apps"}
+    assert rows[A2]["folder"] is None
+    listings = portal.requests_to(f"content/users/{USER}")
+    assert [s.params["num"] for s in listings] == ["1"]
+
+
+def test_forbidden_folder_list_leaves_the_title_null_and_the_run_clean(run):
+    portal = FakePortal(
+        _rich_routes(**{f"content/users/{USER}": (403, {"error": {"code": 403}})})
+    )
+    result, _ = run(portal, "--scope", "org", "--strict")
+    report = _report(result)
+    assert _rows(report)[A1]["folder"] == {"id": FOLDER, "title": None}
+    assert _read_errors(report) == []
+
+
+def test_user_scope_folder_titles_come_from_the_listing(run):
+    portal = FakePortal(portal_routes())
+    result, _ = run(portal, "--scope", "user")
+    rows = _rows(_report(result))
+    assert rows[C1]["folder"] == {"id": FOLDER, "title": "Apps"}
+    assert rows[A1]["folder"] is None
+    assert len(portal.requests_to(f"content/users/{USER}")) == 1
+
+
+def test_owner_profile_is_read_once_per_distinct_owner(run):
+    portal = FakePortal(portal_routes())
+    result, _ = run(portal, "--scope", "org")
+    rows = _rows(_report(result))
+    assert len(portal.requests_to(f"community/users/{USER}")) == 1
+    assert rows[A1]["owner_full_name"] == "Gina Admin"
+    assert rows[D5]["owner_email"] == "gina.admin@example.org"
+
+
+@pytest.mark.parametrize("status", [400, 403])
+def test_hidden_owner_profile_leaves_name_and_email_null(run, status):
+    portal = FakePortal(
+        portal_routes(
+            {f"community/users/{USER}": (status, {"error": {"code": status}})}
+        )
+    )
+    result, _ = run(portal, "--scope", "org")
+    report = _report(result)
+    assert _read_errors(report) == []
+    assert {r["owner_full_name"] for r in report["items"]} == {None}
+    assert {r["owner_email"] for r in report["items"]} == {None}
+
+
+def test_groups_list_admin_member_and_other_groups(run):
+    groups = {
+        "admin": [{"id": "g1", "title": "GIS team", "access": "org"}],
+        "member": [{"id": "g2", "title": "Planning", "access": "private"}],
+        "other": [{"id": "g3", "title": "Public maps", "access": "public"}],
+    }
+    portal = FakePortal(portal_routes({f"content/items/{A1}/groups": groups}))
+    result, _ = run(portal, "--scope", "org")
+    row = _rows(_report(result))[A1]
+    assert row["groups"] == [
+        {"id": "g1", "title": "GIS team", "access": "org"},
+        {"id": "g2", "title": "Planning", "access": "private"},
+        {"id": "g3", "title": "Public maps", "access": "public"},
+    ]
+    assert row["sharing"]["groups"] == ["g1", "g2", "g3"]
+    assert _rows(_report(result))[A2]["groups"] == []
+
+
+def test_forbidden_group_read_is_an_error_row_and_the_run_continues(run):
+    portal = FakePortal(
+        portal_routes({f"content/items/{A1}/groups": (403, {"error": {"code": 403}})})
+    )
+    result, _ = run(portal, "--scope", "org")
+    report = _report(result)
+    rows = _rows(report)
+    assert result.exit_code == 0
+    assert rows[A1]["groups"] is None
+    assert rows[A1]["sharing"]["groups"] is None
+    assert rows[A2]["groups"] == []
+    assert [
+        (e["item_id"], e["phase"], e["http_status"]) for e in _read_errors(report)
+    ] == [(A1, "item_groups", 403)]
+
+
+def test_no_groups_makes_no_group_requests(run):
+    portal = FakePortal(portal_routes())
+    result, _ = run(portal, "--scope", "org", "--no-groups")
+    report = _report(result)
+    assert [s for s in portal.seen if s.path.endswith("/groups")] == []
+    assert {r["groups"] for r in report["items"]} == {None}
+    assert _read_errors(report) == []
+
+
+def test_failed_item_read_keeps_the_search_result_fields(run):
+    listing = load("search_page1.json")["results"][0] | {"snippet": "From the search."}
+    portal = FakePortal(
+        portal_routes(
+            {
+                "search": {
+                    "total": 1,
+                    "start": 1,
+                    "num": 100,
+                    "nextStart": -1,
+                    "results": [listing],
+                },
+                f"content/items/{A1}": (500, {"error": {"code": 500}}),
+            }
+        )
+    )
+    result, _ = run(portal, "--scope", "org")
+    report = _report(result)
+    assert _rows(report)[A1]["snippet"] == "From the search."
+    assert [(e["item_id"], e["phase"]) for e in _read_errors(report)] == [
+        (A1, "item_details")
+    ]
+
+
+def test_token_rejected_while_reading_an_item_stops_the_run(run):
+    portal = FakePortal(portal_routes({f"content/items/{A2}": load("error_498.json")}))
+    result, _ = run(portal, "--scope", "org")
+    assert result.exit_code == 3
+    report = _report(result)
+    assert report["complete"] is False
+    assert _rows(report)[B1]["dependencies_status"] == "not_fetched"
+
+
+def test_secrets_in_item_text_are_redacted_and_the_description_is_capped(run):
+    detail = load("item_detail_rich.json") | {
+        "spatialReference": {"wkt": "PROJCS[token=abc123SECRET]"},
+        "description": "<a href='https://x/y?token=abc123SECRET'>link</a>"
+        + "é" * inventory.MAX_DESCRIPTION_BYTES,
+        "snippet": "password=hunter2 in the snippet",
+    }
+    result, _ = run(
+        FakePortal(portal_routes({f"content/items/{A1}": detail})), "--scope", "org"
+    )
+    row = _rows(_report(result))[A1]
+    assert "abc123SECRET" not in row["description"]
+    assert "token=[REDACTED]" in row["description"]
+    assert row["spatial_reference"] == "PROJCS[token=[REDACTED]"
+    assert len(row["description"].encode()) <= inventory.MAX_DESCRIPTION_BYTES
+    assert row["snippet"] == "password=[REDACTED] in the snippet"
+
+
+def test_detail_url_replaces_a_thin_search_url_and_tolerates_a_trailing_slash(run):
+    listing = load("search_page1.json")["results"][0] | {"url": None}
+    detail = load("item_detail_rich.json")
+    detail["url"] += "/"
+    routes = portal_routes(
+        {
+            "search": {
+                "total": 1,
+                "start": 1,
+                "num": 100,
+                "nextStart": -1,
+                "results": [listing],
+            },
+            f"content/items/{A1}": detail,
+        }
+    )
+    result, _ = run(FakePortal(routes), "--scope", "org")
+    row = _rows(_report(result))[A1]
+    assert row["url"].endswith("/FeatureServer/0/")
+    assert [layer["id"] for layer in row["layers"]] == [0]
+
+
+def test_detail_without_a_url_clears_the_search_url(run):
+    listing = load("search_page1.json")["results"][0]
+    detail = {k: v for k, v in load("item_detail_rich.json").items() if k != "url"}
+    routes = portal_routes(
+        {
+            "search": {
+                "total": 1,
+                "start": 1,
+                "num": 100,
+                "nextStart": -1,
+                "results": [listing],
+            },
+            f"content/items/{A1}": detail,
+        }
+    )
+    result, _ = run(FakePortal(routes), "--scope", "org")
+    row = _rows(_report(result))[A1]
+    assert (row["url"], row["layers"]) == (None, [])
+
+
+def test_detail_type_keywords_reclassify_a_thin_search_row(run):
+    listing = load("search_page1.json")["results"][0] | {"typeKeywords": []}
+    routes = portal_routes(
+        {
+            "search": {
+                "total": 1,
+                "start": 1,
+                "num": 100,
+                "nextStart": -1,
+                "results": [listing],
+            },
+            f"content/items/{A1}": load("item_detail_rich.json"),
+        }
+    )
+    result, _ = run(FakePortal(routes), "--scope", "org")
+    row = _rows(_report(result))[A1]
+    assert (row["reason"], row["hosted"]) == ("hosted_feature_layer", True)
+    assert "Hosted Service" in row["type_keywords"]
+
+
+def test_search_folder_survives_a_failed_detail_read(run):
+    listing = load("search_page1.json")["results"][0] | {"ownerFolder": FOLDER}
+    routes = portal_routes(
+        {
+            "search": {
+                "total": 1,
+                "start": 1,
+                "num": 100,
+                "nextStart": -1,
+                "results": [listing],
+            },
+            f"content/items/{A1}": (500, {"error": {"code": 500}}),
+        }
+    )
+    result, _ = run(FakePortal(routes), "--scope", "org")
+    assert _rows(_report(result))[A1]["folder"] == {"id": FOLDER, "title": "Apps"}
+
+
+def test_detail_folder_replaces_a_stale_search_folder(run):
+    listing = load("search_page1.json")["results"][0] | {"ownerFolder": "stale"}
+    detail = {
+        k: v for k, v in load("item_detail_rich.json").items() if k != "ownerFolder"
+    }
+    routes = portal_routes(
+        {
+            "search": {
+                "total": 1,
+                "start": 1,
+                "num": 100,
+                "nextStart": -1,
+                "results": [listing],
+            },
+            f"content/items/{A1}": detail,
+        }
+    )
+    result, _ = run(FakePortal(routes), "--scope", "org")
+    assert _rows(_report(result))[A1]["folder"] is None
+
+
+def test_detail_owner_and_access_replace_stale_search_values(run):
+    listing = load("search_page1.json")["results"][0] | {"owner": "old_owner"}
+    detail = load("item_detail_rich.json") | {"access": "public"}
+    routes = portal_routes(
+        {
+            "search": {
+                "total": 1,
+                "start": 1,
+                "num": 100,
+                "nextStart": -1,
+                "results": [listing],
+            },
+            f"content/items/{A1}": detail,
+        }
+    )
+    portal = FakePortal(routes)
+    result, _ = run(portal, "--scope", "org")
+    row = _rows(_report(result))[A1]
+    assert (row["owner"], row["sharing"]["access"]) == (USER, "public")
+    assert portal.requests_to("community/users/old_owner") == []
+
+
+def test_detail_title_replaces_a_stale_search_title(run):
+    listing = load("search_page1.json")["results"][0] | {"title": "Old name"}
+    detail = load("item_detail_rich.json") | {"title": "New name"}
+    routes = portal_routes(
+        {
+            "search": {
+                "total": 1,
+                "start": 1,
+                "num": 100,
+                "nextStart": -1,
+                "results": [listing],
+            },
+            f"content/items/{A1}": detail,
+        }
+    )
+    result, _ = run(FakePortal(routes), "--scope", "org")
+    assert _rows(_report(result))[A1]["title"] == "New name"
+
+
+def test_detail_reads_in_small_windows_give_the_same_report(run, monkeypatch):
+    baseline, _ = run(FakePortal(_rich_routes()), "--scope", "org")
+    monkeypatch.setattr(inventory, "_DETAIL_WINDOW", 2)
+    windowed, _ = run(
+        FakePortal(_rich_routes()), "--scope", "org", "--concurrency", "4"
+    )
+    assert _report(windowed)["items"] == _report(baseline)["items"]
+
+
+def test_owner_lookups_use_the_raw_username_even_when_it_contains_a_secret(run):
+    """A password such as "admin" must not rewrite the "gis_admin" account name."""
+    portal = FakePortal(portal_routes())
+    result, _ = run(portal, "--scope", "org", token="admin")
+    assert _rows(_report(result))[A1]["owner"] == USER
+    assert portal.requests_to(f"community/users/{USER}")
+
+
+def test_folder_listing_requests_the_raw_id_but_the_report_redacts_it(run):
+    portal = FakePortal(portal_routes())
+    result, _ = run(portal, "--scope", "user", token="f0f0")
+    assert portal.requests_to(f"content/users/{USER}/{FOLDER}")
+    assert "f0f0" not in result.stdout
+
+
+def test_detail_type_replaces_a_stale_search_type_and_schedules_its_data_read(run):
+    listing = load("search_page1.json")["results"][5] | {"type": "Image Service"}
+    assert listing["id"] == B1
+    detail = listing | {"type": "Web Map"}
+    routes = portal_routes(
+        {
+            "search": {
+                "total": 1,
+                "start": 1,
+                "num": 100,
+                "nextStart": -1,
+                "results": [listing],
+            },
+            f"content/items/{B1}": detail,
+        }
+    )
+    portal = FakePortal(routes)
+    result, _ = run(portal, "--scope", "org")
+    row = _rows(_report(result))[B1]
+    assert (row["type"], row["class"]) == ("Web Map", "partial")
+    assert row["dependencies_status"] == "parsed"
+    assert portal.requests_to(item_data_path(B1))
+
+
+def test_detail_type_keywords_are_redacted(run):
+    detail = load("item_detail_rich.json") | {
+        "typeKeywords": ["Data", "token=abc123SECRET"]
+    }
+    result, _ = run(
+        FakePortal(portal_routes({f"content/items/{A1}": detail})), "--scope", "org"
+    )
+    assert "abc123SECRET" not in result.stdout
+
+
+def test_counts_failed_items_not_failed_reads(run):
+    portal = FakePortal(
+        portal_routes(
+            {
+                f"content/items/{A1}": (500, {"error": {"code": 500}}),
+                f"content/items/{A1}/groups": (403, {"error": {"code": 403}}),
+            }
+        )
+    )
+    result, _ = run(portal, "--scope", "org")
+    report = _report(result)
+    assert len(_read_errors(report)) == 2
+    assert report["counts"]["failed"] == len({e["item_id"] for e in report["errors"]})
+
+
+def test_token_rejected_while_reading_an_owner_stops_the_remaining_owner_reads(run):
+    listed = [
+        load("search_page1.json")["results"][0] | {"owner": name}
+        for name in ("zed", "amy", "bob")
+    ]
+    for n, row in enumerate(listed):
+        row["id"] = f"{n:032x}"
+    routes = portal_routes(
+        {
+            "search": {
+                "total": 3,
+                "start": 1,
+                "num": 100,
+                "nextStart": -1,
+                "results": listed,
+            },
+            "community/users/amy": load("error_498.json"),
+        }
+    )
+    for row in listed:
+        routes[f"content/items/{row['id']}"] = row
+        routes[f"content/items/{row['id']}/groups"] = EMPTY_GROUPS
+    portal = FakePortal(routes)
+    result, _ = run(portal, "--scope", "org")
+    assert result.exit_code == 3
+    assert portal.requests_to("community/users/bob") == []
+    assert portal.requests_to("community/users/zed") == []
+
+
+def test_group_and_folder_titles_are_redacted(run):
+    leak = "https://x/y?token=abc123SECRET"
+    portal = FakePortal(
+        _rich_routes(
+            **{
+                f"content/items/{A1}/groups": {
+                    "admin": [{"id": "g1", "title": leak, "access": "org"}]
+                },
+                f"content/users/{USER}": {
+                    "folders": [{"id": FOLDER, "title": leak}],
+                    "items": [],
+                },
+            }
+        )
+    )
+    result, _ = run(portal, "--scope", "org")
+    assert "abc123SECRET" not in result.stdout
+    row = _rows(_report(result))[A1]
+    assert row["groups"][0]["title"].endswith("token=[REDACTED]")
+    assert row["folder"]["title"].endswith("token=[REDACTED]")
+
+
+def test_exhausted_rate_limit_on_an_owner_read_is_an_error_row(run):
+    portal = FakePortal(
+        portal_routes({f"community/users/{USER}": (429, {"error": {"code": 429}})})
+    )
+    result, _ = run(portal, "--scope", "org", "--strict")
+    assert result.exit_code == 1
+    errors = [e for e in _report(result)["errors"] if e["phase"] == "owner"]
+    assert [(e["item_id"], e["http_status"]) for e in errors] == [(USER, 429)]
+
+
+def test_secret_in_a_detail_url_is_redacted(run):
+    detail = load("item_detail_rich.json") | {
+        "url": f"https://services1.arcgis.com/{TOKEN}/FeatureServer/0"
+    }
+    result, _ = run(
+        FakePortal(portal_routes({f"content/items/{A1}": detail})), "--scope", "org"
+    )
+    row = _rows(_report(result))[A1]
+    assert TOKEN not in result.stdout
+    assert "[REDACTED]" in row["url"]
+
+
+def test_anonymous_run_does_not_read_groups(run):
+    portal = FakePortal(portal_routes())
+    result, _ = run(portal, "--scope", "org", token=None)
+    assert [s for s in portal.seen if s.path.endswith("/groups")] == []
+    assert {r["groups"] for r in _report(result)["items"]} == {None}
+
+
+def test_markdown_lists_folders_and_owners(run):
+    result, _ = run(FakePortal(_rich_routes()), "--scope", "org", json_mode=False)
+    assert "## Folders" in result.stdout
+    assert "| Apps |" in result.stdout
+    assert "## Owners" in result.stdout
+    assert "gina.admin@example.org" in result.stdout
 
 
 def test_web_map_and_app_dependencies(run):
@@ -430,7 +924,7 @@ def test_max_items_equal_to_the_total_is_not_truncated(run):
 
 
 def test_report_validates_against_the_packaged_schema(run):
-    """The JSON report, complete or partial, matches the v1 schema."""
+    """The JSON report, complete or partial, matches the v2 schema."""
     validator = Draft202012Validator(
         arcgis_report.inventory_schema(), format_checker=FormatChecker()
     )
@@ -1295,6 +1789,9 @@ def test_failed_item_reads_do_not_retain_their_responses(monkeypatch):
         }
     )
     routes.update({item_data_path(i): (200, oversized) for i in ids})
+    for row in rows:
+        routes[f"content/items/{row['id']}"] = row
+        routes[f"content/items/{row['id']}/groups"] = EMPTY_GROUPS
     client = inventory.PortalClient(
         PORTAL,
         opener=FakePortal(routes),

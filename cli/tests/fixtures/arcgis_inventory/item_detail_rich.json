@@ -1,0 +1,23 @@
+{
+  "id": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+  "owner": "gis_admin",
+  "orgId": "ExAmPlEoRg0123",
+  "ownerFolder": "f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0",
+  "created": 1767225600000,
+  "modified": 1767312000000,
+  "title": "Parcels",
+  "type": "Feature Service",
+  "typeKeywords": ["Data", "Service", "Feature Service", "Hosted Service"],
+  "snippet": "Tax parcels, updated nightly.",
+  "description": "<p>County parcel boundaries.</p>",
+  "tags": ["parcels", "cadastre"],
+  "accessInformation": "Example County Assessor",
+  "licenseInfo": "<p>Public domain.</p>",
+  "extent": [[-75.2, 40.5], [-74.1, 41.3]],
+  "thumbnail": "thumbnail/thumbnail.png",
+  "spatialReference": "102711",
+  "culture": "en-us",
+  "url": "https://services1.arcgis.com/ExAmPlEoRg0123/arcgis/rest/services/Parcels/FeatureServer/0",
+  "access": "org",
+  "size": 1048576
+}

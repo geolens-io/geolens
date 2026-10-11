@@ -55,6 +55,7 @@ MIN_REQUEST_INTERVAL = 0.1
 SOCKET_TIMEOUT = 10.0
 REQUEST_DEADLINE = 30.0
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+MAX_DESCRIPTION_BYTES = 64 * 1024
 GET_ATTEMPTS = 3
 MAX_RETRY_AFTER = 60.0
 TOKEN_EXPIRATION_MINUTES = 60
@@ -163,6 +164,9 @@ _SERVICE_TYPES = frozenset(
 )
 _APP_DATA_TYPES = frozenset({"Web Mapping Application", "Web Experience", "Dashboard"})
 _WEB_MAP_TYPE = "Web Map"
+# Statuses a portal answers with for members or folders the caller may not see.
+_HIDDEN_STATUSES = frozenset({400, 403})
+_SERVICE_LAYER_URL = re.compile(r"/(?:Feature|Map)Server/(\d+)/?$")
 _WAB_KEYWORDS = frozenset({"web appbuilder", "wab2d", "wab3d"})
 
 
@@ -699,7 +703,80 @@ def _iso_from_ms(value: Any) -> str | None:
     return stamp.isoformat().replace("+00:00", "Z")
 
 
-def _item_row(item: Mapping[str, Any]) -> dict[str, Any]:
+def _text(value: Any, redact: Redactor, *, cap: int | None = None) -> str | None:
+    """A redacted string field, None when absent or blank.
+
+    Redacting before cutting matters: a cut through a secret leaves a prefix
+    that no longer matches it.
+    """
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = redact(value)
+    if cap is not None:
+        text = text.encode()[:cap].decode(errors="ignore")
+    return text
+
+
+def _extent(value: Any) -> list[list[float]] | None:
+    """``[[xmin, ymin], [xmax, ymax]]`` as the portal reports it, or None."""
+    if not isinstance(value, list) or len(value) != 2:
+        return None
+    corners: list[list[float]] = []
+    for corner in value:
+        if not isinstance(corner, list) or len(corner) != 2:
+            return None
+        if not all(
+            isinstance(n, int | float) and not isinstance(n, bool) for n in corner
+        ):
+            return None
+        corners.append([float(n) for n in corner])
+    return corners
+
+
+def _spatial_reference(value: Any, redact: Redactor) -> str | None:
+    if isinstance(value, dict):
+        value = value.get("latestWkid") or value.get("wkid") or value.get("wkt")
+    if isinstance(value, bool) or not isinstance(value, str | int) or value == "":
+        return None
+    return redact(str(value))
+
+
+def _metadata(item: Mapping[str, Any], redact: Redactor) -> dict[str, Any]:
+    """The descriptive fields of an item, from a search result or item read."""
+    tags = item.get("tags")
+    thumbnail = item.get("thumbnail")
+    return {
+        "snippet": _text(item.get("snippet"), redact),
+        "description": _text(
+            item.get("description"), redact, cap=MAX_DESCRIPTION_BYTES
+        ),
+        "tags": [redact(t) for t in tags if isinstance(t, str) and t]
+        if isinstance(tags, list)
+        else [],
+        "access_information": _text(item.get("accessInformation"), redact),
+        "license_info": _text(item.get("licenseInfo"), redact),
+        "extent": _extent(item.get("extent")),
+        "thumbnail": _text(thumbnail, redact),
+        "spatial_reference": _spatial_reference(item.get("spatialReference"), redact),
+        "culture": _text(item.get("culture"), redact),
+    }
+
+
+def _service_layers(item_type: str, url: str | None) -> list[dict[str, Any]]:
+    """The sub-layer an item's own URL names, without asking the service."""
+    if item_type not in ("Feature Service", "Map Service") or not url:
+        return []
+    match = _SERVICE_LAYER_URL.search(url)
+    return [{"id": int(match.group(1)), "url": url}] if match else []
+
+
+def _item_url(item: Mapping[str, Any], redact: Redactor) -> str | None:
+    url = sanitize_url(item.get("url"))
+    return redact(url) if url else None
+
+
+def _classification(item: Mapping[str, Any], redact: Redactor) -> dict[str, Any]:
+    """The row fields that follow from an item's type and type keywords."""
     verdict = classify(item)
     retirement_id = verdict["retirement"]
     retirement = None
@@ -710,17 +787,34 @@ def _item_row(item: Mapping[str, Any]) -> dict[str, Any]:
             "status": known["status"],
             "date": known["date"],
         }
+    return {
+        "type_keywords": [redact(str(k)) for k in item.get("typeKeywords") or []],
+        "class": verdict["class"],
+        "reason": verdict["reason"],
+        "retirement": retirement,
+        "hosted": verdict["hosted"],
+    }
+
+
+def _listed_folder(item: Mapping[str, Any], redact: Redactor) -> dict[str, Any] | None:
+    folder_id = item.get("ownerFolder")
+    if not isinstance(folder_id, str) or not folder_id:
+        return None
+    return {"id": redact(folder_id), "title": None}
+
+
+def _item_row(item: Mapping[str, Any], redact: Redactor) -> dict[str, Any]:
     size = item.get("size")
     item_type = str(item.get("type") or "")
     if item_type == _WEB_MAP_TYPE or item_type in _APP_DATA_TYPES:
         dependencies_status = "pending"
     else:
         dependencies_status = "not_applicable"
+    url = _item_url(item, redact)
     return {
         "id": str(item.get("id") or ""),
         "type": item_type,
-        "type_keywords": [str(k) for k in item.get("typeKeywords") or []],
-        "title": str(item.get("title") or ""),
+        "title": redact(str(item.get("title") or "")),
         "owner": str(item.get("owner") or ""),
         "sharing": {"access": str(item.get("access") or "private"), "groups": None},
         "size_bytes": size
@@ -728,12 +822,16 @@ def _item_row(item: Mapping[str, Any]) -> dict[str, Any]:
         else None,
         "created": _iso_from_ms(item.get("created")),
         "modified": _iso_from_ms(item.get("modified")),
-        "url": sanitize_url(item.get("url")),
-        "class": verdict["class"],
-        "reason": verdict["reason"],
-        "retirement": retirement,
-        "hosted": verdict["hosted"],
+        "url": url,
+        **_classification(item, redact),
         "dependencies_status": dependencies_status,
+        **_metadata(item, redact),
+        "folder": _listed_folder(item, redact),
+        "groups": None,
+        "owner_full_name": None,
+        "owner_email": None,
+        "layers": _service_layers(item_type, url),
+        "data_saved": False,
     }
 
 
@@ -745,6 +843,7 @@ class Inventory:
     items: list[dict[str, Any]] = field(default_factory=list)
     dependencies: list[dict[str, Any]] = field(default_factory=list)
     errors: list[dict[str, Any]] = field(default_factory=list)
+    folder_titles: dict[str, str] = field(default_factory=dict)
     truncated: bool = False
     search_ceiling: bool = False
     abort: PortalError | None = None
@@ -796,11 +895,12 @@ def _at_search_ceiling(page: Mapping[str, Any], rows: list[Any]) -> bool:
 
 def _list_items(
     client: PortalClient, inv: Inventory, max_items: int
-) -> Iterator[dict[str, Any]]:
-    """Raw items for the scope, deduplicated, stopping at *max_items*.
+) -> Iterator[tuple[dict[str, Any], str | None]]:
+    """Raw items for the scope with the folder each was listed in (user scope
+    only), deduplicated, stopping at *max_items*.
 
     User scope reads the root folder first; its ``folders`` list names the
-    other folders to page through.
+    other folders to page through and their titles.
     """
     if inv.scope["mode"] == "org":
         org_query = {
@@ -808,14 +908,14 @@ def _list_items(
             "sortField": "modified",
             "sortOrder": "desc",
         }
-        listings = [("search", org_query, "results")]
+        listings = [("search", org_query, "results", None)]
     else:
         user_path = f"content/users/{quote(inv.scope['owner'], safe='')}"
-        listings = [(user_path, {}, "items")]
+        listings = [(user_path, {}, "items", None)]
     seen: set[str] = set()
     position = 0
     while position < len(listings):
-        path, params, key = listings[position]
+        path, params, key, folder_id = listings[position]
         position += 1
         for rows, page in _pages(client, path, params, key):
             if path == "search" and _at_search_ceiling(page, rows):
@@ -823,11 +923,17 @@ def _list_items(
             folders = page.get("folders")
             if inv.scope["mode"] == "user" and len(listings) == 1:
                 if isinstance(folders, list):
-                    listings.extend(
-                        (f"{path}/{quote(str(f['id']), safe='')}", {}, "items")
-                        for f in folders
-                        if isinstance(f, dict) and f.get("id")
-                    )
+                    for f in folders:
+                        if not isinstance(f, dict) or not f.get("id"):
+                            continue
+                        fid = str(f["id"])
+                        if isinstance(f.get("title"), str):
+                            inv.folder_titles[client._redact(fid)] = client._redact(
+                                f["title"]
+                            )
+                        listings.append(
+                            (f"{path}/{quote(fid, safe='')}", {}, "items", fid)
+                        )
             for raw in rows:
                 if not isinstance(raw, dict) or not raw.get("id"):
                     continue
@@ -837,7 +943,7 @@ def _list_items(
                     inv.truncated = True
                     return
                 seen.add(str(raw["id"]))
-                yield raw
+                yield raw, folder_id
             if len(seen) >= max_items and (_has_next(page) or position < len(listings)):
                 inv.truncated = True
                 return
@@ -1178,10 +1284,233 @@ def _collect_dependencies(
             )
 
 
+# Row fields the item's own record decides, over a possibly stale search result.
+_DETAIL_KEYS = (
+    "type",
+    "dependencies_status",
+    "size_bytes",
+    "created",
+    "modified",
+    "url",
+    "type_keywords",
+    "class",
+    "reason",
+    "retirement",
+    "hosted",
+    "snippet",
+    "description",
+    "tags",
+    "access_information",
+    "license_info",
+    "extent",
+    "thumbnail",
+    "spatial_reference",
+    "culture",
+    "layers",
+)
+# Kept from the search result when the item's record leaves them blank.
+_DETAIL_REQUIRED_KEYS = ("title", "owner")
+# Size of the window of item reads in flight and awaiting their merge.
+_DETAIL_WINDOW = 64
+
+
+@dataclass
+class _Details:
+    """What one item's metadata reads produced, reduced to small values."""
+
+    fresh: dict[str, Any] | None = None
+    groups: list[dict[str, Any]] | None = None
+    errors: list[dict[str, Any]] = field(default_factory=list)
+    auth: PortalError | None = None
+
+
+def _error_row(key: str, phase: str, exc: PortalError) -> dict[str, Any]:
+    return {
+        "item_id": key,
+        "phase": phase,
+        "http_status": exc.http_status,
+        "message": str(exc),
+    }
+
+
+def _item_groups(data: Mapping[str, Any], redact: Redactor) -> list[dict[str, Any]]:
+    """Groups an item is shared with, from the admin, member and other lists."""
+    groups: dict[str, dict[str, Any]] = {}
+    for key in ("admin", "member", "other"):
+        listed = data.get(key)
+        for group in listed if isinstance(listed, list) else []:
+            if not isinstance(group, dict) or not group.get("id"):
+                continue
+            access = group.get("access")
+            group_id = redact(str(group["id"]))
+            groups.setdefault(
+                group_id,
+                {
+                    "id": group_id,
+                    "title": redact(str(group.get("title") or "")),
+                    "access": redact(access) if isinstance(access, str) else None,
+                },
+            )
+    return list(groups.values())
+
+
+def _collect_details(
+    client: PortalClient, inv: Inventory, concurrency: int, read_groups: bool
+) -> None:
+    """Read each item's own record and group sharing into its row.
+
+    A failed read leaves that item's search-result fields in place and adds
+    an error row; only a rejected token stops the run.
+    """
+    stop = threading.Event()
+
+    def fetch(row: dict[str, Any]) -> _Details:
+        out = _Details()
+        if stop.is_set():
+            return out
+        base = f"content/items/{quote(row['id'], safe='')}"
+        for phase, path in (("item_details", base), ("item_groups", f"{base}/groups")):
+            if phase == "item_groups" and not read_groups:
+                break
+            try:
+                data = client.get_json(path)
+            except PortalError as exc:
+                _detach(exc)
+                if exc.kind == "auth":
+                    stop.set()
+                    out.auth = exc
+                    return out
+                out.errors.append(_error_row(row["id"], phase, exc))
+                continue
+            if phase == "item_details":
+                out.fresh = _item_row(
+                    {**data, "id": row["id"], "type": data.get("type") or row["type"]},
+                    client._redact,
+                )
+            else:
+                out.groups = _item_groups(data, client._redact)
+        return out
+
+    # Reads run a window at a time and each result is merged as it arrives,
+    # so finished descriptions are not held beside the rows they replace.
+    with ThreadPoolExecutor(max_workers=concurrency) as pool:
+        for start in range(0, len(inv.items), _DETAIL_WINDOW):
+            rows = inv.items[start : start + _DETAIL_WINDOW]
+            for row, out in zip(rows, pool.map(fetch, rows), strict=True):
+                _merge_details(inv, row, out)
+    for row in inv.items:
+        folder = row["folder"]
+        if folder and folder["title"] is None:
+            folder["title"] = inv.folder_titles.get(folder["id"])
+
+
+def _merge_details(inv: Inventory, row: dict[str, Any], out: _Details) -> None:
+    fresh = out.fresh
+    if fresh is not None:
+        for key in _DETAIL_KEYS:
+            row[key] = fresh[key]
+        for key in _DETAIL_REQUIRED_KEYS:
+            row[key] = fresh[key] or row[key]
+        row["sharing"]["access"] = fresh["sharing"]["access"]
+        # The user-scope listing names the folder it read; an organization
+        # search can be stale, so the item's own record wins there.
+        if inv.scope["mode"] == "org":
+            row["folder"] = fresh["folder"]
+        elif fresh["folder"] and not row["folder"]:
+            row["folder"] = fresh["folder"]
+    if out.groups is not None:
+        row["groups"] = out.groups
+        row["sharing"]["groups"] = [g["id"] for g in out.groups]
+    inv.errors.extend(out.errors)
+    if out.auth is not None:
+        inv.abort = inv.abort or out.auth
+
+
+@dataclass
+class _Owner:
+    full_name: str | None = None
+    email: str | None = None
+    folders: dict[str, str] = field(default_factory=dict)
+    errors: list[dict[str, Any]] = field(default_factory=list)
+    auth: PortalError | None = None
+
+
+def _collect_owners(client: PortalClient, inv: Inventory, concurrency: int) -> None:
+    """Read each distinct owner's name and email once, and in organization
+    scope the folder titles of owners whose folders are known only by id.
+
+    A portal that hides members or another user's folders answers with a
+    client error; that leaves the values null without an error row.
+    """
+    owners = sorted({row["owner"] for row in inv.items if row["owner"]})
+    untitled = {
+        row["owner"]
+        for row in inv.items
+        if row["folder"] and row["folder"]["title"] is None
+    }
+
+    stop = threading.Event()
+
+    def fetch(owner: str) -> _Owner:
+        out = _Owner()
+        if stop.is_set():
+            return out
+        name = quote(owner, safe="")
+        reads = [("owner", f"community/users/{name}", {})]
+        if owner in untitled:
+            reads.append(("folders", f"content/users/{name}", {"num": 1}))
+        for phase, path, params in reads:
+            try:
+                data = client.get_json(path, params)
+            except PortalError as exc:
+                _detach(exc)
+                if exc.kind == "auth":
+                    stop.set()
+                    out.auth = exc
+                    return out
+                if exc.http_status not in _HIDDEN_STATUSES:
+                    out.errors.append(_error_row(owner, phase, exc))
+                continue
+            if phase == "owner":
+                out.full_name = _text(data.get("fullName"), client._redact)
+                out.email = _text(data.get("email"), client._redact)
+            else:
+                folders = data.get("folders")
+                for f in folders if isinstance(folders, list) else []:
+                    if isinstance(f, dict) and f.get("id") and f.get("title"):
+                        out.folders[client._redact(str(f["id"]))] = client._redact(
+                            str(f["title"])
+                        )
+        return out
+
+    with ThreadPoolExecutor(max_workers=concurrency) as pool:
+        results = dict(zip(owners, pool.map(fetch, owners), strict=True))
+
+    for row in inv.items:
+        out = results.get(row["owner"])
+        if out is None:
+            continue
+        row["owner_full_name"] = out.full_name
+        row["owner_email"] = out.email
+        folder = row["folder"]
+        if folder and folder["title"] is None:
+            folder["title"] = out.folders.get(folder["id"])
+    for out in results.values():
+        inv.errors.extend(out.errors)
+        if out.auth is not None:
+            inv.abort = inv.abort or out.auth
+
+
 def _signed_in_user(info: Mapping[str, Any]) -> str | None:
     user = info.get("user")
     name = user.get("username") if isinstance(user, dict) else None
     return name if isinstance(name, str) and name else None
+
+
+def _mark_not_fetched(inv: Inventory) -> None:
+    for row in inv.items:
+        if row["dependencies_status"] == "pending":
+            row["dependencies_status"] = "not_fetched"
 
 
 def run_inventory(
@@ -1191,8 +1520,9 @@ def run_inventory(
     scope: str,
     max_items: int,
     concurrency: int,
+    read_groups: bool = True,
 ) -> Inventory:
-    """List, classify and resolve dependencies.
+    """List, classify, read item metadata and resolve dependencies.
 
     A failure reading ``portals/self`` raises ``PortalError``. Any later
     listing failure, or a rejected token while reading item data, stops the
@@ -1239,13 +1569,22 @@ def run_inventory(
         },
     )
     try:
-        for raw in _list_items(client, inv, max_items):
-            inv.items.append(_item_row(raw))
+        for raw, folder_id in _list_items(client, inv, max_items):
+            row = _item_row(raw, client._redact)
+            if folder_id:
+                row["folder"] = {"id": client._redact(folder_id), "title": None}
+            inv.items.append(row)
     except PortalError as exc:
         inv.abort = exc
-        for row in inv.items:
-            if row["dependencies_status"] == "pending":
-                row["dependencies_status"] = "not_fetched"
+        _mark_not_fetched(inv)
+        return inv
+    # An anonymous caller sees no private groups, so its list would read as
+    # "shared with nothing" rather than "unknown".
+    _collect_details(client, inv, concurrency, read_groups and auth_mode != "anonymous")
+    if inv.abort is None:
+        _collect_owners(client, inv, concurrency)
+    if inv.abort is not None:
+        _mark_not_fetched(inv)
         return inv
     _collect_dependencies(client, inv, concurrency)
     return inv
@@ -1270,6 +1609,7 @@ class InventoryOptions:
     strict: bool
     allow_insecure_http: bool
     json_mode: bool
+    read_groups: bool = True
 
 
 class _UsageError(Exception):
@@ -1422,6 +1762,7 @@ def _run(fmt: _output.Formatter, opts: InventoryOptions, redact: Redactor) -> in
             scope=opts.scope,
             max_items=opts.max_items,
             concurrency=opts.concurrency,
+            read_groups=opts.read_groups,
         )
     except PortalError as exc:
         fmt.error(str(exc))
@@ -1445,6 +1786,6 @@ def _run(fmt: _output.Formatter, opts: InventoryOptions, redact: Redactor) -> in
         fmt.error(f"inventory stopped early, report is partial: {inv.abort}.{hint}")
         return _EXIT_BY_KIND.get(inv.abort.kind, EXIT_GENERIC)
     if inv.errors and opts.strict:
-        fmt.error(f"{len(inv.errors)} item(s) could not be read (--strict)")
+        fmt.error(f"{len(inv.errors)} read(s) failed (--strict)")
         return EXIT_GENERIC
     return EXIT_OK

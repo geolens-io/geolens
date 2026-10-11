@@ -155,7 +155,13 @@ services; data files) or `unsupported` (apps, dashboards, StoryMaps, scenes,
 image and vector tile services, and anything the CLI doesn't recognize).
 Web AppBuilder apps and classic Esri Story Maps are flagged with Esri's
 retirement dates. Web maps and apps are read to record which layers and maps
-they depend on.
+they depend on. Every item also records its snippet, description, tags,
+credits, license, extent, thumbnail name, spatial reference, folder, the
+groups it is shared with and its owner's name and email. Folder titles,
+owner names and group lists come back null where the portal doesn't let the
+signed-in account read them, and the group list holds only the groups that
+account can see. An anonymous run skips group reads. `--no-groups` skips the one-request-per-item
+group read.
 
 - `--scope user` (the default) lists the signed-in user's folders;
   `--scope org` lists every organization item the account can see. Without
@@ -171,7 +177,7 @@ they depend on.
 - Output: Markdown on stdout, JSON with `--json`, or both files
   (`arcgis-inventory.json`, `arcgis-inventory.md`, mode 0600) with
   `-o/--output-dir`. The JSON schema ships in the package as
-  `geolens_cli/manifest/schemas/arcgis-inventory-v1.schema.json`.
+  `geolens_cli/manifest/schemas/arcgis-inventory-v2.schema.json`.
 - Limits: `--max-items` (default 10,000), `--concurrency` 1 to 4 for item
   reads, at most ten requests a second, and retries with backoff on 429 and
   502 to 504. ArcGIS search returns only the first 10,000 results of a query,
