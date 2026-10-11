@@ -2264,6 +2264,9 @@ def test_registered_group_layer_keeps_its_own_reference(run):
         ("https://s.example/q?api%2Dkey=abc123KEY", "abc123KEY"),
         ("https://s.example/q?auth_code=abc123KEY", "abc123KEY"),
         ("//user:abc123KEY@s.example/x", "abc123KEY"),
+        ("https://s.example/q?token='abc123KEY'", "abc123KEY"),
+        ('https://s.example/q#apiKey="abc123KEY"', "abc123KEY"),
+        ("https://s.example/q?token=%27abc123KEY%27&f=1", "abc123KEY"),
         ("https://s.example/q?a=b;token=abc123KEY", "abc123KEY"),
     ],
 )
@@ -2576,3 +2579,17 @@ def test_redactor_keeps_what_follows_a_credential_value():
     assert redact("https://s.example/q?token=abc;f=json#top") == (
         "https://s.example/q?token=[REDACTED];f=json#top"
     )
+
+
+def test_url_shaped_keys_are_scrubbed_but_keep_their_subtree():
+    data = {
+        "https://x.example/?token=abc123KEY": {"layers": [1, 2]},
+        "https://x.example/plain": {"layers": [3]},
+        "token": {"layers": [4]},
+    }
+    cleaned = inventory.redact_json(data, inventory.Redactor())
+    assert cleaned == {
+        "https://x.example/?token=[REDACTED]": {"layers": [1, 2]},
+        "https://x.example/plain": {"layers": [3]},
+        "token": "[REDACTED]",
+    }

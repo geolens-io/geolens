@@ -64,7 +64,7 @@ _RETRYABLE_STATUSES = frozenset({429, 502, 503, 504})
 _TOKEN_REQUIRED = 499
 _TOKEN_INVALID = 498
 _TOKEN_CHARS = re.compile(r"[\x21-\x7e]+")
-_CREDENTIAL_PARAM = re.compile(r"((?:token|password)=)[^&;#\s\"']+", re.IGNORECASE)
+_CREDENTIAL_PARAM = re.compile(r"((?:token|password)=)[^&;#\s]+", re.IGNORECASE)
 # ArcGIS Online hosted services: services.arcgis.com, services1.arcgis.com,
 # services-eu1.arcgis.com, and the same forms for tiles.
 _ARCGIS_ONLINE_HOSTED = re.compile(r"(services|tiles)(-[a-z]+)?\d*\.arcgis\.com")
@@ -200,7 +200,8 @@ _CREDENTIAL_NAME_PARTS = (
     "customparameters",
 )
 _CREDENTIAL_NAME_EXACT = frozenset({"sig", "auth", "pwd"})
-_URL_PARAM = re.compile(r"([?&;#])([^=&;\s\"'#]+)=([^&;\s\"'#]+)")
+_URL_PARAM = re.compile(r"([?&;#])([^=&;\s\"'#]+)=([^&;#\s]+)")
+_URL_SHAPED = re.compile(r"(?:[a-z][a-z0-9+.-]*:)?//", re.IGNORECASE)
 _URL_USERINFO = re.compile(r"(//)[^/@\s]+@")
 _ITEM_ID = re.compile(r"[0-9a-f]{32}")
 _SAFE_FILENAME = re.compile(r"[A-Za-z0-9_-]{1,64}")
@@ -273,6 +274,7 @@ def redact_json(value: Any, redact: Redactor) -> Any:
             if (
                 isinstance(source, dict)
                 and isinstance(key, str)
+                and not _URL_SHAPED.match(key)
                 and _is_credential_name(key)
             ):
                 out: Any = "[REDACTED]"
