@@ -199,6 +199,8 @@ _SECRET_KEY_PARTS = (
     "secret",
     "apikey",
     "privatekey",
+    "authorization",
+    "bearer",
     "credential",
 )
 _URL_SECRET_PARAM = re.compile(
@@ -1170,6 +1172,9 @@ def web_map_dependencies(
     if isinstance(basemap, dict):
         walk(basemap.get("baseMapLayers"), "basemap")
     walk(data.get("tables"), "table")
+    ground = data.get("ground")
+    if isinstance(ground, dict):
+        walk(ground.get("layers"), "basemap")
     return rows
 
 
@@ -1589,6 +1594,13 @@ def _collect_dependencies(
                     out.auth = exc
                     return out
                 out.errors.append(_error_row(row["id"], "related", exc))
+                related_ok = False
+                continue
+            if not isinstance(response.get("relatedItems"), list):
+                malformed = PortalError(
+                    f"{base} returned no relatedItems list", kind="invalid"
+                )
+                out.errors.append(_error_row(row["id"], "related", malformed))
                 related_ok = False
                 continue
             out.dependencies.extend(

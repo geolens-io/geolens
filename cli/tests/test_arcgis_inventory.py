@@ -2381,3 +2381,43 @@ def test_read_all_keeps_a_view_with_a_good_parent_parsed(run):
     )
     result, _ = run(FakePortal(routes), "--scope", "org", "--read-all-item-data")
     assert _rows(_report(result))[A2]["dependencies_status"] == "parsed"
+
+
+def test_authorization_fields_are_replaced():
+    cleaned = inventory.redact_json(
+        {"headers": {"Authorization": "Bearer x", "X-Bearer": "y"}},
+        inventory.Redactor(),
+    )
+    assert cleaned == {
+        "headers": {"Authorization": "[REDACTED]", "X-Bearer": "[REDACTED]"}
+    }
+
+
+def test_web_scene_ground_layers_are_dependencies(run):
+    item_id = "7f" * 16
+    scene = {
+        "operationalLayers": [],
+        "baseMap": {"baseMapLayers": []},
+        "ground": {
+            "layers": [
+                {
+                    "id": "elev",
+                    "layerType": "ArcGISTiledElevationServiceLayer",
+                    "itemId": A1,
+                }
+            ]
+        },
+    }
+    routes = _one_item(item_id, "Web Scene", data=scene)
+    result, _ = run(FakePortal(routes), "--scope", "org")
+    assert (A1, "basemap", "elev") in _links(_report(result), item_id)
+
+
+def test_related_response_without_a_list_is_an_error_row(run):
+    routes = portal_routes({f"content/items/{A2}/relatedItems": {"total": 0}})
+    result, _ = run(FakePortal(routes), "--scope", "org")
+    report = _report(result)
+    assert _rows(report)[A2]["dependencies_status"] == "error"
+    assert [(e["item_id"], e["phase"]) for e in _read_errors(report)] == [
+        (A2, "related")
+    ]
