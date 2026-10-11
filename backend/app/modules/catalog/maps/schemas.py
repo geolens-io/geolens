@@ -19,7 +19,7 @@ from pydantic import (
 from app.core.edition import is_enterprise
 from app.core.text import normalize_nfc as _nfc
 from app.modules.catalog.maps.filter_grammar import validate_filter
-from app.modules.catalog.maps.publish_docs import (
+from app.modules.catalog.maps.publish_vocabulary import (
     LABEL_CONFIG_DESCRIPTION,
     STYLE_CONFIG_DESCRIPTION,
 )

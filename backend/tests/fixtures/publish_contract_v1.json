@@ -92,6 +92,7 @@
     "cluster_show_counts",
     "cluster_text_color",
     "cluster_text_size",
+    "colormap",
     "extrusion_min_zoom",
     "extrusion_opacity",
     "fill_color_saved",
@@ -105,10 +106,19 @@
     "heatmap_weight_column",
     "height_column",
     "height_scale",
+    "hypso_enabled",
+    "hypso_ramp",
+    "hypso_reversed",
+    "lineGradient",
     "outline_color",
     "outline_width",
     "outline_width_saved",
-    "stroke_disabled"
+    "pmax",
+    "pmin",
+    "sigma",
+    "stretch",
+    "stroke_disabled",
+    "symbol"
   ],
   "builder_keys_accepted_camel_case": [
     "arrowColor",

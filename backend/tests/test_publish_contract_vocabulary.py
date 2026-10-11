@@ -18,6 +18,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.catalog.maps import schemas
+from app.modules.catalog.maps import publish_vocabulary as vocabulary
 from app.modules.catalog.maps import style_sanitizers as sanitizers
 from tests.factories import create_dataset, get_user_id
 
@@ -38,14 +39,14 @@ def _layer_type_pattern() -> str | None:
 
 def _live() -> dict[str, object]:
     return {
-        "style_config_keys": sorted(sanitizers._STYLE_METADATA_KEYS),
-        "label_config_keys": sorted(sanitizers._LABEL_METADATA_KEYS),
-        "symbol_keys": sorted(sanitizers._SYMBOL_METADATA_KEYS),
+        "style_config_keys": sorted(vocabulary.STYLE_METADATA_KEYS),
+        "label_config_keys": sorted(vocabulary.LABEL_METADATA_KEYS),
+        "symbol_keys": sorted(vocabulary.SYMBOL_METADATA_KEYS),
         "label_config_fields": sorted(schemas.LabelConfig.model_fields),
         "popup_config_fields": sorted(schemas.PopupConfig.model_fields),
         "map_layer_input_fields": sorted(schemas.MapLayerInput.model_fields),
         "layer_type_pattern": _layer_type_pattern(),
-        "builder_keys": sorted(schemas._BUILDER_CAMEL_TO_SNAKE_KEYS.values()),
+        "builder_keys": sorted(vocabulary.BUILDER_STYLE_KEYS),
         "builder_keys_accepted_camel_case": sorted(
             schemas._BUILDER_CAMEL_TO_SNAKE_KEYS
         ),
@@ -61,6 +62,38 @@ def test_vocabulary_matches_frozen_snapshot(name: str) -> None:
         "depend on this vocabulary: bump contract_version, update the "
         "snapshot and the publishing docs page together."
     )
+
+
+def test_builder_vocabulary_covers_every_alias_and_legacy_target() -> None:
+    known = set(vocabulary.BUILDER_STYLE_KEYS)
+    assert set(schemas._BUILDER_CAMEL_TO_SNAKE_KEYS.values()) <= known
+    assert set(schemas.LEGACY_BUILDER_PAINT_KEYS.values()) <= known
+
+
+def test_builder_keys_survive_style_export() -> None:
+    builder = {key: 1 for key in vocabulary.BUILDER_STYLE_KEYS}
+    builder["lineGradient"] = {
+        "stops": [{"position": 0, "color": "#000000"}, {"position": 1, "color": "#fff"}]
+    }
+    builder["symbol"] = {"iconImage": "marker"}
+    builder["cluster_color_ramp"] = [{"count": 10, "color": "#123456"}]
+    exported = sanitizers.clean_style_metadata({"builder": builder})["builder"]
+    camel = schemas.BUILDER_SNAKE_TO_CAMEL_KEYS
+    assert set(exported) == {camel.get(key, key) for key in builder}
+    assert exported["lineGradient"] == builder["lineGradient"]
+    assert exported["clusterColorRamp"] == builder["cluster_color_ramp"]
+
+
+def test_openapi_descriptions_list_the_accepted_keys() -> None:
+    props = schemas.MapLayerInput.model_json_schema()["properties"]
+    style = props["style_config"]["description"]
+    label = props["label_config"]["description"]
+    for key in vocabulary.STYLE_METADATA_KEYS | vocabulary.BUILDER_STYLE_KEYS:
+        assert key in style
+    for key in vocabulary.LABEL_METADATA_KEYS:
+        assert key in label
+    assert vocabulary.PUBLISHING_GUIDE_URL in style
+    assert vocabulary.PUBLISHING_GUIDE_URL in label
 
 
 # Shapes exactly as 04-style-mapping prescribes for a QGIS categorized layer.

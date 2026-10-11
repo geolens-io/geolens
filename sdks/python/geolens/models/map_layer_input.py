@@ -39,16 +39,21 @@ class MapLayerInput:
         layout (MapLayerInputLayoutType0 | None | Unset): MapLibre layout properties override
         display_name (None | str | Unset): Label shown in the layer list
         filter_ (list[Any] | None | Unset): MapLibre filter expression
-        label_config (MapLayerInputLabelConfigType0 | None | Unset): Text label configuration. Accepted keys: column,
-            fontSize, textColor, haloColor, haloWidth, minZoom, maxZoom, placement, textAnchor, textOpacity, textOffset,
-            allowOverlap. Unknown keys are dropped when the map is exported as a MapLibre style. See
+        label_config (MapLayerInputLabelConfigType0 | None | Unset): Text label configuration. Accepted keys:
+            allowOverlap, column, fontSize, haloColor, haloWidth, maxZoom, minZoom, placement, textAnchor, textColor,
+            textOffset, textOpacity. Unknown keys are dropped when the map is exported as a MapLibre style. See
             https://docs.getgeolens.com/guides/api/publishing-from-desktop-gis/
         popup_config (None | PopupConfig | Unset): Popup configuration: {enabled, expression, visible_fields}
         style_config (MapLayerInputStyleConfigType0 | None | Unset): Data-driven and builder UI style configuration.
-            Accepted keys: mode, column, ramp, classCount, method, categories, breaks, colors, target, sizes, render_mode,
-            symbol, builder, legendLabel, reversed, sizeRange, sizeLabel, colorLabel, heatmapPaint, savedCirclePaint.
-            Builder-only state lives under builder, e.g. fill_disabled, stroke_disabled, outline settings, heatmap metadata,
-            and height_column. Unknown keys are dropped when the map is exported as a MapLibre style. See
+            Accepted keys: breaks, builder, categories, classCount, colorLabel, colors, column, heatmapPaint, legendLabel,
+            method, mode, ramp, render_mode, reversed, savedCirclePaint, sizeLabel, sizeRange, sizes, symbol, target.
+            Builder-only state lives under builder, with keys arrow_color, arrow_size, arrow_spacing, cluster_color,
+            cluster_color_ramp, cluster_max_zoom, cluster_radius, cluster_show_counts, cluster_text_color,
+            cluster_text_size, colormap, extrusion_min_zoom, extrusion_opacity, fill_color_saved, fill_disabled,
+            fill_opacity_saved, folder_group_expanded, folder_group_id, folder_group_name, heatmap_ramp, heatmap_reversed,
+            heatmap_weight_column, height_column, height_scale, hypso_enabled, hypso_ramp, hypso_reversed, lineGradient,
+            outline_color, outline_width, outline_width_saved, pmax, pmin, sigma, stretch, stroke_disabled, symbol. Unknown
+            keys are dropped when the map is exported as a MapLibre style. See
             https://docs.getgeolens.com/guides/api/publishing-from-desktop-gis/
         layer_type (None | str | Unset): Auto-detected from record_type if omitted
         show_in_legend (bool | Unset): Whether to include in the map legend Default: True.
