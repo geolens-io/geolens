@@ -19,6 +19,10 @@ from pydantic import (
 from app.core.edition import is_enterprise
 from app.core.text import normalize_nfc as _nfc
 from app.modules.catalog.maps.filter_grammar import validate_filter
+from app.modules.catalog.maps.publish_docs import (
+    LABEL_CONFIG_DESCRIPTION,
+    STYLE_CONFIG_DESCRIPTION,
+)
 from app.modules.catalog.maps.sharing_policy import (
     SHARE_EXPIRATION_SELECTION_ERROR,
     ShareExpirationPresetDays,
@@ -659,32 +663,14 @@ class MapLayerInput(BaseModel):
     )
     filter: list | None = Field(default=None, description="MapLibre filter expression")
     label_config: dict | None = Field(
-        default=None,
-        description=(
-            "Text label configuration. Accepted keys: column, fontSize, "
-            "textColor, haloColor, haloWidth, minZoom, maxZoom, placement, "
-            "textAnchor, textOpacity, textOffset, allowOverlap. Unknown keys "
-            "are dropped when the map is exported as a MapLibre style. See "
-            "https://docs.getgeolens.com/guides/api/publishing-from-desktop-gis/"
-        ),
+        default=None, description=LABEL_CONFIG_DESCRIPTION
     )
     popup_config: PopupConfig | None = Field(
         default=None,
         description="Popup configuration: {enabled, expression, visible_fields}",
     )
     style_config: dict | None = Field(
-        default=None,
-        description=(
-            "Data-driven and builder UI style configuration. Accepted keys: "
-            "mode, column, ramp, classCount, method, categories, breaks, "
-            "colors, target, sizes, render_mode, symbol, builder, legendLabel, "
-            "reversed, sizeRange, sizeLabel, colorLabel, heatmapPaint, "
-            "savedCirclePaint. Builder-only state lives under builder, e.g. "
-            "fill_disabled, stroke_disabled, outline settings, heatmap "
-            "metadata, and height_column. Unknown keys are dropped when the "
-            "map is exported as a MapLibre style. See "
-            "https://docs.getgeolens.com/guides/api/publishing-from-desktop-gis/"
-        ),
+        default=None, description=STYLE_CONFIG_DESCRIPTION
     )
 
     _validate_paint = field_validator("paint")(_validate_maplibre_style_dict)
