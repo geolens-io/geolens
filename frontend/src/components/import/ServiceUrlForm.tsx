@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Globe, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { formatDateTimeSmart } from '@/lib/format';
+import { formatDateTimeSmart, formatNumber } from '@/lib/format';
+import { getGeometryTypeLabel } from '@/i18n/labels';
 import { ApiError } from '@/api/client';
 import { probeService, commitImport, arcgisSignin } from '@/api/ingest';
 import {
@@ -722,6 +723,24 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
     );
   }
 
+  // The first line already shows the title, so the machine name only repeats when it differs.
+  // A layer that cannot be imported gets no geometry or count; the reason line below covers it.
+  const layerDetails = (layer: LayerInfo) =>
+    [
+      layer.title && layer.title !== layer.name ? layer.name : null,
+      layer.importable !== false && layer.geometry_type
+        ? getGeometryTypeLabel(t, layer.geometry_type)
+        : null,
+      layer.importable !== false && layer.feature_count != null
+        ? t('review.featureCount', {
+            count: layer.feature_count,
+            value: formatNumber(layer.feature_count),
+          })
+        : null,
+    ]
+      .filter(Boolean)
+      .join(' · ');
+
   // ── Layer selection with probe result ──
   if (step === 'layer-select' && probeResult) {
     return (
@@ -800,8 +819,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
                       {layer.title || layer.name}
                     </p>
                     <p className="truncate font-mono text-2xs text-muted-foreground tracking-wide mt-0.5">
-                      {layer.name}
-                      {layer.geometry_type && ` · ${layer.geometry_type}`}
+                      {layerDetails(layer)}
                     </p>
                     {unsupported && (
                       <p className="mt-0.5 text-2xs text-muted-foreground">
