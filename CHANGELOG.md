@@ -122,7 +122,7 @@ and releases use semantic versioning.
   On a phone, the service import form keeps the service URL and its Clear
   button inside their cards. (#2918)
 - Distinct values for a date, time or timestamp column come back as text in
-  the form vector tiles use, instead of failing with a 500 error. (#PRNUM)
+  the form vector tiles use, instead of failing with a 500 error. (#2924)
 
 ## [1.23.1] - 2026-10-10
 
