@@ -14,6 +14,7 @@ from pydantic import (
     model_validator,
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from app.core.auth_settings import AuthSettings
 
 
 def reveal(secret: SecretStr | None) -> str | None:
@@ -283,7 +284,7 @@ MIN_SIGNABLE_JOB_LIFETIME_SECONDS = 60
 MAX_PRESIGNED_URL_LIFETIME_SECONDS = 604800
 
 
-class Settings(BaseSettings):
+class Settings(AuthSettings, BaseSettings):
     postgres_user: str = "geolens"
     postgres_password: SecretStr
     postgres_host: str = "localhost"
@@ -313,7 +314,6 @@ class Settings(BaseSettings):
     password_require_classes: int = Field(default=3, ge=1, le=4)
     geolens_admin_username: str
     geolens_admin_password: SecretStr
-    registration_enabled: bool = False
     # FRONT-01 (Phase 1223): when True the root route redirects anonymous
     # visitors to the login page as the product landing surface.
     # Default False — self-hosters see zero change on upgrade.

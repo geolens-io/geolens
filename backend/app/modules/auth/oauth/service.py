@@ -13,7 +13,7 @@ from sqlalchemy.orm import undefer_group
 
 from app.core.edition import is_enterprise
 from app.core.persistent_config import ALLOWED_EMAIL_DOMAINS, REGISTRATION_ENABLED
-from app.modules.auth.domain_validation import is_email_allowed
+from app.platform.domain_validation import is_email_allowed
 from app.modules.auth.models import Role, User, UserRole
 from app.modules.auth.oauth.encryption import encrypt_secret
 from app.modules.auth.oauth.models import OAuthAccount, OAuthProvider
