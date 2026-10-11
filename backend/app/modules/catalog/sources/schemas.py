@@ -166,6 +166,26 @@ class LayerInfo(BaseModel):
         default="layer",
         description="Layer kind: 'layer' (spatial) or 'table' (non-spatial attribute table).",
     )
+    source_layer_type: str | None = Field(
+        default=None,
+        description=(
+            "ArcGIS sub-layer type as the service reports it, for example "
+            "'Feature Layer', 'Table', 'Group Layer', 'Raster Layer' or "
+            "'Annotation Layer'. Null for other service types."
+        ),
+    )
+    parent_layer_id: int | None = Field(
+        default=None,
+        description="ArcGIS ID of the group layer that contains this layer, if any.",
+    )
+    importable: bool = Field(
+        default=True,
+        description=(
+            "False when the layer holds no features (ArcGIS group, raster and "
+            "annotation layers) and a preview of it is refused with "
+            "'unsupported_layer_type'."
+        ),
+    )
     layer_id: int | str | None = Field(
         default=None, description="Numeric or string layer ID used by ArcGIS services."
     )

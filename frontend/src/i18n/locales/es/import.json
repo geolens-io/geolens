@@ -265,6 +265,7 @@
     "layersAvailable_one": "{{count}} capa disponible",
     "layersAvailable_other": "{{count}} capas disponibles",
     "noLayers": "No se encontraron capas en este servicio.",
+    "unsupportedLayerType": "{{type}} no contiene entidades. Importe una de sus capas de entidades en su lugar.",
     "probe": "Comprobar →",
     "supported": "Compatible:",
     "unknownDataset": "Conjunto de datos desconocido",

@@ -9175,6 +9175,36 @@
             "title": "Layer Type",
             "type": "string"
           },
+          "source_layer_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ArcGIS sub-layer type as the service reports it, for example 'Feature Layer', 'Table', 'Group Layer', 'Raster Layer' or 'Annotation Layer'. Null for other service types.",
+            "title": "Source Layer Type"
+          },
+          "parent_layer_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ArcGIS ID of the group layer that contains this layer, if any.",
+            "title": "Parent Layer Id"
+          },
+          "importable": {
+            "default": true,
+            "description": "False when the layer holds no features (ArcGIS group, raster and annotation layers) and a preview of it is refused with 'unsupported_layer_type'.",
+            "title": "Importable",
+            "type": "boolean"
+          },
           "layer_id": {
             "anyOf": [
               {

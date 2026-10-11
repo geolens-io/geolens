@@ -5449,6 +5449,24 @@ export type LayerInfo = {
      */
     layer_type?: string;
     /**
+     * Source Layer Type
+     *
+     * ArcGIS sub-layer type as the service reports it, for example 'Feature Layer', 'Table', 'Group Layer', 'Raster Layer' or 'Annotation Layer'. Null for other service types.
+     */
+    source_layer_type?: string | null;
+    /**
+     * Parent Layer Id
+     *
+     * ArcGIS ID of the group layer that contains this layer, if any.
+     */
+    parent_layer_id?: number | null;
+    /**
+     * Importable
+     *
+     * False when the layer holds no features (ArcGIS group, raster and annotation layers) and a preview of it is refused with 'unsupported_layer_type'.
+     */
+    importable?: boolean;
+    /**
      * Layer Id
      *
      * Numeric or string layer ID used by ArcGIS services.

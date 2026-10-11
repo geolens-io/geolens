@@ -35,6 +35,7 @@ from app.modules.catalog.sources.adapters.arcgis import (
 from app.modules.catalog.sources.adapters.ogcapi import probe_ogcapi
 from app.modules.catalog.sources.adapters.wfs import probe_wfs
 from app.modules.catalog.sources.classify import classify_layer_kind
+from app.modules.catalog.sources.layer_types import is_importable_arcgis_type
 from app.modules.catalog.sources.schemas import LayerInfo, ProbeResponse
 from app.platform.security import SSRFError
 
@@ -118,6 +119,9 @@ def _build_arcgis_response(
             layer_type=layer.get("type", "layer"),
             layer_id=layer.get("id"),
             object_id_field=layer.get("object_id_field"),
+            source_layer_type=layer.get("arcgis_type"),
+            parent_layer_id=layer.get("parent_layer_id"),
+            importable=is_importable_arcgis_type(layer.get("arcgis_type")),
             kind=classify_layer_kind(layer, adapter_type="arcgis"),
         )
         for layer in enriched_layers

@@ -267,6 +267,7 @@
     "layersAvailable_one": "{{count}} 个可用图层",
     "layersAvailable_other": "{{count}} 个可用图层",
     "noLayers": "此服务中未找到图层。",
+    "unsupportedLayerType": "{{type}} 不包含要素。请改为导入其中的要素图层。",
     "probe": "探测 →",
     "supported": "支持：",
     "tokenPlaceholder": "ArcGIS 令牌、API 密钥或 WFS 访问令牌",

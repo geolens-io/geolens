@@ -21,6 +21,10 @@ from app.core.service_tokens import (
     register_credential_secret,
 )
 from app.core.url_redaction import redact_exception_text
+from app.modules.catalog.sources.layer_types import (
+    arcgis_probe_layers,
+    reject_unsupported_arcgis_type,
+)
 from app.platform.probe_bounds import bounded_probe_read
 from app.platform.security import SSRFError, same_origin
 from app.platform.service_endpoints import (
@@ -527,34 +531,9 @@ async def _probe_arcgis_service_within_deadline(
     else:
         service_type = "ArcGIS FeatureServer"
 
-    layers = []
-
-    # Root layer lists usually omit objectIdField, and a guessed name makes
-    # the server reject the query; the worker reads the layer's own JSON.
-    service_oid = data.get("objectIdField")
-
-    for layer in data.get("layers", []):
-        layers.append(
-            {
-                "id": layer["id"],
-                "name": layer["name"],
-                "title": layer.get("title"),
-                "geometry_type": _normalize_esri_geom_type(layer.get("geometryType")),
-                "type": "layer",
-                "object_id_field": layer.get("objectIdField") or service_oid,
-            }
-        )
-
-    for table in data.get("tables", []):
-        layers.append(
-            {
-                "id": table["id"],
-                "name": table["name"],
-                "title": table.get("title"),
-                "geometry_type": None,
-                "type": "table",
-            }
-        )
+    layers = arcgis_probe_layers(
+        data, data.get("objectIdField"), _normalize_esri_geom_type
+    )
 
     return {
         "service_type": service_type,
@@ -956,6 +935,8 @@ async def fetch_arcgis_layer_preview(
         if code in _ARCGIS_TOKEN_ERROR_CODES:
             raise ArcGISTokenError(code, message)
         raise ValueError(f"ArcGIS layer metadata error ({code}): {message}")
+
+    reject_unsupported_arcgis_type(meta)
 
     columns = [
         {

@@ -750,6 +750,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
               // D-10 (Phase 1057 CLASS-07): consume backend-classified layer.kind directly.
               // Previously re-derived from geometry_type string contents, which failed
               // when geometry_type is null (the post-D-05 default for OGC API / WFS layers).
+              const unsupported = layer.importable === false;
               return (
                 <button
                   // fix(#1746): keyed by layer_id, not layer.name — two
@@ -760,9 +761,10 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
                   // backend already dedupes on.
                   key={layer.layer_id ?? layer.name}
                   onClick={() => handleLayerSelect(layer)}
+                  disabled={unsupported}
                   className={cn(
                     'flex items-center gap-2.5 rounded-lg border border-border p-2.5 text-start transition-colors',
-                    'hover:bg-surface-2',
+                    unsupported ? 'cursor-not-allowed opacity-60' : 'hover:bg-surface-2',
                   )}
                 >
                   <TypeTag kind={layer.kind} size="sm" />
@@ -774,6 +776,13 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
                       {layer.name}
                       {layer.geometry_type && ` · ${layer.geometry_type}`}
                     </p>
+                    {unsupported && (
+                      <p className="mt-0.5 text-2xs text-muted-foreground">
+                        {t('serviceUrl.unsupportedLayerType', {
+                          type: layer.source_layer_type ?? layer.layer_type,
+                        })}
+                      </p>
+                    )}
                   </div>
                 </button>
               );

@@ -267,6 +267,7 @@
     "layersAvailable_one": "{{count}} layer available",
     "layersAvailable_other": "{{count}} layers available",
     "noLayers": "No layers were found in this service.",
+    "unsupportedLayerType": "{{type}} holds no features. Import one of its feature layers instead.",
     "probe": "Probe →",
     "supported": "Supported:",
     "tokenPlaceholder": "ArcGIS token, API key, or WFS access token",
