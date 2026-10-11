@@ -1258,6 +1258,83 @@ def test_every_provenance_detail_route_decides_who_sees_it() -> None:
     )
 
 
+@lru_cache(maxsize=1)
+def _owner_transfer_gates() -> tuple[tuple[Any, ...], tuple[Any, ...]]:
+    """(write guards, admin gate) a route accepting ``owner_id`` must call."""
+    from app.modules.catalog.authorization import check_dataset_write_access
+    from app.modules.catalog.maps.service import check_map_ownership
+    from app.modules.catalog.ownership import require_transfer_admin
+
+    return (check_dataset_write_access, check_map_ownership), (require_transfer_admin,)
+
+
+@pytest.mark.architecture
+def test_every_owner_transfer_route_is_write_guarded_and_admin_gated() -> None:
+    """A request body carrying ``owner_id`` hands an object to someone else.
+
+    The owner-or-admin write guard alone would let the current owner give
+    the object away, so any route whose request body declares ``owner_id``
+    must call the write guard for its object AND ``require_transfer_admin``.
+    Keyed on the request FIELD, so a new body model that grows the field is
+    in scope without being listed.
+    Credit resolves by object identity in the handler body, as above.
+    """
+    from fastapi.routing import APIRoute, iter_route_contexts
+
+    from app.api.main import app
+
+    write_guards, admin_gate = _owner_transfer_gates()
+    scoped: set[str] = set()
+    failures: list[str] = []
+    for ctx in iter_route_contexts(app.routes):
+        route = ctx.route
+        if not isinstance(route, APIRoute):
+            continue
+        models = [
+            model
+            for param in route.dependant.body_params
+            for model in _response_models(param.field_info.annotation)
+        ]
+        if not any("owner_id" in model.model_fields for model in models):
+            continue
+        fn = _unwrap(route.endpoint)
+        key = f"{fn.__module__}.{fn.__qualname__}"
+        if key in scoped:
+            continue
+        scoped.add(key)
+        tree = _parse(_source_of(fn))
+        called = (
+            {parts[0] for parts in _called_names(tree) if len(parts) == 1}
+            if tree is not None
+            else set()
+        )
+        missing = [
+            label
+            for label, gates in (
+                ("write guard", write_guards),
+                ("admin gate", admin_gate),
+            )
+            if tree is None or not called & _bound_names(fn, tree, gates)
+        ]
+        if missing:
+            methods = " ".join(sorted(route.methods or ()))
+            failures.append(
+                f"  {methods} {ctx.path or route.path}\n    {key}: missing "
+                + ", ".join(missing)
+            )
+
+    assert len(scoped) >= 2, (
+        f"only {len(scoped)} routes accept owner_id (expected the dataset and "
+        "map PATCH routes). The request models or the route walk changed; an "
+        "empty walk passes vacuously."
+    )
+    assert not failures, (
+        "Route(s) accept owner_id without both the object's write guard "
+        "(check_dataset_write_access / check_map_ownership) and "
+        "require_transfer_admin:\n" + "\n".join(failures)
+    )
+
+
 @pytest.mark.architecture
 def test_detection_self_checks_on_synthetic_sources() -> None:
     """Pin the detection semantics codex review probed on #863.

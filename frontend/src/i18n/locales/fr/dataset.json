@@ -235,7 +235,8 @@
     "actions": {
       "metadataEdit": "Métadonnées mises à jour",
       "datasetDelete": "Jeu de données supprimé",
-      "datasetCreate": "Jeu de données créé"
+      "datasetCreate": "Jeu de données créé",
+      "datasetTransferOwner": "Propriétaire modifié"
     }
   },
   "versionHistory": {

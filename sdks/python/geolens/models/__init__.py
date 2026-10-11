@@ -492,6 +492,7 @@ from .map_layer_response_layout import MapLayerResponseLayout
 from .map_layer_response_paint import MapLayerResponsePaint
 from .map_layer_response_style_config_type_0 import MapLayerResponseStyleConfigType0
 from .map_list_response import MapListResponse
+from .map_patch import MapPatch
 from .map_response import MapResponse
 from .map_sprite_entry import MapSpriteEntry
 from .map_style_import_request import MapStyleImportRequest
@@ -1213,6 +1214,7 @@ __all__ = (
     "MapLayerResponsePaint",
     "MapLayerResponseStyleConfigType0",
     "MapListResponse",
+    "MapPatch",
     "MapResponse",
     "MapSpriteEntry",
     "MapStyleImportRequest",
