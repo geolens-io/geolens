@@ -880,6 +880,27 @@ def test_failed_related_read_counts_the_item_as_failed(run):
     assert report["counts"]["failed"] == len(ids)
 
 
+def test_sidecar_is_saved_even_when_the_configuration_is_rejected(run, tmp_path):
+    item_id = "7f" * 16
+    data = {
+        "values": {"webmap": B1},
+        "dataSources": {"a": "not an object"},
+        "widgets": 5,
+    }
+    routes = _one_item(
+        item_id, "Web Experience", data={"dataSources": {"k": {"type": 5}}}
+    )
+    out = tmp_path / "out"
+    result, _ = run(FakePortal(routes), "--scope", "org", "-o", str(out))
+    rows = {
+        r["id"]: r
+        for r in json.loads((out / "arcgis-inventory.json").read_text())["items"]
+    }
+    assert rows[item_id]["dependencies_status"] == "error"
+    assert rows[item_id]["data_saved"] is True
+    assert (out / "apps" / f"{item_id}.json").exists()
+
+
 def test_view_parent_and_published_from_come_from_related_items(run):
     source_file = "8a" * 16
 

@@ -1481,6 +1481,8 @@ def _collect_dependencies(
                 return "unparsed"
             out.errors.append(_error_row(row["id"], "item_data", exc))
             return "error"
+        if sidecar_dir is not None and not lenient:
+            out.saved = _write_sidecar(sidecar_dir, row, data, client._redact, out)
         if is_map and not _is_web_map(data):
             message = f"{path} is not a web map configuration"
             out.errors.append(
@@ -1524,8 +1526,6 @@ def _collect_dependencies(
             )
             return "error"
         out.dependencies.extend(dependencies)
-        if sidecar_dir is not None and not lenient:
-            out.saved = _write_sidecar(sidecar_dir, row, data, client._redact, out)
         return status
 
     def fetch(row: dict[str, Any]) -> _DepResult:
@@ -1831,7 +1831,9 @@ def _external_by_url(url: str | None, portal: Mapping[str, Any]) -> bool | None:
             path.startswith(f"/{org}/arcgis/rest/services/")
             or path.startswith(f"/tiles/{org}/arcgis/rest/services/")
         )
-    return "/rest/services/hosted/" not in path
+    # Another deployment's hosting server also serves /Hosted/, so a foreign
+    # host can't be called this organization's.
+    return None if "/rest/services/hosted/" in path else True
 
 
 def _resolve_external(client: PortalClient, inv: Inventory, concurrency: int) -> None:
