@@ -2263,6 +2263,7 @@ def test_registered_group_layer_keeps_its_own_reference(run):
         ("https://s.example/q?access%5Ftoken=abc123KEY", "abc123KEY"),
         ("https://s.example/q?api%2Dkey=abc123KEY", "abc123KEY"),
         ("https://s.example/q?auth_code=abc123KEY", "abc123KEY"),
+        ("//user:abc123KEY@s.example/x", "abc123KEY"),
     ],
 )
 def test_sidecar_strings_lose_url_embedded_credentials(raw, gone):
@@ -2498,3 +2499,11 @@ def test_storymap_web_map_resource_without_an_item_is_an_error(run):
     routes = _one_item(item_id, "StoryMap", data=data)
     result, _ = run(FakePortal(routes), "--scope", "org", "--strict")
     assert result.exit_code == 1
+
+
+def test_keys_that_scrub_to_the_same_text_keep_both_values():
+    redact = inventory.Redactor()
+    redact.add("aaaa1111")
+    redact.add("bbbb2222")
+    cleaned = inventory.redact_json({"k-aaaa1111": 1, "k-bbbb2222": 2}, redact)
+    assert sorted(cleaned.values()) == [1, 2]

@@ -208,7 +208,7 @@ _SECRET_PARAM_NAME = re.compile(
     r"token|password|passwd|pwd|secret|key|auth|credential|bearer|^sig(?:nature)?$",
     re.IGNORECASE,
 )
-_URL_USERINFO = re.compile(r"(://)[^/@\s]+@")
+_URL_USERINFO = re.compile(r"(//)[^/@\s]+@")
 _ITEM_ID = re.compile(r"[0-9a-f]{32}")
 _SAFE_FILENAME = re.compile(r"[A-Za-z0-9_-]{1,64}")
 _WEB_MAP_TYPE = "Web Map"
@@ -255,7 +255,7 @@ def _scrub_param(match: re.Match[str]) -> str:
 
 def _scrub_text(text: str, redact: Redactor) -> str:
     text = redact(text)
-    if "://" in text or "=" in text:
+    if "//" in text or "=" in text:
         text = _URL_PARAM.sub(_scrub_param, text)
         text = _URL_USERINFO.sub(r"\1[REDACTED]@", text)
     return text
@@ -288,7 +288,11 @@ def redact_json(value: Any, redact: Redactor) -> Any:
             else:
                 out = _scrub_text(item, redact) if isinstance(item, str) else item
             if isinstance(source, dict):
-                target[_scrub_text(key, redact) if isinstance(key, str) else key] = out
+                name = _scrub_text(key, redact) if isinstance(key, str) else key
+                # Two keys can scrub to the same text; keep both values.
+                while name in target:
+                    name = f"{name}#"
+                target[name] = out
             else:
                 target.append(out)
     return root
