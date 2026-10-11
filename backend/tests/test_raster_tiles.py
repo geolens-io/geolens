@@ -1095,6 +1095,40 @@ async def test_band_stats_cache_hit(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_concurrent_band_stats_lookups_share_one_titiler_call(monkeypatch):
+    """Tiles that miss the cache together trigger a single statistics scan."""
+    import asyncio
+
+    monkeypatch.setattr(
+        "app.platform.storage.titiler_url._managed_prefix", lambda: "/data/"
+    )
+    from app.processing.tiles import router as tiles_router
+
+    tiles_router._band_stats_cache.clear()
+    tiles_router._band_stats_failures.clear()
+    ok = MagicMock()
+    ok.status_code = 200
+    ok.json.return_value = {"b1": {"min": 0.0, "max": 9.0}}
+
+    async def slow_get(_url):
+        await asyncio.sleep(0.01)
+        return ok
+
+    mock_get = AsyncMock(side_effect=slow_get)
+    monkeypatch.setattr("app.processing.tiles.router._titiler_client.get", mock_get)
+
+    results = await asyncio.gather(
+        *[
+            tiles_router._fetch_band_statistics("/data/herd.tif", 2.0, 98.0)
+            for _ in range(5)
+        ],
+    )
+    assert all(r == [{"min": 0.0, "max": 9.0}] for r in results)
+    assert mock_get.call_count == 1
+    assert not tiles_router._band_stats_inflight
+
+
+@pytest.mark.asyncio
 async def test_band_stats_failure_is_reused_then_retried_after_ttl(monkeypatch):
     """A failed lookup is reused within the TTL and retried once it expires."""
     monkeypatch.setattr(

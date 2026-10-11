@@ -498,6 +498,7 @@ _band_stats_cache: LRUCache[tuple, list[dict]] = LRUCache(maxsize=256)
 
 # Failed lookups expire quickly so a transient Titiler error does not pin a
 # raster to its fallback rescale, while an outage still avoids a call per tile.
+_band_stats_inflight: dict[tuple, asyncio.Future] = {}
 _BAND_STATS_FAILURE_TTL_S = 60
 _band_stats_failures: TTLCache[tuple, None] = TTLCache(
     maxsize=256, ttl=_BAND_STATS_FAILURE_TTL_S
@@ -532,6 +533,20 @@ async def _fetch_band_statistics(
         return _band_stats_cache[cache_key]
     if cache_key in _band_stats_failures:
         return None
+    # A cold map view requests many tiles at once; they share one scan.
+    task = _band_stats_inflight.get(cache_key)
+    if task is None:
+        task = asyncio.ensure_future(_load_band_statistics(open_path, pmin, pmax))
+        _band_stats_inflight[cache_key] = task
+        task.add_done_callback(lambda _t: _band_stats_inflight.pop(cache_key, None))
+    # Shielded so one cancelled request does not cancel the scan for the others.
+    return await asyncio.shield(task)
+
+
+async def _load_band_statistics(
+    open_path: str, pmin: float, pmax: float
+) -> list[dict] | None:
+    cache_key = (open_path, pmin, pmax)
     # Forward pmin/pmax as repeated p= params (e.g. p=5&p=95). Use integer
     # representation for whole numbers to match Titiler's expected format.
     pmin_str = str(int(pmin)) if pmin == int(pmin) else str(pmin)
