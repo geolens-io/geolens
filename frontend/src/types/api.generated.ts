@@ -10165,7 +10165,7 @@ export interface components {
             filter?: unknown[] | null;
             /**
              * Label Config
-             * @description Text label configuration
+             * @description Text label configuration. Accepted keys: column, fontSize, textColor, haloColor, haloWidth, minZoom, maxZoom, placement, textAnchor, textOpacity, textOffset, allowOverlap. Unknown keys are dropped when the map is exported as a MapLibre style. See https://docs.getgeolens.com/guides/api/publishing-from-desktop-gis/
              */
             label_config?: {
                 [key: string]: unknown;
@@ -10174,7 +10174,7 @@ export interface components {
             popup_config?: components["schemas"]["PopupConfig"] | null;
             /**
              * Style Config
-             * @description Data-driven and builder UI style configuration. Builder-only state lives under builder, e.g. fill_disabled, stroke_disabled, outline settings, heatmap metadata, and height_column.
+             * @description Data-driven and builder UI style configuration. Accepted keys: mode, column, ramp, classCount, method, categories, breaks, colors, target, sizes, render_mode, symbol, builder, legendLabel, reversed, sizeRange, sizeLabel, colorLabel, heatmapPaint, savedCirclePaint. Builder-only state lives under builder, e.g. fill_disabled, stroke_disabled, outline settings, heatmap metadata, and height_column. Unknown keys are dropped when the map is exported as a MapLibre style. See https://docs.getgeolens.com/guides/api/publishing-from-desktop-gis/
              */
             style_config?: {
                 [key: string]: unknown;

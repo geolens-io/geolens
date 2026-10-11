@@ -39,11 +39,17 @@ class MapLayerInput:
         layout (MapLayerInputLayoutType0 | None | Unset): MapLibre layout properties override
         display_name (None | str | Unset): Label shown in the layer list
         filter_ (list[Any] | None | Unset): MapLibre filter expression
-        label_config (MapLayerInputLabelConfigType0 | None | Unset): Text label configuration
+        label_config (MapLayerInputLabelConfigType0 | None | Unset): Text label configuration. Accepted keys: column,
+            fontSize, textColor, haloColor, haloWidth, minZoom, maxZoom, placement, textAnchor, textOpacity, textOffset,
+            allowOverlap. Unknown keys are dropped when the map is exported as a MapLibre style. See
+            https://docs.getgeolens.com/guides/api/publishing-from-desktop-gis/
         popup_config (None | PopupConfig | Unset): Popup configuration: {enabled, expression, visible_fields}
         style_config (MapLayerInputStyleConfigType0 | None | Unset): Data-driven and builder UI style configuration.
+            Accepted keys: mode, column, ramp, classCount, method, categories, breaks, colors, target, sizes, render_mode,
+            symbol, builder, legendLabel, reversed, sizeRange, sizeLabel, colorLabel, heatmapPaint, savedCirclePaint.
             Builder-only state lives under builder, e.g. fill_disabled, stroke_disabled, outline settings, heatmap metadata,
-            and height_column.
+            and height_column. Unknown keys are dropped when the map is exported as a MapLibre style. See
+            https://docs.getgeolens.com/guides/api/publishing-from-desktop-gis/
         layer_type (None | str | Unset): Auto-detected from record_type if omitted
         show_in_legend (bool | Unset): Whether to include in the map legend Default: True.
     """
