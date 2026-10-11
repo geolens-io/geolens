@@ -4085,6 +4085,9 @@
             "items": {
               "anyOf": [
                 {
+                  "type": "boolean"
+                },
+                {
                   "type": "string"
                 },
                 {

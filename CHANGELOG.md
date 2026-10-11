@@ -121,6 +121,8 @@ and releases use semantic versioning.
 - `/search?q=` links keep their query when they redirect to the home page.
   On a phone, the service import form keeps the service URL and its Clear
   button inside their cards. (#2918)
+- Distinct values for a date, time or timestamp column come back as text in
+  the form vector tiles use, instead of failing with a 500 error. (#PRNUM)
 
 ## [1.23.1] - 2026-10-10
 

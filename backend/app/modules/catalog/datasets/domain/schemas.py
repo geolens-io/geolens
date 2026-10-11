@@ -1100,7 +1100,7 @@ class DatasetRowsResponse(BaseModel):
 
 
 class ColumnValuesResponse(BaseModel):
-    values: list[str | int | float | None]
+    values: list[bool | str | int | float | None]
     count: int
 
 

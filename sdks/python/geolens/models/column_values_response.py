@@ -17,18 +17,18 @@ T = TypeVar("T", bound="ColumnValuesResponse")
 class ColumnValuesResponse:
     """
     Attributes:
-        values (list[float | int | None | str]):
+        values (list[bool | float | int | None | str]):
         count (int):
     """
 
-    values: list[float | int | None | str]
+    values: list[bool | float | int | None | str]
     count: int
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         values = []
         for values_item_data in self.values:
-            values_item: float | int | None | str
+            values_item: bool | float | int | None | str
             values_item = values_item_data
             values.append(values_item)
 
@@ -52,10 +52,10 @@ class ColumnValuesResponse:
         _values = d.pop("values")
         for values_item_data in _values:
 
-            def _parse_values_item(data: object) -> float | int | None | str:
+            def _parse_values_item(data: object) -> bool | float | int | None | str:
                 if data is None:
                     return data
-                return cast(float | int | None | str, data)
+                return cast(bool | float | int | None | str, data)
 
             values_item = _parse_values_item(values_item_data)
 

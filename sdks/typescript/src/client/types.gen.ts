@@ -2439,7 +2439,7 @@ export type ColumnValuesResponse = {
     /**
      * Values
      */
-    values: Array<string | number | number | null>;
+    values: Array<boolean | string | number | number | null>;
     /**
      * Count
      */

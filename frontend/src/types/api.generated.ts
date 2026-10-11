@@ -7466,7 +7466,7 @@ export interface components {
         /** ColumnValuesResponse */
         ColumnValuesResponse: {
             /** Values */
-            values: (string | number | null)[];
+            values: (boolean | string | number | null)[];
             /** Count */
             count: number;
         };
