@@ -1221,12 +1221,13 @@ def _story_references(data: Mapping[str, Any], add: Callable[..., None]) -> bool
             raise ValueError("a map node points at a resource the story lacks")
         if resource.get("type") == "webmap":
             map_data = resource.get("data")
-            if isinstance(map_data, dict):
-                add(
-                    map_data.get("itemId"),
-                    map_data.get("itemType") or "Web Map",
-                    "app_web_map",
-                )
+            if not isinstance(map_data, dict) or not map_data.get("itemId"):
+                raise ValueError("a story's web map resource names no item")
+            add(
+                map_data.get("itemId"),
+                map_data.get("itemType") or "Web Map",
+                "app_web_map",
+            )
     return True
 
 
