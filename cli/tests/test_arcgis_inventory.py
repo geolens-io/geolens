@@ -16,6 +16,7 @@ import tracemalloc
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import pytest
 from jsonschema import Draft202012Validator, FormatChecker
@@ -1167,7 +1168,9 @@ def test_a_web_map_data_redirect_is_an_item_error_without_portal_advice(run):
         (item, "item_data", 302)
     ]
     assert "--portal-url" not in errors[0]["message"]
-    assert [s for s in portal.seen if "other.example.com" in s.url] == []
+    assert [
+        s for s in portal.seen if urlsplit(s.url).hostname == "other.example.com"
+    ] == []
 
 
 def test_dependency_text_from_the_portal_is_redacted(run):
