@@ -20,15 +20,15 @@ async def mixed_table(test_db_session):
     await test_db_session.execute(
         text(
             f"CREATE TABLE data.{TABLE} (gid serial PRIMARY KEY, tz timestamptz, "
-            "ts timestamp, d date, t time, b boolean, u uuid, n numeric, "
+            "ts timestamp, d date, t time, b boolean, u uuid, n numeric, big numeric, "
             "iv interval)"
         )
     )
     await test_db_session.execute(
         text(
-            f"INSERT INTO data.{TABLE} (tz, ts, d, t, b, u, n, iv) VALUES "
+            f"INSERT INTO data.{TABLE} (tz, ts, d, t, b, u, n, big, iv) VALUES "
             "('2024-03-01 12:00:00-05', '2024-03-01 17:00:00', '2024-03-01', "
-            "'17:30:00', true, '11111111-1111-1111-1111-111111111111', 1.5, "
+            "'17:30:00', true, '11111111-1111-1111-1111-111111111111', 1.5, 1e309, "
             "'1 day')"
         )
     )
@@ -48,6 +48,7 @@ async def mixed_table(test_db_session):
         ("b", True),
         ("u", "11111111-1111-1111-1111-111111111111"),
         ("n", 1.5),
+        ("big", "1.0E+309"),
         ("iv", "1 day"),
     ],
 )

@@ -1,6 +1,8 @@
 """Column-level statistics and distinct value queries for dataset tables."""
 
+import math
 import re
+from decimal import Decimal
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -73,6 +75,14 @@ def _sql_quote_ident(name: str) -> str:
     return '"' + name.replace('"', '""').replace(":", "\\:") + '"'
 
 
+def _json_number(value):
+    """Decimal as a float, or as text when a float can't carry it (NaN, 1e309)."""
+    if isinstance(value, Decimal):
+        number = float(value)
+        return number if math.isfinite(number) else str(value)
+    return value
+
+
 async def get_distinct_values(
     session: AsyncSession,
     table_name: str,
@@ -85,8 +95,9 @@ async def get_distinct_values(
 
     Numeric and boolean values are returned in their native Python types so
     that MapLibre match expressions do strict-type comparisons correctly.
-    Text values remain strings. Every other type is returned as text; a
-    ``timestamptz`` uses the UTC form vector tiles carry.
+    Text values remain strings. ``numeric`` values are floats unless a float
+    can't carry them. Every other type is returned as text; a ``timestamptz``
+    uses the UTC form vector tiles carry.
     """
     _validate_identifier(table_name, "table name")
     _validate_identifier(column_name, "column name")
@@ -109,9 +120,11 @@ async def get_distinct_values(
     expr = col_q
     if data_type == "timestamp with time zone":
         expr = utc_timestamptz_text(col_q)
-    elif data_type in {"numeric", "decimal"}:
-        expr = f"{col_q}::double precision"
-    elif data_type and data_type not in _NATIVE_VALUE_TYPES:
+    elif (
+        data_type
+        and data_type not in _NATIVE_VALUE_TYPES
+        and data_type not in _NUMERIC_TYPES - {"money"}
+    ):
         expr = f"{col_q}::text"
 
     sql = text(
@@ -122,7 +135,7 @@ async def get_distinct_values(
     ).bindparams(limit=limit)
 
     result = await session.execute(sql)
-    return [row[0] for row in result.all()]
+    return [_json_number(row[0]) for row in result.all()]
 
 
 async def get_column_null_cardinality(
