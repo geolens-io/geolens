@@ -383,7 +383,12 @@ export async function refreshAccessToken(
     // fix(#1849): tryRefresh's 429 back-off branch checks `err instanceof
     // ApiError`, so a plain Error here made that branch dead code — a
     // rate-limited refresh never got the pause before the next attempt.
-    throw new ApiError(translateApiErrorDetail(undefined, response.status), response.status);
+    const error = new ApiError(translateApiErrorDetail(undefined, response.status), response.status);
+    const retryAfterSeconds = Number(response.headers.get('Retry-After'));
+    if (response.status === 429 && retryAfterSeconds > 0) {
+      error.retryAfterMs = retryAfterSeconds * 1000;
+    }
+    throw error;
   }
 
   return { ...((await response.json()) as TokenResponse), order };

@@ -1,8 +1,23 @@
-import { abortInflightRefresh, attemptRefresh, TRANSIENT_COOLDOWN_MS } from '@/api/client';
+import { create } from 'zustand';
+import {
+  abortInflightRefresh,
+  attemptRefresh,
+  clearRefreshBackoff,
+  refreshBackoffRemainingMs,
+  TRANSIENT_COOLDOWN_MS,
+} from '@/api/client';
 import { onAuthMessage } from '@/lib/auth-channel';
 import { compareSignInOrder, cookieAuthAvailable } from '@/lib/auth-transport';
 import { isEmbedViewer } from '@/lib/embed-context';
 import { readPersistedUser, SIGNED_OUT, useAuthStore } from '@/stores/auth-store';
+
+/**
+ * Transient restore failures since the session last held a token. Above zero,
+ * the page shows the stored user without the access that user has.
+ */
+export const useSessionRestore = create<{ failures: number }>(() => ({ failures: 0 }));
+
+let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
 /**
  * Get an access token for a session this tab knows of but holds no token for:
@@ -20,10 +35,20 @@ export async function restoreSession(): Promise<void> {
   const current = useAuthStore.getState();
   if (current.sessionId !== sessionId || current.token) return;
   if (outcome === 'rejected') {
+    useSessionRestore.setState({ failures: 0 });
     current.logout();
   } else if (outcome === 'transient') {
-    setTimeout(() => void restoreSession(), TRANSIENT_COOLDOWN_MS);
+    useSessionRestore.setState((state) => ({ failures: state.failures + 1 }));
+    clearTimeout(retryTimer);
+    retryTimer = setTimeout(() => void restoreSession(), refreshBackoffRemainingMs());
   }
+}
+
+/** Retry a stalled restore now instead of waiting out the back-off. */
+export function retrySessionRestore(): void {
+  clearTimeout(retryTimer);
+  clearRefreshBackoff();
+  void restoreSession();
 }
 
 const RENDER_BUDGET_MS = 4_000;

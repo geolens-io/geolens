@@ -63,9 +63,9 @@ class RateBudget {
   }
 }
 
-// Every page load spends one refresh (30 per minute per IP). A 429 leaves the SPA
-// holding a stored user but no access token, so capability-gated UI such as the
-// Admin menu item never renders.
+// Every page load spends one refresh (30 per minute per session), and the suite
+// shares one admin session. A 429 leaves the SPA holding a stored user but no
+// access token, so capability-gated UI such as the Admin menu item never renders.
 const refreshBudget = new RateBudget('refresh', 12);
 
 // Dataset and facet search share one 30 per minute bucket. A 429 renders as a

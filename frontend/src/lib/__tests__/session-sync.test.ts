@@ -1,6 +1,12 @@
 import { abortInflightRefresh, ApiError, tryRefresh } from '@/api/client';
 import { refreshAccessToken } from '@/api/auth';
-import { restoreSession, restoreSessionBeforeRender, wireSessionSync } from '@/lib/session-sync';
+import {
+  restoreSession,
+  restoreSessionBeforeRender,
+  retrySessionRestore,
+  useSessionRestore,
+  wireSessionSync,
+} from '@/lib/session-sync';
 import { completeSignIn } from '@/lib/sign-in';
 import { useAuthStore } from '@/stores/auth-store';
 import { otherTab } from '@/test/broadcast-channel';
@@ -51,6 +57,7 @@ describe('session recovery and cross-tab sync', () => {
     peer.close();
     unwire();
     abortInflightRefresh();
+    useSessionRestore.setState({ failures: 0 });
     useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null, sessionId: null });
     window.localStorage.removeItem(STORAGE_KEY);
     window.history.replaceState({}, '', '/');
@@ -131,6 +138,42 @@ describe('session recovery and cross-tab sync', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('retries a rate-limited recovery once the server says it may', async () => {
+    const limited = Object.assign(new ApiError('rate limited', 429), { retryAfterMs: 5_000 });
+    vi.mocked(refreshAccessToken).mockRejectedValueOnce(limited);
+    await reloadWith({ sessionId: 'session-1', user });
+
+    vi.useFakeTimers();
+    try {
+      vi.mocked(refreshAccessToken).mockResolvedValueOnce(issued('recovered'));
+      const pending = restoreSession();
+      await vi.advanceTimersByTimeAsync(2_000);
+      await pending;
+      expect(useSessionRestore.getState().failures).toBe(1);
+
+      await vi.advanceTimersByTimeAsync(4_000);
+      expect(refreshAccessToken).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(refreshAccessToken).toHaveBeenCalledTimes(2);
+      expect(useAuthStore.getState()).toMatchObject({ token: 'recovered', sessionId: 'session-1' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('retries a stalled recovery at once when asked to', async () => {
+    vi.mocked(refreshAccessToken).mockRejectedValueOnce(new ApiError('unavailable', 503));
+    await reloadWith({ sessionId: 'session-1', user });
+    await restoreSession();
+    expect(useSessionRestore.getState().failures).toBe(1);
+
+    vi.mocked(refreshAccessToken).mockResolvedValueOnce(issued('recovered'));
+    retrySessionRestore();
+
+    await vi.waitFor(() => expect(useAuthStore.getState().token).toBe('recovered'));
+    expect(refreshAccessToken).toHaveBeenCalledTimes(2);
   });
 
   it('recovers a migrating legacy session with its in-memory refresh token', async () => {

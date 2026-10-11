@@ -175,6 +175,24 @@ class AuthService:
         Returns None if the token is missing, expired, revoked, the linked
         user doesn't exist, or the row predates the owner's revocation horizon.
         """
+        stored = await self._usable_refresh_token(raw_token)
+        if stored is None:
+            return None
+        user_result = await self.db.execute(
+            select(User).where(User.id == stored.user_id)
+        )
+        return user_result.scalar_one_or_none()
+
+    async def get_refresh_session_id(self, raw_token: str) -> uuid.UUID | None:
+        """The session (token family) *raw_token* belongs to, if it is usable.
+
+        Same acceptance rules as get_user_from_refresh_token, so a guessed or
+        retired token never names a session.
+        """
+        stored = await self._usable_refresh_token(raw_token)
+        return stored.family_id if stored is not None else None
+
+    async def _usable_refresh_token(self, raw_token: str) -> RefreshToken | None:
         token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
         result = await self.db.execute(
             select(RefreshToken)
@@ -198,13 +216,7 @@ class AuthService:
                 ),
             )
         )
-        stored = result.scalar_one_or_none()
-        if stored is None:
-            return None
-        user_result = await self.db.execute(
-            select(User).where(User.id == stored.user_id)
-        )
-        return user_result.scalar_one_or_none()
+        return result.scalar_one_or_none()
 
     async def rotate_refresh_token(
         self,
