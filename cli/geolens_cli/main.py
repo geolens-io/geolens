@@ -22,6 +22,7 @@ from rich.table import Table
 
 from . import analysis as _analysis
 from . import arcgis_inventory as _arcgis_inventory
+from . import arcgis_plan as _arcgis_plan
 from . import auth as _auth
 from . import config as _config
 from . import export_stac as _export_stac
@@ -2216,5 +2217,51 @@ def arcgis_inventory(
         read_all_item_data=read_all_item_data,
     )
     code = _arcgis_inventory.run_cli(state.output, options)
+    if code:
+        raise typer.Exit(code)
+
+
+@arcgis_app.command("plan")
+def arcgis_plan(
+    ctx: typer.Context,
+    inventory: Annotated[
+        Path,
+        typer.Argument(help="arcgis-inventory.json written by `geolens arcgis inventory`"),
+    ],
+    output_dir: Annotated[
+        Optional[Path],
+        typer.Option(
+            "-o",
+            "--output-dir",
+            help="Where to write arcgis-migration-plan.json (default: next to the inventory)",
+        ),
+    ] = None,
+    owner_map: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--owner-map",
+            help="JSON object of ArcGIS usernames to GeoLens usernames or emails",
+        ),
+    ] = None,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Replace a plan file that differs from this one"),
+    ] = False,
+) -> None:
+    """Turn an inventory into an editable migration plan.
+
+    Writes arcgis-migration-plan.json (mode 0600) with a default action for
+    every item, the owners, groups and basemaps to map, and the order items
+    depend on. Edit the file, then migrate from it. Nothing on the portal or
+    in GeoLens is read or changed.
+    """
+    state: AppState = ctx.obj
+    code = _arcgis_plan.run_cli(
+        state.output,
+        inventory_path=inventory,
+        output_dir=output_dir,
+        owner_map_path=owner_map,
+        force=force,
+    )
     if code:
         raise typer.Exit(code)

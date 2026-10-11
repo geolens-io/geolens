@@ -299,7 +299,7 @@ def render_markdown(report: Mapping[str, Any]) -> str:
     return "\n".join(lines).rstrip("\n") + "\n"
 
 
-def _write_private(path: Path, text: str) -> None:
+def write_private(path: Path, text: str) -> None:
     """Atomic write at mode 0600: the report lists private items."""
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
     try:
@@ -318,8 +318,8 @@ def write_report_files(
     output_dir.mkdir(parents=True, exist_ok=True)
     json_path = output_dir / JSON_FILENAME
     md_path = output_dir / MARKDOWN_FILENAME
-    _write_private(json_path, json.dumps(report, indent=2, sort_keys=True) + "\n")
-    _write_private(md_path, markdown)
+    write_private(json_path, json.dumps(report, indent=2, sort_keys=True) + "\n")
+    write_private(md_path, markdown)
     return json_path, md_path
 
 
@@ -328,5 +328,5 @@ def write_sidecar(output_dir: Path, folder: str, item_id: str, data: Any) -> Pat
     target = output_dir / folder
     target.mkdir(parents=True, exist_ok=True)
     path = target / f"{item_id}.json"
-    _write_private(path, json.dumps(data, indent=2, sort_keys=True) + "\n")
+    write_private(path, json.dumps(data, indent=2, sort_keys=True) + "\n")
     return path

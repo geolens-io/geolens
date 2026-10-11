@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.getgeolens.com/arcgis-migration-plan/v1/schema.json",
+  "title": "GeoLens ArcGIS migration plan v1",
+  "description": "Editable plan written by `geolens arcgis plan` from an inventory. The operator edits it; the migration reads it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "inventory",
+    "portal",
+    "defaults",
+    "owner_map",
+    "group_map",
+    "basemap_map",
+    "items"
+  ],
+  "properties": {
+    "schema_version": {"const": "1"},
+    "inventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "generated_at", "complete"],
+      "properties": {
+        "path": {
+          "description": "The inventory the plan was built from, relative to the plan file.",
+          "type": "string"
+        },
+        "generated_at": {"type": "string", "format": "date-time"},
+        "complete": {
+          "description": "False when the inventory was partial or truncated, so the plan may miss items.",
+          "type": "boolean"
+        }
+      }
+    },
+    "portal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url"],
+      "properties": {"url": {"type": "string"}}
+    },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["visibility", "collection_from"],
+      "properties": {
+        "visibility": {
+          "description": "Used for an item whose ArcGIS sharing level has no GeoLens equivalent.",
+          "enum": ["private", "internal", "public"]
+        },
+        "collection_from": {"enum": ["folder", "none"]}
+      }
+    },
+    "owner_map": {
+      "description": "ArcGIS username to the GeoLens username or email that will own the item. Empty until filled in; the migration refuses an owner left empty.",
+      "type": "object",
+      "additionalProperties": {"type": "string"}
+    },
+    "group_map": {
+      "description": "ArcGIS group id to the collection its items join and the visibility that collection gets.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["collection", "visibility"],
+        "properties": {
+          "collection": {"type": "string"},
+          "visibility": {"enum": ["private", "internal", "public"]}
+        }
+      }
+    },
+    "basemap_map": {
+      "description": "Basemap layer URL used by a web map to the GeoLens basemap id that replaces it. Empty means no replacement chosen.",
+      "type": "object",
+      "additionalProperties": {"type": "string"}
+    },
+    "items": {"type": "array", "items": {"$ref": "#/$defs/item"}}
+  },
+  "$defs": {
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "title",
+        "owner",
+        "action",
+        "reason",
+        "target",
+        "depends_on"
+      ],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "type": {"type": "string"},
+        "title": {"type": "string"},
+        "owner": {"description": "The ArcGIS username that owns the item.", "type": "string"},
+        "action": {
+          "enum": ["import_layers", "import_file", "import_map", "export_only", "skip"]
+        },
+        "reason": {"type": "string"},
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["owner", "visibility", "collections", "title", "tags"],
+          "properties": {
+            "owner": {
+              "description": "GeoLens username or email that overrides owner_map for this item; null uses owner_map.",
+              "type": ["string", "null"]
+            },
+            "visibility": {"enum": ["private", "internal", "public"]},
+            "collections": {"type": "array", "items": {"type": "string"}},
+            "title": {"type": "string"},
+            "tags": {"type": "array", "items": {"type": "string"}}
+          }
+        },
+        "depends_on": {
+          "description": "Items to migrate first. An id missing from this plan's items is not in the inventory.",
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "alias_of": {
+          "description": "Set by hand on an unfiltered hosted view with action skip: web maps that use it point at this parent item's dataset.",
+          "type": "string"
+        },
+        "superseded_by": {
+          "description": "The hosted layer item this source file was published into, so the file's rows are not imported twice.",
+          "type": "string"
+        }
+      }
+    }
+  }
+}
