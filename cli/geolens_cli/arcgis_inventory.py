@@ -191,6 +191,7 @@ _SECRET_KEYS = frozenset(
 )
 # Credentials a stored URL can carry beyond what Redactor knows: query values
 # named like a secret, and userinfo.
+_SECRET_KEY_PARTS = ("token", "password", "secret", "apikey", "credential")
 _URL_SECRET_PARAM = re.compile(
     r"([?&;](?:access_token|api_?key|client_secret|secret|sig|signature)=)[^&\s\"'#]+",
     re.IGNORECASE,
@@ -225,6 +226,13 @@ class Redactor:
         return _CREDENTIAL_PARAM.sub(r"\1[REDACTED]", text)
 
 
+def _is_secret_key(key: str) -> bool:
+    """Whether a key names a credential, including compound names such as
+    ``accessToken`` or ``bearer_token``."""
+    name = key.lower().replace("_", "").replace("-", "")
+    return name in _SECRET_KEYS or any(part in name for part in _SECRET_KEY_PARTS)
+
+
 def _scrub_text(text: str, redact: Redactor) -> str:
     text = redact(text)
     if "://" in text or "=" in text:
@@ -251,7 +259,7 @@ def redact_json(value: Any, redact: Redactor) -> Any:
             if (
                 isinstance(source, dict)
                 and isinstance(key, str)
-                and key.lower().replace("_", "") in _SECRET_KEYS
+                and _is_secret_key(key)
             ):
                 out: Any = "[REDACTED]"
             elif isinstance(item, dict | list):
@@ -1434,6 +1442,8 @@ class _DepResult:
 
 # Reads that carry no usable JSON are an app's normal state, not a failure.
 _UNREADABLE_KINDS = frozenset({"empty"})
+# Item types registered by URL alone, which legitimately have no data.
+_URL_ONLY_TYPES = frozenset({"Web Mapping Application"})
 # Item types whose data is legitimately not a JSON document.
 _NON_JSON_TYPES = frozenset({"Notebook"})
 
@@ -1488,7 +1498,10 @@ def _collect_dependencies(
             # a configuration, so an empty one is a failed read.
             not_json_ok = lenient or row["type"] in _NON_JSON_TYPES
             tolerated = (
-                exc.kind in _UNREADABLE_KINDS
+                (
+                    exc.kind in _UNREADABLE_KINDS
+                    and (lenient or row["type"] in _URL_ONLY_TYPES)
+                )
                 or (not_json_ok and exc.kind == "not_json")
                 or (lenient and exc.kind == "invalid")
             )
@@ -1573,7 +1586,7 @@ def _collect_dependencies(
                     row, response, role, index, inv.portal, len(out.dependencies)
                 )
             )
-        out.status = status or ("parsed" if related_ok else "error")
+        out.status = "error" if not related_ok else (status or "parsed")
         return out
 
     with ThreadPoolExecutor(max_workers=concurrency) as pool:

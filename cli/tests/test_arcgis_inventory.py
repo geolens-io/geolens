@@ -2305,3 +2305,44 @@ def test_web_scene_without_a_base_map_is_a_read_failure(run):
     result, _ = run(FakePortal(routes), "--scope", "org", "--strict")
     assert result.exit_code == 1
     assert _rows(_report(result))[item_id]["dependencies_status"] == "error"
+
+
+def test_compound_credential_keys_are_replaced():
+    cleaned = inventory.redact_json(
+        {
+            "a": {
+                "accessToken": "t1",
+                "bearer_token": "t2",
+                "refreshToken": "t3",
+                "title": "ok",
+            }
+        },
+        inventory.Redactor(),
+    )
+    assert cleaned == {
+        "a": {
+            "accessToken": "[REDACTED]",
+            "bearer_token": "[REDACTED]",
+            "refreshToken": "[REDACTED]",
+            "title": "ok",
+        }
+    }
+
+
+def test_empty_storymap_data_is_a_read_failure(run):
+    item_id = "7f" * 16
+    routes = _one_item(item_id, "StoryMap", data=(200, b""))
+    result, _ = run(FakePortal(routes), "--scope", "org", "--strict")
+    assert result.exit_code == 1
+    assert _rows(_report(result))[item_id]["dependencies_status"] == "error"
+
+
+def test_read_all_does_not_hide_a_failed_related_read(run):
+    routes = portal_routes(
+        {
+            f"content/items/{A2}/relatedItems": (403, {"error": {"code": 403}}),
+            item_data_path(A2): {"layers": []},
+        }
+    )
+    result, _ = run(FakePortal(routes), "--scope", "org", "--read-all-item-data")
+    assert _rows(_report(result))[A2]["dependencies_status"] == "error"
