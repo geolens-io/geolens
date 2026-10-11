@@ -13,7 +13,7 @@ from urllib.parse import parse_qs, urlencode
 
 import httpx
 import structlog
-from cachetools import LRUCache
+from cachetools import LRUCache, TTLCache
 from fastapi import (
     APIRouter,
     Depends,
@@ -494,7 +494,14 @@ _STDDEV_SIGMA = 2.0
 # Per-band Titiler statistics cache keyed by (open_path, pmin, pmax): the bounds
 # are in the key so a p2/p98 lookup never serves stale stats for a p5/p95
 # request. A bounded LRU, so a long-lived tile worker stays bounded.
-_band_stats_cache: LRUCache[tuple, list[dict] | None] = LRUCache(maxsize=256)
+_band_stats_cache: LRUCache[tuple, list[dict]] = LRUCache(maxsize=256)
+
+# Failed lookups expire quickly so a transient Titiler error does not pin a
+# raster to its fallback rescale, while an outage still avoids a call per tile.
+_BAND_STATS_FAILURE_TTL_S = 60
+_band_stats_failures: TTLCache[tuple, None] = TTLCache(
+    maxsize=256, ttl=_BAND_STATS_FAILURE_TTL_S
+)
 
 
 def _percentile_key(value: float) -> str:
@@ -517,11 +524,14 @@ async def _fetch_band_statistics(
     The cache key is ``(open_path, pmin, pmax)``, so different percentile clips
     never serve results from a prior lookup with different bounds. Returns
     per-band stat dicts ordered b1, b2, ... or None when the call fails, in
-    which case the caller falls back to minmax.
+    which case the caller falls back to minmax. A failure is remembered for
+    ``_BAND_STATS_FAILURE_TTL_S`` seconds, then retried.
     """
     cache_key = (open_path, pmin, pmax)
     if cache_key in _band_stats_cache:
         return _band_stats_cache[cache_key]
+    if cache_key in _band_stats_failures:
+        return None
     # Forward pmin/pmax as repeated p= params (e.g. p=5&p=95). Use integer
     # representation for whole numbers to match Titiler's expected format.
     pmin_str = str(int(pmin)) if pmin == int(pmin) else str(pmin)
@@ -546,7 +556,10 @@ async def _fetch_band_statistics(
                 ]
     except (httpx.TimeoutException, httpx.TransportError, ValueError, KeyError):
         bands = None
-    _band_stats_cache[cache_key] = bands
+    if bands is None:
+        _band_stats_failures[cache_key] = None
+    else:
+        _band_stats_cache[cache_key] = bands
     return bands
 
 

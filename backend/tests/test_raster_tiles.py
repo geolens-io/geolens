@@ -1082,28 +1082,40 @@ async def test_band_stats_cache_hit(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_band_stats_cache_negative(monkeypatch):
-    """Negative caching: None is stored and returned without a second Titiler call."""
+async def test_band_stats_failure_is_reused_then_retried_after_ttl(monkeypatch):
+    """A failed lookup is reused within the TTL and retried once it expires."""
     monkeypatch.setattr(
         "app.platform.storage.titiler_url._managed_prefix", lambda: "/data/"
     )
-    from app.processing.tiles.router import _band_stats_cache, _fetch_band_statistics
+    from cachetools import TTLCache
 
-    _band_stats_cache.clear()
+    from app.processing.tiles import router as tiles_router
 
-    mock_get = AsyncMock(side_effect=httpx.TimeoutException("timeout"))
+    now = [0.0]
+    monkeypatch.setattr(
+        tiles_router,
+        "_band_stats_failures",
+        TTLCache(
+            maxsize=8, ttl=tiles_router._BAND_STATS_FAILURE_TTL_S, timer=lambda: now[0]
+        ),
+    )
+    tiles_router._band_stats_cache.clear()
+
+    ok = MagicMock()
+    ok.status_code = 200
+    ok.json.return_value = {"b1": {"min": 0.0, "max": 9.0}}
+    mock_get = AsyncMock(side_effect=[httpx.TimeoutException("timeout"), ok])
     monkeypatch.setattr("app.processing.tiles.router._titiler_client.get", mock_get)
 
     path = "/data/timeout-test.tif"
-    # Phase 1153: _fetch_band_statistics now requires pmin/pmax for cache-key isolation
-    result1 = await _fetch_band_statistics(path, 2.0, 98.0)
-    result2 = await _fetch_band_statistics(path, 2.0, 98.0)
+    assert await tiles_router._fetch_band_statistics(path, 2.0, 98.0) is None
+    assert await tiles_router._fetch_band_statistics(path, 2.0, 98.0) is None
+    assert mock_get.call_count == 1, "failure must be reused within the TTL"
 
-    assert result1 is None
-    assert result2 is None
-    assert mock_get.call_count == 1, (
-        "None is cached — second call must not retry Titiler"
-    )
+    now[0] = tiles_router._BAND_STATS_FAILURE_TTL_S + 1
+    result = await tiles_router._fetch_band_statistics(path, 2.0, 98.0)
+    assert result == [{"min": 0.0, "max": 9.0}]
+    assert mock_get.call_count == 2, "failure must be retried after the TTL"
 
 
 # ---------------------------------------------------------------------------

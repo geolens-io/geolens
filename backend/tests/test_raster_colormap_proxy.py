@@ -181,8 +181,10 @@ class TestRasterColormapProxy:
         from app.processing.tiles import router as tiles_router
 
         tiles_router._band_stats_cache.clear()
+        tiles_router._band_stats_failures.clear()
         yield
         tiles_router._band_stats_cache.clear()
+        tiles_router._band_stats_failures.clear()
 
     @property
     def _tile_titiler_calls(self) -> list[str]:
