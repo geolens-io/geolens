@@ -1418,7 +1418,9 @@ class _DepResult:
 
 
 # Reads that carry no usable JSON are an app's normal state, not a failure.
-_UNREADABLE_KINDS = frozenset({"empty", "not_json"})
+_UNREADABLE_KINDS = frozenset({"empty"})
+# Item types whose data is legitimately not a JSON document.
+_NON_JSON_TYPES = frozenset({"Notebook"})
 
 
 def _collect_dependencies(
@@ -1469,9 +1471,13 @@ def _collect_dependencies(
                 return None
             # An app registered only by URL has no data; a web map always has
             # a configuration, so an empty one is a failed read.
-            if not is_map and (
-                exc.kind in _UNREADABLE_KINDS or lenient and exc.kind == "invalid"
-            ):
+            not_json_ok = lenient or row["type"] in _NON_JSON_TYPES
+            tolerated = (
+                exc.kind in _UNREADABLE_KINDS
+                or (not_json_ok and exc.kind == "not_json")
+                or (lenient and exc.kind == "invalid")
+            )
+            if not is_map and tolerated:
                 return "unparsed"
             out.errors.append(_error_row(row["id"], "item_data", exc))
             return "error"
@@ -1492,7 +1498,7 @@ def _collect_dependencies(
                             row["id"],
                             i,
                             None,
-                            role="app_web_map",
+                            role="referenced_item",
                             layer_type=None,
                             layer_id=None,
                             title=None,

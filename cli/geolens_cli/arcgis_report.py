@@ -31,7 +31,7 @@ _CLASS_HEADINGS = {
     "unsupported": "Unsupported",
 }
 # Owner and folder errors are keyed by username, not item id.
-_ITEM_PHASES = frozenset({"item_data", "item_details", "item_groups"})
+_ITEM_PHASES = frozenset({"item_data", "item_details", "item_groups", "related"})
 _MD_SPECIAL = "\\`*_[]#|!~"
 
 

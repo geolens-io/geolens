@@ -308,7 +308,7 @@
         "to_id": {"type": ["string", "null"]},
         "to_url": {"type": ["string", "null"]},
         "role": {
-          "description": "app_web_map: a map an app opens. app_data_source: a layer an app reads directly, such as a dashboard chart's dataset; layer_id holds its layer. app_embedded_item: an item a Hub page or site embeds in a card. view_parent: the service a hosted view is cut from. published_from: the source file a hosted layer was published from. survey_results: the service a survey stores its results in.",
+          "description": "app_web_map: a map an app opens. app_data_source: a layer an app reads directly, such as a dashboard chart's dataset; layer_id holds its layer. app_embedded_item: an item a Hub page or site embeds in a card. view_parent: the service a hosted view is cut from. published_from: the source file a hosted layer was published from. survey_results: the service a survey stores its results in. referenced_item: an item id found in an item's data by --read-all-item-data, of unknown type.",
           "enum": [
             "operational_layer",
             "basemap",
@@ -318,7 +318,8 @@
             "app_embedded_item",
             "view_parent",
             "published_from",
-            "survey_results"
+            "survey_results",
+            "referenced_item"
           ]
         },
         "layer_type": {"type": ["string", "null"]},

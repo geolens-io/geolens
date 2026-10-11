@@ -862,6 +862,24 @@ def test_non_json_app_data_is_unparsed_not_an_error(run):
     assert _read_errors(report) == [] and report["errors"] == []
 
 
+def test_malformed_app_data_is_a_read_failure(run):
+    item_id = "7f" * 16
+    routes = _one_item(item_id, "Dashboard", data=(200, b"{truncated"))
+    result, _ = run(FakePortal(routes), "--scope", "org", "--strict")
+    assert result.exit_code == 1
+    assert _rows(_report(result))[item_id]["dependencies_status"] == "error"
+
+
+def test_failed_related_read_counts_the_item_as_failed(run):
+    routes = portal_routes(
+        {f"content/items/{A2}/relatedItems": (403, {"error": {"code": 403}})}
+    )
+    report = _report(run(FakePortal(routes), "--scope", "org")[0])
+    ids = {e["item_id"] for e in report["errors"]}
+    assert A2 in ids
+    assert report["counts"]["failed"] == len(ids)
+
+
 def test_view_parent_and_published_from_come_from_related_items(run):
     source_file = "8a" * 16
 
@@ -1080,8 +1098,8 @@ def test_read_all_item_data_scans_other_items_for_item_ids(run):
     result, _ = run(portal, "--scope", "org", "--read-all-item-data")
     report = _report(result)
     assert _links(report, item) == {
-        (B1, "app_web_map", None),
-        (A1, "app_web_map", None),
+        (B1, "referenced_item", None),
+        (A1, "referenced_item", None),
     }
     assert _rows(report)[item]["dependencies_status"] == "parsed"
 
