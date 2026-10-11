@@ -30,6 +30,8 @@ _CLASS_HEADINGS = {
     "partial": "Partial",
     "unsupported": "Unsupported",
 }
+# Owner and folder errors are keyed by username, not item id.
+_ITEM_PHASES = frozenset({"item_data", "item_details", "item_groups"})
 _MD_SPECIAL = "\\`*_[]#|!~"
 
 
@@ -80,7 +82,9 @@ def build_report(
             "by_class": by_class,
             "by_type": dict(sorted(by_type.items())),
             "retired": sum(by_retirement.values()),
-            "failed": len(inv.errors),
+            "failed": len(
+                {e["item_id"] for e in inv.errors if e["phase"] in _ITEM_PHASES}
+            ),
         },
         "retirements": [
             {

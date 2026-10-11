@@ -164,7 +164,7 @@ _SERVICE_TYPES = frozenset(
 )
 _APP_DATA_TYPES = frozenset({"Web Mapping Application", "Web Experience", "Dashboard"})
 _WEB_MAP_TYPE = "Web Map"
-_SERVICE_LAYER_URL = re.compile(r"/(?:Feature|Map)Server/(\d+)$")
+_SERVICE_LAYER_URL = re.compile(r"/(?:Feature|Map)Server/(\d+)/?$")
 _WAB_KEYWORDS = frozenset({"web appbuilder", "wab2d", "wab3d"})
 
 
@@ -1345,6 +1345,7 @@ def _collect_details(
     for row, out in zip(inv.items, results, strict=True):
         row.update(out.fields)
         if out.url:
+            row["url"] = out.url
             row["layers"] = _service_layers(row["type"], out.url)
         if out.folder_id and not row["folder"]:
             row["folder"] = {"id": out.folder_id, "title": None}
@@ -1383,8 +1384,12 @@ def _collect_owners(client: PortalClient, inv: Inventory, concurrency: int) -> N
         if row["folder"] and row["folder"]["title"] is None
     }
 
+    stop = threading.Event()
+
     def fetch(owner: str) -> _Owner:
         out = _Owner()
+        if stop.is_set():
+            return out
         name = quote(owner, safe="")
         reads = [("owner", f"community/users/{name}", {})]
         if owner in untitled:
@@ -1395,6 +1400,7 @@ def _collect_owners(client: PortalClient, inv: Inventory, concurrency: int) -> N
             except PortalError as exc:
                 _detach(exc)
                 if exc.kind == "auth":
+                    stop.set()
                     out.auth = exc
                     return out
                 if exc.kind != "refused":
@@ -1711,6 +1717,6 @@ def _run(fmt: _output.Formatter, opts: InventoryOptions, redact: Redactor) -> in
         fmt.error(f"inventory stopped early, report is partial: {inv.abort}.{hint}")
         return _EXIT_BY_KIND.get(inv.abort.kind, EXIT_GENERIC)
     if inv.errors and opts.strict:
-        fmt.error(f"{len(inv.errors)} item(s) could not be read (--strict)")
+        fmt.error(f"{len(inv.errors)} read(s) failed (--strict)")
         return EXIT_GENERIC
     return EXIT_OK

@@ -452,6 +452,72 @@ def test_secrets_in_item_text_are_redacted_and_the_description_is_capped(run):
     assert row["snippet"] == "password=[REDACTED] in the snippet"
 
 
+def test_detail_url_replaces_a_thin_search_url_and_tolerates_a_trailing_slash(run):
+    listing = load("search_page1.json")["results"][0] | {"url": None}
+    detail = load("item_detail_rich.json")
+    detail["url"] += "/"
+    routes = portal_routes(
+        {
+            "search": {
+                "total": 1,
+                "start": 1,
+                "num": 100,
+                "nextStart": -1,
+                "results": [listing],
+            },
+            f"content/items/{A1}": detail,
+        }
+    )
+    result, _ = run(FakePortal(routes), "--scope", "org")
+    row = _rows(_report(result))[A1]
+    assert row["url"].endswith("/FeatureServer/0/")
+    assert [layer["id"] for layer in row["layers"]] == [0]
+
+
+def test_counts_failed_items_not_failed_reads(run):
+    portal = FakePortal(
+        portal_routes(
+            {
+                f"content/items/{A1}": (500, {"error": {"code": 500}}),
+                f"content/items/{A1}/groups": (403, {"error": {"code": 403}}),
+            }
+        )
+    )
+    result, _ = run(portal, "--scope", "org")
+    report = _report(result)
+    assert len(_read_errors(report)) == 2
+    assert report["counts"]["failed"] == len({e["item_id"] for e in report["errors"]})
+
+
+def test_token_rejected_while_reading_an_owner_stops_the_remaining_owner_reads(run):
+    listed = [
+        load("search_page1.json")["results"][0] | {"owner": name}
+        for name in ("zed", "amy", "bob")
+    ]
+    for n, row in enumerate(listed):
+        row["id"] = f"{n:032x}"
+    routes = portal_routes(
+        {
+            "search": {
+                "total": 3,
+                "start": 1,
+                "num": 100,
+                "nextStart": -1,
+                "results": listed,
+            },
+            "community/users/amy": load("error_498.json"),
+        }
+    )
+    for row in listed:
+        routes[f"content/items/{row['id']}"] = row
+        routes[f"content/items/{row['id']}/groups"] = EMPTY_GROUPS
+    portal = FakePortal(routes)
+    result, _ = run(portal, "--scope", "org")
+    assert result.exit_code == 3
+    assert portal.requests_to("community/users/bob") == []
+    assert portal.requests_to("community/users/zed") == []
+
+
 def test_markdown_lists_folders_and_owners(run):
     result, _ = run(FakePortal(_rich_routes()), "--scope", "org", json_mode=False)
     assert "## Folders" in result.stdout
