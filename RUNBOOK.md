@@ -3126,10 +3126,12 @@ shows "No Extent" and the dataset has no footprint. After upgrading, record
 their extents from each stored `tileset.json`:
 
 ```bash
-docker compose exec api uv run --no-dev python -m scripts.backfill_tileset_extents --dry-run
-docker compose exec api uv run --no-dev python -m scripts.backfill_tileset_extents
+docker compose exec api /app/.venv/bin/python -m scripts.backfill_tileset_extents --dry-run
+docker compose exec api /app/.venv/bin/python -m scripts.backfill_tileset_extents
 ```
 
+The API container's root filesystem is read-only, so `uv run` cannot create its
+cache there; call the baked virtualenv's Python directly, as above.
 Add `-f docker-compose.prod.yml` when that is the file your install runs.
 With `GEOLENS_TENANCY_MODE=multi_tenant`, run both commands once for each
 tenant, adding `--tenant <tenant id>`; without it the script exits 2 before
@@ -3184,8 +3186,8 @@ docker compose up -d api worker
 # 3. Re-encrypt the stored rows under the new key. The script is
 #    backend/scripts/rotate_secrets.py; the api container's working directory
 #    is the backend, so it is addressed there as a module.
-docker compose exec api uv run python -m scripts.rotate_secrets --dry-run
-docker compose exec api uv run python -m scripts.rotate_secrets
+docker compose exec api /app/.venv/bin/python -m scripts.rotate_secrets --dry-run
+docker compose exec api /app/.venv/bin/python -m scripts.rotate_secrets
 ```
 
 The API can stay up for step 3. The script locks the provider rows for the
@@ -3204,7 +3206,7 @@ Generate a new key, move the current one to `SECRET_ENCRYPTION_KEY_PREVIOUS`,
 put the new one in `SECRET_ENCRYPTION_KEY`, restart, then:
 
 ```bash
-docker compose exec api uv run python -m scripts.rotate_secrets
+docker compose exec api /app/.venv/bin/python -m scripts.rotate_secrets
 ```
 
 Remove `SECRET_ENCRYPTION_KEY_PREVIOUS` from `.env` and restart again. The API

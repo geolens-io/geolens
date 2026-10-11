@@ -7,8 +7,8 @@ service_records.py (``dataset.quicklook_256_uri is not None``) becomes
 truthful — no schema change required.
 
 Usage:
-    docker compose exec api uv run python scripts/reconcile_quicklook_uris.py
-    docker compose exec api uv run python scripts/reconcile_quicklook_uris.py --dry-run
+    docker compose exec api /app/.venv/bin/python scripts/reconcile_quicklook_uris.py
+    docker compose exec api /app/.venv/bin/python scripts/reconcile_quicklook_uris.py --dry-run
 
 Operator runbook
 ----------------
@@ -22,12 +22,12 @@ Operator runbook
   ``has_quicklook=true`` from the OGC record).
 
 **Dry run first — no DB mutations:**
-    docker compose exec api uv run python scripts/reconcile_quicklook_uris.py --dry-run
+    docker compose exec api /app/.venv/bin/python scripts/reconcile_quicklook_uris.py --dry-run
 
 This prints every stale row it would clear without touching the database.
 
 **Apply — commit the URI clears:**
-    docker compose exec api uv run python scripts/reconcile_quicklook_uris.py
+    docker compose exec api /app/.venv/bin/python scripts/reconcile_quicklook_uris.py
 
 Drop ``--dry-run`` to execute the UPDATE statements and commit them.
 

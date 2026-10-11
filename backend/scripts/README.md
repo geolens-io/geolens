@@ -105,8 +105,8 @@ setting `SECRET_ENCRYPTION_KEY` on an existing install, and after replacing an
 existing `SECRET_ENCRYPTION_KEY` with a new one.
 
 ```bash
-docker compose exec api uv run python -m scripts.rotate_secrets --dry-run
-docker compose exec api uv run python -m scripts.rotate_secrets
+docker compose exec api /app/.venv/bin/python -m scripts.rotate_secrets --dry-run
+docker compose exec api /app/.venv/bin/python -m scripts.rotate_secrets
 ```
 
 It refuses to run when `SECRET_ENCRYPTION_KEY` is unset, decrypts every row
