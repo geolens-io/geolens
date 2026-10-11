@@ -1286,6 +1286,8 @@ def _collect_dependencies(
 
 # Row fields the item's own record decides, over a possibly stale search result.
 _DETAIL_KEYS = (
+    "type",
+    "dependencies_status",
     "size_bytes",
     "created",
     "modified",
@@ -1382,7 +1384,8 @@ def _collect_details(
                 continue
             if phase == "item_details":
                 out.fresh = _item_row(
-                    {**data, "id": row["id"], "type": row["type"]}, client._redact
+                    {**data, "id": row["id"], "type": data.get("type") or row["type"]},
+                    client._redact,
                 )
             else:
                 out.groups = _item_groups(data, client._redact)

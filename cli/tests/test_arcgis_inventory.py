@@ -620,6 +620,30 @@ def test_folder_listing_requests_the_raw_id_but_the_report_redacts_it(run):
     assert "f0f0" not in result.stdout
 
 
+def test_detail_type_replaces_a_stale_search_type_and_schedules_its_data_read(run):
+    listing = load("search_page1.json")["results"][5] | {"type": "Image Service"}
+    assert listing["id"] == B1
+    detail = listing | {"type": "Web Map"}
+    routes = portal_routes(
+        {
+            "search": {
+                "total": 1,
+                "start": 1,
+                "num": 100,
+                "nextStart": -1,
+                "results": [listing],
+            },
+            f"content/items/{B1}": detail,
+        }
+    )
+    portal = FakePortal(routes)
+    result, _ = run(portal, "--scope", "org")
+    row = _rows(_report(result))[B1]
+    assert (row["type"], row["class"]) == ("Web Map", "partial")
+    assert row["dependencies_status"] == "parsed"
+    assert portal.requests_to(item_data_path(B1))
+
+
 def test_detail_type_keywords_are_redacted(run):
     detail = load("item_detail_rich.json") | {
         "typeKeywords": ["Data", "token=abc123SECRET"]
