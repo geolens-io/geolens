@@ -241,6 +241,7 @@
     "arcgisPortalUrlHint": "Il semble s’agir d’une page d’organisation ou de portail ArcGIS, pas d’une couche. Ouvrez la page de l’élément de la couche, copiez son URL REST (elle se termine par /FeatureServer/0 ou /MapServer/0) et collez-la ici. Les couches protégées demandent une connexion une fois l’URL de la couche collée.",
     "tokenPlaceholder": "Jeton ArcGIS, clé API ou jeton d'accès WFS",
     "credentialMethodLabel": "Authentification",
+    "credentialsReset": "L'authentification a été réinitialisée parce que l'adresse du service a changé.",
     "credentialMethodNone": "Aucune authentification",
     "credentialMethodBearer": "Jeton bearer",
     "credentialMethodBasic": "Nom d'utilisateur et mot de passe",

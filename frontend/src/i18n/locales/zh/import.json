@@ -271,6 +271,7 @@
     "supported": "支持：",
     "tokenPlaceholder": "ArcGIS 令牌、API 密钥或 WFS 访问令牌",
     "credentialMethodLabel": "身份验证",
+    "credentialsReset": "由于服务地址已更改，身份验证已重置。",
     "credentialMethodNone": "无身份验证",
     "credentialMethodBearer": "Bearer 令牌",
     "credentialMethodBasic": "用户名和密码",

@@ -271,6 +271,7 @@
     "supported": "Supported:",
     "tokenPlaceholder": "ArcGIS token, API key, or WFS access token",
     "credentialMethodLabel": "Authentication",
+    "credentialsReset": "Authentication was reset because the service address changed.",
     "credentialMethodNone": "No authentication",
     "credentialMethodBearer": "Bearer token",
     "credentialMethodBasic": "Username and password",

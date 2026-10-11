@@ -106,6 +106,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
   const [basicPassword, setBasicPassword] = useState('');
   const [headerName, setHeaderName] = useState('');
   const [headerValue, setHeaderValue] = useState('');
+  const [credentialsReset, setCredentialsReset] = useState(false);
 
   // codex review #1757 P1: a stale in-flight sign-in response must never
   // resurrect a token or run after the auth context it belongs to is gone.
@@ -239,6 +240,14 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
     lastAuthOriginRef.current = authOrigin;
     lastAuthShapeRef.current = isArcGisShaped;
     if (!originChanged && !shapeChanged) return;
+    const hadCredentials =
+      arcgisAuthMethod !== 'none' ||
+      serviceCredentialMethod !== 'none' ||
+      [token, username, password, basicUsername, basicPassword, headerName, headerValue].some(
+        (value) => value !== '',
+      );
+    // Retyping a URL passes through empty origins; a later no-op reset must not hide the notice.
+    if (hadCredentials) setCredentialsReset(true);
     invalidateMintedCredential();
     setArcgisAuthMethod('none');
     setPortalUrl('');
@@ -260,7 +269,22 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
     // only on a genuine origin or shape change; including it here is for
     // correctness (react-hooks/exhaustive-deps), not because it can
     // change what this effect does.
-  }, [authOrigin, isArcGisShaped, invalidateMintedCredential]);
+    // The ref guards above make this a no-op unless the origin or shape changed, so
+    // depending on the credential fields does not re-run the reset as they change.
+  }, [
+    authOrigin,
+    isArcGisShaped,
+    invalidateMintedCredential,
+    arcgisAuthMethod,
+    serviceCredentialMethod,
+    token,
+    username,
+    password,
+    basicUsername,
+    basicPassword,
+    headerName,
+    headerValue,
+  ]);
 
   // codex review #1757 round 2: the expiry timer must not outlive the
   // component (a backgrounded/unmounted tab has no business scheduling
@@ -276,6 +300,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
 
   const reset = () => {
     if (commitInFlight) return;
+    setCredentialsReset(false);
     invalidateMintedCredential();
     clearServiceImport();
     setStep('idle');
@@ -301,6 +326,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
   // half-honouring them, same rule as handleAuthMethodChange below (plan
   // 3.4 / the backend's own oneOf-shaped `auth` object).
   const handleServiceCredentialMethodChange = (next: ServiceCredentialMethod) => {
+    setCredentialsReset(false);
     setServiceCredentialMethod(next);
     setToken('');
     setBasicUsername('');
@@ -337,6 +363,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
   // plan 3.4). A stale password or a stale pasted token left over from the
   // method the user just backed out of must never ride along silently.
   const handleAuthMethodChange = (next: ArcgisAuthMethod) => {
+    setCredentialsReset(false);
     invalidateMintedCredential();
     setArcgisAuthMethod(next);
     setUsername('');
@@ -849,6 +876,16 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
             </span>
           </div>
         </div>
+
+        {credentialsReset && (
+          <p
+            role="status"
+            data-testid="credentials-reset-notice"
+            className="text-sm text-muted-foreground"
+          >
+            {t('serviceUrl.credentialsReset')}
+          </p>
+        )}
 
         {isArcGisPortalShaped ? (
           <p
