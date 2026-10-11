@@ -2260,6 +2260,8 @@ def test_registered_group_layer_keeps_its_own_reference(run):
         ("https://s.example/q?x-amz-security-token=abc123KEY&f=1", "abc123KEY"),
         ("https://s.example/q?sasKey=abc123KEY", "abc123KEY"),
         ("https://s.example/app#access_token=abc123KEY&x=1", "abc123KEY"),
+        ("https://s.example/q?access%5Ftoken=abc123KEY", "abc123KEY"),
+        ("https://s.example/q?api%2Dkey=abc123KEY", "abc123KEY"),
         ("https://s.example/q?auth_code=abc123KEY", "abc123KEY"),
     ],
 )

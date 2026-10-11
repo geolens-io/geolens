@@ -29,7 +29,7 @@ from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote, quote_plus, urlencode, urlsplit
+from urllib.parse import quote, quote_plus, unquote_plus, urlencode, urlsplit
 
 from . import arcgis_report as _report
 from . import output as _output
@@ -203,9 +203,9 @@ _SECRET_KEY_PARTS = (
     "bearer",
     "credential",
 )
-_URL_SECRET_PARAM = re.compile(
-    r"([?&;#](?:[^=&\s\"'#]*(?:token|password|passwd|pwd|secret|key|auth|credential|bearer)"
-    r"[^=&\s\"'#]*|sig|signature)=)[^&\s\"'#]+",
+_URL_PARAM = re.compile(r"([?&;#])([^=&\s\"'#]+)=([^&\s\"'#]+)")
+_SECRET_PARAM_NAME = re.compile(
+    r"token|password|passwd|pwd|secret|key|auth|credential|bearer|^sig(?:nature)?$",
     re.IGNORECASE,
 )
 _URL_USERINFO = re.compile(r"(://)[^/@\s]+@")
@@ -246,10 +246,17 @@ def _is_secret_key(key: str) -> bool:
     return name in _SECRET_KEYS or any(part in name for part in _SECRET_KEY_PARTS)
 
 
+def _scrub_param(match: re.Match[str]) -> str:
+    lead, name, value = match.groups()
+    if _SECRET_PARAM_NAME.search(unquote_plus(name)):
+        value = "[REDACTED]"
+    return f"{lead}{name}={value}"
+
+
 def _scrub_text(text: str, redact: Redactor) -> str:
     text = redact(text)
     if "://" in text or "=" in text:
-        text = _URL_SECRET_PARAM.sub(r"\1[REDACTED]", text)
+        text = _URL_PARAM.sub(_scrub_param, text)
         text = _URL_USERINFO.sub(r"\1[REDACTED]@", text)
     return text
 
