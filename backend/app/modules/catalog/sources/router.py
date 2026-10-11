@@ -807,7 +807,7 @@ async def _create_preview_job(
             "service_type": request.service_type,
             "layer_id": effective_layer_id,
             "object_id_field": request.object_id_field,
-            "geometry_type": preview_data.get("geometry_type"),
+            **{k: preview_data.get(k) for k in ("geometry_type", "field_labels")},
         },
     )
     await db.flush()

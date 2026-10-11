@@ -21,6 +21,7 @@ from app.core.service_tokens import (
     register_credential_secret,
 )
 from app.core.url_redaction import redact_exception_text
+from app.modules.catalog.sources.field_labels import arcgis_field_labels
 from app.modules.catalog.sources.layer_types import (
     arcgis_probe_layers,
     reject_unsupported_arcgis_type,
@@ -1034,4 +1035,5 @@ async def fetch_arcgis_layer_preview(
         "feature_count": feature_count,
         "columns": columns,
         "sample_rows": sample_rows,
+        "field_labels": arcgis_field_labels(meta),
     }

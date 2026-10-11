@@ -1288,7 +1288,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # protocol.
     "backend/app/modules/catalog/sources/arcgis_signin.py": 1151,
     # ArcGIS identity enumeration and bounded verification share this adapter.
-    "backend/app/modules/catalog/sources/adapters/arcgis.py": 1037,
+    "backend/app/modules/catalog/sources/adapters/arcgis.py": 1039,
     # Source API router debt; split discovery, preview and dispatch endpoints before
     # raising.
     "backend/app/modules/catalog/sources/router.py": 1735,
@@ -1319,7 +1319,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # ArcGIS requests, lifecycle context, the quicklook draw that ingest and
     # replacement share, and the swap that keeps the replaced table and records
     # the version it keeps.
-    "backend/app/processing/ingest/tasks_common.py": 1901,
+    "backend/app/processing/ingest/tasks_common.py": 1903,
     # File and remote-source replacement strategies own retrieval, staging and
     # verification, including the live geometry read and its witness, the
     # live-edit comparison each publication makes, and a service re-upload's
