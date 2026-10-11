@@ -1322,6 +1322,7 @@ async def _finalize_ingest(ctx: IngestContext):
     for field descriptions. Returns the created Dataset ORM instance.
     """
     from app.platform.extensions import get_processing_port
+    from app.processing.ingest.metadata_attributes import apply_source_field_labels
     from app.processing.ingest.metadata import compute_quality_score
     from app.processing.ingest.tasks_staging import _run_staging_pipeline
 
@@ -1373,6 +1374,7 @@ async def _finalize_ingest(ctx: IngestContext):
         visibility=user_metadata.get("visibility", "private"),
         ingestion=ingestion,
     )
+    await apply_source_field_labels(session, dataset.id, user_metadata)
     # fix(#430): create_dataset defaults the record to 'published',
     # so the before_insert hook has already stamped published_at by the time
     # this overwrite runs. A non-published final status must not keep that

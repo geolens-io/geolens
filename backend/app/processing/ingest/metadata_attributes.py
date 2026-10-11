@@ -233,6 +233,42 @@ async def generate_attribute_metadata(
     return created
 
 
+async def apply_source_field_labels(
+    session: AsyncSession,
+    dataset_id: uuid.UUID,
+    user_metadata: dict,
+) -> None:
+    """Give a new dataset's attributes the alias and description its source published.
+
+    ``user_metadata["field_labels"]`` is keyed by the source field name. The alias replaces the
+    humanized title, and a description fills the empty one. Only called on a
+    first import, before any user edit exists.
+    """
+    labels = user_metadata.get("field_labels")
+    if not labels:
+        return
+    from app.platform.column_names import stored_column_names
+    from app.platform.extensions import get_processing_port
+
+    AttributeMetadata = get_processing_port().get_attribute_metadata_orm_class()
+    source_names = list(labels)
+    by_stored = dict(zip(stored_column_names(source_names), source_names, strict=True))
+
+    result = await session.execute(
+        select(AttributeMetadata).where(
+            AttributeMetadata.dataset_id == dataset_id,
+            AttributeMetadata.field_name.in_(by_stored),
+        )
+    )
+    for am in result.scalars().all():
+        label = labels[by_stored[am.field_name]]
+        if label.get("alias"):
+            am.title = label["alias"]
+        if label.get("description"):
+            am.description = label["description"]
+    await session.flush()
+
+
 async def refresh_attribute_metadata(
     session: AsyncSession,
     dataset_id: uuid.UUID,
@@ -244,9 +280,11 @@ async def refresh_attribute_metadata(
     """Refresh attribute metadata on re-upload, preserving user edits.
 
     System fields (data_type, example_values, ordinal_position, is_nullable,
-    is_current) always refresh. title/semantic_role/domain_type/units skip
-    refresh per-field when that name is in user_modified_fields. New columns
-    get auto-populated metadata; removed columns are marked is_current=False.
+    is_current) always refresh. semantic_role/domain_type/units skip refresh
+    per-field when that name is in user_modified_fields. title and description
+    are never rewritten here: they are either a user edit or what the source
+    published at import. New columns get auto-populated metadata; removed
+    columns are marked is_current=False.
     """
     from app.platform.extensions import get_processing_port
 
@@ -278,16 +316,12 @@ async def refresh_attribute_metadata(
             am.is_current = True
 
             modified = set(am.user_modified_fields or [])
-            if "title" not in modified:
-                am.title = _humanize_column_name(field_name)
             if "semantic_role" not in modified:
                 am.semantic_role = _infer_semantic_role(field_name, data_type)
             if "domain_type" not in modified:
                 am.domain_type = _infer_domain_type(data_type)
             if "units" not in modified:
                 am.units = _infer_units(field_name)
-            if "description" not in modified:
-                am.description = None
         else:
             am = _build_attribute_metadata(
                 AttributeMetadata,
