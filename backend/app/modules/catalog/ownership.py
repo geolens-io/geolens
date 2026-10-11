@@ -11,6 +11,7 @@ import uuid
 from typing import Any
 
 from fastapi import HTTPException, status
+from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
@@ -19,6 +20,8 @@ from app.modules.auth.service import get_user_identity
 from app.modules.catalog.authorization import get_user_roles
 from app.platform.catalog_locks import bump_publication_version_on
 from app.platform.extensions import get_permission_extension
+from app.platform.refresh.models import DatasetRefreshRun
+from app.platform.refresh.service import ACTIVE_RUN_STATUSES
 
 
 def _refuse_target(detail: str) -> HTTPException:
@@ -100,6 +103,26 @@ async def transfer_dataset_owner(
     previous = await _locked_owner(db, record)
     if previous == new_owner.id:
         return
+    # A replacement or refresh admitted under the previous owner would
+    # publish into the new owner's dataset after the transfer.
+    if await db.scalar(
+        select(
+            exists().where(
+                DatasetRefreshRun.dataset_id == dataset.id,
+                DatasetRefreshRun.status.in_(ACTIVE_RUN_STATUSES),
+            )
+        )
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "dataset_busy",
+                "message": (
+                    "A refresh or re-upload is running for this dataset. "
+                    "Wait for it to finish or cancel it, then transfer."
+                ),
+            },
+        )
     record.created_by = new_owner.id
     record.updated_by = actor.id
     # Signed tile templates bind this counter, and the previous owner may

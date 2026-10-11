@@ -20,6 +20,7 @@ from app.modules.audit.models import AuditLog
 from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.maps.models import Map
+from app.platform.refresh.models import DatasetRefreshRun
 from tests.factories import create_dataset, create_map_via_api, create_user
 
 pytestmark = pytest.mark.anyio
@@ -360,3 +361,82 @@ async def test_map_patch_takes_only_owner_id(
         headers=admin_auth_header,
     )
     assert resp.status_code == 422, resp.text
+
+
+async def test_dataset_transfer_waits_for_an_active_run(
+    client: AsyncClient,
+    test_db_session: AsyncSession,
+    admin_auth_header: dict,
+    people: dict,
+) -> None:
+    _, owner_id = people["owner"]
+    _, target_id = people["target"]
+    dataset_id = await _private_dataset(test_db_session, owner_id)
+    run = DatasetRefreshRun(
+        dataset_id=dataset_id,
+        origin_kind="upload",
+        trigger="manual",
+        status="pending",
+        triggered_by=uuid.UUID(owner_id),
+    )
+    test_db_session.add(run)
+    await test_db_session.commit()
+
+    resp = await client.patch(
+        f"/datasets/{dataset_id}",
+        json={"owner_id": target_id, "title": "not applied"},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["code"] == "dataset_busy"
+    assert await _dataset_owner(test_db_session, dataset_id) == uuid.UUID(owner_id)
+    assert (
+        await _transfer_rows(test_db_session, "dataset.transfer_owner", dataset_id)
+        == []
+    )
+
+    run.status = "succeeded"
+    await test_db_session.commit()
+    resp = await client.patch(
+        f"/datasets/{dataset_id}",
+        json={"owner_id": target_id},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200, resp.text
+
+
+async def test_map_transfer_needs_the_new_owner_to_read_its_datasets(
+    client: AsyncClient,
+    test_db_session: AsyncSession,
+    admin_auth_header: dict,
+    people: dict,
+) -> None:
+    owner_headers, owner_id = people["owner"]
+    _, target_id = people["target"]
+    dataset_id = await _private_dataset(test_db_session, owner_id)
+    map_id = uuid.UUID((await create_map_via_api(client, owner_headers))["id"])
+    added = await client.post(
+        f"/maps/{map_id}/layers",
+        json={"dataset_id": str(dataset_id)},
+        headers=owner_headers,
+    )
+    assert added.status_code == 201, added.text
+
+    refused = await client.patch(
+        f"/maps/{map_id}", json={"owner_id": target_id}, headers=admin_auth_header
+    )
+    assert refused.status_code == 422, refused.text
+    assert refused.json()["detail"]["datasets"] == [str(dataset_id)]
+    assert await _map_owner(test_db_session, map_id) == uuid.UUID(owner_id)
+
+    moved = await client.patch(
+        f"/datasets/{dataset_id}",
+        json={"owner_id": target_id},
+        headers=admin_auth_header,
+    )
+    assert moved.status_code == 200, moved.text
+    resp = await client.patch(
+        f"/maps/{map_id}", json={"owner_id": target_id}, headers=admin_auth_header
+    )
+    assert resp.status_code == 200, resp.text
+    assert [layer["dataset_id"] for layer in resp.json()["layers"]] == [str(dataset_id)]
