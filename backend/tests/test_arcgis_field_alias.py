@@ -344,3 +344,23 @@ class TestRenamingAColumn:
 
         attrs = await _attrs(test_db_session, dataset_id)
         assert attrs["residents"].title == "Residents"
+
+    async def test_an_explicitly_edited_title_survives_a_rename(
+        self, test_db_session: AsyncSession
+    ) -> None:
+        from app.modules.catalog.layers.service import rename_column
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset_with_attributes(test_db_session, created_by=admin_id)
+        dataset_id = ds.id
+        attrs = await _attrs(test_db_session, dataset_id)
+        attrs["pop_2020"].user_modified_fields = ["title"]
+        await test_db_session.commit()
+        test_db_session.expunge_all()
+        ds = await test_db_session.get(type(ds), dataset_id)
+
+        await rename_column(test_db_session, ds, "pop_2020", "residents")
+        await test_db_session.commit()
+
+        attrs = await _attrs(test_db_session, dataset_id)
+        assert attrs["residents"].title == "Pop 2020"
