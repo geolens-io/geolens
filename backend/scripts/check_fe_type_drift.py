@@ -137,10 +137,6 @@ KNOWN_DRIFT: dict[str, list[str]] = {
         "proj:shape",
         "raster:bands",
     ],
-    # RasterMetadata.is_dem: added when DEM support landed; FE checks is_dem
-    # on the DatasetResponse wrapper, not on the nested RasterMetadata.
-    # TODO: redundant — either add to FE mirror or document the explicit choice.
-    "RasterMetadata": ["is_dem"],
     # RegisterResponse name collision: the backend AUTH RegisterResponse
     # ({message, next_step}) shares a name with the FE `RegisterResponse`
     # interface, which actually mirrors the UNRELATED dataset-ingest register
