@@ -518,6 +518,28 @@ def test_token_rejected_while_reading_an_owner_stops_the_remaining_owner_reads(r
     assert portal.requests_to("community/users/zed") == []
 
 
+def test_group_and_folder_titles_are_redacted(run):
+    leak = "https://x/y?token=abc123SECRET"
+    portal = FakePortal(
+        _rich_routes(
+            **{
+                f"content/items/{A1}/groups": {
+                    "admin": [{"id": "g1", "title": leak, "access": "org"}]
+                },
+                f"content/users/{USER}": {
+                    "folders": [{"id": FOLDER, "title": leak}],
+                    "items": [],
+                },
+            }
+        )
+    )
+    result, _ = run(portal, "--scope", "org")
+    assert "abc123SECRET" not in result.stdout
+    row = _rows(_report(result))[A1]
+    assert row["groups"][0]["title"].endswith("token=[REDACTED]")
+    assert row["folder"]["title"].endswith("token=[REDACTED]")
+
+
 def test_markdown_lists_folders_and_owners(run):
     result, _ = run(FakePortal(_rich_routes()), "--scope", "org", json_mode=False)
     assert "## Folders" in result.stdout

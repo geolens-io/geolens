@@ -754,7 +754,7 @@ def _metadata(item: Mapping[str, Any], redact: Redactor) -> dict[str, Any]:
         "access_information": _text(item.get("accessInformation"), redact),
         "license_info": _text(item.get("licenseInfo"), redact),
         "extent": _extent(item.get("extent")),
-        "thumbnail": thumbnail if isinstance(thumbnail, str) and thumbnail else None,
+        "thumbnail": _text(thumbnail, redact),
         "spatial_reference": _spatial_reference(item.get("spatialReference")),
         "culture": _text(item.get("culture"), redact),
     }
@@ -907,7 +907,7 @@ def _list_items(
                             continue
                         fid = str(f["id"])
                         if isinstance(f.get("title"), str):
-                            inv.folder_titles[fid] = f["title"]
+                            inv.folder_titles[fid] = client._redact(f["title"])
                         listings.append(
                             (f"{path}/{quote(fid, safe='')}", {}, "items", fid)
                         )
@@ -1282,7 +1282,7 @@ def _error_row(key: str, phase: str, exc: PortalError) -> dict[str, Any]:
     }
 
 
-def _item_groups(data: Mapping[str, Any]) -> list[dict[str, Any]]:
+def _item_groups(data: Mapping[str, Any], redact: Redactor) -> list[dict[str, Any]]:
     """Groups an item is shared with, from the admin, member and other lists."""
     groups: dict[str, dict[str, Any]] = {}
     for key in ("admin", "member", "other"):
@@ -1295,8 +1295,8 @@ def _item_groups(data: Mapping[str, Any]) -> list[dict[str, Any]]:
                 str(group["id"]),
                 {
                     "id": str(group["id"]),
-                    "title": str(group.get("title") or ""),
-                    "access": access if isinstance(access, str) else None,
+                    "title": redact(str(group.get("title") or "")),
+                    "access": redact(access) if isinstance(access, str) else None,
                 },
             )
     return list(groups.values())
@@ -1336,7 +1336,7 @@ def _collect_details(
                 out.folder_id = folder if isinstance(folder, str) and folder else None
                 out.url = sanitize_url(data.get("url"))
             else:
-                out.groups = _item_groups(data)
+                out.groups = _item_groups(data, client._redact)
         return out
 
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
@@ -1413,7 +1413,7 @@ def _collect_owners(client: PortalClient, inv: Inventory, concurrency: int) -> N
                 folders = data.get("folders")
                 for f in folders if isinstance(folders, list) else []:
                     if isinstance(f, dict) and f.get("id") and f.get("title"):
-                        out.folders[str(f["id"])] = str(f["title"])
+                        out.folders[str(f["id"])] = client._redact(str(f["title"]))
         return out
 
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
