@@ -1171,6 +1171,8 @@ def web_map_dependencies(
     basemap = data.get("baseMap")
     if isinstance(basemap, dict):
         walk(basemap.get("baseMapLayers"), "basemap")
+        walk(basemap.get("groundLayers"), "basemap")
+        walk(basemap.get("elevationLayers"), "basemap")
     walk(data.get("tables"), "table")
     ground = data.get("ground")
     if isinstance(ground, dict):

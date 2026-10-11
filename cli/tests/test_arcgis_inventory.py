@@ -2422,3 +2422,19 @@ def test_related_response_without_a_list_is_an_error_row(run):
     assert [(e["item_id"], e["phase"]) for e in _read_errors(report)] == [
         (A2, "related")
     ]
+
+
+def test_web_scene_base_map_elevation_layers_are_dependencies(run):
+    item_id = "7f" * 16
+    scene = {
+        "operationalLayers": [],
+        "baseMap": {
+            "baseMapLayers": [],
+            "groundLayers": [{"id": "g", "itemId": A1}],
+            "elevationLayers": [{"id": "e", "itemId": A2}],
+        },
+    }
+    routes = _one_item(item_id, "Web Scene", data=scene)
+    result, _ = run(FakePortal(routes), "--scope", "org")
+    links = _links(_report(result), item_id)
+    assert {(A1, "basemap", "g"), (A2, "basemap", "e")} <= links
