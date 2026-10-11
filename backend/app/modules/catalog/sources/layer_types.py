@@ -23,7 +23,9 @@ UNSUPPORTED_ARCGIS_LAYER_TYPES = frozenset(
 
 
 def is_importable_arcgis_type(arcgis_type: object) -> bool:
-    return arcgis_type not in UNSUPPORTED_ARCGIS_LAYER_TYPES
+    return not (
+        isinstance(arcgis_type, str) and arcgis_type in UNSUPPORTED_ARCGIS_LAYER_TYPES
+    )
 
 
 def reject_unsupported_arcgis_type(meta: dict) -> None:
@@ -57,6 +59,7 @@ def arcgis_probe_layers(
     layers = []
     for layer in data.get("layers", []):
         parent = layer.get("parentLayerId")
+        arcgis_type = layer.get("type")
         layers.append(
             {
                 "id": layer["id"],
@@ -64,7 +67,7 @@ def arcgis_probe_layers(
                 "title": layer.get("title"),
                 "geometry_type": normalize_geometry(layer.get("geometryType")),
                 "type": "layer",
-                "arcgis_type": layer.get("type"),
+                "arcgis_type": arcgis_type if isinstance(arcgis_type, str) else None,
                 "parent_layer_id": parent
                 if isinstance(parent, int) and parent >= 0
                 else None,

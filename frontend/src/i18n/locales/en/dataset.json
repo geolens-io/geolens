@@ -311,6 +311,7 @@
       "connecting": "Connecting to service...",
       "layerStep": "Select a layer",
       "emptyState": "No layers were found for this service.",
+      "unsupportedLayerType": "{{type}} holds no features and cannot be re-uploaded from.",
       "previewLayer": "Preview Layer",
       "previewing": "Preparing re-upload preview...",
       "layerLabel": "Layer:",

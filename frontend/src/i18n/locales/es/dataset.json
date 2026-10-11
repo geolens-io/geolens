@@ -360,6 +360,7 @@
       "connecting": "Conectando al servicio...",
       "layerStep": "Seleccione una capa",
       "emptyState": "No se encontraron capas para este servicio.",
+      "unsupportedLayerType": "{{type}} no contiene entidades y no se puede usar para volver a cargar.",
       "previewLayer": "Vista previa de la capa",
       "previewing": "Preparando vista previa de nueva subida...",
       "layerLabel": "Capa:",

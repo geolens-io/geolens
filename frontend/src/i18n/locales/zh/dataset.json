@@ -311,6 +311,7 @@
       "connecting": "正在连接服务...",
       "layerStep": "选择一个图层",
       "emptyState": "未找到此服务的图层。",
+      "unsupportedLayerType": "{{type}} 不包含要素，无法用于重新上传。",
       "previewLayer": "预览图层",
       "previewing": "正在准备重新上传预览...",
       "layerLabel": "图层：",

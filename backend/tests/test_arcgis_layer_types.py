@@ -160,3 +160,20 @@ class TestPreviewEndpointAnswersTheRefusal:
 
         assert resp.status_code == 422
         assert resp.json()["detail"]["code"] == "unsupported_layer_type"
+
+
+class TestAServerWithAnOddTypeValue:
+    @pytest.mark.parametrize("odd", [["Group Layer"], {"name": "Group Layer"}, 7])
+    async def test_a_non_string_type_is_treated_as_unknown(self, odd) -> None:
+        root = {"layers": [{"id": 0, "name": "X", "type": odd}], "tables": []}
+        async with _client(
+            {"MapServer": root, "0": {"name": "X", "type": odd}}
+        ) as client:
+            result = await probe_arcgis_service(_BASE, client)
+            assert result is not None
+            response = _build_arcgis_response(result, result["layers"], _BASE)
+            assert response.layers[0].source_layer_type is None
+            assert response.layers[0].importable is True
+
+            preview = await fetch_arcgis_layer_preview(_BASE, 0, client)
+        assert preview["layer_name"] == "X"
