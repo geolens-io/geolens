@@ -622,9 +622,8 @@ def _compute_stretch_rescale(
                 hi = min(hi, bmax)
         if lo is None or hi is None or not (lo < hi):
             continue
-        # Round to 4 dp — Titiler does not need full float precision and clean
-        # values keep the tile-URL cache key stable.
-        parts.append(f"rescale={round(lo, 4)},{round(hi, 4)}")
+        # A literal "+" in an exponent would be read as a space in the query.
+        parts.append(f"rescale={quote(str(lo))},{quote(str(hi))}")
     return parts
 
 
