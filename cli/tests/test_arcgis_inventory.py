@@ -2662,3 +2662,80 @@ def test_a_rejected_token_on_an_external_item_lookup_stays_fatal(run):
     result, _ = run(FakePortal(routes), "--scope", "org")
     assert result.exit_code == 3
     assert _report(result)["complete"] is False
+
+
+# Assembled from parts so a secret scanner doesn't read the sample as a token.
+_JWT_SAMPLE = ".".join(
+    ["eyJ" + "hbGciOiJIUzI1NiJ9", "eyJ" + "zdWIiOiIxMjM0NTY3ODkwIn0", "abcDEF123_-sig"]
+)
+
+
+def _nested(value):
+    return {"a": {"b": {"c": {"note": value}}}}
+
+
+@pytest.mark.parametrize(
+    ("raw", "gone"),
+    [
+        ("Authorization: Bearer abc123KEY", "abc123KEY"),
+        ("authorization=Basic dXNlcjpwYXNz", "dXNlcjpwYXNz"),
+        ("Cookie: sid=abc123KEY; theme=dark", "abc123KEY"),
+        ("X-Api-Key: abc123KEY", "abc123KEY"),
+        ("send Bearer abc123KEY now", "abc123KEY"),
+        ("Basic dXNlcjpwYXNz", "dXNlcjpwYXNz"),
+        ("Token abc123KEY", "abc123KEY"),
+        (
+            "jwt " + _JWT_SAMPLE + " end",
+            _JWT_SAMPLE.split(".")[0],
+        ),
+        (
+            "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADAN\n-----END PRIVATE KEY-----",
+            "MIIEvQIBADAN",
+        ),
+        ("id AKIAIOSFODNN7EXAMPLE end", "AKIAIOSFODNN7EXAMPLE"),
+        ("see apiKey=abc123KEY for access", "abc123KEY"),
+        ('{"token": "abc123KEY", "ok": 1}', "abc123KEY"),
+        ('prefix {"clientSecret": "abc123KEY"} suffix', "abc123KEY"),
+        ('{"nested": "{\\"apiKey\\": \\"abc123KEY\\"}"}', "abc123KEY"),
+        ("a=1&secret=abc123KEY", "abc123KEY"),
+    ],
+)
+def test_string_scrubber_masks_each_credential_shape(raw, gone):
+    cleaned = inventory.redact_json(_nested(raw), inventory.Redactor())
+    assert gone not in json.dumps(cleaned)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "Basic information about parcels",
+        "Bearer tokens are described elsewhere",
+        "Token ring network",
+        "authorization of the county board",
+        "eyJ is a prefix",
+        "keywords=parcels&title=Roads",
+        '{"title": "Roads", "tags": ["a"]}',
+        "a note with no credential at all",
+    ],
+)
+def test_string_scrubber_keeps_ordinary_text(raw):
+    cleaned = inventory.redact_json(_nested(raw), inventory.Redactor())
+    kept = cleaned["a"]["b"]["c"]["note"]
+    assert json.loads(kept) == json.loads(raw) if raw.startswith("{") else kept == raw
+
+
+def test_json_text_inside_a_string_keeps_its_structure():
+    raw = json.dumps({"layers": [{"id": 1, "token": "abc123KEY"}], "title": "T"})
+    cleaned = inventory.redact_json({"cfg": raw}, inventory.Redactor())
+    assert json.loads(cleaned["cfg"]) == {
+        "layers": [{"id": 1, "token": "[REDACTED]"}],
+        "title": "T",
+    }
+
+
+def test_custom_parameters_objects_are_replaced_by_key_name():
+    cleaned = inventory.redact_json(
+        {"a": {"b": {"customParameters": {"token": "abc123KEY"}}}},
+        inventory.Redactor(),
+    )
+    assert cleaned == {"a": {"b": {"customParameters": "[REDACTED]"}}}

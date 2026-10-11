@@ -200,7 +200,7 @@ _CREDENTIAL_NAME_PARTS = (
     "customparameters",
 )
 _CREDENTIAL_NAME_EXACT = frozenset({"sig", "auth", "pwd"})
-_URL_PARAM = re.compile(r"(^|[?&;#])([^=&;?/\s\"'#]+)=([^&;#\s]+)")
+_URL_PARAM = re.compile(r"(^|[?&;#,(\s])([^=&;?/\s\"'#]+)=([^&;#\s]+)")
 # A key that is a URL or an assignment holds text to scrub, not a bare name.
 _COMPOUND_KEY = re.compile(r"(?:[a-z][a-z0-9+.-]*:)?//|[=&?]", re.IGNORECASE)
 _URL_USERINFO = re.compile(r"(//)[^/@\s]+@")
@@ -249,15 +249,83 @@ def _scrub_param(match: re.Match[str]) -> str:
     return f"{lead}{name}={value}"
 
 
-def _scrub_text(text: str, redact: Redactor) -> str:
+_HEADER = re.compile(
+    r"\b((?:proxy-)?authorization|cookie|set-cookie|x-api-key|x-esri-authorization)"
+    r"(\s*[:=]\s*)[^\r\n]+",
+    re.IGNORECASE,
+)
+_SCHEME_CREDENTIAL = re.compile(
+    r"\b(Bearer|Basic|Token|Digest)(\s+)([A-Za-z0-9._~+/=-]{8,})", re.IGNORECASE
+)
+_JWT = re.compile(r"\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]*")
+_PEM = re.compile(
+    r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)",
+    re.DOTALL,
+)
+_AWS_KEY_ID = re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")
+_JSON_PAIR = re.compile(r'"([^"\\]{1,64})"(\s*:\s*)"(?:[^"\\]|\\.)*"')
+_MAX_EMBEDDED_DEPTH = 3
+
+
+def _looks_like_credential(word: str) -> bool:
+    """A word after an auth scheme that reads as a secret, not as prose."""
+    return (
+        any(c.isdigit() for c in word)
+        or "=" in word
+        or any(c.isupper() for c in word[1:])
+    )
+
+
+def _scrub_scheme(match: re.Match[str]) -> str:
+    scheme, space, word = match.groups()
+    return (
+        f"{scheme}{space}[REDACTED]" if _looks_like_credential(word) else match.group(0)
+    )
+
+
+def _scrub_pair(match: re.Match[str]) -> str:
+    name, colon = match.group(1), match.group(2)
+    return (
+        f'"{name}"{colon}"[REDACTED]"' if _is_credential_name(name) else match.group(0)
+    )
+
+
+def _scrub_text(text: str, redact: Redactor, depth: int = 0) -> str:
+    """*text* with every credential shape this module knows masked.
+
+    JSON held inside a string is parsed and scrubbed like the document around
+    it; any other text goes through the shape patterns, which cover query and
+    assignment forms, URL userinfo, auth headers and schemes, JWTs, private
+    keys and cloud access key ids.
+    """
+    stripped = text.lstrip()
+    if depth < _MAX_EMBEDDED_DEPTH and stripped[:1] in ("{", "["):
+        try:
+            embedded = json.loads(stripped)
+        except (ValueError, RecursionError):
+            embedded = None
+        if isinstance(embedded, dict | list):
+            return json.dumps(_redact_json(embedded, redact, depth + 1))
     text = redact(text)
-    if "//" in text or "=" in text:
+    text = _PEM.sub("[REDACTED]", text)
+    text = _HEADER.sub(r"\1\2[REDACTED]", text)
+    text = _SCHEME_CREDENTIAL.sub(_scrub_scheme, text)
+    text = _JWT.sub("[REDACTED]", text)
+    text = _AWS_KEY_ID.sub("[REDACTED]", text)
+    if "=" in text or "//" in text:
         text = _URL_PARAM.sub(_scrub_param, text)
         text = _URL_USERINFO.sub(r"\1[REDACTED]@", text)
+    if '":' in text or '" :' in text:
+        text = _JSON_PAIR.sub(_scrub_pair, text)
     return text
 
 
 def redact_json(value: Any, redact: Redactor) -> Any:
+    """A copy of *value* that is safe to write to disk (see ``_redact_json``)."""
+    return _redact_json(value, redact, 0)
+
+
+def _redact_json(value: Any, redact: Redactor, depth: int) -> Any:
     """A copy of *value* that is safe to write to disk.
 
     The value under any key named like a credential becomes ``[REDACTED]`` at
@@ -265,7 +333,7 @@ def redact_json(value: Any, redact: Redactor) -> Any:
     iterative so a deeply nested document can't exhaust the stack.
     """
     if not isinstance(value, dict | list):
-        return _scrub_text(value, redact) if isinstance(value, str) else value
+        return _scrub_text(value, redact, depth) if isinstance(value, str) else value
     root: Any = {} if isinstance(value, dict) else []
     stack = [(value, root)]
     while stack:
@@ -283,9 +351,11 @@ def redact_json(value: Any, redact: Redactor) -> Any:
                 out = {} if isinstance(item, dict) else []
                 stack.append((item, out))
             else:
-                out = _scrub_text(item, redact) if isinstance(item, str) else item
+                out = (
+                    _scrub_text(item, redact, depth) if isinstance(item, str) else item
+                )
             if isinstance(source, dict):
-                name = _scrub_text(key, redact) if isinstance(key, str) else key
+                name = _scrub_text(key, redact, depth) if isinstance(key, str) else key
                 # Two keys can scrub to the same text; keep both values.
                 while name in target:
                     name = f"{name}#"
