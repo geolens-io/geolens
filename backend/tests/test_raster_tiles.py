@@ -750,6 +750,20 @@ class TestDefaultRescaleAuthCheck:
         )
         assert params == "rescale=0,1.0"
 
+    async def test_float_raster_with_a_tiny_range_keeps_it_distinct(
+        self, client: AsyncClient, test_db_session, monkeypatch
+    ):
+        params, _ = await self._render_params(
+            client,
+            test_db_session,
+            monkeypatch,
+            stats=[{"min": 0.00001, "max": 0.00002}],
+            dtype="float32",
+            band_count=1,
+        )
+        lo, hi = params.removeprefix("rescale=").split(",")
+        assert float(lo) < float(hi)
+
     async def test_integer_raster_keeps_the_dtype_rescale(
         self, client: AsyncClient, test_db_session, monkeypatch
     ):

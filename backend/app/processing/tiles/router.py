@@ -612,7 +612,7 @@ def _data_range_rescale(bands: list[dict], n_bands: int) -> list[str]:
         lo, hi = b.get("min"), b.get("max")
         if lo is None or hi is None or not (lo < hi):
             return []
-        parts.append(f"rescale={round(lo, 4)},{round(hi, 4)}")
+        parts.append(f"rescale={lo},{hi}")
     return parts if len(parts) == n_bands else []
 
 
