@@ -9,7 +9,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any, Literal, NamedTuple, TypeVar
-from urllib.parse import parse_qs, urlencode
+from urllib.parse import parse_qs, quote, urlencode
 
 import httpx
 import structlog
@@ -625,7 +625,8 @@ def _data_range_rescale(bands: list[dict], n_bands: int) -> list[str]:
         lo, hi = b.get("min"), b.get("max")
         if lo is None or hi is None or not (lo < hi):
             return []
-        parts.append(f"rescale={lo},{hi}")
+        # A literal "+" in an exponent would be read as a space in the query.
+        parts.append(f"rescale={quote(str(lo))},{quote(str(hi))}")
     return parts if len(parts) == n_bands else []
 
 

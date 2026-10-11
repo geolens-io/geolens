@@ -764,6 +764,19 @@ class TestDefaultRescaleAuthCheck:
         lo, hi = params.removeprefix("rescale=").split(",")
         assert float(lo) < float(hi)
 
+    async def test_float_raster_bounds_with_an_exponent_are_percent_encoded(
+        self, client: AsyncClient, test_db_session, monkeypatch
+    ):
+        params, _ = await self._render_params(
+            client,
+            test_db_session,
+            monkeypatch,
+            stats=[{"min": -1.5, "max": 1e20}],
+            dtype="float32",
+            band_count=1,
+        )
+        assert params == "rescale=-1.5,1e%2B20"
+
     async def test_integer_raster_keeps_the_dtype_rescale(
         self, client: AsyncClient, test_db_session, monkeypatch
     ):
