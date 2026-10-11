@@ -250,12 +250,12 @@ def _scrub_param(match: re.Match[str]) -> str:
 
 
 _HEADER = re.compile(
-    r"\b((?:proxy-)?authorization|cookie|set-cookie|x-api-key|x-esri-authorization)"
+    r"\b((?:proxy-)?authorization|cookie|set-cookie|(?:x[-_]?)?api[-_]?key|x-esri-authorization)"
     r"(\s*[:=]\s*)[^\r\n]+",
     re.IGNORECASE,
 )
 _SCHEME_CREDENTIAL = re.compile(
-    r"\b(Bearer|Basic|Token|Digest)(\s+)([A-Za-z0-9._~+/=-]{8,})", re.IGNORECASE
+    r"\b(Bearer|Basic|Token|Digest)(\s+)([A-Za-z0-9._~+/=-]{12,})", re.IGNORECASE
 )
 _JWT = re.compile(r"\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]*")
 _PEM = re.compile(
@@ -267,20 +267,9 @@ _JSON_PAIR = re.compile(r'"([^"\\]{1,64})"(\s*:\s*)"(?:[^"\\]|\\.)*"')
 _MAX_EMBEDDED_DEPTH = 3
 
 
-def _looks_like_credential(word: str) -> bool:
-    """A word after an auth scheme that reads as a secret, not as prose."""
-    return (
-        any(c.isdigit() for c in word)
-        or "=" in word
-        or any(c.isupper() for c in word[1:])
-    )
-
-
 def _scrub_scheme(match: re.Match[str]) -> str:
-    scheme, space, word = match.groups()
-    return (
-        f"{scheme}{space}[REDACTED]" if _looks_like_credential(word) else match.group(0)
-    )
+    scheme, space, _ = match.groups()
+    return f"{scheme}{space}[REDACTED]"
 
 
 def _scrub_pair(match: re.Match[str]) -> str:
