@@ -2625,3 +2625,14 @@ def test_assignment_shaped_keys_are_scrubbed_and_their_subtrees_kept():
         "plain": {"n": 4},
         "token": "[REDACTED]",
     }
+
+
+def test_scan_returns_ids_in_document_order_and_accepts_mixed_case():
+    first, second, third = "a" * 32, "B" * 32, "c1" * 16
+    data = {
+        "x": [{"itemId": first, "nested": {"itemId": second}}],
+        "webmap": third,
+        "again": {"itemId": first},
+        "short": {"itemId": "abc"},
+    }
+    assert inventory._scan_item_ids(data) == [first, second, third]

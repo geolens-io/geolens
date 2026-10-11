@@ -204,7 +204,7 @@ _URL_PARAM = re.compile(r"(^|[?&;#])([^=&;?/\s\"'#]+)=([^&;#\s]+)")
 # A key that is a URL or an assignment holds text to scrub, not a bare name.
 _COMPOUND_KEY = re.compile(r"(?:[a-z][a-z0-9+.-]*:)?//|[=&?]", re.IGNORECASE)
 _URL_USERINFO = re.compile(r"(//)[^/@\s]+@")
-_ITEM_ID = re.compile(r"[0-9a-f]{32}")
+_ITEM_ID = re.compile(r"[0-9A-Za-z]{32}")
 _SAFE_FILENAME = re.compile(r"[A-Za-z0-9_-]{1,64}")
 _WEB_MAP_TYPE = "Web Map"
 # Statuses a portal answers with for members or folders the caller may not see.
@@ -1444,24 +1444,24 @@ def _related_dependencies(
 
 def _scan_item_ids(data: Any) -> list[str]:
     """Item ids under ``itemId`` or ``webmap`` keys, and ``id`` in objects
-    typed ``webmap``, in document order."""
+    typed ``webmap``, in first-seen document order."""
     found: dict[str, None] = {}
-    stack = [data]
+    # Each entry is (key, value, whether the parent object is typed webmap),
+    # so scalars and containers are visited in the order they appear.
+    stack: list[tuple[str | None, Any, bool]] = [(None, data, False)]
     while stack:
-        node = stack.pop()
+        key, node, typed = stack.pop()
         if isinstance(node, list):
-            stack.extend(reversed(node))
+            stack.extend((None, item, False) for item in reversed(node))
         elif isinstance(node, dict):
-            typed = str(node.get("type") or "").lower() == "webmap"
-            for key, value in reversed(list(node.items())):
-                if isinstance(value, dict | list):
-                    stack.append(value)
-                elif (
-                    isinstance(value, str)
-                    and _ITEM_ID.fullmatch(value)
-                    and (key in ("itemId", "webmap") or (key == "id" and typed))
-                ):
-                    found.setdefault(value, None)
+            is_typed = str(node.get("type") or "").lower() == "webmap"
+            stack.extend((k, v, is_typed) for k, v in reversed(list(node.items())))
+        elif (
+            isinstance(node, str)
+            and _ITEM_ID.fullmatch(node)
+            and (key in ("itemId", "webmap") or (key == "id" and typed))
+        ):
+            found.setdefault(node, None)
     return list(found)
 
 
