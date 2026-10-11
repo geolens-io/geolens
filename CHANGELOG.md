@@ -7,6 +7,103 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.24.0] - 2026-10-11
+
+### Added
+
+- Admins can transfer a dataset or a map to another user. `PATCH /datasets/{id}`
+  accepts `owner_id`, and the new `PATCH /maps/{id}` takes `owner_id` as its
+  only field. The new owner must be an active user whose role can create that
+  kind of object (`upload` for datasets, `edit_metadata` for maps), so viewers
+  can't receive either; an unknown, inactive or under-permissioned user, or
+  `null`, answers 422 and nothing changes. The current owner and other editors
+  get 403. Each transfer writes one `dataset.transfer_owner` or
+  `map.transfer_owner` audit row with the previous and new owner, and the
+  dataset change history shows "Owner changed". Transferring to the current
+  owner is a no-op. A dataset transfer answers 409 `dataset_busy` while a
+  refresh, re-upload or VRT regeneration is pending or running, and rolls the
+  publication version, so signed tile URLs minted before it stop validating.
+  A map transfer answers 422, listing the dataset ids, when the new owner
+  can't read every dataset the map uses. Ownership is `created_by`, so the
+  write gates, private visibility, provenance and quota usage move with it;
+  grants, collections, existing embed and share tokens, API keys and job
+  history stay as they are. There is no admin UI for transfers yet, and a
+  transfer doesn't check the new owner's storage quota. (#2895)
+- ArcGIS imports use each field's alias as the attribute title and its
+  description as the attribute description, so `POP_2020` shows as
+  "Population (2020 census)" when the service says so. An alias that only
+  repeats the field name is ignored. Imports that skip the preview step,
+  such as bulk and CLI imports, keep humanized titles. (#2899)
+- Map popups label each row with the attribute's title from the dataset's
+  attribute metadata, falling back to the humanized property key. (#2901)
+- The ArcGIS service probe reports each layer's ArcGIS type
+  (`source_layer_type`), its `parent_layer_id` and whether it is
+  `importable`. The preview answers Group, Raster, Annotation, Topology and
+  Utility Network layers with 422 `unsupported_layer_type` instead of making
+  an empty dataset, and the service import form and the Re-Upload dialog show
+  those layers disabled with the reason. (#2890)
+- `EMAIL_VERIFICATION_REQUIRED`, `PASSWORD_LOGIN_ENABLED`, `LOGIN_RATE_LIMIT`
+  (1 to 1000) and `ALLOWED_EMAIL_DOMAINS` (comma-separated) set those auth
+  settings from the environment, with the previous defaults, and both compose
+  files pass them to the api service. An invalid value stops boot with a line
+  naming the variable. With `ENV_ONLY_CONFIG=true` the Auth tab shows them as
+  env-managed. (#2892)
+- `geolens arcgis inventory` writes schema version 2. Each item gains its
+  descriptive metadata (snippet, description, tags, access and license text,
+  extent, thumbnail path, spatial reference), its folder, its owner's name and
+  email, and the groups it is shared with; `--no-groups` skips the group
+  reads. With `-o`, each web map's and app's configuration is saved under
+  `webmaps/` and `apps/` with mode 0600, after every credential-like key and
+  string is masked. StoryMap, Hub, Notebook and Web Scene items are now read,
+  hosted views, file-backed layers and survey forms record the item they come
+  from, and every dependency says whether it is `external` to the
+  organization. `--read-all-item-data` scans the remaining items for item
+  references. v2 only adds fields, so v1 readers keep working. (#2888, #2904)
+- `geolens arcgis plan <arcgis-inventory.json>` turns an inventory into an
+  editable migration plan, `arcgis-migration-plan.json`. It reads only the
+  inventory and contacts nothing. Each item gets a default action
+  (`import_layers`, `import_file`, `import_map` or `export_only`), a target
+  visibility, collection, groups, title and tags, and the items it depends
+  on. The plan lists every owner, group and basemap for you to map to
+  GeoLens users, collections and basemaps. Running it twice writes the same
+  file, and it stops rather than overwrite a plan you edited unless you pass
+  `--force`. The CLI README documents the inventory, the saved configuration
+  files and the plan format. (#2910)
+- The OpenAPI descriptions of a map layer's `style_config` and
+  `label_config` list the keys the server accepts, and a test pins that
+  vocabulary for desktop GIS plugins that publish maps. (#2905)
+
+### Changed
+
+- A re-upload or refresh keeps the title and description of an attribute
+  nobody has edited. Before, it reset both to their defaults. (#2899)
+- The review step of a service import is headed "Service preview". Its layer
+  rows show the geometry and feature count, and repeat the layer name only
+  when it differs from the title. Changing the service address to another
+  origin now says that it reset the chosen authentication. On a dataset's
+  Source tab the service URL row reads "Source URL (credentials removed)",
+  and a PostGIS or STAC dataset whose health was never checked says the next
+  refresh checks it. (#2886, #2887, #2894, #2903)
+
+### Fixed
+
+- Token refresh is limited to 30 a minute per session instead of 30 a minute
+  per client address, with 300 a minute per address as a ceiling. Many people
+  behind one office proxy no longer run out of budget together and land on a
+  page that looks signed in without access. A refresh with a missing or
+  invalid token still counts against the address. When a page load can't
+  restore the session for a transient reason, a toast says so and offers
+  "Try again". (#2891)
+- With `ENV_ONLY_CONFIG=true` the Auth tab lets admins add, edit and delete
+  SSO providers, which the API already allowed. The login rate limit no longer
+  falls back to 5 a minute in env-only mode, where nothing warmed its cache.
+  (#2892)
+- The sign-in page shows "Need access? Contact a GeoLens administrator." only
+  while sign-up is closed. (#2869)
+- The maintenance commands in `RUNBOOK.md` and the scripts' usage text call
+  `/app/.venv/bin/python` instead of `uv run`, which fails in the read-only
+  production api container. (#2889)
+
 ## [1.23.1] - 2026-10-10
 
 ### Added
@@ -5180,7 +5277,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.23.1...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.24.0...HEAD
+[1.24.0]: https://github.com/geolens-io/geolens/compare/v1.23.1...v1.24.0
 [1.23.1]: https://github.com/geolens-io/geolens/compare/v1.23.0...v1.23.1
 [1.23.0]: https://github.com/geolens-io/geolens/compare/v1.22.0...v1.23.0
 [1.22.0]: https://github.com/geolens-io/geolens/compare/v1.21.1...v1.22.0
