@@ -2346,3 +2346,38 @@ def test_read_all_does_not_hide_a_failed_related_read(run):
     )
     result, _ = run(FakePortal(routes), "--scope", "org", "--read-all-item-data")
     assert _rows(_report(result))[A2]["dependencies_status"] == "error"
+
+
+def test_private_key_fields_are_replaced():
+    cleaned = inventory.redact_json(
+        {"privateKey": "k", "passphrase": "p"}, inventory.Redactor()
+    )
+    assert cleaned == {"privateKey": "[REDACTED]", "passphrase": "[REDACTED]"}
+
+
+def test_server_failure_while_resolving_an_external_item_is_an_error_row(run):
+    stranger = "9c" * 16
+    layers = [{"id": "x", "layerType": "ArcGISFeatureLayer", "itemId": stranger}]
+    data = {"operationalLayers": layers, "baseMap": {"baseMapLayers": []}}
+    routes = _one_item(
+        B1,
+        "Web Map",
+        data=data,
+        **{f"content/items/{stranger}": (500, {"error": {"code": 500}})},
+    )
+    result, _ = run(FakePortal(routes), "--scope", "org", "--strict")
+    errors = _report(result)["errors"]
+    assert result.exit_code == 1
+    assert [(e["item_id"], e["phase"]) for e in errors] == [(stranger, "external")]
+
+
+def test_read_all_keeps_a_view_with_a_good_parent_parsed(run):
+    related = {"relatedItems": [{"id": A1, "type": "Feature Service", "title": "P"}]}
+    routes = portal_routes(
+        {
+            f"content/items/{A2}/relatedItems": related,
+            item_data_path(A2): {"layers": []},
+        }
+    )
+    result, _ = run(FakePortal(routes), "--scope", "org", "--read-all-item-data")
+    assert _rows(_report(result))[A2]["dependencies_status"] == "parsed"

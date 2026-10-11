@@ -360,10 +360,10 @@
       "required": ["item_id", "phase", "http_status", "message"],
       "properties": {
         "item_id": {
-          "description": "The item's id; for the owner and folders phases, the owner's username.",
+          "description": "The item's id; for the owner and folders phases, the owner's username; for external, the referenced item's id.",
           "type": "string"
         },
-        "phase": {"enum": ["item_data", "item_details", "item_groups", "related", "owner", "folders"]},
+        "phase": {"enum": ["item_data", "item_details", "item_groups", "related", "external", "owner", "folders"]},
         "http_status": {"type": ["integer", "null"]},
         "message": {"type": "string"}
       }

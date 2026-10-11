@@ -191,7 +191,16 @@ _SECRET_KEYS = frozenset(
 )
 # Credentials a stored URL can carry beyond what Redactor knows: query values
 # named like a secret, and userinfo.
-_SECRET_KEY_PARTS = ("token", "password", "secret", "apikey", "credential")
+_SECRET_KEY_PARTS = (
+    "token",
+    "password",
+    "passwd",
+    "passphrase",
+    "secret",
+    "apikey",
+    "privatekey",
+    "credential",
+)
 _URL_SECRET_PARAM = re.compile(
     r"([?&;](?:access_token|api_?key|client_secret|secret|sig|signature)=)[^&\s\"'#]+",
     re.IGNORECASE,
@@ -1566,8 +1575,9 @@ def _collect_dependencies(
             if out.auth is not None:
                 return out
         related_ok = True
+        related_reads = _related_reads(row["type"], row["reason"])
         base = f"content/items/{quote(row['id'], safe='')}/relatedItems"
-        for relationship, direction, role in _related_reads(row["type"], row["reason"]):
+        for relationship, direction, role in related_reads:
             try:
                 response = client.get_json(
                     base, {"relationshipType": relationship, "direction": direction}
@@ -1586,7 +1596,12 @@ def _collect_dependencies(
                     row, response, role, index, inv.portal, len(out.dependencies)
                 )
             )
-        out.status = "error" if not related_ok else (status or "parsed")
+        if not related_ok or status == "error":
+            out.status = "error"
+        elif related_reads:
+            out.status = "parsed"
+        else:
+            out.status = status or "parsed"
         return out
 
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
@@ -1869,7 +1884,8 @@ def _resolve_external(client: PortalClient, inv: Inventory, concurrency: int) ->
 
     An unresolved item id gets one ``/content/items`` read, cached for the
     run, because search results omit ``orgId``. An item the account can't read
-    falls back to its URL, and with no URL stays unknown.
+    falls back to its URL, and with no URL stays unknown. Only a client error
+    counts as "can't read"; a timeout or server failure is an error row.
     """
     own_org = inv.portal["org_id"]
     ids = sorted(
@@ -1886,16 +1902,20 @@ def _resolve_external(client: PortalClient, inv: Inventory, concurrency: int) ->
             _detach(exc)
             if exc.kind == "auth":
                 stop.set()
-            return None, exc if exc.kind == "auth" else None
+            return None, exc
         org = data.get("orgId")
         return (org if isinstance(org, str) and org else None), None
 
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
         results = dict(zip(ids, pool.map(fetch, ids), strict=True))
     orgs = {item_id: org for item_id, (org, _) in results.items()}
-    for _, failure in results.values():
-        if failure is not None:
+    for item_id, (_, failure) in results.items():
+        if failure is None:
+            continue
+        if failure.kind == "auth":
             inv.abort = inv.abort or failure
+        elif failure.kind != "refused":
+            inv.errors.append(_error_row(client._redact(item_id), "external", failure))
     for dep in inv.dependencies:
         if dep["resolved"]:
             continue
