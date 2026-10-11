@@ -267,7 +267,7 @@ def render_markdown(report: Mapping[str, Any]) -> str:
     if report["dependencies"]:
         lines += ["## Dependencies", ""]
         lines += _table(
-            ["From", "To", "Role", "Layer type", "Hosted", "In inventory"],
+            ["From", "To", "Role", "Layer type", "Hosted", "In inventory", "External"],
             [
                 [
                     _item_link(report, dep["from_id"]),
@@ -276,6 +276,7 @@ def render_markdown(report: Mapping[str, Any]) -> str:
                     md_escape(dep["layer_type"] or ""),
                     {True: "yes", False: "no", None: "unknown"}[dep["hosted"]],
                     "yes" if dep["resolved"] else "no",
+                    {True: "yes", False: "no", None: "unknown"}[dep["external"]],
                 ]
                 for dep in report["dependencies"]
             ],
@@ -324,3 +325,12 @@ def write_report_files(
     _write_private(json_path, json.dumps(report, indent=2, sort_keys=True) + "\n")
     _write_private(md_path, markdown)
     return json_path, md_path
+
+
+def write_sidecar(output_dir: Path, folder: str, item_id: str, data: Any) -> Path:
+    """Write one item's redacted data JSON to ``<folder>/<item id>.json`` at 0600."""
+    target = output_dir / folder
+    target.mkdir(parents=True, exist_ok=True)
+    path = target / f"{item_id}.json"
+    _write_private(path, json.dumps(data, indent=2, sort_keys=True) + "\n")
+    return path

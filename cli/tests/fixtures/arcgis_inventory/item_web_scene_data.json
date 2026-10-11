@@ -1,0 +1,12 @@
+{
+  "operationalLayers": [
+    {
+      "id": "scene-layer-0",
+      "layerType": "ArcGISFeatureLayer",
+      "title": "Parcels",
+      "itemId": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+      "url": "https://services1.arcgis.com/ExAmPlEoRg0123/arcgis/rest/services/Parcels/FeatureServer/0"
+    }
+  ],
+  "baseMap": {"baseMapLayers": []}
+}

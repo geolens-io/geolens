@@ -1,0 +1,450 @@
+{
+  "nodes": {
+    "n-01E7fr": {
+      "config": {
+        "size": "wide"
+      },
+      "data": {
+        "text": "<span class=\"sm-text-color-themeColor1\">Adjacent to\u00a0Waterbodies</span>\u00a0",
+        "type": "h3"
+      },
+      "type": "text"
+    },
+    "n-2DsJEU": {
+      "data": {
+        "caption": "Cons Map",
+        "isShowingLegend": true,
+        "legendPinned": true,
+        "map": "r-5ab764f0576f4da99c912a51be4d1f2f",
+        "mapLayers": [
+          {
+            "id": "c3929defe2c54dbca36e593911378113",
+            "title": "COMM_DevelopmentThreatScore",
+            "visible": false
+          },
+          {
+            "id": "4ef2c539145d4798966b09dcd55988c4",
+            "title": "CULTURAL_ScenicResourceScore",
+            "visible": false
+          },
+          {
+            "id": "77d87579ddef4d0488c39d7855d428cb",
+            "title": "CLIMATE_FloodZoneScore",
+            "visible": false
+          },
+          {
+            "id": "c8e9c71995364bf78b3fffd43b3fd863",
+            "title": "CLIMATE_BurnProbabilityScore",
+            "visible": false
+          },
+          {
+            "id": "363bd0844c594ef5a46a6d10d36b33b4",
+            "title": "WQ_CarboniteBedrockScore",
+            "visible": false
+          },
+          {
+            "id": "923be89579bb4727a6c42ec07b834a8f",
+            "title": "WQ_WHPAScore",
+            "visible": false
+          },
+          {
+            "id": "c892289d94f9479d922b9697e1903bfe",
+            "title": "WQ_OpenWaterProtectionScore",
+            "visible": false
+          },
+          {
+            "id": "87944b7cd72042cbbd3fd4acd657ff72",
+            "title": "WQ_GroundwaterRechargeScore",
+            "visible": false
+          },
+          {
+            "id": "65c97f46e2cb48fbbcd6ee0f599a0b31",
+            "title": "HAB_CoreForestScore",
+            "visible": false
+          },
+          {
+            "id": "a91c2af6890c44cda5d42d5b5125266f",
+            "title": "HAB_DistConservedHabitatScore",
+            "visible": false
+          },
+          {
+            "id": "f458e6169c4145fe9b58c960f1470edb",
+            "title": "HAB_SpecialEnvZoneScore",
+            "visible": false
+          },
+          {
+            "id": "bcbce17949884c3d9b4d16e2b77fba1b",
+            "title": "HAB_NaturalHeritageScore",
+            "visible": false
+          },
+          {
+            "id": "c28919d6bdd84fd2b4648ebd3ceac341",
+            "title": "HAB_ConserveWildlifeCorridorScore",
+            "visible": false
+          },
+          {
+            "id": "fbd5d6a341fc4f8f9d4083520d8376b3",
+            "title": "HAB_ConserveVernalPoolScore",
+            "visible": false
+          },
+          {
+            "id": "12ead84cebac4b87aedd365d291e6a7f",
+            "title": "HAB_CriticalHabitatScore",
+            "visible": false
+          },
+          {
+            "id": "075d351b6f184983bf406706a7ca06c7",
+            "title": "REC_PassiveConservedAccessScore",
+            "visible": false
+          },
+          {
+            "id": "970dbccaabcb4074b0066138e51d2680",
+            "title": "HAB_BirdAreaScore",
+            "visible": true
+          },
+          {
+            "id": "057a340d0bd34d1cb11ddc67aaa32710",
+            "title": "REC_PassiveConservedAccessScore",
+            "visible": false
+          },
+          {
+            "id": "1f8c161b134740e2bc9d71a2b5b161d4",
+            "title": "REC_WaterbodyAccessScore",
+            "visible": false
+          }
+        ],
+        "timeSlider": false,
+        "viewPlacement": "extent"
+      },
+      "type": "webmap"
+    },
+    "n-BzAkAX": {
+      "data": {
+        "caption": "Cons Map",
+        "isShowingLegend": true,
+        "legendPinned": true,
+        "map": "r-5ab764f0576f4da99c912a51be4d1f2f",
+        "mapLayers": [
+          {
+            "id": "c3929defe2c54dbca36e593911378113",
+            "title": "COMM_DevelopmentThreatScore",
+            "visible": false
+          },
+          {
+            "id": "4ef2c539145d4798966b09dcd55988c4",
+            "title": "CULTURAL_ScenicResourceScore",
+            "visible": false
+          },
+          {
+            "id": "77d87579ddef4d0488c39d7855d428cb",
+            "title": "CLIMATE_FloodZoneScore",
+            "visible": false
+          },
+          {
+            "id": "c8e9c71995364bf78b3fffd43b3fd863",
+            "title": "CLIMATE_BurnProbabilityScore",
+            "visible": false
+          },
+          {
+            "id": "363bd0844c594ef5a46a6d10d36b33b4",
+            "title": "WQ_CarboniteBedrockScore",
+            "visible": false
+          },
+          {
+            "id": "923be89579bb4727a6c42ec07b834a8f",
+            "title": "WQ_WHPAScore",
+            "visible": false
+          },
+          {
+            "id": "c892289d94f9479d922b9697e1903bfe",
+            "title": "WQ_OpenWaterProtectionScore",
+            "visible": true
+          },
+          {
+            "id": "87944b7cd72042cbbd3fd4acd657ff72",
+            "title": "WQ_GroundwaterRechargeScore",
+            "visible": false
+          },
+          {
+            "id": "65c97f46e2cb48fbbcd6ee0f599a0b31",
+            "title": "HAB_CoreForestScore",
+            "visible": false
+          },
+          {
+            "id": "a91c2af6890c44cda5d42d5b5125266f",
+            "title": "HAB_DistConservedHabitatScore",
+            "visible": false
+          },
+          {
+            "id": "f458e6169c4145fe9b58c960f1470edb",
+            "title": "HAB_SpecialEnvZoneScore",
+            "visible": false
+          },
+          {
+            "id": "bcbce17949884c3d9b4d16e2b77fba1b",
+            "title": "HAB_NaturalHeritageScore",
+            "visible": false
+          },
+          {
+            "id": "c28919d6bdd84fd2b4648ebd3ceac341",
+            "title": "HAB_ConserveWildlifeCorridorScore",
+            "visible": false
+          },
+          {
+            "id": "fbd5d6a341fc4f8f9d4083520d8376b3",
+            "title": "HAB_ConserveVernalPoolScore",
+            "visible": false
+          },
+          {
+            "id": "12ead84cebac4b87aedd365d291e6a7f",
+            "title": "HAB_CriticalHabitatScore",
+            "visible": false
+          },
+          {
+            "id": "075d351b6f184983bf406706a7ca06c7",
+            "title": "REC_PassiveConservedAccessScore",
+            "visible": false
+          },
+          {
+            "id": "970dbccaabcb4074b0066138e51d2680",
+            "title": "HAB_BirdAreaScore",
+            "visible": false
+          },
+          {
+            "id": "057a340d0bd34d1cb11ddc67aaa32710",
+            "title": "REC_PassiveConservedAccessScore",
+            "visible": false
+          },
+          {
+            "id": "1f8c161b134740e2bc9d71a2b5b161d4",
+            "title": "REC_WaterbodyAccessScore",
+            "visible": false
+          }
+        ],
+        "timeSlider": false,
+        "viewPlacement": "extent"
+      },
+      "type": "webmap"
+    },
+    "n-pKhqOt": {
+      "data": {
+        "caption": "Cons Map",
+        "center": {
+          "spatialReference": {
+            "latestWkid": 3857,
+            "wkid": 102100
+          },
+          "x": -8311401.671546866,
+          "y": 4995750.082357587
+        },
+        "extent": {
+          "spatialReference": {
+            "latestWkid": 3857,
+            "wkid": 102100
+          },
+          "xmax": -8247514.358333764,
+          "xmin": -8375288.984759969,
+          "ymax": 5031689.723300818,
+          "ymin": 4959810.441414356
+        },
+        "isShowingLegend": true,
+        "legendPinned": true,
+        "map": "r-xs6fBY",
+        "mapLayers": [
+          {
+            "id": "c3929defe2c54dbca36e593911378113",
+            "title": "COMM_DevelopmentThreatScore",
+            "visible": true
+          },
+          {
+            "id": "4ef2c539145d4798966b09dcd55988c4",
+            "title": "CULTURAL_ScenicResourceScore",
+            "visible": false
+          },
+          {
+            "id": "77d87579ddef4d0488c39d7855d428cb",
+            "title": "CLIMATE_FloodZoneScore",
+            "visible": false
+          },
+          {
+            "id": "c8e9c71995364bf78b3fffd43b3fd863",
+            "title": "CLIMATE_BurnProbabilityScore",
+            "visible": false
+          },
+          {
+            "id": "363bd0844c594ef5a46a6d10d36b33b4",
+            "title": "WQ_CarboniteBedrockScore",
+            "visible": false
+          },
+          {
+            "id": "923be89579bb4727a6c42ec07b834a8f",
+            "title": "WQ_WHPAScore",
+            "visible": false
+          },
+          {
+            "id": "c892289d94f9479d922b9697e1903bfe",
+            "title": "WQ_OpenWaterProtectionScore",
+            "visible": false
+          },
+          {
+            "id": "87944b7cd72042cbbd3fd4acd657ff72",
+            "title": "WQ_GroundwaterRechargeScore",
+            "visible": false
+          },
+          {
+            "id": "65c97f46e2cb48fbbcd6ee0f599a0b31",
+            "title": "HAB_CoreForestScore",
+            "visible": false
+          },
+          {
+            "id": "a91c2af6890c44cda5d42d5b5125266f",
+            "title": "HAB_DistConservedHabitatScore",
+            "visible": false
+          },
+          {
+            "id": "f458e6169c4145fe9b58c960f1470edb",
+            "title": "HAB_SpecialEnvZoneScore",
+            "visible": false
+          },
+          {
+            "id": "bcbce17949884c3d9b4d16e2b77fba1b",
+            "title": "HAB_NaturalHeritageScore",
+            "visible": false
+          },
+          {
+            "id": "c28919d6bdd84fd2b4648ebd3ceac341",
+            "title": "HAB_ConserveWildlifeCorridorScore",
+            "visible": false
+          },
+          {
+            "id": "fbd5d6a341fc4f8f9d4083520d8376b3",
+            "title": "HAB_ConserveVernalPoolScore",
+            "visible": false
+          },
+          {
+            "id": "12ead84cebac4b87aedd365d291e6a7f",
+            "title": "HAB_CriticalHabitatScore",
+            "visible": false
+          },
+          {
+            "id": "075d351b6f184983bf406706a7ca06c7",
+            "title": "REC_PassiveConservedAccessScore",
+            "visible": false
+          },
+          {
+            "id": "970dbccaabcb4074b0066138e51d2680",
+            "title": "HAB_BirdAreaScore",
+            "visible": false
+          },
+          {
+            "id": "057a340d0bd34d1cb11ddc67aaa32710",
+            "title": "REC_PassiveConservedAccessScore",
+            "visible": false
+          },
+          {
+            "id": "1f8c161b134740e2bc9d71a2b5b161d4",
+            "title": "REC_WaterbodyAccessScore",
+            "visible": false
+          }
+        ],
+        "timeSlider": false,
+        "viewPlacement": "extent",
+        "viewpoint": {
+          "rotation": 0,
+          "scale": 366130.97503439756,
+          "targetGeometry": {
+            "spatialReference": {
+              "latestWkid": 3857,
+              "wkid": 102100
+            },
+            "x": -8311401.671546866,
+            "y": 4995750.082357587
+          }
+        },
+        "zoom": 10.732651573076316
+      },
+      "type": "webmap"
+    }
+  },
+  "resources": {
+    "r-5ab764f0576f4da99c912a51be4d1f2f": {
+      "data": {
+        "center": {
+          "spatialReference": {
+            "latestWkid": 3857,
+            "wkid": 102100
+          },
+          "x": -8311401.671546866,
+          "y": 4995750.082357587
+        },
+        "extent": {
+          "spatialReference": {
+            "latestWkid": 3857,
+            "wkid": 102100
+          },
+          "xmax": -8248490.185781477,
+          "xmin": -8374313.157312255,
+          "ymax": 5031689.723300818,
+          "ymin": 4959810.441414356
+        },
+        "itemId": "5ab764f0576f4da99c912a51be4d1f2f",
+        "itemType": "Web Map",
+        "type": "default",
+        "viewpoint": {
+          "rotation": 0,
+          "scale": 517465.11138194485,
+          "targetGeometry": {
+            "spatialReference": {
+              "latestWkid": 3857,
+              "wkid": 102100
+            },
+            "x": -8311401.671546866,
+            "y": 4995750.082357587
+          }
+        },
+        "zoom": 10.208814223282637
+      },
+      "type": "webmap"
+    },
+    "r-xs6fBY": {
+      "data": {
+        "center": {
+          "spatialReference": {
+            "latestWkid": 3857,
+            "wkid": 102100
+          },
+          "x": -8311401.671546866,
+          "y": 4995750.082357587
+        },
+        "extent": {
+          "spatialReference": {
+            "latestWkid": 3857,
+            "wkid": 102100
+          },
+          "xmax": -8248490.185781477,
+          "xmin": -8374313.157312255,
+          "ymax": 5031689.723300818,
+          "ymin": 4959810.441414356
+        },
+        "itemId": "5ab764f0576f4da99c912a51be4d1f2f",
+        "itemType": "Web Map",
+        "type": "default",
+        "viewpoint": {
+          "rotation": 0,
+          "scale": 517465.11138194485,
+          "targetGeometry": {
+            "spatialReference": {
+              "latestWkid": 3857,
+              "wkid": 102100
+            },
+            "x": -8311401.671546866,
+            "y": 4995750.082357587
+          }
+        },
+        "zoom": 10.208814223282637
+      },
+      "type": "webmap"
+    }
+  },
+  "root": "n-sbNX8S"
+}

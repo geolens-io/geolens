@@ -282,7 +282,7 @@
           }
         },
         "data_saved": {
-          "description": "True when the item's data JSON was written to a sidecar file next to the report.",
+          "description": "True when the item's data JSON was written to webmaps/<id>.json or apps/<id>.json next to the report, with credentials redacted.",
           "type": "boolean"
         }
       }
@@ -300,15 +300,26 @@
         "title",
         "order",
         "hosted",
-        "resolved"
+        "resolved",
+        "external"
       ],
       "properties": {
         "from_id": {"type": "string"},
         "to_id": {"type": ["string", "null"]},
         "to_url": {"type": ["string", "null"]},
         "role": {
-          "description": "app_web_map: a map an app opens. app_data_source: a layer an app reads directly, such as a dashboard chart's dataset; layer_id holds its layer.",
-          "enum": ["operational_layer", "basemap", "table", "app_web_map", "app_data_source"]
+          "description": "app_web_map: a map an app opens. app_data_source: a layer an app reads directly, such as a dashboard chart's dataset; layer_id holds its layer. app_embedded_item: an item a Hub page or site embeds in a card. view_parent: the service a hosted view is cut from. published_from: the source file a hosted layer was published from. survey_results: the service a survey stores its results in.",
+          "enum": [
+            "operational_layer",
+            "basemap",
+            "table",
+            "app_web_map",
+            "app_data_source",
+            "app_embedded_item",
+            "view_parent",
+            "published_from",
+            "survey_results"
+          ]
         },
         "layer_type": {"type": ["string", "null"]},
         "layer_id": {
@@ -325,6 +336,10 @@
         "resolved": {
           "description": "True when to_id is an item in this report.",
           "type": "boolean"
+        },
+        "external": {
+          "description": "True when the target belongs to another organization or to a service outside this organization's hosted services, such as Living Atlas content; false for this organization's own content; null when neither the item nor the URL says.",
+          "type": ["boolean", "null"]
         }
       }
     },
@@ -347,7 +362,7 @@
           "description": "The item's id; for the owner and folders phases, the owner's username.",
           "type": "string"
         },
-        "phase": {"enum": ["item_data", "item_details", "item_groups", "owner", "folders"]},
+        "phase": {"enum": ["item_data", "item_details", "item_groups", "related", "owner", "folders"]},
         "http_status": {"type": ["integer", "null"]},
         "message": {"type": "string"}
       }

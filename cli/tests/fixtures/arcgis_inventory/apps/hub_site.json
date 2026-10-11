@@ -1,0 +1,98 @@
+{
+  "values": {
+    "layout": {
+      "sections": [
+        {
+          "containment": "fixed",
+          "isFooter": false,
+          "rows": [
+            {
+              "cards": [
+                {
+                  "component": {
+                    "name": "search-card",
+                    "settings": {
+                      "browseButtonStyle": "solid",
+                      "browseButtonText": "Browse",
+                      "cardId": "cmbb5g92b",
+                      "showBrowseButton": false,
+                      "showLocation": false,
+                      "size": "medium"
+                    }
+                  },
+                  "width": 12
+                }
+              ]
+            }
+          ],
+          "style": {
+            "background": {
+              "color": "#ffffff",
+              "cropSrc": "South_Branch_Ken_Lockwood_Gorge-001.png",
+              "display": {},
+              "fileSrc": "South_Branch_Ken_Lockwood_Gorge-001.png",
+              "image": "http://njhighlands.maps.arcgis.com/sharing/rest/content/items/cfb825df9f184ea99704891162d5c48d/data",
+              "isFile": false,
+              "isUrl": true,
+              "parallax": false,
+              "position": {
+                "x": "center",
+                "y": "center"
+              },
+              "state": "valid",
+              "transparency": 0
+            },
+            "color": "#ffffff",
+            "rowLayout": "box"
+          },
+          "visibility": {
+            "access": "default",
+            "groups": []
+          }
+        },
+        {
+          "containment": "fixed",
+          "isFooter": false,
+          "rows": [
+            {
+              "cards": [
+                {
+                  "component": {
+                    "name": "markdown-card",
+                    "settings": {
+                      "markdown": "<p>The <a href=\"http://www.nj.gov/njhighlands/\" target=\"_blank\">NJ Highlands Council</a> has partnered with the <a href=\"https://www.nj.gov/njgin/\" target=\"_blank\">NJ Office of Information Technology, Office of GIS </a> to make NJ Highlands GIS data accessible in a variety of formats through this open data platform. This site is designed to make data easily accessible and downloadable to the public. Use this platform to search for, view, and download data in a variety of formats.</p>\n<p>Please contact the NJ Highlands GIS Department for any questions regarding this data or to request NJ Highlands LiDAR data.</p>\n",
+                      "schemaVersion": 2.1
+                    }
+                  },
+                  "showEditor": false,
+                  "width": 12
+                }
+              ]
+            }
+          ],
+          "style": {
+            "background": {
+              "color": "#f2e6d9",
+              "display": {},
+              "image": "",
+              "isFile": false,
+              "isUrl": true,
+              "position": {
+                "x": "center",
+                "y": "center"
+              },
+              "state": "",
+              "transparency": 0
+            },
+            "color": "#4c4c4c",
+            "rowLayout": "box"
+          },
+          "visibility": {
+            "access": "default",
+            "groups": []
+          }
+        }
+      ]
+    }
+  }
+}

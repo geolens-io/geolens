@@ -1,0 +1,155 @@
+{
+  "authoringApp": "ArcGIS Dashboards",
+  "authoringAppVersion": "4.31.0+739cf83728",
+  "desktopView": {
+    "header": {
+      "backgroundImageSizing": "fit-height",
+      "horizontalBackgroundImagePlacement": "top",
+      "logoSize": "small",
+      "menuContents": [],
+      "normalBackgroundImagePlacement": "center",
+      "showMargin": true,
+      "showSignOutMenu": true,
+      "subtitlePlacement": "sameLine",
+      "title": "{item/title}",
+      "type": "header"
+    },
+    "layout": {
+      "rootElement": {
+        "elements": [
+          {
+            "height": 1,
+            "id": "d2bf200c-7479-4f02-9db6-58e14a21aa38",
+            "type": "itemLayoutElement",
+            "width": 0.32143131914307554
+          },
+          {
+            "height": 1,
+            "id": "b7a89d0a-66dd-4f48-bb6e-c8f785e62f66",
+            "type": "itemLayoutElement",
+            "width": 0.37899426402631464
+          },
+          {
+            "elements": [
+              {
+                "height": 0.3849116232482235,
+                "id": "51f2aa4e-f59d-4020-98b8-cd12aa7dc314",
+                "type": "itemLayoutElement",
+                "width": 1
+              },
+              {
+                "height": 0.3005269340899543,
+                "id": "1dc9c378-0df2-43e0-8673-f5a080988f44",
+                "type": "itemLayoutElement",
+                "width": 1
+              },
+              {
+                "height": 0.31456144266182234,
+                "id": "91128506-97ab-4de7-80fd-2a95399b4ec6",
+                "type": "itemLayoutElement",
+                "width": 1
+              }
+            ],
+            "height": 1,
+            "id": "3d47f2b4-e25f-46ea-9b76-75983c5d2b57",
+            "orientation": "row",
+            "type": "stackLayoutElement",
+            "width": 0.29957441683060987
+          }
+        ],
+        "height": 1,
+        "id": "6e579275-7466-40af-b0d7-cd2e960c37a1",
+        "orientation": "col",
+        "type": "stackLayoutElement",
+        "width": 1
+      },
+      "type": "dockingLayout"
+    },
+    "settings": {
+      "allowElementExpansion": true,
+      "allowElementResizing": true,
+      "allowReset": true
+    },
+    "type": "desktop",
+    "widgets": [
+      {
+        "caption": "<h2 style=\"text-align:center;\">Highlands Region Boundary</h2>",
+        "editingEnabled": false,
+        "flashRepeats": 3,
+        "id": "b7a89d0a-66dd-4f48-bb6e-c8f785e62f66",
+        "itemId": "7bb5aa91db874da2a93b7fe62ce5f6d1",
+        "mapTools": [
+          {
+            "type": "basemapGalleryTool"
+          }
+        ],
+        "name": "Highlands Boundary",
+        "noDataState": {
+          "showCaption": true,
+          "showDescription": true,
+          "verticalAlignment": "middle"
+        },
+        "noFilterState": {
+          "showCaption": true,
+          "showDescription": true,
+          "verticalAlignment": "middle"
+        },
+        "scalebarStyle": "none",
+        "selectTool": {
+          "advanceSketchTools": [],
+          "clickToSelect": false,
+          "type": "selectTool"
+        },
+        "showCompass": false,
+        "showLastUpdate": false,
+        "showLocate": true,
+        "showMeasureTool": false,
+        "showNavigation": true,
+        "showPanRotate": false,
+        "showPopup": true,
+        "trackedFeatureRadius": 60,
+        "type": "mapWidget"
+      },
+      {
+        "caption": "<h2 style=\"text-align:center;\">Precipitation Data</h2>",
+        "contentType": "document",
+        "datasets": [],
+        "id": "d2bf200c-7479-4f02-9db6-58e14a21aa38",
+        "imageRefreshInterval": 0,
+        "name": "CoCoRAHs Data - Precipitation Data",
+        "noDataState": {
+          "showCaption": true,
+          "showDescription": true,
+          "verticalAlignment": "middle"
+        },
+        "noFilterState": {
+          "showCaption": true,
+          "showDescription": true,
+          "verticalAlignment": "middle"
+        },
+        "showLastUpdate": false,
+        "type": "embeddedContentWidget",
+        "url": "https://www.cocorahs.org/Maps/ViewMap.aspx?state=NJ",
+        "videoSettings": {
+          "autoplay": false,
+          "controls": true,
+          "controlsList": "nodownload",
+          "loop": false,
+          "muted": false
+        }
+      }
+    ]
+  },
+  "maxChartRecords": 10000,
+  "maxPaginationRecords": 50000,
+  "mobileView": {
+    "widgets": [
+      {
+        "itemId": "4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f",
+        "type": "mapWidget"
+      }
+    ]
+  },
+  "timeZone": "system",
+  "version": "4.31.0"
+}

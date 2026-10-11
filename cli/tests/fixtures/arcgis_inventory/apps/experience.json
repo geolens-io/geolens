@@ -1,0 +1,36 @@
+{
+  "dataSources": {
+    "dataSource_1": {
+      "childDataSourceJsons": {
+        "057a340d0bd34d1cb11ddc67aaa32710": {
+          "id": "dataSource_1-057a340d0bd34d1cb11ddc67aaa32710",
+          "isHidden": true,
+          "itemId": "1d7a9d7d0b9a456abf99237bc7713ec2",
+          "label": "REC_PassiveConservedAccessScore",
+          "layerId": "17",
+          "portalUrl": "https://www.arcgis.com",
+          "sourceLabel": "REC_PassiveConservedAccessScore",
+          "type": "FEATURE_LAYER",
+          "url": "https://services6.arcgis.com/ZrVlS0wslq8Nvq5I/arcgis/rest/services/Cons_Map_WFL1/FeatureServer/17"
+        },
+        "075d351b6f184983bf406706a7ca06c7": {
+          "id": "dataSource_1-075d351b6f184983bf406706a7ca06c7",
+          "isHidden": true,
+          "itemId": "1d7a9d7d0b9a456abf99237bc7713ec2",
+          "label": "REC_PassiveConservedAccessScore",
+          "layerId": "15",
+          "portalUrl": "https://www.arcgis.com",
+          "sourceLabel": "REC_PassiveConservedAccessScore",
+          "type": "FEATURE_LAYER",
+          "url": "https://services6.arcgis.com/ZrVlS0wslq8Nvq5I/arcgis/rest/services/Cons_Map_WFL1/FeatureServer/15"
+        }
+      },
+      "id": "dataSource_1",
+      "itemId": "5ab764f0576f4da99c912a51be4d1f2f",
+      "portalUrl": "https://NJHighlands.maps.arcgis.com",
+      "sourceLabel": "Cons Map",
+      "type": "WEB_MAP"
+    }
+  },
+  "exbVersion": "1.21.0"
+}
