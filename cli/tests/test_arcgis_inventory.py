@@ -882,11 +882,6 @@ def test_failed_related_read_counts_the_item_as_failed(run):
 
 def test_sidecar_is_saved_even_when_the_configuration_is_rejected(run, tmp_path):
     item_id = "7f" * 16
-    data = {
-        "values": {"webmap": B1},
-        "dataSources": {"a": "not an object"},
-        "widgets": 5,
-    }
     routes = _one_item(
         item_id, "Web Experience", data={"dataSources": {"k": {"type": 5}}}
     )
@@ -2253,3 +2248,43 @@ def test_registered_group_layer_keeps_its_own_reference(run):
         (A1, "ArcGISFeatureLayer", "parcels_0", 1),
         (A2, None, "view_0", 2),
     ]
+
+
+@pytest.mark.parametrize(
+    ("raw", "gone"),
+    [
+        ("https://s.example/q?apiKey=abc123KEY&f=json", "abc123KEY"),
+        ("https://s.example/q?f=json&client_secret=abc123KEY", "abc123KEY"),
+        ("https://user:abc123KEY@s.example/x", "abc123KEY"),
+    ],
+)
+def test_sidecar_strings_lose_url_embedded_credentials(raw, gone):
+    cleaned = inventory.redact_json({"layers": [{"url": raw}]}, inventory.Redactor())
+    assert gone not in json.dumps(cleaned)
+    assert "s.example" in json.dumps(cleaned)
+
+
+def test_empty_web_scene_data_is_a_read_failure(run):
+    item_id = "7f" * 16
+    routes = _one_item(item_id, "Web Scene", data=(200, b""))
+    result, _ = run(FakePortal(routes), "--scope", "org", "--strict")
+    assert result.exit_code == 1
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        (
+            "https://other.example.com/arcgis/rest/services/Hosted/Roads/FeatureServer/0",
+            None,
+        ),
+        ("https://other.example.com/arcgis/rest/services/Roads/MapServer", True),
+    ],
+)
+def test_enterprise_foreign_hosts_are_not_called_internal(url, expected):
+    portal = {
+        "url": "https://gis.example.org/portal",
+        "kind": "enterprise",
+        "org_id": None,
+    }
+    assert inventory._external_by_url(url, portal) is expected

@@ -189,6 +189,13 @@ _SECRET_KEYS = frozenset(
         "customparameters",
     }
 )
+# Credentials a stored URL can carry beyond what Redactor knows: query values
+# named like a secret, and userinfo.
+_URL_SECRET_PARAM = re.compile(
+    r"([?&;](?:access_token|api_?key|client_secret|secret|sig|signature)=)[^&\s\"'#]+",
+    re.IGNORECASE,
+)
+_URL_USERINFO = re.compile(r"(://)[^/@\s]+@")
 _ITEM_ID = re.compile(r"[0-9a-f]{32}")
 _SAFE_FILENAME = re.compile(r"[A-Za-z0-9_-]{1,64}")
 _WEB_MAP_TYPE = "Web Map"
@@ -218,6 +225,14 @@ class Redactor:
         return _CREDENTIAL_PARAM.sub(r"\1[REDACTED]", text)
 
 
+def _scrub_text(text: str, redact: Redactor) -> str:
+    text = redact(text)
+    if "://" in text or "=" in text:
+        text = _URL_SECRET_PARAM.sub(r"\1[REDACTED]", text)
+        text = _URL_USERINFO.sub(r"\1[REDACTED]@", text)
+    return text
+
+
 def redact_json(value: Any, redact: Redactor) -> Any:
     """A copy of *value* that is safe to write to disk.
 
@@ -226,7 +241,7 @@ def redact_json(value: Any, redact: Redactor) -> Any:
     iterative so a deeply nested document can't exhaust the stack.
     """
     if not isinstance(value, dict | list):
-        return redact(value) if isinstance(value, str) else value
+        return _scrub_text(value, redact) if isinstance(value, str) else value
     root: Any = {} if isinstance(value, dict) else []
     stack = [(value, root)]
     while stack:
@@ -243,7 +258,7 @@ def redact_json(value: Any, redact: Redactor) -> Any:
                 out = {} if isinstance(item, dict) else []
                 stack.append((item, out))
             else:
-                out = redact(item) if isinstance(item, str) else item
+                out = _scrub_text(item, redact) if isinstance(item, str) else item
             if isinstance(source, dict):
                 target[redact(key) if isinstance(key, str) else key] = out
             else:
@@ -1459,7 +1474,7 @@ def _collect_dependencies(
     def read_data(row: dict[str, Any], out: _DepResult) -> str | None:
         """The status of one item's data read; None when it stopped the run."""
         path = f"content/items/{quote(row['id'], safe='')}/data"
-        is_map = row["type"] == _WEB_MAP_TYPE
+        is_map = row["type"] in _MAP_CONFIG_TYPES
         lenient = row["id"] in best_effort
         try:
             data = client.get_json(path)
@@ -1483,7 +1498,7 @@ def _collect_dependencies(
             return "error"
         if sidecar_dir is not None and not lenient:
             out.saved = _write_sidecar(sidecar_dir, row, data, client._redact, out)
-        if is_map and not _is_web_map(data):
+        if row["type"] == _WEB_MAP_TYPE and not _is_web_map(data):
             message = f"{path} is not a web map configuration"
             out.errors.append(
                 _error_row(row["id"], "item_data", PortalError(message, kind="invalid"))
