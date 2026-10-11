@@ -150,7 +150,7 @@ const EMPTY_FORM: ProviderFormData = {
 
 // --- OAuth Provider Management Section ---
 
-function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
+function OAuthProvidersSection() {
   const { t } = useTranslation('admin');
   const PROVIDER_TYPE_LABELS = useProviderTypeLabels();
   // fix(#1117): invalidates the login page's provider buttons alongside this
@@ -367,7 +367,6 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
           <Button
             size="sm"
             onClick={openAddDialog}
-            disabled={envOnly}
           >
             <Plus className="me-1 h-4 w-4" />
             {t('settings.oauth.addProvider')}
@@ -414,7 +413,6 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
                         variant="ghost"
                         size="sm"
                         onClick={() => openEditDialog(provider)}
-                        disabled={envOnly}
                         aria-label={t('settings.oauth.editProvider', { name: provider.display_name })}
                       >
                         <Pencil className="h-4 w-4" />
@@ -423,7 +421,6 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
                         variant="ghost"
                         size="sm"
                         onClick={() => setDeleteTarget(provider)}
-                        disabled={envOnly}
                         aria-label={t('settings.oauth.deleteProvider', { name: provider.display_name })}
                       >
                         <Trash2 className="h-4 w-4 text-destructive" />
@@ -457,7 +454,6 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
               <Select
                 value={form.provider_type}
                 onValueChange={handleProviderTypeChange}
-                disabled={envOnly}
               >
                 <SelectTrigger id="provider-type" className="w-full">
                   <SelectValue />
@@ -479,7 +475,6 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
                   value={form.microsoft_tenant_id}
                   onChange={(e) => handleTenantIdChange(e.target.value)}
                   placeholder={t('settings.oauth.tenantIdPlaceholder')}
-                  disabled={envOnly}
                 />
                 <p className="text-xs text-muted-foreground">
                   {t('settings.oauth.tenantIdHint')}
@@ -500,7 +495,6 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
                     ...(editingProvider ? {} : { slug: slugify(name) }),
                   }));
                 }}
-                disabled={envOnly}
               />
             </div>
 
@@ -510,7 +504,6 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
                 id="slug"
                 value={form.slug}
                 onChange={(e) => setForm((prev) => ({ ...prev, slug: e.target.value }))}
-                disabled={envOnly}
               />
               <p className="text-xs text-muted-foreground">
                 {t('settings.oauth.slugHint')}
@@ -569,7 +562,6 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
                 id="client-id"
                 value={form.client_id}
                 onChange={(e) => setForm((prev) => ({ ...prev, client_id: e.target.value }))}
-                disabled={envOnly}
               />
             </div>
 
@@ -588,7 +580,6 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
                 value={form.client_secret}
                 onChange={(e) => setForm((prev) => ({ ...prev, client_secret: e.target.value }))}
                 placeholder={editingProvider ? '********' : ''}
-                disabled={envOnly}
                 // fix(#1755): admin secret, not a login credential, so opt out
                 // of every password manager explicitly.
                 autoComplete="new-password"
@@ -606,7 +597,6 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
                   value={form.discovery_url}
                   onChange={(e) => setForm((prev) => ({ ...prev, discovery_url: e.target.value }))}
                   placeholder="https://.../.well-known/openid-configuration"
-                  disabled={envOnly}
                 />
               </div>
             )}
@@ -623,7 +613,6 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
                     value={form.authorize_url}
                     onChange={(e) => setForm((prev) => ({ ...prev, authorize_url: e.target.value }))}
                     placeholder="https://github.example.com/login/oauth/authorize"
-                    disabled={envOnly}
                   />
                 </div>
                 <div className="space-y-2">
@@ -633,7 +622,6 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
                     value={form.token_url}
                     onChange={(e) => setForm((prev) => ({ ...prev, token_url: e.target.value }))}
                     placeholder="https://github.example.com/login/oauth/access_token"
-                    disabled={envOnly}
                   />
                 </div>
                 <div className="space-y-2">
@@ -643,7 +631,6 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
                     value={form.userinfo_url}
                     onChange={(e) => setForm((prev) => ({ ...prev, userinfo_url: e.target.value }))}
                     placeholder="https://github.example.com/api/v3/user"
-                    disabled={envOnly}
                   />
                 </div>
               </div>
@@ -655,7 +642,6 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
                 id="scopes"
                 value={form.scopes}
                 onChange={(e) => setForm((prev) => ({ ...prev, scopes: e.target.value }))}
-                disabled={envOnly}
               />
             </div>
 
@@ -664,7 +650,6 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
               <Select
                 value={form.default_role}
                 onValueChange={(v) => setForm((prev) => ({ ...prev, default_role: v }))}
-                disabled={envOnly}
               >
                 <SelectTrigger id="provider-default-role" className="w-full">
                   <SelectValue />
@@ -695,7 +680,6 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
                   value={form.group_claim}
                   onChange={(e) => setForm((prev) => ({ ...prev, group_claim: e.target.value }))}
                   placeholder='e.g. "groups"'
-                  disabled={envOnly}
                 />
                 <p className="text-xs text-muted-foreground">
                   {t('settings.oauth.groupClaimHint')}
@@ -710,7 +694,6 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
                   value={form.group_role_mapping}
                   onChange={(e) => setForm((prev) => ({ ...prev, group_role_mapping: e.target.value }))}
                   placeholder='{"IdP Group": "viewer", "Admins": "admin"}'
-                  disabled={envOnly}
                 />
                 <p className="text-xs text-muted-foreground">
                   {t('settings.oauth.groupRoleMappingHint')}
@@ -726,7 +709,6 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
                 onCheckedChange={(checked) =>
                   setForm((prev) => ({ ...prev, enabled: checked }))
                 }
-                disabled={envOnly}
               />
               <Label htmlFor="enabled">{t('settings.oauth.enabledToggle')}</Label>
             </div>
@@ -738,7 +720,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
             </Button>
             <Button
               onClick={() => handleSubmit()}
-              disabled={envOnly || isMutating || !form.slug || !form.client_id}
+              disabled={isMutating || !form.slug || !form.client_id}
             >
               {editingProvider ? t('settings.oauth.saveChanges') : t('settings.oauth.createProvider')}
             </Button>
@@ -1167,7 +1149,7 @@ export function SettingsAuthTab({ settings, envOnly, onSave, onReset: submitRese
 
       <hr className="border-border" />
 
-      <OAuthProvidersSection envOnly={envOnly} />
+      <OAuthProvidersSection />
 
       <AlertDialog open={pendingAdminSave !== null} onOpenChange={(open) => { if (!open) setPendingAdminSave(null); }}>
         <AlertDialogContent>

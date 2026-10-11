@@ -606,7 +606,7 @@ def validate_allowed_email_domains(v: Any) -> list[str]:
 
     Imports domain helpers inline to avoid a circular-import risk at module load.
     """
-    from app.modules.auth.domain_validation import (
+    from app.platform.domain_validation import (
         is_domain_pattern_valid,
         normalize_domains,
     )

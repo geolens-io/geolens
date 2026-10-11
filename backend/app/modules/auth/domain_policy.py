@@ -13,7 +13,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.persistent_config import ALLOWED_EMAIL_DOMAINS
-from app.modules.auth.domain_validation import is_email_allowed
+from app.platform.domain_validation import is_email_allowed
 from app.modules.auth.models import User
 
 EMAIL_DOMAIN_FORBIDDEN_DETAIL = "Email domain is not permitted"

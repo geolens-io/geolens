@@ -3,7 +3,7 @@
 All tests are sync and dependency-free — the helper has no DB/session/FastAPI imports.
 """
 
-from app.modules.auth.domain_validation import (
+from app.platform.domain_validation import (
     is_domain_pattern_valid,
     is_email_allowed,
     normalize_domains,

@@ -62,7 +62,6 @@ def _get_cache_safe() -> CacheProvider | None:
 
 # Sync cache for slowapi (cannot use async CacheProvider)
 _sync_rate_limit_cache: dict[str, tuple[Any, float]] = {}
-_DEFAULT_LOGIN_RATE_LIMIT = 5
 _DEFAULT_GLOBAL_RATE_LIMIT = 60
 _DEFAULT_SEMANTIC_SEARCH_RATE_LIMIT = 30
 _DEFAULT_BASEMAP_PROXY_RATE_LIMIT = 120
@@ -423,7 +422,7 @@ REGISTRATION_ENABLED = PersistentConfig[bool](
 EMAIL_VERIFICATION_REQUIRED = PersistentConfig[bool](
     key="email_verification_required",
     type_=bool,
-    env_default=True,
+    env_default_factory=lambda: settings.email_verification_required,
     tab="auth",
     label="Require Email Verification",
 )
@@ -597,7 +596,7 @@ REFRESH_TOKEN_EXPIRE_DAYS = PersistentConfig[int](
 LOGIN_RATE_LIMIT = PersistentConfig[int](
     key="login_rate_limit",
     type_=int,
-    env_default=_DEFAULT_LOGIN_RATE_LIMIT,
+    env_default_factory=lambda: settings.login_rate_limit,
     tab="auth",
     label="Login Rate Limit (per min)",
 )
@@ -608,7 +607,7 @@ LOGIN_RATE_LIMIT = PersistentConfig[int](
 ALLOWED_EMAIL_DOMAINS = PersistentConfig[list[str]](
     key="allowed_email_domains",
     type_=list[str],
-    env_default=[],
+    env_default_factory=lambda: settings.allowed_email_domains_list,
     tab="auth",
     label="Allowed Email Domains",
 )
@@ -620,7 +619,7 @@ ALLOWED_EMAIL_DOMAINS = PersistentConfig[list[str]](
 PASSWORD_LOGIN_ENABLED = PersistentConfig[bool](
     key="password_login_enabled",
     type_=bool,
-    env_default=True,
+    env_default_factory=lambda: settings.password_login_enabled,
     tab="auth",
     label="Password Login Enabled",
 )
@@ -1117,7 +1116,7 @@ def get_cached_login_rate_limit() -> int:
     cached = _sync_rate_limit_cache.get("login_rate_limit")
     if cached and (time.monotonic() - cached[1]) < _CACHE_TTL:
         return cached[0]
-    return _DEFAULT_LOGIN_RATE_LIMIT
+    return LOGIN_RATE_LIMIT.env_default
 
 
 def get_cached_global_rate_limit() -> int:

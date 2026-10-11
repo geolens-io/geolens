@@ -866,12 +866,12 @@ async def test_a_reset_holds_the_embedding_lock_before_locking_providers(
     monkeypatch,
 ):
     """A reset refused by the embedding lock never row-locks the OAuth providers."""
-    from app.core.persistent_config import PASSWORD_LOGIN_ENABLED
+    from app.core.config import settings
     from app.modules.auth.oauth import service as oauth_service
     from app.processing.embeddings.service import embedding_change_lock
 
     # The provider guard only runs when password login resets to disabled.
-    monkeypatch.setattr(PASSWORD_LOGIN_ENABLED, "_env_default_static", False)
+    monkeypatch.setattr(settings, "password_login_enabled", False)
     # An enabled provider exists, so only the lock can refuse the reset.
     monkeypatch.setattr(
         oauth_service, "list_providers", AsyncMock(return_value=[object()])
@@ -1079,7 +1079,7 @@ async def test_input_that_cannot_succeed_gets_its_own_answer_while_the_lock_is_h
     status: int,
 ):
     """Invalid input answers with its own status, not the lock's 409, under contention."""
-    from app.core.persistent_config import PASSWORD_LOGIN_ENABLED
+    from app.core.config import settings
     from app.modules.auth.oauth import service as oauth_service
     from app.processing.embeddings.service import embedding_change_lock
 
@@ -1089,7 +1089,7 @@ async def test_input_that_cannot_succeed_gets_its_own_answer_while_the_lock_is_h
         monkeypatch.setattr(
             oauth_service, "lock_enabled_providers", AsyncMock(return_value=[])
         )
-        monkeypatch.setattr(PASSWORD_LOGIN_ENABLED, "_env_default_static", False)
+        monkeypatch.setattr(settings, "password_login_enabled", False)
 
     async with embedding_change_lock():
         resp = await getattr(client, method)(path, json=body, headers=admin_auth_header)

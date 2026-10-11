@@ -85,10 +85,12 @@ function renderTab(
     onSave,
     onReset,
     onDirtyChange,
+    envOnly = false,
   }: {
     onSave?: (changes: Record<string, unknown>) => void;
     onReset?: (key: string) => void;
     onDirtyChange?: (dirty: boolean) => void;
+    envOnly?: boolean;
   } = {},
 ) {
   const _onSave = onSave ?? vi.fn();
@@ -98,7 +100,7 @@ function renderTab(
   render(
     <SettingsAuthTab
       settings={settings}
-      envOnly={false}
+      envOnly={envOnly}
       onSave={_onSave}
       onReset={_onReset}
       isSaving={false}
@@ -398,6 +400,31 @@ describe('SettingsAuthTab', () => {
 
       await waitFor(() => expect(deleteOAuthProvider).toHaveBeenCalledWith(OIDC_PROVIDER.id));
       expectBothProviderCaches(invalidateQueries);
+    });
+  });
+
+  describe('env-only mode', () => {
+    it('keeps provider management available while the settings stay locked', async () => {
+      vi.mocked(listOAuthProviders).mockResolvedValueOnce([OIDC_PROVIDER]);
+      vi.mocked(createOAuthProvider).mockResolvedValueOnce(OIDC_PROVIDER);
+      const user = userEvent.setup();
+
+      renderTab([], { envOnly: true });
+
+      expect(screen.getByLabelText(/login rate limit/i)).toBeDisabled();
+      const providerRow = (await screen.findByText('Legacy OIDC')).closest('tr');
+      const [editButton, deleteButton] = within(providerRow!).getAllByRole('button');
+      expect(editButton).toBeEnabled();
+      expect(deleteButton).toBeEnabled();
+
+      await user.click(screen.getByRole('button', { name: /add provider/i }));
+      const clientId = await screen.findByLabelText('Client ID');
+      expect(clientId).toBeEnabled();
+      await user.type(clientId, 'new-client-id');
+      await user.type(screen.getByLabelText('Client Secret'), 'new-client-secret');
+      await user.click(screen.getByRole('button', { name: 'Create Provider' }));
+
+      await waitFor(() => expect(createOAuthProvider).toHaveBeenCalledOnce());
     });
   });
 

@@ -407,7 +407,6 @@ async def test_set_warms_sync_cache_with_new_value(client: AsyncClient):
     accessor still returns the old default right after set()).
     """
     from app.core.persistent_config import (
-        _DEFAULT_LOGIN_RATE_LIMIT,
         _sync_rate_limit_cache,
         LOGIN_RATE_LIMIT,
         get_cached_login_rate_limit,
@@ -417,7 +416,7 @@ async def test_set_warms_sync_cache_with_new_value(client: AsyncClient):
     from app.core.dependencies import get_db
 
     _sync_rate_limit_cache.pop("login_rate_limit", None)
-    new_value = _DEFAULT_LOGIN_RATE_LIMIT + 7
+    new_value = LOGIN_RATE_LIMIT.env_default + 7
 
     async for db in app.dependency_overrides[get_db]():
         await LOGIN_RATE_LIMIT.set(db, new_value)
@@ -427,7 +426,7 @@ async def test_set_warms_sync_cache_with_new_value(client: AsyncClient):
 
         # reset() must warm the sync cache back to env_default.
         await LOGIN_RATE_LIMIT.reset(db)
-        assert get_cached_login_rate_limit() == _DEFAULT_LOGIN_RATE_LIMIT
+        assert get_cached_login_rate_limit() == LOGIN_RATE_LIMIT.env_default
 
 
 # ---------------------------------------------------------------------------
@@ -1872,7 +1871,7 @@ async def test_get_falls_back_to_env_default_on_validation_error(
     from app.platform.cache import get_cache
     from app.core.dependencies import get_db
     from app.api.main import app
-    from app.core.persistent_config import _DEFAULT_LOGIN_RATE_LIMIT, LOGIN_RATE_LIMIT
+    from app.core.persistent_config import LOGIN_RATE_LIMIT
     from app.core.db.models import AppSetting
 
     async for db in app.dependency_overrides[get_db]():
@@ -1890,7 +1889,7 @@ async def test_get_falls_back_to_env_default_on_validation_error(
             value = await LOGIN_RATE_LIMIT.get(db)
 
         # Returned the env_default, not the corrupt value
-        assert value == _DEFAULT_LOGIN_RATE_LIMIT
+        assert value == LOGIN_RATE_LIMIT.env_default
 
         # Warning was logged with the expected structured payload
         mock_logger.warning.assert_called_once()
@@ -2123,8 +2122,8 @@ async def test_get_all_registry_values_falls_back_on_bad_row(client: AsyncClient
     from app.core.dependencies import get_db
     from app.api.main import app
     from app.core.persistent_config import (
-        _DEFAULT_LOGIN_RATE_LIMIT,
         AI_ENABLED,
+        LOGIN_RATE_LIMIT,
         get_all_registry_values,
     )
     from app.core.db.models import AppSetting
@@ -2142,7 +2141,7 @@ async def test_get_all_registry_values_falls_back_on_bad_row(client: AsyncClient
             all_values = await get_all_registry_values(db)
 
         # Corrupt key returned env_default
-        assert all_values["login_rate_limit"] == _DEFAULT_LOGIN_RATE_LIMIT
+        assert all_values["login_rate_limit"] == LOGIN_RATE_LIMIT.env_default
         # Good key returned DB value
         assert all_values["ai_enabled"] is True
         # Warning was logged for the corrupt key
