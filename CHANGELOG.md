@@ -110,7 +110,7 @@ and releases use semantic versioning.
 - A float32 or float64 raster left on the default stretch now stretches over
   its data range, read from band statistics. It used to be rescaled from 0 to
   1, so an elevation raster such as ETOPO drew in black and white. Integer
-  rasters keep their data-type range. A failed statistics lookup is retried
+  rasters render as before. A failed statistics lookup is retried
   after a minute instead of being kept, and a tile drawn without statistics,
   including a percentile or stddev stretch that fell back, is no longer stored
   by shared caches. Tiles cached before the upgrade keep their old look until
