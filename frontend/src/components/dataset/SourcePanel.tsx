@@ -11,7 +11,6 @@ import {
   useDatasetVersions,
 } from '@/components/dataset/hooks/use-dataset';
 import { OriginBadge, datasetOrigin } from '@/components/dataset/OriginBadge';
-import { REFRESHABLE_ORIGINS } from '@/components/dataset/SourceRefreshAction';
 import { SourceSyncPanel } from '@/components/dataset/SourceSyncPanel';
 import { useVrtGenerations, useVrtSources, useVrtStatus } from '@/components/import/hooks/use-vrt';
 import { Badge } from '@/components/ui/badge';
@@ -102,6 +101,9 @@ const HEALTH_DETAILS = new Set<HealthDetail>([
 ]);
 
 const MAX_REFRESH_HISTORY_LIMIT = 200;
+
+// Service refreshes leave health unset, so only these origins get a verdict from a refresh.
+const HEALTH_CHECKED_ON_REFRESH: ReadonlySet<string> = new Set(['postgis', 'stac']);
 
 const healthClasses: Record<SourceHealth, string> = {
   healthy: semanticBadgeColors.success,
@@ -777,7 +779,7 @@ export function SourcePanel({
     : null;
   const healthNote =
     translatedHealthDetail ??
-    (health === 'unknown' && origin != null && REFRESHABLE_ORIGINS.has(origin)
+    (health === 'unknown' && origin != null && HEALTH_CHECKED_ON_REFRESH.has(origin)
       ? t('sourcePanel.healthUnknownHint')
       : null);
   const originKey = isVrt ? 'vrt' : origin ?? 'unknown';

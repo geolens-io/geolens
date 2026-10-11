@@ -264,9 +264,7 @@ describe('SourcePanel', () => {
       <SourcePanel
         dataset={makeDataset({
           source_health: 'unknown',
-          origin: 'service',
-          source_format: 'arcgis_featureserver',
-          origin_ref: { kind: 'service', service_type: 'arcgis_featureserver', url: 'https://origin.test/FeatureServer' },
+          origin: 'postgis',
         })}
       />,
     );
@@ -275,12 +273,15 @@ describe('SourcePanel', () => {
     expect(screen.getByText('Checked when the source is refreshed.')).toBeInTheDocument();
   });
 
-  it('does not promise a health check for an origin that cannot be refreshed', () => {
-    render(<SourcePanel dataset={makeDataset({ source_health: 'unknown' })} />);
+  it.each(['upload', 'service'] as const)(
+    'does not promise a health check for a %s source',
+    (origin) => {
+    render(<SourcePanel dataset={makeDataset({ source_health: 'unknown', origin })} />);
 
     expect(screen.getByText('Not checked')).toBeInTheDocument();
     expect(screen.queryByText('Checked when the source is refreshed.')).not.toBeInTheDocument();
-  });
+    },
+  );
 
   it('renders refresh run history distinctly from source version history', () => {
     vi.mocked(useDatasetRefreshRuns).mockReturnValue({
