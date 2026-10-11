@@ -9762,7 +9762,7 @@ export interface components {
             parent_layer_id?: number | null;
             /**
              * Importable
-             * @description False when the layer holds no features (ArcGIS group, raster and annotation layers) and a preview of it is refused with 'unsupported_layer_type'.
+             * @description False when the layer holds no features (ArcGIS composite, raster and annotation layers) and a preview of it is refused with 'unsupported_layer_type'.
              * @default true
              */
             importable: boolean;

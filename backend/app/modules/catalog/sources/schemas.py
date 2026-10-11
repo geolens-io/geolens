@@ -181,7 +181,7 @@ class LayerInfo(BaseModel):
     importable: bool = Field(
         default=True,
         description=(
-            "False when the layer holds no features (ArcGIS group, raster and "
+            "False when the layer holds no features (ArcGIS composite, raster and "
             "annotation layers) and a preview of it is refused with "
             "'unsupported_layer_type'."
         ),

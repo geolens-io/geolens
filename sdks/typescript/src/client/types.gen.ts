@@ -5463,7 +5463,7 @@ export type LayerInfo = {
     /**
      * Importable
      *
-     * False when the layer holds no features (ArcGIS group, raster and annotation layers) and a preview of it is refused with 'unsupported_layer_type'.
+     * False when the layer holds no features (ArcGIS composite, raster and annotation layers) and a preview of it is refused with 'unsupported_layer_type'.
      */
     importable?: boolean;
     /**

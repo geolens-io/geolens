@@ -29,8 +29,8 @@ class LayerInfo:
         source_layer_type (None | str | Unset): ArcGIS sub-layer type as the service reports it, for example 'Feature
             Layer', 'Table', 'Group Layer', 'Raster Layer' or 'Annotation Layer'. Null for other service types.
         parent_layer_id (int | None | Unset): ArcGIS ID of the group layer that contains this layer, if any.
-        importable (bool | Unset): False when the layer holds no features (ArcGIS group, raster and annotation layers)
-            and a preview of it is refused with 'unsupported_layer_type'. Default: True.
+        importable (bool | Unset): False when the layer holds no features (ArcGIS composite, raster and annotation
+            layers) and a preview of it is refused with 'unsupported_layer_type'. Default: True.
         layer_id (int | None | str | Unset): Numeric or string layer ID used by ArcGIS services.
         object_id_field (None | str | Unset): ArcGIS object ID field name, used for stable pagination.
         kind (LayerInfoKind | Unset): Backend-classified layer kind. 'vector' = point/line/polygon feature data.
