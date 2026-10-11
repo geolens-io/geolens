@@ -3,8 +3,9 @@
 A service root lists composite layers (group, topology, utility network)
 whose rows live in their sublayers, plus raster and annotation layers that are
 not feature data for the catalog. The probe flags them and the preview refuses
-them rather than creating an empty dataset. A type the list does not know, or a
-server that omits the type, stays importable.
+them rather than creating an empty dataset. A layer is composite when it names
+sublayers, whatever its type string, so composite types a server adds later are
+caught too. A server that omits the type stays importable.
 """
 
 from collections.abc import Callable
@@ -22,23 +23,29 @@ UNSUPPORTED_ARCGIS_LAYER_TYPES = frozenset(
 )
 
 
-def is_importable_arcgis_type(arcgis_type: object) -> bool:
-    return not (
-        isinstance(arcgis_type, str) and arcgis_type in UNSUPPORTED_ARCGIS_LAYER_TYPES
-    )
+def is_importable_arcgis_layer(layer: dict) -> bool:
+    """True unless the layer JSON (root entry or own metadata) holds no rows.
+
+    Root entries name children in ``subLayerIds``; a layer's own metadata uses
+    ``subLayers``.
+    """
+    layer_type = layer.get("type")
+    if isinstance(layer_type, str) and layer_type in UNSUPPORTED_ARCGIS_LAYER_TYPES:
+        return False
+    return not (layer.get("subLayerIds") or layer.get("subLayers"))
 
 
 def reject_unsupported_arcgis_type(meta: dict) -> None:
     """Raise a coded 422 when the layer JSON describes a layer without rows."""
-    layer_type = meta.get("type")
-    if is_importable_arcgis_type(layer_type):
+    if is_importable_arcgis_layer(meta):
         return
+    layer_type = meta.get("type")
     raise HTTPException(
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         detail={
             "code": "unsupported_layer_type",
             "message": (
-                f"{layer_type} cannot be imported because it holds no features. "
+                f"{layer_type or 'This layer'} cannot be imported because it holds no features. "
                 "Import one of its feature layers or tables instead."
             ),
             "layer_type": layer_type,
@@ -68,6 +75,7 @@ def arcgis_probe_layers(
                 "geometry_type": normalize_geometry(layer.get("geometryType")),
                 "type": "layer",
                 "arcgis_type": arcgis_type if isinstance(arcgis_type, str) else None,
+                "importable": is_importable_arcgis_layer(layer),
                 "parent_layer_id": parent
                 if isinstance(parent, int) and parent >= 0
                 else None,
@@ -83,6 +91,7 @@ def arcgis_probe_layers(
                 "geometry_type": None,
                 "type": "table",
                 "arcgis_type": "Table",
+                "importable": True,
                 "parent_layer_id": None,
             }
         )

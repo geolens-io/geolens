@@ -177,3 +177,34 @@ class TestAServerWithAnOddTypeValue:
 
             preview = await fetch_arcgis_layer_preview(_BASE, 0, client)
         assert preview["layer_name"] == "X"
+
+
+class TestCompositeLayersAreCaughtByTheirSublayers:
+    async def test_an_unlisted_composite_type_is_refused_and_flagged(self) -> None:
+        trace = {
+            "currentVersion": 11.3,
+            "name": "Trace",
+            "type": "Trace Network Layer",
+            "subLayers": [{"id": 1, "name": "Pipes"}],
+        }
+        async with _client({"0": trace}) as client:
+            with pytest.raises(HTTPException) as caught:
+                await fetch_arcgis_layer_preview(_BASE, 0, client)
+        assert caught.value.detail["code"] == "unsupported_layer_type"
+
+        root = {
+            "layers": [
+                {
+                    "id": 0,
+                    "name": "Trace",
+                    "type": "Trace Network Layer",
+                    "subLayerIds": [1],
+                },
+                {"id": 1, "name": "Pipes", "type": "Feature Layer", "parentLayerId": 0},
+            ]
+        }
+        async with _client({"MapServer": root}) as client:
+            result = await probe_arcgis_service(_BASE, client)
+        assert result is not None
+        flags = {layer["id"]: layer["importable"] for layer in result["layers"]}
+        assert flags == {0: False, 1: True}
