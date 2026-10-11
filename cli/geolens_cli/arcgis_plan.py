@@ -51,8 +51,14 @@ def plan_schema() -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _unread_dependencies(row: Mapping[str, Any]) -> bool:
+    return row["dependencies_status"] in ("error", "unparsed")
+
+
 def _default_action(row: Mapping[str, Any]) -> str:
     if row["type"] == "Web Map":
+        if _unread_dependencies(row):
+            return EXPORT_ONLY
         return IMPORT_MAP
     if row["class"] == "supported":
         return IMPORT_LAYERS
@@ -142,6 +148,14 @@ def build_plan(
                 missing.append(target)
         if missing:
             reason += "; depends on items not in the inventory: " + ", ".join(missing)
+        if _unread_dependencies(row):
+            reason += (
+                "; its dependencies could not be read, so depends_on may be incomplete"
+            )
+            if row["type"] == "Web Map":
+                reason += (
+                    "; rerun the inventory or set the action to import_map by hand"
+                )
         entry: dict[str, Any] = {
             "id": row["id"],
             "type": row["type"],
@@ -247,6 +261,9 @@ def summary(plan: Mapping[str, Any], inventory: Mapping[str, Any]) -> dict[str, 
             {"item": item, "missing": target} for item, target in unresolved
         ],
         "external_dependencies": external,
+        "dependency_read_errors": sorted(
+            row["id"] for row in inventory["items"] if _unread_dependencies(row)
+        ),
         "inventory_complete": plan["inventory"]["complete"],
     }
 
@@ -282,6 +299,13 @@ def run_cli(
                 f"{len(unknown)} owner(s) in --owner-map own no inventory item "
                 f"and were ignored: {', '.join(unknown[:5])}"
             )
+    stats = summary(plan, inventory)
+    unread = stats["dependency_read_errors"]
+    if unread:
+        fmt.warn(
+            f"{len(unread)} item(s) have dependencies the inventory could not read, "
+            f"so depends_on may be incomplete: {', '.join(unread[:5])}"
+        )
     if not plan["inventory"]["complete"]:
         fmt.warn(
             "the inventory is partial or truncated, so the plan misses items; "
@@ -301,7 +325,6 @@ def run_cli(
     except (OSError, ValueError) as exc:
         fmt.error(f"can't write {path}: {getattr(exc, 'strerror', None) or exc}")
         return EXIT_GENERIC
-    stats = summary(plan, inventory)
     if fmt.json_mode:
         fmt.json({"plan": str(path), **stats})
         return EXIT_OK

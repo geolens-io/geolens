@@ -226,6 +226,8 @@ The fields you are expected to edit:
   and map services import as layers, data files import as files, web maps
   import as maps, and apps, scenes and unsupported types are `export_only`.
   Set `skip` for anything you don't want.
+  A web map whose data could not be read defaults to `export_only` and the
+  plan warns, because its layer dependencies are unknown.
 - `items[].target`: the `visibility` (ArcGIS private, org and public become
   private, internal and public), the `collections` (the item's folder), the
   `groups` (the ArcGIS group ids it is shared with), the `title` and the

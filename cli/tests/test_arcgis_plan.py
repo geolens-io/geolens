@@ -274,7 +274,7 @@ def test_cli_owner_map_and_json_summary(runner, inventory_file, tmp_path):
     assert result.exit_code == 0, result.output
     summary = json.loads(result.stdout)
     assert summary["owners_to_map"] == 0
-    assert summary["by_action"]["import_map"] == 2
+    assert summary["by_action"]["import_map"] == 1
     assert summary["external_dependencies"] == 3
     assert summary["unresolved_dependencies"] == []
     plan = json.loads(
@@ -339,3 +339,29 @@ def test_an_inventory_off_its_schema_is_a_usage_error(runner, tmp_path, mutate):
     assert result.exit_code == 2
     assert "geolens arcgis inventory" in result.output + result.stderr
     assert not (tmp_path / "arcgis-migration-plan.json").exists()
+
+
+def _unreadable_web_map() -> dict[str, Any]:
+    return {item_data_path(B1): (500, {"error": {"code": 500, "message": "boom"}})}
+
+
+def test_a_web_map_whose_data_could_not_be_read_is_export_only():
+    plan = _plan(_unreadable_web_map())
+    entry = _items(plan)[B1]
+    assert entry["action"] == "export_only"
+    assert "dependencies could not be read" in entry["reason"]
+    assert "import_map by hand" in entry["reason"]
+    errors = plan_mod.summary(plan, _inventory_report(_unreadable_web_map()))[
+        "dependency_read_errors"
+    ]
+    assert B1 in errors
+    assert errors == sorted(errors)
+
+
+def test_cli_warns_about_unread_dependencies(runner, tmp_path):
+    path = tmp_path / "arcgis-inventory.json"
+    path.write_text(json.dumps(_inventory_report(_unreadable_web_map())))
+    result = _plan_cli(runner, str(path))
+    assert result.exit_code == 0, result.output
+    assert "could not read" in result.output + result.stderr
+    assert B1 in result.output + result.stderr
