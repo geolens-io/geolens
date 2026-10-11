@@ -796,9 +796,12 @@ def _classification(item: Mapping[str, Any], redact: Redactor) -> dict[str, Any]
     }
 
 
-def _listed_folder(item: Mapping[str, Any], redact: Redactor) -> dict[str, Any] | None:
-    folder_id = _text(item.get("ownerFolder"), redact)
-    return {"id": folder_id, "title": None} if folder_id else None
+def _listed_folder(item: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Ids stay raw: they are request path segments, never free text."""
+    folder_id = item.get("ownerFolder")
+    if not isinstance(folder_id, str) or not folder_id:
+        return None
+    return {"id": folder_id, "title": None}
 
 
 def _item_row(item: Mapping[str, Any], redact: Redactor) -> dict[str, Any]:
@@ -824,7 +827,7 @@ def _item_row(item: Mapping[str, Any], redact: Redactor) -> dict[str, Any]:
         **_classification(item, redact),
         "dependencies_status": dependencies_status,
         **_metadata(item, redact),
-        "folder": _listed_folder(item, redact),
+        "folder": _listed_folder(item),
         "groups": None,
         "owner_full_name": None,
         "owner_email": None,
@@ -924,7 +927,7 @@ def _list_items(
                     for f in folders:
                         if not isinstance(f, dict) or not f.get("id"):
                             continue
-                        fid = client._redact(str(f["id"]))
+                        fid = str(f["id"])
                         if isinstance(f.get("title"), str):
                             inv.folder_titles[fid] = client._redact(f["title"])
                         listings.append(
@@ -1336,7 +1339,7 @@ def _item_groups(data: Mapping[str, Any], redact: Redactor) -> list[dict[str, An
             if not isinstance(group, dict) or not group.get("id"):
                 continue
             access = group.get("access")
-            group_id = redact(str(group["id"]))
+            group_id = str(group["id"])
             groups.setdefault(
                 group_id,
                 {
@@ -1471,9 +1474,7 @@ def _collect_owners(client: PortalClient, inv: Inventory, concurrency: int) -> N
                 folders = data.get("folders")
                 for f in folders if isinstance(folders, list) else []:
                     if isinstance(f, dict) and f.get("id") and f.get("title"):
-                        out.folders[client._redact(str(f["id"]))] = client._redact(
-                            str(f["title"])
-                        )
+                        out.folders[str(f["id"])] = client._redact(str(f["title"]))
         return out
 
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
