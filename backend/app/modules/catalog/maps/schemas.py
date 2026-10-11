@@ -659,7 +659,14 @@ class MapLayerInput(BaseModel):
     )
     filter: list | None = Field(default=None, description="MapLibre filter expression")
     label_config: dict | None = Field(
-        default=None, description="Text label configuration"
+        default=None,
+        description=(
+            "Text label configuration. Accepted keys: column, fontSize, "
+            "textColor, haloColor, haloWidth, minZoom, maxZoom, placement, "
+            "textAnchor, textOpacity, textOffset, allowOverlap. Unknown keys "
+            "are dropped when the map is exported as a MapLibre style. See "
+            "https://docs.getgeolens.com/guides/api/publishing-from-desktop-gis/"
+        ),
     )
     popup_config: PopupConfig | None = Field(
         default=None,
@@ -668,9 +675,15 @@ class MapLayerInput(BaseModel):
     style_config: dict | None = Field(
         default=None,
         description=(
-            "Data-driven and builder UI style configuration. Builder-only state "
-            "lives under builder, e.g. fill_disabled, stroke_disabled, outline "
-            "settings, heatmap metadata, and height_column."
+            "Data-driven and builder UI style configuration. Accepted keys: "
+            "mode, column, ramp, classCount, method, categories, breaks, "
+            "colors, target, sizes, render_mode, symbol, builder, legendLabel, "
+            "reversed, sizeRange, sizeLabel, colorLabel, heatmapPaint, "
+            "savedCirclePaint. Builder-only state lives under builder, e.g. "
+            "fill_disabled, stroke_disabled, outline settings, heatmap "
+            "metadata, and height_column. Unknown keys are dropped when the "
+            "map is exported as a MapLibre style. See "
+            "https://docs.getgeolens.com/guides/api/publishing-from-desktop-gis/"
         ),
     )
 
