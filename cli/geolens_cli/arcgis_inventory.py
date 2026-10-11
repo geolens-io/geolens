@@ -775,7 +775,7 @@ def _item_url(item: Mapping[str, Any], redact: Redactor) -> str | None:
     return redact(url) if url else None
 
 
-def _classification(item: Mapping[str, Any]) -> dict[str, Any]:
+def _classification(item: Mapping[str, Any], redact: Redactor) -> dict[str, Any]:
     """The row fields that follow from an item's type and type keywords."""
     verdict = classify(item)
     retirement_id = verdict["retirement"]
@@ -788,12 +788,17 @@ def _classification(item: Mapping[str, Any]) -> dict[str, Any]:
             "date": known["date"],
         }
     return {
-        "type_keywords": [str(k) for k in item.get("typeKeywords") or []],
+        "type_keywords": [redact(str(k)) for k in item.get("typeKeywords") or []],
         "class": verdict["class"],
         "reason": verdict["reason"],
         "retirement": retirement,
         "hosted": verdict["hosted"],
     }
+
+
+def _listed_folder(item: Mapping[str, Any], redact: Redactor) -> dict[str, Any] | None:
+    folder_id = _text(item.get("ownerFolder"), redact)
+    return {"id": folder_id, "title": None} if folder_id else None
 
 
 def _item_row(item: Mapping[str, Any], redact: Redactor) -> dict[str, Any]:
@@ -816,10 +821,10 @@ def _item_row(item: Mapping[str, Any], redact: Redactor) -> dict[str, Any]:
         "created": _iso_from_ms(item.get("created")),
         "modified": _iso_from_ms(item.get("modified")),
         "url": url,
-        **_classification(item),
+        **_classification(item, redact),
         "dependencies_status": dependencies_status,
         **_metadata(item, redact),
-        "folder": None,
+        "folder": _listed_folder(item, redact),
         "groups": None,
         "owner_full_name": None,
         "owner_email": None,
@@ -1368,7 +1373,8 @@ def _collect_details(
                 if out.type_keywords is not None:
                     row.update(
                         _classification(
-                            {"type": row["type"], "typeKeywords": out.type_keywords}
+                            {"type": row["type"], "typeKeywords": out.type_keywords},
+                            client._redact,
                         )
                     )
                 row["url"] = out.url

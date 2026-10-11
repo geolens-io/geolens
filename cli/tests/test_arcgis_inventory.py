@@ -516,6 +516,34 @@ def test_detail_type_keywords_reclassify_a_thin_search_row(run):
     assert "Hosted Service" in row["type_keywords"]
 
 
+def test_search_folder_survives_a_failed_detail_read(run):
+    listing = load("search_page1.json")["results"][0] | {"ownerFolder": FOLDER}
+    routes = portal_routes(
+        {
+            "search": {
+                "total": 1,
+                "start": 1,
+                "num": 100,
+                "nextStart": -1,
+                "results": [listing],
+            },
+            f"content/items/{A1}": (500, {"error": {"code": 500}}),
+        }
+    )
+    result, _ = run(FakePortal(routes), "--scope", "org")
+    assert _rows(_report(result))[A1]["folder"] == {"id": FOLDER, "title": "Apps"}
+
+
+def test_detail_type_keywords_are_redacted(run):
+    detail = load("item_detail_rich.json") | {
+        "typeKeywords": ["Data", "token=abc123SECRET"]
+    }
+    result, _ = run(
+        FakePortal(portal_routes({f"content/items/{A1}": detail})), "--scope", "org"
+    )
+    assert "abc123SECRET" not in result.stdout
+
+
 def test_counts_failed_items_not_failed_reads(run):
     portal = FakePortal(
         portal_routes(
