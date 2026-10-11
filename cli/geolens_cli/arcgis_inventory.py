@@ -177,37 +177,30 @@ _APP_DATA_TYPES = frozenset(
 )
 # Items whose data is a web map's configuration.
 _MAP_CONFIG_TYPES = frozenset({"Web Map", "Web Scene"})
-_SECRET_KEYS = frozenset(
-    {
-        "token",
-        "password",
-        "apikey",
-        "secret",
-        "clientsecret",
-        "credential",
-        "credentials",
-        "customparameters",
-    }
-)
-# Credentials a stored URL can carry beyond what Redactor knows: query values
-# named like a secret, and userinfo.
-_SECRET_KEY_PARTS = (
+# One matcher names a credential in a JSON key and in a URL parameter. Names
+# are compared lower-cased with separators removed; the parts below match
+# anywhere in a name, so compound names such as accessToken are covered, and
+# the exact names are too short to match as parts.
+_CREDENTIAL_NAME_PARTS = (
     "token",
     "password",
     "passwd",
     "passphrase",
     "secret",
     "apikey",
+    "accesskey",
+    "subscriptionkey",
+    "saskey",
     "privatekey",
-    "authorization",
-    "bearer",
     "credential",
+    "authorization",
+    "authcode",
+    "bearer",
+    "signature",
+    "customparameters",
 )
+_CREDENTIAL_NAME_EXACT = frozenset({"sig", "auth", "pwd"})
 _URL_PARAM = re.compile(r"([?&;#])([^=&\s\"'#]+)=([^&\s\"'#]+)")
-_SECRET_PARAM_NAME = re.compile(
-    r"token|password|passwd|pwd|secret|key|auth|credential|bearer|^sig(?:nature)?$",
-    re.IGNORECASE,
-)
 _URL_USERINFO = re.compile(r"(//)[^/@\s]+@")
 _ITEM_ID = re.compile(r"[0-9a-f]{32}")
 _SAFE_FILENAME = re.compile(r"[A-Za-z0-9_-]{1,64}")
@@ -239,16 +232,17 @@ class Redactor:
         return _CREDENTIAL_PARAM.sub(r"\1[REDACTED]", text)
 
 
-def _is_secret_key(key: str) -> bool:
-    """Whether a key names a credential, including compound names such as
-    ``accessToken`` or ``bearer_token``."""
-    name = key.lower().replace("_", "").replace("-", "")
-    return name in _SECRET_KEYS or any(part in name for part in _SECRET_KEY_PARTS)
+def _is_credential_name(name: str) -> bool:
+    """Whether a JSON key or URL parameter name holds a credential."""
+    normal = re.sub(r"[^a-z0-9]", "", name.lower())
+    return normal in _CREDENTIAL_NAME_EXACT or any(
+        part in normal for part in _CREDENTIAL_NAME_PARTS
+    )
 
 
 def _scrub_param(match: re.Match[str]) -> str:
     lead, name, value = match.groups()
-    if _SECRET_PARAM_NAME.search(unquote_plus(name)):
+    if _is_credential_name(unquote_plus(name)):
         value = "[REDACTED]"
     return f"{lead}{name}={value}"
 
@@ -279,7 +273,7 @@ def redact_json(value: Any, redact: Redactor) -> Any:
             if (
                 isinstance(source, dict)
                 and isinstance(key, str)
-                and _is_secret_key(key)
+                and _is_credential_name(key)
             ):
                 out: Any = "[REDACTED]"
             elif isinstance(item, dict | list):

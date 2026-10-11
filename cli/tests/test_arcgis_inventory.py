@@ -2507,3 +2507,64 @@ def test_keys_that_scrub_to_the_same_text_keep_both_values():
     redact.add("bbbb2222")
     cleaned = inventory.redact_json({"k-aaaa1111": 1, "k-bbbb2222": 2}, redact)
     assert sorted(cleaned.values()) == [1, 2]
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "token",
+        "password",
+        "secret",
+        "apiKey",
+        "api_key",
+        "accessKey",
+        "subscriptionKey",
+        "privateKey",
+        "clientSecret",
+        "credentials",
+        "signature",
+        "sig",
+        "customParameters",
+        "accessToken",
+        "bearer-token",
+        "awsAccessKeyId_secret",
+        "authCode",
+    ],
+)
+def test_credential_names_are_replaced_in_keys_and_url_parameters(name):
+    cleaned = inventory.redact_json(
+        {
+            "a": {
+                "b": {
+                    "c": {
+                        name: "leak-value-1",
+                        "url": f"https://s.example/q?{name}=leak-value-2",
+                    }
+                }
+            }
+        },
+        inventory.Redactor(),
+    )
+    assert "leak-value" not in json.dumps(cleaned)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "keywords",
+        "author",
+        "authors",
+        "title",
+        "keyboard",
+        "monkey",
+        "design",
+        "signal",
+    ],
+)
+def test_ordinary_names_survive(name):
+    data = {
+        "a": {"b": {"c": {name: "kept-value"}}},
+        "u": f"https://s.example/q?{name}=kept-value",
+    }
+    cleaned = inventory.redact_json(data, inventory.Redactor())
+    assert cleaned == data
