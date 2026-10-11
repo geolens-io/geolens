@@ -1,8 +1,10 @@
 """ArcGIS sub-layer kinds the wizard can import.
 
-A service root lists Group, Raster and Annotation layers beside feature
-layers. Only feature layers and tables hold rows, so the probe flags the rest
-and the preview refuses them rather than creating an empty dataset.
+A service root lists composite layers (group, topology, utility network)
+whose rows live in their sublayers, plus raster and annotation layers that are
+not feature data for the catalog. The probe flags them and the preview refuses
+them rather than creating an empty dataset. A type the list does not know, or a
+server that omits the type, stays importable.
 """
 
 from collections.abc import Callable
@@ -10,7 +12,13 @@ from collections.abc import Callable
 from fastapi import HTTPException, status
 
 UNSUPPORTED_ARCGIS_LAYER_TYPES = frozenset(
-    {"Group Layer", "Raster Layer", "Annotation Layer"}
+    {
+        "Group Layer",
+        "Raster Layer",
+        "Annotation Layer",
+        "Topology Layer",
+        "Utility Network Layer",
+    }
 )
 
 

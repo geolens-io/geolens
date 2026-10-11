@@ -88,7 +88,14 @@ class TestProbeReportsSubLayerTypes:
 
 class TestPreviewRefusesLayersWithoutRows:
     @pytest.mark.parametrize(
-        "layer_type", ["Group Layer", "Raster Layer", "Annotation Layer"]
+        "layer_type",
+        [
+            "Group Layer",
+            "Raster Layer",
+            "Annotation Layer",
+            "Topology Layer",
+            "Utility Network Layer",
+        ],
     )
     async def test_refuses_with_a_coded_422(self, layer_type: str) -> None:
         meta = {"currentVersion": 10.91, "id": 0, "name": "X", "type": layer_type}
