@@ -8,8 +8,8 @@ such dataset's stored tileset.json, derives the extent with ingest's own code,
 and records it.
 
 Usage:
-    docker compose exec api uv run --no-dev python -m scripts.backfill_tileset_extents --dry-run
-    docker compose exec api uv run --no-dev python -m scripts.backfill_tileset_extents
+    docker compose exec api /app/.venv/bin/python -m scripts.backfill_tileset_extents --dry-run
+    docker compose exec api /app/.venv/bin/python -m scripts.backfill_tileset_extents
 
 In multi-tenant mode, run it once per tenant with ``--tenant <tenant id>``.
 

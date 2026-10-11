@@ -1,8 +1,8 @@
 """Bulk-generate vector quicklook thumbnails for existing datasets.
 
 Usage:
-    docker compose exec api uv run python scripts/generate_vector_quicklooks.py
-    docker compose exec api uv run python scripts/generate_vector_quicklooks.py --force
+    docker compose exec api /app/.venv/bin/python scripts/generate_vector_quicklooks.py
+    docker compose exec api /app/.venv/bin/python scripts/generate_vector_quicklooks.py --force
 
 Without --force: only generates for datasets missing quicklooks.
 With --force: regenerates all vector quicklooks (e.g., after renderer changes).

@@ -10,8 +10,8 @@ made it, so a run cannot tell an already-current row from a stale one: it
 rewrites all of them and the count it prints is the whole table.
 
 Usage:
-    docker compose exec api uv run python -m scripts.rotate_secrets --dry-run
-    docker compose exec api uv run python -m scripts.rotate_secrets
+    docker compose exec api /app/.venv/bin/python -m scripts.rotate_secrets --dry-run
+    docker compose exec api /app/.venv/bin/python -m scripts.rotate_secrets
 
 Run it after setting SECRET_ENCRYPTION_KEY on an existing install, and after
 replacing one SECRET_ENCRYPTION_KEY with another. RUNBOOK.md section 11 is the

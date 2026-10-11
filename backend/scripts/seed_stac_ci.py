@@ -2,7 +2,7 @@
 
 Run inside the api container (the CI stac-validate job does this):
 
-    docker compose exec -T api uv run --no-dev python /app/backend/scripts/seed_stac_ci.py
+    docker compose exec -T api /app/.venv/bin/python /app/scripts/seed_stac_ci.py
 
 Prints ``collection_id=<uuid>`` on success; the CI job feeds it to
 stac-api-validator's ``--collection`` flag. Mirrors the ORM factory pattern in
