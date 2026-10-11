@@ -672,6 +672,7 @@ export function DatasetPage() {
                   canEdit={canEditData && featureTable && !isTable}
                   recordType={dataset.record_type}
                   rasterTileUrl={dataset.raster?.tile_url}
+                  isDem={dataset.raster?.is_dem ?? false}
                   tileVersion={dataset.updated_at}
                   attribution={dataset.attribution}
                   shortcutsEnabled={!isDataTabExpanded}

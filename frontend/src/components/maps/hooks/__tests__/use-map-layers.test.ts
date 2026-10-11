@@ -1,4 +1,5 @@
 import { renderHook } from '@testing-library/react';
+import { DEFAULT_HILLSHADE_PAINT } from '@/components/builder/layer-adapters/builder-defaults';
 import { describe, expect, it, vi } from 'vitest';
 import type { VectorTileToken } from '@/api/tiles';
 import { previewSourceId, useMapLayers } from '../use-map-layers';
@@ -153,13 +154,14 @@ describe('useMapLayers vector source', () => {
 // pre-replace bytes for an identical URL. tileVersion busts that the same
 // way the vector source already does via buildSignedTileUrl.
 describe('useMapLayers raster tile source cache-busting', () => {
-  function runRasterHook(rasterTileUrl: string | null, tileVersion?: string | null) {
+  function runRasterHook(rasterTileUrl: string | null, tileVersion?: string | null, isDem = false) {
     const mapRef = { current: null };
     const { result } = renderHook(() =>
       useMapLayers({
         tableName: null,
         geometryType: null,
         rasterTileUrl,
+        isDem,
         tileVersion,
         tileToken: null,
         mapRef,
@@ -183,6 +185,24 @@ describe('useMapLayers raster tile source cache-busting', () => {
     const source = addedSourceConfig(map);
     expect(source?.tiles[0]).toContain('/raster-tiles/dataset-1/tiles/{z}/{x}/{y}.png?v=');
     expect(source?.tiles[0]).toContain(encodeURIComponent('2026-08-10T00:00:00Z'));
+  });
+
+  it('draws a non-DEM raster as a plain raster layer', () => {
+    const map = runRasterHook('/raster-tiles/dataset-1/tiles/{z}/{x}/{y}.png');
+    expect((map.addSource as ReturnType<typeof vi.fn>).mock.calls[0][1].type).toBe('raster');
+    expect((map.addLayer as ReturnType<typeof vi.fn>).mock.calls[0][0].type).toBe('raster');
+  });
+
+  it('decodes a DEM as raster-dem and draws it as hillshade', () => {
+    const map = runRasterHook('/raster-tiles/dataset-1/tiles/{z}/{x}/{y}.png', null, true);
+    const [id, source] = (map.addSource as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(id).toBe('raster-tile-source');
+    expect(source).toMatchObject({ type: 'raster-dem', encoding: 'mapbox', tileSize: 256, maxzoom: 22 });
+    expect((map.addLayer as ReturnType<typeof vi.fn>).mock.calls[0][0]).toMatchObject({
+      type: 'hillshade',
+      source: 'raster-tile-source',
+      paint: DEFAULT_HILLSHADE_PAINT,
+    });
   });
 
   it('omits the query param when tileVersion is absent', () => {

@@ -148,6 +148,7 @@ interface DatasetMapProps {
   canEdit?: boolean;
   recordType?: string;
   rasterTileUrl?: string | null;
+  isDem?: boolean;
   /** ISO timestamp or version string appended to tile URLs to bust browser cache after mutations */
   tileVersion?: string | null;
   onMapReady?: () => void;
@@ -177,6 +178,7 @@ export const DatasetMap = memo(function DatasetMap({
   canEdit = false,
   recordType,
   rasterTileUrl,
+  isDem,
   tileVersion,
   onMapReady,
   onTileError,
@@ -295,6 +297,7 @@ export const DatasetMap = memo(function DatasetMap({
     tableName: tileKind === 'vector' ? tableName : null,
     geometryType: drawGeometryType,
     rasterTileUrl,
+    isDem,
     tileVersion,
     tileToken,
     tileConfigCdnBaseUrl: tileConfig?.cdn_base_url ?? undefined,
