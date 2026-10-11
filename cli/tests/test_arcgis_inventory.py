@@ -542,6 +542,28 @@ def test_group_and_folder_titles_are_redacted(run):
     assert row["folder"]["title"].endswith("token=[REDACTED]")
 
 
+def test_exhausted_rate_limit_on_an_owner_read_is_an_error_row(run):
+    portal = FakePortal(
+        portal_routes({f"community/users/{USER}": (429, {"error": {"code": 429}})})
+    )
+    result, _ = run(portal, "--scope", "org", "--strict")
+    assert result.exit_code == 1
+    errors = [e for e in _report(result)["errors"] if e["phase"] == "owner"]
+    assert [(e["item_id"], e["http_status"]) for e in errors] == [(USER, 429)]
+
+
+def test_secret_in_a_detail_url_is_redacted(run):
+    detail = load("item_detail_rich.json") | {
+        "url": f"https://services1.arcgis.com/{TOKEN}/FeatureServer/0"
+    }
+    result, _ = run(
+        FakePortal(portal_routes({f"content/items/{A1}": detail})), "--scope", "org"
+    )
+    row = _rows(_report(result))[A1]
+    assert TOKEN not in result.stdout
+    assert "[REDACTED]" in row["url"]
+
+
 def test_markdown_lists_folders_and_owners(run):
     result, _ = run(FakePortal(_rich_routes()), "--scope", "org", json_mode=False)
     assert "## Folders" in result.stdout

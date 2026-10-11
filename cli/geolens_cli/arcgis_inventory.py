@@ -164,6 +164,8 @@ _SERVICE_TYPES = frozenset(
 )
 _APP_DATA_TYPES = frozenset({"Web Mapping Application", "Web Experience", "Dashboard"})
 _WEB_MAP_TYPE = "Web Map"
+# Statuses a portal answers with for members or folders the caller may not see.
+_HIDDEN_STATUSES = frozenset({400, 403})
 _SERVICE_LAYER_URL = re.compile(r"/(?:Feature|Map)Server/(\d+)/?$")
 _WAB_KEYWORDS = frozenset({"web appbuilder", "wab2d", "wab3d"})
 
@@ -768,6 +770,11 @@ def _service_layers(item_type: str, url: str | None) -> list[dict[str, Any]]:
     return [{"id": int(match.group(1)), "url": url}] if match else []
 
 
+def _item_url(item: Mapping[str, Any], redact: Redactor) -> str | None:
+    url = sanitize_url(item.get("url"))
+    return redact(url) if url else None
+
+
 def _item_row(item: Mapping[str, Any], redact: Redactor) -> dict[str, Any]:
     verdict = classify(item)
     retirement_id = verdict["retirement"]
@@ -785,7 +792,7 @@ def _item_row(item: Mapping[str, Any], redact: Redactor) -> dict[str, Any]:
         dependencies_status = "pending"
     else:
         dependencies_status = "not_applicable"
-    url = sanitize_url(item.get("url"))
+    url = _item_url(item, redact)
     return {
         "id": str(item.get("id") or ""),
         "type": item_type,
@@ -1335,7 +1342,7 @@ def _collect_details(
                 out.fields = _metadata(data, client._redact)
                 folder = data.get("ownerFolder")
                 out.folder_id = _text(folder, client._redact)
-                out.url = sanitize_url(data.get("url"))
+                out.url = _item_url(data, client._redact)
             else:
                 out.groups = _item_groups(data, client._redact)
         return out
@@ -1404,7 +1411,7 @@ def _collect_owners(client: PortalClient, inv: Inventory, concurrency: int) -> N
                     stop.set()
                     out.auth = exc
                     return out
-                if exc.kind != "refused":
+                if exc.http_status not in _HIDDEN_STATUSES:
                     out.errors.append(_error_row(owner, phase, exc))
                 continue
             if phase == "owner":
