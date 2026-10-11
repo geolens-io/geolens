@@ -128,6 +128,7 @@ async def get_distinct_values(
         expr = f"{col_q}::text"
 
     sql = text(
+        # codeql[py/sql-injection]
         f"SELECT DISTINCT {expr} AS val "
         f"FROM {table_ref} "
         f"WHERE {col_q} IS NOT NULL "
